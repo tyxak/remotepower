@@ -885,6 +885,7 @@
           <div class="row-8">
             <button class="btn-icon" data-action="runMonitor" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ce8e1447"/></svg> Check now</button>
             <button class="btn-icon c-warn-outline" data-action="clearMonitorAlerts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6d179c5f"/></svg> Reset alerts</button>
+            <button class="btn-icon" data-action="mailflowOpen"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="m4 6 8 6 8-6"/></svg> Mail round-trip</button>
             <button class="enroll-btn" data-action="openMonitorAdd" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> Add target</button>
           </div>
         </div>
@@ -8565,6 +8566,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-row"><input type="checkbox" id="dmarc-imap-ssl"> <span class="form-label">Use SSL/TLS (IMAPS, port 993)</span></label></div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="dmarc-imap-verify"> <span class="form-label">Verify TLS certificate (uncheck for an internal / self-signed IMAP server)</span></label></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dmarc-imap-modal">Cancel</button><button class="btn-primary" data-action="dmarcImapSave">Save settings</button></div>
+</div></div>
+
+<!-- W4-16: Mail round-trip (SMTP→IMAP) monitor -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mailflow-modal-title" id="mailflow-modal"><div class="modal">
+  <div class="modal-title" id="mailflow-modal-title">Mail round-trip monitor</div>
+  <div class="modal-subtitle">RemotePower sends a token-stamped email through your outbound SMTP, then polls this mailbox over IMAP for it — measuring true end-to-end delivery latency and alerting if a probe doesn't arrive in time.</div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="mailflow-enabled"> <span class="form-label">Enabled — run a round-trip probe on a schedule</span></label></div>
+  <div class="form-group"><label class="form-label" for="mailflow-to">Probe address (send to)</label><input type="text" id="mailflow-to" class="form-input" placeholder="probe@example.com" maxlength="320"></div>
+  <div class="form-group"><label class="form-label" for="mailflow-maxlat">Max round-trip latency (seconds)</label><input type="number" id="mailflow-maxlat" class="form-input" placeholder="300" min="30" max="86400"></div>
+  <div class="form-group"><label class="form-label" for="mailflow-imap-host">IMAP host</label><input type="text" id="mailflow-imap-host" class="form-input" placeholder="imap.example.com" maxlength="253"></div>
+  <div class="form-group"><label class="form-label" for="mailflow-imap-port">IMAP port</label><input type="number" id="mailflow-imap-port" class="form-input" placeholder="993" min="1" max="65535"></div>
+  <div class="form-group"><label class="form-label" for="mailflow-imap-user">IMAP username</label><input type="text" id="mailflow-imap-user" class="form-input" placeholder="probe@example.com" maxlength="320"></div>
+  <div class="form-group"><label class="form-label" for="mailflow-imap-pass">IMAP password</label><input type="password" id="mailflow-imap-pass" class="form-input" placeholder="Leave blank to keep the stored password" maxlength="512" autocomplete="new-password"></div>
+  <div class="form-group"><label class="form-label" for="mailflow-imap-folder">IMAP folder</label><input type="text" id="mailflow-imap-folder" class="form-input" placeholder="INBOX" maxlength="255"></div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="mailflow-imap-ssl"> <span class="form-label">Use SSL/TLS (IMAPS, port 993)</span></label></div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="mailflow-imap-verify"> <span class="form-label">Verify TLS certificate (uncheck for an internal / self-signed IMAP server)</span></label></div>
+  <div id="mailflow-status" class="hint"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mailflow-modal">Cancel</button><button class="btn-primary" data-action="mailflowSave">Save settings</button></div>
 </div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->

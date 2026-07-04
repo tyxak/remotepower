@@ -85,6 +85,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | DNS / ICMP / HTTP / DB monitors | DNS resolution with expected-address; ICMP latency + loss; HTTP status + latency-SLA; credential-less DB-liveness (PostgreSQL/MySQL/Redis); tag/group fan-out *(v4.1.0)* |
 | HTTP content assertions | Body contains / not-contains *(v3.12.0)*, regex match, and JSON dot-path field assertions (`status.healthy` = expected value, or just "must exist") — catches a 200 OK that's actually an error page *(regex/JSON v5.8.0)* |
 | Multi-step HTTP monitors | `http_flow` type — up to 5 ordered steps sharing a cookie jar, with per-step expect-status/contains and `extract`→`${var}` for later steps (e.g. login → CSRF token → fetch page); each step SSRF-guarded, no-redirect *(v5.8.0)* |
+| Mail round-trip monitor | Sends a token-stamped email through outbound SMTP, then polls a mailbox over IMAP for it — measuring true end-to-end delivery latency and firing `mailflow_delayed` when a probe doesn't arrive within the max-latency threshold, `mailflow_ok` on recovery. `GET/POST /api/mailflow` *(v5.8.0)* |
 | Monitor history | Uptime %, sparkline, last 50 results per target |
 | Import from Nagios / Kuma / Zabbix | Paste a Nagios/Icinga object config, Uptime Kuma backup JSON, or Zabbix XML export → preview the mapped monitors (dry-run) then apply; unmappable entries listed, duplicates skipped. `POST /api/import/monitors` *(v5.8.0)* |
 | Service monitoring | Agent watches systemd units; matrix view; webhooks on transitions; shows resolved alias *(v3.9.0)* |

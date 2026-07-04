@@ -57,6 +57,7 @@ CADENCE = (
     'run_resolver_health_if_due',
     'run_tls_scan_if_due',
     'run_ct_watch_if_due',               # W1-17 certificate-transparency watch
+    'run_mailflow_if_due',               # W4-16 mail round-trip monitor
     'run_snmp_polls_if_due',
     'run_agentless_reachability_if_due',
     'run_routeros_update_check_if_due',

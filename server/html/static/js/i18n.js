@@ -1407,6 +1407,7 @@
     "Requested": { "zh": "已请求", "hi": "अनुरोधित", "es": "Solicitado", "ar": "مطلوب" },
     "Required group DN": { "zh": "必需分组 DN", "hi": "आवश्यक समूह DN", "es": "DN de grupo requerido", "ar": "DN المجموعة المطلوبة" },
     "Reset alerts": { "zh": "重置告警", "hi": "alerts रीसेट करें", "es": "Restablecer alertas", "ar": "إعادة تعيين التنبيهات" },
+    "Mail round-trip": { "zh": "邮件往返", "hi": "मेल राउंड-ट्रिप", "es": "Ida y vuelta de correo", "ar": "رحلة البريد الكاملة" },
     "Reset positions": { "zh": "重置位置", "hi": "स्थितियाँ रीसेट करें", "es": "Restablecer posiciones", "ar": "إعادة تعيين المواضع" },
     "Reset to defaults": { "zh": "重置为默认值", "hi": "डिफ़ॉल्ट पर रीसेट करें", "es": "Restablecer valores predeterminados", "ar": "إعادة التعيين إلى الافتراضيات" },
     "Resolve selected": { "zh": "解决所选项", "hi": "चयनित हल करें", "es": "Resolver seleccionados", "ar": "حلّ المحدّد" },

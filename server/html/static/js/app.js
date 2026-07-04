@@ -2414,6 +2414,51 @@ function _registerMonitorTable() {
     emptyMsgFiltered: 'No monitors match the filter.',
   });
 }
+// W4-16: mail SMTP→IMAP round-trip monitor config modal.
+async function mailflowOpen() {
+  const c = await api('GET', '/mailflow');
+  if (!c) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  const chk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v; };
+  chk('mailflow-enabled', !!c.enabled);
+  set('mailflow-to', c.to_address || '');
+  set('mailflow-maxlat', c.max_latency_seconds || 300);
+  set('mailflow-imap-host', c.imap_host || '');
+  set('mailflow-imap-port', c.imap_port || 993);
+  set('mailflow-imap-user', c.imap_user || '');
+  set('mailflow-imap-folder', c.imap_folder || 'INBOX');
+  chk('mailflow-imap-ssl', c.imap_ssl !== false);
+  chk('mailflow-imap-verify', c.imap_verify_tls !== false);
+  const pwEl = document.getElementById('mailflow-imap-pass');
+  if (pwEl) { pwEl.value = ''; pwEl.placeholder = c.imap_password_set ? 'Leave blank to keep the stored password' : 'IMAP password'; }
+  const st = document.getElementById('mailflow-status');
+  if (st) {
+    if (c.last_latency != null) st.textContent = `Last round trip: ${c.last_latency}s${c.pending ? ' · a probe is currently in flight' : ''}${c.alerted ? ' · ALERTING (delayed)' : ''}`;
+    else st.textContent = c.pending ? 'A probe is currently in flight.' : 'No probe has completed yet.';
+  }
+  openModal('mailflow-modal');
+}
+
+async function mailflowSave() {
+  const num = (id, d) => parseInt((document.getElementById(id) || {}).value, 10) || d;
+  const body = {
+    enabled:    document.getElementById('mailflow-enabled').checked,
+    to_address: document.getElementById('mailflow-to').value.trim(),
+    max_latency_seconds: num('mailflow-maxlat', 300),
+    imap_host:  document.getElementById('mailflow-imap-host').value.trim(),
+    imap_port:  num('mailflow-imap-port', 993),
+    imap_user:  document.getElementById('mailflow-imap-user').value,
+    imap_folder: document.getElementById('mailflow-imap-folder').value.trim() || 'INBOX',
+    imap_ssl:   document.getElementById('mailflow-imap-ssl').checked,
+    imap_verify_tls: document.getElementById('mailflow-imap-verify').checked,
+  };
+  const pw = document.getElementById('mailflow-imap-pass').value;
+  if (pw) body.imap_password = pw;
+  const r = await api('POST', '/mailflow', body);
+  if (r && r.ok) { toast('Mail round-trip settings saved', 'success'); closeModal('mailflow-modal'); }
+  else toast((r && r.error) || 'Save failed', 'error');
+}
+
 async function runMonitor() {
   _registerMonitorTable();
   const tbody = document.getElementById('monitor-tbody');
@@ -13877,7 +13922,7 @@ function _renderHomeActivity(fleetEvents) {
   // server doesn't silently appear without dashboard recognition.
   const FLEET_EVENTS = new Set([
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
-    'monitor_down', 'monitor_up', 'path_changed',
+    'monitor_down', 'monitor_up', 'path_changed', 'mailflow_delayed', 'mailflow_ok',
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
     'service_down', 'service_up',
     'log_alert',
@@ -14073,6 +14118,7 @@ function _homeActivityAttrs(event, p) {
     case 'patch_sla_ok':   return `${base} data-home-act="patches"`;
     case 'campaign_completed': return `${base} data-home-act="cve"`;
     case 'monitor_down':   case 'monitor_up':   case 'path_changed':
+    case 'mailflow_delayed': case 'mailflow_ok':
     case 'metric_warning': case 'metric_critical': case 'metric_recovered':
     case 'custom_metric_alert': case 'custom_metric_recover':
     case 'custom_script_fail': case 'custom_script_recover':

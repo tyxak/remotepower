@@ -106,6 +106,8 @@ PEER_CONNS_FILE = DATA_DIR / 'peer_conns.json'     # W3-8 observed outbound peer
 DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency suggestions
 CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
 MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
+MAILFLOW_STATE_FILE = DATA_DIR / 'mailflow_state.json'   # W4-16 mail round-trip probe state
+MAILFLOW_INTERVAL = 300                             # W4-16 min seconds between round-trip probes
 LIVE_FILE = DATA_DIR / 'live_mode.json'            # W3-19 {dev_id: {until}} live-view requests
 LIVE_SAMPLES_FILE = DATA_DIR / 'live_samples.json' # W3-19 {dev_id: [1s samples]} high-res ring
 LIVE_WINDOW_SECONDS = 30                            # W3-19 how long a live burst runs
@@ -1162,6 +1164,12 @@ EVENT_REGISTRY = {
     'path_changed': dict(
         label='Network path (traceroute) to a target changed', kind='monitor',
         title='Network Path Changed', severity='medium', priority=4, tags='warning,world_map'),
+    'mailflow_delayed': dict(
+        label='Test email did not complete its SMTP→IMAP round trip in time', kind='monitor',
+        title='Mail Round-Trip Delayed', severity='high', priority=4, tags='warning,envelope'),
+    'mailflow_ok': dict(
+        label='Mail round trip completed again (recovered)', kind='monitor',
+        resolves=('mailflow_delayed',)),
     'custom_metric_recover': dict(
         label='A custom metric returned within threshold (recovered)', kind='metric',
         resolves=('custom_metric_alert',)),
@@ -7334,6 +7342,10 @@ def _auto_resolve_alerts(event, payload):
         # Monitor events have no device_id — match by label+target instead
         sub_match['label']  = p.get('label')
         sub_match['target'] = p.get('target')
+    elif event == 'mailflow_ok':
+        # W4-16: mail round-trip recovers — clear the open mailflow_delayed
+        # alert (no device_id; matched by the fixed 'mailflow' label).
+        sub_match['label'] = p.get('label')
     elif event == 'image_updated':
         # Fleet-level (no device_id) — match the open alert by image+tag.
         sub_match['image'] = p.get('image')
@@ -18339,6 +18351,7 @@ def handle_config_get():
     safe.setdefault('backup_size_anomaly_pct', 0)     # W3-42: shrink alert % of median (0=off)
     safe.setdefault('canary_files',           [])     # W3-38: decoy/honeytoken file paths
     safe.setdefault('custom_metric_thresholds', {})   # W3-11: {name:{op,value,severity}}
+    safe.setdefault('mailflow', {'enabled': False})   # W4-16: mail round-trip monitor
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -18931,7 +18944,7 @@ def handle_config_save():
                 continue
             mtype = m.get('type', '')
             if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp', 'db',
-                             'http_flow', 'path', 'mailflow'):   # W4-13/15/16
+                             'http_flow', 'path'):   # W4-13/15
                 continue
             # W4-13: http_flow carries `steps`, not a single target. Validate the
             # steps and use the first step's URL as the display target.
@@ -26106,6 +26119,71 @@ def handle_dmarc_clear() -> None:
     respond(200, {'ok': True})
 
 
+def handle_mailflow_get() -> None:
+    """``GET /api/mailflow`` — W4-16 mail round-trip config, IMAP password
+    redacted to a boolean. Admin only. Also returns the last probe result."""
+    require_admin_auth()
+    c = (load(CONFIG_FILE) or {}).get('mailflow')
+    c = c if isinstance(c, dict) else {}
+    st = load(MAILFLOW_STATE_FILE) or {}
+    respond(200, {
+        'enabled':       bool(c.get('enabled')),
+        'to_address':    c.get('to_address', ''),
+        'imap_host':     c.get('imap_host', ''),
+        'imap_port':     int(c.get('imap_port') or 993),
+        'imap_user':     c.get('imap_user', ''),
+        'imap_folder':   c.get('imap_folder', 'INBOX'),
+        'imap_ssl':      c.get('imap_ssl', True) is not False,
+        'imap_verify_tls': c.get('imap_verify_tls', True) is not False,
+        'max_latency_seconds': int(c.get('max_latency_seconds') or 300),
+        'imap_password_set': bool(c.get('imap_password')),
+        'last_latency':  st.get('last_latency'),
+        'last_ok_ts':    st.get('last_ok_ts'),
+        'pending':       bool(st.get('pending_token')),
+        'alerted':       bool(st.get('alerted')),
+    })
+
+
+def handle_mailflow_save() -> None:
+    """``POST /api/mailflow`` — save the round-trip config (admin). Blank IMAP
+    password keeps the stored one."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    to_addr = _no_ctrl(_sanitize_str(body.get('to_address', ''), 255)).strip()
+    imap_host = _no_ctrl(_sanitize_str(body.get('imap_host', ''), 255)).strip()
+    try:
+        port = int(body.get('imap_port') or 993)
+    except (TypeError, ValueError):
+        port = 993
+    if not (1 <= port <= 65535):
+        respond(400, {'error': 'imap_port must be 1-65535'})
+    try:
+        max_lat = max(30, int(body.get('max_latency_seconds') or 300))
+    except (TypeError, ValueError):
+        max_lat = 300
+    if body.get('enabled') and (not to_addr or '@' not in to_addr):
+        respond(400, {'error': 'a valid to_address is required to enable'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cur = cfg.get('mailflow') if isinstance(cfg.get('mailflow'), dict) else {}
+        new_pw = body.get('imap_password')
+        cfg['mailflow'] = {
+            'enabled':     bool(body.get('enabled')),
+            'to_address':  to_addr,
+            'imap_host':   imap_host,
+            'imap_port':   port,
+            'imap_user':   _no_ctrl(_sanitize_str(body.get('imap_user', ''), 255)),
+            'imap_folder': _no_ctrl(_sanitize_str(body.get('imap_folder', 'INBOX') or 'INBOX', 128)),
+            'imap_ssl':    body.get('imap_ssl', True) is not False,
+            'imap_verify_tls': body.get('imap_verify_tls', True) is not False,
+            'max_latency_seconds': max_lat,
+            'imap_password': (str(new_pw)[:512] if new_pw else cur.get('imap_password', '')),
+        }
+    audit_log(actor, 'mailflow_save', detail=f'to={to_addr} enabled={bool(body.get("enabled"))}')
+    respond(200, {'ok': True})
+
+
 # ─── v4.8.0: IP reputation (DNSBL / blocklist) monitor ───────────────────────
 
 def _ip_rep_targets() -> dict:
@@ -26591,6 +26669,129 @@ def handle_patch_sla():
     respond(200, {'ok': True, 'rows': rows,
                   'rules': _config_ro().get('patch_sla') or [],
                   'violations': sum(1 for r in rows if r['breached'])})
+
+
+def _mailflow_step(state, cfg, now, send_fn, poll_fn):
+    """W4-16 core (pure over its injected send/poll fns): advance the mail
+    round-trip probe. Returns (new_state, events). send_fn(token)->bool queues a
+    token-stamped email; poll_fn(token)->latency|None looks for it via IMAP.
+    - No pending probe → send one, record it.
+    - Pending + found → record latency, clear, recover if it was alerted.
+    - Pending + not found + past max_latency → mailflow_delayed (once)."""
+    events = []
+    state = dict(state or {})
+    max_lat = int(cfg.get('max_latency_seconds', 300) or 300)
+    pending = state.get('pending_token')
+    if not pending:
+        token = 'rp-mailflow-' + str(now) + '-' + secrets.token_hex(4)
+        if send_fn(token):
+            state['pending_token'] = token
+            state['sent_ts'] = now
+        return state, events
+    lat = poll_fn(pending)
+    if lat is not None:
+        state['last_latency'] = lat
+        state['last_ok_ts'] = now
+        state.pop('pending_token', None)
+        state.pop('sent_ts', None)
+        if state.get('alerted'):
+            state['alerted'] = False
+            events.append(('mailflow_ok', {'label': 'mailflow', 'target': cfg.get('to_address', ''),
+                                           'detail': f'{lat}s round trip'}))
+    elif now - int(state.get('sent_ts', now)) > max_lat and not state.get('alerted'):
+        state['alerted'] = True
+        events.append(('mailflow_delayed', {
+            'label': 'mailflow', 'target': cfg.get('to_address', ''),
+            'output': f'no delivery in {max_lat}s'}))
+    return state, events
+
+
+def _mailflow_cfg():
+    c = _config_ro().get('mailflow')
+    return c if isinstance(c, dict) and c.get('enabled') else None
+
+
+def run_mailflow_if_due():
+    """W4-16: SMTP→IMAP round-trip monitor. Sends a token-stamped email, then on
+    later cadence ticks polls the mailbox for it, measuring end-to-end latency.
+    Cheap-when-off; cadence-gated. Webhooks fire AFTER the state save."""
+    cfg = _mailflow_cfg()
+    if not cfg:
+        return
+    now = int(time.time())
+    state = load(MAILFLOW_STATE_FILE) or {}
+    if now - int(state.get('last_tick', 0) or 0) < MAILFLOW_INTERVAL:
+        return
+    main_cfg = load(CONFIG_FILE) or {}
+
+    def _send(token):
+        to = (cfg.get('to_address') or '').strip()
+        if '@' not in to or not (main_cfg.get('smtp_host') or '').strip():
+            return False
+        try:
+            smtp_notifier.send_email(main_cfg, [to], f'RemotePower mailflow {token}',
+                                     f'Automated round-trip probe. Token: {token}',
+                                     extra_headers={'Auto-Submitted': 'auto-generated',
+                                                    'X-RP-Mailflow': token})
+            return True
+        except Exception:
+            return False
+
+    def _poll(token):
+        return _mailflow_imap_find(cfg, token, now)
+
+    new_state, events = _mailflow_step(state, cfg, now, _send, _poll)
+    new_state['last_tick'] = now
+    save(MAILFLOW_STATE_FILE, new_state)
+    for ev, payload in events:
+        fire_webhook(ev, payload)
+
+
+def _mailflow_imap_find(cfg, token, now):
+    """Search the configured IMAP mailbox for the probe token; on a hit, delete
+    the message and return round-trip latency in seconds, else None."""
+    import imaplib
+    import ssl as _ssl
+    host = (cfg.get('imap_host') or '').strip()
+    if not host:
+        return None
+    try:
+        port = int(cfg.get('imap_port') or 993)
+    except (TypeError, ValueError):
+        port = 993
+    use_ssl = bool(cfg.get('imap_ssl', True))
+    try:
+        _ctx = _ssl.create_default_context()
+        if not cfg.get('imap_verify_tls', True):
+            _ctx.check_hostname = False
+            _ctx.verify_mode = _ssl.CERT_NONE
+        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ctx, timeout=20)
+             if use_ssl else imaplib.IMAP4(host, port, timeout=20))
+        try:
+            M.login(cfg.get('imap_user', ''), cfg.get('imap_password', ''))
+            M.select(cfg.get('imap_folder', 'INBOX'))
+            typ, data = M.search(None, 'HEADER', 'X-RP-Mailflow', token)
+            if typ != 'OK' or not data or not data[0]:
+                return None
+            latency = None
+            for num in data[0].split():
+                M.store(num, '+FLAGS', '\\Deleted')
+                latency = 1     # arrival confirmed; fine-grained latency below
+            M.expunge()
+            # derive latency from the token's embedded send time (rp-mailflow-<ts>-)
+            try:
+                sent_ts = int(token.split('-')[2])
+                latency = max(0, now - sent_ts)
+            except (IndexError, ValueError):
+                pass
+            return latency
+        finally:
+            try:
+                M.logout()
+            except Exception:
+                pass
+    except Exception:
+        return None
 
 
 def run_resolver_health_if_due() -> None:
@@ -52181,6 +52382,8 @@ def _build_exact_routes():
         ('POST', '/api/resolver-health/scan'): handle_resolver_health_scan,
         ('GET', '/api/dmarc/imap'): handle_dmarc_imap_get,
         ('POST', '/api/dmarc/imap'): handle_dmarc_imap_save,
+        ('GET', '/api/mailflow'): handle_mailflow_get,
+        ('POST', '/api/mailflow'): handle_mailflow_save,
         ('POST', '/api/totp/confirm'): handle_totp_confirm,
         ('POST', '/api/totp/disable'): handle_totp_disable,
         ('POST', '/api/totp/setup'): handle_totp_setup,
@@ -52935,6 +53138,8 @@ def main():
     _safe(run_tls_scan_if_due, 'run_tls_scan_if_due')
     # W1-17: certificate-transparency watch (crt.sh, off unless domains set).
     _safe(run_ct_watch_if_due, 'run_ct_watch_if_due')
+    # W4-16: mail SMTP→IMAP round-trip monitor (off unless mailflow.enabled).
+    _safe(run_mailflow_if_due, 'run_mailflow_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).

@@ -198,5 +198,87 @@ class TestNetworkPathMonitor(_HandlerBase):
         self.assertEqual(self.fired, [])
 
 
+class TestMailflowMonitor(_HandlerBase):
+    """W4-16: SMTP→IMAP round-trip monitor state machine + config."""
+
+    def setUp(self):
+        super().setUp()
+        self._msf = api.MAILFLOW_STATE_FILE
+        api.MAILFLOW_STATE_FILE = self.d / 'mailflow_state.json'
+
+    def tearDown(self):
+        api.MAILFLOW_STATE_FILE = self._msf
+        super().tearDown()
+
+    def test_step_sends_when_idle(self):
+        sent = []
+        st, ev = api._mailflow_step({}, {'to_address': 'x@y.z'}, 1000,
+                                    lambda tok: sent.append(tok) or True,
+                                    lambda tok: None)
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(st.get('pending_token'))
+        self.assertEqual(ev, [])
+
+    def test_step_records_latency_on_arrival(self):
+        st0 = {'pending_token': 'rp-mailflow-900-abcd', 'sent_ts': 900}
+        st, ev = api._mailflow_step(st0, {}, 1000,
+                                    lambda tok: True, lambda tok: 100)
+        self.assertEqual(st.get('last_latency'), 100)
+        self.assertNotIn('pending_token', st)
+        self.assertEqual(ev, [])
+
+    def test_step_recovers_after_alert(self):
+        st0 = {'pending_token': 'rp-mailflow-900-abcd', 'sent_ts': 900, 'alerted': True}
+        st, ev = api._mailflow_step(st0, {'to_address': 'x@y.z'}, 1000,
+                                    lambda tok: True, lambda tok: 42)
+        self.assertFalse(st.get('alerted'))
+        self.assertEqual([e for e, _ in ev], ['mailflow_ok'])
+
+    def test_step_alerts_when_overdue(self):
+        st0 = {'pending_token': 'rp-mailflow-100-abcd', 'sent_ts': 100}
+        st, ev = api._mailflow_step(st0, {'max_latency_seconds': 60, 'to_address': 'x@y.z'},
+                                    1000, lambda tok: True, lambda tok: None)
+        self.assertTrue(st.get('alerted'))
+        self.assertEqual([e for e, _ in ev], ['mailflow_delayed'])
+
+    def test_step_alerts_only_once(self):
+        st0 = {'pending_token': 'rp-mailflow-100-abcd', 'sent_ts': 100, 'alerted': True}
+        st, ev = api._mailflow_step(st0, {'max_latency_seconds': 60}, 1000,
+                                    lambda tok: True, lambda tok: None)
+        self.assertEqual(ev, [])
+
+    def test_save_get_redacts_password(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'enabled': True, 'to_address': 'probe@test.io',
+                                    'imap_host': 'imap.test.io', 'imap_user': 'u',
+                                    'imap_password': 'sekret', 'max_latency_seconds': 120}
+        self.call(api.handle_mailflow_save)
+        cfg = (api.load(api.CONFIG_FILE) or {}).get('mailflow')
+        self.assertEqual(cfg['imap_password'], 'sekret')
+        self.assertEqual(cfg['max_latency_seconds'], 120)
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        out = self.call(api.handle_mailflow_get)
+        self.assertTrue(out['imap_password_set'])
+        self.assertNotIn('imap_password', out)
+
+    def test_save_requires_valid_address_when_enabled(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'enabled': True, 'to_address': 'not-an-email'}
+        out = self.call(api.handle_mailflow_save)
+        self.assertIn('to_address', str(out))
+
+    def test_blank_password_keeps_stored(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'enabled': True, 'to_address': 'p@t.io',
+                                    'imap_host': 'h', 'imap_password': 'first'}
+        self.call(api.handle_mailflow_save)
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.get_json_obj = lambda: {'enabled': True, 'to_address': 'p@t.io',
+                                    'imap_host': 'h', 'imap_password': ''}
+        self.call(api.handle_mailflow_save)
+        cfg = (api.load(api.CONFIG_FILE) or {}).get('mailflow')
+        self.assertEqual(cfg['imap_password'], 'first')
+
+
 if __name__ == '__main__':
     unittest.main()
