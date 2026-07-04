@@ -284,6 +284,8 @@ TASK_STATES         = ('upcoming', 'ongoing', 'pending', 'closed')
 # ── v1.9.0: CMDB (asset metadata + encrypted credentials) ─────────────────────
 CMDB_FILE           = DATA_DIR / 'cmdb.json'
 RACKS_FILE          = DATA_DIR / 'racks.json'   # W5-3 rack registry (per-site)
+SUBNETS_FILE        = DATA_DIR / 'subnets.json'  # W5-2 IPAM subnet registry
+IPAM_STATE_FILE     = DATA_DIR / 'ipam_state.json'  # W5-2 fired ip_conflict dedup
 CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
 BREAKGLASS_FILE     = DATA_DIR / 'breakglass_requests.json'  # v5.0.0 #C3
 # v3.5.0: sites/teams — a first-class grouping above device `group`, for
@@ -1340,6 +1342,10 @@ EVENT_REGISTRY = {
     'ip_blacklist_cleared': dict(
         label='A monitored IP is no longer blocklisted', kind='reputation',
         title='IP Reputation Cleared', resolves=('ip_blacklisted',)),
+    'ip_conflict': dict(
+        label='The same IP address is assigned to two or more devices (IPAM)',
+        kind='network', title='IP Address Conflict', severity='high',
+        tags='warning,network'),
     'resolver_unhealthy': dict(
         label='A monitored DNS name stopped resolving', kind='resolver',
         title='DNS Resolution Failing', severity='high'),
@@ -10653,6 +10659,225 @@ def handle_rack_elevation(rid):
     model['id'] = rid
     model['name'] = rack.get('name', rid)
     respond(200, model)
+
+
+# ── W5-2: IPAM (IP address management) ───────────────────────────────────────
+# Subnets (CIDR/site/vlan/notes + static reservations) with an occupancy view
+# DERIVED from known device NICs (device.ip + CMDB interfaces incl. NAT). A
+# duplicate IP across two devices fires ip_conflict (edge-triggered).
+
+def _ipam_assignments(devices, cmdb):
+    """{ip_str: [{device_id, name, source}]} over every known device address —
+    the device record's primary ip, plus each CMDB interface ip/nat_ip. Pure."""
+    import ipaddress as _ipa
+    out = {}
+
+    def add(ip, did, name, source):
+        ip = str(ip or '').strip()
+        if not ip:
+            return
+        try:
+            ip = str(_ipa.ip_address(ip))
+        except ValueError:
+            return
+        out.setdefault(ip, []).append({'device_id': did, 'name': name, 'source': source})
+
+    for did, dev in (devices or {}).items():
+        if not isinstance(dev, dict):
+            continue
+        name = dev.get('name', did)
+        add(dev.get('ip'), did, name, 'device')
+        rec = (cmdb or {}).get(did) or {}
+        for nic in (rec.get('interfaces') or []):
+            if isinstance(nic, dict):
+                add(nic.get('ip'), did, name, 'nic')
+                add(nic.get('nat_ip'), did, name, 'nat')
+    return out
+
+
+def _ipam_occupancy(subnet, assignments):
+    """Occupancy model for one subnet. Pure over the assignments map."""
+    import ipaddress as _ipa
+    try:
+        net = _ipa.ip_network(subnet.get('cidr', ''), strict=False)
+    except ValueError:
+        return {'cidr': subnet.get('cidr', ''), 'error': 'invalid CIDR',
+                'total': 0, 'used': 0, 'reserved': 0, 'free': 0, 'addresses': []}
+    reservations = subnet.get('reservations') or {}
+    addresses = []
+    used = 0
+    for ip, holders in assignments.items():
+        try:
+            if _ipa.ip_address(ip) not in net:
+                continue
+        except ValueError:
+            continue
+        distinct = {h['device_id'] for h in holders}
+        conflict = len(distinct) > 1
+        addresses.append({'ip': ip, 'devices': holders, 'conflict': conflict,
+                          'reserved_label': reservations.get(ip, '')})
+        used += 1
+    # reservations that aren't otherwise occupied still count as "reserved"
+    for rip, label in reservations.items():
+        if rip not in assignments:
+            try:
+                if _ipa.ip_address(rip) in net:
+                    addresses.append({'ip': rip, 'devices': [], 'conflict': False,
+                                      'reserved_label': label})
+            except ValueError:
+                pass
+    # total host capacity (bounded for display on large v6 nets)
+    try:
+        total = net.num_addresses
+        if net.version == 4 and net.prefixlen <= 30:
+            total -= 2   # network + broadcast
+    except Exception:
+        total = 0
+    reserved = len([a for a in addresses if a['reserved_label']])
+    addresses.sort(key=lambda a: _ipa.ip_address(a['ip']))
+    return {'cidr': str(net), 'total': int(total), 'used': used,
+            'reserved': reserved, 'free': max(0, int(total) - used),
+            'addresses': addresses}
+
+
+def handle_ipam_subnets():
+    """GET /api/ipam/subnets — list (scoped by site); POST — create. Admin write."""
+    if method() == 'GET':
+        require_auth()
+        subnets = load(SUBNETS_FILE) or {}
+        scope = _caller_scope()
+        sites = load(SITES_FILE) or {}
+        out = []
+        for sid, s in subnets.items():
+            if not isinstance(s, dict):
+                continue
+            if scope is not None and scope.get('type') == 'sites' \
+                    and (s.get('site') or '') not in (scope.get('values') or []):
+                continue
+            out.append({'id': sid, 'cidr': s.get('cidr', ''), 'site': s.get('site', ''),
+                        'site_name': (sites.get(s.get('site', '')) or {}).get('name', ''),
+                        'vlan': s.get('vlan', ''), 'notes': s.get('notes', ''),
+                        'reservations': len(s.get('reservations') or {})})
+        respond(200, {'subnets': sorted(out, key=lambda x: x['cidr'])})
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    import ipaddress as _ipa
+    body = get_json_obj()
+    try:
+        cidr = str(_ipa.ip_network(str(body.get('cidr', '')), strict=False))
+    except ValueError:
+        respond(400, {'error': 'cidr must be a valid network (e.g. 10.0.0.0/24)'})
+    site = _sanitize_str(str(body.get('site', '')), 32)
+    if site and site not in (load(SITES_FILE) or {}):
+        respond(400, {'error': 'unknown site'})
+    sid = secrets.token_hex(8)
+    with _LockedUpdate(SUBNETS_FILE) as subnets:
+        if len(subnets) >= 1000:
+            respond(400, {'error': 'subnet limit reached (max 1000)'})
+        subnets[sid] = {'cidr': cidr, 'site': site,
+                        'vlan': _sanitize_str(str(body.get('vlan', '')), 64),
+                        'notes': _sanitize_str(str(body.get('notes', '')), 512),
+                        'reservations': {}, 'created': int(time.time())}
+    audit_log(actor, 'ipam_subnet_create', detail=f'cidr={cidr} id={sid}')
+    respond(201, {'ok': True, 'id': sid})
+
+
+def handle_ipam_subnet(sid):
+    """PATCH /api/ipam/subnets/{id} — update (incl. reservations); DELETE — remove.
+    Admin only."""
+    actor = require_admin_auth()
+    sid = _sanitize_str(sid, 32)
+    if method() == 'DELETE':
+        with _LockedUpdate(SUBNETS_FILE) as subnets:
+            existed = subnets.pop(sid, None) is not None
+        if not existed:
+            respond(404, {'error': 'subnet not found'})
+        audit_log(actor, 'ipam_subnet_delete', detail=f'id={sid}')
+        respond(200, {'ok': True})
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    import ipaddress as _ipa
+    body = get_json_obj()
+    with _LockedUpdate(SUBNETS_FILE) as subnets:
+        s = subnets.get(sid)
+        if not isinstance(s, dict):
+            respond(404, {'error': 'subnet not found'})
+        if 'vlan' in body:
+            s['vlan'] = _sanitize_str(str(body['vlan']), 64)
+        if 'notes' in body:
+            s['notes'] = _sanitize_str(str(body['notes']), 512)
+        if 'site' in body:
+            site = _sanitize_str(str(body['site']), 32)
+            if site and site not in (load(SITES_FILE) or {}):
+                respond(400, {'error': 'unknown site'})
+            s['site'] = site
+        if 'reservations' in body and isinstance(body['reservations'], dict):
+            clean = {}
+            for ip, label in list(body['reservations'].items())[:500]:
+                try:
+                    clean[str(_ipa.ip_address(str(ip)))] = _sanitize_str(str(label), 128)
+                except ValueError:
+                    continue
+            s['reservations'] = clean
+    audit_log(actor, 'ipam_subnet_update', detail=f'id={sid}')
+    respond(200, {'ok': True})
+
+
+def handle_ipam_occupancy(sid):
+    """GET /api/ipam/subnets/{id}/occupancy — derived address inventory."""
+    require_auth()
+    sid = _sanitize_str(sid, 32)
+    subnet = (load(SUBNETS_FILE) or {}).get(sid)
+    if not isinstance(subnet, dict):
+        respond(404, {'error': 'subnet not found'})
+    assignments = _ipam_assignments(_scope_filter_devices(load(DEVICES_FILE) or {}),
+                                    _cmdb_load())
+    model = _ipam_occupancy(subnet, assignments)
+    model['id'] = sid
+    model['site'] = subnet.get('site', '')
+    model['vlan'] = subnet.get('vlan', '')
+    respond(200, model)
+
+
+def run_ipam_conflicts_if_due():
+    """W5-2 cadence: detect duplicate IPs within any defined subnet and fire
+    ip_conflict (edge-triggered — only for IPs not already flagged). Cheap when
+    no subnets are configured."""
+    subnets = load(SUBNETS_FILE) or {}
+    if not subnets:
+        return
+    now = int(time.time())
+    state = load(IPAM_STATE_FILE) or {}
+    if now - int(state.get('last_run', 0) or 0) < 300:
+        return
+    assignments = _ipam_assignments(load(DEVICES_FILE) or {}, _cmdb_load())
+    import ipaddress as _ipa
+    known = set()   # IPs inside any defined subnet
+    for s in subnets.values():
+        if not isinstance(s, dict):
+            continue
+        try:
+            net = _ipa.ip_network(s.get('cidr', ''), strict=False)
+        except ValueError:
+            continue
+        for ip in assignments:
+            try:
+                if _ipa.ip_address(ip) in net:
+                    known.add(ip)
+            except ValueError:
+                pass
+    conflicts = {ip for ip in known
+                 if len({h['device_id'] for h in assignments.get(ip, [])}) > 1}
+    prev = set(state.get('conflicts') or [])
+    fires = []
+    for ip in sorted(conflicts - prev):
+        holders = assignments.get(ip, [])
+        fires.append({'ip': ip, 'devices': ', '.join(sorted({h['name'] for h in holders}))})
+    save(IPAM_STATE_FILE, {'last_run': now, 'conflicts': sorted(conflicts)})
+    for f in fires:
+        fire_webhook('ip_conflict', {'ip': f['ip'], 'detail': f'assigned to {f["devices"]}',
+                                     'name': f['devices']})
 
 
 # ── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -53094,6 +53319,9 @@ def _build_exact_routes():
         # W5-3: rack registry + elevation view.
         ('GET', '/api/racks'): handle_racks,
         ('POST', '/api/racks'): handle_racks,
+        # W5-2: IPAM subnets.
+        ('GET', '/api/ipam/subnets'): handle_ipam_subnets,
+        ('POST', '/api/ipam/subnets'): handle_ipam_subnets,
         # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
         ('GET', '/api/tenants'): handle_tenants_list,
         ('POST', '/api/tenants'): handle_tenant_create,
@@ -53426,6 +53654,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/scans/', '', 'handle_scan_detail', "pi.startswith('/api/scans/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/device-profiles/', '/apply', 'handle_device_profile_apply', "pi.startswith('/api/device-profiles/') and pi.endswith('/apply') and m == 'POST'"),
+    ('pat', ('GET',), '/api/ipam/subnets/', '/occupancy', 'handle_ipam_occupancy', "pi.startswith('/api/ipam/subnets/') and pi.endswith('/occupancy') and m == 'GET'"),
+    ('pat', ('PATCH',), '/api/ipam/subnets/', '', 'handle_ipam_subnet', "pi.startswith('/api/ipam/subnets/') and m == 'PATCH'"),
+    ('pat', ('DELETE',), '/api/ipam/subnets/', '', 'handle_ipam_subnet', "pi.startswith('/api/ipam/subnets/') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/racks/', '/elevation', 'handle_rack_elevation', "pi.startswith('/api/racks/') and pi.endswith('/elevation') and m == 'GET'"),
     ('pat', ('PATCH',), '/api/racks/', '', 'handle_rack', "pi.startswith('/api/racks/') and m == 'PATCH'"),
     ('pat', ('DELETE',), '/api/racks/', '', 'handle_rack', "pi.startswith('/api/racks/') and m == 'DELETE'"),
@@ -54012,6 +54243,8 @@ def main():
     _safe(run_metric_rollup_if_due, 'run_metric_rollup_if_due')
     # W5-6: re-materialize smart-group membership (~60s cadence).
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
+    # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
+    _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
     _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies

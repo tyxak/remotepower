@@ -6809,6 +6809,7 @@ async function loadSites() {
   loadSmartGroups();
   loadSiteMap();
   loadRacks();
+  loadIpam();
 }
 
 // ── W5-7: device profiles ────────────────────────────────────────────────────
@@ -7087,6 +7088,64 @@ async function viewRackElevation(id) {
   }
   elev.appendChild(col);
   wrap.appendChild(elev);
+}
+
+// ── W5-2: IPAM ───────────────────────────────────────────────────────────────
+let _subnets = [];
+async function loadIpam() {
+  const box = document.getElementById('ipam-list');
+  if (!box) return;
+  const data = await api('GET', '/ipam/subnets').catch(() => null);
+  _subnets = (data && data.subnets) || [];
+  if (!_subnets.length) { box.innerHTML = '<div class="meta-sm-nm">No subnets yet.</div>'; return; }
+  box.innerHTML = _subnets.map(s =>
+    `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500 ff-mono">${escHtml(s.cidr)}</span> <span class="hint">${s.vlan ? 'VLAN ' + escHtml(s.vlan) + ' · ' : ''}${s.reservations} reserved${s.site_name ? ' · ' + escHtml(s.site_name) : ''}</span></div>`
+    + `<button class="btn-icon fs-12" data-action="viewSubnetOccupancy" data-arg="${escAttr(s.id)}">Occupancy</button>`
+    + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteSubnet" data-arg="${escAttr(s.id)}">Delete</button></div>`).join('');
+}
+async function _fillSubnetSites() {
+  const sel = document.getElementById('subnet-site');
+  if (!sel) return;
+  const data = await api('GET', '/sites').catch(() => null);
+  const sites = (data && data.sites) || [];
+  sel.innerHTML = '<option value="">(none)</option>' + sites.map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('');
+}
+function openSubnetCreate() {
+  document.getElementById('subnet-cidr').value = '';
+  document.getElementById('subnet-vlan').value = '';
+  document.getElementById('subnet-notes').value = '';
+  _fillSubnetSites();
+  openModal('subnet-modal');
+}
+async function saveSubnet() {
+  const cidr = document.getElementById('subnet-cidr').value.trim();
+  if (!cidr) { toast('CIDR required', 'error'); return; }
+  const body = { cidr, vlan: document.getElementById('subnet-vlan').value.trim(),
+                 notes: document.getElementById('subnet-notes').value.trim(),
+                 site: document.getElementById('subnet-site').value || '' };
+  const r = await api('POST', '/ipam/subnets', body);
+  if (r && r.ok) { toast('Subnet created', 'success'); closeModal('subnet-modal'); loadIpam(); }
+  else toast((r && r.error) || 'Save failed', 'error');
+}
+async function deleteSubnet(id) {
+  if (!await uiConfirm({ title: 'Delete subnet', message: 'Delete this subnet definition? (Devices are unaffected.)', confirmText: 'Delete', danger: true })) return;
+  const r = await api('DELETE', `/ipam/subnets/${encodeURIComponent(id)}`);
+  if (r && r.ok) { toast('Deleted', 'info'); loadIpam(); document.getElementById('ipam-occupancy-wrap')?.classList.add('hidden'); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+async function viewSubnetOccupancy(id) {
+  const wrap = document.getElementById('ipam-occupancy-wrap');
+  if (!wrap) return;
+  const m = await api('GET', `/ipam/subnets/${encodeURIComponent(id)}/occupancy`).catch(() => null);
+  if (!m) { toast('Failed to load occupancy', 'error'); return; }
+  const rows = (m.addresses || []).map(a => {
+    const devs = a.devices.map(d => `${escHtml(d.name)} (${escHtml(d.source)})`).join(', ') || (a.reserved_label ? '—' : '');
+    const cls = a.conflict ? ' class="c-red fw-500"' : '';
+    return `<tr><td class="ff-mono"${cls}>${escHtml(a.ip)}${a.conflict ? ' ⚠' : ''}</td><td>${devs}</td><td class="hint">${escHtml(a.reserved_label || '')}</td></tr>`;
+  }).join('');
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = `<div class="fw-500 mb-6">${escHtml(m.cidr)} — ${m.used} used · ${m.reserved} reserved · ${m.free} free of ${m.total}</div>`
+    + `<div class="table-card scrollable-table-wrap audit-scroll"><table><thead><tr><th>Address</th><th>Device(s)</th><th>Reserved</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty-state">No addresses in use.</td></tr>'}</tbody></table></div>`;
 }
 
 // W1-9: enrolment auto-placement rules live in config.enrol_rules.
@@ -14306,7 +14365,7 @@ function _renderHomeActivity(fleetEvents) {
     // v5.8.0: GitHub issue monitor — new issue on a watched repo
     'github_new_issue',
     // v4.8.0: IP reputation (DNSBL) monitor
-    'ip_blacklisted', 'ip_blacklist_cleared',
+    'ip_blacklisted', 'ip_blacklist_cleared', 'ip_conflict',
     // v4.9.0: DNS resolver health monitor
     'resolver_unhealthy', 'resolver_recovered',
     // v5.1.0: fail2ban intrusion bans
@@ -14531,6 +14590,8 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="integrations"`;
     case 'ip_blacklisted': case 'ip_blacklist_cleared':
       return `${base} data-home-act="dmarc"`;
+    case 'ip_conflict':
+      return `${base} data-home-act="sites"`;
     // v4.9.0: resolver health → the DNS page
     case 'resolver_unhealthy': case 'resolver_recovered':
       return `${base} data-home-act="dns"`;

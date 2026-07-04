@@ -24,7 +24,7 @@ class _HandlerBase(unittest.TestCase):
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
                      'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE', 'SITES_FILE',
-                     'RACKS_FILE', 'CMDB_FILE'):
+                     'RACKS_FILE', 'CMDB_FILE', 'SUBNETS_FILE', 'IPAM_STATE_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -297,6 +297,66 @@ class TestRackElevation(_HandlerBase):
         rec = (api.load(api.CMDB_FILE) or {})['d1']
         self.assertEqual(rec['rack_id'], '')
         self.assertEqual(rec['rack_unit'], 0)
+
+
+class TestIpam(_HandlerBase):
+    """W5-2: IPAM subnets + occupancy + conflict detection."""
+
+    def test_assignments_from_device_and_cmdb(self):
+        devices = {'d1': {'name': 'a', 'ip': '10.0.0.5'},
+                   'd2': {'name': 'b', 'ip': '10.0.0.6'}}
+        cmdb = {'d1': {'interfaces': [{'ip': '10.0.0.5', 'nat_ip': '1.2.3.4'}]}}
+        a = api._ipam_assignments(devices, cmdb)
+        self.assertIn('10.0.0.5', a)
+        self.assertIn('1.2.3.4', a)
+        self.assertEqual(len(a['10.0.0.5']), 2)   # device + nic
+
+    def test_occupancy_counts(self):
+        subnet = {'cidr': '10.0.0.0/29', 'reservations': {'10.0.0.3': 'gateway'}}
+        assignments = {'10.0.0.5': [{'device_id': 'd1', 'name': 'a', 'source': 'device'}],
+                       '192.168.0.1': [{'device_id': 'x', 'name': 'x', 'source': 'device'}]}
+        occ = api._ipam_occupancy(subnet, assignments)
+        self.assertEqual(occ['used'], 1)   # only 10.0.0.5 is in-range
+        self.assertEqual(occ['reserved'], 1)
+        ips = {a['ip'] for a in occ['addresses']}
+        self.assertEqual(ips, {'10.0.0.5', '10.0.0.3'})
+
+    def test_occupancy_flags_conflict(self):
+        subnet = {'cidr': '10.0.0.0/24'}
+        assignments = {'10.0.0.9': [{'device_id': 'd1', 'name': 'a', 'source': 'device'},
+                                    {'device_id': 'd2', 'name': 'b', 'source': 'device'}]}
+        occ = api._ipam_occupancy(subnet, assignments)
+        self.assertTrue(occ['addresses'][0]['conflict'])
+
+    def test_create_validates_cidr(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'cidr': 'not-a-network'}
+        out = self.call(api.handle_ipam_subnets)
+        self.assertIn('cidr', str(out))
+
+    def test_conflict_cadence_fires_once(self):
+        api.save(api.SUBNETS_FILE, {'s1': {'cidr': '10.0.0.0/24'}})
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'a', 'ip': '10.0.0.9'},
+            'd2': {'name': 'b', 'ip': '10.0.0.9'}})   # duplicate
+        api.save(api.CMDB_FILE, {})
+        for f in (api.SUBNETS_FILE, api.DEVICES_FILE, api.CMDB_FILE, api.IPAM_STATE_FILE):
+            api._invalidate_load_cache(f)
+        fired = []
+        api.fire_webhook = lambda ev, p: fired.append((ev, p))
+        api.run_ipam_conflicts_if_due()
+        self.assertEqual([e for e, _ in fired], ['ip_conflict'])
+        self.assertEqual(fired[0][1]['ip'], '10.0.0.9')
+        # second run: already flagged → no re-fire
+        fired.clear()
+        api._invalidate_load_cache(api.IPAM_STATE_FILE)
+        # bypass the 300s throttle by resetting last_run
+        st = api.load(api.IPAM_STATE_FILE) or {}
+        st['last_run'] = 0
+        api.save(api.IPAM_STATE_FILE, st)
+        api._invalidate_load_cache(api.IPAM_STATE_FILE)
+        api.run_ipam_conflicts_if_due()
+        self.assertEqual(fired, [])
 
 
 if __name__ == '__main__':

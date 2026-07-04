@@ -67,6 +67,7 @@ CADENCE = (
     '_maybe_push_metrics',
     'run_metric_rollup_if_due',          # W4-10 long-term metric roll-ups
     'run_smart_groups_if_due',           # W5-6 smart-group materialization
+    'run_ipam_conflicts_if_due',         # W5-2 IPAM duplicate-IP detection
     '_maybe_gitops_sync',
     'process_schedule',
     'process_backup_jobs',

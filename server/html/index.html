@@ -4977,6 +4977,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-6 mt-8"><button class="btn-primary" data-action="openRackCreate">New rack</button></div>
           <div id="rack-elevation-wrap" class="hidden mt-12"></div>
         </div>
+
+        <!-- W5-2: IPAM -->
+        <div class="dash-card mt-16">
+          <div class="section-title">IP address management</div>
+          <p class="hint">Define subnets; occupancy is derived from known device addresses (device IP + CMDB interfaces incl. NAT) plus static reservations. A duplicate IP across two devices raises an <code>ip_conflict</code> alert.</p>
+          <div id="ipam-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="openSubnetCreate">New subnet</button></div>
+          <div id="ipam-occupancy-wrap" class="hidden mt-12"></div>
+        </div>
       </div>
 
       <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->
@@ -8680,6 +8689,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="dp-apply-list" class="scroll-cap"><div class="empty-state">Loading…</div></div>
   <div class="row-8-center mt-8"><span id="dp-apply-count" class="hint">0 selected</span></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyDeviceProfile">Apply</button></div>
+</div></div>
+
+<!-- W5-2: subnet create modal -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="subnet-modal-title" id="subnet-modal"><div class="modal">
+  <div class="modal-title" id="subnet-modal-title">New subnet</div>
+  <div class="form-group"><label class="form-label" for="subnet-cidr">CIDR</label><input type="text" id="subnet-cidr" class="form-input ff-mono" placeholder="10.0.0.0/24" maxlength="64"></div>
+  <div class="form-group"><label class="form-label" for="subnet-vlan">VLAN <span class="meta-sm">(optional)</span></label><input type="text" id="subnet-vlan" class="form-input" maxlength="64"></div>
+  <div class="form-group"><label class="form-label" for="subnet-site">Site</label><select id="subnet-site" class="form-input"><option value="">(none)</option></select></div>
+  <div class="form-group"><label class="form-label" for="subnet-notes">Notes <span class="meta-sm">(optional)</span></label><textarea id="subnet-notes" class="form-input" rows="2" maxlength="512"></textarea></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="subnet-modal">Cancel</button><button class="btn-primary" data-action="saveSubnet">Save subnet</button></div>
 </div></div>
 
 <!-- W5-3: rack create / edit modal -->
