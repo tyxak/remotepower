@@ -9008,6 +9008,19 @@ async function loadTrendDevice() {
   const id = document.getElementById('trend-device').value;
   const out = document.getElementById('trend-resources');
   if (!id) { out.innerHTML = '<div class="c-muted">Pick a device to see its memory / swap / disk / CPU-load history.</div>'; return; }
+  const range = document.getElementById('trend-range')?.value || 'raw';
+  if (range === 'hourly' || range === 'daily') {
+    // W4-10: long-term roll-ups (min/avg/max per bucket). Plot the avg line per series.
+    const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics/rollup?tier=${range}`).catch(() => null);
+    if (!r) { out.innerHTML = '<div class="c-red">Failed to load roll-ups.</div>'; return; }
+    const pts = r.points || [];
+    if (!pts.length) { out.innerHTML = '<div class="c-muted">No roll-up data yet — folds hourly once ~an hour of samples exists.</div>'; return; }
+    const series = [['cpu', 'cpu %'], ['mem', 'memory %'], ['swap', 'swap %'], ['disk', 'disk %']].map(([k, name]) => ({
+      name, points: pts.filter(p => p[k]).map(p => ({ x: p.ts, y: p[k].avg })),
+    })).filter(s => s.points.length);
+    renderTimeSeries('trend-resources', series, { yMin: 0, yMax: 100, yUnit: '%' });
+    return;
+  }
   const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics-history`).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load device metrics.</div>'; return; }
   renderTimeSeries('trend-resources',

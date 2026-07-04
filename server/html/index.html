@@ -4610,6 +4610,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-8-center mb-8">
             <div class="section-title">Device resources</div>
             <select id="trend-device" aria-label="Select device for trends" class="form-input input-auto device-combo" data-change="loadTrendDevice"><option value="">Pick a device…</option></select>
+            <select id="trend-range" aria-label="Trend range" class="form-input input-auto" data-change="loadTrendDevice"><option value="raw">Recent (raw)</option><option value="hourly">30 days (hourly avg)</option><option value="daily">2 years (daily avg)</option></select>
           </div>
           <div id="trend-resources" class="trend-chart"><div class="c-muted">Pick a device to see its memory / swap / disk history.</div></div>
         </div>

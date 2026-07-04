@@ -59,6 +59,7 @@ ACME_LOGS_DIR      = DATA_DIR / 'acme_logs'           # v3.0.1: captured acme.sh
 MAX_UPDATE_LOGS_PER_DEVICE = 10                # rolling buffer
 MAX_UPDATE_LOG_BYTES       = 256 * 1024        # apt update -y can spew a lot
 METRICS_FILE     = DATA_DIR / 'metrics.json'
+METRICS_ROLLUP_FILE = DATA_DIR / 'metrics_rollup.json'   # W4-10 hourly/daily aggregates
 CMD_LIBRARY_FILE = DATA_DIR / 'cmd_library.json'
 LONGPOLL_FILE    = DATA_DIR / 'longpoll.json'
 APIKEYS_FILE     = DATA_DIR / 'apikeys.json'
@@ -15489,6 +15490,142 @@ def _record_metrics(dev_id, sysinfo):
     metrics[dev_id].append(sample)
     metrics[dev_id] = metrics[dev_id][-MAX_METRICS:]
     save(METRICS_FILE, metrics)
+
+
+# ─── W4-10: long-term metric roll-ups ────────────────────────────────────────
+# The raw metrics.json window holds only the last MAX_METRICS (~24h) samples per
+# device. This folds those raw points, incrementally, into hourly (kept 30d) and
+# daily (kept 2y) aggregate buckets with min/avg/max per series — an ADDITIVE
+# read path; the raw store is untouched. Buckets store sum+n internally so a
+# later run can extend a partial bucket without re-reading raw history.
+_ROLLUP_KEYS = ('cpu', 'mem', 'swap', 'disk')
+METRIC_ROLLUP_INTERVAL = 3600            # fold once an hour
+ROLLUP_HOURLY_SEC  = 3600
+ROLLUP_DAILY_SEC   = 86400
+ROLLUP_HOURLY_KEEP = 30 * 86400          # 30 days of hourly points
+ROLLUP_DAILY_KEEP  = 730 * 86400         # ~2 years of daily points
+
+
+def _rollup_merge(buckets, samples, bucket_sec):
+    """Fold raw {ts,cpu,mem,swap,disk} samples into aggregate buckets keyed by
+    bucket-start ts. Each bucket keeps, per metric, {min,sum,max,n} so avg is
+    derivable and a partial bucket can be extended on a later run. Returns the
+    merged bucket list sorted by ts. Pure."""
+    by = {b['ts']: b for b in (buckets or [])}
+    for s in samples or []:
+        try:
+            ts = int(s.get('ts'))
+        except (TypeError, ValueError):
+            continue
+        if ts <= 0:
+            continue
+        bstart = ts - (ts % bucket_sec)
+        b = by.get(bstart)
+        if b is None:
+            b = {'ts': bstart}
+            by[bstart] = b
+        for k in _ROLLUP_KEYS:
+            v = s.get(k)
+            if not isinstance(v, (int, float)):
+                continue
+            agg = b.get(k)
+            if agg is None:
+                b[k] = {'min': v, 'sum': float(v), 'max': v, 'n': 1}
+            else:
+                agg['min'] = min(agg['min'], v)
+                agg['max'] = max(agg['max'], v)
+                agg['sum'] += v
+                agg['n'] += 1
+    return sorted(by.values(), key=lambda b: b['ts'])
+
+
+def _rollup_prune(buckets, keep_sec, now):
+    cutoff = now - keep_sec
+    return [b for b in buckets if b.get('ts', 0) >= cutoff]
+
+
+def _rollup_read_shape(buckets):
+    """Public per-point shape: {ts, cpu:{min,avg,max}, …} (avg = sum/n)."""
+    out = []
+    for b in buckets or []:
+        row = {'ts': b.get('ts')}
+        for k in _ROLLUP_KEYS:
+            agg = b.get(k)
+            if agg and agg.get('n'):
+                row[k] = {'min': round(agg['min'], 2),
+                          'avg': round(agg['sum'] / agg['n'], 2),
+                          'max': round(agg['max'], 2)}
+        out.append(row)
+    return out
+
+
+def _raw_metric_samples(dev_id, since_ts):
+    """Raw samples newer than since_ts for a device, from whichever backend holds
+    the high-res series. [{ts,cpu,mem,swap,disk}]."""
+    _m = _dbmod()
+    if _m is not None:
+        try:
+            return [s for s in _m.metric_range(DATA_DIR, dev_id, since_ts, max_points=2000)
+                    if int(s.get('ts') or 0) > since_ts]
+        except Exception:
+            return []
+    window = (load(METRICS_FILE) or {}).get(dev_id) or []
+    return [s for s in window if int(s.get('ts') or 0) > since_ts]
+
+
+def run_metric_rollup_if_due():
+    """W4-10 cadence: fold each device's new raw metric samples into hourly/daily
+    roll-up stores. Cheap + idempotent — only samples newer than the per-device
+    high-water mark are folded, and buckets outside the retention window pruned."""
+    now = int(time.time())
+    state = load(METRICS_ROLLUP_FILE) or {}
+    meta = state.get('_meta') if isinstance(state.get('_meta'), dict) else {}
+    if now - int(meta.get('last_run', 0) or 0) < METRIC_ROLLUP_INTERVAL:
+        return
+    devices = load(DEVICES_FILE) or {}
+    changed = False
+    for dev_id in list(devices.keys()):
+        rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
+        last_ts = int(rec.get('last_ts', 0) or 0)
+        new = _raw_metric_samples(dev_id, last_ts)
+        if not new:
+            continue
+        hourly = _rollup_merge(rec.get('hourly') or [], new, ROLLUP_HOURLY_SEC)
+        daily = _rollup_merge(rec.get('daily') or [], new, ROLLUP_DAILY_SEC)
+        state[dev_id] = {
+            'last_ts': max([last_ts] + [int(s.get('ts') or 0) for s in new]),
+            'hourly':  _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
+            'daily':   _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
+        }
+        changed = True
+    # prune roll-ups for deleted devices
+    for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
+        del state[k]
+        changed = True
+    if changed or not meta:
+        state['_meta'] = {'last_run': now}
+        save(METRICS_ROLLUP_FILE, state)
+
+
+def handle_device_metric_rollup(dev_id):
+    """GET /api/devices/<id>/metrics/rollup?tier=hourly|daily — long-term
+    aggregated metric series (min/avg/max per bucket). Auth: require_auth,
+    scoped. Complements the raw /metrics-history read for wide zoom ranges."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    scope = _caller_scope()
+    if scope is not None:
+        dev = device_get(dev_id) or {}
+        if not _device_in_scope(scope, dev):
+            respond(403, {'error': 'Device outside your role scope'})
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    tier = (qs.get('tier') or ['daily'])[0]
+    if tier not in ('hourly', 'daily'):
+        tier = 'daily'
+    rec = (load(METRICS_ROLLUP_FILE) or {}).get(dev_id) or {}
+    respond(200, {'device_id': dev_id, 'tier': tier,
+                  'points': _rollup_read_shape(rec.get(tier) or [])})
 
 
 def _drift_policy_mode(dev):
@@ -52611,6 +52748,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/fleet/events', '', 'handle_fleet_events', "pi == '/api/fleet/events' and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/timeline', 'handle_device_timeline', "pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/metrics-history', 'handle_device_metrics_history', "pi.startswith('/api/devices/') and pi.endswith('/metrics-history') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/metrics/rollup', 'handle_device_metric_rollup', "pi.startswith('/api/devices/') and pi.endswith('/metrics/rollup') and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/timeline', '', 'handle_fleet_timeline', "pi == '/api/fleet/timeline' and m == 'GET'"),
     ('eq', ('GET',), '/api/inventory/search', '', 'handle_inventory_search', "pi == '/api/inventory/search' and m == 'GET'"),
     ('eq', ('GET',), '/api/inventory/catalog', '', 'handle_inventory_catalog', "pi == '/api/inventory/catalog' and m == 'GET'"),
@@ -53163,6 +53301,8 @@ def main():
     _safe(_maybe_check_disk_predictions, '_maybe_check_disk_predictions')
     # v3.14.0: push Prometheus metrics to a Pushgateway on its interval.
     _safe(_maybe_push_metrics, '_maybe_push_metrics')
+    # W4-10: fold raw metric samples into hourly/daily roll-ups (hourly cadence).
+    _safe(run_metric_rollup_if_due, 'run_metric_rollup_if_due')
     _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies

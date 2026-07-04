@@ -65,6 +65,7 @@ CADENCE = (
     'refresh_kev_epss_if_due',
     '_maybe_check_disk_predictions',
     '_maybe_push_metrics',
+    'run_metric_rollup_if_due',          # W4-10 long-term metric roll-ups
     '_maybe_gitops_sync',
     'process_schedule',
     'process_backup_jobs',

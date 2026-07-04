@@ -337,5 +337,90 @@ class TestSeasonalAnomalies(unittest.TestCase):
         self.assertIn('Mon', mem2[0]['bucket'])
 
 
+class TestMetricRollups(_HandlerBase):
+    """W4-10: long-term metric roll-up pure functions + cadence + endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self._mf = api.METRICS_FILE
+        self._rf = api.METRICS_ROLLUP_FILE
+        api.METRICS_FILE = self.d / 'metrics.json'
+        api.METRICS_ROLLUP_FILE = self.d / 'metrics_rollup.json'
+
+    def tearDown(self):
+        api.METRICS_FILE = self._mf
+        api.METRICS_ROLLUP_FILE = self._rf
+        super().tearDown()
+
+    def test_merge_aggregates_minavgmax(self):
+        base = 1_700_000_000
+        base -= base % 3600     # align to an hour boundary
+        samples = [{'ts': base + 60, 'cpu': 10, 'mem': 50},
+                   {'ts': base + 120, 'cpu': 30, 'mem': 60},
+                   {'ts': base + 180, 'cpu': 20, 'mem': 55}]
+        buckets = api._rollup_merge([], samples, api.ROLLUP_HOURLY_SEC)
+        self.assertEqual(len(buckets), 1)
+        shape = api._rollup_read_shape(buckets)[0]
+        self.assertEqual(shape['cpu'], {'min': 10, 'avg': 20.0, 'max': 30})
+
+    def test_merge_is_incremental(self):
+        base = 1_700_000_000
+        base -= base % 3600
+        b1 = api._rollup_merge([], [{'ts': base + 60, 'cpu': 10}], api.ROLLUP_HOURLY_SEC)
+        b2 = api._rollup_merge(b1, [{'ts': base + 120, 'cpu': 40}], api.ROLLUP_HOURLY_SEC)
+        shape = api._rollup_read_shape(b2)[0]
+        self.assertEqual(shape['cpu'], {'min': 10, 'avg': 25.0, 'max': 40})
+
+    def test_prune_drops_old_buckets(self):
+        now = 2_000_000_000
+        buckets = [{'ts': now - 40 * 86400}, {'ts': now - 1 * 86400}]
+        kept = api._rollup_prune(buckets, api.ROLLUP_HOURLY_KEEP, now)
+        self.assertEqual([b['ts'] for b in kept], [now - 1 * 86400])
+
+    def test_cadence_folds_raw_window(self):
+        base = int(__import__('time').time()) - 600   # recent, inside retention
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'host1'}})
+        api.save(api.METRICS_FILE, {'d1': [
+            {'ts': base, 'cpu': 10, 'mem': 50, 'swap': 1, 'disk': 20},
+            {'ts': base + 120, 'cpu': 30, 'mem': 70, 'swap': 3, 'disk': 22}]})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api._invalidate_load_cache(api.METRICS_FILE)
+        api.run_metric_rollup_if_due()
+        st = api.load(api.METRICS_ROLLUP_FILE) or {}
+        self.assertIn('d1', st)
+        self.assertTrue(st['d1']['hourly'])
+        self.assertTrue(st['d1']['daily'])
+        self.assertEqual(st['d1']['last_ts'], base + 120)
+
+    def test_cadence_is_throttled(self):
+        api.save(api.METRICS_ROLLUP_FILE, {'_meta': {'last_run': int(__import__('time').time())}})
+        api._invalidate_load_cache(api.METRICS_ROLLUP_FILE)
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h'}})
+        api.save(api.METRICS_FILE, {'d1': [{'ts': 1, 'cpu': 5}]})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api._invalidate_load_cache(api.METRICS_FILE)
+        api.run_metric_rollup_if_due()
+        st = api.load(api.METRICS_ROLLUP_FILE) or {}
+        self.assertNotIn('d1', st)   # throttled — no fold happened
+
+    def test_endpoint_serves_tier(self):
+        base = 1_700_000_000
+        api.save(api.METRICS_ROLLUP_FILE, {'d1': {'last_ts': base,
+            'daily': api._rollup_merge([], [{'ts': base, 'cpu': 12}], api.ROLLUP_DAILY_SEC),
+            'hourly': []}})
+        api._invalidate_load_cache(api.METRICS_ROLLUP_FILE)
+        saved = {n: getattr(api, n) for n in ('_env', '_caller_scope', '_validate_id')}
+        try:
+            api._env = lambda k, d='': 'tier=daily' if k == 'QUERY_STRING' else d
+            api._caller_scope = lambda: None
+            api._validate_id = lambda x: True
+            out = self.call(api.handle_device_metric_rollup, 'd1')
+        finally:
+            for n, v in saved.items():
+                setattr(api, n, v)
+        self.assertEqual(out['tier'], 'daily')
+        self.assertEqual(out['points'][0]['cpu']['avg'], 12.0)
+
+
 if __name__ == '__main__':
     unittest.main()
