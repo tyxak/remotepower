@@ -1279,6 +1279,8 @@
     "New playbook": { "zh": "新建 playbook", "hi": "नया playbook", "es": "Nuevo playbook", "ar": "playbook جديد" },
     "New policy": { "zh": "新建策略", "hi": "नई policy", "es": "Nueva política", "ar": "سياسة جديدة" },
     "New profile": { "zh": "新建配置", "hi": "नया profile", "es": "Nuevo perfil", "ar": "ملف تعريف جديد" },
+    "Save profile": { "zh": "保存配置", "hi": "profile सहेजें", "es": "Guardar perfil", "ar": "حفظ الملف" },
+    "Device profiles": { "zh": "设备配置", "hi": "डिवाइस profiles", "es": "Perfiles de dispositivo", "ar": "ملفات تعريف الأجهزة" },
     "New rollout": { "zh": "新建发布", "hi": "नया rollout", "es": "Nuevo despliegue", "ar": "طرح جديد" },
     "New rule": { "zh": "新建规则", "hi": "नया नियम", "es": "Nueva regla", "ar": "قاعدة جديدة" },
     "New satellite": { "zh": "新建卫星节点", "hi": "नया satellite", "es": "Nuevo satélite", "ar": "قمر صناعي جديد" },

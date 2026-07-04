@@ -31,6 +31,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Tags & groups | Tag devices, namespace by group (`dc1/prod`); filter and batch by either |
 | Device notes | Free-text per device, shown as tooltip |
 | Sites & teams | First-class fleet grouping above groups (location/team/customer); super-admins see all *(v3.5.0)* |
+| Device profiles | Named bundle of per-device settings (poll interval, watched units, log watches, drift-watched files, metric thresholds); **apply** stamps them onto selected devices as a one-shot copy (devices stay editable). `GET/POST /api/device-profiles`, `POST /api/device-profiles/{id}/apply` *(v5.8.0)* |
 
 ## Device drawer signals
 

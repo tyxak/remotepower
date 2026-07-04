@@ -6805,6 +6805,114 @@ async function loadSites() {
   _sitesCache.forEach(s => { _siteNameById[s.id] = s.name; });
   tableCtl.render('sites', _sitesCache);
   loadEnrolRules();
+  loadDeviceProfiles();
+}
+
+// ── W5-7: device profiles ────────────────────────────────────────────────────
+let _deviceProfiles = [];
+async function loadDeviceProfiles() {
+  const box = document.getElementById('device-profiles-list');
+  if (!box) return;
+  const data = await api('GET', '/device-profiles').catch(() => null);
+  _deviceProfiles = (data && data.profiles) || [];
+  if (!_deviceProfiles.length) { box.innerHTML = '<div class="meta-sm-nm">No profiles yet.</div>'; return; }
+  box.innerHTML = _deviceProfiles.map((p, i) => {
+    const bits = [];
+    if (p.poll_interval) bits.push(`poll ${p.poll_interval}s`);
+    if (p.services_watched && p.services_watched.length) bits.push(`${p.services_watched.length} unit(s)`);
+    if (p.log_watch && p.log_watch.length) bits.push(`${p.log_watch.length} log watch`);
+    if (p.drift_files && p.drift_files.length) bits.push(`${p.drift_files.length} drift file(s)`);
+    if (p.metric_thresholds && Object.keys(p.metric_thresholds).length) bits.push('thresholds');
+    return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500">${escHtml(p.name)}</span> <span class="hint">${escHtml(bits.join(' · ') || 'empty')}</span></div>`
+      + `<button class="btn-icon fs-12" data-action="openDeviceProfileApply" data-arg="${i}">Apply…</button>`
+      + `<button class="btn-icon fs-12" data-action="editDeviceProfile" data-arg="${i}">Edit</button>`
+      + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteDeviceProfile" data-arg="${escAttr(p.id)}">Delete</button></div>`;
+  }).join('');
+}
+
+let _profileEditId = null;
+function openDeviceProfileCreate() { _profileEditId = null; _fillProfileForm({}); document.getElementById('device-profile-modal-title').textContent = 'New device profile'; openModal('device-profile-modal'); }
+function editDeviceProfile(i) {
+  const p = _deviceProfiles[i]; if (!p) return;
+  _profileEditId = p.id;
+  _fillProfileForm(p);
+  document.getElementById('device-profile-modal-title').textContent = 'Edit device profile';
+  openModal('device-profile-modal');
+}
+function _fillProfileForm(p) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('dp-name', p.name || '');
+  set('dp-poll', p.poll_interval || '');
+  set('dp-units', (p.services_watched || []).join('\n'));
+  set('dp-logs', (p.log_watch || []).join('\n'));
+  set('dp-drift', (p.drift_files || []).join('\n'));
+  const mt = p.metric_thresholds || {};
+  set('dp-mem-warn', mt.mem_warn_percent ?? '');
+  set('dp-mem-crit', mt.mem_crit_percent ?? '');
+  set('dp-disk-warn', mt.disk_warn_percent ?? '');
+  set('dp-disk-crit', mt.disk_crit_percent ?? '');
+}
+async function saveDeviceProfile() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const lines = id => val(id).split('\n').map(s => s.trim()).filter(Boolean);
+  const name = val('dp-name');
+  if (!name) { toast('Name is required', 'error'); return; }
+  const body = { name, services_watched: lines('dp-units'), log_watch: lines('dp-logs'), drift_files: lines('dp-drift') };
+  const poll = parseInt(val('dp-poll'), 10);
+  if (!isNaN(poll)) body.poll_interval = poll;
+  const mt = {};
+  const num = id => { const v = parseFloat(val(id)); return isNaN(v) ? null : v; };
+  [['dp-mem-warn', 'mem_warn_percent'], ['dp-mem-crit', 'mem_crit_percent'],
+   ['dp-disk-warn', 'disk_warn_percent'], ['dp-disk-crit', 'disk_crit_percent']].forEach(([id, k]) => {
+    const v = num(id); if (v !== null) mt[k] = v;
+  });
+  if (Object.keys(mt).length) body.metric_thresholds = mt;
+  const r = _profileEditId
+    ? await api('PATCH', `/device-profiles/${encodeURIComponent(_profileEditId)}`, body)
+    : await api('POST', '/device-profiles', body);
+  if (r && (r.ok || r.id)) { toast('Profile saved', 'success'); closeModal('device-profile-modal'); loadDeviceProfiles(); }
+  else toast((r && r.error) || 'Save failed', 'error');
+}
+async function deleteDeviceProfile(id) {
+  if (!await uiConfirm({ title: 'Delete profile', message: 'Delete this device profile? Devices it was applied to are unaffected.', confirmText: 'Delete', danger: true })) return;
+  const r = await api('DELETE', `/device-profiles/${encodeURIComponent(id)}`);
+  if (r && r.ok) { toast('Deleted', 'info'); loadDeviceProfiles(); } else toast((r && r.error) || 'Failed', 'error');
+}
+
+let _profileApplyId = null;
+let _profileApplySel = new Set();
+async function openDeviceProfileApply(i) {
+  const p = _deviceProfiles[i]; if (!p) return;
+  _profileApplyId = p.id;
+  _profileApplySel = new Set();
+  document.getElementById('dp-apply-title').textContent = `Apply "${p.name}" to devices`;
+  document.getElementById('dp-apply-search').value = '';
+  const devs = await api('GET', '/devices?slim=1').catch(() => []);
+  window._dpApplyDevices = Array.isArray(devs) ? devs : [];
+  _renderProfileApplyList('');
+  openModal('device-profile-apply-modal');
+}
+function _renderProfileApplyList(filter) {
+  const box = document.getElementById('dp-apply-list');
+  if (!box) return;
+  const f = (filter || '').toLowerCase();
+  const rows = (window._dpApplyDevices || []).filter(d =>
+    !f || (d.name || '').toLowerCase().includes(f) || (d.group || '').toLowerCase().includes(f));
+  box.innerHTML = rows.length ? rows.map(d =>
+    `<label class="form-row pad-4"><input type="checkbox" data-dp-dev="${escAttr(d.id)}"${_profileApplySel.has(d.id) ? ' checked' : ''}> <span>${escHtml(d.name || d.id)}${d.group ? ` <span class="hint">${escHtml(d.group)}</span>` : ''}</span></label>`
+  ).join('') : '<div class="meta-sm-nm">No matching devices.</div>';
+  box.querySelectorAll('[data-dp-dev]').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) _profileApplySel.add(cb.dataset.dpDev); else _profileApplySel.delete(cb.dataset.dpDev);
+    document.getElementById('dp-apply-count').textContent = `${_profileApplySel.size} selected`;
+  }));
+  document.getElementById('dp-apply-count').textContent = `${_profileApplySel.size} selected`;
+}
+function filterProfileApply() { _renderProfileApplyList(document.getElementById('dp-apply-search')?.value || ''); }
+async function applyDeviceProfile() {
+  if (!_profileApplySel.size) { toast('Pick at least one device', 'error'); return; }
+  const r = await api('POST', `/device-profiles/${encodeURIComponent(_profileApplyId)}/apply`, { device_ids: [..._profileApplySel] });
+  if (r && r.ok) { toast(`Applied to ${r.applied} device(s)`, 'success'); closeModal('device-profile-apply-modal'); }
+  else toast((r && r.error) || 'Apply failed', 'error');
 }
 
 // W1-9: enrolment auto-placement rules live in config.enrol_rules.

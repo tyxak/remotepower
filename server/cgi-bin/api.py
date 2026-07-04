@@ -34,6 +34,7 @@ ROLES_FILE       = DATA_DIR / 'roles.json'        # v3.4.2: custom RBAC roles
 SCAP_FILE        = DATA_DIR / 'scap.json'          # v3.4.2: OpenSCAP scan results
 SCAP_REPORTS_DIR = DATA_DIR / 'scap_reports'       # v3.4.2: full HTML reports per device (gzip)
 DEVICES_FILE     = DATA_DIR / 'devices.json'
+DEVICE_PROFILES_FILE = DATA_DIR / 'device_profiles.json'   # W5-7 named config bundles
 PINS_FILE        = DATA_DIR / 'pins.json'
 # v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
 # Created via POST /api/enrollment-tokens (admin-only). Same shape as
@@ -10168,6 +10169,152 @@ def handle_device_metric_thresholds(dev_id):
             devices[dev_id]['metric_thresholds'] = overrides
             devices[dev_id].pop('metric_state', None)
     respond(200, {'ok': True, 'overrides': overrides})
+
+
+# ── W5-7: device profiles ───────────────────────────────────────────────────
+# A named bundle of per-device settings (metric thresholds, watched units, log
+# watches, drift-watched files, poll interval). Applying a profile STAMPS those
+# fields onto the selected devices — a one-shot copy, NOT a live link, so each
+# device stays individually editable afterwards (non-breaking; no precedence
+# rules). Service BASELINES stay live-merged separately; profiles are stamp-on-
+# apply. Admin-gated.
+_PROFILE_FIELDS = ('metric_thresholds', 'services_watched', 'log_watch',
+                   'drift_files', 'poll_interval')
+
+
+def _validate_device_profile(body):
+    """Validate + normalise a profile payload → the stored profile fields dict.
+    Only keys PRESENT in the body are set (a profile applies just what it
+    defines). Raises via respond(400) on bad input."""
+    out = {}
+    if 'poll_interval' in body:
+        try:
+            pi = int(body['poll_interval'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'poll_interval must be an integer'})
+        if not (30 <= pi <= 3600):
+            respond(400, {'error': 'poll_interval must be 30–3600 seconds'})
+        out['poll_interval'] = pi
+    for key in ('services_watched', 'log_watch'):
+        if key in body:
+            raw = body[key]
+            if not isinstance(raw, list):
+                respond(400, {'error': f'{key} must be a list'})
+            out[key] = [_sanitize_str(str(u), 128) for u in raw[:100]
+                        if isinstance(u, str) and u.strip()]
+    if 'drift_files' in body:
+        out['drift_files'] = _validate_drift_files(body['drift_files'])
+    if 'metric_thresholds' in body:
+        mt = body['metric_thresholds']
+        if not isinstance(mt, dict):
+            respond(400, {'error': 'metric_thresholds must be a dict'})
+        clean = {}
+        for k in ('disk_warn_percent', 'disk_crit_percent', 'mem_warn_percent',
+                  'mem_crit_percent', 'swap_warn_percent', 'swap_crit_percent',
+                  'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent'):
+            if k in mt and isinstance(mt[k], (int, float)) and 1 <= mt[k] <= 99:
+                clean[k] = float(mt[k])
+        for k in ('cpu_warn_load_ratio', 'cpu_crit_load_ratio'):
+            if k in mt and isinstance(mt[k], (int, float)) and 0.1 <= mt[k] <= 100:
+                clean[k] = float(mt[k])
+        for k in ('temp_warn_celsius', 'temp_crit_celsius'):
+            if k in mt and isinstance(mt[k], (int, float)) and 0 <= mt[k] <= 200:
+                clean[k] = float(mt[k])
+        out['metric_thresholds'] = clean
+    return out
+
+
+def _apply_profile_to_device(dev, profile):
+    """Pure: return a shallow copy of `dev` with the profile's defined fields
+    stamped on (overwriting). Clears metric_state when thresholds change so the
+    next heartbeat re-evaluates under the new thresholds."""
+    updated = dict(dev)
+    for f in _PROFILE_FIELDS:
+        if f in profile:
+            updated[f] = profile[f]
+    if 'metric_thresholds' in profile:
+        updated.pop('metric_state', None)
+    return updated
+
+
+def handle_device_profiles():
+    """GET /api/device-profiles — list; POST — create. Admin only."""
+    actor = require_admin_auth()
+    if method() == 'GET':
+        profs = load(DEVICE_PROFILES_FILE) or {}
+        respond(200, {'profiles': [dict(p, id=pid) for pid, p in profs.items()
+                                    if isinstance(p, dict)]})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(str(body.get('name', '')), 64).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    fields = _validate_device_profile(body)
+    pid = secrets.token_hex(8)
+    with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
+        if len(profs) >= 100:
+            respond(400, {'error': 'profile limit reached (max 100)'})
+        profs[pid] = dict(fields, name=name, created=int(time.time()))
+    audit_log(actor, 'device_profile_create', detail=f'name={name} id={pid}')
+    respond(201, {'ok': True, 'id': pid})
+
+
+def handle_device_profile(pid):
+    """PATCH /api/device-profiles/{id} — update; DELETE — remove. Admin only."""
+    actor = require_admin_auth()
+    pid = _sanitize_str(pid, 32)
+    if method() == 'DELETE':
+        with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
+            existed = profs.pop(pid, None) is not None
+        if not existed:
+            respond(404, {'error': 'profile not found'})
+        audit_log(actor, 'device_profile_delete', detail=f'id={pid}')
+        respond(200, {'ok': True})
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    fields = _validate_device_profile(body)
+    with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
+        p = profs.get(pid)
+        if not isinstance(p, dict):
+            respond(404, {'error': 'profile not found'})
+        if 'name' in body:
+            nm = _sanitize_str(str(body['name']), 64).strip()
+            if nm:
+                p['name'] = nm
+        # PATCH replaces exactly the fields present in the body.
+        p.update(fields)
+    audit_log(actor, 'device_profile_update', detail=f'id={pid}')
+    respond(200, {'ok': True})
+
+
+def handle_device_profile_apply(pid):
+    """POST /api/device-profiles/{id}/apply — stamp the profile onto the given
+    devices. Body {device_ids:[...]}. One-shot copy; devices stay editable.
+    Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    pid = _sanitize_str(pid, 32)
+    profile = (load(DEVICE_PROFILES_FILE) or {}).get(pid)
+    if not isinstance(profile, dict):
+        respond(404, {'error': 'profile not found'})
+    body = get_json_obj()
+    ids = body.get('device_ids')
+    if not isinstance(ids, list) or not ids:
+        respond(400, {'error': 'device_ids must be a non-empty list'})
+    ids = [_sanitize_str(str(i), 64) for i in ids[:500]]
+    applied = 0
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        for did in ids:
+            dev = devices.get(did)
+            if isinstance(dev, dict):
+                devices[did] = _apply_profile_to_device(dev, profile)
+                applied += 1
+    audit_log(actor, 'device_profile_apply',
+              detail=f"id={pid} name={profile.get('name', '')} devices={applied}")
+    respond(200, {'ok': True, 'applied': applied})
 
 
 # ── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -52529,6 +52676,9 @@ def _build_exact_routes():
         # v3.5.0: sites/teams registry
         ('GET', '/api/sites'): handle_sites_list,
         ('POST', '/api/sites'): handle_site_create,
+        # W5-7: device profiles (named config bundles, admin-gated).
+        ('GET', '/api/device-profiles'): handle_device_profiles,
+        ('POST', '/api/device-profiles'): handle_device_profiles,
         # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
         ('GET', '/api/tenants'): handle_tenants_list,
         ('POST', '/api/tenants'): handle_tenant_create,
@@ -52860,6 +53010,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/scans/', '/results', 'handle_scan_results', "pi.startswith('/api/scans/') and pi.endswith('/results') and m == 'POST'"),
     ('pat', ('GET',), '/api/scans/', '', 'handle_scan_detail', "pi.startswith('/api/scans/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/device-profiles/', '/apply', 'handle_device_profile_apply', "pi.startswith('/api/device-profiles/') and pi.endswith('/apply') and m == 'POST'"),
+    ('pat', ('PATCH',), '/api/device-profiles/', '', 'handle_device_profile', "pi.startswith('/api/device-profiles/') and m == 'PATCH'"),
+    ('pat', ('DELETE',), '/api/device-profiles/', '', 'handle_device_profile', "pi.startswith('/api/device-profiles/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/scan-targets/', '/verify', 'handle_scan_target_verify', "pi.startswith('/api/scan-targets/') and pi.endswith('/verify') and m == 'POST'"),
     ('pat', ('DELETE',), '/api/scan-targets/', '', 'handle_scan_target_delete', "pi.startswith('/api/scan-targets/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/scan-schedules/', '/run', 'handle_scan_schedule_run', "pi.startswith('/api/scan-schedules/') and pi.endswith('/run') and m == 'POST'"),

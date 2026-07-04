@@ -4926,6 +4926,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-6 mt-8"><button class="btn-primary" data-action="addEnrolRule">Add rule</button></div>
           <div id="enrol-rules-result" class="hint mt-6" role="status" aria-live="polite"></div>
         </div>
+
+        <!-- W5-7: device profiles -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Device profiles</div>
+          <p class="hint">A named bundle of per-device settings — poll interval, watched systemd units, log watches, drift-watched files, metric thresholds. <strong>Applying</strong> a profile stamps those fields onto the devices you pick; it's a one-shot copy, so each device stays individually editable afterwards.</p>
+          <div id="device-profiles-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="openDeviceProfileCreate">New profile</button></div>
+        </div>
       </div>
 
       <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->
@@ -8586,6 +8594,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-row"><input type="checkbox" id="mailflow-imap-verify"> <span class="form-label">Verify TLS certificate (uncheck for an internal / self-signed IMAP server)</span></label></div>
   <div id="mailflow-status" class="hint"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mailflow-modal">Cancel</button><button class="btn-primary" data-action="mailflowSave">Save settings</button></div>
+</div></div>
+
+<!-- W5-7: device profile create / edit modal -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-profile-modal-title" id="device-profile-modal"><div class="modal">
+  <div class="modal-title" id="device-profile-modal-title">New device profile</div>
+  <div class="modal-subtitle">Leave a field blank to omit it — applying a profile only stamps the fields it defines.</div>
+  <div class="form-group"><label class="form-label" for="dp-name">Profile name</label><input type="text" id="dp-name" class="form-input" placeholder="Web tier" maxlength="64"></div>
+  <div class="form-group"><label class="form-label" for="dp-poll">Poll interval (seconds)</label><input type="number" id="dp-poll" class="form-input" min="30" max="3600" placeholder="(leave blank to omit)"></div>
+  <div class="form-group"><label class="form-label" for="dp-units">Watched systemd units (one per line)</label><textarea id="dp-units" class="form-input ff-mono" rows="3" placeholder="nginx.service&#10;php-fpm.service"></textarea></div>
+  <div class="form-group"><label class="form-label" for="dp-logs">Log watches (one per line)</label><textarea id="dp-logs" class="form-input ff-mono" rows="2" placeholder="/var/log/nginx/error.log"></textarea></div>
+  <div class="form-group"><label class="form-label" for="dp-drift">Drift-watched files (one per line)</label><textarea id="dp-drift" class="form-input ff-mono" rows="2" placeholder="/etc/nginx/nginx.conf"></textarea></div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label" for="dp-mem-warn">Memory warn %</label><input type="number" id="dp-mem-warn" class="form-input" min="1" max="99"></div>
+    <div class="form-group"><label class="form-label" for="dp-mem-crit">Memory crit %</label><input type="number" id="dp-mem-crit" class="form-input" min="1" max="99"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label" for="dp-disk-warn">Disk warn %</label><input type="number" id="dp-disk-warn" class="form-input" min="1" max="99"></div>
+    <div class="form-group"><label class="form-label" for="dp-disk-crit">Disk crit %</label><input type="number" id="dp-disk-crit" class="form-input" min="1" max="99"></div>
+  </div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-profile-modal">Cancel</button><button class="btn-primary" data-action="saveDeviceProfile">Save profile</button></div>
+</div></div>
+
+<!-- W5-7: apply device profile to devices -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dp-apply-title" id="device-profile-apply-modal"><div class="modal">
+  <div class="modal-title" id="dp-apply-title">Apply profile to devices</div>
+  <div class="modal-subtitle">Stamps the profile's fields onto the selected devices — a one-shot copy; they stay editable afterwards.</div>
+  <div class="form-group"><input type="text" id="dp-apply-search" class="form-input" placeholder="Search devices by name or group…" autocomplete="off" aria-label="Search devices" data-input="filterProfileApply"></div>
+  <div id="dp-apply-list" class="scroll-cap"><div class="empty-state">Loading…</div></div>
+  <div class="row-8-center mt-8"><span id="dp-apply-count" class="hint">0 selected</span></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyDeviceProfile">Apply</button></div>
 </div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
