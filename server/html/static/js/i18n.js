@@ -1285,6 +1285,7 @@
     "Site map": { "zh": "站点地图", "hi": "साइट मानचित्र", "es": "Mapa de sitios", "ar": "خريطة المواقع" },
     "Racks": { "zh": "机架", "hi": "रैक", "es": "Racks", "ar": "الرفوف" },
     "IP address management": { "zh": "IP 地址管理", "hi": "IP पता प्रबंधन", "es": "Gestión de direcciones IP", "ar": "إدارة عناوين IP" },
+    "Suggested physical links (LLDP)": { "zh": "建议的物理链路 (LLDP)", "hi": "सुझाए गए भौतिक लिंक (LLDP)", "es": "Enlaces físicos sugeridos (LLDP)", "ar": "الروابط المادية المقترحة (LLDP)" },
     "New subnet": { "zh": "新建子网", "hi": "नया सबनेट", "es": "Nueva subred", "ar": "شبكة فرعية جديدة" },
     "Save subnet": { "zh": "保存子网", "hi": "सबनेट सहेजें", "es": "Guardar subred", "ar": "حفظ الشبكة الفرعية" },
     "New rack": { "zh": "新建机架", "hi": "नया रैक", "es": "Nuevo rack", "ar": "رف جديد" },

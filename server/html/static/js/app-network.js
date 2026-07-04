@@ -62,6 +62,28 @@ async function depSuggestAct(deviceId, upstreamId, action) {
   else toast(r?.error || 'Failed', 'error');
 }
 
+// W5-1: LLDP topology suggestions (physical connected_to edges).
+async function loadLldpSuggestions() {
+  const box = document.getElementById('lldp-suggestions');
+  if (!box) return;
+  const r = await api('GET', '/lldp-suggestions');
+  if (!r || !r.ok) { box.innerHTML = '<div class="c-muted">Not available.</div>'; return; }
+  const s = r.suggestions || [];
+  if (!s.length) { box.innerHTML = '<div class="c-muted">No LLDP topology suggestions (install lldpd on hosts to discover neighbors).</div>'; return; }
+  box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
+    + '<thead><tr><th>Device</th><th>↔ Neighbor</th><th>Link</th><th></th></tr></thead><tbody>'
+    + s.map(x => `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.peer_name)}</td>`
+        + `<td class="fs-12">${escHtml(x.evidence)}</td>`
+        + `<td class="nowrap"><button class="btn-icon cell-sm c-success" data-action="lldpSuggestAct" data-arg="${escAttr(x.device_id)}" data-arg2="${escAttr(x.peer_id)}" data-arg3="accept">Accept</button> `
+        + `<button class="btn-icon cell-sm" data-action="lldpSuggestAct" data-arg="${escAttr(x.device_id)}" data-arg2="${escAttr(x.peer_id)}" data-arg3="dismiss">Dismiss</button></td></tr>`).join('')
+    + '</tbody></table></div>';
+}
+async function lldpSuggestAct(deviceId, peerId, action) {
+  const r = await api('POST', '/lldp-suggestions', { device_id: deviceId, peer_id: peerId, action });
+  if (r && r.ok) { toast(action === 'accept' ? 'Topology edge added' : 'Dismissed', 'success'); loadLldpSuggestions(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
 async function loadNetmap() {
   const data = await api('GET', '/network-map' + _netmapScopeQuery());
   if (!data) return;

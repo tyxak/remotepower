@@ -5687,6 +5687,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="dep-suggestions"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
+        <!-- W5-1: LLDP physical topology suggestions -->
+        <div class="dash-card mt-16">
+          <div class="section-header"><div class="section-title">Suggested physical links (LLDP)</div><button class="btn-icon" data-action="loadLldpSuggestions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
+          <p class="hint">Physical neighbor links discovered via LLDP (needs <code>lldpd</code> on the hosts). Accept sets a <code>connected_to</code> edge (a manual/physical link that always wins over inferred ones); dismiss hides it.</p>
+          <div id="lldp-suggestions"><div class="c-muted">Click Refresh.</div></div>
+        </div>
+
         <!-- v3.4.0: LAN discovery — unmanaged hosts agents found on their subnet -->
         <div class="section-header mt-16">
           <div class="section-title">Unmanaged hosts on the LAN</div>

@@ -830,6 +830,42 @@ def collect_peer_connections(limit=50):
     return rows[:limit]
 
 
+def collect_lldp_neighbors(limit=64):
+    """W5-1: LLDP neighbors from `lldpctl -f keyvalue` (skips silently if lldpd
+    isn't installed). Returns [{local_if, peer_name, peer_port, mgmt_ip}] so the
+    server can suggest physical topology edges. Best-effort + bounded."""
+    if not _which('lldpctl'):
+        return []
+    try:
+        out = subprocess.check_output(['lldpctl', '-f', 'keyvalue'],
+                                      text=True, stderr=subprocess.DEVNULL, timeout=8)
+    except Exception:
+        return []
+    # keys look like: lldp.<localif>.chassis.name=<peer>, .port.ifname=<port>,
+    # .chassis.mgmt-ip=<ip>. Group by the local interface segment.
+    by_if = {}
+    for line in out.splitlines():
+        line = line.strip()
+        if not line.startswith('lldp.') or '=' not in line:
+            continue
+        key, _, val = line.partition('=')
+        parts = key.split('.')
+        if len(parts) < 3:
+            continue
+        local_if = parts[1]
+        rest = '.'.join(parts[2:])
+        rec = by_if.setdefault(local_if, {'local_if': local_if, 'peer_name': '',
+                                          'peer_port': '', 'mgmt_ip': ''})
+        if rest in ('chassis.name', 'chassis.descr') and not rec['peer_name']:
+            rec['peer_name'] = val[:128]
+        elif rest in ('port.ifname', 'port.descr') and not rec['peer_port']:
+            rec['peer_port'] = val[:64]
+        elif rest.startswith('chassis.mgmt-ip') and not rec['mgmt_ip']:
+            rec['mgmt_ip'] = val[:64]
+    rows = [r for r in by_if.values() if r['peer_name'] or r['mgmt_ip']]
+    return rows[:limit]
+
+
 # v3.14.0 #35: secrets-on-disk scanner. READ-ONLY + REDACTING by construction —
 # it never transmits a secret's value, only the rule, the file:line location, a
 # masked preview, and a sha256 fingerprint (so the server can dedupe/mute a
@@ -8073,6 +8109,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                         payload['peer_conns'] = _peers
                 except Exception as e:
                     log.debug(f'peer conns error: {e}')
+                # W5-1: LLDP neighbors (physical topology) on the same cadence.
+                try:
+                    _lldp = collect_lldp_neighbors(64)
+                    if _lldp:
+                        payload['lldp_neighbors'] = _lldp
+                except Exception as e:
+                    log.debug(f'lldp error: {e}')
             # W3-40: newly-seen sudo invocations (privileged-command audit trail).
             try:
                 _sudo = collect_sudo_events(100)

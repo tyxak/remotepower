@@ -107,6 +107,8 @@ SUDO_LOG_FILE = DATA_DIR / 'sudo_log.json'         # W3-40 per-device privileged
 MAX_SUDO_PER_DEVICE = 500                           # W3-40 rolling cap per device
 PEER_CONNS_FILE = DATA_DIR / 'peer_conns.json'     # W3-8 observed outbound peers per device
 DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency suggestions
+LLDP_NEIGHBORS_FILE = DATA_DIR / 'lldp_neighbors.json'  # W5-1 LLDP neighbors per device
+LLDP_DISMISS_FILE = DATA_DIR / 'lldp_dismissed.json'    # W5-1 dismissed topology edges
 CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
 MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
 MAILFLOW_STATE_FILE = DATA_DIR / 'mailflow_state.json'   # W4-16 mail round-trip probe state
@@ -15841,6 +15843,23 @@ def handle_heartbeat():
         except Exception:
             pass
 
+    # W5-1: record LLDP neighbors for physical-topology auto-suggestion.
+    _lldp_in = body.get('lldp_neighbors')
+    if isinstance(_lldp_in, list):
+        try:
+            clean = []
+            for n in _lldp_in[:64]:
+                if isinstance(n, dict) and (n.get('peer_name') or n.get('mgmt_ip')):
+                    clean.append({
+                        'local_if':  _sanitize_str(str(n.get('local_if', '')), 32),
+                        'peer_name': _sanitize_str(str(n.get('peer_name', '')), 128),
+                        'peer_port': _sanitize_str(str(n.get('peer_port', '')), 64),
+                        'mgmt_ip':   _sanitize_str(str(n.get('mgmt_ip', '')), 45)})
+            with _LockedUpdate(LLDP_NEIGHBORS_FILE) as _ln:
+                _ln[dev_id] = {'ts': now, 'neighbors': clean}
+        except Exception:
+            pass
+
     # v2.8.0: port audit and SSH key audit (best-effort — never fail heartbeat)
     _si = saved_dev.get('sysinfo') or {}
     if _si.get('listening_ports'):
@@ -28208,6 +28227,86 @@ def handle_dependency_suggestions():
         with _LockedUpdate(DEP_DISMISS_FILE) as store:
             pairs = set(store.get('pairs') or [])
             pairs.add(f'{did}:{up}')
+            store['pairs'] = sorted(pairs)
+        respond(200, {'ok': True})
+    else:
+        respond(400, {'error': 'action must be accept or dismiss'})
+
+
+def _lldp_suggestions():
+    """W5-1: correlate each device's LLDP neighbors against known devices (by
+    mgmt-ip or hostname/sysname) → suggested physical `connected_to` edges.
+    Skips edges already declared (connected_to) or dismissed. Manual edges win."""
+    devices = load(DEVICES_FILE) or {}
+    neigh = load(LLDP_NEIGHBORS_FILE) or {}
+    dismissed = set((load(LLDP_DISMISS_FILE) or {}).get('pairs') or [])
+    # index device IPs and hostnames → device id
+    ip_to_dev, name_to_dev = {}, {}
+    for did, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        for f in ('ip', 'hostname'):
+            v = str(dev.get(f) or '').strip()
+            if v:
+                ip_to_dev.setdefault(v, did)
+        hn = str(dev.get('hostname') or dev.get('name') or '').strip().lower()
+        if hn:
+            name_to_dev.setdefault(hn, did)
+        for nic in (dev.get('interfaces') or []):
+            if isinstance(nic, dict) and nic.get('ip'):
+                ip_to_dev.setdefault(str(nic['ip']), did)
+    out = []
+    for did, rec in neigh.items():
+        if did not in devices:
+            continue
+        dev = devices[did]
+        declared = dev.get('connected_to') or ''
+        seen = set()
+        for n in (rec.get('neighbors') or []):
+            peer = ip_to_dev.get(str(n.get('mgmt_ip') or '')) \
+                or name_to_dev.get(str(n.get('peer_name') or '').strip().lower())
+            if not peer or peer == did or peer == declared or peer in seen:
+                continue
+            if f'{did}:{peer}' in dismissed:
+                continue
+            seen.add(peer)
+            out.append({
+                'device_id': did, 'device_name': dev.get('name', did),
+                'peer_id': peer, 'peer_name': devices[peer].get('name', peer),
+                'local_if': n.get('local_if', ''), 'peer_port': n.get('peer_port', ''),
+                'evidence': f"{n.get('local_if', '?')} → {n.get('peer_name', '')}"
+                            f"{(' ' + n.get('peer_port')) if n.get('peer_port') else ''}",
+            })
+    return out
+
+
+def handle_lldp_suggestions():
+    """GET /api/lldp-suggestions — LLDP-derived physical topology edges to review.
+    POST {device_id, peer_id, action: accept|dismiss}. Accept sets connected_to."""
+    if method() == 'GET':
+        require_auth()
+        respond(200, {'ok': True, 'suggestions': _lldp_suggestions()})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    did = str(body.get('device_id') or '').strip()
+    peer = str(body.get('peer_id') or '').strip()
+    action = str(body.get('action') or '').strip()
+    devices = load(DEVICES_FILE) or {}
+    if did not in devices or peer not in devices or did == peer:
+        respond(400, {'error': 'valid device_id and peer_id required'})
+    if action == 'accept':
+        with _LockedUpdate(DEVICES_FILE) as devs:
+            dev = devs.get(did)
+            if dev is not None:
+                dev['connected_to'] = peer   # manual/physical edge
+        audit_log(actor, 'lldp_accept', f'{did} -> {peer}')
+        respond(200, {'ok': True})
+    elif action == 'dismiss':
+        with _LockedUpdate(LLDP_DISMISS_FILE) as store:
+            pairs = set(store.get('pairs') or [])
+            pairs.add(f'{did}:{peer}')
             store['pairs'] = sorted(pairs)
         respond(200, {'ok': True})
     else:
@@ -53108,6 +53207,8 @@ def _build_exact_routes():
         ('GET', '/api/sudo-search'): handle_sudo_search,            # W3-40
         ('GET', '/api/dependency-suggestions'): handle_dependency_suggestions,  # W3-8
         ('POST', '/api/dependency-suggestions'): handle_dependency_suggestions,
+        ('GET', '/api/lldp-suggestions'): handle_lldp_suggestions,   # W5-1
+        ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

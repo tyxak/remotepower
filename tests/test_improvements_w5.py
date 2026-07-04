@@ -24,7 +24,8 @@ class _HandlerBase(unittest.TestCase):
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
                      'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE', 'SITES_FILE',
-                     'RACKS_FILE', 'CMDB_FILE', 'SUBNETS_FILE', 'IPAM_STATE_FILE'):
+                     'RACKS_FILE', 'CMDB_FILE', 'SUBNETS_FILE', 'IPAM_STATE_FILE',
+                     'LLDP_NEIGHBORS_FILE', 'LLDP_DISMISS_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -357,6 +358,83 @@ class TestIpam(_HandlerBase):
         api._invalidate_load_cache(api.IPAM_STATE_FILE)
         api.run_ipam_conflicts_if_due()
         self.assertEqual(fired, [])
+
+
+def _load_agent():
+    s = importlib.util.spec_from_file_location(
+        "rpagent_w5", ROOT / "client" / "remotepower-agent.py")
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    return m
+
+
+class TestLldp(_HandlerBase):
+    """W5-1: LLDP topology discovery — agent parse + server suggestions."""
+
+    def test_agent_parses_keyvalue(self):
+        agent = _load_agent()
+        sample = ("lldp.eth0.via=LLDP\n"
+                  "lldp.eth0.chassis.name=core-switch\n"
+                  "lldp.eth0.chassis.mgmt-ip=10.0.0.1\n"
+                  "lldp.eth0.port.ifname=Gi0/1\n"
+                  "lldp.eth1.chassis.name=access-sw\n"
+                  "lldp.eth1.port.ifname=Gi0/2\n")
+        import subprocess
+        orig_co, orig_which = subprocess.check_output, agent._which
+        subprocess.check_output = lambda *a, **k: sample
+        agent._which = lambda prog, _cache={}: '/usr/sbin/lldpctl'
+        try:
+            rows = agent.collect_lldp_neighbors()
+        finally:
+            subprocess.check_output = orig_co
+            agent._which = orig_which
+        by = {r['local_if']: r for r in rows}
+        self.assertEqual(by['eth0']['peer_name'], 'core-switch')
+        self.assertEqual(by['eth0']['mgmt_ip'], '10.0.0.1')
+        self.assertEqual(by['eth0']['peer_port'], 'Gi0/1')
+
+    def test_agent_skips_without_lldpctl(self):
+        agent = _load_agent()
+        orig = agent._which
+        agent._which = lambda prog, _cache={}: None
+        try:
+            self.assertEqual(agent.collect_lldp_neighbors(), [])
+        finally:
+            agent._which = orig
+
+    def test_server_suggests_edge_by_mgmt_ip(self):
+        api.save(api.DEVICES_FILE, {
+            'host': {'name': 'host1', 'ip': '10.0.0.50'},
+            'sw':   {'name': 'core-switch', 'ip': '10.0.0.1'}})
+        api.save(api.LLDP_NEIGHBORS_FILE, {
+            'host': {'ts': 1, 'neighbors': [
+                {'local_if': 'eth0', 'peer_name': 'core-switch',
+                 'peer_port': 'Gi0/1', 'mgmt_ip': '10.0.0.1'}]}})
+        for f in (api.DEVICES_FILE, api.LLDP_NEIGHBORS_FILE):
+            api._invalidate_load_cache(f)
+        sugg = api._lldp_suggestions()
+        self.assertEqual(len(sugg), 1)
+        self.assertEqual(sugg[0]['device_id'], 'host')
+        self.assertEqual(sugg[0]['peer_id'], 'sw')
+
+    def test_accept_sets_connected_to(self):
+        api.save(api.DEVICES_FILE, {'host': {'name': 'h'}, 'sw': {'name': 's'}})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'device_id': 'host', 'peer_id': 'sw', 'action': 'accept'}
+        self.call(api.handle_lldp_suggestions)
+        self.assertEqual((api.load(api.DEVICES_FILE) or {})['host']['connected_to'], 'sw')
+
+    def test_dismiss_suppresses_suggestion(self):
+        api.save(api.DEVICES_FILE, {
+            'host': {'name': 'h', 'ip': '10.0.0.50'}, 'sw': {'name': 'sw', 'ip': '10.0.0.1'}})
+        api.save(api.LLDP_NEIGHBORS_FILE, {
+            'host': {'ts': 1, 'neighbors': [{'local_if': 'eth0', 'peer_name': 'sw',
+                                             'mgmt_ip': '10.0.0.1'}]}})
+        api.save(api.LLDP_DISMISS_FILE, {'pairs': ['host:sw']})
+        for f in (api.DEVICES_FILE, api.LLDP_NEIGHBORS_FILE, api.LLDP_DISMISS_FILE):
+            api._invalidate_load_cache(f)
+        self.assertEqual(api._lldp_suggestions(), [])
 
 
 if __name__ == '__main__':
