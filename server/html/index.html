@@ -6185,6 +6185,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <tbody id="tls-tbody"><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
             </table>
           </div>
+
+          <!-- W1-17: certificate-transparency watch (crt.sh) -->
+          <div class="dash-card mb-16 mt-16">
+            <div class="section-title">CT watch</div>
+            <p class="hint">Watch Certificate-Transparency logs (via <code>crt.sh</code>) for certificates issued for your domains — catches certs you didn't request (compromised DNS/ACME, rogue issuance, shadow IT). One domain per line, empty = off. The first check per domain baselines silently; new issuance afterwards raises a <code>ct_new_certificate</code> alert. Re-checked ~6h; a domain that keeps failing (crt.sh is slow) backs off for a day.</p>
+            <textarea id="ct-domains" class="form-input ff-mono" rows="4" maxlength="8000" placeholder="example.com" aria-label="CT watch domains, one per line"></textarea>
+            <div class="row-6 mt-8"><button class="btn-primary" data-action="saveCtWatch">Save CT watch</button></div>
+            <div id="ct-watch-result" class="hint mt-6" role="status" aria-live="polite"></div>
+          </div>
         </div><!-- /tls-panel-expiry -->
 
         <!-- ── v3.0.1: ACME / acme.sh integration ─────────────────────────── -->

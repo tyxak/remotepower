@@ -12186,7 +12186,7 @@ const EVENT_CLASS = {
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
   'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
-  'tls_expiry': 'warn', 'snapshot_old': 'warn',
+  'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
   'custom_script_recover': 'ok', 'config_drift': 'warn',
   'custom_check_failed': 'critical', 'custom_check_recovered': 'ok',
@@ -13620,7 +13620,7 @@ function _renderHomeActivity(fleetEvents) {
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
-    'config_drift', 'tls_expiry', 'reboot_required', 'reboot_cleared', 'snapshot_old',
+    'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
@@ -13741,6 +13741,8 @@ function _renderHomeActivity(fleetEvents) {
         detail = `"${p.label||p.path}" ${p.age_hours ? `${p.age_hours}h old` : 'missing'}`; break;
       case 'tls_expiry':
         detail = `${p.host}: ${p.days_left}d left`; break;
+      case 'ct_new_certificate':
+        detail = `${p.domain}: ${p.issuer || p.cn || 'new cert'}`; break;
       case 'snapshot_old':
         detail = `${p.vm_name}: "${p.snap_name}" ${p.days_old}d old`; break;
       case 'log_alert':
@@ -13813,6 +13815,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="history"`;
     case 'config_drift':   return `${base} data-home-act="devices"`;
     case 'tls_expiry':     return `${base} data-home-act="tls"`;
+    case 'ct_new_certificate': return `${base} data-home-act="tls"`;
     case 'snapshot_old':   return `${base} data-home-act="virtualization"`;
     case 'snmp_unreachable': case 'snmp_dead': case 'snmp_recover': case 'snmp_trap_received':
       // SNMP events surface on agentless device cards; clicking opens the

@@ -440,6 +440,32 @@ async function loadTLS() {
   const data = await api('GET', '/tls/targets');
   _tlsTargets = Array.isArray(data) ? data : [];
   renderTLS();
+  _loadCtWatch();
+}
+
+// W1-17: certificate-transparency watch — domain list lives in config.
+async function _loadCtWatch() {
+  const box = document.getElementById('ct-domains');
+  if (!box) return;
+  try {
+    const cfg = await api('GET', '/config');
+    box.value = (cfg?.ct_watch_domains || []).join('\n');
+  } catch (e) { /* non-admin config read failure leaves the box empty */ }
+}
+async function saveCtWatch() {
+  const box = document.getElementById('ct-domains');
+  const res = document.getElementById('ct-watch-result');
+  if (!box) return;
+  const domains = box.value.split('\n').map(s => s.trim()).filter(Boolean);
+  const r = await api('POST', '/config', { ct_watch_domains: domains });
+  if (r && !r.error) {
+    toast('CT watch saved', 'success');
+    if (res) res.textContent = domains.length ? `Watching ${domains.length} domain${domains.length === 1 ? '' : 's'} — first check baselines silently.` : 'CT watch is off.';
+    _loadCtWatch();
+  } else {
+    toast(r?.error || 'Failed', 'error');
+    if (res) res.textContent = r?.error || 'Failed';
+  }
 }
 
 // v1.11.5: TLS table now goes through tableCtl

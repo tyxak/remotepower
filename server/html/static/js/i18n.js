@@ -36,6 +36,8 @@
     'Ticket auto-reply':     { zh: '工单自动回复', hi: 'टिकट स्वतः-उत्तर', es: 'Respuesta automática de tickets', ar: 'الرد التلقائي للتذاكر' },
     'Canned replies':        { zh: '预设回复', hi: 'तैयार उत्तर', es: 'Respuestas predefinidas', ar: 'الردود الجاهزة' },
     'Save canned reply':     { zh: '保存预设回复', hi: 'तैयार उत्तर सहेजें', es: 'Guardar respuesta predefinida', ar: 'حفظ الرد الجاهز' },
+    'CT watch':              { zh: 'CT 证书监视', hi: 'CT निगरानी', es: 'Vigilancia CT', ar: 'مراقبة CT' },
+    'Save CT watch':         { zh: '保存 CT 监视', hi: 'CT निगरानी सहेजें', es: 'Guardar vigilancia CT', ar: 'حفظ مراقبة CT' },
     // ── v5.4.0 "RackMatters": time-tracking + billing chrome ──
     'Timesheet':              { zh: '工时表', hi: 'टाइमशीट', es: 'Hoja de horas', ar: 'سجل الساعات' },
     'Billing':                { zh: '账单', hi: 'बिलिंग', es: 'Facturación', ar: 'الفوترة' },

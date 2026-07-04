@@ -277,5 +277,116 @@ class TestCannedTicketReplies(_HandlerBase):
                          'handle_ticket_templates')
 
 
+class TestCtWatch(_HandlerBase):
+    """W1-17: certificate-transparency watch (crt.sh poller + event)."""
+
+    def setUp(self):
+        super().setUp()
+        self._ctf = api.CT_WATCH_FILE
+        api.CT_WATCH_FILE = self.d / 'ct_watch.json'
+        self._fetch = api._ct_fetch_domain
+        self.fired = []
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
+
+    def tearDown(self):
+        api.CT_WATCH_FILE = self._ctf
+        api._ct_fetch_domain = self._fetch
+        super().tearDown()
+
+    def _set_domains(self, domains):
+        api.save(api.CONFIG_FILE, {'ct_watch_domains': domains})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def _age_state(self):
+        """Make every domain due again (cadence gate is 6h)."""
+        st = api.load(api.CT_WATCH_FILE) or {}
+        for d in st:
+            st[d]['last_check'] = 0
+        api.save(api.CT_WATCH_FILE, st)
+        api._invalidate_load_cache(api.CT_WATCH_FILE)
+
+    def test_baseline_then_alert_on_new_cert(self):
+        self._set_domains(['example.com'])
+        certs = [{'id': '1', 'serial': 'aa', 'issuer': "C=US, O=Let's Encrypt",
+                  'cn': 'example.com', 'not_before': '2026-01-01'}]
+        api._ct_fetch_domain = lambda d: list(certs)
+        api.run_ct_watch_if_due()
+        self.assertEqual(self.fired, [])          # first poll baselines silently
+        st = api.load(api.CT_WATCH_FILE)['example.com']
+        self.assertTrue(st['baselined'])
+        self.assertIn('1', st['seen'])
+        # second poll: same cert (no event) + one NEW cert (event)
+        certs.append({'id': '2', 'serial': 'bb', 'issuer': 'C=XX, O=EvilCA',
+                      'cn': 'example.com', 'not_before': '2026-07-01'})
+        self._age_state()
+        api.run_ct_watch_if_due()
+        self.assertEqual(len(self.fired), 1)
+        ev, p = self.fired[0]
+        self.assertEqual(ev, 'ct_new_certificate')
+        self.assertEqual(p['domain'], 'example.com')
+        self.assertEqual(p['issuer'], 'C=XX, O=EvilCA')
+        # third poll: nothing new → nothing fired
+        self.fired.clear()
+        self._age_state()
+        api.run_ct_watch_if_due()
+        self.assertEqual(self.fired, [])
+
+    def test_circuit_breaker_backs_off(self):
+        self._set_domains(['down.example'])
+
+        def boom(d):
+            raise OSError('crt.sh timeout')
+        api._ct_fetch_domain = boom
+        for _ in range(api.CT_FAIL_BACKOFF):
+            self._age_state()
+            api.run_ct_watch_if_due()
+        st = api.load(api.CT_WATCH_FILE)['down.example']
+        self.assertEqual(st['fail_streak'], api.CT_FAIL_BACKOFF)
+        # circuit open: last_check is recent → skipped entirely (fetch not called)
+        calls = []
+        api._ct_fetch_domain = lambda d: calls.append(d) or []
+        st['last_check'] = int(__import__('time').time()) - api.CT_SCAN_INTERVAL - 1
+        api.save(api.CT_WATCH_FILE, {'down.example': st})
+        api._invalidate_load_cache(api.CT_WATCH_FILE)
+        api.run_ct_watch_if_due()
+        self.assertEqual(calls, [])
+
+    def test_event_storm_capped(self):
+        self._set_domains(['big.example'])
+        api._ct_fetch_domain = lambda d: [
+            {'id': str(i), 'serial': f's{i}', 'issuer': 'X', 'cn': 'big.example',
+             'not_before': ''} for i in range(1)]
+        api.run_ct_watch_if_due()          # baseline
+        api._ct_fetch_domain = lambda d: [
+            {'id': str(i), 'serial': f's{i}', 'issuer': 'X', 'cn': 'big.example',
+             'not_before': ''} for i in range(200)]
+        self._age_state()
+        api.run_ct_watch_if_due()
+        self.assertEqual(len(self.fired), api.CT_MAX_EVENTS_PER_RUN)
+        # everything is still marked seen — capping events must not re-alert later
+        self.fired.clear()
+        self._age_state()
+        api.run_ct_watch_if_due()
+        self.assertEqual(self.fired, [])
+
+    def test_config_save_sanitizes_domains(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'ct_watch_domains': [
+            ' Example.COM ', 'bad host!.com', 'no-dot', 'example.com', 'ok.example.org']}
+        try:
+            api.handle_config_save()
+        except api.HTTPError:
+            pass
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        doms = (api.load(api.CONFIG_FILE) or {}).get('ct_watch_domains')
+        self.assertEqual(doms, ['example.com', 'badhost.com', 'ok.example.org'])
+
+    def test_registry_entry_and_frontend_wiring(self):
+        self.assertIn('ct_new_certificate', api.EVENT_REGISTRY)
+        appjs = (ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn("'ct_new_certificate'", appjs)
+        self.assertIn("case 'ct_new_certificate'", appjs)
+
+
 if __name__ == '__main__':
     unittest.main()

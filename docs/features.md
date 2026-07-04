@@ -90,6 +90,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | SNMP trap receiver | HTTP receiver — an `snmptrapd` handler POSTs decoded traps as JSON to `POST /api/snmp/trap/<token>`; traps attach to the pinned device's SNMP view and raise a coalesced `snmp_trap_received` alert |
 | Inbound alert webhook | Generic receiver — external systems (Grafana, Alertmanager, Authentik, n8n, Home Assistant, …) POST JSON `{severity, title, …}` to `POST /api/webhook/in/<token>`; lands in the Alerts inbox *(v3.2.0)* |
 | TLS / DNS expiry | Server-side probes against a watchlist; warn 14d / crit 3d; auto re-probed ~6h by the built-in schedule — no cron needed *(v5.8.0)* |
+| CT watch | Certificate-Transparency monitoring via crt.sh — watched domains baseline on first check, then any certificate you didn't know about raises `ct_new_certificate` (compromised DNS/ACME, rogue issuance); circuit-broken when crt.sh is down *(v5.8.0)* |
 | Resolver health monitor | Re-resolves a name across public resolvers; tracks latency + NXDOMAIN; `resolver_unhealthy`/`resolver_recovered` *(v4.9.0)* |
 | Healthchecks.io watchdog | Server pings a URL on a cadence so an external monitor flips red if RemotePower stops |
 
@@ -301,6 +302,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Break-glass reveals | Two-person rule for sensitive secrets; `vault_break_glass` *(v5.0.0)* |
 | Credential rotation reminders | Vault entries flagged for rotation *(v3.7.0)* |
 | Agentless devices | Switches/APs/printers/IPMI/cameras — same CMDB/vault/SSH-link *(v1.11.0)* |
+| Cloud inventory import | Pull running AWS EC2 instances into the fleet as agentless devices (`POST /api/cloud/import`, stdlib SigV4 — no SDK); read-only, credentials write-only *(v4.0.0)* |
 | In-app docs | Curated documentation page with substring search *(v2.0)* |
 | Knowledge base | Operator-authored markdown articles (SOPs / how-tos / runbooks) in a category folder tree; searchable; opt-in `kb_enabled`; fed to the AI as a RAG source. `GET/POST /api/kb`, `…/{id}` *(v5.6.0)* |
 

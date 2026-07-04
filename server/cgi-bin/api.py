@@ -447,6 +447,20 @@ TLS_DEFAULT_CRIT_DAYS = 3
 TLS_SCAN_INTERVAL   = 6 * 3600   # per-target auto re-probe cadence (docs promise ~6h)
 TLS_MAX_PER_RUN     = 10         # cap targets probed per sweep run (bounded heartbeat)
 TLS_RUN_BUDGET      = 15         # wall-clock seconds cap per sweep run (probe worst case 5+5s)
+# W1-17 (improvement program): certificate-transparency watch — poll crt.sh for
+# newly-issued certificates on watched domains (catches certs YOU didn't request:
+# compromised DNS/ACME, rogue CA issuance, shadow-IT wildcards). First poll per
+# domain BASELINES silently; later polls raise ct_new_certificate on unseen ids.
+CT_WATCH_FILE      = DATA_DIR / 'ct_watch.json'
+MAX_CT_DOMAINS     = 100
+CT_SCAN_INTERVAL   = 6 * 3600    # per-domain cadence
+CT_MAX_PER_RUN     = 3           # crt.sh is slow/flaky — keep sweeps tiny
+CT_RUN_BUDGET      = 12          # wall-clock seconds cap per sweep run
+CT_HTTP_TIMEOUT    = 10
+CT_FAIL_BACKOFF    = 3           # consecutive failures → 24h circuit-break
+CT_BACKOFF_SECONDS = 24 * 3600
+CT_MAX_SEEN        = 2000        # per-domain seen-cert cap (oldest pruned)
+CT_MAX_EVENTS_PER_RUN = 20       # cert-storm guard (bulk reissue ≠ 200 alerts)
 
 # ── v1.11.1: network-map tunnels + draggable positions ───────────────────────
 # Tunnels are a second kind of edge between two devices — distinct from the
@@ -1255,6 +1269,10 @@ EVENT_REGISTRY = {
     'github_new_issue': dict(
         label='New issue opened on a watched GitHub repository', kind='github_issue',
         title='New GitHub Issue', severity='low', tags='memo'),
+    'ct_new_certificate': dict(
+        label='New certificate issued for a watched domain (CT log)', kind='tls',
+        title='New Certificate Issued (CT)', severity='medium', priority=4,
+        tags='warning,lock'),
     'ip_blacklisted': dict(
         label='A monitored IP is listed on a DNS blocklist (DNSBL)', kind='reputation',
         title='IP Blocklisted', severity='high'),
@@ -5909,6 +5927,8 @@ def _record_fleet_event(event, payload):
                     'priority', 'assignee', 'resolved_by',
                     # v5.8.0: github_new_issue feed items name the repo/issue.
                     'repo', 'title', 'url', 'label',
+                    # W1-17: ct_new_certificate feed items name the domain/issuer.
+                    'domain', 'issuer', 'cn',
                     # v5.8.0: feed-detail fields read by the activity-feed row
                     # renderer (app.js _homeActivityAttrs / detail line). Dropped
                     # here they rendered as blank/undefined detail text even though
@@ -7121,6 +7141,9 @@ def _record_alert(event, payload):
                     # ticket_resolved matches to auto-resolve the SLA-breach
                     # alert; number is the operator-facing #RP reference.
                     'ticket_id', 'number',
+                    # W1-17: ct_new_certificate — domain+serial identify the
+                    # issuance; issuer/cn/not_before make the alert readable.
+                    'domain', 'issuer', 'cn', 'not_before', 'serial',
                     # v5.8.0: github_new_issue — repo + number identify the
                     # issue; title/url make the alert self-describing and let
                     # the UI link straight to it.
@@ -17458,6 +17481,7 @@ def handle_config_get():
     safe['approval_kinds_all'] = list(_APPROVAL_KINDS_ALL)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
+    safe.setdefault('ct_watch_domains',       [])     # W1-17: CT-log watch (empty = off)
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -18779,6 +18803,18 @@ def handle_config_save():
     # OFF resolves the open backlog for those events in one action.
     if 'tickets_enabled' in body:
         cfg['tickets_enabled'] = bool(body['tickets_enabled'])
+    # W1-17: certificate-transparency watch — plain domain list; empty = off.
+    if 'ct_watch_domains' in body:
+        raw = body.get('ct_watch_domains')
+        if not isinstance(raw, list):
+            respond(400, {'error': 'ct_watch_domains must be a list'})
+        doms, _seen_d = [], set()
+        for d in raw[:MAX_CT_DOMAINS]:
+            d = re.sub(r'[^a-z0-9.\-]', '', str(d).strip().lower())[:255].strip('.')
+            if d and '.' in d and d not in _seen_d:
+                _seen_d.add(d)
+                doms.append(d)
+        cfg['ct_watch_domains'] = doms
     if 'billing_enabled' in body:   # v5.4.1: Billing page opt-in (Advanced)
         cfg['billing_enabled'] = bool(body['billing_enabled'])
     if 'show_provisioning' in body:   # v5.6.0: Provisioning page opt-in (Advanced)
@@ -24592,6 +24628,94 @@ def run_tls_scan_if_due():
     save(TLS_RESULTS_FILE, results)
     for ev, payload in pending:
         fire_webhook(ev, payload)
+
+
+# ─── W1-17: certificate-transparency watch (crt.sh) ─────────────────────────
+
+def _ct_fetch_domain(domain):
+    """Query crt.sh for certificates covering ``domain``. Returns a list of
+    {id, serial, issuer, cn, not_before}. Raises on transport/parse errors —
+    the caller counts failures for the per-domain circuit breaker."""
+    url = 'https://crt.sh/?output=json&q=' + urllib.parse.quote(domain)
+    opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True,
+                               ssl_ctx=_get_ssl_context())
+    req = urllib.request.Request(
+        url, headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
+    with opener.open(req, timeout=CT_HTTP_TIMEOUT) as resp:
+        rows = json.loads(resp.read(4 * 1024 * 1024).decode('utf-8', 'replace'))
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        out.append({
+            'id':         str(r.get('id', '')),
+            'serial':     str(r.get('serial_number', ''))[:64],
+            'issuer':     str(r.get('issuer_name', ''))[:200],
+            'cn':         str(r.get('common_name') or r.get('name_value') or '')[:200],
+            'not_before': str(r.get('not_before', ''))[:32],
+        })
+    return out
+
+
+def run_ct_watch_if_due():
+    """W1-17: periodic CT-log sweep over ``ct_watch_domains`` (config; empty =
+    off). Same bounded-cadence shape as run_tls_scan_if_due: oldest-first,
+    per-run cap + wall-clock budget, cheap `_config_ro()` read on the not-due
+    path. crt.sh is notoriously slow, so a domain that fails CT_FAIL_BACKOFF
+    times in a row is circuit-broken for 24h. The first successful poll per
+    domain baselines silently; afterwards each unseen cert id raises
+    ct_new_certificate (capped per run — a bulk reissue isn't 200 alerts).
+    Webhooks fire AFTER the save, never under a lock."""
+    domains = _config_ro().get('ct_watch_domains') or []
+    if not domains:
+        return
+    state = load(CT_WATCH_FILE) or {}
+    now = int(time.time())
+    order = sorted(domains, key=lambda d: (state.get(d) or {}).get('last_check', 0))
+    pending, scanned = [], 0
+    start = time.monotonic()
+    for domain in order:
+        st = state.get(domain) or {}
+        last = int(st.get('last_check', 0) or 0)
+        if now - last < CT_SCAN_INTERVAL:
+            break               # oldest-first: everything after this is younger
+        if int(st.get('fail_streak', 0) or 0) >= CT_FAIL_BACKOFF \
+                and now - last < CT_BACKOFF_SECONDS:
+            continue            # circuit-broken — retry tomorrow
+        if scanned >= CT_MAX_PER_RUN or time.monotonic() - start > CT_RUN_BUDGET:
+            break
+        scanned += 1
+        try:
+            certs = _ct_fetch_domain(domain)
+        except Exception as e:
+            st['fail_streak'] = int(st.get('fail_streak', 0) or 0) + 1
+            st['last_check'] = now
+            state[domain] = st
+            sys.stderr.write(f'[remotepower] ct watch failed {domain}: {e}\n')
+            continue
+        seen = st.get('seen') or {}
+        baselined = bool(st.get('baselined'))
+        for c in certs:
+            key = c['id'] or (c['serial'] + '|' + c['issuer'])
+            if not key or key in seen:
+                continue
+            seen[key] = now
+            if baselined and len(pending) < CT_MAX_EVENTS_PER_RUN:
+                pending.append({'domain': domain, 'issuer': c['issuer'],
+                                'cn': c['cn'], 'serial': c['serial'],
+                                'not_before': c['not_before']})
+        if len(seen) > CT_MAX_SEEN:
+            for k in sorted(seen, key=seen.get)[:len(seen) - CT_MAX_SEEN]:
+                seen.pop(k, None)
+        state[domain] = {'seen': seen, 'baselined': True,
+                         'last_check': now, 'fail_streak': 0}
+    if not scanned:
+        return
+    # Drop state for domains removed from the watchlist (store stays bounded).
+    state = {d: s for d, s in state.items() if d in domains}
+    save(CT_WATCH_FILE, state)
+    for p in pending:
+        fire_webhook('ct_new_certificate', p)
 
 
 # ─── v4.8.0: DMARC posture monitor (DNS-only) ────────────────────────────────
@@ -50777,6 +50901,8 @@ def main():
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v5.8.0: periodic TLS/DANE expiry re-probe (was cron-only — see the sweep).
     _safe(run_tls_scan_if_due, 'run_tls_scan_if_due')
+    # W1-17: certificate-transparency watch (crt.sh, off unless domains set).
+    _safe(run_ct_watch_if_due, 'run_ct_watch_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).

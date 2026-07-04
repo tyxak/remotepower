@@ -135,6 +135,31 @@ edge-triggered, honouring the per-target warn/critical days.
 
 No cron entry is required.
 
+## CT watch (certificate-transparency monitoring)
+
+The TLS page also carries a **CT watch** card: a list of domains polled
+against [crt.sh](https://crt.sh)'s Certificate-Transparency index (~6h
+cadence, same opportunistic scheduling as the expiry probes). It answers a
+different question than expiry monitoring: **"was a certificate issued for my
+domain that I didn't request?"** — the signal for compromised DNS, a leaked
+ACME account, rogue CA issuance, or shadow-IT wildcards.
+
+- One domain per line; empty list = feature off. Saved in config
+  (`ct_watch_domains`), no separate store to manage.
+- The **first successful check per domain baselines silently** (every
+  historical cert is marked seen, no alerts). After that, any unseen
+  certificate raises a `ct_new_certificate` alert (medium) carrying the
+  domain, issuer, CN and serial.
+- crt.sh is slow and occasionally down: a domain that fails 3 checks in a row
+  backs off for 24 h, and each sweep polls at most 3 domains inside a strict
+  wall-clock budget so the cadence can't stall request traffic.
+- Alert storms are capped — a bulk reissue produces at most 20 events per
+  sweep; the rest are still recorded as seen.
+
+Expected noise: normal Let's Encrypt renewals appear as new issuance. If a
+domain renews often, that's a few alerts per quarter — mute the pair from the
+alert if you only care about unexpected issuers.
+
 ## Cron / systemd (optional, legacy)
 
 The standalone `remotepower-tls-check` runner predates the built-in

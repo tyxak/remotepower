@@ -304,6 +304,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'scan_finding',                          # v4.2.0 (B5)
             'integration_down', 'integration_recovered',  # v4.7.0 integrations
             'github_new_issue',                      # v5.8.0 GitHub issue monitor
+            'ct_new_certificate',                    # W1-17 CT-log watch
             'ip_blacklisted', 'ip_blacklist_cleared',  # v4.8.0 IP reputation
             'resolver_unhealthy', 'resolver_recovered',  # v4.9.0 resolver health
             'fail2ban_ban',                          # v5.1.0 fail2ban bans
