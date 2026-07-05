@@ -10,10 +10,13 @@ the agent root channel, data-binding, and dependencies), and a live authenticate
 pentest of the maintainer's own running instance. Every reported finding was
 hand-verified before fixing.
 
-**No Critical or High issues were found.** Two Medium findings (both the same
-root cause — an incomplete migration to permission-checked writes) and a set of
-Low/defense-in-depth items were fixed before promotion. **Nothing Critical, High,
-or Medium ships.**
+**No Critical or High issues were found in the whole-project pass.** Two Medium
+findings (both the same root cause — an incomplete migration to permission-checked
+writes) and a set of Low/defense-in-depth items were fixed before promotion. A
+**separate, dedicated pentest of the new customer-portal perimeter (#28)** — run
+because it introduces an external, unauthenticated entry point — found two High and
+several lower items, all fixed before the feature ships (see *Customer portal
+pentest* below). **Nothing Critical, High, or Medium ships.**
 
 ## Tooling
 
@@ -116,6 +119,40 @@ filtering into the AI corpus), IDOR/authorization, lock-nesting, and the
 storage-backend-aware existence checks. SAML uses a vetted library with signed
 responses/assertions; login enforces MFA with dual rate-limiting and timing-oracle
 defense.
+
+## Customer portal pentest (#28)
+
+*Follow-up, 2026-07-05.* The customer portal is the release's one genuinely new
+**external, unauthenticated-entry** surface: site contacts sign in with an emailed
+magic link and read/reply to their own site's support tickets, with no operator
+account. Because a new auth perimeter is exactly where mistakes are costly, it got
+its own adversarial pass (auth-boundary crossover, session/token lifecycle,
+cross-customer isolation, enumeration, internal-data leakage, CSRF/cookie flags).
+Every finding was hand-verified against the code before fixing.
+
+Strong by construction and confirmed unbroken: operator↔portal token isolation
+(the portal trusts only its own `HttpOnly; Secure; SameSite=Strict` cookie, never
+the operator header, and the cookie is path-scoped to `/api/portal`), 256-bit
+single-use magic-link nonces and session tokens (stored only as SHA-256, burned
+atomically, constant-time hash-keyed lookup, no fixation), per-request revocation
+(disabling a contact kills its live session immediately), cross-*site* IDOR
+(ticket access is filtered by the caller's own site; operator-internal tickets
+carry no site and are never visible), server-stamped `site`/author on create and
+reply, and the digit-only ticket-number path parameter.
+
+Fixed before ship:
+
+| Sev | Finding | Fix |
+|---|---|---|
+| High | **Operator internal notes leaked to the customer.** The portal ticket view hid only messages flagged `internal:true`, but the operator "add internal note" action stamps `direction:'note'` (the default) and never sets `internal` — so private notes crossed to the customer as "support" messages. | The portal view now drops `direction=='note'` (internal) messages; only outbound/inbound/portal-authored messages are customer-facing. |
+| High | **Host-header injection in the sign-in email → portal takeover.** The magic-link URL was built from the request `Host` header, so a forged `Host` produced a genuine email to the real contact whose link pointed at an attacker origin — whose page JS could read the nonce from the URL fragment and mint a session. | Added an admin-set canonical **Portal public URL** (`portal_base_url`); the email is built from it, not the request host (falls back to the request host only when unset). |
+| Medium | **Account-enumeration timing oracle.** The response body/status were constant, but the enrolled-contact path did a *synchronous* SMTP send before responding, so timing distinguished registered contacts. | The sign-in email is now sent out-of-band (detached), so the enrolled and unenrolled paths return in the same time. |
+| Low | Magic-link was rate-limited per IP only. | Added a per-email bucket (constant response) so rotating IPs can't mail-bomb one inbox. |
+| Low | The ticket-reply endpoint had no rate limit (create did). | Added a per-IP reply throttle. |
+
+By design (documented, confirmed acceptable): portal ticket visibility is
+site-scoped, so all portal contacts sharing one site share that site's ticket
+inbox — the `site` value is the intended tenant boundary.
 
 ## Transparency
 

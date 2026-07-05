@@ -7112,8 +7112,13 @@ def _portal_ticket_view(t):
     device internals. Only what the requester submitted / needs to follow up."""
     msgs = []
     for m in (t.get('messages') or [])[-50:]:
-        if not isinstance(m, dict) or m.get('internal'):
-            continue      # internal operator notes never cross to the portal
+        # Internal operator notes NEVER cross to the portal. They are stamped
+        # direction=='note' (the DEFAULT in handle_ticket_update — the operator
+        # "Add internal note" action); the legacy `internal` flag is kept as a
+        # belt-and-braces check. Only outbound ('out') / inbound ('in') /
+        # portal-authored (no direction) messages are customer-facing.
+        if not isinstance(m, dict) or m.get('internal') or m.get('direction') == 'note':
+            continue
         msgs.append({'from': 'you' if str(m.get('author', '')).startswith('portal:')
                      else 'support',
                      'body': m.get('body', ''), 'at': m.get('at')})
@@ -7132,9 +7137,15 @@ def handle_portal_magic_link():
     body = get_json_obj()
     email = _sanitize_str(str(body.get('email', '')), 200).strip()
     ip = _get_client_ip()
-    # Constant response regardless of validity; throttle to blunt spraying.
+    _CONSTANT = {'ok': True, 'message': 'If that email is registered, a link is on its way.'}
+    # Constant response regardless of validity; throttle per-IP AND per-email (so
+    # an attacker rotating source IPs can't mail-bomb one contact's inbox). Both
+    # buckets return the SAME constant 200 so neither leaks enrollment.
+    email_key = hashlib.sha256(('portal-magic:' + email.lower()).encode()).hexdigest()[:32]
     if not _ip_ratelimit('portal_magic', ip, max_per_window=5, window=300):
-        respond(429, {'ok': True, 'message': 'If that email is registered, a link is on its way.'})
+        respond(429, _CONSTANT)
+    if email and not _ip_ratelimit('portal_magic_email', email_key, max_per_window=5, window=1800):
+        respond(429, _CONSTANT)
     contact = _portal_enrolled_contact(email)
     if contact:
         nonce = secrets.token_urlsafe(32)
@@ -7147,16 +7158,34 @@ def handle_portal_magic_link():
                 nonces.pop(k, None)
             nonces[_portal_hash(nonce)] = {'contact_id': contact['id'],
                                            'expires': now + PORTAL_NONCE_TTL}
-        try:
-            base = _request_base_url(os.environ)
-            link = f'{base}/portal#token={nonce}'
-            smtp_notifier.send_email(load(CONFIG_FILE) or {}, [contact['email']],
-                                     'Your RemotePower portal sign-in link',
-                                     f'Click to sign in to the support portal (valid 30 minutes):\n\n{link}\n',
-                                     extra_headers={'Auto-Submitted': 'auto-generated'})
-        except Exception:
-            pass      # never reveal delivery success/failure to the caller
-    respond(200, {'ok': True, 'message': 'If that email is registered, a link is on its way.'})
+        # SECURITY (host-header injection → portal ATO): build the sign-in link
+        # from the admin-configured canonical portal URL, NOT the attacker-
+        # controllable Host header. A forged Host would otherwise put the nonce
+        # into a link at an attacker origin whose page JS can read it from the
+        # URL fragment and mint a session. Fall back to the request host only
+        # when portal_base_url is unset (single-host installs).
+        base = ((_config_ro().get('portal_base_url') or '').strip().rstrip('/')
+                or _request_base_url(os.environ))
+        link = f'{base}/portal#token={nonce}'
+        _cfg = load(CONFIG_FILE) or {}
+        _to = contact['email']
+        _mail_body = ('Click to sign in to the support portal (valid 30 minutes):'
+                      f'\n\n{link}\n')
+
+        # Send OUT OF BAND (detached child) so the enrolled-email path returns in
+        # the SAME time as the unenrolled one — a synchronous SMTP send here is a
+        # timing oracle for "is this address a registered portal contact?" despite
+        # the constant response body. Values are captured before the fork; the
+        # detached child touches no storage/DB.
+        def _send_link():
+            try:
+                smtp_notifier.send_email(_cfg, [_to],
+                                         'Your RemotePower portal sign-in link', _mail_body,
+                                         extra_headers={'Auto-Submitted': 'auto-generated'})
+            except Exception:
+                pass      # never reveal delivery success/failure to the caller
+        _run_detached(_send_link)
+    respond(200, _CONSTANT)
 
 
 def handle_portal_session():
@@ -7277,6 +7306,8 @@ def handle_portal_ticket(number):
         message = _sanitize_str(str(get_json_obj().get('message', '')), 8000).strip()
         if not message:
             respond(400, {'error': 'message required'})
+        if not _ip_ratelimit('portal_reply', _get_client_ip(), max_per_window=30, window=3600):
+            respond(429, {'error': 'Too many replies — please try again later.'})
         now = int(time.time())
         found = False
         with _LockedUpdate(TICKETS_FILE) as store:
@@ -19695,6 +19726,7 @@ def handle_config_get():
     safe.setdefault('image_scan_enabled', False)   # W6-34
     safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
+    safe.setdefault('portal_base_url', '')          # W6-28 canonical portal URL (magic-link)
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
@@ -20676,6 +20708,15 @@ def handle_config_save():
         cfg['rdp_enabled'] = bool(body['rdp_enabled'])
     if 'portal_enabled' in body:          # W6-28: opt-in customer portal
         cfg['portal_enabled'] = bool(body['portal_enabled'])
+    if 'portal_base_url' in body:         # W6-28: canonical portal URL for the
+        # magic-link email (defends against Host-header injection → portal ATO).
+        # Store only a well-formed http(s) origin; anything else clears it (→ the
+        # magic-link falls back to the request host).
+        _pbu = str(body.get('portal_base_url') or '').strip()[:300]
+        if _pbu:
+            _pp = urllib.parse.urlparse(_pbu)
+            _pbu = f'{_pp.scheme}://{_pp.netloc}' if _pp.scheme in ('http', 'https') and _pp.netloc else ''
+        cfg['portal_base_url'] = _pbu
     if 'secrets_scan_paths' in body:
         raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
         paths = []

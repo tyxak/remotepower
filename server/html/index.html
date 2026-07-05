@@ -2014,6 +2014,9 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only; feature-invisible on hosts without trivy)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-rdp-enabled"> Allow RDP tunnelling (device drawer → RDP): mints a session that bridges the host's loopback 3389 over SSH to a local port for mstsc/Remmina — no in-browser client. Off by default.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-portal-enabled"> Customer portal (<code>/portal</code>): let site contacts sign in via a magic link to view &amp; submit tickets for <strong>their own site only</strong> — no operator account, separate session. Enable a contact for the portal (and set its site) from the Contacts directory. Off by default.</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-portal-base-url">Portal public URL <span class="hint">(recommended when the portal is enabled)</span></label>
+              <input type="url" id="cfg-portal-base-url" class="form-input" placeholder="https://portal.example.com" maxlength="300">
+              <div class="hint">The canonical <code>https://host</code> the sign-in email links to. Set this so the magic-link can't be pointed at another origin via a forged <code>Host</code> header. Blank = use the request host.</div></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 

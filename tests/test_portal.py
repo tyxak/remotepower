@@ -29,7 +29,11 @@ class _Base(unittest.TestCase):
         self._env_val = {}
         self._orig = {n: getattr(api, n) for n in
                       ('respond', 'method', 'get_json_obj', '_env', 'audit_log',
-                       'fire_webhook', '_ip_ratelimit', '_get_client_ip', 'smtp_notifier')}
+                       'fire_webhook', '_ip_ratelimit', '_get_client_ip', 'smtp_notifier',
+                       '_run_detached')}
+        # Run the "detached" magic-link email send INLINE — never fork the test
+        # process (the real _run_detached double-forks).
+        api._run_detached = lambda fn: fn()
 
         def _resp(s, b=None):
             self.cap['s'] = s
@@ -229,6 +233,57 @@ class TestPortalViewHidesInternal(_Base):
         self.assertIn('public reply', bodies)
         self.assertNotIn('INTERNAL note', bodies)          # internal note dropped
         self.assertNotIn('assignee', view)                 # no operator internals
+
+    def test_direction_note_is_hidden(self):
+        # bughunt HIGH: operator internal notes are stamped direction=='note'
+        # (the DEFAULT in handle_ticket_update), NOT internal=True. The portal
+        # must never show them; only out/in/portal-authored messages cross.
+        view = api._portal_ticket_view({
+            'number': 2, 'subject': 's', 'status': 'ongoing', 'messages': [
+                {'author': 'portal:ct_a', 'body': 'customer question', 'at': 1},
+                {'author': 'jakob', 'body': 'ESCALATE TO LEGAL', 'direction': 'note', 'at': 2},
+                {'author': 'jakob', 'body': 'emailed answer', 'direction': 'out', 'at': 3},
+                {'author': 'cust@x.io', 'body': 'inbound email', 'direction': 'in', 'at': 4}]})
+        bodies = [m['body'] for m in view['messages']]
+        self.assertNotIn('ESCALATE TO LEGAL', bodies)      # internal note hidden
+        self.assertIn('customer question', bodies)
+        self.assertIn('emailed answer', bodies)            # outbound reply shown
+        self.assertIn('inbound email', bodies)
+
+
+class TestMagicLinkHostHeader(_Base):
+    def test_link_uses_configured_base_not_host_header(self):
+        # bughunt HIGH: the sign-in link must be built from the admin-configured
+        # portal_base_url, NOT the attacker-controllable Host header.
+        api.save(api.CONFIG_FILE, {'portal_enabled': True,
+                                   'portal_base_url': 'https://portal.trusted.example'})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._contact('ct_a', 'a@x.io', 's1')
+        sent = {}
+        api.smtp_notifier = type('X', (), {'send_email': staticmethod(
+            lambda cfg, to, subj, body, **k: sent.update(to=to, body=body))})
+        self._env_val['HTTP_HOST'] = 'evil.attacker.tld'   # forged Host
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'email': 'a@x.io'}
+        self.call(api.handle_portal_magic_link)
+        self.assertIn('https://portal.trusted.example/portal#token=', sent.get('body', ''))
+        self.assertNotIn('evil.attacker.tld', sent.get('body', ''))
+
+
+class TestReplyRateLimit(_Base):
+    def test_reply_is_rate_limited(self):
+        self._contact('ct_a', 'a@x.io', 's1')
+        self._session('ct_a', 's1')
+        api.save(api.TICKETS_FILE, {'tickets': [
+            {'id': 't1', 'number': 900001, 'subject': 'A', 'status': 'ongoing',
+             'site': 's1', 'messages': []}]})
+        api._invalidate_load_cache(api.TICKETS_FILE)
+        api._ip_ratelimit = lambda *a, **k: False     # simulate over-limit
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'message': 'spam'}
+        self._env_val['PATH_INFO'] = '/api/portal/tickets/900001/reply'
+        self.call(api.handle_portal_ticket, '900001')
+        self.assertEqual(self._last.status, 429)
 
 
 if __name__ == '__main__':
