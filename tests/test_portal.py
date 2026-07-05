@@ -286,6 +286,59 @@ class TestReplyRateLimit(_Base):
         self.assertEqual(self._last.status, 429)
 
 
+class TestPortalEnableGuard(_Base):
+    """W6-28: enabling the portal from a non-public request Host (localhost) with
+    no Portal public URL set would email a broken magic-link — rejected at save
+    time. A real-domain enable, or one with portal_base_url set, is allowed."""
+
+    def _save(self, body, host):
+        orig = getattr(api, 'require_admin_auth', None)
+        api.require_admin_auth = lambda *a, **k: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: body
+        self._env_val['HTTP_HOST'] = host
+        self._last = None
+        try:
+            api.handle_config_save()
+        except api.HTTPError as e:
+            self._last = e
+        except Exception:
+            pass   # handler internals past the guard are not under test
+        finally:
+            if orig is not None:
+                api.require_admin_auth = orig
+
+    def _rejected_400(self):
+        return bool(self._last) and self._last.status == 400
+
+    def test_enable_from_localhost_without_url_rejected(self):
+        api.save(api.CONFIG_FILE, {'portal_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._save({'portal_enabled': True}, host='localhost')
+        self.assertTrue(self._rejected_400())
+
+    def test_enable_from_localhost_with_url_allowed(self):
+        api.save(api.CONFIG_FILE, {'portal_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._save({'portal_enabled': True,
+                    'portal_base_url': 'https://portal.example.com'}, host='localhost')
+        self.assertFalse(self._rejected_400())
+
+    def test_enable_from_real_host_without_url_allowed(self):
+        # single-host install reached by its real domain — base_url stays optional
+        api.save(api.CONFIG_FILE, {'portal_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._save({'portal_enabled': True}, host='remote.tvipper.com')
+        self.assertFalse(self._rejected_400())
+
+    def test_already_on_save_not_blocked(self):
+        # not a fresh enable → guard doesn't fire even from localhost
+        api.save(api.CONFIG_FILE, {'portal_enabled': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._save({'portal_enabled': True}, host='localhost')
+        self.assertFalse(self._rejected_400())
+
+
 class TestPortalNginxRouting(unittest.TestCase):
     """W6-28: the magic-link URL is /portal (extensionless), but the page file is
     portal.html. Both nginx snippets MUST map /portal → portal.html, or nginx

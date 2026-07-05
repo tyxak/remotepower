@@ -20706,6 +20706,7 @@ def handle_config_save():
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
     if 'rdp_enabled' in body:             # W6-49: opt-in RDP tunnelling
         cfg['rdp_enabled'] = bool(body['rdp_enabled'])
+    _portal_was_on = bool(cfg.get('portal_enabled'))   # W6-28: capture before mutate
     if 'portal_enabled' in body:          # W6-28: opt-in customer portal
         cfg['portal_enabled'] = bool(body['portal_enabled'])
     if 'portal_base_url' in body:         # W6-28: canonical portal URL for the
@@ -20717,6 +20718,22 @@ def handle_config_save():
             _pp = urllib.parse.urlparse(_pbu)
             _pbu = f'{_pp.scheme}://{_pp.netloc}' if _pp.scheme in ('http', 'https') and _pp.netloc else ''
         cfg['portal_base_url'] = _pbu
+    # W6-28 guard: when portal_base_url is unset the magic-link falls back to the
+    # request Host — fine for a single-host install reached by its real domain,
+    # but if the portal is being ENABLED from a request whose own Host is
+    # non-public (localhost/127.x/empty), that fallback emails a broken sign-in
+    # link (the "https://localhost/portal" class). Turn that into a clear config
+    # error at enable time instead of a silently-broken email. (A real-domain
+    # enable is unaffected, keeping portal_base_url optional as documented.)
+    if (cfg.get('portal_enabled') and not _portal_was_on
+            and not (cfg.get('portal_base_url') or '').strip()):
+        _req_host = (_env('HTTP_HOST', '') or '').split(':')[0].strip().lower()
+        if _req_host in ('', 'localhost', '127.0.0.1', '::1') or _req_host.startswith('127.'):
+            respond(400, {'error': 'Set a "Portal public URL" (Settings → Customer '
+                          'portal) before enabling the customer portal from this '
+                          'address — the sign-in email would link to '
+                          f'"{_req_host or "localhost"}". Use the portal\'s public '
+                          'https:// URL.'})
     if 'secrets_scan_paths' in body:
         raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
         paths = []
