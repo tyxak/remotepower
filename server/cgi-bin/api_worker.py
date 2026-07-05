@@ -154,7 +154,10 @@ def run_request(api_mod, conn):
         try:
             api_mod.main()
         except api_mod.HTTPError as e:
-            api_mod._render_response(e.status, e.body)
+            # Preserve e.headers (esp. the portal Set-Cookie) exactly like api.py's
+            # __main__ block — otherwise the SCGI path drops extra response headers
+            # and the portal session cookie never reaches the browser (→ 401).
+            api_mod._render_response(e.status, e.body, getattr(e, "headers", None))
         except SystemExit:
             pass
         except Exception:

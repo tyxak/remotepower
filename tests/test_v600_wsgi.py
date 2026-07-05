@@ -118,6 +118,30 @@ class TestWsgiShim(unittest.TestCase):
         r = _call('POST', '/api/devices', body=b'{"hello":"world"}')
         self.assertRegex(r['status'], r'^4\d\d ', r['status'])
 
+    def test_httperror_headers_survive(self):
+        # Regression: the non-CGI servers (this wsgi shim + the SCGI worker)
+        # caught the handler HTTPError and rendered WITHOUT e.headers, so any
+        # extra response header — above all the portal session Set-Cookie
+        # (handle_portal_session) — was silently dropped. Sign-in "worked" (body
+        # rendered) but the cookie never reached the browser, so every next
+        # /api/portal/* request was 401 ("Not signed in" on submit). The WSGI
+        # path must now emit HTTPError.headers, exactly like api.py's __main__.
+        def _boom():
+            raise api.HTTPError(200, {'ok': True},
+                                headers=[('Set-Cookie',
+                                          'rp_portal=abc; Path=/api/portal; HttpOnly; Secure; SameSite=Strict')])
+        orig = api.main
+        api.main = _boom
+        try:
+            r = _call('GET', '/api/anything')
+        finally:
+            api.main = orig
+        self.assertTrue(r['status'].startswith('200'), r['status'])
+        setc = [v for (k, v) in r['headers'] if k.lower() == 'set-cookie']
+        self.assertTrue(setc, 'HTTPError.headers (Set-Cookie) dropped by the WSGI path')
+        self.assertIn('rp_portal=abc', setc[0])
+        self.assertIn('HttpOnly', setc[0])
+
     def test_wsgi_systemd_unit_present_and_wired(self):
         unit = _ROOT / "server" / "conf" / "remotepower-wsgi.service"
         self.assertTrue(unit.exists(), "remotepower-wsgi.service missing")

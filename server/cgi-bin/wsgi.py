@@ -155,7 +155,11 @@ def application(environ, start_response):
         try:
             api.main()
         except api.HTTPError as e:
-            api._render_response(e.status, e.body)
+            # Pass e.headers so extra response headers survive — above all the
+            # portal Set-Cookie (handle_portal_session). The CGI __main__ block
+            # renders with headers; this non-CGI path must match, or the portal
+            # session cookie is silently dropped → every next request is 401.
+            api._render_response(e.status, e.body, getattr(e, 'headers', None))
         except SystemExit:
             pass                       # a streaming handler wrote its body then exited
         except Exception:
