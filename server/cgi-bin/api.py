@@ -19904,6 +19904,22 @@ def handle_config_get():
                 if isinstance(_e, dict) and _e.get('url'):
                     _e['url_set'] = True
                     _e['url'] = ''
+        # v5.8.0 (pentest): a homelab-integration instance `url` may embed
+        # basic-auth userinfo (https://user:pass@host). /api/integrations
+        # withholds it from non-admins via _redact_integration, but /api/config
+        # returned the raw `integrations` list — only the name-matched `secret`
+        # field is caught by _scrub_config_secrets, NOT `url`. Give non-admins
+        # the same url_set indicator (copy each dict; cfg is a per-request
+        # deepcopy but stay defensive like the metrics_push branch above).
+        if isinstance(safe.get('integrations'), list):
+            _red_ints = []
+            for _i in safe['integrations']:
+                if isinstance(_i, dict) and _i.get('url'):
+                    _i = dict(_i)
+                    _i['url_set'] = True
+                    _i['url'] = ''
+                _red_ints.append(_i)
+            safe['integrations'] = _red_ints
 
     # v3.10.0: the AI provider key and the per-registry credentials map are
     # secrets the dedicated admin endpoints (/api/ai/config, settings) manage and
@@ -56430,10 +56446,12 @@ def handle_acme_ignore(dev_id, action_id):
     cancel, this doesn't try to manage the queue cleanly — it just makes
     the row disappear from the UI.
 
-    No safety bar: the caller already chose to delete state, and the audit
-    log records what was removed.
+    Admin-only, like every other ACME mutation (cancel / force-renew /
+    revoke): this destroys on-disk action state + edits the command queue, so
+    a read-only role (viewer / mcp / auditor / finance — all admitted by a bare
+    require_auth) must NOT reach it. The audit log records what was removed.
     """
-    require_auth()
+    require_admin_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return
     # v5.0.1 (SECURITY): this route isn't under /api/devices/, so the global

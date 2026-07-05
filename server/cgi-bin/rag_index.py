@@ -305,7 +305,15 @@ def build_runbooks_corpus(runbooks, resolve_device=None):
 # future plaintext field or a decrypted cache can't silently leak into
 # the prompt (and, worse, into a cloud embedding request).
 _CMDB_SECRET_KEYS = frozenset({'credentials', 'secrets', 'vault', 'password',
-                               'passwords', 'fields'})
+                               'passwords', 'fields',
+                               # v5.8.0 (bughunt): a CMDB `licenses[].key` is a
+                               # software license / activation key — a sensitive
+                               # credential-like string that must not reach the
+                               # embedding corpus (and, with a cloud provider,
+                               # go off-box). `key` is too generic for the
+                               # substring set (pubkey/key_id/…), so it lives in
+                               # this CMDB-scoped exact-match set.
+                               'key'})
 # Substrings that mark a field as secret-bearing, matched case-insensitively
 # against the key NAME. Broader than an exact set (which missed api_key / token /
 # passphrase / private_key / community / …) so an operator-added plaintext field
@@ -346,7 +354,21 @@ def build_cmdb_corpus(cmdb_store, resolve_device=None):
             if v in (None, '', [], {}):
                 continue
             if isinstance(v, (list, tuple)):
-                v = ', '.join(str(x) for x in v)
+                # v5.8.0 (bughunt): a list of DICTS (licenses, contacts, custom
+                # facets, …) must have its ITEM sub-keys secret-filtered too — the
+                # old `str(x)` embedded each dict verbatim, so a secret-/key-named
+                # sub-field leaked into the corpus (and, with a cloud embedding
+                # provider, off-box). Mirror the dict branch + _format_facet.
+                parts = []
+                for x in v:
+                    if isinstance(x, dict):
+                        parts.append(', '.join(
+                            f"{kk}={vv}" for kk, vv in x.items()
+                            if not isinstance(vv, (list, dict))
+                            and kk not in _CMDB_SECRET_KEYS and not _is_secret_key(kk)))
+                    else:
+                        parts.append(str(x))
+                v = '; '.join(p for p in parts if p)
             elif isinstance(v, dict):
                 v = ', '.join(f"{kk}={vv}" for kk, vv in v.items()
                               if kk not in _CMDB_SECRET_KEYS and not _is_secret_key(kk))

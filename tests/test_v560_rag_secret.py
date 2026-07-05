@@ -40,6 +40,23 @@ class TestRagSecretExclusion(unittest.TestCase):
         self.assertIn('Debian 12', blob)
         self.assertIn('10.0.0.9', blob)
 
+    def test_list_of_dicts_subkeys_filtered(self):
+        # v5.8.0 bughunt: the metadata-loop LIST branch must secret-filter its
+        # item sub-keys too (it used to str(x) the whole dict, embedding them
+        # verbatim). A license/activation key and a nested token in a custom
+        # list must not reach the corpus; non-secret siblings stay searchable.
+        store = {'dev2': {
+            'name': 'db01',
+            'licenses': [{'product': 'Widgets Pro', 'key': 'LICENSE-KEY-LEAK-123',
+                          'seats': 10, 'expiry': '2030-01-01'}],
+            'custom_things': [{'label': 'thing', 'token': 'LIST_TOKEN_LEAK'}],
+        }}
+        blob = self._corpus_text(store)
+        self.assertNotIn('LICENSE-KEY-LEAK-123', blob)
+        self.assertNotIn('LIST_TOKEN_LEAK', blob)
+        self.assertIn('Widgets Pro', blob)   # non-secret sibling fields kept
+        self.assertIn('thing', blob)
+
     def test_is_secret_key_matches_substrings(self):
         for k in ('api_key', 'API_KEY', 'x-token', 'db_passphrase',
                   'ssh_private_key', 'snmp_community', 'bearer', 'webhook_url', 'vault'):
