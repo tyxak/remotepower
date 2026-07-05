@@ -130,17 +130,17 @@ class FakeV3Agent(threading.Thread):
         self.priv, self.priv_secret = priv, priv_secret
         self.misbehave = misbehave      # 'bad_mac' | 'time_window_once' | 'wrong_digest'
         self.requests = 0
-        self._stop = False
+        self._stopped = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('127.0.0.1', 0))
         self.sock.settimeout(0.2)
         self.port = self.sock.getsockname()[1]
 
     def stop(self):
-        self._stop = True
+        self._stopped = True
 
     def run(self):
-        while not self._stop:
+        while not self._stopped:
             try:
                 buf, addr = self.sock.recvfrom(65536)
             except socket.timeout:
