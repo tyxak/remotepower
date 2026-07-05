@@ -72,11 +72,12 @@ class HTTPClient:
 
     # --- conveniences ----------------------------------------------------------
     def _full(self, path, params=None):
-        url = (
-            path
-            if path.startswith(("http://", "https://"))
-            else self.base + (path if path.startswith("/") else "/" + path)
-        )
+        # SECURITY: never accept an absolute URL as `path` — it would bypass
+        # `self.base` and the SSRF pre-flight's host binding (the _vcloud_base
+        # class). Callers pass provider-relative paths only.
+        if path.startswith(("http://", "https://")):
+            raise ValueError("absolute URL is not allowed as a request path")
+        url = self.base + (path if path.startswith("/") else "/" + path)
         if params:
             sep = "&" if "?" in url else "?"
             url = url + sep + urllib.parse.urlencode(params)

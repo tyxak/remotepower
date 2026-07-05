@@ -1,6 +1,6 @@
 # Internal contact directory
 
-The **Contacts** page (under **Admin** in the sidebar) is a small, shared
+The **Contacts** page (under **Fleet** in the sidebar) is a small, shared
 phonebook for your team — the people you call when something breaks: the on-call
 network admin, a vendor's support line, the data-centre's remote hands, a
 customer's IT contact.

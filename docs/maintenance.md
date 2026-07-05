@@ -6,9 +6,9 @@ expected downtime (patching, reboots, migrations) doesn't page anyone.
 
 ## How it works
 
-- A window has a scope (device / group / tag / site / whole fleet), a schedule
-  (a cron expression, built with the weekly-day picker or entered directly) and
-  a duration in minutes.
+- A window has a scope — a single **device**, a device **group**, or the whole
+  fleet (**global**) — a schedule (a cron expression, built with the weekly-day
+  picker or entered directly) and a duration in minutes.
 - While a matching window is active, alerts for in-scope devices are **held back
   from webhooks and the needs-attention card** — but history still records
   everything, so nothing is lost.

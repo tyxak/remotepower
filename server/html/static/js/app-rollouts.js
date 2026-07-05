@@ -21,7 +21,7 @@ function _renderRollout(roll) {
       : st.state === 'verifying' ? 'rs-running' : 'rs-draft');
     const prog = (st.total ? ` ${st.ok_count || 0}/${st.total}` : '')
       + (st.failed_count ? ` · ${st.failed_count} stalled` : '');
-    return `<span class="${cls}" title="${escAttr(st.state || 'pending')}">${cur ? '▶ ' : ''}${escHtml(ring.name || ('ring ' + (i + 1)))}<span class="ro-ring-prog">${escHtml(st.state || 'pending')}${escHtml(prog)}</span></span>`;
+    return `<span class="${cls}" title="${escAttr(st.state || 'pending')}">${cur ? '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg> ' : ''}${escHtml(ring.name || ('ring ' + (i + 1)))}<span class="ro-ring-prog">${escHtml(st.state || 'pending')}${escHtml(prog)}</span></span>`;
   }).join('<span class="ro-arrow">→</span>');
   const last = (roll.history || []).slice(-1)[0];
   const sc = _ROLLOUT_STATE_CLASS[roll.state] || '';

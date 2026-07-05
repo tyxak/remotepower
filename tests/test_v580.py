@@ -30,7 +30,9 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "5.8.0"
+    # v6.0.0: loosened to dynamic (tracks api.SERVER_VERSION) — strict pins now
+    # live in tests/test_v600.py.
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)

@@ -1,0 +1,5 @@
+Contact: https://github.com/tyxak/remotepower/security/advisories/new
+Expires: 2027-07-05T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://remote.tvipper.com/.well-known/security.txt
+Policy: https://github.com/tyxak/remotepower/blob/main/SECURITY.md

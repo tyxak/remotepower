@@ -2657,8 +2657,11 @@ input.form-input[type="text"][data-token],
    the card's own 16px margin-bottom stacked ON TOP of it when the grid wraps to
    one column (18 + 16 = 34px ≈ "double space"). Let the grid gap own it. */
 .dash-cols > .dash-card { margin-bottom: 0; }
-.dash-card h3 {
-  /* v6 (chosen-design .gt): sentence-case ink heading, not an eyebrow */
+.dash-card h3, .dash-card h4,
+.settings-section h3, .settings-section h4 {
+  /* v6 (chosen-design .gt): sentence-case ink heading, not an eyebrow. Raw
+     <h4> sub-headers (integrations/SNMP/CMDB cards) render on the canonical
+     .section-title idiom instead of UA-default. */
   font-size: 13px;
   font-weight: 620;
   color: var(--text);
@@ -3694,9 +3697,10 @@ td .kev-badge { margin-left: 0; }
 /* v3.4.0: Health & Hardware drawer section */
 .hw-block { margin-bottom: 16px; }
 .hw-block:last-child { margin-bottom: 0; }
+/* v6: was an uppercase eyebrow — now renders as the canonical .section-title
+   (13px/620 ink, sentence-case), keeping its 6px header→content gap. */
 .hw-h {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--muted); font-weight: 600; margin-bottom: 6px;
+  font-size: 13px; font-weight: 620; color: var(--text); margin-bottom: 6px;
 }
 .hw-changes { margin: 0; padding-left: 18px; }
 .hw-changes li { margin-bottom: 2px; }
@@ -4131,7 +4135,8 @@ body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn > svg { di
 .decl-detail .decl-add { color: var(--ok, #2ecc71); font-weight: 600; }
 .decl-detail .decl-rm { color: var(--danger, #e74c3c); font-weight: 600; }
 .decl-detail .decl-chg { color: var(--warn, #e0a800); font-weight: 600; }
-.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; }
+/* v6: was an uppercase eyebrow — now the canonical .section-title look. */
+.section-label { font-size: 13px; font-weight: 620; color: var(--text); }
 .empty-state { color: var(--muted); text-align: center; padding: 40px; }
 .empty-state-sm { color: var(--muted); text-align: center; padding: 24px; }
 .ta-center { text-align: center; }
@@ -4821,7 +4826,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-486 { display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px }
 .isl-487 { color: var(--muted); text-align: center; padding: 60px }
 .isl-488 { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
-.isl-489 { margin: 0; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px }
+.isl-489 { margin: 0; font-size: 13px; font-weight: 620; color: var(--text) }
 .isl-490 { font-size: 11px; color: var(--muted); opacity: 0.7 }
 .isl-491 { flex: 1; height: 1px; background: var(--border) }
 .isl-492 { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px }

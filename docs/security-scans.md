@@ -60,7 +60,7 @@ On your spare scanner machine (the one with Docker):
 3. You should see:
 
    ```
-   [scanner] RemotePower scanner satellite v4.2.0 → https://YOUR-SERVER (runner=docker)
+   [scanner] RemotePower scanner satellite v4.3.0 → https://YOUR-SERVER (runner=docker)
    ```
 
 That's it — leave it running. It quietly waits for scan jobs. (To keep it
@@ -70,7 +70,7 @@ running forever, see **Run the scanner as a service** at the bottom.)
 
 ## Part 2 — Scan an enrolled host (the easy path, 3 clicks)
 
-1. In the sidebar, open **Monitoring → Pentest**.
+1. In the sidebar, open **Security → Pentest**.
 2. **Search and pick the device** in the device search box (type a name, IP, or group).
 3. **Pick a tool** (`nuclei` is the default and a good first choice).
 4. Click **Queue scan**.

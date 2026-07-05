@@ -18,7 +18,7 @@ This split exists because looking at a "today's events" feed and trying to deter
 | Needs Attention | `_compute_attention()` walks current state files | Things that are currently broken |
 | Recent Activity | `/api/fleet/events` reads `fleet_events.json` | The last N events fired by webhooks |
 
-`fleet_events.json` is append-only (bounded at `MAX_FLEET_EVENTS = 200`). Every `fire_webhook(...)` call records into it whether or not a webhook URL is configured.
+`fleet_events.json` is append-only (bounded at `MAX_FLEET_EVENTS = 1000`). Every `fire_webhook(...)` call records into it whether or not a webhook URL is configured.
 
 ## All attention kinds
 

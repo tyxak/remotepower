@@ -407,7 +407,7 @@ async function openDriftDetail(devId, devName) {
         html += `<tr><td colspan="5" class="isl-549"><details><summary class="isl-550">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
           <div class="isl-551">
           ${f.history.slice().reverse().slice(0, 10).map(h =>
-            `${new Date(h.ts * 1000).toLocaleString()}: ${(h.hash || '').substring(0, 24)}… ${h.exists === false ? ' [missing]' : ''}`
+            `${new Date(h.ts * 1000).toLocaleString()}: ${escHtml((h.hash || '').substring(0, 24))}… ${h.exists === false ? ' [missing]' : ''}`
           ).join('<br>')}
           </div></details></td></tr>`;
       }
@@ -555,7 +555,7 @@ async function _refreshDriftDiff() {
       const ts = new Date(c.ts * 1000).toLocaleString();
       body.innerHTML = `
         <div class="isl-563">
-          One capture so far · ${ts} · rc=${c.rc} · ${c.sha256.substring(0, 27)}…
+          One capture so far · ${ts} · rc=${c.rc} · ${escHtml((c.sha256 || '').substring(0, 27))}…
           <br>
           Fetch again after another change to see a diff between the two captures.
         </div>
@@ -571,9 +571,9 @@ async function _refreshDriftDiff() {
       body.innerHTML = `
         <div class="isl-564">
           <div><span class="c-red">− Older</span> · ${olderTs} · rc=${older.rc}<br>
-            <code class="fs-10">${older.sha256.substring(0, 27)}…</code></div>
+            <code class="fs-10">${escHtml((older.sha256 || '').substring(0, 27))}…</code></div>
           <div><span class="c-green">+ Newer</span> · ${newerTs} · rc=${newer.rc}<br>
-            <code class="fs-10">${newer.sha256.substring(0, 27)}…</code></div>
+            <code class="fs-10">${escHtml((newer.sha256 || '').substring(0, 27))}…</code></div>
         </div>
         ${renderDiff(older.content, newer.content)}`;
     }

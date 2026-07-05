@@ -50,7 +50,7 @@ citation key, plus a freshness timestamp.
 | Sources | docs, live, cmdb on; history off | Which sources to index |
 | Use embeddings | off | Semantic rerank; pre-checked for local providers |
 | Embedding model | provider default | e.g. `text-embedding-3-small`, `nomic-embed-text` |
-| Max chunks per question | 6 | Upper bound on injected chunks |
+| Max chunks per question | 8 | Upper bound on injected chunks |
 | History: keep last N days | 14 | Age cutoff for the history source |
 | `reindex_min_interval_sec` | 600 | Throttle: lazy rebuild at most once per this many seconds |
 | Retrieve context per question (RAG) | on | Per-query injection into chat (Context awareness) |

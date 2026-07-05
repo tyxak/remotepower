@@ -14,7 +14,7 @@ across the fleet. Search it, tail it live, or attach alert rules to it.
 ## Sources
 
 Agents ship recent journald/syslog excerpts with their heartbeats; syslog
-can also be ingested directly (`POST /api/syslog` accepts either
+can also be ingested directly (`POST /api/syslog/in/{token}` accepts either
 `{lines:[…]}` or a bare JSON array) for devices that forward rather than
 run an agent.
 

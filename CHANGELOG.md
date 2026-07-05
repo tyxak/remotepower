@@ -2,7 +2,26 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.8.0 — "WatchMatters" — unreleased (test)
+## v6.0.0 — "ClarityMatters" — unreleased (test)
+
+### UI overhaul — the v6 "ClarityMatters" interface
+
+- **One flat, modern interface.** The Industrial "New UI/Old UI" toggle is gone —
+  RemotePower now has a single, flat design: `--surface` panels with hairline
+  borders and an accent-soft active state, system font stacks, no decorative
+  grid/chamfers/wells. Colour themes and the accent picker live under
+  **My Account → Appearance**.
+- **12-domain sidebar.** The nav is regrouped into twelve cohesive domains
+  (Fleet, Monitoring, Hardware, Security, Compliance, Patching, Automation,
+  Scheduling, Access, Backups, Business, Admin) as a one-open-at-a-time accordion,
+  and **Settings** gets a left-nav layout.
+- **Standard modules on by default.** Tickets, Billing, Provisioning, the host
+  File manager and the Knowledge base are now always-on (the opt-in toggles are
+  removed); server-side Terraform execution stays an explicit, admin-only switch.
+- **Auto-hide sidebar** (optional, on by default; suspended while alerts are
+  open), a faint per-page icon watermark, and consistent card headings, button
+  styling and typography across every page.
+- **Every page links its own Documentation**, and each has a dedicated guide.
 
 ### Added
 
@@ -10,7 +29,7 @@ All notable changes to RemotePower. Newest first.
   Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge
   and a **RemotePower (peer instance)** connector that surfaces another
   RemotePower's public health (device/offline/open-alert counts via a viewer API
-  key — off-site visibility, not federation). 39 connectors in total now (plus
+  key — off-site visibility, not federation). 40 connectors in total now (plus
   the Custom HTTP probe).
 - **Patch rings (staged auto-patch).** An auto-patch policy can now define
   ordered **rings** (e.g. canary → wave 2 → rest). When it fires it spawns a

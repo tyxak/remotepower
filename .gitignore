@@ -47,3 +47,8 @@ design/
 # Stray screenshots dropped in the repo root (use docs/screenshots/ for real ones)
 /Screenshot_*.png
 /*.png
+
+# stray openclaw "dreaming" agent artifacts — never ship
+DREAMS.md
+memory/
+openclaw-workspace-state.json

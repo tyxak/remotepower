@@ -1,6 +1,6 @@
 # App catalog
 
-**Automation → App catalog** is one-click deployment of curated,
+**Patching → App catalog** is one-click deployment of curated,
 self-contained applications to a host via **Docker Compose**.
 
 ## How it works

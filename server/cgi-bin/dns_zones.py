@@ -23,7 +23,13 @@ store: set a token once under ACME and it drives both cert issuance and this
 dashboard.
 """
 
+import urllib.parse
 import json
+
+
+def _seg(v):
+    """URL-quote an id as a single path segment (SSRF/path-injection safe)."""
+    return urllib.parse.quote(str(v), safe="")
 
 # Record types we expose in the editor. Providers may accept more; these cover
 # the common set and keep the UI's <select> sane.
@@ -188,7 +194,7 @@ class Cloudflare(DNSProvider):
         # exists or miss one they're editing.
         out, seen, page = [], set(), 1
         while page <= 100:   # hard cap: 100 pages × 100 = 10k records
-            r = self._req('GET', f'/zones/{zone_id}/dns_records?per_page=100&page={page}')
+            r = self._req('GET', f'/zones/{_seg(zone_id)}/dns_records?per_page=100&page={page}')
             j = self._json(r, 'records'); self._ok(j, 'records')
             batch = j.get('result') or []
             new = 0
@@ -219,15 +225,15 @@ class Cloudflare(DNSProvider):
         return b
 
     def create_record(self, zone_id, zone_name, rec):
-        r = self._req('POST', f'/zones/{zone_id}/dns_records', self._body(zone_name, rec))
+        r = self._req('POST', f'/zones/{_seg(zone_id)}/dns_records', self._body(zone_name, rec))
         self._ok(self._json(r, 'create'), 'create')
 
     def update_record(self, zone_id, zone_name, rec_id, rec):
-        r = self._req('PUT', f'/zones/{zone_id}/dns_records/{rec_id}', self._body(zone_name, rec))
+        r = self._req('PUT', f'/zones/{_seg(zone_id)}/dns_records/{_seg(rec_id)}', self._body(zone_name, rec))
         self._ok(self._json(r, 'update'), 'update')
 
     def delete_record(self, zone_id, zone_name, rec_id, name='', rtype=''):
-        r = self._req('DELETE', f'/zones/{zone_id}/dns_records/{rec_id}')
+        r = self._req('DELETE', f'/zones/{_seg(zone_id)}/dns_records/{_seg(rec_id)}')
         self._ok(self._json(r, 'delete'), 'delete')
 
 
@@ -262,7 +268,7 @@ class DigitalOcean(DNSProvider):
         # Paginate (see the Cloudflare note): zones can exceed one page.
         out, seen, page = [], set(), 1
         while page <= 100:
-            r = self._req('GET', f'/domains/{zone_id}/records?per_page=200&page={page}')
+            r = self._req('GET', f'/domains/{_seg(zone_id)}/records?per_page=200&page={page}')
             self._check(r, 'records')
             batch = self._json(r, 'records').get('domain_records') or []
             new = 0
@@ -289,15 +295,15 @@ class DigitalOcean(DNSProvider):
         return b
 
     def create_record(self, zone_id, zone_name, rec):
-        r = self._req('POST', f'/domains/{zone_id}/records', self._body(zone_name, rec))
+        r = self._req('POST', f'/domains/{_seg(zone_id)}/records', self._body(zone_name, rec))
         self._check(r, 'create')
 
     def update_record(self, zone_id, zone_name, rec_id, rec):
-        r = self._req('PUT', f'/domains/{zone_id}/records/{rec_id}', self._body(zone_name, rec))
+        r = self._req('PUT', f'/domains/{_seg(zone_id)}/records/{_seg(rec_id)}', self._body(zone_name, rec))
         self._check(r, 'update')
 
     def delete_record(self, zone_id, zone_name, rec_id, name='', rtype=''):
-        r = self._req('DELETE', f'/domains/{zone_id}/records/{rec_id}')
+        r = self._req('DELETE', f'/domains/{_seg(zone_id)}/records/{_seg(rec_id)}')
         self._check(r, 'delete')
 
 
@@ -329,7 +335,7 @@ class Hetzner(DNSProvider):
         # off the value so the editor gets a clean value + priority field.
         out, seen, page = [], set(), 1
         while page <= 100:
-            r = self._req('GET', f'/records?zone_id={zone_id}&per_page=100&page={page}')
+            r = self._req('GET', f'/records?zone_id={_seg(zone_id)}&per_page=100&page={page}')
             self._check(r, 'records')
             batch = self._json(r, 'records').get('records') or []
             new = 0
@@ -365,11 +371,11 @@ class Hetzner(DNSProvider):
         self._check(r, 'create')
 
     def update_record(self, zone_id, zone_name, rec_id, rec):
-        r = self._req('PUT', f'/records/{rec_id}', self._body(zone_id, zone_name, rec))
+        r = self._req('PUT', f'/records/{_seg(rec_id)}', self._body(zone_id, zone_name, rec))
         self._check(r, 'update')
 
     def delete_record(self, zone_id, zone_name, rec_id, name='', rtype=''):
-        r = self._req('DELETE', f'/records/{rec_id}')
+        r = self._req('DELETE', f'/records/{_seg(rec_id)}')
         self._check(r, 'delete')
 
 
@@ -407,7 +413,7 @@ class Desec(DNSProvider):
         return [{'id': d['name'], 'name': d['name']} for d in (doms or [])]
 
     def list_records(self, zone_id, zone_name):
-        r = self._req('GET', f'/domains/{zone_id}/rrsets/')
+        r = self._req('GET', f'/domains/{_seg(zone_id)}/rrsets/')
         self._check(r, 'records')
         try:
             rrsets = r.json()
@@ -438,7 +444,7 @@ class Desec(DNSProvider):
     def _patch(self, zone_id, sub, rtype, records, ttl):
         body = [{'subname': sub, 'type': rtype, 'ttl': max(self.MIN_TTL, _int(ttl, self.MIN_TTL)),
                  'records': records}]
-        r = self._req('PATCH', f'/domains/{zone_id}/rrsets/', body)
+        r = self._req('PATCH', f'/domains/{_seg(zone_id)}/rrsets/', body)
         self._check(r, 'write')
 
     def create_record(self, zone_id, zone_name, rec):
@@ -458,7 +464,7 @@ class Desec(DNSProvider):
         if not rtype:
             raise DNSError('deSEC: delete needs the record type')
         # empty records list removes the RRset
-        r = self._req('PATCH', f'/domains/{zone_id}/rrsets/',
+        r = self._req('PATCH', f'/domains/{_seg(zone_id)}/rrsets/',
                       [{'subname': sub, 'type': rtype, 'records': []}])
         self._check(r, 'delete')
 
@@ -496,7 +502,7 @@ class Porkbun(DNSProvider):
         return [{'id': d['domain'], 'name': d['domain']} for d in (j.get('domains') or [])]
 
     def list_records(self, zone_id, zone_name):
-        j = self._post(f'/dns/retrieve/{zone_id}', ctx='records')
+        j = self._post(f'/dns/retrieve/{_seg(zone_id)}', ctx='records')
         out = []
         for rr in (j.get('records') or []):
             out.append({
@@ -515,13 +521,13 @@ class Porkbun(DNSProvider):
         return f
 
     def create_record(self, zone_id, zone_name, rec):
-        self._post(f'/dns/create/{zone_id}', self._fields(zone_name, rec), ctx='create')
+        self._post(f'/dns/create/{_seg(zone_id)}', self._fields(zone_name, rec), ctx='create')
 
     def update_record(self, zone_id, zone_name, rec_id, rec):
-        self._post(f'/dns/edit/{zone_id}/{rec_id}', self._fields(zone_name, rec), ctx='update')
+        self._post(f'/dns/edit/{_seg(zone_id)}/{_seg(rec_id)}', self._fields(zone_name, rec), ctx='update')
 
     def delete_record(self, zone_id, zone_name, rec_id, name='', rtype=''):
-        self._post(f'/dns/delete/{zone_id}/{rec_id}', ctx='delete')
+        self._post(f'/dns/delete/{_seg(zone_id)}/{_seg(rec_id)}', ctx='delete')
 
 
 # ── registry ────────────────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-16">
+<link rel="stylesheet" href="static/css/styles.css?v=6.0.0">
 
 </head>
 <body>
@@ -1468,7 +1468,7 @@
             <div class="settings-row">
               <label class="isl-33">
                 <input type="checkbox" id="cfg-allow-internal-monitors" class="isl-34">
-                <span class="fs-14">Allow monitoring of internal / loopback targets</span>
+                <span>Allow monitoring of internal / loopback targets</span>
               </label>
               <div class="isl-22">Off by default: monitor targets that resolve to loopback or link-local / cloud-metadata addresses are rejected (SSRF guard). RFC1918 LAN targets are always allowed. Enable only if you intentionally monitor a service on the RemotePower host itself.</div>
             </div>
@@ -1582,7 +1582,7 @@
             <p class="hint">Send the same events via email as a sibling channel to webhooks. Both channels respect maintenance windows. Email is opt-in per event in the table above.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-smtp-enabled" class="isl-34">
-              <span class="fs-14">Enable email notifications</span>
+              <span>Enable email notifications</span>
             </label>
 
             <div class="settings-row">
@@ -1750,7 +1750,7 @@
           <div class="settings-section">
             <div class="section-title">Metrics push (Prometheus)</div>
             <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher. A ready-made Grafana dashboard for this exposition ships in <a href="https://github.com/tyxak/remotepower/blob/main/contrib/grafana/remotepower-fleet.json" target="_blank" rel="noopener">contrib/grafana</a>.</p>
-            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span class="fs-14">Enable metrics push</span></label>
+            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span>Enable metrics push</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="cfg-metrics-push-url" class="form-label">Pushgateway URL</label>
@@ -1772,7 +1772,7 @@
           <div class="settings-section">
             <div class="section-title">GitOps (config from Git)</div>
             <p class="hint">Keep your <strong>drift profiles</strong> (watched-config-file sets) and their tag/group assignments in version control. RemotePower periodically fetches a JSON manifest from a raw Git URL and reconciles the profiles it owns to match it. It only manages watched-file lists and assignments — never command execution or file-content pushes — and host enforcement still follows each device's existing apply/enforce opt-in. Off by default; fetched through the SSRF-safe fetcher; profiles you create by hand are never touched. <a href="#" data-action-btn="_showPageBtn" data-page="drift" data-prevent-default class="c-accent">View drift profiles →</a></p>
-            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-gitops-enabled"> <span class="fs-14">Enable GitOps sync</span></label>
+            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-gitops-enabled"> <span>Enable GitOps sync</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">
                 <label for="cfg-gitops-url" class="form-label">Manifest URL (raw JSON)</label>
@@ -1953,7 +1953,7 @@
           <div class="settings-section">
             <div class="section-title">SCIM provisioning (auto user lifecycle)</div>
             <p class="hint">Let your identity provider (Okta, Azure AD, OneLogin, …) create and — importantly — <strong>deactivate</strong> users automatically. When the IdP offboards someone, their access and live sessions are revoked at once. SSO (OIDC/LDAP) only ever <em>creates</em> on first login; SCIM closes the offboarding gap. Endpoint base URL: <code class="ff-mono">&lt;your-server&gt;/api/scim/v2</code>. Provisioned users start as <strong>viewer</strong>.</p>
-            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-scim-enabled"> <span class="fs-14">Enable SCIM provisioning</span></label>
+            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-scim-enabled"> <span>Enable SCIM provisioning</span></label>
             <div class="form-group">
               <label for="cfg-scim-token" class="form-label">Bearer token <span class="c-muted fs-12">(the IdP authenticates with this)</span></label>
               <input type="password" id="cfg-scim-token" class="form-input ff-mono" placeholder="leave blank to keep / auto-generate on enable" autocomplete="off">
@@ -1984,7 +1984,7 @@
             <p class="hint">Restrict UI/API access to specific source IPs. Loopback (127.0.0.1, ::1) is always allowed so the local MCP sidecar keeps working. Agent paths (heartbeat, enrollment, agent download) are exempt — enabling this never blocks an agent. Off by default.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-ipal-enabled" class="isl-34">
-              <span class="fs-14">Enforce IP allowlist</span>
+              <span>Enforce IP allowlist</span>
             </label>
             <div class="form-group">
               <label for="cfg-ipal-list" class="form-label">Allowed IPs and CIDR ranges (one per line)</label>
@@ -2214,7 +2214,7 @@
             <p class="hint">Require every agent to present a client certificate signed by your RemotePower CA — defence-in-depth on top of the per-device token, so a stolen token alone can't impersonate a host. <strong>Enable the nginx <code>ssl_verify_client optional</code> block first</strong> (see <code>deploy/nginx/remotepower.conf</code>) and run agents with <code>RP_CLIENT_CERT</code>/<code>RP_CLIENT_KEY</code>, or healthy agents will be locked out.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-require-agent-mtls" class="isl-34">
-              <span class="fs-14">Require a verified client certificate on agent requests</span>
+              <span>Require a verified client certificate on agent requests</span>
             </label>
           </div>
 
@@ -2236,7 +2236,7 @@
             <p class="hint">Pause new agent command dispatch during a controller upgrade — heartbeats and read-only browsing keep working, so devices don't flip offline. In-flight commands drain normally; new exec/reboot/install attempts are refused with a clear message and a banner is shown to everyone.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-maintenance-mode" class="isl-34" data-action="toggleMaintenanceMode">
-              <span class="fs-14">Enable maintenance mode (pause command dispatch)</span>
+              <span>Enable maintenance mode (pause command dispatch)</span>
             </label>
             <div class="form-group mt-8 mw-200">
               <label for="cfg-maintenance-reason" class="form-label">Reason (optional, shown in the banner)</label>
@@ -2252,7 +2252,7 @@
             <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-ldap-enabled" class="isl-34">
-              <span class="fs-14">Enable LDAP authentication</span>
+              <span>Enable LDAP authentication</span>
             </label>
 
             <!-- v4.6.0: LDAP URL on its own full-width row — keeping it in the
@@ -2268,7 +2268,7 @@
               <div class="form-group isl-28">
                 <label class="isl-51">
                   <input type="checkbox" id="cfg-ldap-tls-verify" checked class="isl-3">
-                  <span class="fs-14">Verify TLS cert</span>
+                  <span>Verify TLS cert</span>
                 </label>
               </div>
               <div class="form-group ldap-narrow">
@@ -3252,10 +3252,18 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.8.0 watchmatters tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
-            <summary><strong>What's new — v5.8.0</strong> — TLS/DANE expiry checks now run on the server's own built-in ~6h schedule (previously cron-only), agentless devices can be polled over SNMPv3 (USM auth + AES privacy), and a new GitHub Issues connector raises an alert when a new issue is opened on a repository you watch (no breaking changes)</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion twelve 12 domains settings left-nav left nav auto-hide autohide watermark always-on modules tickets billing provisioning file manager knowledge base documentation typography headers buttons tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
+            <summary><strong>What's new — v6.0.0 &ldquo;ClarityMatters&rdquo;</strong> — the v6 interface overhaul: one flat UI (the New-UI/Old-UI toggle is gone), a 12-domain sidebar accordion, left-nav Settings, always-on standard modules, an optional auto-hide sidebar and per-page documentation links — folding in built-in TLS/DANE expiry scheduling, SNMPv3 polling and a GitHub Issues connector (no breaking changes)</summary>
             <div class="doc-body">
-              <p>v5.8.0 fixes a silent monitoring gap and adds SNMPv3 + a developer-facing integration. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.8.0</code>).</p>
+              <p>v6.0.0 is the ClarityMatters interface overhaul, folding in the accumulated backend work below. Hard-reload once after upgrading (cache <code>remotepower-shell-v6.0.0</code>).</p>
+              <p><strong>Interface</strong></p>
+              <ul>
+                <li><strong>One flat interface.</strong> The Industrial New-UI/Old-UI toggle is gone — a single flat design with hairline panels, system fonts and accent-soft active states. Colour themes and the accent picker live under My Account &rarr; Appearance.</li>
+                <li><strong>12-domain sidebar</strong> (one group open at a time) and a <strong>left-nav Settings</strong> layout.</li>
+                <li><strong>Standard modules on by default</strong> — Tickets, Billing, Provisioning, the host File manager and the Knowledge base (server-side Terraform execution stays an explicit admin-only switch).</li>
+                <li><strong>Optional auto-hide sidebar</strong> (on by default; revealed whenever alerts are open), a faint per-page icon watermark, and consistent headings, buttons and typography throughout.</li>
+                <li><strong>Every page links its own documentation.</strong></li>
+              </ul>
               <p><strong>Fixed</strong></p>
               <ul>
                 <li><strong>TLS/DANE expiry checks run on schedule now.</strong> Periodic probing of the TLS watchlist previously required an optional cron entry the installer only suggested — and that runner couldn't see the watchlist on the SQLite/Postgres backends. The server now re-probes every target about every 6 hours on its own maintenance cadence (bounded per pass) and fires <code>tls_expiry</code> alerts on warn/critical crossings using each target's own thresholds. Nothing to configure; an existing cron entry is now redundant.</li>
@@ -3264,7 +3272,7 @@
               <ul>
                 <li><strong>SNMPv3 (USM) polling</strong>: agentless SNMP devices can use v3 instead of a v2c community — per-device user, MD5/SHA-1/SHA-2 authentication and AES-128 privacy (noAuthNoPriv / authNoPriv / authPriv), optional context. Engine discovery and time-window resync are automatic, responses are authenticated, and passwords are write-only. DES is deliberately unsupported (broken cipher — use AES). Configure it in the device drawer → Settings → SNMP polling.</li>
                 <li><strong>GitHub issue monitor</strong> (Settings → Integrations → <em>GitHub Issues</em>): watch repositories — <code>owner/repo</code>, several per instance — and get a <code>github_new_issue</code> alert in the Alerts inbox when a new issue is opened. Pull requests are ignored and the first poll only baselines, so attaching a repo never floods with its backlog. The token is optional (private repos / rate limit); GitHub Enterprise API roots work. Webhook/push routing for the new <em>GitHub new issues</em> kind is off by default — enable it under Settings → Notifications to page on it.</li>
-                <li><strong>10 more homelab connectors</strong>: Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, and a <strong>RemotePower (peer instance)</strong> connector that shows another RemotePower's device/offline/alert counts via a viewer API key (off-site visibility, not federation) — 39 connectors in total.</li>
+                <li><strong>10 more homelab connectors</strong>: Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, and a <strong>RemotePower (peer instance)</strong> connector that shows another RemotePower's device/offline/alert counts via a viewer API key (off-site visibility, not federation) — 40 connectors in total.</li>
                 <li><strong>"Fix" button on the Alerts page</strong>: alerts whose event has a remediation playbook (reboot, service down, disk, drift, failed unit, CVE, container, CPU/memory/swap, AV, backup, SSH key, new port, log, patches) now open the guided diagnostic → AI → fix runner directly — previously only reachable from the dashboard's needs-attention feed.</li>
                 <li><strong>Patch rings</strong>: an auto-patch policy can patch in staged rings (canary → wave → rest) — it spawns a health-gated rollout that verifies each ring before promoting to the next and auto-halts on a health drop, with optional per-ring reboot.</li>
                 <li><strong>Standalone-container Update</strong>: the Containers view gets an Update button on running non-compose containers — the agent pulls the latest image and recreates the container with the same config (compose-managed ones update via their stack).</li>
@@ -3273,7 +3281,7 @@
                 <li><strong>SCIM Groups + discovery</strong>: <code>/scim/v2/Groups</code> maps IdP group membership to RemotePower roles, plus the ServiceProviderConfig / ResourceTypes / Schemas discovery endpoints.</li>
               </ul>
               <p><strong>Also</strong>: enrollment PINs are stored hashed at rest; maintenance windows suppress more predictable churn (metrics, drift, failed units, reboots, container restarts, stale backups); a first-run empty Devices page shows an "add your first device" prompt; and a new <code>docs/cookbook.md</code> collects step-by-step recipes.
-              <p class="hint">See <code>docs/v5.8.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+              <p class="hint">See <code>docs/v6.0.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v5.7.0 f4ct0rmatters factormatters refactor bugfix new ui industrial light mode theme themes accent color picker tokyo dracula nord gruvbox chamfer chamfered button profile menu account dropdown delete device remove device mobile responsive narrow viewport 390px touch target ticket lifecycle opened resolved config secret encryption rp_config_key at rest rls row level security multi-table tenant lazy template page first paint font preload navigation preload entity storage heartbeat api.py decomposition module notify checks tickets provisioning backups cmdb handlers event registry route table release-prep settings groups">
@@ -5195,14 +5203,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Container image CVEs (trivy)</div><button class="btn-icon" data-action="loadImageCves"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
           <p class="hint">Vulnerabilities found in the images of running containers, grouped by image across the fleet. Enable per-fleet in <strong>Settings → Security</strong> (needs <code>trivy</code> on the hosts; ~24h cadence).</p>
-          <div id="image-cve-list" class="mt-8"><div class="c-muted">Click Refresh.</div></div>
+          <div id="image-cve-list" class="mt-8 scroll-cap"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
         <!-- W2-35: CVE remediation campaigns -->
         <div class="dash-card mt-16">
           <div class="section-title">Remediation campaigns</div>
           <p class="hint">Group CVEs into an owned, deadlined effort and track the affected-host burn-down. Scope by severity/KEV or an explicit CVE list. A campaign completes (and fires <code>campaign_completed</code>) when zero hosts remain affected. Burn-down is sampled daily.</p>
-          <div id="cve-campaigns-list" class="mt-8"></div>
+          <div id="cve-campaigns-list" class="mt-8 scroll-cap"></div>
           <div class="form-row mt-8">
             <div class="form-group flex-1"><label class="form-label" for="camp-name">Campaign name</label><input type="text" id="camp-name" class="form-input" maxlength="120" placeholder="Q3 critical KEV cleanup"></div>
             <div class="form-group"><label class="form-label" for="camp-owner">Owner</label><input type="text" id="camp-owner" class="form-input" maxlength="64" placeholder="(you)"></div>
@@ -5494,7 +5502,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <label class="form-label"><input type="checkbox" id="rr-auto-promote"> Auto-promote waves</label>
               <button class="btn-secondary" data-action="previewRebootPlan">Preview waves</button>
             </div>
-            <div id="rr-plan" class="mt-8"></div>
+            <div id="rr-plan" class="mt-8 scroll-cap"></div>
           </details>
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter rollouts…" data-input="filterRows" data-input-el="1" aria-label="Filter rollouts" data-filter-target="#rollouts-list > *">
           <div id="rollouts-list" class="scroll-cap"><div class="c-muted">Click Refresh.</div></div>
@@ -7986,7 +7994,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <!-- v3.12.0: Hardware & network (read-only, from the agent) -->
   <div id="cmdb-tab-hw" class="d-none">
     <p class="hint">Reported by the agent on its heartbeat. Read-only.</p>
-    <div id="cmdb-hw-summary"></div>
+    <div id="cmdb-hw-summary" class="scroll-cap"></div>
   </div>
 
   <!-- v3.12.0: business lists — contracts, contacts, licenses -->
@@ -9009,7 +9017,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <button class="btn-icon" data-action="hcAddUser" >+ Add user</button>
         <div id="hc-drift-users" class="meta-amber"></div>
       </div>
-      <div id="hc-users-list" class="isl-302"></div>
+      <div id="hc-users-list" class="isl-302 scroll-cap"></div>
     </div>
 
     <!-- Groups section -->
@@ -9020,7 +9028,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <button class="btn-icon" data-action="hcAddGroup" >+ Add group</button>
         <div id="hc-drift-groups" class="meta-amber"></div>
       </div>
-      <div id="hc-groups-list" class="isl-303"></div>
+      <div id="hc-groups-list" class="isl-303 scroll-cap"></div>
     </div>
 
     <div class="hc-enforce-row mt-16">
@@ -9062,46 +9070,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-16"></script>
-<script defer src="static/js/app.js?v=5.8.0-16"></script>
+<script defer src="static/js/i18n.js?v=6.0.0"></script>
+<script defer src="static/js/app.js?v=6.0.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-calendar.js?v=6.0.0"></script>
+<script defer src="static/js/app-cmdb.js?v=6.0.0"></script>
+<script defer src="static/js/app-containers.js?v=6.0.0"></script>
+<script defer src="static/js/app-network.js?v=6.0.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.0.0"></script>
+<script defer src="static/js/app-compliance.js?v=6.0.0"></script>
+<script defer src="static/js/app-integrations.js?v=6.0.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-16"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-ai.js?v=6.0.0"></script>
+<script defer src="static/js/app-dns.js?v=6.0.0"></script>
+<script defer src="static/js/app-drift.js?v=6.0.0"></script>
+<script defer src="static/js/app-dmarc.js?v=6.0.0"></script>
+<script defer src="static/js/app-cve.js?v=6.0.0"></script>
+<script defer src="static/js/app-firewall.js?v=6.0.0"></script>
+<script defer src="static/js/app-backups.js?v=6.0.0"></script>
+<script defer src="static/js/app-iac.js?v=6.0.0"></script>
+<script defer src="static/js/app-provisioning.js?v=6.0.0"></script>
+<script defer src="static/js/app-tuning.js?v=6.0.0"></script>
+<script defer src="static/js/app-kb.js?v=6.0.0"></script>
+<script defer src="static/js/app-rollouts.js?v=6.0.0"></script>
+<script defer src="static/js/app-power.js?v=6.0.0"></script>
+<script defer src="static/js/app-gpu.js?v=6.0.0"></script>
+<script defer src="static/js/app-proxmox.js?v=6.0.0"></script>
+<script defer src="static/js/wg-access.js?v=6.0.0"></script>
+<script defer src="static/js/app-billing.js?v=6.0.0"></script>
+<script defer src="static/js/app-virt.js?v=6.0.0"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-16"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-alerts.js?v=6.0.0"></script>
+<script defer src="static/js/app-checks.js?v=6.0.0"></script>
+<script defer src="static/js/app-logs.js?v=6.0.0"></script>
+<script defer src="static/js/app-remote.js?v=6.0.0"></script>
+<script defer src="static/js/app-tickets.js?v=6.0.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-16"></script>
+<script defer src="static/js/sw-register.js?v=6.0.0"></script>
 </body>
 </html>

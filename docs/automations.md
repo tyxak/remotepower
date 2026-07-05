@@ -45,4 +45,4 @@ with two actions plus a cooldown) cover it.
 | `PUT /api/automation/rules/{id}` | Replace a rule (admin) |
 | `DELETE /api/automation/rules/{id}` | Delete a rule (admin) |
 
-Rules are stored in `rules.json`.
+Rules are stored in `automation_rules.json`.

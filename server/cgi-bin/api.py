@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.8.0'
+SERVER_VERSION = '6.0.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -19291,9 +19291,8 @@ def handle_monitor_run():
     _persist_monitor_results(results)
     # Update the timestamp so the background runner doesn't immediately
     # re-check what we just returned.
-    cfg2 = load(CONFIG_FILE)
-    cfg2['last_monitor_run'] = int(time.time())
-    save(CONFIG_FILE, cfg2)
+    with _LockedUpdate(CONFIG_FILE) as cfg2:
+        cfg2['last_monitor_run'] = int(time.time())
     # W4-14: server-run results are tagged 'server'; merge the last
     # satellite-probed results so the whole monitor set shows on one page.
     for r in results:
@@ -52083,7 +52082,7 @@ def handle_calendar_import():
 
 def handle_calendar_add():
     """POST /api/calendar — create a new event."""
-    actor = require_auth()  # any authenticated user can create
+    actor = require_write_role('manage calendar events')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
@@ -52107,7 +52106,7 @@ def handle_calendar_add():
 
 def handle_calendar_update(event_id):
     """PUT /api/calendar/{id} — edit an existing event."""
-    actor = require_auth()
+    actor = require_write_role('manage calendar events')
     event_id = _sanitize_str(event_id, 32, allow_empty=False)
     if not event_id:
         respond(400, {'error': 'invalid id'})
@@ -52137,7 +52136,7 @@ def handle_calendar_update(event_id):
 
 def handle_calendar_delete(event_id):
     """DELETE /api/calendar/{id}"""
-    actor = require_auth()
+    actor = require_write_role('manage calendar events')
     event_id = _sanitize_str(event_id, 32, allow_empty=False)
     if not event_id:
         respond(400, {'error': 'invalid id'})
@@ -52222,7 +52221,7 @@ def handle_tasks_list():
 
 def handle_tasks_add():
     """POST /api/tasks — create."""
-    actor = require_auth()
+    actor = require_write_role('manage tasks')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
@@ -52255,7 +52254,7 @@ def handle_tasks_add():
 
 def handle_tasks_update(task_id):
     """PUT /api/tasks/{id} — edit title/description/state/device."""
-    actor = require_auth()
+    actor = require_write_role('manage tasks')
     task_id = _sanitize_str(task_id, 32, allow_empty=False)
     if not task_id:
         respond(400, {'error': 'invalid id'})
@@ -52285,7 +52284,7 @@ def handle_tasks_update(task_id):
 
 def handle_tasks_delete(task_id):
     """DELETE /api/tasks/{id}"""
-    actor = require_auth()
+    actor = require_write_role('manage tasks')
     task_id = _sanitize_str(task_id, 32, allow_empty=False)
     if not task_id:
         respond(400, {'error': 'invalid id'})

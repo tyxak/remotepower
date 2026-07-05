@@ -721,7 +721,7 @@ function _hcGroupRow(g, i) {
     <input class="form-input isl-612" placeholder="groupname"
            value="${escAttr(g.name||'')}" data-field="name">
     <input class="form-input isl-613" placeholder="GID (opt)"
-           value="${g.gid !== null && g.gid !== undefined ? g.gid : ''}" data-field="gid" type="number">
+           value="${g.gid != null ? escAttr(g.gid) : ''}" data-field="gid" type="number">
     <button aria-label="Remove" data-remove-closest=".hc-group-row" class="isl-614"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
   return div;
 }

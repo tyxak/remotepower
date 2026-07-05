@@ -6,7 +6,7 @@ Run an operation across many devices at once. Reachable from the command palette
 
 | Action | Backend | Notes |
 |---|---|---|
-| Upgrade packages | `_queue_command_batch(ids, 'upgrade')` | apt/dnf/yum/pacman, agent picks the right one |
+| Upgrade packages | `_queue_command_batch(ids, 'update')` | apt/dnf/yum/pacman, agent picks the right one |
 | Reboot | `_queue_command_batch(ids, 'reboot')` | Requires typing `RUN` to confirm |
 | Shut down | `_queue_command_batch(ids, 'shutdown')` | Requires typing `RUN` to confirm |
 | Force package scan | per-device `POST /devices/<id>/scan-packages` fan-out | Useful before a CVE re-scan |

@@ -23,6 +23,8 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 | `jira` | explicit | Opens a Jira issue via `POST /rest/api/2/issue` — HTTP Basic auth (account email + API token), with a project key and issue type. Fires on alert ACK (v5.0.0) |
 | `servicenow` | explicit | Opens a ServiceNow incident via `POST /api/now/table/incident` — HTTP Basic auth. Fires on alert ACK (v5.0.0) |
 | `zendesk` | explicit | Opens a Zendesk ticket via `POST /api/v2/tickets.json` — email/token Basic auth. Fires on alert ACK (v5.0.0) |
+| `telegram` | `api.telegram.org` | Telegram Bot API — `POST /bot<token>/sendMessage` (bot token + chat id on the destination) |
+| `matrix` | explicit (`/_matrix/…`) | Matrix Client-Server API — posts the alert into a room (homeserver + access token + room id) |
 | `generic` | Anything else | JSON `{event, ts, title, message, priority, ...payload}` + `X-Title`/`X-Priority`/`X-Tags` headers |
 
 Format auto-detect runs only on the legacy `webhook_url`. Entries in the new array carry an explicit `format` field — change it in the UI dropdown.

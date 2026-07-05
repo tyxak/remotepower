@@ -1,6 +1,6 @@
 # Cron & timers
 
-**Automation → Cron** views and manages a host's **crontabs** and **systemd
+**Scheduling → Cron** views and manages a host's **crontabs** and **systemd
 timers** directly from RemotePower.
 
 ## How it works

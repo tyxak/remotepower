@@ -163,7 +163,7 @@ the agent.
 
 ### Dangerous-command sweep
 
-11 regex patterns flag common foot-guns. The full list lives in
+13 regex patterns flag common foot-guns. The full list lives in
 `_DANGEROUS_PATTERNS` in `api.py`; the current set is:
 
 | Pattern | Example match |

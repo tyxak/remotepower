@@ -11,4 +11,4 @@ at risk before it fails — most urgent first:
 
 Tracked/unstable disk state also appears in the device drawer's SMART view.
 Unmonitored hosts are shown and flagged; only monitored hosts raise the
-`disk_failure_predicted` alert.
+`disk_predict_fail` alert.

@@ -43,7 +43,14 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.8.0.md](security-review-5.8.0.md)** — Latest review:
+- **[security-review-6.0.0.md](security-review-6.0.0.md)** — Latest review:
+ the v6.0.0 "ClarityMatters" line (the v6 UI overhaul) plus a whole-project
+ manual audit, the full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live
+ authenticated review — no Critical/High/Medium ships; three Medium fixes
+ (read-only-role write gates on the shared Calendar/Tasks boards, two agent-data
+ XSS paths) plus Low/defense-in-depth (integration SSRF passthrough, DNS id
+ quoting, a config-file lock).
+- **[security-review-5.8.0.md](security-review-5.8.0.md)** — A prior review:
  the v5.8.0 "WatchMatters" line plus a whole-project, eight-stream manual audit,
  the full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live authenticated
  penetration test — no Critical/High/Medium ships; two Medium read-only-role write
@@ -56,12 +63,6 @@ holds long-form docs that don't fit there.
  Critical/High/Medium ships; seven Low fixes (two secret-URL leaks, a read-only-role
  write gate, `systemctl`/`useradd` arg-injection guards, RouterOS/OPNsense
  connect-time SSRF).
-- **[security-review-5.5.0.md](security-review-5.5.0.md)** — A prior review:
- the v5.5.0 "ScaleMatters" release (persistent WSGI app tier, out-of-band scheduler,
- hard multi-tenancy + Postgres RLS) plus a whole-project server + agent audit, SAST
- (CodeQL + Bandit + semgrep + gitleaks, all clean) and a live authenticated
- penetration test — no Critical/High/Medium ships; a High drift-authz fix, two Medium
- fixes (DMARC entity-guard window, AI-provider HTTP SSRF) and a Low secret-URL fix.
 
 ## Release notes
 
@@ -70,14 +71,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v5.8.0.md](v5.8.0.md)** — unreleased (test): TLS/DANE expiry probing now
- runs on the server's own ~6h schedule (it was silently cron-only, and blind
- under the SQLite/Postgres backends); **SNMPv3/USM** polling for agentless
- devices (MD5/SHA-1/SHA-2 auth + AES-128 privacy, engine discovery and
- time-window resync automatic, write-only passwords); and a new **GitHub
- Issues** connector that raises `github_new_issue` alerts when a new issue is
- opened on watched repositories (PRs ignored, first poll baselines, paging
- off by default). No breaking changes.
+- **[v6.0.0.md](v6.0.0.md)** — "ClarityMatters" (unreleased, test): the v6 UI
+ overhaul — one flat interface (the New/Old toggle is gone), a 12-domain sidebar
+ accordion, left-nav Settings, always-on standard modules, an optional auto-hide
+ sidebar and per-page documentation links — plus the accumulated backend work
+ (built-in TLS/DANE expiry schedule, SNMPv3/USM polling, the GitHub Issues
+ connector). No breaking API changes.
 - **[v5.7.0.md](v5.7.0.md)** — "F4ct0rMatters": a refactor-and-fix release.
  Fixes five New-UI theming/accent/light-mode bugs (device delete, profile menu,
  accent picker, themes, chamfered buttons) reported by @AndiBSE and a mobile

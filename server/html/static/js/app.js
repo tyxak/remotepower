@@ -7790,7 +7790,7 @@ async function runInventorySearch() {
   const out = document.getElementById('inv-results');
   if (!out) return;
   const q = (document.getElementById('inv-q').value || '').trim();
-  if (!q) { out.innerHTML = '<div class="c-muted fs-13">Enter a package name.</div>'; _invResults = []; return; }
+  if (!q) { out.innerHTML = '<div class="c-muted">Enter a package name.</div>'; _invResults = []; return; }
   const op = document.getElementById('inv-op').value;
   const version = (document.getElementById('inv-version').value || '').trim();
   const exact = document.getElementById('inv-exact').checked ? '1' : '0';
@@ -7805,7 +7805,7 @@ async function runInventorySearch() {
 function _renderInventoryResults() {
   const out = document.getElementById('inv-results');
   if (!out) return;
-  if (!_invResults.length) { out.innerHTML = '<div class="c-muted fs-13">No hosts have a matching package.</div>'; return; }
+  if (!_invResults.length) { out.innerHTML = '<div class="c-muted">No hosts have a matching package.</div>'; return; }
   const sorted = tableCtl.sortRows('inventory', _invResults.slice(), r => ({
     device: r.device_name, package: r.package, version: r.version,
   }));
@@ -7896,7 +7896,7 @@ async function loadPatchCatalog() {
       }).join('')
       + '</div>';
   }
-  if (!r.packages.length) { body.innerHTML = (tpHtml || '<div class="c-muted fs-13">No pending updates across the fleet.</div>'); return; }
+  if (!r.packages.length) { body.innerHTML = (tpHtml || '<div class="c-muted">No pending updates across the fleet.</div>'); return; }
   const sorted = tableCtl.sortRows('patch_catalog', r.packages.slice(), p => ({
     package: p.package, hosts: p.count,
   }));
@@ -9356,7 +9356,7 @@ function renderTimeSeries(elId, series, opts) {
   if (!el) return;
   opts = opts || {};
   const all = [].concat(...series.map(s => s.points || []));
-  if (!all.length) { el.innerHTML = '<div class="c-muted fs-13">No samples yet — a daily point is recorded automatically.</div>'; return; }
+  if (!all.length) { el.innerHTML = '<div class="c-muted">No samples yet — a daily point is recorded automatically.</div>'; return; }
   const W = 720, H = 220, padL = 40, padR = 12, padT = 12, padB = 26;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const xs = all.map(p => p.x), ys = all.map(p => p.y);
@@ -12350,13 +12350,13 @@ function _chargebackTable(title, rows, rate) {
 function _renderChargeback() {
   const el = document.getElementById('chargeback-body');
   if (!el) return;
-  if (!_chargebackResp) { el.innerHTML = '<div class="c-muted fs-13">Loading…</div>'; return; }
+  if (!_chargebackResp) { el.innerHTML = '<div class="c-muted">Loading…</div>'; return; }
   const rate = _costKwh();
   const t = _chargebackResp.total || {};
   const grp = _chargebackTable('By group', _chargebackResp.groups, rate);
   const tag = _chargebackTable('By tag', _chargebackResp.tags, rate);
   if (!grp && !tag) {
-    el.innerHTML = '<div class="c-muted fs-13">No power-reporting hosts yet (needs a UPS via NUT/apcupsd or GPU draw).</div>';
+    el.innerHTML = '<div class="c-muted">No power-reporting hosts yet (needs a UPS via NUT/apcupsd or GPU draw).</div>';
     return;
   }
   el.innerHTML = `<div class="hint mb-8">Fleet: ${t.hosts || 0} host(s) · ${t.watts || 0} W · ~${(t.kwh_month || 0)} kWh/mo · ~${((t.kwh_month || 0) * rate).toFixed(2)}/mo</div>`
@@ -12470,7 +12470,7 @@ let _swCatalogTimer = null;
 async function loadSoftwareCatalog() {
   const body = document.getElementById('swcatalog-body');
   if (!body) return;
-  body.innerHTML = '<div class="c-muted fs-13">Loading…</div>';
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
   const r = await api('GET', '/inventory/catalog').catch(() => null);
   if (!r) { body.innerHTML = '<div class="c-red">Failed to load software inventory.</div>'; return; }
   _swCatalog = r.packages || [];
@@ -12484,7 +12484,7 @@ function _renderSwCatalog() {
   const q = (document.getElementById('swcatalog-q')?.value || '').toLowerCase().trim();
   let rows = _swCatalog;
   if (q) rows = rows.filter(p => (p.package || '').toLowerCase().includes(q));
-  if (!rows.length) { body.innerHTML = '<div class="c-muted fs-13">No packages match.</div>'; return; }
+  if (!rows.length) { body.innerHTML = '<div class="c-muted">No packages match.</div>'; return; }
   const shown = rows.slice(0, 500);
   const verCell = (p) => p.versions.map(v =>
     `<span class="cmd-badge fs-11">${escHtml(v.version)}${v.hosts > 1 ? ` <span class="c-muted">×${v.hosts}</span>` : ''}</span>`).join(' ')
@@ -12997,7 +12997,7 @@ function _renderHomeHealth(health, history) {
           + `</div>`
           + `</details>`;
       }).join('')
-    : '<div class="c-muted fs-13">All devices healthy — nothing needs attention.</div>';
+    : '<div class="c-muted">All devices healthy — nothing needs attention.</div>';
   body.innerHTML =
     `<div class="hh-wrap">`
     + `<div class="hh-score">`
@@ -19089,7 +19089,7 @@ async function loadReportsIntegrity() {
   }).join('');
   out.innerHTML = pills + (rows
     ? `<div class="table-card"><table><thead id="reports-integrity-thead"><tr><th data-col="device">Device</th><th data-col="version">Version</th><th data-col="status">Status</th><th data-col="hash">Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
-    : '<div class="c-muted fs-13">All reporting agents verified.</div>');
+    : '<div class="c-muted">All reporting agents verified.</div>');
   tableCtl.wireSortOnly('reports-integrity-thead', 'reports_integrity', loadReportsIntegrity);
 }
 
@@ -19111,7 +19111,7 @@ async function loadReportsMetering() {
   const r = await api('GET', '/inventory/metering').catch(() => null);
   if (!r) { out.innerHTML = ''; return; }
   const meters = Array.isArray(r.meters) ? r.meters : [];
-  if (!meters.length) { out.innerHTML = '<div class="c-muted fs-13">No software meters configured yet.</div>'; return; }
+  if (!meters.length) { out.innerHTML = '<div class="c-muted">No software meters configured yet.</div>'; return; }
   const sorted = tableCtl.sortRows('metering', meters.slice(), m => ({
     software: m.name, installed: m.installed, reclaim: m.reclaimable || 0,
   }));
@@ -19159,7 +19159,7 @@ async function loadReportsAnomalies() {
   const r = await api('GET', '/fleet/anomalies' + (seasonal ? '?seasonal=1' : '')).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load anomalies.</div>'; return; }
   const a = r.anomalies || [];
-  if (!a.length) { out.innerHTML = '<div class="c-muted fs-13">No resource anomalies detected.</div>'; return; }
+  if (!a.length) { out.innerHTML = '<div class="c-muted">No resource anomalies detected.</div>'; return; }
   const sorted = tableCtl.sortRows('reports_anomalies', a, x => ({
     device: x.device_name, metric: x.label, latest: x.value, baseline: x.mean, deviation: x.z,
   }));
@@ -19206,13 +19206,13 @@ async function loadReportsSla() {
 function _renderReportsSla() {
   const out = document.getElementById('reports-sla');
   if (!out) return;
-  if (!_slaRows.length) { out.innerHTML = '<div class="c-muted fs-13">No uptime data yet.</div>'; return; }
+  if (!_slaRows.length) { out.innerHTML = '<div class="c-muted">No uptime data yet.</div>'; return; }
   // v4.10.0: omnisearch the per-device SLA table by device name or group.
   const q = (document.getElementById('sla-search')?.value || '').trim().toLowerCase();
   const base = q
     ? _slaRows.filter(r => (r.name || '').toLowerCase().includes(q) || (r.group || '').toLowerCase().includes(q))
     : _slaRows;
-  if (!base.length) { out.innerHTML = `<div class="c-muted fs-13">No device matches “${escHtml(q)}”.</div>`; return; }
+  if (!base.length) { out.innerHTML = `<div class="c-muted">No device matches “${escHtml(q)}”.</div>`; return; }
   const fmtPct = p => p == null ? '—' : p + '%';
   const fmtDown = s => !s ? '0' : s >= 86400 ? Math.round(s / 86400) + 'd' : s >= 3600 ? Math.round(s / 3600) + 'h' : Math.round(s / 60) + 'm';
   const sorted = tableCtl.sortRows('sla', base.slice(), r => ({
@@ -19595,7 +19595,7 @@ async function runFleetQuery() {
   out.innerHTML = '<div class="c-muted">Querying…</div>';
   const r = await api('GET', '/fleet/query?' + params.toString()).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Query failed.</div>'; return; }
-  if (!Array.isArray(r.devices) || !r.devices.length) { out.innerHTML = '<div class="c-muted fs-13">No devices match.</div>'; return; }
+  if (!Array.isArray(r.devices) || !r.devices.length) { out.innerHTML = '<div class="c-muted">No devices match.</div>'; return; }
   const sorted = tableCtl.sortRows('fleet_query', r.devices.slice(), d => ({
     device: d.name, group: d.group || '', os: d.os || '',
     status: d.online ? 1 : 0,
@@ -22001,7 +22001,7 @@ function _slowHandlersCard(sh) {
   }).join('');
   return `<div class="dash-card">
       <div class="section-title">Slow requests <span class="hint">(> ${sh.threshold_ms} ms; last ${sh.count})</span></div>
-      <table class="fs-13">${rows}</table>
+      <div class="scrollable-table-wrap audit-scroll"><table>${rows}</table></div>
     </div>`;
 }
 

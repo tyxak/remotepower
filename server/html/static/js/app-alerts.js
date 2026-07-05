@@ -115,7 +115,7 @@ function _alertRowHtml(a, role) {
   // v5.0.0: ITSM ticket opened on ack — link straight to it.
   const ticketLink = a.ticket_ref
     ? (a.ticket_url
-        ? ` <a href="${_safeHttpHref(a.ticket_url)}" target="_blank" rel="noopener" class="patch-badge ok fs-10" title="Open the linked ticket">Ticket ${_escapeHtml(a.ticket_ref)} ↗</a>`
+        ? ` <a href="${_safeHttpHref(a.ticket_url)}" target="_blank" rel="noopener" class="patch-badge ok fs-10" title="Open the linked ticket">Ticket ${_escapeHtml(a.ticket_ref)} <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg></a>`
         : ` <span class="patch-badge ok fs-10" title="Linked ticket">Ticket ${_escapeHtml(a.ticket_ref)}</span>`)
     : '';
   // W1-23: linked KB runbook for this event, if an admin mapped one.
@@ -197,7 +197,7 @@ function _renderAlertsGrouped(rows) {
       || (b.ts || 0) - (a.ts || 0));
     const collapsed = _alertGroupsCollapsed.has(g.key);
     const worstName = _ALERT_SEV_NAME[g.worst] || 'low';
-    const caret = collapsed ? '▸' : '▾';
+    const caret = collapsed ? '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' : '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
     const rootNote = g.hasRoot ? ' · host offline — symptoms folded' : '';
     let groupActions = '';
     if (g.openCount) {
