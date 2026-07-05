@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-15">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-16">
 
 </head>
 <body>
@@ -3212,7 +3212,7 @@
 
       <!-- ── Schedule page (unchanged) ────────────────────────────────────── -->
       <div id="page-schedule" class="page">
-        <div class="page-title">Scheduled Commands</div><div class="page-subtitle">Queue shutdown or reboot at a specific time <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-title">Scheduled Commands</div><div class="page-subtitle">Queue shutdown or reboot at a specific time <a href="docs/schedule.md" class="c-accent">Documentation</a></div>
         <div class="section-header"><div class="section-title">Pending jobs</div><button class="enroll-btn" data-action="openScheduleAdd" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> Add job</button></div>
         <!-- v1.11.5: filter -->
         <div class="mb-16"><input type="text" id="schedule-filter" class="form-input input-wide" placeholder="Filter by device, command, or actor…" aria-label="Filter by device, command, or actor"></div>
@@ -4556,7 +4556,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <template data-page-tpl="reports">
       <div id="page-reports" class="page">
         <div class="page-title">Reports</div>
-        <div class="page-subtitle">One fleet posture report — health score, patches, CVEs, and compliance in a single export, on demand or emailed on a schedule. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">One fleet posture report — health score, patches, CVEs, and compliance in a single export, on demand or emailed on a schedule. <a href="docs/reports.md" class="c-accent">Documentation</a>.</div>
 
         <div class="dash-card mb-16">
           <div class="section-title">Fleet posture report</div>
@@ -5090,7 +5090,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
       <div id="page-patches" class="page">
-        <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data <a href="docs/patches.md" class="c-accent">Documentation</a></div>
         <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" data-input-debounce="180" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch device filter"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
         <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button></div>
         <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
@@ -5360,7 +5360,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v1.8.0: Maintenance page ────────────────────────────────────────── -->
       <div id="page-maintenance" class="page">
         <div class="page-title">Maintenance Windows</div>
-        <div class="page-subtitle">Scheduled windows suppress webhook alerts for specific devices, groups, or the whole fleet. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Scheduled windows suppress webhook alerts for specific devices, groups, or the whole fleet. <a href="docs/maintenance.md" class="c-accent">Documentation</a></div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadMaintenance" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-primary mw-200" data-action="openNewMaintModal" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-8a2aac00"/></svg> New window</button>
@@ -5379,7 +5379,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- v3.6.0: Auto-patch policies -->
       <div id="page-autopatch" class="page">
         <div class="page-title">Auto-patch</div>
-        <div class="page-subtitle">Apply package updates automatically on a schedule across a group, tag, site, or the whole fleet. Queued upgrades respect maintenance windows and device quarantine. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Apply package updates automatically on a schedule across a group, tag, site, or the whole fleet. Queued upgrades respect maintenance windows and device quarantine. <a href="docs/auto-patch.md" class="c-accent">Documentation</a></div>
         <div class="section-header"><div class="section-title">Policies</div><button class="enroll-btn" data-action="openAutopatchCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> New policy</button></div>
         <div class="mb-16"><input type="text" id="autopatch-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
         <div class="table-card"><table><thead id="autopatch-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="cron">Schedule</th><th scope="col" data-col="reboot">Reboot</th><th scope="col" data-col="enabled">Enabled</th><th scope="col"></th></tr></thead><tbody id="autopatch-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
@@ -5475,7 +5475,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <div id="page-rollouts" class="page">
         <div class="page-title">Rollouts</div>
-        <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval. <a href="docs/rollouts.md" class="c-accent">Documentation</a></div>
         <div class="dash-card mb-16">
           <div class="row-8-center mb-12">
             <button class="btn-primary" data-action="openRolloutModal"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8a2aac00"/></svg> New rollout</button>
@@ -5512,7 +5512,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v1.8.3: Calendar page ────────────────────────────────────────── -->
       <div id="page-calendar" class="page">
         <div class="page-title">Calendar</div>
-        <div class="page-subtitle">Shared events across all users — backups, deploys, renewals, anything you want to remember. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Shared events across all users — backups, deploys, renewals, anything you want to remember. <a href="docs/calendar.md" class="c-accent">Documentation</a></div>
 
         <div class="isl-155">
           <div class="isl-156">
@@ -5539,7 +5539,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v1.8.3: Tasks page (kanban) ─────────────────────────────────── -->
       <div id="page-tasks" class="page">
         <div class="page-title">Tasks</div>
-        <div class="page-subtitle">Shared kanban board. Drag cards between columns. Optionally link a task to a device. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Shared kanban board. Drag cards between columns. Optionally link a task to a device. <a href="docs/tasks.md" class="c-accent">Documentation</a></div>
 
         <div class="isl-161">
           <div class="row-8-center">
@@ -5947,7 +5947,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v5.1.0: App catalog — one-click compose deploy ───────────────── -->
       <div id="page-catalog" class="page">
         <div class="page-title">App catalog</div>
-        <div class="page-subtitle">One-click deploy of curated, self-contained apps to a host via <span class="fw-600">Docker Compose</span>. Requires compose deploys enabled on the target device (per-device opt-in, Devices → drawer). Gated on the <span class="fw-600">containers</span> permission and audited; the deploy rides the existing compose path. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">One-click deploy of curated, self-contained apps to a host via <span class="fw-600">Docker Compose</span>. Requires compose deploys enabled on the target device (per-device opt-in, Devices → drawer). Gated on the <span class="fw-600">containers</span> permission and audited; the deploy rides the existing compose path. <a href="docs/app-catalog.md" class="c-accent">Documentation</a></div>
         <div class="dash-card mb-16">
           <div class="section-title">Target host</div>
           <input type="text" id="catalog-device-search" class="form-input" placeholder="Search a device by name / IP / tag…" data-input="_renderCatalogDeviceResults" data-input-value="1" data-input-debounce="150" aria-label="Search device">
@@ -5967,7 +5967,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v5.1.0: Cron + systemd timer management ─────────────────────── -->
       <div id="page-cron" class="page">
         <div class="page-title">Cron &amp; timers</div>
-        <div class="page-subtitle">View and manage crontabs and <span class="fw-600">systemd timers</span> on a host. Edits run through the audited, permission-gated command queue (quarantined / audit-mode hosts are skipped); crontab content is installed via a temp file, <span class="fw-600">never a shell</span>. <a href="docs/features.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">View and manage crontabs and <span class="fw-600">systemd timers</span> on a host. Edits run through the audited, permission-gated command queue (quarantined / audit-mode hosts are skipped); crontab content is installed via a temp file, <span class="fw-600">never a shell</span>. <a href="docs/cron.md" class="c-accent">Documentation</a></div>
         <div class="dash-card mb-16">
           <div class="section-title">Host</div>
           <input type="text" id="cron-device-search" class="form-input" placeholder="Search a device by name / IP / tag…" data-input="_renderCronDeviceResults" data-input-value="1" data-input-debounce="150" aria-label="Search device">
@@ -6239,7 +6239,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.11.0: Fleet Software Policy ─────────────────────────────── -->
       <div id="page-software-policy" class="page">
         <div class="page-title">Software policy</div>
-        <div class="page-subtitle">Rules evaluated against every host's installed-package inventory: <span class="fw-600">banned</span> (must not be installed), <span class="fw-600">required</span> (must be installed), <span class="fw-600">min&nbsp;version</span>. Optionally scope a rule to device tags. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Rules evaluated against every host's installed-package inventory: <span class="fw-600">banned</span> (must not be installed), <span class="fw-600">required</span> (must be installed), <span class="fw-600">min&nbsp;version</span>. Optionally scope a rule to device tags. <a href="docs/software-policy.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadSoftwarePolicy" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <span id="swpol-summary" class="isl-100"></span>
@@ -9062,46 +9062,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-15"></script>
-<script defer src="static/js/app.js?v=5.8.0-15"></script>
+<script defer src="static/js/i18n.js?v=5.8.0-16"></script>
+<script defer src="static/js/app.js?v=5.8.0-16"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-15"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-network.js?v=5.8.0-16"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-15"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0-16"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-15"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-15"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-power.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0-16"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0-16"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-15"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-15"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0-16"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0-16"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-15"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0-16"></script>
 </body>
 </html>
