@@ -969,16 +969,14 @@
    * and any browser focus/autofill default. -webkit-text-fill-color also forces the
    * typed-text colour through Chrome's autofill overlay. */
   input.select-filter,
-  input.select-filter:focus,
-  body[data-ui="industrial"] input.select-filter,
-  body[data-ui="industrial"] input.select-filter:focus {
-    background: var(--well-bg, var(--bg)) !important;
+  input.select-filter:focus {
+    background: var(--bg) !important;
     color: var(--text) !important;
     -webkit-text-fill-color: var(--text);
     caret-color: var(--accent);
   }
   input.select-filter:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0 1000px var(--well-bg, var(--bg)) inset !important;
+    -webkit-box-shadow: 0 0 0 1000px var(--bg) inset !important;
     -webkit-text-fill-color: var(--text) !important;
   }
   /* v5.6.0: force bright, readable text in the Check-catalog inputs/select in
@@ -988,12 +986,7 @@
   #custom-checks-modal select,
   #custom-checks-modal option,
   #custom-checks-modal optgroup,
-  #custom-checks-modal textarea,
-  body[data-ui="industrial"] #custom-checks-modal input,
-  body[data-ui="industrial"] #custom-checks-modal input:focus,
-  body[data-ui="industrial"] #custom-checks-modal select,
-  body[data-ui="industrial"] #custom-checks-modal option,
-  body[data-ui="industrial"] #custom-checks-modal optgroup {
+  #custom-checks-modal textarea {
     color: var(--text) !important;
     -webkit-text-fill-color: var(--text) !important;
     caret-color: var(--accent);
@@ -1207,10 +1200,10 @@
     background: var(--accent);
     color: #fff;
     border: none;
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
+    padding: 8px 14px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 560;
     cursor: pointer;
     transition: background 0.2s;
     font-family: var(--font);
@@ -1218,16 +1211,16 @@
   .btn-primary:hover { background: var(--accent2); }
   .btn-secondary {
     background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
+    border: 1px solid var(--hair);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 7px;
+    font-size: 13px;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
     font-family: var(--font);
   }
-  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-secondary:hover { background: var(--hair-2); }
   /* v3.9.0: inline Lucide glyphs in non-flex buttons sit on the baseline;
      nudge them onto the optical centre of the label. */
   .btn-primary svg, .btn-secondary svg { vertical-align: -2px; }
@@ -1239,17 +1232,17 @@
   .btn-icon svg:not(:only-child) { margin-right: 5px; }
   .btn-icon {
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid var(--hair);
     color: var(--muted);
-    padding: 8px 12px;
-    border-radius: 8px;
+    padding: 8px 12px;   /* keeps input.page-filter's 34px toolbar-height contract */
+    border-radius: 7px;
     font-size: 13px;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
     display: flex; align-items: center; gap: 6px;
     font-family: var(--font);
   }
-  .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon:hover { background: var(--hair-2); color: var(--text); }
   .btn-icon svg { width: 14px; height: 14px; }
   .enroll-btn {
     background: var(--accent);
@@ -1738,9 +1731,9 @@
   }
   .modal {
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 32px;
+    border: 1px solid var(--hair);
+    border-radius: 14px;
+    padding: 28px;
     width: 100%;
     max-width: 480px;
     transform: translateY(20px);
@@ -1753,8 +1746,8 @@
   /* v3.3.4: roughly twice modal-wide, for dense views like the RouterOS
      console; capped to the viewport so it never overflows. */
   .modal-xwide { max-width: min(1360px, 94vw); }
-  .modal-title    { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-  .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+  .modal-title    { font-size: 16px; font-weight: 640; margin-bottom: 6px; }
+  .modal-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
   .pin-display {
     background: var(--bg);
     border: 1px solid var(--border);
@@ -1778,22 +1771,23 @@
   .confirm-icon.amber  { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--amber); }
   .confirm-icon svg { width: 24px; height: 24px; }
   .form-group { margin-bottom: 16px; }
+  /* v6: sentence-case labels (chosen-design .lab) — the uppercase eyebrow is gone */
   .form-label {
-    font-size: 12px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.5px;
+    font-size: 12px; color: var(--muted); font-weight: 500;
     margin-bottom: 6px; display: block;
   }
+  /* v6 (chosen-design .inp): flat hairline field, mono value text */
   .form-input {
     width: 100%;
     background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 11px 14px;
-    font-size: 14px;
+    border: 1px solid var(--hair);
+    border-radius: 7px;
+    padding: 8px 10px;
+    font-size: 12.5px;
     color: var(--text);
     outline: none;
     transition: border-color 0.2s;
-    font-family: var(--font);
+    font-family: var(--font-mono);
   }
   .form-input:focus { border-color: var(--accent); }
   .form-input::placeholder { color: var(--muted); }
@@ -1811,12 +1805,42 @@
   textarea {
     background: var(--bg);
     color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 11px 14px;
-    font-size: 14px;
-    font-family: var(--font);
+    border: 1px solid var(--hair);
+    border-radius: 7px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    font-family: var(--font-mono);
     outline: none;
+  }
+  /* v6: flat select with a muted chevron (the chamfered dropdown is gone);
+     background-IMAGE only, so the field colour above still applies */
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237f8b98' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 30px;
+  }
+  /* v6: flat checkboxes — hairline square, accent fill when checked (the
+     warm-amber chamfer is gone) */
+  input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px; height: 16px; margin: 0;
+    flex: none; vertical-align: middle; cursor: pointer;
+    background: var(--bg);
+    border: 1px solid var(--hair);
+    border-radius: 5px;
+    position: relative;
+    transition: background .12s, border-color .12s;
+  }
+  input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+  input[type="checkbox"]:checked::after {
+    content: ""; position: absolute; left: 4.5px; top: 1.5px;
+    width: 4px; height: 8px;
+    border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
   }
   input:where(:not([type=checkbox]):not([type=radio])):focus,
   select:focus, textarea:focus { border-color: var(--accent); }
@@ -1860,16 +1884,16 @@
    * and rendered as a white browser default — match the secondary button. */
   .btn {
     background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
+    border: 1px solid var(--hair);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 7px;
+    font-size: 13px;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
     font-family: var(--font);
   }
-  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:hover { background: var(--hair-2); }
   /* v3.13.0: off-screen-but-present (a11y) — used for the hidden username field
    * that satisfies the browser's password-form accessibility check. */
   .visually-hidden { position: absolute !important; width: 1px; height: 1px;
@@ -3429,7 +3453,7 @@ button, a, [role="button"],
   position: absolute; top: 0; right: 0; bottom: 0;
   width: min(820px, 100vw);
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--hair);
   display: flex; flex-direction: column;
   transform: translateX(100%);
   transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
@@ -5887,14 +5911,7 @@ body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
    to 14px inputs). This selector outranks the .fs-12 utility, so every
    industrial form control lands on one size project-wide. Tabs are their own
    strip and stay at the dense 12px. ── */
-body[data-ui="industrial"] .btn-primary,
-body[data-ui="industrial"] .btn-secondary {
-  text-transform:uppercase; letter-spacing:0.05em; font-size:13px;
-  white-space:nowrap;   /* keep labels on one line so toolbar button heights stay equal */
-}
-body[data-ui="industrial"] .settings-tab {
-  text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
-}
+/* (v6: uppercase button/tab treatments gone — sentence-case controls.) */
 /* Settings tabs read like the sidebar: rounded pill highlight (not an accent
    underline). The radius overrides the industrial skin's grouped 2px so the
    pills match the sidebar nav in both skins; the keyboard-focus state gets the
@@ -6417,68 +6434,9 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
    motion gated by prefers-reduced-motion. Tokens (--warm/--accent-edge) live
    in the industrial dark+light blocks above.
    ════════════════════════════════════════════════════════════════════════ */
-body[data-ui="industrial"]{ --rp-cham:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
-  --rp-cham-in:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
-
-/* #3/#2/#12 · Chamfered buttons with a CONTINUOUS border on all 8 edges.
-   Technique: the button background is the BORDER colour + octagon clip; an inset
-   ::before (the fill, same octagon) sits 1.5px in, so the border colour shows as
-   a uniform outline around the whole shape — including the two cut corners. */
-body[data-ui="industrial"] .btn,
-body[data-ui="industrial"] .btn-primary,
-body[data-ui="industrial"] .btn-secondary,
-body[data-ui="industrial"] .btn-shutdown,
-body[data-ui="industrial"] .btn-reboot,
-body[data-ui="industrial"] .btn-update,
-body[data-ui="industrial"] .btn-upgrade,
-body[data-ui="industrial"] .enroll-btn,
-body[data-ui="industrial"] .login-btn,
-body[data-ui="industrial"] .login-btn-oidc{
-  position:relative; z-index:0; border:none !important; border-radius:0 !important;
-  clip-path:var(--rp-cham); background:var(--accent-edge);
-  --rp-fill:var(--surface2);
-}
-body[data-ui="industrial"] .btn::before,
-body[data-ui="industrial"] .btn-primary::before,
-body[data-ui="industrial"] .btn-secondary::before,
-body[data-ui="industrial"] .btn-shutdown::before,
-body[data-ui="industrial"] .btn-reboot::before,
-body[data-ui="industrial"] .btn-update::before,
-body[data-ui="industrial"] .btn-upgrade::before,
-body[data-ui="industrial"] .enroll-btn::before,
-body[data-ui="industrial"] .login-btn::before,
-body[data-ui="industrial"] .login-btn-oidc::before{
-  content:""; position:absolute; inset:1.5px; z-index:-1;
-  background:var(--rp-fill); clip-path:var(--rp-cham-in);
-}
-/* per-variant fill + border colour */
-body[data-ui="industrial"] .btn-primary,
-body[data-ui="industrial"] .login-btn,
-body[data-ui="industrial"] .enroll-btn{ background:var(--accent); --rp-fill:var(--accent); color:#fff; }
-body[data-ui="industrial"] .btn-shutdown{ background:var(--red);    --rp-fill:var(--surface2); color:var(--red) !important; }
-body[data-ui="industrial"] .btn-reboot  { background:var(--amber);  --rp-fill:var(--surface2); color:var(--amber) !important; }
-body[data-ui="industrial"] .btn-update  { background:var(--green);  --rp-fill:var(--surface2); color:var(--green) !important; }
-body[data-ui="industrial"] .btn-upgrade { background:var(--purple,#7c3aed); --rp-fill:var(--surface2); color:var(--accent2) !important; }
-/* hover: brighten the border ring */
-body[data-ui="industrial"] .btn:hover,
-body[data-ui="industrial"] .btn-secondary:hover,
-body[data-ui="industrial"] .login-btn-oidc:hover{ background:var(--accent); }
-/* icon/table buttons (Refresh, Add IP, Detail, Scan, Manage, …): same full-border
-   chamfer so the outline traces all 8 edges, not just the straight ones. */
-body[data-ui="industrial"] .btn-icon:not(header *){
-  position:relative; z-index:0; border:none !important; border-radius:0 !important;
-  background:var(--border);
-  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
-  --rp-fill:var(--surface2);
-}
-body[data-ui="industrial"] .btn-icon:not(header *)::before{
-  content:""; position:absolute; inset:1px; z-index:-1; background:var(--rp-fill);
-  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
-}
-body[data-ui="industrial"] .btn-icon:not(header *):hover{ background:var(--accent-edge); --rp-fill:var(--accent-soft); }
-/* coloured icon-button variants keep their meaning in the border */
-/* coloured icon-buttons keep the NEUTRAL chamfer border (the colour is in the text);
-   a green/red outline on Resolve/Delete was too loud. */
+/* (v6: the chamfered-button machinery — --rp-cham octagons, per-variant
+   fills, uppercase — is gone; base buttons carry the flat design.) */
+/* (v6: icon-button chamfer gone — base .btn-icon is the flat hairline control.) */
 
 /* #4 · Scanline-sweep skeletons */
 body[data-ui="industrial"] .skeleton,
@@ -6499,9 +6457,9 @@ body[data-ui="industrial"] .empty-icon svg{ stroke:var(--accent-edge); }
 body[data-ui="industrial"] .empty-title{ font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.08em; }
 
 /* #6 · Keycap shortcuts */
-body[data-ui="industrial"] kbd{
-  background:var(--surface2); border:1px solid var(--border); border-bottom-width:2px;
-  border-radius:3px; padding:2px 7px; font-family:var(--font-mono); font-size:11px; font-weight:600; color:var(--text);
+kbd{
+  background:none; border:1px solid var(--hair);
+  border-radius:4px; padding:1px 5px; font-family:var(--font-mono); font-size:9.5px; color:var(--muted);
 }
 
 /* #1 · Animated icons — pulsing status dots + spin-on-load utility */
@@ -6519,22 +6477,7 @@ body[data-ui="industrial"] kbd{
 .rp-divider::before,.rp-divider::after{ content:""; height:1px; background:var(--border); flex:1; }
 
 /* #10 · Tag & filter chips */
-body[data-ui="industrial"] .rp-tag,
-body[data-ui="industrial"] .group-badge,
-body[data-ui="industrial"] .tag-chip{
-  position:relative; z-index:0; display:inline-flex; align-items:center; gap:6px;
-  border:none; color:var(--accent2); padding:3px 9px;
-  font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em;
-  /* full-border chamfer (TL+BR), like the buttons: bg = border colour, inset ::before = fill */
-  background:var(--accent-edge); --rp-fill:var(--surface2);
-  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
-}
-body[data-ui="industrial"] .rp-tag::before,
-body[data-ui="industrial"] .group-badge::before,
-body[data-ui="industrial"] .tag-chip::before{
-  content:""; position:absolute; inset:1px; z-index:-1; background:var(--rp-fill);
-  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
-}
+/* (v6: chamfered tag/badge chips are gone — base chip styles apply.) */
 
 /* #11 · Hazard stripe (critical / destructive zones) */
 .rp-haz{ height:12px; border-radius:2px;
@@ -6580,32 +6523,14 @@ body[data-ui="industrial"] .login-btn-oidc{ background:var(--accent-edge); --rp-
 /* (v6: the card-gradient consistency sweep is gone — panels are flat
    var(--surface); un-migrated ones keep their base borders.) */
 
-/* v5.1.0 · inset well — a recessed, contrasting surface for text inside a card */
-body[data-ui="industrial"] .rp-well{
-  background:var(--well-bg); border:1px solid var(--border); border-radius:3px;
-  padding:12px 14px; box-shadow:inset 0 2px 6px rgba(0,0,0,.55);
+/* v6 · a contrasting text surface inside a card — flat on the page ground
+   (the recessed inset shadows are gone) */
+.rp-well{
+  background:var(--bg); border:1px solid var(--hair); border-radius:7px;
+  padding:12px 14px;
 }
-body[data-ui="industrial"].light .rp-well{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
 
-/* v5.1.0 · the inset well, applied to command / log / journal output text */
-body[data-ui="industrial"] .journal-wrap{
-  background:var(--well-bg); border:1px solid var(--border); border-radius:3px;
-  box-shadow:inset 0 2px 6px rgba(0,0,0,.55);
-}
-body[data-ui="industrial"].light .journal-wrap{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
-
-/* v5.1.0 · INSET WELL on every text input — "anywhere you can type" (industrial).
-   Recessed --well-bg + inner shadow so inputs read as wells, matching the spec. */
-body[data-ui="industrial"] input:not(.sidebar-search):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
-body[data-ui="industrial"] textarea,
-body[data-ui="industrial"] select.form-input,
-body[data-ui="industrial"] .form-input{
-  background:var(--well-bg) !important;
-  box-shadow:inset 0 2px 5px rgba(0,0,0,.5);
-}
-body[data-ui="industrial"].light input:not(.sidebar-search):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
-body[data-ui="industrial"].light textarea,
-body[data-ui="industrial"].light .form-input{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
+/* (v6: the recessed input wells are gone — inputs are flat hairline fields.) */
 
 /* v6: devices list/table view sits on a flat design panel like every card */
 #devices-container{
@@ -6614,103 +6539,23 @@ body[data-ui="industrial"].light .form-input{ box-shadow:inset 0 1px 3px rgba(0,
 
 
 
-/* v5.1.0 · ALL <select> dropdowns → chamfered full-border (idea 02) + line-arrow
-   icon, industrial skin. CSS-only (no wrapper needed): border:transparent +
-   padding-box/border-box double-background draws a border that follows the
-   octagon clip-path on a single element. Overrides the input-well treatment for
-   selects (a select is a dropdown, not a typing field). */
-body[data-ui="industrial"] select,
-body[data-ui="industrial"] select.form-input{
-  -webkit-appearance:none !important; appearance:none !important;
-  border:none !important; border-radius:0 !important; box-shadow:none !important;
-  padding:9px 36px 9px 13px !important;
-  clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px) !important;
-  background:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237c879a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='5' x2='12' y2='19'/><polyline points='6 13 12 19 18 13'/></svg>") no-repeat right 13px center,
-    var(--surface2) !important;
-}
-/* JS wraps each <select> in .rp-ddwrap; the wrapper draws the accent border on a
-   LARGER octagon so it shows on all edges incl. the chamfer cuts (selects can't
-   render ::before). The select is inset 1.5px by the wrapper padding. */
-body[data-ui="industrial"] .rp-ddwrap{ position:relative; display:inline-block; padding:1.5px; vertical-align:middle; max-width:100%; }
-body[data-ui="industrial"] .rp-ddwrap::before{
-  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:var(--accent-edge);
-  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
-}
-body[data-ui="industrial"] .rp-ddwrap:focus-within::before{ background:var(--accent); }
-body[data-ui="industrial"] .rp-ddwrap select{ position:relative; z-index:1; display:block; width:100%; }
-
-/* v5.6.0: the SEARCHABLE DEVICE COMBOBOX replaces a <select> with a text input
-   (the "no device dropdowns" rule). It had NO chamfer, so it looked out of place
-   next to the chamfered native dropdowns, and its plain focus outline read as a
-   broken/"punctured" blue line. Give the .dev-combo span the same chamfer the
-   native selects use (the <input> can't render a ::before, the span can); clip
-   the input to the inner octagon so the accent border is uniform on all 8 edges;
-   and drop the input's own border/radius/focus-outline so nothing double-draws. */
-body[data-ui="industrial"] .dev-combo{ position:relative; display:block; padding:1.5px; }
-body[data-ui="industrial"] .dev-combo::before{
-  /* Rest on the NEUTRAL --border grey (like the toolbar buttons / icon buttons),
-     not --accent-edge — a blue resting border made the combobox much louder than
-     the grey controls next to it. Turn blue only on focus. */
-  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:var(--border);
-  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
-}
-body[data-ui="industrial"] .dev-combo:focus-within::before{ background:var(--accent); }
-body[data-ui="industrial"] .dev-combo .dev-combo-input{
-  /* display:block (like .rp-ddwrap select) so the input fills the wrapper box
-     EXACTLY. As an inline-block text input it sat on the baseline with a few px
-     of descender gap below it, where the accent ::before bled through — making
-     the blue border look thicker/stronger than the native dropdowns. */
-  position:relative; z-index:1; display:block; width:100%;
-  border:none !important; border-radius:0 !important; outline:none !important;
-  /* match the native chamfered <select>s: a FLAT --surface2 fill with no inset
-     well-shadow. The default input-well treatment (recessed --well-bg + inner
-     shadow) made the combobox's accent border read much stronger than the other
-     dropdowns. A combobox here is a dropdown, not a typing well. */
-  background:var(--surface2) !important;
-  box-shadow:none !important;
-  /* the typed text must stay bright/readable — not the accent colour (it was
-     rendering blue-on-blue when the focus chamfer turned the area accent). */
-  color:var(--text) !important;
-  -webkit-text-fill-color:var(--text) !important;
-  caret-color:var(--accent);
-  clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
-}
+/* (v6: chamfered selects / rp-ddwrap accent ring / dev-combo chamfer are gone —
+   the base select rule draws a flat field with a muted chevron; .rp-ddwrap and
+   .dev-combo fall back to their plain base styling.) */
 
 /* (v6: the industrial 30/34px section spacing + its :not(#page-home)
    specificity-trap resets are gone — base card margins own the rhythm.) */
 
-/* #2 · button-styled anchors must not be underlined (e.g. "View SP metadata") */
-body[data-ui="industrial"] a.btn,
-body[data-ui="industrial"] a.btn-primary,
-body[data-ui="industrial"] a.btn-secondary,
-body[data-ui="industrial"] a.btn-icon,
-body[data-ui="industrial"] a.login-btn{ text-decoration:none; }
+/* button-styled anchors must not be underlined (v6: base, no skin scope) */
+a.btn, a.btn-primary, a.btn-secondary, a.btn-icon, a.login-btn{ text-decoration:none; }
 
-/* #4 · native <select> open menu honours dark mode */
-body[data-ui="industrial"]{ color-scheme:dark; }
-body[data-ui="industrial"].light{ color-scheme:light; }
-body[data-ui="industrial"] option,
-body[data-ui="industrial"] optgroup{ background:var(--surface2); color:var(--text); }
+/* native <select> open menu honours dark mode (v6: base, no skin scope) */
+body{ color-scheme:dark; }
+body.light{ color-scheme:light; }
+option, optgroup{ background:var(--surface2); color:var(--text); }
 
-/* #8 · warm-amber chamfered checkboxes everywhere */
-body[data-ui="industrial"] input[type="checkbox"]{
-  -webkit-appearance:none; appearance:none; width:19px; height:19px; margin:0;
-  cursor:pointer; position:relative; z-index:0; flex:none; vertical-align:middle;
-  border:none; box-shadow:none; background:var(--warm);   /* the border layer */
-  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
-}
-/* inset fill clipped to a SMALLER octagon → warm border shows on ALL edges incl. the cuts */
-body[data-ui="industrial"] input[type="checkbox"]::before{
-  content:""; position:absolute; inset:1.5px; z-index:-1; background:var(--surface2);
-  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
-}
-body[data-ui="industrial"] input[type="checkbox"]::after{
-  content:""; position:absolute; left:6px; top:2px; width:5px; height:10px;
-  border:solid #1a1205; border-width:0 2px 2px 0; transform:rotate(45deg) scale(0); transition:transform .12s;
-}
-body[data-ui="industrial"] input[type="checkbox"]:checked::before{ background:var(--warm); }
-body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rotate(45deg) scale(1); }
+/* (v6: the warm-amber chamfered checkboxes are gone — see the base
+   input[type="checkbox"] rule with the form controls.) */
 
 /* ════════════════════════════════════════════════════════════════════════
    v5.4.0 "RackMatters": time-tracking + billing (Timesheet + Billing pages,
