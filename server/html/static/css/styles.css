@@ -36,7 +36,8 @@
     --amber: #f59e0b;
     --orange: #f97316;   /* severity "high" / ERROR — themeable; inherited by themes that don't override it */
     --purple: #7c3aed;
-    --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    /* v6.0.0 ClarityMatters: the design's system sans (chosen-design --sans) */
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
   body.light {
     --bg: #f1f5f9;
@@ -46,7 +47,6 @@
     --text: #0f172a;
     --muted: #64748b;
   }
-  body.light body::before { background-image: linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
   /* (v4.3.0: the old body.light header rgba override is gone — the header now
      uses opaque var(--bg), which is theme- and light-mode-correct by itself.) */
   /* Accent presets moved BELOW the data-theme blocks (see ~"v4.1: full themes")
@@ -414,27 +414,10 @@
     min-height: 100vh;
     overflow-x: hidden;
   }
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image: linear-gradient(rgba(59,126,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
-    pointer-events: none;
-    z-index: 0;
-  }
-  body::after {
-    content: '';
-    position: fixed;
-    top: -200px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 800px;
-    height: 400px;
-    background: radial-gradient(ellipse, rgba(59,126,255,0.08) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
-  }
+  /* (v6: the always-on decorative grid (body::before) + ambient glow
+     (body::after) are gone — the design ground is plain var(--bg). The
+     opt-in body[data-bg] patterns still work; .container keeps its
+     z-index:1 — see the stacking-context note there.) */
   .container {
     /* v2.2.5: 1100 → 1300. The dashboard's data-density grew with the
      * minimal devices table + Home tile grid + drift fleet table; 1100
@@ -756,7 +739,8 @@
      margin-left:-1px hack is gone). */
 
   /* v4.1.0: dashboard title row with a small inline Customize button. */
-  .page-title-row { display: flex; align-items: center; gap: 12px; }
+  .page-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .page-title-row + .page-subtitle { margin-top: -13px; }
   .page-title-row .page-title { margin: 0; }
   .dash-customize-btn { margin-left: auto; flex: none; font-size: 12px; padding: 4px 10px; }
 
@@ -1164,17 +1148,23 @@
   .page { display: none; }
   .page.active { display: block; }
   main { padding: 48px 0; }
+  /* v6 (chosen-design .setpane h2/.sub): compact 19px page heading with the
+     description inline right under it. The subtitle pulls itself up to sit
+     3px below the title; title-only pages keep the 16px content gap. */
   .page-title {
-    margin-bottom: 8px;
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
+    margin: 0 0 16px;
+    font-size: 19px;
+    font-weight: 640;
+    letter-spacing: -0.01em;
   }
   .page-subtitle {
     color: var(--muted);
-    font-size: 14px;
-    margin-bottom: 40px;
+    font-size: 12.5px;
+    margin: 0 0 18px;
   }
+  /* directly under the title (or title row) it pulls up to sit 3px below it
+     (16px title margin − 13px); elsewhere it spaces itself normally */
+  .page-title + .page-subtitle { margin-top: -13px; }
   .stats-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1183,8 +1173,8 @@
   }
   .stat-card {
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+    border: 1px solid var(--hair);
+    border-radius: 11px;
     padding: 20px 24px;
     display: flex;
     align-items: center;
@@ -1210,7 +1200,8 @@
     justify-content: space-between;
     margin-bottom: 20px;
   }
-  .section-title { font-size: 16px; font-weight: 600; }
+  /* v6 (chosen-design .grp .gt): 13px card/section heading */
+  .section-title { font-size: 13px; font-weight: 620; }
   .btn-primary {
     flex: 1;
     background: var(--accent);
@@ -1910,7 +1901,7 @@
    * fit under the cap so they don't get a redundant inner scrollbar, and their
    * pager renders as a sibling *outside* the card so it's never hidden. This is
    * the single guard that keeps every page short instead of kilometers of rows. */
-  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 480px; contain: paint; }  /* v5.6.0: match .dash-card radius */
+  .table-card { background: var(--surface); border: 1px solid var(--hair); border-radius: 11px; overflow: auto; max-height: 480px; contain: paint; }  /* v6: design panel radius */
   .table-card thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; box-shadow: inset 0 -1px 0 var(--border); }
   /* v3.13.0: discovery scan results render into a bare div (not a .table-card),
    * so cap it too — a /24 scan can return 254 hosts. */
@@ -1952,12 +1943,12 @@
   .sysinfo-pill .value { font-weight: 600; font-family: var(--font-mono); }
   .settings-section {
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;   /* v5.6.0: match .dash-card / .table-card radius */
+    border: 1px solid var(--hair);
+    border-radius: 11px;   /* v6: design panel radius */
     padding: 24px;
     margin-bottom: 16px;   /* v4.1.0: align with the 16px card rhythm */
   }
-  .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .settings-section h3 { font-size: 13px; font-weight: 620; margin-bottom: 6px; }
   .settings-section .hint { font-size: 12px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
   .settings-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
   .settings-row .form-group { flex: 1; min-width: 160px; margin: 0; }
@@ -2309,8 +2300,8 @@
    * Uses a thoughtful system-mono stack; first match wins. JetBrains Mono
    * and Fira Code are common installs on dev laptops; ui-monospace is
    * Apple's modern system mono. */
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace,
-               'Cascadia Code', Menlo, Consolas, monospace;
+  /* v6.0.0 ClarityMatters: the design's system mono (chosen-design --mono) */
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 body.light {
@@ -2328,11 +2319,11 @@ body.light {
  * alternates that fix the awkward default "1", straight-sided "a", etc.
  * cv02/cv03/cv04/cv11 enable those; harmless on systems without Inter. */
 body {
-  /* Anchor the canonical 14px BODY size once, document-wide. Without this the
-     base inherited the browser default 16px, so any element that didn't set its
-     own size rendered a size off the scale — the root of "body text appears at
-     different sizes". Components with an explicit size are unaffected. */
-  font-size: 14px;
+  /* Anchor the canonical BODY size once, document-wide (v6: the design's
+     13.5px, line-height 1.5 — chosen-design body). Components with an
+     explicit size are unaffected. */
+  font-size: 13.5px;
+  line-height: 1.5;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -2563,8 +2554,8 @@ input.form-input[type="text"][data-token],
 }
 .tile {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--hair);
+  border-radius: 11px;
   padding: 18px 20px;
   position: relative;
   transition: transform 0.15s ease, border-color 0.15s ease;
@@ -2623,40 +2614,35 @@ input.form-input[type="text"][data-token],
 }
 .dash-card {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid var(--hair);
+  border-radius: 11px;
   padding: 16px 18px;
-  margin-bottom: 22px;   /* v4.10.0: roomier inter-card rhythm (was 16px) */
+  margin-bottom: 16px;   /* v6: design .grp rhythm */
 }
 /* v4.7.0: inside the .dash-cols grid the 18px `gap` already spaces the cards;
    the card's own 16px margin-bottom stacked ON TOP of it when the grid wraps to
    one column (18 + 16 = 34px ≈ "double space"). Let the grid gap own it. */
 .dash-cols > .dash-card { margin-bottom: 0; }
 .dash-card h3 {
+  /* v6 (chosen-design .gt): sentence-case ink heading, not an eyebrow */
   font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  font-weight: 620;
+  color: var(--text);
   margin: 0 0 12px 0;
-  font-weight: 500;
 }
-/* v5.8.0 (B4.1): card/section headers migrated from <h3> to the canonical
-   `.section-title`. In the INDUSTRIAL skin these render as the chamfered card
-   tab (see the tab rules below). In the DEFAULT (Old UI) skin, preserve the
-   exact look the old <h3> had so the migration is visually invisible there —
-   a card header stays 13px muted uppercase, a settings-section header 14px. */
+/* v5.8.0 (B4.1) → v6: card/section headers are the canonical `.section-title`;
+   they render as the design's 13px/620 sentence-case ink heading (chosen-design
+   .gt) — the chamfered industrial tab and the old uppercase eyebrow are gone. */
 .dash-card > .section-title:first-child,
 .dash-card > div:first-child > .section-title:first-child {
   font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  font-weight: 620;
+  color: var(--text);
   margin: 0 0 12px 0;
-  font-weight: 500;
 }
 .settings-section > .section-title:first-child {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 620;
   margin-bottom: 6px;
 }
 .dash-feed-item {
@@ -5824,24 +5810,23 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    so `body[data-theme="…"]` (0,1,1) can win when a theme is picked. */
 body[data-ui="industrial"] {
   --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.55);
-  --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+  /* v6 status colours (chosen-design --ok/--crit/--warn, dark) */
+  --green:#4ea87a; --red:#e5645f; --amber:#e0a83a;
   --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
-  /* Card fill gradient + recessed well — derived from the live palette (lighter
-     surface → darker bg) so every theme keeps the industrial DEPTH without a
-     per-theme override. */
-  --card-grad:linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+  /* v6: cards are FLAT (chosen-design .grp) — the graphite card gradient is
+     gone; text wells still recess onto the page ground. */
   --well-bg:var(--bg);
-  --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
-  --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
-  --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 /* DEFAULT graphite dark palette — ONLY when no explicit theme is chosen
    (:not([data-theme])) and not the light toggle. A dark theme (tokyo, dracula,
    nord, …) sets data-theme, so this bows out and the theme's palette applies. */
 body[data-ui="industrial"]:not([data-theme]):not(.light) {
-  --bg:#0f1217; --surface:#171b22; --surface2:#1f242d; --border:#313a47;
-  --text:#dfe4ec; --muted:#7c879a;
-  --accent2:#5c9fff;
+  /* v6.0.0 ClarityMatters dark (chosen-design tokens: bg/panel/panel-2/ink/muted) */
+  --bg:#0c0f13; --surface:#161b22; --surface2:#1b212a; --border:#242b34;
+  --text:#e8edf3; --muted:#7f8b98;
+  --accent2:#7ea9ff;
   /* NB: --accent is deliberately NOT set here. This block is (0,3,1); setting
      --accent would beat the accent-picker rules (0,2,1) and pin the New UI to
      blue. The default blue comes from :root's --accent (0,1,0); themes (0,1,1)
@@ -5854,9 +5839,12 @@ body[data-ui="industrial"]:not([data-theme]):not(.light) {
    its own light palette. --card-grad/--well-bg derive from these via the
    structure block above. */
 body[data-ui="industrial"].light:not([data-theme]) {
-  --bg:#e7ebf0; --surface:#f7f9fb; --surface2:#eef1f5; --border:#cbd2dc;
-  --text:#1b2230; --muted:#5c6675;
+  /* v6.0.0 ClarityMatters light (chosen-design tokens) */
+  --bg:#eef1f5; --surface:#ffffff; --surface2:#eef1f5; --border:#d9dee5;
+  --text:#141922; --muted:#6a7787;
   --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
+  /* v6 status colours (chosen-design --ok/--crit/--warn, light) */
+  --green:#2f8f5b; --red:#d33f39; --amber:#c67e12;
   /* NB: --accent-soft/--accent-edge deliberately NOT set here. This block is
      (0,3,1); setting them pinned chamfered .btn-secondary borders (e.g. "Enable
      notifications") to blue in light mode, overriding the accent picker (0,2,1).
@@ -5880,50 +5868,18 @@ body[data-ui="industrial"] { font-family:var(--font); }
    sidebar is the first migrated Clarity surface; its look lives entirely in
    the base .sidebar rules near the top of this file.) */
 
-/* ── Typography: Space Grotesk on every prominent heading / number / brand ── */
-body[data-ui="industrial"] .page-title,
-body[data-ui="industrial"] .section-title,
-body[data-ui="industrial"] .empty-title,
-body[data-ui="industrial"] .modal-title,
-body[data-ui="industrial"] .drawer-title,
-body[data-ui="industrial"] .stat-value,
-body[data-ui="industrial"] .tile-value,
-body[data-ui="industrial"] .card-title,
-body[data-ui="industrial"] h1,
-body[data-ui="industrial"] h2,
-body[data-ui="industrial"] h3 { font-family:var(--font-display); letter-spacing:-0.01em; }
+/* (v6: the display-font heading list is gone — one family everywhere.) */
 body[data-ui="industrial"] .stat-value,
 body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
 
 /* ── Sidebar + topbar: MIGRATED to Clarity (v6 phase 1) — no industrial
    rules left (machined nav, uppercase logo-text, squared logo-img all gone). */
 
-/* ── Page header ────────────────────────────────────────────────────────── */
-body[data-ui="industrial"] .page-title { font-weight:600; letter-spacing:-0.015em; }
-body[data-ui="industrial"] .page-subtitle { font-family:var(--font-mono); color:var(--muted); }
+/* (v6: page-header industrial overrides gone — base .page-title/.page-subtitle
+   carry the design.) */
 
-/* ── Sharper corners everywhere ─────────────────────────────────────────── */
-body[data-ui="industrial"] .stat-card,
-body[data-ui="industrial"] .tile,
-body[data-ui="industrial"] .table-card,
-body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .home-widget,
-body[data-ui="industrial"] .settings-section,
-body[data-ui="industrial"] .settings-pane,
-body[data-ui="industrial"] .modal,
-body[data-ui="industrial"] .card,
-body[data-ui="industrial"] .drawer { border-radius:3px; }
-body[data-ui="industrial"] .btn,
-body[data-ui="industrial"] .btn-primary,
-body[data-ui="industrial"] .btn-secondary,
-body[data-ui="industrial"] .form-input,
-body[data-ui="industrial"] .form-select,
-body[data-ui="industrial"] select,
-body[data-ui="industrial"] input[type="text"]:not(.sidebar-search),
-body[data-ui="industrial"] input[type="search"],
-body[data-ui="industrial"] .settings-tab,
-body[data-ui="industrial"] .chip,
-body[data-ui="industrial"] .badge { border-radius:2px; }
+/* (v6: the industrial sharp-corner lists are gone — components keep their own
+   base radii; migrated panels sit on the design 11px.) */
 
 /* ── Buttons read like panel controls ───────────────────────────────────────
    Keep buttons at the 14px body/input size so a button never sits SMALLER than
@@ -5969,148 +5925,14 @@ body[data-ui="industrial"] .settings-tab:focus-visible {
   border-radius: 0;                              /* square, not the rounded pill */
 }
 
-/* ── Corner ticks, drawn as background-image so they frame the box and scroll
-   correctly. The old ::before/::after were position:absolute; on a card that is
-   itself a scroll container (table-cards use overflow:auto) absolute children
-   anchor to the scrolled content and look "stuck". A background is painted on
-   the border box (background-attachment:scroll = fixed to the element), so the
-   ticks always frame the visible box and move with it on page scroll. TL + BR. ─ */
-body[data-ui="industrial"] .stat-card,
-body[data-ui="industrial"] .tile,
-body[data-ui="industrial"] .table-card,
-body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .home-widget,
-body[data-ui="industrial"] .login-card {
-  position:relative;
-  /* solid surface UNDER the tick background-image. Without this, state tiles like
-     .tile.alert / .tile.warn (which set `background:` shorthand → transparent
-     colour + a semantic gradient) render transparent once we replace their
-     gradient with the corner ticks. */
-  background-color:var(--surface) !important;
-  background-image:
-    linear-gradient(var(--border),var(--border)),
-    linear-gradient(var(--border),var(--border)),
-    linear-gradient(var(--border),var(--border)),
-    linear-gradient(var(--border),var(--border)),
-    var(--card-grad);
-  background-repeat:no-repeat;
-  background-size:9px 1px, 1px 9px, 9px 1px, 1px 9px, 100% 100%;
-  background-position:7px 7px, 7px 7px, right 7px bottom 7px, right 7px bottom 7px, 0 0;
-}
+/* (v6: the corner-tick card framing is gone — flat hairline panels.) */
 
-/* ── Labeled patch-panel cards (design idea 05) ─────────────────────────────
-   The card's title becomes a chamfered warm-amber mono TAB that sits over the
-   top border — a labeled breaker / patch panel — echoing the checkbox chamfer
-   and the warm accent. Uniform across every card-title shape in the app:
-     (a) a direct-child <h3>            → 172 cards
-     (b) a direct-child .section-title  →  20 cards (Tunnels, Clients, …)
-     (c) an <h3>/.section-title that is the first child of a first-child header
-         wrapper (`<div class=row-…><h3>…<badge>`, `.section-header>.section-title
-         +button`) → 19 cards
-   Title-less cards (grids/toolbars/section-label) match none of these and stay
-   plain — correct, they have no single heading to label. When the title is a
-   grandchild inside a header ROW, we lift just the title into the tab and pin
-   the row's remaining items (action button / count badge) to the right so the
-   row doesn't reflow left. ── */
-body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .settings-section {
-  position:relative;
-  /* Room for the tab that dips ~12px into the card. Applied UNCONDITIONALLY (not
-     via :has) so the layout is robust in every browser: an engine that lacks
-     :has() support would previously render the tab (a plain child selector) but
-     DROP the :has padding rule → the tab sat over the toolbar. A little extra
-     top space on the few title-less cards is harmless. */
-  padding-top:26px;
-}
+/* (v6: the chamfered warm-amber patch-panel card TAB is gone — card titles
+   are plain 13px/620 ink headings (chosen-design .gt) via the base
+   .section-title / .dash-card h3 / .settings-section h3 rules.) */
 
-/* the tab itself — every title-element variant */
-body[data-ui="industrial"] .dash-card > h3:first-child,
-body[data-ui="industrial"] .dash-card > .section-title:first-child,
-body[data-ui="industrial"] .dash-card > div:first-child > h3:first-child,
-body[data-ui="industrial"] .dash-card > div:first-child > .section-title:first-child,
-body[data-ui="industrial"] .settings-section > h3:first-child,
-body[data-ui="industrial"] .settings-section > .section-title:first-child,
-body[data-ui="industrial"] .settings-section > div:first-child > h3:first-child,
-body[data-ui="industrial"] .settings-section > div:first-child > .section-title:first-child {
-  /* margin:0 !important — the tab is absolute, and a `.page:not(#page-home)
-     .section-title{margin-top:34px}` rule carries ID-level specificity (the
-     :not(#page-home) trap), which outranks this selector and would shove the
-     absolute tab 34px DOWN over the toolbar. !important guarantees the reset. */
-  position:absolute; top:-10px; left:14px; margin:0 !important; z-index:2;
-  max-width:calc(100% - 28px);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  /* Continuous border on the chamfer: the element background IS the border
-     colour + octagon clip; an inset ::before (the fill) sits 1px in, so the
-     border shows as a uniform outline on ALL edges incl. the top-left cut —
-     the same technique the industrial buttons/checkbox use. A plain
-     `border + clip-path` slices the border off the diagonal (the bug). */
-  border:none;
-  background:var(--border);
-  clip-path:polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px);
-  color:var(--warm);
-  font-family:var(--font-mono); font-weight:600;
-  font-size:11px; letter-spacing:0.10em; text-transform:uppercase; line-height:1;
-  padding:5px 12px 5px 10px;
-}
-/* the fill: inset 1px on ALL FOUR sides so the border colour shows as a complete
-   outline around the tab — including the BOTTOM edge (this is the border the user
-   wanted visible; it used to be flush at the bottom = no bottom border). */
-body[data-ui="industrial"] .dash-card > h3:first-child::before,
-body[data-ui="industrial"] .dash-card > .section-title:first-child::before,
-body[data-ui="industrial"] .dash-card > div:first-child > h3:first-child::before,
-body[data-ui="industrial"] .dash-card > div:first-child > .section-title:first-child::before,
-body[data-ui="industrial"] .settings-section > h3:first-child::before,
-body[data-ui="industrial"] .settings-section > .section-title:first-child::before,
-body[data-ui="industrial"] .settings-section > div:first-child > h3:first-child::before,
-body[data-ui="industrial"] .settings-section > div:first-child > .section-title:first-child::before {
-  content:""; position:absolute; z-index:-1;
-  top:1px; left:1px; right:1px; bottom:1px;
-  background:var(--surface2);
-  clip-path:polygon(5px 0, 100% 0, 100% 100%, 0 100%, 0 5px);
-}
-/* a nested inline hint/count inside a title tab shouldn't shout — mute it */
-body[data-ui="industrial"] .dash-card > .section-title:first-child .hint,
-body[data-ui="industrial"] .dash-card > div:first-child > .section-title:first-child .hint {
-  font-size:10px; color:var(--muted); font-weight:400; letter-spacing:0.04em;
-}
-/* keep the header ROW's remaining items (button / badge) pinned right once the
-   title has been lifted out into the tab */
-body[data-ui="industrial"] .dash-card > div:first-child:has(> h3:first-child),
-body[data-ui="industrial"] .dash-card > div:first-child:has(> .section-title:first-child),
-body[data-ui="industrial"] .settings-section > div:first-child:has(> h3:first-child),
-body[data-ui="industrial"] .settings-section > div:first-child:has(> .section-title:first-child) {
-  justify-content:flex-end; min-height:20px;
-}
-/* (room for the tab is reserved unconditionally at the top of this block, so no
-   :has() padding rule is needed here — that was the fragile part.) */
-/* hide the top-left corner tick on any tabbed dash-card (it would poke out from
-   under the tab); keep the bottom-right pair + the card gradient */
-body[data-ui="industrial"] .dash-card:has(> h3:first-child),
-body[data-ui="industrial"] .dash-card:has(> .section-title:first-child),
-body[data-ui="industrial"] .dash-card:has(> div:first-child > h3:first-child),
-body[data-ui="industrial"] .dash-card:has(> div:first-child > .section-title:first-child) {
-  background-position:-20px -20px, -20px -20px, right 7px bottom 7px, right 7px bottom 7px, 0 0;
-}
-
-/* ── Eyebrow labels: mono, uppercase, tracked ───────────────────────────── */
-body[data-ui="industrial"] .stat-label,
-body[data-ui="industrial"] .tile-label,
-body[data-ui="industrial"] .form-label,
-body[data-ui="industrial"] .meta-label {
-  text-transform:uppercase; letter-spacing:0.10em;
-}
-
-/* ── Stat cards: instrument readout, not soft app cards ─────────────────────
-   Drop the pastel rgba icon square for a flat outlined chip (keeps the semantic
-   icon colour), and tighten the readout. The number is already Space Grotesk and
-   the label mono-uppercase from the rules above. ── */
-body[data-ui="industrial"] .stat-icon {
-  background:transparent;
-  border:1px solid var(--border);
-}
-body[data-ui="industrial"] .stat-card { padding:16px 18px; gap:14px; }
-body[data-ui="industrial"] .stat-value { font-size:28px; font-weight:600; letter-spacing:-0.02em; }
-body[data-ui="industrial"] .stat-label { font-size:10px; margin-top:5px; }
+/* (v6: mono-uppercase eyebrow labels + instrument stat-card overrides gone —
+   base styles carry the design.) */
 
 /* ── Tables: technical-drawing rows ─────────────────────────────────────── */
 body[data-ui="industrial"] th {
@@ -6118,38 +5940,13 @@ body[data-ui="industrial"] th {
 }
 body[data-ui="industrial"] td { font-family:var(--font); }
 
-/* ── ONE shape language ─────────────────────────────────────────────────────
-   The app sets border-radius ad hoc on hundreds of components (6/8/10/12px…),
-   so a hand-picked override list always leaves a mix of round + square. Square
-   EVERY box & control with a universal rule (boxes and buttons end up the same
-   shape), then restore only genuinely circular UI. `!important` beats the app's
-   per-class radii; scoped to the opt-in industrial mode, so the Old UI keeps its
-   rounded look. Pseudo-elements (the corner ticks) aren't matched by `*`. ── */
-/* v6 phase 1: the sidebar subtree is MIGRATED to Clarity — exempt it so its
-   own 6/7/8px radii apply. The exemption dies with this whole block when the
-   re-skin completes. */
-body[data-ui="industrial"] *:not(.sidebar):not(.sidebar *) { border-radius: 3px !important; }
-body[data-ui="industrial"] [class*="avatar"],
-body[data-ui="industrial"] .dot,
-body[data-ui="industrial"] .status-dot,
-body[data-ui="industrial"] .status-badge-dot,
-body[data-ui="industrial"] .ts-dot,
-body[data-ui="industrial"] .tl-dot,
-body[data-ui="industrial"] .acme-timeline-dot,
-body[data-ui="industrial"] .accent-swatch,
-body[data-ui="industrial"] .skeleton-circle,
-body[data-ui="industrial"] .spinner,
-body[data-ui="industrial"] .loader,
-body[data-ui="industrial"] .cal-day-num { border-radius: 50% !important; }
-/* the status accent bar on device cards followed the old 14px corner — square it */
-body[data-ui="industrial"] .device-card::before { border-radius: 0 !important; }
+/* (v6: the universal 3px-radius "one shape language" is gone — components
+   keep their own radii.) */
 
-/* ── Icons: one consistent weight + round caps across the whole UI ───────────
-   Many of the app's inline SVGs ship with square caps/joins and a heavy 2px
-   stroke; normalise every icon to a finer 1.75 stroke with round caps/joins for
-   a crisp, uniform "instrument" set. CSS overrides the SVG presentation attrs;
-   filled icons are unaffected. Scoped to the industrial UI. ── */
-body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+/* ── Icons: one consistent weight + round caps across the whole UI (v6: the
+   design's 1.9 stroke — chosen-design svg rule; was industrial-scoped 1.75).
+   CSS overrides the SVG presentation attrs; filled icons are unaffected. ── */
+svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* (v6.0.0: the v4.6.0 New UI / Old UI selector CSS is gone with the toggle.) */
 
@@ -6251,22 +6048,7 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
    reveal it inline in the old UI. */
 .page-subtitle { display:none; }
 .page-subtitle.subtitle-shown { display:block; }
-.page-info-ic { position:relative; display:inline-flex; align-items:center; vertical-align:middle;
-  margin-left:8px; color:var(--muted); cursor:help; }
-.page-info-ic svg { width:16px; height:16px; }
-.page-info-ic:hover, .page-info-ic:focus-visible { color:var(--accent); outline:none; }
-/* rich tooltip — carries the subtitle's own HTML, so any links stay clickable.
-   Shown on hover/focus; staying inside the icon's hover area keeps it open. */
-.page-info-tip {
-  display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:300;
-  width:max-content; max-width:380px; padding:11px 14px;
-  background:var(--surface); border:1px solid var(--border); border-radius:6px;
-  box-shadow:0 10px 30px rgba(0,0,0,.4);
-  font-family:var(--font); font-size:13px; line-height:1.55; font-weight:400;
-  text-transform:none; letter-spacing:normal; white-space:normal; color:var(--text);
-}
-.page-info-ic:hover .page-info-tip,
-.page-info-ic:focus-within .page-info-tip { display:block; }
+/* (v6: the page-title info-icon + tooltip are gone — subtitles render inline.) */
 
 /* ════════════════════════════════════════════════════════════════════════════
    v5.0.0 "CTRLMatters" — Industrial design pass. Sharpens the control-panel
@@ -6509,8 +6291,7 @@ table { font-variant-numeric: tabular-nums; }
    header→content gap for every page, in one place — no per-page patches, and no
    double-spacing since first-content margins are all bottom-side. Scoped to the
    industrial theme; the classic UI keeps its visible-subtitle spacing. */
-body[data-ui="industrial"] .page > .page-title,
-body[data-ui="industrial"] .page > .page-title-row { margin-bottom: 24px; }
+/* (v6: base .page-title margins own the header→content gap.) */
 
 /* ===== v5.1.0: RTL (dir="rtl") layout overrides ===========================
    The document sets dir="rtl" for the Arabic (ar) locale and the TEXT is
@@ -6793,47 +6574,11 @@ body[data-ui="industrial"] .login-card:has(.login-btn-oidc:not(.d-none)) #login-
    would otherwise give them the primary accent fill) — surface fill + accent border. */
 body[data-ui="industrial"] .login-btn-oidc{ background:var(--accent-edge); --rp-fill:var(--surface2); color:var(--accent2); }
 
-/* v5.1.0 · full-bleed ultra-faint per-page icon watermark (idea #05). Industrial
-   skin only; behind content (.container is z-index:1); never intercepts clicks.
-   Centred in the viewport — the opaque sidebar (z-index:90) covers its left
-   strip, so it reads as centred in the content area. */
-#page-watermark{ display:none; }
-body[data-ui="industrial"] #page-watermark{
-  display:block; position:fixed; inset:auto; right:0; bottom:0; z-index:0; pointer-events:none;
-}
-/* keep page content above the z-index:0 watermark */
-body[data-ui="industrial"] .app-content{ position:relative; z-index:1; }
-body[data-ui="industrial"] #page-watermark svg{
-  width:min(56vw,740px); height:min(56vw,740px);
-  /* anchored bottom-right, only ~1/5 bleeding off so most of the icon shows */
-  transform:translate(20%,20%);
-  fill:none; stroke:rgba(160,175,200,.035); stroke-width:1;
-}
-/* Some nav icons (e.g. the AI sparkle) have child paths with their own
-   fill="currentColor" — the svg-level fill:none never reaches them, so they
-   rendered as a solid white blob. Force EVERY descendant stroke-only + faint
-   (a CSS rule overrides the SVG presentation attribute). */
-body[data-ui="industrial"] #page-watermark svg *{
-  fill:none; stroke:rgba(160,175,200,.035); stroke-width:1;
-}
+/* (v6: the per-page icon watermark is gone — plain design ground.) */
 
 
-/* v5.1.0 · CONSISTENCY SWEEP — every card/panel surface gets the same --card-grad
-   gradient, not just the 6 in the corner-tick rule. [class*="-card"] catches all
-   X-card containers in one shot (doc-card, gpu-card, integration-card, …);
-   the tick'd 6 + skeleton are excluded (they already have it / animate). Plus the
-   non-"-card" panels (settings, hc-panel, iac, compliance, modal, drawer). */
-body[data-ui="industrial"] [class*="-card"]:not(.stat-card):not(.table-card):not(.dash-card):not(.home-widget):not(.login-card):not(.skeleton-card),
-body[data-ui="industrial"] .card,
-body[data-ui="industrial"] .settings-section,
-body[data-ui="industrial"] .hc-panel,
-body[data-ui="industrial"] .modal,
-body[data-ui="industrial"] .drawer{
-  background-image: var(--card-grad) !important;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  border:1px solid var(--border);
-}
+/* (v6: the card-gradient consistency sweep is gone — panels are flat
+   var(--surface); un-migrated ones keep their base borders.) */
 
 /* v5.1.0 · inset well — a recessed, contrasting surface for text inside a card */
 body[data-ui="industrial"] .rp-well{
@@ -6862,15 +6607,12 @@ body[data-ui="industrial"].light input:not(.sidebar-search):not([type="checkbox"
 body[data-ui="industrial"].light textarea,
 body[data-ui="industrial"].light .form-input{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
 
-/* v5.1.0 · devices list/table view sits on a gradient panel like every other page */
-body[data-ui="industrial"] #devices-container{
-  background-image:var(--card-grad); background-repeat:no-repeat; background-size:100% 100%;
-  border:1px solid var(--border); border-radius:3px; padding:8px;
+/* v6: devices list/table view sits on a flat design panel like every card */
+#devices-container{
+  background:var(--surface); border:1px solid var(--hair); border-radius:11px; padding:8px;
 }
 
-/* v5.1.0 · double the bottom padding inside boxes/cards — but NOT on the Dashboard */
-body[data-ui="industrial"] .page:not(#page-home) .dash-card,
-body[data-ui="industrial"] .page:not(#page-home) .settings-section{ padding-bottom:28px; }
+
 
 /* v5.1.0 · ALL <select> dropdowns → chamfered full-border (idea 02) + line-arrow
    icon, industrial skin. CSS-only (no wrapper needed): border:transparent +
@@ -6935,24 +6677,8 @@ body[data-ui="industrial"] .dev-combo .dev-combo-input{
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
 }
 
-/* v5.1.0 · space between sections/cards — scoped to .page:not(#page-home) so the
-   DASHBOARD is never matched (no resets, no risk of tampering). */
-body[data-ui="industrial"] .page:not(#page-home) .dash-card{ margin-bottom:30px; }
-body[data-ui="industrial"] .page:not(#page-home) .table-card + .table-card{ margin-top:30px; }
-body[data-ui="industrial"] .page:not(#page-home) .settings-section{ margin-bottom:34px; }
-body[data-ui="industrial"] .page:not(#page-home) .section-title{ margin-top:34px; }
-/* but not when the heading shares a flex row with tags/filters/buttons.
-   NB: these MUST carry the same `.page:not(#page-home)` prefix as the rule
-   above — its `:not(#page-home)` contributes an id to specificity (1,3,1),
-   so a reset without it (0,3,1) loses and the 34px margin pushes the title
-   off-centre inside the flex row (Enrolled Devices tags, Top Processes
-   filter). With the prefix the reset is (1,4,1) and wins. */
-body[data-ui="industrial"] .page:not(#page-home) .section-header .section-title,
-body[data-ui="industrial"] .page:not(#page-home) [class*="row-"] .section-title{ margin-top:0; }
-body[data-ui="industrial"] .page:not(#page-home) .page-title + .section-title,
-body[data-ui="industrial"] .page:not(#page-home) .page-title-row + .section-title,
-body[data-ui="industrial"] .page:not(#page-home) > .section-title:first-child,
-body[data-ui="industrial"] .page:not(#page-home) .settings-pane > .settings-section:first-child{ margin-top:0; }
+/* (v6: the industrial 30/34px section spacing + its :not(#page-home)
+   specificity-trap resets are gone — base card margins own the rhythm.) */
 
 /* #2 · button-styled anchors must not be underlined (e.g. "View SP metadata") */
 body[data-ui="industrial"] a.btn,

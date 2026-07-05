@@ -665,9 +665,7 @@ async function showApp() {
   // loadDevices() so the device search/group dropdowns and the cached
   // devices array are warm for whenever the operator clicks Devices.
   loadHome();
-  // v5.1.0: seed the page-icon watermark for the default landing page (showApp
   // doesn't route through showPage; deep-link inits call showPage, which updates it).
-  try { _setPageWatermark('home', document.querySelector('.nav-btn[data-page="home"]')); } catch (_) {}
   try { _wrapSelects(document); } catch (_) {}
   loadDevices();
   _applyInitialViewHash();   // v3.14.0: honor a shared #devices?view=Name link
@@ -844,49 +842,18 @@ function applyUIVersion() {
   document.body.dataset.ui = 'industrial';
   try { _applyPageSubtitleInfo(); } catch (_) {}
 }
-// v4.6.0: in the New UI, fold each page's descriptive subtitle into a hover info
-// icon next to the title (native title tooltip — CSP-safe). Old UI shows the
-// subtitle inline as before. Idempotent; runs on load and on UI toggle.
-const _INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+// v6.0.0 "ClarityMatters": subtitles render INLINE under the 19px page title
+// (chosen-design .setpane .sub) — the v4.6.0 fold-into-info-icon behaviour is
+// gone. CSS still hides .page-subtitle until this adds .subtitle-shown (avoids
+// a flash of untranslated text on first paint). Idempotent; runs on load and
+// on every showPage (lazy pages clone in new subtitles).
 function _applyPageSubtitleInfo() {
-  const industrial = document.body.dataset.ui === 'industrial';
   document.querySelectorAll('.page-subtitle').forEach(sub => {
-    // Decide visibility FIRST, independent of whether we can find a title to
-    // attach the icon to — a subtitle must never be left as raw flashing text.
-    // CSS hides .page-subtitle by default; .subtitle-shown reveals it inline.
-    if (industrial) { sub.classList.add('subtitle-hidden'); sub.classList.remove('subtitle-shown'); }
-    else { sub.classList.add('subtitle-shown'); sub.classList.remove('subtitle-hidden'); }
-    // Find the title this subtitle belongs to, robustly: (1) a preceding sibling
-    // .page-title / .page-title-row, else (2) a .page-title in the same parent,
-    // else (3) the first .page-title in the closest page container.
-    let titleEl = null;
-    let prev = sub.previousElementSibling;
-    while (prev && !titleEl) {
-      if (prev.matches && prev.matches('.page-title')) titleEl = prev;
-      else if (prev.matches && prev.matches('.page-title-row')) titleEl = prev.querySelector('.page-title');
-      prev = prev.previousElementSibling;
-    }
-    if (!titleEl && sub.parentElement) titleEl = sub.parentElement.querySelector('.page-title');
-    if (!titleEl) { const pg = sub.closest('.page'); if (pg) titleEl = pg.querySelector('.page-title'); }
-    if (!titleEl) return;                 // visibility already handled above
-    const existing = titleEl.querySelector(':scope > .page-info-ic');
-    if (!industrial) {
-      if (existing) existing.remove();
-      return;
-    }
-    if (existing) return;                 // already folded
-    const ic = document.createElement('span');
-    ic.className = 'page-info-ic';
-    ic.setAttribute('tabindex', '0');
-    ic.setAttribute('aria-label', sub.textContent.trim());
-    ic.innerHTML = _INFO_SVG;
-    // rich tooltip — the subtitle's own HTML, so any links stay clickable
-    const tip = document.createElement('span');
-    tip.className = 'page-info-tip';
-    tip.innerHTML = sub.innerHTML;
-    ic.appendChild(tip);
-    titleEl.appendChild(ic);
+    sub.classList.add('subtitle-shown');
+    sub.classList.remove('subtitle-hidden');
   });
+  // strip any info icon a pre-v6 render left in a title
+  document.querySelectorAll('.page-title > .page-info-ic').forEach(ic => ic.remove());
 }
 function toggleTheme() {
   // Header quick-toggle: flip between the dark and light families. The full
@@ -1661,7 +1628,6 @@ function showPage(name, btn) {
       if (window.RPi18n) window.RPi18n.apply(el);
     }, 350);
   }
-  try { _setPageWatermark(name, btn); } catch (_) {}
 }
 
 // v5.1.0: wrap each <select> in a .rp-ddwrap span so the industrial skin can draw
@@ -1686,18 +1652,7 @@ function _wrapSelects(root) {
   } catch (_) {}
 }
 
-// v5.1.0: faint oversized page-icon watermark (idea #05 — full-bleed centre).
-// Reuses the current page's sidebar icon, so it swaps per page automatically.
-// Styling (size/opacity/visibility) lives in styles.css, industrial skin only.
-function _setPageWatermark(name, btn) {
-  const wm = document.getElementById('page-watermark');
-  if (!wm) return;
-  const src = (btn && btn.querySelector('svg')) ||
-              document.querySelector('.nav-btn[data-page="' + name + '"] svg');
-  if (!src) { wm.innerHTML = ''; return; }
-  wm.innerHTML = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-                 src.innerHTML + '</svg>';
-}
+// (v6.0.0: the per-page icon watermark is gone with the industrial skin.)
 
 const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
 function _showAllMonPanels() {

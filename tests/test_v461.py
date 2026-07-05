@@ -140,15 +140,17 @@ class TestSubtitleFoucFix(unittest.TestCase):
         self.assertIn('.page-subtitle.subtitle-shown{display:block;}', flat)
 
     def test_js_reveals_via_subtitle_shown(self):
+        # v6.0.0: subtitles are ALWAYS revealed inline (the v4.6.0 fold-into-
+        # info-icon path is gone), so the FOUC guarantee is now trivial: the
+        # function unconditionally adds .subtitle-shown with no early return
+        # before it (no title lookup exists any more).
         m = re.search(r'function _applyPageSubtitleInfo\(\)\s*\{(.*?)\n\}', _JS, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("classList.add('subtitle-shown')", body)
-        # visibility is decided before the title-finding logic returns
-        idx_show = body.index("'subtitle-shown'")
-        idx_title = body.index('let titleEl')
-        self.assertLess(idx_show, idx_title,
-                        'visibility must be set before the title lookup can return')
+        self.assertNotIn('let titleEl', body)     # the fold path is gone
+        self.assertNotIn('return', body.split("classList.add('subtitle-shown')")[0],
+                         'nothing may return before visibility is set')
 
 
 if __name__ == '__main__':

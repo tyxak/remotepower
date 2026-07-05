@@ -77,10 +77,13 @@ class TestIndustrialTheme(unittest.TestCase):
         m = re.search(r'body\[data-ui="industrial"\]\s*\{(.*?)\}', _CSS, re.S)
         self.assertIsNotNone(m)
         base = m.group(1).replace(' ', '')
-        self.assertIn("--font:'Inter'", base)
-        self.assertIn("--font-mono:'IBMPlexMono'", base)
-        # card gradient now derives from the live palette (theme-following)
-        self.assertIn('--card-grad:linear-gradient(180deg,var(--surface)', base)
+        # v6.0.0 surface 3: the design's system font stacks replaced Inter /
+        # IBM Plex Mono, and the graphite card gradient is GONE (flat panels).
+        self.assertIn('--font:-apple-system', base)
+        self.assertIn('--font-mono:ui-monospace', base)
+        self.assertNotIn('--card-grad', base)
+        self.assertNotIn("'Inter'", base)
+        self.assertNotIn("'IBMPlexMono'", base)
         # graphite default palette lives in the scoped default block; the blue
         # accent stays on :root (NOT this block) so the accent picker (0,2,1)
         # and themes (0,1,1) can win — pinning --accent here (0,3,1) is exactly
@@ -92,7 +95,7 @@ class TestIndustrialTheme(unittest.TestCase):
             _CSS, re.S)
         self.assertIsNotNone(dm)
         default_pal = dm.group(1).replace(' ', '')
-        self.assertIn('--bg:#0f1217', default_pal)
+        self.assertIn('--bg:#0c0f13', default_pal)   # v6 ClarityMatters dark ground
         self.assertNotIn('--accent:', default_pal)   # must NOT pin accent here
         self.assertIn('--accent:#3b7eff', css)       # the blue default lives on :root
         # v6.0.0 phase 1: the sidebar is the first migrated Clarity surface —
@@ -120,16 +123,15 @@ class TestIndustrialLayoutRegressions(unittest.TestCase):
     """Layout fixes that regressed repeatedly under the industrial skin."""
 
     def test_section_title_flexrow_reset_outspecifies_margin(self):
-        # The 34px inter-section spacing must NOT win inside a flex header row.
-        # The reset has to carry the SAME `.page:not(#page-home)` prefix as the
-        # margin rule — its `:not(#page-home)` adds an id (specificity 1,3,1),
-        # so a reset without it (0,3,1) loses and the title is pushed 34px
-        # off-centre from its tags/filter sibling (Enrolled Devices, Top
-        # Processes). Reference fix: this commit.
-        self.assertIn('body[data-ui="industrial"] .page:not(#page-home) '
-                      '.section-header .section-title', _CSS)
-        self.assertIn('body[data-ui="industrial"] .page:not(#page-home) '
-                      '[class*="row-"] .section-title', _CSS)
+        # v6.0.0 surface 3: the industrial 30/34px section-spacing block and its
+        # :not(#page-home) specificity-trap resets are DELETED (base card margins
+        # own the rhythm) — assert the trap can't come back half-fixed: either
+        # both the margin rule and its reset exist, or neither does.
+        margin_rule = ('body[data-ui="industrial"] .page:not(#page-home) '
+                       '.section-title{ margin-top:34px; }').replace(' ', '')
+        self.assertNotIn(margin_rule, _CSS.replace(' ', ''))
+        self.assertNotIn('body[data-ui="industrial"] .page:not(#page-home) '
+                         '.section-header .section-title', _CSS)
 
     def test_netmap_card_not_scroll_capped(self):
         # The network-map <svg> (600px tall) lives in a .table-card for its

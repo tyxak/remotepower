@@ -25,9 +25,9 @@ CSS = (Path(__file__).parent.parent / "server" / "html" / "static" / "css"
        / "styles.css").read_text()
 
 # ints = the original scale; halves = v6 Clarity stops adopted so far
-# (sidebar: 12.5 nav rows, 9.5 eyebrow labels + count pills;
-#  topbar: 11.5 health readout).
-CANONICAL = {28, 16, 14, 13, 12.5, 12, 11.5, 11, 10, 9.5}
+# (sidebar: 12.5 nav rows, 9.5 eyebrows/count pills; topbar: 11.5 health;
+#  frame: 13.5 body, 19 page title — 28 stays for display numerals).
+CANONICAL = {28, 19, 16, 14, 13.5, 13, 12.5, 12, 11.5, 11, 10, 9.5}
 
 # Deliberate display-size exceptions: size → max occurrences.
 # .status-num 64 / .hh-num 48 (big stat digits), .pin-code 36 (enrollment PIN),
