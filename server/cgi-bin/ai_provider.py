@@ -52,6 +52,7 @@ import ssl
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -62,8 +63,15 @@ PROVIDER_DEEPSEEK  = 'deepseek'
 PROVIDER_OLLAMA    = 'ollama'
 PROVIDER_LOCALAI   = 'localai'
 PROVIDER_ANTHROPIC = 'anthropic'   # Claude
+# Self-hosted agent gateways (v5.8.0). Neither speaks the OpenAI chat API:
+# opencode is a REST session server; openclaw is a WebSocket-RPC gateway. Both
+# are typically loopback-only, so they use the same connect-time SSRF recheck as
+# ollama/localai (operator sets `insecure_ssl` to permit the loopback peer).
+PROVIDER_OPENCODE  = 'opencode'    # https://opencode.ai — REST session server
+PROVIDER_OPENCLAW  = 'openclaw'    # https://openclaw.ai — WebSocket-RPC gateway
 VALID_PROVIDERS = (PROVIDER_OPENAI, PROVIDER_DEEPSEEK, PROVIDER_OLLAMA,
-                   PROVIDER_LOCALAI, PROVIDER_ANTHROPIC)
+                   PROVIDER_LOCALAI, PROVIDER_ANTHROPIC,
+                   PROVIDER_OPENCODE, PROVIDER_OPENCLAW)
 
 # Default endpoint per provider. base_url in cfg overrides.
 DEFAULT_BASE_URLS = {
@@ -72,6 +80,8 @@ DEFAULT_BASE_URLS = {
     PROVIDER_OLLAMA:    'http://localhost:11434/v1',
     PROVIDER_LOCALAI:   'http://localhost:8080/v1',
     PROVIDER_ANTHROPIC: 'https://api.anthropic.com/v1',
+    PROVIDER_OPENCODE:  'http://localhost:4096',        # opencode `serve` default
+    PROVIDER_OPENCLAW:  'ws://localhost:18789',         # openclaw gateway default
 }
 
 # Sensible default model per provider. Operators usually override this.
@@ -82,6 +92,8 @@ DEFAULT_MODELS = {
     PROVIDER_OLLAMA:    'llama3.1:8b',
     PROVIDER_LOCALAI:   'gpt-3.5-turbo',          # whatever the user has loaded
     PROVIDER_ANTHROPIC: 'claude-3-5-sonnet-latest',
+    PROVIDER_OPENCODE:  '',      # blank → opencode uses its own configured model
+    PROVIDER_OPENCLAW:  '',      # blank → openclaw uses its own configured model
 }
 
 # Bounds. Cloud provider costs are real; the operator can lift these in
@@ -465,6 +477,244 @@ def chat_anthropic(cfg, messages, system, max_tokens, temperature=None, top_p=No
     return {'ok': False, 'error': f'HTTP {status}: {err_msg or "unknown"}'}
 
 
+def _flatten_prompt(messages, system):
+    """opencode / openclaw take a single text message, not an OpenAI-style
+    messages array. Flatten the turn history into one prompt string."""
+    parts = []
+    if system:
+        parts.append(str(system))
+    for m in (messages or []):
+        role = (m.get('role') or 'user') if isinstance(m, dict) else 'user'
+        content = (m.get('content') or '') if isinstance(m, dict) else str(m)
+        parts.append(f'{role}: {content}' if role != 'user' or len(messages) > 1 else str(content))
+    return '\n\n'.join(p for p in parts if p).strip()
+
+
+def _extract_text(obj, _depth=0):
+    """Best-effort: pull assistant text out of a response of unknown exact shape
+    (opencode/openclaw both nest the reply differently). Walks dicts/lists for a
+    text-bearing field. Pure + bounded."""
+    if _depth > 6 or obj is None:
+        return ''
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        # common shapes: {text}, {parts:[{type:'text',text}]}, {content}, {message:{...}}
+        for k in ('text', 'content', 'output', 'answer', 'response'):
+            v = obj.get(k)
+            if isinstance(v, str) and v.strip():
+                return v
+        for k in ('parts', 'messages', 'message', 'result', 'data', 'params', 'payload'):
+            if k in obj:
+                t = _extract_text(obj[k], _depth + 1)
+                if t:
+                    return t
+        return ''
+    if isinstance(obj, list):
+        # prefer the last assistant-looking entry
+        for item in reversed(obj):
+            t = _extract_text(item, _depth + 1)
+            if t:
+                return t
+    return ''
+
+
+def chat_opencode(cfg, messages, system, max_tokens):
+    """v5.8.0: opencode `serve` REST — create a session, POST the prompt to
+    /session/{id}/message, and await the reply. NOT OpenAI-compatible. Optional
+    HTTP-basic auth (OPENCODE_SERVER_USERNAME/PASSWORD) via api_key (password) or
+    username/api_key. Response shape is parsed defensively (opencode nests the
+    assistant text under `parts`)."""
+    base = (cfg.get('base_url') or DEFAULT_BASE_URLS[PROVIDER_OPENCODE]).rstrip('/')
+    if base.endswith('/v1'):
+        base = base[:-3]
+    headers = {}
+    if cfg.get('api_key'):
+        import base64
+        user = cfg.get('username') or 'opencode'
+        headers['Authorization'] = 'Basic ' + base64.b64encode(
+            f"{user}:{cfg['api_key']}".encode()).decode()
+    insecure = bool(cfg.get('insecure_ssl'))
+    st, sess = _http_post_json(f'{base}/session', headers, {}, insecure_ssl=insecure)
+    if st != 200 or not isinstance(sess, dict) or not sess.get('id'):
+        return {'ok': False, 'error': f'opencode: could not create session (HTTP {st})'}
+    body = {'parts': [{'type': 'text', 'text': _flatten_prompt(messages, system)}]}
+    model = cfg.get('model') or ''
+    if model:
+        # allow "providerID/modelID" so the operator can route opencode's backend
+        if '/' in model:
+            body['providerID'], body['modelID'] = model.split('/', 1)
+        else:
+            body['modelID'] = model
+    st, resp = _http_post_json(f"{base}/session/{sess['id']}/message", headers, body,
+                               insecure_ssl=insecure)
+    if st == 200:
+        text = _extract_text(resp)
+        if text:
+            return {'ok': True, 'text': text, 'model': model or 'opencode',
+                    'tokens_in': 0, 'tokens_out': 0}
+        return {'ok': False, 'error': f'opencode: no text in reply: {str(resp)[:200]}'}
+    err = resp.get('error') if isinstance(resp, dict) else None
+    return {'ok': False, 'error': f'opencode HTTP {st}: {err or "unknown"}'}
+
+
+def chat_openclaw(cfg, messages, system, max_tokens):
+    """v5.8.0: openclaw gateway — a WebSocket-RPC service (not REST). Opens the
+    control WS, authenticates on the handshake, sends `chat.send`, and collects
+    the assistant text from the reply frames until the run ends or a timeout.
+    Best-effort/experimental — the operator supplies the gateway token/password.
+    Never blocks the request longer than HTTP_TIMEOUT_S."""
+    url = (cfg.get('base_url') or DEFAULT_BASE_URLS[PROVIDER_OPENCLAW]).rstrip('/')
+    auth = {}
+    if cfg.get('api_key'):
+        auth['token'] = cfg['api_key']
+    if cfg.get('password'):
+        auth['password'] = cfg['password']
+    prompt = _flatten_prompt(messages, system)
+    rpc = [
+        {'id': 1, 'method': 'connect', 'params': {'auth': auth}},
+        {'id': 2, 'method': 'chat.send', 'params': {'message': prompt}},
+    ]
+    try:
+        frames = _ws_rpc(url, rpc, timeout=min(HTTP_TIMEOUT_S, 120),
+                         insecure_ssl=bool(cfg.get('insecure_ssl')))
+    except Exception as e:
+        return {'ok': False, 'error': f'openclaw: {type(e).__name__}: {e}'}
+    # Collect the richest assistant text seen across the reply frames.
+    best = ''
+    for fr in frames:
+        t = _extract_text(fr)
+        if len(t) > len(best):
+            best = t
+    if best:
+        return {'ok': True, 'text': best, 'model': cfg.get('model') or 'openclaw',
+                'tokens_in': 0, 'tokens_out': 0}
+    return {'ok': False, 'error': 'openclaw: no assistant text received'}
+
+
+def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
+    """Minimal stdlib WebSocket JSON-RPC round-trip (RFC 6455 client): connect,
+    perform the HTTP Upgrade handshake, send each JSON message as a masked text
+    frame, then read text frames until the socket idles past `timeout` or
+    `max_frames` is hit. Returns the parsed JSON of each received text frame.
+    SSRF: the peer IP is re-checked at connect time, same rule as the HTTP path
+    (loopback only when insecure_ssl)."""
+    import base64
+    import struct
+    import socket as _socket
+    p = urllib.parse.urlparse(url)
+    secure = p.scheme == 'wss'
+    host = p.hostname or 'localhost'
+    port = p.port or (443 if secure else 80)
+    path = p.path or '/'
+    # SSRF connect-time recheck (mirrors _ssrf_opener's peer check).
+    try:
+        addrs = _socket.getaddrinfo(host, port, proto=_socket.IPPROTO_TCP)
+        for fam, _t, _pr, _cn, sa in addrs:
+            if _peer_ip_blocked(sa[0], allow_loopback=insecure_ssl):
+                raise RuntimeError(f'blocked peer {sa[0]}')
+    except _socket.gaierror as e:
+        raise RuntimeError(f'DNS: {e}')
+    sock = _socket.create_connection((host, port), timeout=timeout)
+    try:
+        if secure:
+            ctx = ssl.create_default_context()
+            if insecure_ssl:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            sock = ctx.wrap_socket(sock, server_hostname=host)
+        key = base64.b64encode(os.urandom(16)).decode()
+        req = (f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n'
+               f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n'
+               f'Sec-WebSocket-Version: 13\r\n\r\n')
+        sock.sendall(req.encode())
+        # read handshake response headers
+        buf = b''
+        while b'\r\n\r\n' not in buf:
+            chunk = sock.recv(1024)
+            if not chunk:
+                raise RuntimeError('handshake closed')
+            buf += chunk
+            if len(buf) > 8192:
+                break
+        if b' 101 ' not in buf.split(b'\r\n', 1)[0]:
+            raise RuntimeError('handshake not 101')
+        leftover = buf.split(b'\r\n\r\n', 1)[1]
+
+        def _send(text):
+            payload = text.encode('utf-8')
+            hdr = bytearray([0x81])           # FIN + text opcode
+            mask = os.urandom(4)
+            n = len(payload)
+            if n < 126:
+                hdr.append(0x80 | n)
+            elif n < 65536:
+                hdr.append(0x80 | 126)
+                hdr += struct.pack('>H', n)
+            else:
+                hdr.append(0x80 | 127)
+                hdr += struct.pack('>Q', n)
+            hdr += mask
+            masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            sock.sendall(bytes(hdr) + masked)
+
+        for m in messages:
+            _send(json.dumps(m))
+        # read frames until idle/timeout
+        out, deadline = [], time.time() + timeout
+        sock.settimeout(2.0)
+        data = leftover
+        while len(out) < max_frames and time.time() < deadline:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            except _socket.timeout:
+                if out:
+                    break            # got something and the peer went quiet → done
+                continue
+            # parse as many complete frames as we have
+            while len(data) >= 2:
+                b0, b1 = data[0], data[1]
+                masked = b1 & 0x80
+                ln = b1 & 0x7F
+                off = 2
+                if ln == 126:
+                    if len(data) < 4:
+                        break
+                    ln = struct.unpack('>H', data[2:4])[0]; off = 4
+                elif ln == 127:
+                    if len(data) < 10:
+                        break
+                    ln = struct.unpack('>Q', data[2:10])[0]; off = 10
+                mkey = b''
+                if masked:
+                    if len(data) < off + 4:
+                        break
+                    mkey = data[off:off + 4]; off += 4
+                if len(data) < off + ln:
+                    break
+                payload = data[off:off + ln]
+                if mkey:
+                    payload = bytes(c ^ mkey[i % 4] for i, c in enumerate(payload))
+                data = data[off + ln:]
+                opcode = b0 & 0x0F
+                if opcode == 0x8:            # close
+                    return out
+                if opcode in (0x1, 0x2):
+                    try:
+                        out.append(json.loads(payload.decode('utf-8', 'replace')))
+                    except (ValueError, UnicodeDecodeError):
+                        pass
+        return out
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
 def chat(cfg, messages, system=None, max_tokens=None, model=None,
          temperature=None, top_p=None, num_ctx=None):
     """Dispatch to the right adapter. cfg is cfg['ai'] (already validated).
@@ -502,6 +752,10 @@ def chat(cfg, messages, system=None, max_tokens=None, model=None,
     if provider == PROVIDER_ANTHROPIC:
         return chat_anthropic(cfg, safe_messages, safe_system, max_tokens,
                               temperature=temperature, top_p=top_p)
+    elif provider == PROVIDER_OPENCODE:
+        return chat_opencode(cfg, safe_messages, safe_system, max_tokens)
+    elif provider == PROVIDER_OPENCLAW:
+        return chat_openclaw(cfg, safe_messages, safe_system, max_tokens)
     else:
         return chat_openai_compatible(cfg, safe_messages, safe_system, max_tokens,
                                       temperature=temperature, top_p=top_p,

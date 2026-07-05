@@ -428,7 +428,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| LLM integration | Optional — Ollama, LocalAI, Anthropic, OpenAI, DeepSeek; pure stdlib HTTP; disabled by default; full reference [ai.md](ai.md) |
+| LLM integration | Optional — Ollama, LocalAI, Anthropic, OpenAI, DeepSeek, plus local **opencode** (REST session server) &amp; **openclaw** (WebSocket-RPC gateway) *(v5.8.0)*; pure stdlib HTTP/WS; disabled by default; full reference [ai.md](ai.md) |
 | Context-aware actions | Investigate device, explain output, find the problem (journal), diagnose service, triage CVE/TLS, prioritise patches, explain/generate/audit scripts, explain events |
 | AI Investigate / mitigate | Diagnose + suggested-fix on ~21 Needs-Attention kinds; requires `exec` *(v3.4.2 / v3.8.0)* |
 | On-demand AI insights | Fleet anomaly scan, cron builder, runbook + CMDB doc drafts (RAG-aware) *(v3.4.0)* |

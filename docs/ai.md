@@ -14,17 +14,32 @@ network.
 
 ## Providers
 
-Five providers behind two adapters. All wire to a single
-`/api/ai/chat` endpoint, both pure stdlib (`urllib.request`) — no
-new pip dependencies.
+Seven providers behind four adapters. All wire to a single
+`/api/ai/chat` endpoint, pure stdlib (`urllib.request` for HTTP, a
+minimal RFC-6455 client for openclaw's WebSocket) — no new pip
+dependencies.
 
 | Provider | Network egress | API key needed? | Adapter |
 |---|---|---|---|
 | **Ollama** (local) | None — runs on your network | No | OpenAI-compatible |
 | **LocalAI** (local) | None — runs on your network | No | OpenAI-compatible |
+| **opencode** (local) | None — runs on your network | Optional (HTTP-basic) | opencode REST session server |
+| **openclaw** (local) | None — runs on your network | Optional (gateway token) | openclaw WebSocket-RPC gateway |
 | **Anthropic** (Claude) | api.anthropic.com | Yes | `/v1/messages` |
 | **OpenAI** (ChatGPT) | api.openai.com | Yes | OpenAI-compatible |
 | **DeepSeek** | api.deepseek.com | Yes | OpenAI-compatible |
+
+**opencode** and **openclaw** *(v5.8.0)* are locally-run agentic
+coding backends. opencode is driven through its `serve` REST API
+(create a session, POST the prompt, read the reply); openclaw is
+driven over its control WebSocket (JSON-RPC `connect` + `chat.send`).
+Both are best-effort/experimental — point the **Base URL** at your
+running instance (`http://localhost:4096` / `ws://localhost:18789` by
+default), supply a token only if the instance requires one, and the
+same connect-time SSRF guard used for every other outbound call
+applies (private/loopback peers are blocked unless you opt into
+insecure mode). Set the **Model** to `providerID/modelID` to route
+opencode's own backend.
 
 For the "what does my privacy posture look like?" question, the
 adapter applies regex-based redaction before the bytes leave the
@@ -59,6 +74,8 @@ If you leave the Model field blank, these are used:
 |---|---|
 | Ollama | `llama3.1:8b` |
 | LocalAI | `gpt-3.5-turbo` |
+| opencode | *(the server's own configured default)* |
+| openclaw | *(the gateway's own configured default)* |
 | Anthropic | `claude-3-5-sonnet-latest` |
 | OpenAI | `gpt-4o-mini` |
 | DeepSeek | `deepseek-chat` |
