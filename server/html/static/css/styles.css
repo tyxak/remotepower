@@ -6747,6 +6747,72 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
     border-left: 0; }
 }
 
+/* ── v6.0.0 phase 2: LEFT-NAV SETTINGS (chosen-design .setnav / .sc / .h).
+   Desktop only — the horizontal strip above stays the narrow-viewport
+   fallback. Scoped to #page-settings; the other .settings-tabs bars
+   (billing) keep the strip everywhere. Buttons/ids/deep-links unchanged —
+   this is layout + skin, switchSettingsTab still just swaps .active. ── */
+@media (min-width: 901px) {
+  #page-settings {
+    display: grid;
+    grid-template-columns: 230px minmax(0, 1fr);
+    gap: 0 22px;
+    align-items: start;
+  }
+  #page-settings > * { grid-column: 1 / -1; }   /* title/subtitle/search span */
+  #page-settings > .settings-tabs {
+    grid-column: 1;
+    grid-row: 4;
+    position: sticky;
+    top: 60px;                     /* below the 48px topbar */
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    border-bottom: 1px solid var(--hair);
+    border-radius: 11px;
+    padding: 8px 6px;
+    margin-bottom: 0;
+    overflow: visible;
+    max-height: calc(100vh - 76px);
+    overflow-y: auto;
+  }
+  #page-settings > .settings-pane { grid-column: 2; grid-row: 4; }
+  #page-settings .settings-tab-group { display: block; }
+  #page-settings .settings-tab-group + .settings-tab-group {
+    margin: 10px 0 0;
+    padding: 8px 0 0;
+    border-left: none;
+    border-top: 1px solid var(--hair-2);
+  }
+  /* group label → the design-language mono eyebrow (chosen-design .h) */
+  #page-settings .settings-tab-group-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 400;
+    letter-spacing: .14em;
+    color: var(--muted);
+    padding: 6px 10px 5px;
+    margin-right: 0;
+  }
+  /* tab → the design's category row (chosen-design .sc) */
+  #page-settings .settings-tab {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  #page-settings .settings-tab:hover { background: var(--hair-2); color: var(--text); }
+  #page-settings .settings-tab.active {
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 560;
+  }
+}
+
 /* W5-5: geographic site map (NOC world view) */
 .site-map-wrap { width: 100%; max-width: 720px; margin: 8px auto 0; }
 #site-map-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
