@@ -286,5 +286,19 @@ class TestReplyRateLimit(_Base):
         self.assertEqual(self._last.status, 429)
 
 
+class TestPortalNginxRouting(unittest.TestCase):
+    """W6-28: the magic-link URL is /portal (extensionless), but the page file is
+    portal.html. Both nginx snippets MUST map /portal → portal.html, or nginx
+    serves the operator SPA (index.html) / 404s at that URL — the live 404 this
+    pins. (An exact `location = /portal`, no trailing slash, so the page's
+    relative static/ asset refs still resolve to /static/.)"""
+    def test_portal_location_in_both_confs(self):
+        for rel in ('server/conf/remotepower-locations.conf',
+                    'docker/nginx-docker-locations.conf'):
+            conf = (ROOT / rel).read_text()
+            self.assertIn('location = /portal', conf, f'{rel}: no /portal → portal.html mapping')
+            self.assertIn('portal.html', conf, rel)
+
+
 if __name__ == '__main__':
     unittest.main()
