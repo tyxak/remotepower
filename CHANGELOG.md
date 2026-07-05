@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.0.0 — "ClarityMatters" — unreleased (test)
+## v6.0.0 — "ClarityMatters" — 2026-07-05
 
 ### UI overhaul — the v6 "ClarityMatters" interface
 
