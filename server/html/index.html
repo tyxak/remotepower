@@ -1468,6 +1468,13 @@
               </div>
             </div>
           </div>
+
+          <!-- W6-49: RDP tunnelling — a host remote-access feature -->
+          <div class="settings-section">
+            <div class="section-title">RDP remote access</div>
+            <p class="hint">Reach a Windows host's desktop from the device drawer. RemotePower mints a short-lived session that bridges the host's loopback <code>3389</code> over SSH to a local port for <code>mstsc</code>/Remmina — there is no in-browser RDP client. Off by default.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-rdp-enabled"> Allow RDP tunnelling (device drawer → RDP)</label></div>
+          </div>
         </div>
 
         <!-- ── Notifications ────────────────────────────────────────────── -->
@@ -2011,12 +2018,6 @@
             <div class="section-title">Secrets-on-disk scanning</div>
             <p class="hint">When enabled, agents scan the paths below for exposed secrets (private keys, API tokens, passwords) and raise a <em>secret_exposed</em> alert when a new one appears. <strong>Off by default</strong> — it reads files and is heavier than other checks. The scan is <strong>redacting by design</strong>: the agent never sends a secret's value, only its type, location, a masked preview and a fingerprint. Findings appear on the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page, where you can mute false positives.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only; feature-invisible on hosts without trivy)</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-rdp-enabled"> Allow RDP tunnelling (device drawer → RDP): mints a session that bridges the host's loopback 3389 over SSH to a local port for mstsc/Remmina — no in-browser client. Off by default.</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-portal-enabled"> Customer portal (<code>/portal</code>): let site contacts sign in via a magic link to view &amp; submit tickets for <strong>their own site only</strong> — no operator account, separate session. Enable a contact for the portal (and set its site) from the Contacts directory. Off by default.</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-portal-base-url">Portal public URL <span class="hint">(recommended when the portal is enabled)</span></label>
-              <input type="url" id="cfg-portal-base-url" class="form-input" placeholder="https://portal.example.com" maxlength="300">
-              <div class="hint">The canonical <code>https://host</code> the sign-in email links to. Set this so the magic-link can't be pointed at another origin via a forged <code>Host</code> header. Blank = use the request host.</div></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
@@ -2025,6 +2026,13 @@
             <div class="settings-row"><label class="form-label" for="cfg-canary-paths">Canary file paths (one absolute path per line)</label>
               <textarea id="cfg-canary-paths" class="form-input ff-mono" rows="3" placeholder="/root/.aws/credentials.bak&#10;/home/deploy/.ssh/id_rsa.old"></textarea></div>
             <div class="row-6"><button class="btn-primary" data-action="saveCanaryFiles">Save canary files</button></div>
+          </div>
+
+          <!-- W6-34: container image CVE scanning (trivy) — its own concern, not disk-secret scanning -->
+          <div class="settings-section">
+            <div class="section-title">Container image scanning</div>
+            <p class="hint">Scan the images of running containers for known vulnerabilities with <code>trivy</code>. Findings feed the CVE views alongside package CVEs. Off by default; the feature is invisible on hosts without <code>trivy</code> installed.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only)</label></div>
           </div>
 
           <!-- v4.2.0 follow-up: the account-guardrail keys the posture self-check
@@ -2424,6 +2432,16 @@
             </div>
             <div class="row-6"><button class="btn-primary" data-action="addTicketSchedule">Add schedule</button></div>
             <div id="tk-sched-result" class="hint mt-6" role="status" aria-live="polite"></div>
+          </div>
+
+          <!-- W6-28: customer portal — customer-facing helpdesk, grouped with the ticket system it surfaces -->
+          <div class="settings-section">
+            <div class="section-title">Customer portal</div>
+            <p class="hint">A self-service portal at <code>/portal</code> where your site contacts sign in with an emailed magic link to view &amp; submit support tickets for <strong>their own site only</strong> — no operator account, a separate session. Enable a contact for the portal (and set its site) from the Contacts directory. Off by default.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-portal-enabled"> Enable the customer portal</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-portal-base-url">Portal public URL <span class="meta-sm">(recommended when the portal is enabled)</span></label>
+              <input type="url" id="cfg-portal-base-url" class="form-input" placeholder="https://portal.example.com" maxlength="300">
+              <div class="hint">The canonical <code>https://host</code> the sign-in email links to. Set this so the magic link can't be pointed at another origin via a forged <code>Host</code> header. Blank = use the request host.</div></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">
