@@ -680,6 +680,7 @@ async function showApp() {
   try {
     const act = document.querySelector('.nav-btn.active');
     _paintCrumb(act, (act && act.dataset.page) || 'home');
+    _setPageWatermark((act && act.dataset.page) || 'home', act);
   } catch (_) {}
   applyBackground();
   applyBannerState();
@@ -1501,6 +1502,7 @@ function showPage(name, btn) {
   const _navBtn = btn || document.querySelector('.nav-btn[data-page="' + name + '"]');
   if (_navBtn) { _navBtn.classList.add('active'); _navBtn.setAttribute('aria-current', 'page'); }
   try { _paintCrumb(_navBtn, name); } catch (_) {}   // v6.0.0: topbar breadcrumb
+  try { _setPageWatermark(name, _navBtn); } catch (_) {}   // faint page-icon watermark
   try { _applyPageSubtitleInfo(); } catch (_) {}   // v4.6.0: fold the page subtitle into its info icon
   // v3.0.2: keep the URL bar in sync with the visible page. Without this,
   // the hash sticks at whatever switchSettingsTab last wrote (e.g.
@@ -1641,7 +1643,18 @@ function _wrapSelects(root) {
   } catch (_) {}
 }
 
-// (v6.0.0: the per-page icon watermark is gone with the industrial skin.)
+// v6.0.0 (restored): faint oversized page-icon watermark — reuses the current
+// page's sidebar icon, so it swaps per page automatically. Styling lives in
+// styles.css (ultra-faint stroke on the design ground).
+function _setPageWatermark(name, btn) {
+  const wm = document.getElementById('page-watermark');
+  if (!wm) return;
+  const src = (btn && btn.querySelector('svg')) ||
+              document.querySelector('.nav-btn[data-page="' + name + '"] svg');
+  if (!src) { wm.innerHTML = ''; return; }
+  wm.innerHTML = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                 src.innerHTML + '</svg>';
+}
 
 const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
 function _showAllMonPanels() {
@@ -2836,7 +2849,7 @@ async function loadSetup() {
         <div class="row-8-center"><strong>${escHtml(s.title)}</strong>${cnt} ${tag}</div>
         <div class="hint">${escHtml(s.detail)}</div>
       </div>
-      <button class="btn-secondary fs-12" data-action="gotoSetupStep" data-arg="${escAttr(s.page)}" data-arg2="${escAttr(s.tab || '')}">${s.done ? 'Review' : 'Set up'}</button>
+      <button class="btn-secondary" data-action="gotoSetupStep" data-arg="${escAttr(s.page)}" data-arg2="${escAttr(s.tab || '')}">${s.done ? 'Review' : 'Set up'}</button>
     </div>`;
   }).join('');
 }
@@ -2949,7 +2962,6 @@ async function loadSettings() {
   try { loadSatellites(); } catch (e) {}
   try { _loadStatusPageInto(data); } catch (e) {}
   // General
-  { const e = document.getElementById('cfg-file-manager'); if (e) e.checked = !!(data.file_manager && data.file_manager.enabled); }
   document.getElementById('cfg-server-name').value = data.server_name || '';
   { const _lb = document.getElementById('cfg-login-banner'); if (_lb) _lb.value = data.login_banner || ''; }
   { const _fn = document.getElementById('cfg-fleet-note'); if (_fn) _fn.value = data.fleet_note || ''; }
@@ -3155,21 +3167,11 @@ async function loadSettings() {
   if (_wid) { _wid.value = ''; _wid.placeholder = data.warranty_lenovo_configured ? 'ClientID (stored — leave blank to keep)' : 'ClientID'; }
   const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
-  const _tke = document.getElementById('cfg-tickets-enabled');
-  if (_tke) _tke.checked = !!data.tickets_enabled;
-  document.getElementById('nav-tickets')?.classList.toggle('d-none', !data.tickets_enabled);
-  if (data.tickets_enabled) { loadTicketImap(); loadTicketSla(); loadTicketAutoreply(); loadTicketTemplates(); loadTicketSchedules(); loadTicketCsat(); loadBusinessHours(); }
-  const _ble = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
-  if (_ble) _ble.checked = !!data.billing_enabled;
-  document.getElementById('nav-billing')?.classList.toggle('d-none', !data.billing_enabled);
-  const _spe = document.getElementById('cfg-show-provisioning');   // v5.6.0: Provisioning page opt-in
-  if (_spe) _spe.checked = !!data.show_provisioning;
-  document.getElementById('nav-provisioning')?.classList.toggle('d-none', !data.show_provisioning);
-  const _iace = document.getElementById('cfg-iac-execute');   // v5.6.0: terraform exec gate
+  // v6.0.0: tickets/billing/provisioning/kb/file-manager are always-on modules
+  // (opt-in toggles gone) — load the ticket sub-panels unconditionally.
+  loadTicketImap(); loadTicketSla(); loadTicketAutoreply(); loadTicketTemplates(); loadTicketSchedules(); loadTicketCsat(); loadBusinessHours();
+  const _iace = document.getElementById('cfg-iac-execute');   // terraform exec gate (kept — security switch)
   if (_iace) _iace.checked = !!data.iac_execute_enabled;
-  const _kbe = document.getElementById('cfg-kb-enabled');   // v5.6.0: Knowledge base opt-in
-  if (_kbe) _kbe.checked = !!data.kb_enabled;
-  document.getElementById('nav-kb')?.classList.toggle('d-none', !data.kb_enabled);
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3644,16 +3646,8 @@ async function saveSettings(btn) {
   if (_wprEl) payload.warranty_provider = _wprEl.value;
   const _widEl = document.getElementById('cfg-warranty-lenovo-id');
   if (_widEl && _widEl.value) payload.warranty_lenovo_client_id = _widEl.value;
-  const _tkEn = document.getElementById('cfg-tickets-enabled');
-  if (_tkEn) payload.tickets_enabled = _tkEn.checked;
-  const _blEn = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
-  if (_blEn) payload.billing_enabled = _blEn.checked;
-  const _spEn = document.getElementById('cfg-show-provisioning');   // v5.6.0: Provisioning page opt-in
-  if (_spEn) payload.show_provisioning = _spEn.checked;
-  const _iacEn = document.getElementById('cfg-iac-execute');   // v5.6.0: terraform exec gate
+  const _iacEn = document.getElementById('cfg-iac-execute');   // terraform exec gate (kept — security switch)
   if (_iacEn) payload.iac_execute_enabled = _iacEn.checked;
-  const _kbEn = document.getElementById('cfg-kb-enabled');   // v5.6.0: Knowledge base opt-in
-  if (_kbEn) payload.kb_enabled = _kbEn.checked;
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
@@ -4966,7 +4960,7 @@ function addMountThresholdRow(path = '', warn = '', crit = '') {
     <input type="text" class="form-input mount-path mono-12" placeholder="/var" value="${escHtml(path)}">
     <input type="number" class="form-input mount-warn" placeholder="warn %" min="1" max="99" value="${warn === '' ? '' : warn}">
     <input type="number" class="form-input mount-crit" placeholder="crit %" min="1" max="99" value="${crit === '' ? '' : crit}">
-    <button class="btn-icon isl-346" type="button" data-remove-parent="1">×</button>
+    <button aria-label="Remove" class="btn-icon isl-346" type="button" data-remove-parent="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   `;
   container.appendChild(row);
 }
@@ -6230,20 +6224,20 @@ function _renderCommandQueue() {
       const rows = d.commands.map(c =>
         `<tr><td>${kindPill(c.kind)}</td>`
         + `<td class="ff-mono fs-12">${escHtml(c.summary)}</td>`
-        + `<td class="ta-right"><button class="btn-icon fs-12" data-action="cancelQueuedCommand" `
+        + `<td class="ta-right"><button class="btn-icon" data-action="cancelQueuedCommand" `
         +   `data-arg="${escAttr(d.device_id)}" data-arg2="${c.index}" title="Cancel this queued command">Cancel</button></td></tr>`
       ).join('');
       return `<div class="dash-card mb-12">
         <div class="row-8-center mb-8">
           <strong>${escHtml(d.name)}</strong> ${status}
           <span class="c-muted fs-12">${d.count} pending${d.quarantined ? ' · quarantined' : ''}</span>
-          <button class="btn-icon fs-12 isl-12" data-action="clearDeviceQueue" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}">Clear all</button>
+          <button class="btn-icon isl-12" data-action="clearDeviceQueue" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}">Clear all</button>
         </div>
         <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>`;
     }).join('');
     if (pendingTotal > pendingPage.length) {
-      pendingHtml += `<button class="btn-secondary fs-12" data-action="_cmdqMorePending">Show ${Math.min(_CMDQ_PAGE, pendingTotal - pendingPage.length)} more (${pendingPage.length} of ${pendingTotal})</button>`;
+      pendingHtml += `<button class="btn-secondary" data-action="_cmdqMorePending">Show ${Math.min(_CMDQ_PAGE, pendingTotal - pendingPage.length)} more (${pendingPage.length} of ${pendingTotal})</button>`;
     }
   }
 
@@ -6265,11 +6259,11 @@ function _renderCommandQueue() {
       + `<td class="ff-mono fs-12">${escHtml(e.command || '')}</td></tr>`
     ).join('');
     const moreRecent = recentTotal > recentPage.length
-      ? `<button class="btn-secondary fs-12 mt-8" data-action="_cmdqMoreRecent">Show 50 more (${recentPage.length} of ${recentTotal})</button>` : '';
+      ? `<button class="btn-secondary mt-8" data-action="_cmdqMoreRecent">Show 50 more (${recentPage.length} of ${recentTotal})</button>` : '';
     recentHtml = `<div class="dash-card mt-16">
       <div class="row-8-center mb-8"><strong>Recently dispatched</strong>
         <span class="c-muted fs-12">${recentPage.length} of ${recentTotal} — what was queued, when, and by whom</span>
-        <button class="btn-icon fs-12" data-action="clearDispatchLog" title="Clear the command history shown here (also clears the Command History page)">Clear log</button></div>
+        <button class="btn-icon" data-action="clearDispatchLog" title="Clear the command history shown here (also clears the Command History page)">Clear log</button></div>
       <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${moreRecent}
     </div>`;
@@ -6277,7 +6271,7 @@ function _renderCommandQueue() {
 
   const pendingHeader = (r.devices && r.devices.length)
     ? `<div class="row-8-center mb-8"><span class="fw-600">Pending delivery</span>`
-      + `<button class="btn-icon fs-12" data-action="clearAllQueues" title="Clear every device's pending queue — nothing waiting will be delivered">Clear all pending</button></div>`
+      + `<button class="btn-icon" data-action="clearAllQueues" title="Clear every device's pending queue — nothing waiting will be delivered">Clear all pending</button></div>`
     : '<div class="mb-8 fw-600">Pending delivery</div>';
   body.innerHTML = pendingHeader + pendingHtml + recentHtml;
 }
@@ -6862,9 +6856,9 @@ async function loadDeviceProfiles() {
     if (p.drift_files && p.drift_files.length) bits.push(`${p.drift_files.length} drift file(s)`);
     if (p.metric_thresholds && Object.keys(p.metric_thresholds).length) bits.push('thresholds');
     return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500">${escHtml(p.name)}</span> <span class="hint">${escHtml(bits.join(' · ') || 'empty')}</span></div>`
-      + `<button class="btn-icon fs-12" data-action="openDeviceProfileApply" data-arg="${i}">Apply…</button>`
-      + `<button class="btn-icon fs-12" data-action="editDeviceProfile" data-arg="${i}">Edit</button>`
-      + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteDeviceProfile" data-arg="${escAttr(p.id)}">Delete</button></div>`;
+      + `<button class="btn-icon" data-action="openDeviceProfileApply" data-arg="${i}">Apply…</button>`
+      + `<button class="btn-icon" data-action="editDeviceProfile" data-arg="${i}">Edit</button>`
+      + `<button class="btn-icon c-danger-outline" data-action="deleteDeviceProfile" data-arg="${escAttr(p.id)}">Delete</button></div>`;
   }).join('');
 }
 
@@ -6965,9 +6959,9 @@ async function loadSmartGroups() {
   box.innerHTML = _smartGroups.map((g, i) => {
     const ago = g.evaluated_ts ? timeAgo(g.evaluated_ts) : 'never';
     return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500 ff-mono">smart:${escHtml(g.name)}</span> <span class="hint">${g.member_count} member(s) · evaluated ${ago}</span></div>`
-      + `<button class="btn-icon fs-12" data-action="viewSmartGroupMembers" data-arg="${escAttr(g.name)}">Members</button>`
-      + `<button class="btn-icon fs-12" data-action="editSmartGroup" data-arg="${i}">Edit</button>`
-      + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteSmartGroup" data-arg="${escAttr(g.name)}">Delete</button></div>`;
+      + `<button class="btn-icon" data-action="viewSmartGroupMembers" data-arg="${escAttr(g.name)}">Members</button>`
+      + `<button class="btn-icon" data-action="editSmartGroup" data-arg="${i}">Edit</button>`
+      + `<button class="btn-icon c-danger-outline" data-action="deleteSmartGroup" data-arg="${escAttr(g.name)}">Delete</button></div>`;
   }).join('');
 }
 function openSmartGroupCreate() { _smartGroupEdit = null; _fillSmartGroupForm({ name: '', rules: {} }); document.getElementById('sg-name').disabled = false; document.getElementById('smart-group-modal-title').textContent = 'New smart group'; openModal('smart-group-modal'); }
@@ -7030,9 +7024,9 @@ async function loadRacks() {
   if (!_racks.length) { box.innerHTML = '<div class="meta-sm-nm">No racks yet.</div>'; return; }
   box.innerHTML = _racks.map((r, i) =>
     `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500">${escHtml(r.name)}</span> <span class="hint">${r.height_u}U · ${r.placed} placed${r.site_name ? ' · ' + escHtml(r.site_name) : ''}</span></div>`
-    + `<button class="btn-icon fs-12" data-action="viewRackElevation" data-arg="${escAttr(r.id)}">Elevation</button>`
-    + `<button class="btn-icon fs-12" data-action="editRack" data-arg="${i}">Edit</button>`
-    + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteRack" data-arg="${escAttr(r.id)}">Delete</button></div>`).join('');
+    + `<button class="btn-icon" data-action="viewRackElevation" data-arg="${escAttr(r.id)}">Elevation</button>`
+    + `<button class="btn-icon" data-action="editRack" data-arg="${i}">Edit</button>`
+    + `<button class="btn-icon c-danger-outline" data-action="deleteRack" data-arg="${escAttr(r.id)}">Delete</button></div>`).join('');
 }
 async function _fillRackSites(selected) {
   const sel = document.getElementById('rack-site');
@@ -7134,8 +7128,8 @@ async function loadIpam() {
   if (!_subnets.length) { box.innerHTML = '<div class="meta-sm-nm">No subnets yet.</div>'; return; }
   box.innerHTML = _subnets.map(s =>
     `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500 ff-mono">${escHtml(s.cidr)}</span> <span class="hint">${s.vlan ? 'VLAN ' + escHtml(s.vlan) + ' · ' : ''}${s.reservations} reserved${s.site_name ? ' · ' + escHtml(s.site_name) : ''}</span></div>`
-    + `<button class="btn-icon fs-12" data-action="viewSubnetOccupancy" data-arg="${escAttr(s.id)}">Occupancy</button>`
-    + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteSubnet" data-arg="${escAttr(s.id)}">Delete</button></div>`).join('');
+    + `<button class="btn-icon" data-action="viewSubnetOccupancy" data-arg="${escAttr(s.id)}">Occupancy</button>`
+    + `<button class="btn-icon c-danger-outline" data-action="deleteSubnet" data-arg="${escAttr(s.id)}">Delete</button></div>`).join('');
 }
 async function _fillSubnetSites() {
   const sel = document.getElementById('subnet-site');
@@ -9306,7 +9300,7 @@ async function loadBatchJobs() {
           <strong>${escHtml(j.label || j.kind)}</strong>
           <span class="c-muted fs-12">${escHtml(timeAgo(j.created))}${j.actor ? ' · ' + escHtml(j.actor) : ''}</span>
           ${badge}
-          <button class="btn-icon fs-12" data-action="toggleJobDetail" data-arg="${escAttr(j.id)}">${_batchExpanded.has(j.id) ? 'Hide hosts' : 'Hosts'}</button>
+          <button class="btn-icon" data-action="toggleJobDetail" data-arg="${escAttr(j.id)}">${_batchExpanded.has(j.id) ? 'Hide hosts' : 'Hosts'}</button>
         </div>${det}
       </div>`;
     }).join('');
@@ -9775,6 +9769,9 @@ function _paintAlertsBadge(n) {
   badge.textContent = n > 99 ? '99+' : String(n);
   badge.classList.toggle('nav-badge-ok', n === 0);
   badge.classList.toggle('nav-badge-alert', n > 0);
+  // v6.0.0: auto-hide is SUSPENDED while any alert is open — the sidebar rail
+  // overlay-expands and the tucked top bar slides back in (CSS on this class).
+  document.body.classList.toggle('has-active-alert', n > 0);
   badge.title = n === 0 ? 'No open alerts' :
                 n === 1 ? '1 open alert' :
                 `${n} open alerts`;
@@ -11356,7 +11353,7 @@ function deviceDropdownHtml(d, isMonitored) {
   const nameEsc = escAttr(d.name);
   // v2.9.0: ⋮ opens the device drawer on Actions & Settings tab.
   return `<button class="btn-icon isl-526" title="Actions &amp; Settings"
-    data-stop-prop="1" data-action="openDeviceDrawer" data-arg="${idEsc}" data-arg2="${nameEsc}" data-arg3="actions" >⋮</button>`;
+    data-stop-prop="1" data-action="openDeviceDrawer" data-arg="${idEsc}" data-arg2="${nameEsc}" data-arg3="actions" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>`;
 }
 
 
@@ -11388,7 +11385,7 @@ function _ensureRunbookModal() {
     <div class="modal isl-527">
       <div class="modal-header row-between">
         <div id="runbook-modal-title" class="fw-600">Runbook</div>
-        <button class="btn-icon isl-44" data-action="closeRunbookModal" >✕</button>
+        <button aria-label="Close" class="btn-icon isl-44" data-action="closeRunbookModal" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div id="runbook-modal-meta" class="isl-509">—</div>
       <div id="runbook-modal-body" class="isl-528">
@@ -13224,9 +13221,7 @@ async function loadHome() {
   const linksResp   = {links: home.links || []};
   if (home.server_tz) { window._serverTz = home.server_tz; _applyServerTzNotes(); }
   window._lastAttention = home.attention || null;   // for the health "why?" expander
-  document.getElementById('nav-tickets')?.classList.toggle('d-none', !home.tickets_enabled);
-  document.getElementById('nav-billing')?.classList.toggle('d-none', !home.billing_enabled);   // v5.4.1
-  document.getElementById('nav-provisioning')?.classList.toggle('d-none', !home.show_provisioning);   // v5.6.0
+  // (v6.0.0: tickets/billing/provisioning navs are always visible — modules are standard now.)
   window._ticketsOn = !!home.tickets_enabled;
   window._billingOn = !!home.billing_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);
@@ -13894,7 +13889,7 @@ function _renderDashEditPanel() {
       + (pinned ? '' :
          '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="-1"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">' + _SVG_UP + '</button>'
          + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="1"' + (i === active.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">' + _SVG_DOWN + '</button>')
-      + '<button class="btn-icon c-danger-outline" data-action="dashToggle" data-arg="' + escAttr(e.key) + '" title="Remove from dashboard" aria-label="Remove">✕</button>'
+      + '<button class="btn-icon c-danger-outline" data-action="dashToggle" data-arg="' + escAttr(e.key) + '" title="Remove from dashboard" aria-label="Remove"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'
       + '</span></div>';
   }).join('');
   if (off.length) {
@@ -14266,7 +14261,7 @@ async function _renderHomeAttention(preloaded) {
       ${mitBtn}
       ${logsBtn}
       ${snoozeBtn}
-      <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >×</button>
+      <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>`;
   }).join('');
 }
@@ -15217,7 +15212,7 @@ async function openSnapshots(kind, vmid, guestName) {
       <div class="modal isl-581">
         <div class="isl-582">
           <div id="snapshot-modal-title" class="fw-600">Snapshots</div>
-          <button class="btn-icon" data-action="closeModal" data-arg="snapshot-modal" >✕</button>
+          <button aria-label="Close" class="btn-icon" data-action="closeModal" data-arg="snapshot-modal" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="isl-583">
           <div class="form-group form-group">
@@ -15859,11 +15854,11 @@ function _renderSpComponents() {
         <button class="btn-icon c-red c-danger-outline" title="Remove" data-action="spRemoveComponent" data-arg="${i}">${_icon('trash',14)}</button>
       </div>
       <div class="hint-mb6">Devices:</div>
-      <div>${c.device_ids.map(d => `<span class="group-badge">${escHtml(_spDevName(d))} <button class="btn-icon" data-action="spRemoveDev" data-arg="${i}" data-arg2="${escAttr(d)}">×</button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
+      <div>${c.device_ids.map(d => `<span class="group-badge">${escHtml(_spDevName(d))} <button aria-label="Remove" class="btn-icon" data-action="spRemoveDev" data-arg="${i}" data-arg2="${escAttr(d)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
       <input type="text" class="form-input sp-devsearch" data-i="${i}" placeholder="Search devices to add…" autocomplete="off">
       <div class="sp-devres hidden" data-i="${i}"></div>
       <div class="hint-mb6">Monitors:</div>
-      <div>${c.monitors.map(m => `<span class="group-badge">${escHtml(m)} <button class="btn-icon" data-action="spRemoveMon" data-arg="${i}" data-arg2="${escAttr(m)}">×</button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
+      <div>${c.monitors.map(m => `<span class="group-badge">${escHtml(m)} <button aria-label="Remove" class="btn-icon" data-action="spRemoveMon" data-arg="${i}" data-arg2="${escAttr(m)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
       <input type="text" class="form-input sp-monsearch" data-i="${i}" placeholder="Search monitors to add…" autocomplete="off">
       <div class="sp-monres hidden" data-i="${i}"></div>
     </div>`).join('');
@@ -17549,11 +17544,11 @@ async function _loadAuditSection(key) {
           const aiDiv = document.createElement('div');
           aiDiv.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
           aiDiv.innerHTML = `
-            <button class="btn-secondary fs-12"
+            <button class="btn-secondary"
               data-action-btn="_aiFindProblemBtn" data-dev-id="${escAttr(id)}" data-journal-sel=".journal-wrap" >
               ${_icon('sparkles',14)} Find the problem
             </button>
-            <button class="btn-secondary fs-12"
+            <button class="btn-secondary"
               data-action="aiInvestigateDevice" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName)}" >
               ${_icon('sparkles',14)} Full investigation
             </button>`;
@@ -17659,7 +17654,7 @@ async function _loadAuditSection(key) {
             <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635 ${upg>0?'c-amber':'c-green'}">${upg}</div></div>
             <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgo(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
           </div>
-          <button class="btn-secondary fs-12" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
+          <button class="btn-secondary" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
         badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
         break;
       }
@@ -17719,7 +17714,7 @@ async function _loadAuditSection(key) {
             <div class="audit-cmd-summary" data-action="toggleAuditCmd" data-arg="${id}" data-arg2="${i}">
               <code class="isl-638">${escHtml(o.cmd||'?')}</code>
               <span class="isl-639">rc=${rc} · ${ts}</span>
-              <span class="isl-640">▶</span>
+              <span class="isl-640"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
             </div>
             <div class="audit-cmd-output">${escHtml(outTxt)}</div>
           </div>`;
@@ -18591,10 +18586,10 @@ function _renderHardwareSection(id, hw, fc, ch) {
   const dn = _drawerDeviceName || '';
   h += `<div class="hw-block"><div class="hw-h">On-demand diagnostics</div>
     <div class="hw-actions">
-      <button class="btn-secondary fs-12" data-action="deviceSpeedtest" data-arg="${escAttr(id)}">${_icon('zap',14)} Run speed test</button>
-      <button class="btn-secondary fs-12" data-action="deviceNetscan" data-arg="${escAttr(id)}">${_icon('search',14)} Scan LAN</button>
-      <button class="btn-secondary fs-12" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('bookOpen',14)} Suggest runbook</button>
-      <button class="btn-secondary fs-12" data-action="deviceDocDraft" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('sparkles',14)} Draft CMDB doc</button>
+      <button class="btn-secondary" data-action="deviceSpeedtest" data-arg="${escAttr(id)}">${_icon('zap',14)} Run speed test</button>
+      <button class="btn-secondary" data-action="deviceNetscan" data-arg="${escAttr(id)}">${_icon('search',14)} Scan LAN</button>
+      <button class="btn-secondary" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('bookOpen',14)} Suggest runbook</button>
+      <button class="btn-secondary" data-action="deviceDocDraft" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('sparkles',14)} Draft CMDB doc</button>
     </div>
     <div id="hw-diag-status" class="mt-8"></div>`;
   if (st) {
@@ -18993,7 +18988,7 @@ function _renderTimeline() {
   let footer = '';
   if (total > _timelineShown) {
     footer = `<div class="tl-more"><span class="c-muted fs-12">Showing ${page.length} of ${total}</span>`
-      + `<button class="btn-secondary fs-12" data-action="timelineShowMore">Load ${Math.min(_TIMELINE_PAGE, total - _timelineShown)} more</button></div>`;
+      + `<button class="btn-secondary" data-action="timelineShowMore">Load ${Math.min(_TIMELINE_PAGE, total - _timelineShown)} more</button></div>`;
   } else if (total > _TIMELINE_PAGE) {
     footer = `<div class="tl-more"><span class="c-muted fs-12">Showing all ${total}</span></div>`;
   }
@@ -19295,7 +19290,7 @@ function _renderSlaTargetsEditor() {
       </select>
       <input class="sla-tgt-key form-input fs-12" placeholder="hostname / tag / group" title="The device HOSTNAME, tag, or group this target applies to (leave blank for the Default scope)." value="${escAttr(row.key || '')}">
       <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" title="Target uptime %, e.g. 99.9. Devices below it over the report window are flagged as breaching their SLA / error budget." value="${escAttr(String(row.pct == null ? '' : row.pct))}">
-      <button class="btn-secondary fs-12" data-action="slaTargetRemoveRow" data-arg="${i}">Remove</button>
+      <button class="btn-secondary" data-action="slaTargetRemoveRow" data-arg="${i}">Remove</button>
     </div>`).join('');
   ed.innerHTML = `<div class="dash-card p-12">
     <div class="row-8-center mb-8"><strong class="fs-13">SLA targets</strong>
@@ -19304,8 +19299,8 @@ function _renderSlaTargetsEditor() {
       <input id="sla-tgt-default" class="form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="e.g. 99.9" value="${escAttr(String(def))}"></div>
     ${rowsHtml}
     <div class="row-8-center mt-8">
-      <button class="btn-secondary fs-12" data-action="slaTargetAddRow">Add override</button>
-      <button class="btn-primary fs-12" data-action="saveSlaTargets">Save targets</button>
+      <button class="btn-secondary" data-action="slaTargetAddRow">Add override</button>
+      <button class="btn-primary" data-action="saveSlaTargets">Save targets</button>
     </div></div>`;
 }
 async function saveSlaTargets() {
@@ -19696,10 +19691,10 @@ async function loadSigning() {
       : 'No server signing key yet.'}</div>
     <div class="row-8-center">
       ${s.has_key
-        ? `<button class="btn-primary fs-12" data-action="signingSignNow">Sign current agent</button>
-           <button class="btn-secondary fs-12" data-action="signingToggle" data-arg="${s.enabled ? '0' : '1'}">${s.enabled ? 'Disable' : 'Enable'} enforcement</button>
-           <button class="btn-secondary fs-12" data-action="signingGenerate" data-arg="force">Regenerate key</button>`
-        : `<button class="btn-primary fs-12" data-action="signingGenerate" data-arg="">Generate signing key</button>`}
+        ? `<button class="btn-primary" data-action="signingSignNow">Sign current agent</button>
+           <button class="btn-secondary" data-action="signingToggle" data-arg="${s.enabled ? '0' : '1'}">${s.enabled ? 'Disable' : 'Enable'} enforcement</button>
+           <button class="btn-secondary" data-action="signingGenerate" data-arg="force">Regenerate key</button>`
+        : `<button class="btn-primary" data-action="signingGenerate" data-arg="">Generate signing key</button>`}
       <span id="signing-action-status" class="fs-12 c-muted"></span>
     </div>
   </div>
@@ -20194,7 +20189,7 @@ function _renderForecastTable() {
   let footer = '';
   if (total > _forecastShown) {
     footer = `<div class="tl-more"><span class="c-muted fs-12">Showing ${page.length} of ${total}</span>`
-      + `<button class="btn-secondary fs-12" data-action="forecastShowMore">Load ${Math.min(_FORECAST_PAGE, total - _forecastShown)} more</button></div>`;
+      + `<button class="btn-secondary" data-action="forecastShowMore">Load ${Math.min(_FORECAST_PAGE, total - _forecastShown)} more</button></div>`;
   }
   const emptyNote = total === 0
     ? '<div class="c-muted p-12">No mounts match the current filter.</div>' : '';
@@ -20502,12 +20497,6 @@ async function saveDebugLogging(enabled) {
     toast(enabled ? 'Debug logging enabled — logs at /var/lib/remotepower/debug.log' : 'Debug logging disabled', 'info');
     if (enabled) console.info('[RemotePower] Debug logging enabled. Server writes to debug.log; client logs to this console.');
   } else toast(r?.error || 'Failed', 'error');
-}
-
-async function saveFileManager(enabled) {
-  const r = await api('POST', '/config', { file_manager: { enabled: !!enabled } });
-  if (r?.ok) toast(enabled ? 'File manager enabled — browse host files from a device drawer' : 'File manager disabled', 'success');
-  else toast(r?.error || 'Failed to save', 'error');
 }
 
 function downloadDebugLog() {
@@ -20943,8 +20932,7 @@ function toggleSidebarCollapse() {
   document.body.classList.add('no-anim');
   const collapsed = document.body.classList.toggle('sidebar-collapsed');
   localStorage.setItem('rp_sidebar_collapsed', collapsed ? '1' : '0');
-  const ico = document.getElementById('sidebar-collapse-icon');
-  if (ico) ico.textContent = collapsed ? '▶' : '◀';
+  // (v6: the collapse chevron is an SVG rotated by body.sidebar-collapsed CSS)
   // Force a reflow so the collapsed layout is committed while transitions are
   // off, then drop the guard on the next frame.
   void document.body.offsetWidth;
@@ -20956,12 +20944,45 @@ function toggleSidebarCollapse() {
 (function _initSidebarCollapse() {
   if (localStorage.getItem('rp_sidebar_collapsed') === '1') {
     document.body.classList.add('sidebar-collapsed');
-    // The icon may not exist yet — patch it once DOM is ready
-    document.addEventListener('DOMContentLoaded', () => {
-      const ico = document.getElementById('sidebar-collapse-icon');
-      if (ico) ico.textContent = '▶';
-    });
+    // (v6: the collapse chevron rotates via CSS — no icon patching needed)
   }
+})();
+
+// v6.0.0: AUTO-HIDE CHROME (default ON; My Account → Appearance → Navigation).
+// Sidebar auto-hide = the 56px rail + hover-expand overlay (body.autohide-sidebar
+// + body.sidebar-collapsed); top bar = body.topbar-autohide (5px peek, slides in
+// on hover). Both are FORCED visible while body.has-active-alert is set (see
+// _paintAlertsBadge) — auto-hide is suspended whenever alerts are open.
+function toggleAutohideSidebar(on) {
+  document.body.classList.toggle('autohide-sidebar', !!on);
+  try { localStorage.setItem('rp_autohide_sidebar', on ? '1' : '0'); } catch (_) {}
+  if (on) document.body.classList.add('sidebar-collapsed');
+  else {
+    // manual mode: restore the last manual collapse preference (default expanded)
+    let manual = '0';
+    try { manual = localStorage.getItem('rp_sidebar_collapsed') || '0'; } catch (_) {}
+    document.body.classList.toggle('sidebar-collapsed', manual === '1');
+  }
+}
+function toggleAutohideTopbar(on) {
+  document.body.classList.toggle('topbar-autohide', !!on);
+  try { localStorage.setItem('rp_autohide_topbar', on ? '1' : '0'); } catch (_) {}
+}
+(function _initAutohide() {
+  let sb = '1', tb = '1';   // v6 default: auto-hide ON for both
+  try {
+    sb = localStorage.getItem('rp_autohide_sidebar') || '1';
+    tb = localStorage.getItem('rp_autohide_topbar') || '1';
+  } catch (_) {}
+  if (sb === '1') { document.body.classList.add('autohide-sidebar', 'sidebar-collapsed'); }
+  if (tb === '1') { document.body.classList.add('topbar-autohide'); }
+  const sync = () => {
+    const a = document.getElementById('acct-autohide-sidebar');
+    if (a) a.checked = document.body.classList.contains('autohide-sidebar');
+    const b = document.getElementById('acct-autohide-topbar');
+    if (b) b.checked = document.body.classList.contains('topbar-autohide');
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync); else sync();
 })();
 
 // v3.0.1: short-window in-flight cache for GET /devices. Multiple pages
@@ -22313,7 +22334,7 @@ function showKeyboardShortcuts() {
     <div class="isl-724">
       <div class="isl-725">
         <h3 class="isl-726">Keyboard shortcuts</h3>
-        <button class="btn-icon isl-727" data-action="closeKbdCheat">×</button>
+        <button aria-label="Close" class="btn-icon isl-727" data-action="closeKbdCheat"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <table class="isl-728">
         <tr><td class="cell-padl"><kbd class="code-pill">/</kbd></td><td>Open command palette</td></tr>
@@ -22449,7 +22470,7 @@ function openBulkActions() {
     <div class="isl-729">
       <div class="isl-725">
         <h3 class="isl-726">Bulk actions</h3>
-        <button class="btn-icon isl-727" data-action="closeBulkModal">×</button>
+        <button aria-label="Close" class="btn-icon isl-727" data-action="closeBulkModal"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="isl-730">Run an operation across multiple devices at once. Select a filter, pick an action, confirm.</div>
 

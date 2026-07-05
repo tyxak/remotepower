@@ -395,7 +395,7 @@ function _ensureAIModal() {
     <div class="modal isl-508">
       <div class="modal-header row-between">
         <div id="ai-modal-title" class="fw-600">AI</div>
-        <button class="btn-icon isl-44" data-action="closeAIModal" >✕</button>
+        <button class="btn-icon isl-44" data-action="closeAIModal" aria-label="Close" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div id="ai-modal-meta" class="isl-509">—</div>
       <div id="ai-modal-body" class="isl-510">

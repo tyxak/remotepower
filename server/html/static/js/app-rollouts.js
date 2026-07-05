@@ -30,7 +30,7 @@ function _renderRollout(roll) {
   const canResume = roll.state === 'paused';
   const canPromote = (roll.state === 'running' || roll.state === 'paused');
   const canCancel = !['done', 'cancelled'].includes(roll.state);
-  const btn = (label, act) => `<button class="btn-icon fs-12" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="${act}">${label}</button>`;
+  const btn = (label, act) => `<button class="btn-icon" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="${act}">${label}</button>`;
   let actions = '';
   if (canStart)   actions += btn('Start', 'start');
   if (canResume)  actions += btn('Resume', 'resume');
@@ -39,8 +39,8 @@ function _renderRollout(roll) {
   if (canCancel)  actions += btn('Cancel', 'cancel');
   // v5.0.0 (#F5): one-click rollback for a script rollout with a rollback script.
   if (roll.action === 'script' && roll.rollback_script_id && roll.state !== 'draft' && !roll.rolled_back_by)
-    actions += `<button class="btn-icon fs-12 c-amber" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="rollback">Rollback</button>`;
-  actions += `<button class="btn-icon fs-12 c-red" data-action="deleteRollout" data-arg="${escAttr(roll.id)}">Delete</button>`;
+    actions += `<button class="btn-icon c-amber" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="rollback">Rollback</button>`;
+  actions += `<button class="btn-icon c-red" data-action="deleteRollout" data-arg="${escAttr(roll.id)}">Delete</button>`;
   return `<div class="dash-card mb-12">
     <div class="row-8-center mb-8">
       <strong>${escHtml(roll.name || '(unnamed)')}</strong>

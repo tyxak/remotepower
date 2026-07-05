@@ -136,9 +136,10 @@ class TestUIVersionToggle(unittest.TestCase):
         self.assertNotIn("setItem('rp_ui'", _JS)
 
     def test_single_interface_no_toggle(self):
-        # the Interface settings pane survives as an informational note
-        self.assertIn('data-arg="interface"', _HTML)
-        self.assertIn('id="settings-pane-interface"', _HTML)
+        # v6.0.0 punch list #4: the Interface pane is REMOVED entirely (it had
+        # become a note about its own absence).
+        self.assertNotIn('data-arg="interface"', _HTML)
+        self.assertNotIn('id="settings-pane-interface"', _HTML)
         # the toggle buttons are gone everywhere (Settings + My Account)
         self.assertNotIn('data-action="setUIVersion"', _HTML)
         self.assertNotIn('ui-opt', _HTML)

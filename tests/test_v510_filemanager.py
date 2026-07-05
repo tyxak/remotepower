@@ -64,8 +64,10 @@ class TestApiWiring(unittest.TestCase):
         h = src[src.index('def handle_device_files'):src.index('def handle_device_files') + 4500]
         self.assertIn("require_perm('command'", h)
         self.assertIn("audit_log(actor, 'file_manager'", h)
-        # opt-in: disabled → 403
-        self.assertIn("File manager is disabled", h)
+        # v6.0.0: always-on — the disabled→403 branch is GONE; the roots
+        # allow-list + command permission still gate everything.
+        self.assertNotIn("File manager is disabled", h)
+        self.assertIn("fm.get('roots')", h)
 
     def test_longpoll_wait_helper(self):
         self.assertTrue(hasattr(api, '_longpoll_wait'))

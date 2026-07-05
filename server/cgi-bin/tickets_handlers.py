@@ -62,7 +62,9 @@ def bind(api_globals):
     A = _ApiNamespace(api_globals)
 
 def _tickets_enabled():
-    return bool((A.load(A.CONFIG_FILE) or {}).get('tickets_enabled'))
+    # v6.0.0: the ticket system is a standard module — always on (the old
+    # Settings → Advanced opt-in is gone; the config key is ignored).
+    return True
 
 
 def _ticket_sla_policy():

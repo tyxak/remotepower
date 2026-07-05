@@ -99,7 +99,7 @@ function _renderProfileChips() {
   const byId = {}; (_csDevices || []).forEach(d => { byId[String(d.id)] = d.name; });
   if (!_csProfileSelDevs.size) { box.innerHTML = '<span class="meta-sm-nm">No assets selected yet.</span>'; return; }
   box.innerHTML = Array.from(_csProfileSelDevs).map(id =>
-    `<span class="group-badge">${escHtml(byId[id] || id)} <button class="btn-icon cell-sm" data-action="unpickProfileDev" data-arg="${escAttr(id)}">×</button></span>`).join('');
+    `<span class="group-badge">${escHtml(byId[id] || id)} <button aria-label="Remove" class="btn-icon cell-sm" data-action="unpickProfileDev" data-arg="${escAttr(id)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join('');
 }
 function unpickProfileDev(id) { _csProfileSelDevs.delete(String(id)); _renderProfileChips(); }
 async function applyProfile() {
@@ -650,7 +650,7 @@ function _hcUserCard(u, i) {
   div.dataset.idx = i;
   div.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;position:relative';
   div.innerHTML = `
-    <button data-action="hcRemoveUser" data-arg="${i}" title="Remove user" class="isl-607">×</button>
+    <button data-action="hcRemoveUser" data-arg="${i}" title="Remove user" class="isl-607"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     <div class="isl-608">
       <div><label class="isl-609">Username</label>
         <input class="form-input fs-12" value="${escAttr(u.name||'')}" data-field="name"></div>
@@ -722,7 +722,7 @@ function _hcGroupRow(g, i) {
            value="${escAttr(g.name||'')}" data-field="name">
     <input class="form-input isl-613" placeholder="GID (opt)"
            value="${g.gid !== null && g.gid !== undefined ? g.gid : ''}" data-field="gid" type="number">
-    <button data-remove-closest=".hc-group-row" class="isl-614">×</button>`;
+    <button aria-label="Remove" data-remove-closest=".hc-group-row" class="isl-614"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
   return div;
 }
 

@@ -105,7 +105,9 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn('id="page-kb"', index)
         self.assertIn('id="kb-edit-modal"', index)
         self.assertIn('app-kb.js', index)
-        self.assertIn('cfg-kb-enabled', index)
+        # v6.0.0: KB is an always-on module — the opt-in checkbox is GONE
+        self.assertNotIn('cfg-kb-enabled', index)
+        self.assertIn('<button class="nav-btn" id="nav-kb"', index)
         appjs = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-kb.js').read_text()
         for fn in ('function loadKb', 'function saveKbArticle',
                    'function openKbArticle', 'function deleteKbArticle'):

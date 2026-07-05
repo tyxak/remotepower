@@ -233,11 +233,12 @@ class TestCannedTicketReplies(_HandlerBase):
         api.method = lambda: 'GET'
         return self.call(api.handle_ticket_templates)
 
-    def test_disabled_404(self):
+    def test_flag_off_still_serves(self):
+        # v6.0.0: tickets are always-on — the old disabled→404 path is gone.
         api.save(api.CONFIG_FILE, {'tickets_enabled': False})
         api._invalidate_load_cache(api.CONFIG_FILE)
         self._get()
-        self.assertEqual(self.cap['s'], 404)
+        self.assertEqual(self.cap['s'], 200)
 
     def test_roundtrip_sanitize_and_cap(self):
         api.save(api.CONFIG_FILE, {'tickets_enabled': True})
@@ -501,11 +502,13 @@ class TestAlertKbRunbookLink(_HandlerBase):
         api._annotate_alert_kb(alerts)
         self.assertNotIn('kb_link', alerts[0])
 
-    def test_disabled_kb_no_link(self):
+    def test_kb_flag_off_still_links(self):
+        # v6.0.0: the KB is an always-on module — a config with the old flag
+        # off must NOT lose alert→runbook links any more.
         self._cfg({'metric_critical': 'kb_a'}, kb_on=False)
         alerts = [{'id': '1', 'event': 'metric_critical', 'payload': {}}]
         api._annotate_alert_kb(alerts)
-        self.assertNotIn('kb_link', alerts[0])
+        self.assertIn('kb_link', alerts[0])
 
     def test_stale_article_id_ignored(self):
         self._cfg({'metric_critical': 'kb_gone'})

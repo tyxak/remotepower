@@ -481,6 +481,25 @@ def _webhook_message(event, payload):
             "vpn_handshake_stale": "handshake went stale",
         }
         return f'WG Access client "{cn}" on tunnel "{tn}" {verbs.get(event, event)}'
+    elif event in ("ticket_opened", "ticket_resolved"):
+        # portal/email tickets have no device — never fall through to the
+        # generic device-name fallback (it rendered "ticket_opened: unknown")
+        who = payload.get("requester") or payload.get("assignee") or ""
+        src = payload.get("source") or ""
+        verb = "opened" if event == "ticket_opened" else "resolved"
+        msg = (
+            f'Ticket #RP{int(payload.get("number") or 0):06d} '
+            f'"{(payload.get("subject") or "")[:80]}" {verb}'
+        )
+        if who:
+            msg += f" by {who}"
+        if src and src not in ("operator",):
+            msg += f" via {src}"
+        if payload.get("site_name"):
+            msg += f' — site {payload.get("site_name")}'
+        elif payload.get("device_name"):
+            msg += f' — {payload.get("device_name")}'
+        return msg
     elif event == "ticket_sla_breached":
         return (
             f'Ticket #RP{int(payload.get("number") or 0):06d} '

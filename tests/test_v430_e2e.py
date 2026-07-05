@@ -75,7 +75,10 @@ class TestSmoke(unittest.TestCase):
     def _nav(self, page_name):
         # Buried nav entries live in collapsible sidebar groups — expand them
         # all first (same as a user opening the group) so the click lands.
+        # v6: also leave the default auto-hide rail (labels/items are hidden
+        # at 56px; a user would hover to expand — tests just pin it open).
         self.page.evaluate(
+            "document.body.classList.remove('autohide-sidebar', 'sidebar-collapsed');"
             "document.querySelectorAll('.sidebar-group.collapsed')"
             ".forEach(g => g.classList.remove('collapsed'))")
         self.page.click(f'.nav-btn[data-page="{page_name}"]')

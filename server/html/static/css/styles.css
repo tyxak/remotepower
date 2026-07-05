@@ -3975,6 +3975,67 @@ body.no-anim * { transition: none !important; }
   transition: background .15s, color .15s;
 }
 .sidebar-collapse-btn:hover { background: var(--hair-2); color: var(--text); }
+#sidebar-collapse-icon { display: inline-flex; }
+#sidebar-collapse-icon svg { transition: transform .18s ease; }
+body.sidebar-collapsed #sidebar-collapse-icon svg { transform: rotate(180deg); }
+
+/* ═══ v6.0.0 — AUTO-HIDE CHROME (default ON; My Account → Navigation) ════════
+   Sidebar: the 56px rail expands to full width on hover as an OVERLAY
+   (.sidebar is fixed, so content never shifts). An open alert forces both the
+   rail and the top bar visible so nothing needing attention is concealed.
+   In auto-hide mode the manual Collapse button is redundant → hidden. */
+body.sidebar-collapsed .sidebar { transition: width 0.16s ease; }
+body.autohide-sidebar .sidebar-collapse-btn { display: none !important; }
+body.sidebar-collapsed .sidebar:hover,
+body.sidebar-collapsed.has-active-alert .sidebar {
+  width: 248px; padding-left: 8px; padding-right: 8px;
+  box-shadow: 6px 0 30px rgba(0,0,0,0.32); z-index: 900;
+}
+body.sidebar-collapsed .sidebar:hover .sidebar-group-items,
+body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-items { display: flex; }
+body.sidebar-collapsed .sidebar:hover .sidebar-label,
+body.sidebar-collapsed.has-active-alert .sidebar .sidebar-label { display: block; }
+body.sidebar-collapsed .sidebar:hover .sidebar-search-wrap,
+body.sidebar-collapsed.has-active-alert .sidebar .sidebar-search-wrap { display: block; }
+body.sidebar-collapsed .sidebar:hover .nav-btn span:not(.nav-icon),
+body.sidebar-collapsed .sidebar:hover .sidebar-group-toggle span:not(.nav-icon),
+body.sidebar-collapsed .sidebar:hover .brand .logo-text,
+body.sidebar-collapsed .sidebar:hover .brand-v,
+body.sidebar-collapsed .sidebar:hover .acct-name,
+body.sidebar-collapsed.has-active-alert .sidebar .nav-btn span:not(.nav-icon),
+body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-toggle span:not(.nav-icon),
+body.sidebar-collapsed.has-active-alert .sidebar .brand .logo-text,
+body.sidebar-collapsed.has-active-alert .sidebar .brand-v,
+body.sidebar-collapsed.has-active-alert .sidebar .acct-name { display: inline; }
+body.sidebar-collapsed .sidebar:hover .nav-btn,
+body.sidebar-collapsed .sidebar:hover .sidebar-group-toggle,
+body.sidebar-collapsed .sidebar:hover .sidebar .brand,
+body.sidebar-collapsed .sidebar:hover .side-foot .acct-btn,
+body.sidebar-collapsed.has-active-alert .sidebar .nav-btn,
+body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-toggle,
+body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn {
+  justify-content: flex-start; padding-left: 9px; padding-right: 9px;
+}
+body.sidebar-collapsed .sidebar:hover .side-foot .acct-btn > svg,
+body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn > svg { display: inline; }
+
+/* Top bar: tucks away leaving a 5px peek strip (the hover target); hovering —
+   or an open alert — slides it back over the content. Desktop only. */
+@media (min-width: 721px) {
+  body.topbar-autohide header {
+    position: fixed; top: 0; right: 0; left: 248px; margin-left: 0;
+    z-index: 950;
+    transform: translateY(calc(-100% + 5px));
+    transition: transform 0.18s ease;
+  }
+  body.topbar-autohide.sidebar-collapsed header { left: 56px; }
+  body.topbar-autohide header:hover,
+  body.topbar-autohide.has-active-alert header { transform: translateY(0); }
+  [dir="rtl"] body.topbar-autohide header,
+  body.topbar-autohide[dir="rtl"] header { left: 0; right: 248px; margin-right: 0; }
+  [dir="rtl"] body.topbar-autohide.sidebar-collapsed header,
+  body.topbar-autohide.sidebar-collapsed[dir="rtl"] header { right: 56px; }
+}
 
 
 /* ── v3.0.1: ACME UI ──────────────────────────────────────────────────── */
@@ -6448,7 +6509,26 @@ kbd{
    would otherwise give them the primary accent fill) — surface fill + accent border. */
 
 
-/* (v6: the per-page icon watermark is gone — plain design ground.) */
+/* v6 (restored by request): full-bleed ultra-faint per-page icon watermark.
+   Behind content; never intercepts clicks; the opaque sidebar covers its left
+   strip so it reads as centred in the content area. */
+#page-watermark{
+  display:block; position:fixed; inset:auto; right:0; bottom:0; z-index:0; pointer-events:none;
+}
+.app-content{ position:relative; z-index:1; }   /* content above the watermark */
+#page-watermark svg{
+  width:min(56vw,740px); height:min(56vw,740px);
+  transform:translate(20%,20%);
+  fill:none; stroke:rgba(150,168,195,.05); stroke-width:1;
+}
+/* child paths with their own fill="currentColor" would render solid — force
+   every descendant stroke-only + faint */
+#page-watermark svg *{
+  fill:none; stroke:rgba(150,168,195,.05); stroke-width:1;
+}
+body.light #page-watermark svg, body.light #page-watermark svg *{
+  stroke:rgba(40,60,90,.05);
+}
 
 
 /* (v6: the card-gradient consistency sweep is gone — panels are flat
@@ -6753,13 +6833,16 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
    (billing) keep the strip everywhere. Buttons/ids/deep-links unchanged —
    this is layout + skin, switchSettingsTab still just swaps .active. ── */
 @media (min-width: 901px) {
-  #page-settings {
+  /* .active-scoped: a bare #page-settings{display:grid} (ID specificity 1,0,0)
+     BEAT .page{display:none} (0,1,0), so Settings stayed painted on every
+     page after a visit — the "can't leave Settings" bug. */
+  #page-settings.active {
     display: grid;
     grid-template-columns: 230px minmax(0, 1fr);
     gap: 0 22px;
     align-items: start;
   }
-  #page-settings > * { grid-column: 1 / -1; }   /* title/subtitle/search span */
+  #page-settings.active > * { grid-column: 1 / -1; }   /* title/subtitle/search span */
   #page-settings > .settings-tabs {
     grid-column: 1;
     grid-row: 4;

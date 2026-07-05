@@ -167,15 +167,18 @@ class TestF5BillingGate(unittest.TestCase):
         self.assertTrue(hasattr(api, '_billing_enabled'))
 
     def test_nav_and_checkbox(self):
+        # v6.0.0: Billing is an always-on module — nav visible (no d-none),
+        # the opt-in checkbox is GONE.
         html = _html()
-        self.assertIn('id="nav-billing"', html)
-        self.assertIn('class="nav-btn d-none" id="nav-billing"', html)
-        self.assertIn('cfg-billing-enabled', html)
+        self.assertIn('<button class="nav-btn" id="nav-billing"', html)
+        self.assertNotIn('cfg-billing-enabled', html)
 
     def test_config_persists_flag(self):
+        # v6.0.0: the config-set wiring survives (inert; the gate helper is
+        # permanently True so old configs with the flag off stay enabled).
         src = _apisrc_combined()
         self.assertIn("cfg['billing_enabled'] = bool(body['billing_enabled'])", src)
-        self.assertIn("'billing_enabled': bool(cfg.get('billing_enabled'))", src)
+        self.assertTrue(api._billing_enabled())
 
 
 class TestF6DeviceTicketIcon(unittest.TestCase):

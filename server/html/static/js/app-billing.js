@@ -192,11 +192,11 @@ function teClearDev() { _teModal.device = null; _teRenderChips(); }
 function _teRenderChips() {
   const sc = document.getElementById('te-site-chip');
   if (sc) sc.innerHTML = _teModal.site
-    ? `<span class="group-badge">${escHtml(_teModal.site.name || _teModal.site.id)} <button class="btn-icon cell-sm" data-action="teClearSite" title="Clear">×</button></span>`
+    ? `<span class="group-badge">${escHtml(_teModal.site.name || _teModal.site.id)} <button class="btn-icon cell-sm" data-action="teClearSite" title="Clear"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`
     : '<span class="meta-sm-nm">No customer chosen.</span>';
   const dc = document.getElementById('te-dev-chip');
   if (dc) dc.innerHTML = _teModal.device
-    ? `<span class="group-badge">${escHtml(_teModal.device.name || _teModal.device.id)} <button class="btn-icon cell-sm" data-action="teClearDev" title="Clear">×</button></span>`
+    ? `<span class="group-badge">${escHtml(_teModal.device.name || _teModal.device.id)} <button class="btn-icon cell-sm" data-action="teClearDev" title="Clear"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`
     : '<span class="meta-sm-nm">No device.</span>';
 }
 
@@ -655,7 +655,7 @@ async function _billingRates() {
   const cardRows = (r.rate_card || []).map((rc, i) =>
     `<tr><td><input class="form-input rate-name" value="${escAttr(rc.name)}" ${readonly ? 'disabled' : ''}></td>
      <td><input type="number" step="0.01" class="form-input rate-val" value="${escAttr(String(rc.rate))}" ${readonly ? 'disabled' : ''}></td>
-     <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" data-action="rateCardDel" data-arg="${i}">×</button>`}</td></tr>`).join('');
+     <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="rateCardDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}</td></tr>`).join('');
   const siteOpts = ['<option value="">— pick a site —</option>'].concat((r.sites || []).map(s =>
     `<option value="${escAttr(s.site_id)}">${escHtml(s.name)}</option>`)).join('');
   host.innerHTML = `
@@ -686,7 +686,7 @@ function rateCardAdd() {
   if (!tb) return;
   const i = tb.querySelectorAll('tr').length;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td><input class="form-input rate-name" value=""></td><td><input type="number" step="0.01" class="form-input rate-val" value="0"></td><td><button class="btn-icon cell-sm c-danger-outline" data-action="rateCardDel" data-arg="${i}">×</button></td>`;
+  tr.innerHTML = `<td><input class="form-input rate-name" value=""></td><td><input type="number" step="0.01" class="form-input rate-val" value="0"></td><td><button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="rateCardDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>`;
   tb.appendChild(tr);
 }
 function rateCardDel(i) {
@@ -727,7 +727,7 @@ function _renderSiteCfg(sid) {
       <td><input type="number" step="0.01" class="form-input fee-amount" value="${escAttr(String(f.amount || 0))}" ${readonly ? 'disabled' : ''}></td>
       <td><input type="number" step="1" class="form-input fee-qty" value="${escAttr(String(f.qty || 1))}" ${readonly ? 'disabled' : ''}></td>
       <td><input type="checkbox" class="fee-active" ${f.active !== false ? 'checked' : ''} ${readonly ? 'disabled' : ''}></td>
-      <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" data-action="feeDel" data-arg="${i}">×</button>`}</td>
+      <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="feeDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}</td>
     </tr>`).join('');
   box.innerHTML = `
     <div class="form-row">
@@ -750,7 +750,7 @@ function feeAdd() {
     <td><input type="number" step="0.01" class="form-input fee-amount" value="0"></td>
     <td><input type="number" step="1" class="form-input fee-qty" value="1"></td>
     <td><input type="checkbox" class="fee-active" checked></td>
-    <td><button class="btn-icon cell-sm c-danger-outline" data-action="feeDel" data-arg="${i}">×</button></td>`;
+    <td><button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="feeDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>`;
   tb.appendChild(tr);
 }
 function feeDel(i) {

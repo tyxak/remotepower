@@ -465,7 +465,7 @@ function _cmdbRenderList(type) {
   el.innerHTML = items.map((it, i) => {
     const inputs = fields.map(([f, ph]) =>
       `<input type="text" class="form-input" data-cmdb-list="${type}" data-cmdb-idx="${i}" data-cmdb-field="${f}" placeholder="${escAttr(ph)}" value="${escAttr(it[f] != null ? String(it[f]) : '')}">`).join('');
-    return `<div class="form-row-wrap cmdb-list-row">${inputs}<button class="btn-icon cell-sm" data-action="cmdbRemoveRow" data-arg="${type}" data-arg2="${i}">×</button></div>`;
+    return `<div class="form-row-wrap cmdb-list-row">${inputs}<button class="btn-icon cell-sm" aria-label="Remove row" data-action="cmdbRemoveRow" data-arg="${type}" data-arg2="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>`;
   }).join('');
 }
 function _cmdbReadLists() {
@@ -506,7 +506,7 @@ function _cmdbRenderInterfaces() {
         <input type="text" class="form-input ff-mono" data-iface-idx="${i}" data-iface-field="ip" placeholder="local IP (optional)" maxlength="45" value="${escAttr(it.ip || '')}">
         <span class="iface-arrow" aria-hidden="true">→</span>
         <input type="text" class="form-input ff-mono" data-iface-idx="${i}" data-iface-field="nat_ip" placeholder="NAT / public IP" maxlength="45" value="${escAttr(it.nat_ip || '')}">
-        <button type="button" class="btn-icon cell-sm" data-action="cmdbRemoveInterface" data-arg="${i}" aria-label="Remove interface ${i + 1}">×</button>
+        <button type="button" class="btn-icon cell-sm" data-action="cmdbRemoveInterface" data-arg="${i}" aria-label="Remove interface ${i + 1}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>`).join('');
   }
   // re-render the live tree on every keystroke (container listener survives the

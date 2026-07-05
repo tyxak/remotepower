@@ -159,7 +159,7 @@ function _renderScapTable() {
     when: d.ts || 0,
   }));
   const reportCell = (d) => d.has_report
-    ? `<button class="btn-icon fs-12" data-action="downloadScapReport" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" title="Open the full OpenSCAP HTML report">Report</button>`
+    ? `<button class="btn-icon" data-action="downloadScapReport" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" title="Open the full OpenSCAP HTML report">Report</button>`
     : '<span class="hint">—</span>';
   const rows = sorted.map(d => {
     if (!d.available) {

@@ -177,7 +177,7 @@ function openTicketCreate() {
 function _tkRenderCreateChips() {
   const box = document.getElementById('tk-create-dev-chip');
   box.innerHTML = _tkNewDevs.length
-    ? _tkNewDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDev" data-arg="${escAttr(d.id)}" title="Remove">×</button></span>`).join(' ')
+    ? _tkNewDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDev" data-arg="${escAttr(d.id)}" title="Remove"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ')
     : '<span class="meta-sm-nm">No devices attached.</span>';
 }
 async function _tkCreateDevResults(term) {
@@ -344,7 +344,7 @@ function _tkRenderDetailChips() {
   const box = document.getElementById('tk-d-dev-chips');
   if (!box) return;
   box.innerHTML = (window._tkDetailDevs || []).length
-    ? window._tkDetailDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDetailDev" data-arg="${escAttr(d.id)}" title="Remove">×</button></span>`).join(' ')
+    ? window._tkDetailDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDetailDev" data-arg="${escAttr(d.id)}" title="Remove"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`).join(' ')
     : '<span class="meta-sm-nm">No devices attached.</span>';
 }
 async function _tkDetailDevResults(term) {

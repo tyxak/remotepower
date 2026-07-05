@@ -178,7 +178,7 @@ async function openVirtSnapshots(id, vmId, name) {
       <div class="modal isl-581" role="dialog" aria-modal="true" aria-labelledby="virt-snapshot-modal-title">
         <div class="isl-582">
           <div id="virt-snapshot-modal-title" class="fw-600">Snapshots</div>
-          <button class="btn-icon" data-action="closeModal" data-arg="virt-snapshot-modal" aria-label="Close">✕</button>
+          <button class="btn-icon" data-action="closeModal" data-arg="virt-snapshot-modal" aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <div class="isl-583">
           <div class="form-group form-group">

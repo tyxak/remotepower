@@ -161,7 +161,7 @@ function renderBackupMonitors(monitors) {
       <span class="cmd-badge">${m.max_age_hours}h</span>
       ${m.verify_enabled ? '<span class="cmd-badge" title="integrity verification enabled">verify</span>' : ''}
       <button class="btn-icon" data-action="editBackupMonitor" data-arg="${i}">Edit</button>
-      <button class="btn-icon c-red" data-action="removeBackupMonitor" data-arg="${i}">✕</button>
+      <button class="btn-icon c-red" data-action="removeBackupMonitor" aria-label="Remove" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>`).join('');
 }
 

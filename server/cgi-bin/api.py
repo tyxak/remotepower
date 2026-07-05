@@ -7285,8 +7285,11 @@ def handle_portal_tickets():
             'updated_at': now, 'messages': msgs,
         })
     audit_log(f'portal:{contact["id"]}', 'portal_ticket_create', f'#{number} site={site}')
+    _site_nm = ((load(SITES_FILE) or {}).get(site) or {}).get('name') or site
     fire_webhook('ticket_opened', {'number': number, 'ticket_id': tid, 'subject': subject,
-                                   'priority': 4, 'type': 'request', 'source': 'portal'})
+                                   'priority': 4, 'type': 'request', 'source': 'portal',
+                                   'requester': contact.get('name') or contact.get('email') or 'portal contact',
+                                   'site': site, 'site_name': _site_nm})
     respond(200, {'ok': True, 'number': number})
 
 
@@ -7348,7 +7351,8 @@ def handle_portal_csp_report():
 
 # ── v5.6.0: Knowledge base (structured IT documentation) ────────────────────
 def _kb_enabled():
-    return bool((load(CONFIG_FILE) or {}).get('kb_enabled'))
+    # v6.0.0: always on (the opt-in toggle is gone; the config key is ignored).
+    return True
 
 
 def _kb_clean_category(s):
@@ -11308,7 +11312,8 @@ def _billing_enabled():
     gated under Settings -> Advanced, exactly like the ticket system. The
     time-tracking half (ticket hours + the weekly timesheet) stays always-on —
     only the invoicing/billing surface is gated."""
-    return bool((load(CONFIG_FILE) or {}).get('billing_enabled'))
+    # v6.0.0: always on (the opt-in toggle is gone; the config key is ignored).
+    return True
 
 
 def _billing_cfg():
@@ -12890,8 +12895,8 @@ def handle_device_files(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     fm = _file_mgr_cfg()
-    if not fm.get('enabled'):
-        respond(403, {'error': 'File manager is disabled — enable it in Settings → Advanced.'})
+    # v6.0.0: always on (the opt-in toggle is gone); the allow-listed roots +
+    # the command permission + quarantine read-only rules still gate everything.
     roots = [str(r) for r in (fm.get('roots') or [])
              if isinstance(r, str) and r.startswith('/')] or list(_FILE_MGR_DEFAULT_ROOTS)
     m = method()
@@ -36488,19 +36493,19 @@ def handle_home():
         'links':        links,
         'server_tz':    _server_tz_label(),
         'fleet_note':   cfg.get('fleet_note', ''),
-        'tickets_enabled': bool(cfg.get('tickets_enabled')),
-        'billing_enabled': bool(cfg.get('billing_enabled')),   # v5.4.1: gate the Billing page
-        'ticket_devices': _open_ticket_device_ids() if cfg.get('tickets_enabled') else [],
-        'tickets_open': (sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
-                             if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal'))
-                         if cfg.get('tickets_enabled') else 0),
-        'ticket_sla': ({str(k): _ticket_sla_policy()[k] for k in (1, 2, 3, 4)}
-                       if cfg.get('tickets_enabled') else {}),
+        # v6.0.0: tickets/billing/provisioning are ALWAYS-ON modules now (the
+        # Settings → Advanced opt-in toggles are gone); flags kept for older
+        # frontends, permanently true.
+        'tickets_enabled': True,
+        'billing_enabled': True,
+        'ticket_devices': _open_ticket_device_ids(),
+        'tickets_open': sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                            if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal')),
+        'ticket_sla': {str(k): _ticket_sla_policy()[k] for k in (1, 2, 3, 4)},
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
         # integration widget in the dashboard.
         'show_homelab': cfg.get('show_homelab', True) is not False,
-        # v5.6.0: opt-in "Provisioning" page (blueprint catalog + render).
-        'show_provisioning': bool(cfg.get('show_provisioning')),
+        'show_provisioning': True,   # v6.0.0: always-on module
         # v5.6.0: extra gate to allow server-side terraform plan/apply/destroy.
         'iac_execute_enabled': bool(cfg.get('iac_execute_enabled')),
         'attention':    _attention_payload(),
@@ -43074,6 +43079,9 @@ def handle_network_metrics():
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     by = (qs.get('by') or ['fleet'])[0]
+    _site_names = {sid: (st.get('name') or sid)
+                   for sid, st in (load(SITES_FILE) or {}).items()
+                   if isinstance(st, dict)}
     if by not in ('fleet', 'group', 'tag', 'site'):
         by = 'fleet'
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
@@ -43105,9 +43113,12 @@ def handle_network_metrics():
             totals['reporting'] += 1
         totals['rx_bps'] += rx
         totals['tx_bps'] += tx
+        _sid = d.get('site_id') or d.get('site') or ''
         rows.append({
             'id': did, 'name': d.get('name', did), 'group': d.get('group', ''),
-            'site': d.get('site_id') or d.get('site') or '',
+            # display NAME, not the raw site id (the id leaked into the
+            # per-device throughput table)
+            'site': _site_names.get(_sid, _sid) if _sid else '',
             'tags': d.get('tags') or [], 'rx_bps': rx, 'tx_bps': tx,
             'ifaces': ifaces, 'reporting': reporting,
             'monitored': d.get('monitored', True) is not False,
@@ -43117,11 +43128,12 @@ def handle_network_metrics():
             if by == 'tag':
                 keys = [t for t in (d.get('tags') or []) if t] or ['(untagged)']
             elif by == 'site':
-                keys = [d.get('site_id') or d.get('site') or '(no site)']
+                keys = [_sid or '(no site)']
             else:
                 keys = [d.get('group') or '(no group)']
             for k in keys:
-                ti = tiles.setdefault(str(k), {'key': str(k), 'name': str(k),
+                _nm = _site_names.get(str(k), str(k)) if by == 'site' else str(k)
+                ti = tiles.setdefault(str(k), {'key': str(k), 'name': _nm,
                                                'rx_bps': 0, 'tx_bps': 0, 'devices': 0})
                 ti['rx_bps'] += rx
                 ti['tx_bps'] += tx

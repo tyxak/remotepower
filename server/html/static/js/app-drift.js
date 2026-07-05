@@ -66,7 +66,7 @@ async function loadDriftProfiles() {
     return;
   }
   const scopeChip = (a) => `<span class="tag-pill">${escHtml(a.scope_type)}: ${escHtml(a.scope_value)}` +
-    `<button class="tag-x" title="Unassign" data-action="unassignDriftProfile" data-arg="${escAttr(a.scope_type)}" data-arg2="${escAttr(a.scope_value)}">×</button></span>`;
+    `<button class="tag-x" title="Unassign" data-action="unassignDriftProfile" data-arg="${escAttr(a.scope_type)}" data-arg2="${escAttr(a.scope_value)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`;
   body.innerHTML = _driftProfiles.map(p => {
     const files = p.files || [];
     const preview = files.slice(0, 4).map(f => escHtml(f)).join(', ') + (files.length > 4 ? ` +${files.length - 4} more` : '');
@@ -275,7 +275,7 @@ function _ensureDriftModal() {
     <div class="modal isl-537">
       <div class="modal-header row-between">
         <div id="drift-detail-title" class="fw-600">Drift detail</div>
-        <button class="btn-icon isl-44" data-action="closeDriftDetail" >✕</button>
+        <button aria-label="Close" class="btn-icon isl-44" data-action="closeDriftDetail" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div id="drift-detail-body" class="isl-538">
         <div class="c-muted">Loading…</div>
@@ -338,7 +338,7 @@ async function openDriftDetail(devId, devName) {
     let html = `<div class="isl-539">
       Watched: ${watched.length} ${watched.length === 1 ? 'path' : 'paths'} · Reported: ${fileKeys.length}
       <span class="hint"> · via ${escHtml(_srcText)}</span>
-      <button class="btn-secondary fs-12 ml-8" data-action="aiExplainDrift" title="AI: explain what changed and whether it's risky">${_icon('sparkles', 12)} Explain drift</button>
+      <button class="btn-secondary ml-8" data-action="aiExplainDrift" title="AI: explain what changed and whether it's risky">${_icon('sparkles', 12)} Explain drift</button>
     </div>`;
 
     html += '<div class="scrollable-table-wrap audit-scroll"><table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';
@@ -479,7 +479,7 @@ function _ensureDriftDiffModal() {
           <div id="drift-diff-title" class="fw-600">Drift diff</div>
           <div id="drift-diff-path" class="isl-562"></div>
         </div>
-        <button class="btn-icon isl-44" data-action="closeDriftDiff" >✕</button>
+        <button aria-label="Close" class="btn-icon isl-44" data-action="closeDriftDiff" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div id="drift-diff-body" class="isl-538">
         <div class="c-muted">Loading…</div>
