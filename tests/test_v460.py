@@ -67,41 +67,21 @@ class TestVersionBumps(unittest.TestCase):
 class TestIndustrialTheme(unittest.TestCase):
     """The New UI = body[data-ui="industrial"] design system, keeping the blue accent."""
 
-    def test_industrial_palette_block_exists(self):
-        self.assertIn('body[data-ui="industrial"]', _CSS)
+    def test_industrial_skin_fully_removed_palette_on_root(self):
+        # v6.0.0: the Industrial skin is FULLY REMOVED — no data-ui selector,
+        # attribute or JS pin may survive anywhere.
+        self.assertNotIn('data-ui', _CSS)
+        self.assertNotIn('data-ui', _HTML)
+        self.assertNotIn("dataset.ui", _JS)
+        # the live ClarityMatters palette + system font stacks live on :root
         css = _CSS.replace(' ', '')
-        # v5.6.x: the base body[data-ui="industrial"] block holds the STRUCTURE
-        # (fonts + palette-derived card gradient); the graphite dark PALETTE moved
-        # to the :not([data-theme]):not(.light) default block so a chosen theme
-        # can repaint the New UI. Assert both, plus the kept blue + Inter/mono.
-        m = re.search(r'body\[data-ui="industrial"\]\s*\{(.*?)\}', _CSS, re.S)
-        self.assertIsNotNone(m)
-        base = m.group(1).replace(' ', '')
-        # v6.0.0 surface 3: the design's system font stacks replaced Inter /
-        # IBM Plex Mono, and the graphite card gradient is GONE (flat panels).
-        self.assertIn('--font:-apple-system', base)
-        self.assertIn('--font-mono:ui-monospace', base)
-        self.assertNotIn('--card-grad', base)
-        self.assertNotIn("'Inter'", base)
-        self.assertNotIn("'IBMPlexMono'", base)
-        # graphite default palette lives in the scoped default block; the blue
-        # accent stays on :root (NOT this block) so the accent picker (0,2,1)
-        # and themes (0,1,1) can win — pinning --accent here (0,3,1) is exactly
-        # the bug that stuck chamfered buttons on blue in light mode.
-        self.assertIn(
-            'body[data-ui="industrial"]:not([data-theme]):not(.light){', css)
-        dm = re.search(
-            r'body\[data-ui="industrial"\]:not\(\[data-theme\]\):not\(\.light\)\s*\{(.*?)\}',
-            _CSS, re.S)
-        self.assertIsNotNone(dm)
-        default_pal = dm.group(1).replace(' ', '')
-        self.assertIn('--bg:#0c0f13', default_pal)   # v6 ClarityMatters dark ground
-        self.assertNotIn('--accent:', default_pal)   # must NOT pin accent here
-        self.assertIn('--accent:#3b7eff', css)       # the blue default lives on :root
-        # v6.0.0 phase 1: the sidebar is the first migrated Clarity surface —
-        # NO industrial sidebar rules may remain (replace, don't layer).
-        self.assertNotIn('.sidebar*{font-family:var(--font-mono)', css)
-        self.assertNotIn('body[data-ui="industrial"].sidebar{', css)
+        self.assertIn('--bg:#0c0f13', css)          # design dark ground
+        self.assertIn('--bg:#eef1f5', css)          # design light ground (body.light)
+        self.assertIn('--accent:#3b7eff', css)      # the design-blessed blue
+        self.assertIn('--font:-apple-system', css)
+        self.assertIn('--font-mono:ui-monospace', css)
+        self.assertNotIn("'Inter'", css)
+        self.assertNotIn('IBMPlexMono', css)
 
     def test_fonts_are_self_hosted_not_external(self):
         # Space Grotesk + IBM Plex Mono ship as same-origin @font-face (the strict
@@ -142,25 +122,18 @@ class TestIndustrialLayoutRegressions(unittest.TestCase):
 
 
 class TestUIVersionToggle(unittest.TestCase):
-    """v6.0.0 "ClarityMatters": ONE interface — the v4.6.0 New/Old toggle is CUT.
+    """v6.0.0 "ClarityMatters": ONE interface; the migration is COMPLETE.
 
-    During the phase-1 surface-by-surface re-skin the body stays pinned to
-    data-ui="industrial" (un-migrated surfaces render unchanged; migrated ones
-    have their industrial rules deleted). When the last surface migrates, the
-    attribute + applyUIVersion + every industrial rule go away — update here.
+    The v4.6.0 New/Old toggle, the transitional data-ui pin, applyUIVersion and
+    every body[data-ui="industrial"] rule are gone for good.
     """
 
     def test_js_single_ui_no_preference(self):
-        self.assertIn('function applyUIVersion(', _JS)
-        # the transitional pin — always industrial, no rp_ui preference read
-        self.assertIn("document.body.dataset.ui = 'industrial'", _JS)
+        # v6.0.0 final: applyUIVersion itself is gone with the transitional pin
+        self.assertNotIn('function applyUIVersion(', _JS)
         self.assertNotIn('function setUIVersion(', _JS)
-        # no preference is read or written any more (the comment may still
-        # NAME rp_ui historically — assert the functional calls are gone)
         self.assertNotIn("getItem('rp_ui'", _JS)
         self.assertNotIn("setItem('rp_ui'", _JS)
-        # still applied during showApp() init
-        self.assertIn('applyUIVersion();', _JS)
 
     def test_single_interface_no_toggle(self):
         # the Interface settings pane survives as an informational note
@@ -169,8 +142,8 @@ class TestUIVersionToggle(unittest.TestCase):
         # the toggle buttons are gone everywhere (Settings + My Account)
         self.assertNotIn('data-action="setUIVersion"', _HTML)
         self.assertNotIn('ui-opt', _HTML)
-        # the body carries the pinned skin statically (no first-paint flash)
-        self.assertIn('<body data-ui="industrial">', _HTML)
+        # v6 final: the body carries NO skin attribute at all
+        self.assertIn('<body>', _HTML)
 
 
 class TestSelfSignedCertEndpoint(unittest.TestCase):

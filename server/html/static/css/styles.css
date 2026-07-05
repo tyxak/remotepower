@@ -20,32 +20,42 @@
   color: var(--accent);
 }
 
+  /* v6.0.0 "ClarityMatters" — THE palette (chosen-design tokens). Dark is the
+     default; body.light carries the light set; named themes override both. */
   :root {
-    --bg: #0a0c10;
-    --surface: #111520;
-    --surface2: #161b28;
-    --border: #1e2535;
+    --bg: #0c0f13;
+    --surface: #161b22;
+    --surface2: #1b212a;
+    --border: #242b34;
     --accent: #3b7eff;
-    --accent2: #5c9fff;
-    --text: #e2e8f0;
-    --muted: #64748b;
-    --green: #22c55e;
+    --accent2: #7ea9ff;
+    --text: #e8edf3;
+    --muted: #7f8b98;
+    /* status colours = chosen-design --ok/--crit/--warn */
+    --green: #4ea87a;
     --green-dim: #166534;
-    --red: #ef4444;
+    --red: #e5645f;
     --red-dim: #7f1d1d;
-    --amber: #f59e0b;
+    --amber: #e0a83a;
     --orange: #f97316;   /* severity "high" / ERROR — themeable; inherited by themes that don't override it */
     --purple: #7c3aed;
     /* v6.0.0 ClarityMatters: the design's system sans (chosen-design --sans) */
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    /* warm accent (fail2ban/attention chrome) + recessed text-well ground */
+    --warm: #f5a623; --warm-soft: rgba(245,166,35,0.16); --warm-edge: rgba(245,166,35,0.55);
+    --well-bg: var(--bg);
   }
   body.light {
-    --bg: #f1f5f9;
+    --bg: #eef1f5;
     --surface: #ffffff;
-    --surface2: #f8fafc;
-    --border: #e2e8f0;
-    --text: #0f172a;
-    --muted: #64748b;
+    --surface2: #eef1f5;
+    --border: #d9dee5;
+    --text: #141922;
+    --muted: #6a7787;
+    --green: #2f8f5b;
+    --red: #d33f39;
+    --amber: #c67e12;
+    --warm: #c2710a; --warm-soft: rgba(194,113,10,0.12); --warm-edge: rgba(194,113,10,0.50);
   }
   /* (v4.3.0: the old body.light header rgba override is gone — the header now
      uses opaque var(--bg), which is theme- and light-mode-correct by itself.) */
@@ -1916,9 +1926,9 @@
     text-align: left; padding: 10px 12px;
     font-size: 11px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.5px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--hair);
   }
-  td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--hair-2); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
   /* v3.13.0: project-wide cap — no table card grows past ~15 rows; beyond that
    * it scrolls inside the card with a sticky header. Paginated tables (15/page)
@@ -2317,8 +2327,8 @@
   --amber-edge:  rgba(245, 158, 11, 0.35);
   --red-soft:    rgba(239, 68, 68, 0.13);
   --red-edge:    rgba(239, 68, 68, 0.40);
-  --accent-soft: rgba(59, 126, 255, 0.10);
-  --accent-edge: rgba(59, 126, 255, 0.30);
+  --accent-soft: rgba(59, 126, 255, 0.12);
+  --accent-edge: rgba(59, 126, 255, 0.40);
 
   /* Mono font for technical identifiers (device IDs, hashes, paths, code).
    * Uses a thoughtful system-mono stack; first match wins. JetBrains Mono
@@ -5819,82 +5829,14 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .table-pager-info { font-size: 12px; color: var(--muted); }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   NEW UI — "Industrial" design system  (v4.6.0 "RepellantMatters")
-   A real redesign, not a recolour: warm graphite/steel with the RemotePower
-   blue, IBM Plex Mono body + Space Grotesk display, instrument-panel chrome.
-   Applied via body[data-ui="industrial"] (default); opt out under Settings →
-   Interface. Placed after every theme block so its palette wins by source order.
-   Pure CSS, self-hosted fonts — CSP-safe.
+   v6.0.0 "ClarityMatters" — the Industrial skin is FULLY REMOVED. Its live
+   palette/font/status tokens were consolidated into :root / body.light at the
+   top of this file; the skin attribute is gone for good. (The v4.6.0→v5.8.0
+   "Industrial" era: graphite, chamfers, IBM Plex/Space Grotesk — see git.)
    ════════════════════════════════════════════════════════════════════════════ */
-/* v5.6.x fix: the industrial STRUCTURE (fonts + status colours + the graphite
-   card gradient / well) — always applies, but the palette-dependent surfaces
-   now DERIVE from --surface/--bg instead of being hardcoded graphite, so a
-   chosen theme (data-theme) repaints the New UI instead of being overridden.
-   The actual bg/surface/text PALETTE moved to the scoped default blocks below,
-   so `body[data-theme="…"]` (0,1,1) can win when a theme is picked. */
-body[data-ui="industrial"] {
-  --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.55);
-  /* v6 status colours (chosen-design --ok/--crit/--warn, dark) */
-  --green:#4ea87a; --red:#e5645f; --amber:#e0a83a;
-  --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
-  /* v6: cards are FLAT (chosen-design .grp) — the graphite card gradient is
-     gone; text wells still recess onto the page ground. */
-  --well-bg:var(--bg);
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-}
-/* DEFAULT graphite dark palette — ONLY when no explicit theme is chosen
-   (:not([data-theme])) and not the light toggle. A dark theme (tokyo, dracula,
-   nord, …) sets data-theme, so this bows out and the theme's palette applies. */
-body[data-ui="industrial"]:not([data-theme]):not(.light) {
-  /* v6.0.0 ClarityMatters dark (chosen-design tokens: bg/panel/panel-2/ink/muted) */
-  --bg:#0c0f13; --surface:#161b22; --surface2:#1b212a; --border:#242b34;
-  --text:#e8edf3; --muted:#7f8b98;
-  --accent2:#7ea9ff;
-  /* NB: --accent is deliberately NOT set here. This block is (0,3,1); setting
-     --accent would beat the accent-picker rules (0,2,1) and pin the New UI to
-     blue. The default blue comes from :root's --accent (0,1,0); themes (0,1,1)
-     and the picker (0,2,1) both override it correctly. */
-}
-/* v4.6.0 (FIX), rescoped v5.6.x: the header bright/dark toggle sets body.light
-   with NO data-theme (the plain "Daylight" light) — give it the steel/paper
-   industrial palette. A NAMED light theme (paper, solarized-light, nord-light)
-   sets data-theme too, so `:not([data-theme])` bows out and the theme paints
-   its own light palette. --card-grad/--well-bg derive from these via the
-   structure block above. */
-body[data-ui="industrial"].light:not([data-theme]) {
-  /* v6.0.0 ClarityMatters light (chosen-design tokens) */
-  --bg:#eef1f5; --surface:#ffffff; --surface2:#eef1f5; --border:#d9dee5;
-  --text:#141922; --muted:#6a7787;
-  --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
-  /* v6 status colours (chosen-design --ok/--crit/--warn, light) */
-  --green:#2f8f5b; --red:#d33f39; --amber:#c67e12;
-  /* NB: --accent-soft/--accent-edge deliberately NOT set here. This block is
-     (0,3,1); setting them pinned chamfered .btn-secondary borders (e.g. "Enable
-     notifications") to blue in light mode, overriding the accent picker (0,2,1).
-     They now come from the structure block's default (0,1,1) and the picker. */
-}
-/* v5.6.x fix (#19): the industrial base block (0,1,1) hardcodes --accent and is
-   placed AFTER the body[data-accent="…"] presets (also 0,1,1), so it won by
-   source order and the accent PICKER did nothing in the New UI. Re-apply the
-   presets scoped to industrial at (0,2,1) — the same specificity trick the
-   .light variant above uses — so the user's explicit accent choice wins while
-   the default (no data-accent) stays the logo blue. Placed after the .light
-   block so the accent colour also wins in the light+accent combo. */
-body[data-ui="industrial"][data-accent="emerald"] { --accent:#10b981; --accent-soft:rgba(16,185,129,0.12); --accent-edge:rgba(16,185,129,0.55); }
-body[data-ui="industrial"][data-accent="violet"]  { --accent:#8b5cf6; --accent-soft:rgba(139,92,246,0.12); --accent-edge:rgba(139,92,246,0.55); }
-body[data-ui="industrial"][data-accent="amber"]   { --accent:#f59e0b; --accent-soft:rgba(245,158,11,0.12); --accent-edge:rgba(245,158,11,0.55); }
-body[data-ui="industrial"][data-accent="rose"]    { --accent:#f43f5e; --accent-soft:rgba(244,63,94,0.12);  --accent-edge:rgba(244,63,94,0.55); }
-body[data-ui="industrial"][data-accent="cyan"]    { --accent:#06b6d4; --accent-soft:rgba(6,182,212,0.12);  --accent-edge:rgba(6,182,212,0.55); }
-body[data-ui="industrial"] { font-family:var(--font); }
-/* (v6.0.0 phase 1: the Industrial sidebar overrides — IBM Plex Mono nav, the
-   #0b0e12 machined rail, squared items — are DELETED, not overridden. The
-   sidebar is the first migrated Clarity surface; its look lives entirely in
-   the base .sidebar rules near the top of this file.) */
 
-/* (v6: the display-font heading list is gone — one family everywhere.) */
-body[data-ui="industrial"] .stat-value,
-body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
+.stat-value,
+.tile-value { font-variant-numeric:tabular-nums; }
 
 /* ── Sidebar + topbar: MIGRATED to Clarity (v6 phase 1) — no industrial
    rules left (machined nav, uppercase logo-text, squared logo-img all gone). */
@@ -5916,10 +5858,8 @@ body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
    underline). The radius overrides the industrial skin's grouped 2px so the
    pills match the sidebar nav in both skins; the keyboard-focus state gets the
    same greyish highlight plus an accent ring. */
-.settings-tab,
-body[data-ui="industrial"] .settings-tab { border-radius: 6px; }
-.settings-tab:focus-visible,
-body[data-ui="industrial"] .settings-tab:focus-visible {
+.settings-tab { border-radius: 6px; }
+.settings-tab:focus-visible {
   color: var(--text);
   background: var(--surface2);
   outline: 2px solid var(--accent);
@@ -5951,11 +5891,7 @@ body[data-ui="industrial"] .settings-tab:focus-visible {
 /* (v6: mono-uppercase eyebrow labels + instrument stat-card overrides gone —
    base styles carry the design.) */
 
-/* ── Tables: technical-drawing rows ─────────────────────────────────────── */
-body[data-ui="industrial"] th {
-  text-transform:uppercase; letter-spacing:0.08em; font-size:10px;
-}
-body[data-ui="industrial"] td { font-family:var(--font); }
+/* (v6: tables use the base th/td styling — hairline rows, 11px muted headers.) */
 
 /* (v6: the universal 3px-radius "one shape language" is gone — components
    keep their own radii.) */
@@ -6055,14 +5991,10 @@ svg { stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .thermal-sensor-table { font-size: 13px; }
 .thermal-sensor-table th { font-size: 11px; }
 
-/* v4.6.0: page descriptions folded into a hover info icon next to the title
-   (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
+/* Hide the page subtitle by DEFAULT so it never flashes as raw (untranslated)
+   text on reload before JS runs; _applyPageSubtitleInfo adds .subtitle-shown
+   to reveal it inline (v6: subtitles are always inline). */
 .subtitle-hidden { display:none !important; }
-/* Hide the page subtitle by DEFAULT so it never flashes as raw text on reload
-   before JS runs. The industrial UI (the default) folds it into the info icon;
-   pre-JS the <body> has no data-ui attribute yet, so a body-scoped rule would
-   lose the first-paint race. _applyPageSubtitleInfo adds .subtitle-shown to
-   reveal it inline in the old UI. */
 .page-subtitle { display:none; }
 .page-subtitle.subtitle-shown { display:block; }
 /* (v6: the page-title info-icon + tooltip are gone — subtitles render inline.) */
@@ -6439,12 +6371,12 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 /* (v6: icon-button chamfer gone — base .btn-icon is the flat hairline control.) */
 
 /* #4 · Scanline-sweep skeletons */
-body[data-ui="industrial"] .skeleton,
-body[data-ui="industrial"] .skeleton-line,
-body[data-ui="industrial"] .skeleton-card{ position:relative; overflow:hidden; background:var(--surface2); }
-body[data-ui="industrial"] .skeleton::after,
-body[data-ui="industrial"] .skeleton-line::after,
-body[data-ui="industrial"] .skeleton-card::after{
+.skeleton,
+.skeleton-line,
+.skeleton-card{ position:relative; overflow:hidden; background:var(--surface2); }
+.skeleton::after,
+.skeleton-line::after,
+.skeleton-card::after{
   content:""; position:absolute; inset:0; transform:translateX(-100%);
   background:linear-gradient(90deg,transparent,var(--accent-soft) 40%,var(--accent2),var(--accent-soft) 60%,transparent);
   animation:rp-sweep 1.5s linear infinite;
@@ -6452,9 +6384,8 @@ body[data-ui="industrial"] .skeleton-card::after{
 @keyframes rp-sweep{ to{ transform:translateX(100%); } }
 
 /* #5 · Schematic empty state */
-body[data-ui="industrial"] .empty-state:not(td){ border:1px dashed var(--border); border-radius:3px; }
-body[data-ui="industrial"] .empty-icon svg{ stroke:var(--accent-edge); }
-body[data-ui="industrial"] .empty-title{ font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.08em; }
+.empty-state:not(td){ border:1px dashed var(--hair); border-radius:7px; }
+.empty-icon svg{ stroke:var(--accent-edge); }
 
 /* #6 · Keycap shortcuts */
 kbd{
@@ -6502,20 +6433,20 @@ kbd{
 .rp-crumb b{ color:var(--text); } .rp-crumb i{ color:var(--accent2); font-style:normal; padding:0 4px; }
 
 @media (prefers-reduced-motion: reduce){
-  body[data-ui="industrial"] .skeleton::after,
-  body[data-ui="industrial"] .skeleton-line::after,
-  body[data-ui="industrial"] .skeleton-card::after,
-  body[data-ui="industrial"] .status-dot.online,
+  .skeleton::after,
+  .skeleton-line::after,
+  .skeleton-card::after,
+  .status-dot.online,
   .rp-spin, #rp-topbar::after, #rp-topbar.on::after{ animation:none; }
 }
 
 /* #8 · login divider shows only when an alt sign-in method is visible (CSS :has, no JS) */
-body[data-ui="industrial"] #login-sso-divider{ display:none; }
-body[data-ui="industrial"] .login-card:has(.login-btn-oidc:not(.d-none)) #login-sso-divider{ display:flex; }
+#login-sso-divider{ display:none; }
+.login-card:has(.login-btn-oidc:not(.d-none)) #login-sso-divider{ display:flex; }
 
 /* #2 · SSO/SAML/passkey login buttons stay GHOST (they also carry .login-btn, which
    would otherwise give them the primary accent fill) — surface fill + accent border. */
-body[data-ui="industrial"] .login-btn-oidc{ background:var(--accent-edge); --rp-fill:var(--surface2); color:var(--accent2); }
+
 
 /* (v6: the per-page icon watermark is gone — plain design ground.) */
 

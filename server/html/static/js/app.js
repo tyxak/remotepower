@@ -674,7 +674,7 @@ async function showApp() {
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
-  applyUIVersion();   // v6.0.0: the single Clarity interface (transitional industrial pin)
+  try { _applyPageSubtitleInfo(); } catch (_) {}   // v6.0.0: reveal page subtitles inline
   // v6.0.0: the boot landing (home, or whatever _routeFromHashOnBoot showed)
   // must paint the topbar crumb too — showPage does it on every later switch.
   try {
@@ -832,16 +832,9 @@ function applyTheme() {
   if (btn) btn.innerHTML = light ? _THEME_MOON : _THEME_SUN;
   applyAccent();
 }
-// v6.0.0 "ClarityMatters" phase 1: there is ONE interface — the v4.6.0 New/Old
-// (rp_ui) toggle is gone. During the surface-by-surface re-skin the body keeps
-// data-ui="industrial" so not-yet-migrated surfaces render unchanged; each
-// migrated surface has its Industrial override rules DELETED from styles.css
-// (the Clarity-restyled base shows through). When the last surface lands, this
-// attribute and every remaining body[data-ui="industrial"] rule go away.
-function applyUIVersion() {
-  document.body.dataset.ui = 'industrial';
-  try { _applyPageSubtitleInfo(); } catch (_) {}
-}
+// v6.0.0 "ClarityMatters": ONE interface, fully migrated — the transitional
+// data-ui="industrial" pin (and with it the last trace of the v4.6.0 New/Old
+// machinery) is gone. Nothing reads or sets data-ui any more.
 // v6.0.0 "ClarityMatters": subtitles render INLINE under the 19px page title
 // (chosen-design .setpane .sub) — the v4.6.0 fold-into-info-icon behaviour is
 // gone. CSS still hides .page-subtitle until this adds .subtitle-shown (avoids
@@ -11033,7 +11026,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // v4.6.0: apply the theme + New/Old UI skin up front so the LOGIN / front
   // page is themed too (not just the post-login app, which re-applies in showApp).
   try { applyTheme(); } catch (_) {}
-  try { applyUIVersion(); } catch (_) {}
+  try { _applyPageSubtitleInfo(); } catch (_) {}
   loadPublicInfo();
   // The login fields are now inside #login-form so Enter triggers the
   // form's submit naturally — no per-field keydown listeners required.
