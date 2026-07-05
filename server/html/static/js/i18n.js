@@ -84,6 +84,14 @@
     // ── sidebar group + section labels ──
     'Main':        { fr: 'Principal', de: 'Haupt', zh: '主页', hi: 'मुख्य', es: 'Principal', ar: 'الرئيسية' },
     'Fleet':       { fr: 'Parc', de: 'Flotte', zh: '设备群', hi: 'फ़्लीट', es: 'Flota', ar: 'الأسطول' },
+    // v6.0.0 phase 2: the 12-domain sidebar map (REGROUPING.md) — new group +
+    // consolidated-page labels.
+    'Hardware':     { fr: 'Matériel', de: 'Hardware', zh: '硬件', hi: 'हार्डवेयर', es: 'Hardware', ar: 'العتاد' },
+    'Patching':     { fr: 'Correctifs', de: 'Patching', zh: '补丁管理', hi: 'पैचिंग', es: 'Parcheo', ar: 'التصحيحات' },
+    'Scheduling':   { fr: 'Planification', de: 'Zeitplanung', zh: '调度', hi: 'शेड्यूलिंग', es: 'Programación', ar: 'الجدولة' },
+    'Access':       { fr: 'Accès', de: 'Zugriff', zh: '访问', hi: 'पहुंच', es: 'Acceso', ar: 'الوصول' },
+    'Business':     { fr: 'Activité', de: 'Business', zh: '业务', hi: 'व्यवसाय', es: 'Negocio', ar: 'الأعمال' },
+    'Live Monitor': { fr: 'Moniteur en direct', de: 'Live-Monitor', zh: '实时监控', hi: 'लाइव मॉनिटर', es: 'Monitor en vivo', ar: 'المراقبة المباشرة' },
     'Monitoring':  { fr: 'Surveillance', de: 'Überwachung', zh: '监控', hi: 'निगरानी', es: 'Monitoreo', ar: 'المراقبة' },
     'Network':     { fr: 'Réseau', de: 'Netzwerk', zh: '网络', hi: 'नेटवर्क', es: 'Red', ar: 'الشبكة' },
     'Security':    { fr: 'Sécurité', de: 'Sicherheit', zh: '安全', hi: 'सुरक्षा', es: 'Seguridad', ar: 'الأمان' },

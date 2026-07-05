@@ -1077,29 +1077,27 @@ async function api(method, path, body, extra) {
 // expands its containing group regardless of stored state, so a
 // freshly-loaded session shows the user where they are.
 
+// v6.0.0 phase 2: ACCORDION — one domain open at a time (REGROUPING.md). The
+// open group is stored under a single key; opening one collapses the rest.
+// The active page's group still force-opens on navigation (_openSidebarGroup).
+function _openSidebarGroup(name) {
+  document.querySelectorAll('.sidebar-group').forEach(g =>
+    g.classList.toggle('collapsed', g.dataset.group !== name));
+  try { localStorage.setItem('sidebar.open_group', name || ''); } catch (_) {}
+}
 function toggleSidebarGroup(name) {
   const group = document.querySelector(`.sidebar-group[data-group="${name}"]`);
   if (!group) return;
-  const willCollapse = !group.classList.contains('collapsed');
-  group.classList.toggle('collapsed', willCollapse);
-  try {
-    localStorage.setItem(`sidebar.${name}.collapsed`, willCollapse ? '1' : '0');
-  } catch (_) { /* private mode / quota — non-fatal */ }
+  _openSidebarGroup(group.classList.contains('collapsed') ? name : null);
 }
 
 function _restoreSidebarGroups() {
-  document.querySelectorAll('.sidebar-group').forEach(group => {
-    const name = group.dataset.group;
-    let collapsed;
-    try {
-      collapsed = localStorage.getItem(`sidebar.${name}.collapsed`);
-    } catch (_) { collapsed = null; }
-    // Default state: Fleet, Monitoring, Security, Planning, Help expanded; Admin collapsed.
-    if (collapsed === null) {
-      collapsed = (name === 'admin') ? '1' : '0';
-    }
-    group.classList.toggle('collapsed', collapsed === '1');
-  });
+  let open = null;
+  try { open = localStorage.getItem('sidebar.open_group'); } catch (_) {}
+  // Default (no stored state): everything closed — the tidy 12-domain rail;
+  // navigating (or the boot deep-link) opens the active page's domain.
+  document.querySelectorAll('.sidebar-group').forEach(g =>
+    g.classList.toggle('collapsed', g.dataset.group !== open));
 }
 // Run on load — sidebar exists by the time DOMContentLoaded fires
 if (document.readyState === 'loading') {
@@ -1527,12 +1525,10 @@ function showPage(name, btn) {
   // v2.0: auto-expand the sidebar group containing this nav button so
   // the active item is always visible (avoids the surprise of clicking
   // a saved bookmark and seeing nothing highlighted in the sidebar).
-  if (btn) {
-    const group = btn.closest('.sidebar-group');
-    if (group && group.classList.contains('collapsed')) {
-      group.classList.remove('collapsed');
-      try { localStorage.setItem(`sidebar.${group.dataset.group}.collapsed`, '0'); } catch(_){}
-    }
+  {
+    const navB = btn || document.querySelector('.nav-btn[data-page="' + name + '"]');
+    const group = navB && navB.closest('.sidebar-group');
+    if (group && group.classList.contains('collapsed')) _openSidebarGroup(group.dataset.group);
   }
   if (name === 'home')     { loadHome(); _maybeStartTour(); }   // v5.4.1 (H6)
   if (name === 'devices')  loadDevices();   // v5.0.1 perf: render the grid on entry (was 60s-tick-only)
