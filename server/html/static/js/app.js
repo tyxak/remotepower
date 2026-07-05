@@ -20948,11 +20948,11 @@ function toggleSidebarCollapse() {
   }
 })();
 
-// v6.0.0: AUTO-HIDE CHROME (default ON; My Account → Appearance → Navigation).
+// v6.0.0: AUTO-HIDE SIDEBAR (default ON; My Account → Appearance → Navigation).
 // Sidebar auto-hide = the 56px rail + hover-expand overlay (body.autohide-sidebar
-// + body.sidebar-collapsed); top bar = body.topbar-autohide (5px peek, slides in
-// on hover). Both are FORCED visible while body.has-active-alert is set (see
-// _paintAlertsBadge) — auto-hide is suspended whenever alerts are open.
+// + body.sidebar-collapsed), FORCED visible while body.has-active-alert is set
+// (see _paintAlertsBadge) — suspended whenever alerts are open. (Top-bar
+// auto-hide was removed by request; the top bar is always visible.)
 function toggleAutohideSidebar(on) {
   document.body.classList.toggle('autohide-sidebar', !!on);
   try { localStorage.setItem('rp_autohide_sidebar', on ? '1' : '0'); } catch (_) {}
@@ -20964,23 +20964,13 @@ function toggleAutohideSidebar(on) {
     document.body.classList.toggle('sidebar-collapsed', manual === '1');
   }
 }
-function toggleAutohideTopbar(on) {
-  document.body.classList.toggle('topbar-autohide', !!on);
-  try { localStorage.setItem('rp_autohide_topbar', on ? '1' : '0'); } catch (_) {}
-}
 (function _initAutohide() {
-  let sb = '1', tb = '1';   // v6 default: auto-hide ON for both
-  try {
-    sb = localStorage.getItem('rp_autohide_sidebar') || '1';
-    tb = localStorage.getItem('rp_autohide_topbar') || '1';
-  } catch (_) {}
+  let sb = '1';   // v6 default: sidebar auto-hide ON
+  try { sb = localStorage.getItem('rp_autohide_sidebar') || '1'; } catch (_) {}
   if (sb === '1') { document.body.classList.add('autohide-sidebar', 'sidebar-collapsed'); }
-  if (tb === '1') { document.body.classList.add('topbar-autohide'); }
   const sync = () => {
     const a = document.getElementById('acct-autohide-sidebar');
     if (a) a.checked = document.body.classList.contains('autohide-sidebar');
-    const b = document.getElementById('acct-autohide-topbar');
-    if (b) b.checked = document.body.classList.contains('topbar-autohide');
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync); else sync();
 })();
