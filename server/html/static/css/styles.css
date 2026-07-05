@@ -211,6 +211,19 @@
     line-height: 1;
   }
   .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+  /* v6: topbar controls are flat hairline buttons (chosen-design language) */
+  header .btn-icon, header .theme-btn {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--muted);
+    box-shadow: none;
+  }
+  header .btn-icon:hover, header .theme-btn:hover {
+    background: var(--hair-2);
+    border-color: transparent;
+    color: var(--text);
+  }
   .update-banner {
     background: rgba(245,158,11,0.08);
     border-bottom: 1px solid rgba(245,158,11,0.25);
@@ -437,9 +450,12 @@
     position: relative;
     z-index: 1;
   }
+  /* ── v6.0.0 "ClarityMatters" topbar (chosen-design .topbar): spans only
+     the MAIN column (the full-height sidebar owns the left edge), 48px,
+     hairline bottom, breadcrumb left + health/controls right. ── */
   header {
-    border-bottom: 1px solid var(--border);
-    padding: 12px 0;
+    border-bottom: 1px solid var(--hair);
+    padding: 0;
     position: sticky;
     top: 0;
     /* v4.3.0 perf: opaque var(--bg), NO backdrop-filter. The old
@@ -449,6 +465,8 @@
        in Firefox". Don't reintroduce backdrop-filter here. */
     background: var(--bg);
     z-index: 100;
+    /* lockstep with .sidebar width (56px collapsed, 0 on the mobile drawer) */
+    margin-left: 248px;
   }
   .header-inner {
     display: flex;
@@ -456,8 +474,20 @@
     justify-content: space-between;
     gap: 12px;
     max-width: 100%;
-    padding: 0 24px;
+    padding: 0 18px;
+    height: 48px;
   }
+  /* topbar breadcrumb — "Group › Page", painted by _paintCrumb */
+  .crumb {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    color: var(--muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .crumb b { color: var(--text); font-weight: 560; }
   .logo {
     display: flex;
     align-items: center;
@@ -488,6 +518,16 @@
   .logo-icon svg { width: 20px; height: 20px; }
   .logo-text { font-size: 16px; font-weight: 700; letter-spacing: -0.5px; }
   .logo-text span { color: var(--accent); }
+  /* v6: the brand lives in the sidebar (chosen-design .brand) */
+  .sidebar .brand { display: flex; align-items: center; gap: 9px; padding: 6px 8px 10px; }
+  .sidebar .brand .logo-img { width: 24px; height: 24px; border-radius: 6px; }
+  .sidebar .brand .logo-text { font-size: 14px; color: var(--text); letter-spacing: -0.01em; }
+  .brand-v {
+    margin-left: auto; font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--muted); border: 1px solid var(--hair); padding: 2px 6px;
+    border-radius: 5px; white-space: nowrap;
+  }
+  .brand-v:empty { display: none; }
   .header-right {
     display: flex;
     align-items: center;
@@ -540,7 +580,7 @@
     border-right: 1px solid var(--hair);
     color: var(--side-ink);
     font-family: var(--font-ui);
-    padding: 72px 8px 14px;
+    padding: 10px 8px 0;
     z-index: 90;
     overflow-y: auto;
     display: flex;
@@ -722,10 +762,8 @@
 
   /* ── v4.1.0: collapse/hide the top bar ────────────────────────────────── */
   body.banner-collapsed header { display: none; }
-  /* With the banner gone, the sidebar's 72px header-clearance gap looks
-     stranded — pull its contents up to match the risen main column (and
-     animate it both ways). */
-  body.banner-collapsed .sidebar { padding-top: 16px; }
+  /* (v6: the sidebar is full-height with its own brand row — hiding the
+     topbar no longer affects it.) */
   #banner-restore {
     position: fixed; top: 8px; right: 12px; z-index: 200;
     width: 30px; height: 30px; display: none; align-items: center;
@@ -1054,6 +1092,28 @@
   .muted-row { opacity: 0.55; }
   /* v3.12.0: top-right account menu + My Account page */
   .acct-menu { position: relative; }
+  /* v6: account footer (chosen-design .side-foot). Sticky inside the sidebar
+     scroll so it stays visible; the dropdown opens upward from here. */
+  .side-foot {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    background: var(--side);
+    border-top: 1px solid var(--hair);
+    padding: 8px 2px 10px;
+  }
+  .side-foot .acct-btn {
+    width: 100%;
+    gap: 9px;
+    padding: 5px 7px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--side-ink);
+  }
+  .side-foot .acct-btn:hover { background: var(--hair-2); }
+  .side-foot .acct-btn > svg { margin-left: auto; color: var(--muted); }
+  .side-foot .acct-avatar-sm { width: 22px; height: 22px; font-size: 10px; }
+  .side-foot .acct-dropdown { top: auto; bottom: calc(100% + 6px); left: 0; right: 0; }
   .acct-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; cursor: pointer; color: inherit; padding: 4px 6px; border-radius: 6px; }
   .acct-btn:hover { background: rgba(127,127,127,0.12); }
   .acct-avatar-sm { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: #3b7eff; color: #fff; font-size: 12px; font-weight: 600; overflow: hidden; }
@@ -1063,7 +1123,7 @@
      defined anywhere, so it always fell back to the hard dark #1e1e24; in light
      mode the panel stayed dark with dark (inherited) text = unreadable. Use the
      light-aware --surface2 (defined for every theme + body.light). */
-  .acct-dropdown { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; background: var(--surface2); color: var(--text); border: 1px solid rgba(127,127,127,0.25); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 1000; padding: 4px; }
+  .acct-dropdown { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; background: var(--surface); color: var(--text); border: 1px solid var(--hair); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 1000; padding: 4px; }
   .acct-dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .acct-dropdown-item:hover { background: rgba(127,127,127,0.14); }
   .acct-profile { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
@@ -2798,7 +2858,7 @@ input.form-input[type="text"][data-token],
    * padding. These overrides come later in the file so they win. */
   .sidebar {
     position: fixed;
-    top: 56px;
+    top: 48px;   /* under the v6 topbar */
     left: 0;
     bottom: 0;
     width: 248px;
@@ -2809,9 +2869,10 @@ input.form-input[type="text"][data-token],
     background: var(--side);
     border-right: 1px solid var(--hair);
     /* Override the 768px rail's `72px 6px 16px` — the drawer already
-     * starts below the header at top:56px, so a big top padding just
-     * pushes the nav items down into dead space. */
-    padding: 12px 10px 16px;
+     * starts below the header, so a big top padding just pushes the nav
+     * items down into dead space. Bottom 0: the sticky .side-foot owns
+     * the bottom edge (a padding there floats it above the edge). */
+    padding: 12px 10px 0;
   }
   /* Restore the nav labels + section headers the icon-rail hid. */
   .sidebar .nav-btn span,
@@ -2870,10 +2931,10 @@ input.form-input[type="text"][data-token],
   .app-content { margin-left: 0 !important; }
   .container { padding: 0 !important; }
 
-  /* Header gets compact */
-  header { padding: 0 10px !important; }
-  .header-inner { gap: 6px !important; }
-  .logo-text { display: none; }  /* keep just the square logo */
+  /* Header gets compact — and spans the full width again (the sidebar is an
+     overlay drawer here, so the main column IS the viewport). */
+  header { margin-left: 0 !important; }
+  .header-inner { gap: 6px !important; padding: 0 10px; }
   .status-bar { display: none; } /* "Live" indicator hidden on mobile */
 
   /* Dashboard tile grid: stack to one column */
@@ -3149,12 +3210,19 @@ input.form-input[type="text"][data-token],
     padding-right: 6px;
   }
   body.sidebar-collapsed .app-content { margin-left: 56px; }
+  body.sidebar-collapsed header { margin-left: 56px; }
   body.sidebar-collapsed .sidebar-label,
   body.sidebar-collapsed .nav-btn span:not(.nav-icon),
   body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
-  body.sidebar-collapsed .sidebar-group-items {
+  body.sidebar-collapsed .sidebar-group-items,
+  body.sidebar-collapsed .brand .logo-text,
+  body.sidebar-collapsed .brand-v,
+  body.sidebar-collapsed .acct-name {
     display: none;
   }
+  body.sidebar-collapsed .sidebar .brand,
+  body.sidebar-collapsed .side-foot .acct-btn { justify-content: center; }
+  body.sidebar-collapsed .side-foot .acct-btn > svg { display: none; }
   body.sidebar-collapsed .nav-btn,
   body.sidebar-collapsed .sidebar-group-toggle {
     justify-content: center;
@@ -3843,12 +3911,19 @@ td .kev-badge { margin-left: 0; }
     padding-right: 6px;
   }
   body.sidebar-collapsed .app-content { margin-left: 56px; }
+  body.sidebar-collapsed header { margin-left: 56px; }
   body.sidebar-collapsed .sidebar-label,
   body.sidebar-collapsed .nav-btn span:not(.nav-icon),
   body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
-  body.sidebar-collapsed .sidebar-group-items {
+  body.sidebar-collapsed .sidebar-group-items,
+  body.sidebar-collapsed .brand .logo-text,
+  body.sidebar-collapsed .brand-v,
+  body.sidebar-collapsed .acct-name {
     display: none;
   }
+  body.sidebar-collapsed .sidebar .brand,
+  body.sidebar-collapsed .side-foot .acct-btn { justify-content: center; }
+  body.sidebar-collapsed .side-foot .acct-btn > svg { display: none; }
   body.sidebar-collapsed .nav-btn,
   body.sidebar-collapsed .sidebar-group-toggle {
     justify-content: center;
@@ -5806,7 +5881,6 @@ body[data-ui="industrial"] { font-family:var(--font); }
    the base .sidebar rules near the top of this file.) */
 
 /* ── Typography: Space Grotesk on every prominent heading / number / brand ── */
-body[data-ui="industrial"] .logo-text,
 body[data-ui="industrial"] .page-title,
 body[data-ui="industrial"] .section-title,
 body[data-ui="industrial"] .empty-title,
@@ -5821,10 +5895,8 @@ body[data-ui="industrial"] h3 { font-family:var(--font-display); letter-spacing:
 body[data-ui="industrial"] .stat-value,
 body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
 
-/* ── Sidebar: MIGRATED to Clarity (v6 phase 1) — no industrial rules left.
-   Only the header logo styling stays industrial until the header surface goes. */
-body[data-ui="industrial"] .logo-text { text-transform:uppercase; font-weight:700; letter-spacing:0.02em; font-size:16px; }
-body[data-ui="industrial"] .logo-img { border-radius:3px; }
+/* ── Sidebar + topbar: MIGRATED to Clarity (v6 phase 1) — no industrial
+   rules left (machined nav, uppercase logo-text, squared logo-img all gone). */
 
 /* ── Page header ────────────────────────────────────────────────────────── */
 body[data-ui="industrial"] .page-title { font-weight:600; letter-spacing:-0.015em; }
@@ -6264,15 +6336,16 @@ body.density-compact .group-title { margin-bottom: 6px; }
 
 /* v5.6.0: top-bar site-health pill. Green "Healthy" at rest; red "N issues"
    (offline + open alerts + monitors down) when anything needs attention. */
+/* v6: flat (chosen-design .health) — coloured text + icon, no pill chrome. */
 .site-health {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600; line-height: 1;
-  padding: 4px 11px; border-radius: 999px; cursor: pointer; border: 1px solid transparent;
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  font-family: var(--font-ui); font-size: 11.5px; font-weight: 400; line-height: 1;
+  padding: 4px 7px; border-radius: 6px; cursor: pointer; border: none; background: none;
 }
-.site-health b { font-weight: 700; }
-.site-health.ok  { color: var(--green); background: var(--green-dim, rgba(34,197,94,0.14)); border-color: var(--green-dim, rgba(34,197,94,0.30)); }
-.site-health.bad { color: var(--red);   background: var(--red-dim, rgba(239,68,68,0.14));   border-color: var(--red-dim, rgba(239,68,68,0.35)); }
-.site-health:hover { filter: brightness(1.15); }
+.site-health b { font-weight: 600; }
+.site-health.ok  { color: var(--green); }
+.site-health.bad { color: var(--red); }
+.site-health:hover { background: var(--hair-2); }
 @media (max-width: 720px) { .site-health { display: none; } }
 
 /* #5 NOC status board — a glanceable control-room wall view, built for scale:
@@ -6460,6 +6533,15 @@ body[data-ui="industrial"] .page > .page-title-row { margin-bottom: 24px; }
   margin-left: 0;
   margin-right: 248px;  /* lockstep with .sidebar width */
 }
+[dir="rtl"] header {
+  margin-left: 0;
+  margin-right: 248px;  /* lockstep with .sidebar width */
+}
+[dir="rtl"] body.sidebar-collapsed header,
+body.sidebar-collapsed[dir="rtl"] header {
+  margin-left: 0;
+  margin-right: 56px;
+}
 /* Collapsed icon-rail keeps the swapped side at its narrow width. */
 [dir="rtl"] body.sidebar-collapsed .app-content,
 body.sidebar-collapsed[dir="rtl"] .app-content {
@@ -6602,17 +6684,17 @@ body[data-ui="industrial"] .btn-secondary:hover,
 body[data-ui="industrial"] .login-btn-oidc:hover{ background:var(--accent); }
 /* icon/table buttons (Refresh, Add IP, Detail, Scan, Manage, …): same full-border
    chamfer so the outline traces all 8 edges, not just the straight ones. */
-body[data-ui="industrial"] .btn-icon{
+body[data-ui="industrial"] .btn-icon:not(header *){
   position:relative; z-index:0; border:none !important; border-radius:0 !important;
   background:var(--border);
   clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
   --rp-fill:var(--surface2);
 }
-body[data-ui="industrial"] .btn-icon::before{
+body[data-ui="industrial"] .btn-icon:not(header *)::before{
   content:""; position:absolute; inset:1px; z-index:-1; background:var(--rp-fill);
   clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
 }
-body[data-ui="industrial"] .btn-icon:hover{ background:var(--accent-edge); --rp-fill:var(--accent-soft); }
+body[data-ui="industrial"] .btn-icon:not(header *):hover{ background:var(--accent-edge); --rp-fill:var(--accent-soft); }
 /* coloured icon-button variants keep their meaning in the border */
 /* coloured icon-buttons keep the NEUTRAL chamfer border (the colour is in the text);
    a green/red outline on Resolve/Delete was too loud. */

@@ -100,12 +100,9 @@
       <button class="mobile-burger" title="Open navigation menu" aria-label="Open navigation menu">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <!-- v2.2.1: clickable logo navigates to Home dashboard (was Devices
-           pre-2.2.1). The Home page is the new fleet-at-a-glance landing. -->
-      <a href="#" class="logo logo-link" title="Home dashboard">
-        <img src="static/img/logo-square.png" alt="RemotePower" class="logo-img">
-        <span class="logo-text">Remote<span>Power</span></span>
-      </a>
+      <!-- v6.0.0: the brand moved into the sidebar (chosen-design .brand); the
+           topbar left is the breadcrumb, painted by _paintCrumb on showPage. -->
+      <div class="crumb" id="topbar-crumb"></div>
       <div class="header-right">
         <div class="status-bar">
           <div class="status-dot"></div>
@@ -130,18 +127,7 @@
         </button>
         <button class="theme-btn" title="Toggle dark/light mode" aria-label="Toggle dark/light mode"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
         <button class="btn-icon banner-toggle" data-action="toggleBanner" title="Hide the top bar (reclaim space)" aria-label="Hide top bar"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></button>
-        <!-- v3.12.0: account menu (avatar → My Account / Sign out) -->
-        <div class="acct-menu">
-          <button class="acct-btn" data-action="toggleAcctMenu" title="My account" aria-haspopup="true">
-            <span id="topbar-avatar" class="acct-avatar-sm">?</span>
-            <span id="topbar-username" class="acct-name"></span>
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="6 13 12 19 18 13"/></svg>
-          </button>
-          <div id="acct-dropdown" class="acct-dropdown hidden">
-            <button class="acct-dropdown-item" data-action="openAccount"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-c3af51fd"/></svg> My Account</button>
-            <button class="acct-dropdown-item logout-btn"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Sign out</button>
-          </div>
-        </div>
+        <!-- (v6.0.0: the account menu moved to the sidebar footer — chosen-design .side-foot.) -->
       </div>
     </div>
   </header>
@@ -149,6 +135,15 @@
   <button id="banner-restore" data-action="toggleBanner" title="Show the top bar" aria-label="Show top bar"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-362ebcd7"/></svg></button>
 
   <nav class="sidebar">
+    <!-- v6.0.0: brand row (chosen-design .brand) — the header logo moved here.
+         Same .logo.logo-link markup so the existing JS click→home binding and
+         the i18n brand-exclusion keep working; #brand-version is painted from
+         GET /api/version after login. -->
+    <a href="#" class="logo logo-link brand" title="Home dashboard">
+      <img src="static/img/logo-square.png" alt="RemotePower" class="logo-img">
+      <span class="logo-text">Remote<span>Power</span></span>
+      <span class="brand-v" id="brand-version"></span>
+    </a>
     <!-- v3.0.4 (iter 2): mobile-only close button. With the drawer open
          the burger button sits behind the z-index 800 scrim, so tapping
          where the burger visually is hits the scrim — the tap closes
@@ -564,6 +559,21 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
           <span>Documentation</span>
         </button>
+      </div>
+    </div>
+    <!-- v6.0.0: account footer (chosen-design .side-foot) — moved from the
+         topbar; same ids/actions, the dropdown opens upward here. -->
+    <div class="side-foot">
+      <div class="acct-menu">
+        <button class="acct-btn" data-action="toggleAcctMenu" title="My account" aria-haspopup="true">
+          <span id="topbar-avatar" class="acct-avatar-sm">?</span>
+          <span id="topbar-username" class="acct-name"></span>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="6 13 12 19 18 13"/></svg>
+        </button>
+        <div id="acct-dropdown" class="acct-dropdown hidden">
+          <button class="acct-dropdown-item" data-action="openAccount"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-c3af51fd"/></svg> My Account</button>
+          <button class="acct-dropdown-item logout-btn"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Sign out</button>
+        </div>
       </div>
     </div>
   </nav>

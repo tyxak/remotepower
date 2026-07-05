@@ -676,7 +676,13 @@ async function showApp() {
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
-  applyUIVersion();   // v4.6.0: New UI (Industrial) by default; opt out in Settings → Interface
+  applyUIVersion();   // v6.0.0: the single Clarity interface (transitional industrial pin)
+  // v6.0.0: the boot landing (home, or whatever _routeFromHashOnBoot showed)
+  // must paint the topbar crumb too — showPage does it on every later switch.
+  try {
+    const act = document.querySelector('.nav-btn.active');
+    _paintCrumb(act, (act && act.dataset.page) || 'home');
+  } catch (_) {}
   applyBackground();
   applyBannerState();
   requestNotifications();
@@ -1497,6 +1503,27 @@ function _stopPagePollers() {
   try { if (typeof logsState !== 'undefined' && logsState && logsState.timer) { clearInterval(logsState.timer); logsState.timer = null; } } catch (_) {}
 }
 
+// v6.0.0 "ClarityMatters": topbar breadcrumb — "Group › Page" from the active
+// nav item. Reads the sidebar DOM (already i18n-localised, so the crumb
+// inherits translations); falls back to the raw page name for pages reached
+// outside the nav (drawer views, deep links to lazy pages).
+function _paintCrumb(navBtn, name) {
+  const el = document.getElementById('topbar-crumb');
+  if (!el) return;
+  let page = '';
+  if (navBtn) {
+    const sp = navBtn.querySelector('span:not(.nav-badge)');
+    page = sp ? sp.textContent.trim() : '';
+  }
+  if (!page) page = name || '';
+  el.textContent = '';
+  const group = navBtn && navBtn.closest('.sidebar-group');
+  const gl = group && group.querySelector('.sidebar-group-toggle span:not(.nav-group-badge)');
+  if (gl && gl.textContent.trim()) el.append(gl.textContent.trim() + '  ›  ');
+  const b = document.createElement('b');
+  b.textContent = page;
+  el.appendChild(b);
+}
 function showPage(name, btn) {
   // v5.6.x lazy pages: heavy, boot-safe pages ship as inert <template>s and
   // are cloned in place on first visit (i18n's MutationObserver localises
@@ -1515,6 +1542,7 @@ function showPage(name, btn) {
   if (el) el.classList.add('active');
   const _navBtn = btn || document.querySelector('.nav-btn[data-page="' + name + '"]');
   if (_navBtn) { _navBtn.classList.add('active'); _navBtn.setAttribute('aria-current', 'page'); }
+  try { _paintCrumb(_navBtn, name); } catch (_) {}   // v6.0.0: topbar breadcrumb
   try { _applyPageSubtitleInfo(); } catch (_) {}   // v4.6.0: fold the page subtitle into its info icon
   // v3.0.2: keep the URL bar in sync with the visible page. Without this,
   // the hash sticks at whatever switchSettingsTab last wrote (e.g.
@@ -5499,7 +5527,18 @@ async function loadMe() {
   _meCache = me;
   const av = document.getElementById('topbar-avatar');
   const nm = document.getElementById('topbar-username');
-  if (nm) nm.textContent = me.username || '';
+  // v6.0.0: the account row lives in the sidebar footer — "user · role"
+  // (chosen-design .side-foot), role shown as its raw identifier.
+  if (nm) nm.textContent = (me.username || '') + (me.role ? ' · ' + me.role : '');
+  // brand version pill (sidebar .brand) — parsed from our own cache-busted
+  // script URL (?v= is stamped by the version-bump checklist); no network,
+  // unlike GET /version which pings GitHub for the latest release.
+  try {
+    const src = (document.querySelector('script[src*="app.js?v="]') || {}).src || '';
+    const m = src.match(/[?&]v=(\d+\.\d+\.\d+)/);
+    const bv = document.getElementById('brand-version');
+    if (bv && m) bv.textContent = 'v' + m[1];
+  } catch (_) {}
   if (av) {
     if (me.has_avatar) _renderAvatar(av, me.username);
     else av.textContent = _initials(me.username);

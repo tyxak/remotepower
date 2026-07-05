@@ -42,7 +42,9 @@ class TestMobileDrawerFix(unittest.TestCase):
         # The drawer block overrides the rail's 72px top padding.
         idx = self.css.find('@media (max-width: 720px)')
         block = self.css[idx:idx + 1400]
-        self.assertIn('padding: 12px 10px 16px;', block,
+        # v6.0.0: bottom padding went to 0 — the sticky .side-foot owns the
+        # drawer's bottom edge (16px floated it above the edge).
+        self.assertIn('padding: 12px 10px 0;', block,
                       'drawer should reset the oversized rail padding')
         # The actual rail padding declaration `72px 6px 16px` must not
         # survive as a live rule (mentioning it in a comment is fine).

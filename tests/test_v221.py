@@ -417,7 +417,9 @@ class TestPolishAssets(unittest.TestCase):
     def test_html_logo_points_home(self):
         # CSP L1 (v3.0.4): the logo's inline onclick was removed; JS now
         # adds the click listener via querySelector('.logo-link').
-        idx = self.html.find('class="logo logo-link"')
+        # v6.0.0: the brand moved into the sidebar and carries an extra class
+        # (`logo logo-link brand`) — pin the prefix, the wiring is unchanged.
+        idx = self.html.find('class="logo logo-link')
         self.assertGreater(idx, 0, "logo link not found")
         self.assertIn(".logo-link')?.addEventListener('click'", self.js,
                       "JS should bind a click handler to .logo-link")
