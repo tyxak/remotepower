@@ -52,3 +52,14 @@ design/
 DREAMS.md
 memory/
 openclaw-workspace-state.json
+
+# openclaw/opencode agent scaffolding — internal AI-agent persona/workspace
+# files, never product content; must never ship in the repo or tarball.
+/AGENTS.md
+/USER.md
+/TOOLS.md
+/SOUL.md
+/IDENTITY.md
+/HEARTBEAT.md
+/BOOTSTRAP.md
+/MEMORY.md

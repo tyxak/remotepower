@@ -253,6 +253,16 @@ dist: clean
 	  --exclude='./CLAUDE.md' \
 	  --exclude='./opencode.md' \
 	  --exclude='./AGENTS.md' \
+	  --exclude='./USER.md' \
+	  --exclude='./TOOLS.md' \
+	  --exclude='./SOUL.md' \
+	  --exclude='./IDENTITY.md' \
+	  --exclude='./HEARTBEAT.md' \
+	  --exclude='./BOOTSTRAP.md' \
+	  --exclude='./MEMORY.md' \
+	  --exclude='./DREAMS.md' \
+	  --exclude='./memory' \
+	  --exclude='./openclaw-workspace-state.json' \
 	  --exclude='./.claude' \
 	  --exclude='./design' \
 	  --exclude='./packaging/aur/*/src' \
@@ -276,7 +286,7 @@ dist: clean
 	@# path is in the file list; a new local tool dir means a new exclude.
 	@echo "==> Leak-checking the tarball file list"
 	@! tar -tzf $(DIST_DIR)/$(DIST_NAME).tar.gz | grep -E \
-	  '(^|/)(\.claude/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|site/|deploy/|api\.env|\.ssh/|\.codeql-cache/)|-internal\.md$$|\.enc$$' \
+	  '(^|/)(\.claude/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|USER\.md|TOOLS\.md|SOUL\.md|IDENTITY\.md|HEARTBEAT\.md|BOOTSTRAP\.md|MEMORY\.md|DREAMS\.md|memory/|openclaw-workspace-state\.json|site/|deploy/|api\.env|\.ssh/|\.codeql-cache/)|-internal\.md$$|\.enc$$' \
 	  || { echo "==> LEAK: forbidden files in the tarball (listed above) — add an exclude"; exit 1; }
 	@# Verify the smoke test passes against the staged tree. Extract into
 	@# a scratch dir, run the tests, then nuke it. This catches the kind
