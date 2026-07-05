@@ -354,10 +354,12 @@
   .cmd-badge.wol                { background: rgba(124,58,237,0.1); color: #a78bfa; }
   .cmd-badge.upgrade_packages   { background: rgba(34,197,94,0.1); color: var(--green); }
   .cmd-badge.upgrade_and_reboot { background: rgba(245,158,11,0.1); color: var(--amber); }
+  /* v6: flat hairline chip (was a rounded purple "bubbly" pill). */
   .group-badge {
-    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
-    font-weight: 500; background: rgba(124,58,237,0.1); color: #a78bfa;
-    border: 1px solid rgba(124,58,237,0.2); margin-right: 4px; margin-top: 4px;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 6px; font-size: 11px;
+    font-weight: 500; background: var(--hair-2); color: var(--text);
+    border: 1px solid var(--hair); margin-right: 4px; margin-top: 4px;
   }
   .notes-tip {
     display: inline-block;
