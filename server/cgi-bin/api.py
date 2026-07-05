@@ -7112,12 +7112,17 @@ def _portal_ticket_view(t):
     device internals. Only what the requester submitted / needs to follow up."""
     msgs = []
     for m in (t.get('messages') or [])[-50:]:
-        # Internal operator notes NEVER cross to the portal. They are stamped
-        # direction=='note' (the DEFAULT in handle_ticket_update — the operator
-        # "Add internal note" action); the legacy `internal` flag is kept as a
-        # belt-and-braces check. Only outbound ('out') / inbound ('in') /
-        # portal-authored (no direction) messages are customer-facing.
-        if not isinstance(m, dict) or m.get('internal') or m.get('direction') == 'note':
+        if not isinstance(m, dict) or m.get('internal'):
+            continue
+        # ALLOWLIST (not denylist): a message crosses to the customer ONLY if it is
+        # the customer's own (author 'portal:…') or an explicit emailed/inbound
+        # correspondence ('out'/'in'). Anything else — above all an operator
+        # internal note (direction=='note', the DEFAULT in handle_ticket_update),
+        # but also any future/unknown direction — is withheld. Safer than denying
+        # only 'note': a new operator-authored message type can't leak by default.
+        direction = m.get('direction')
+        is_customer = str(m.get('author', '')).startswith('portal:')
+        if not (is_customer or direction in ('out', 'in')):
             continue
         msgs.append({'from': 'you' if str(m.get('author', '')).startswith('portal:')
                      else 'support',
@@ -7160,31 +7165,31 @@ def handle_portal_magic_link():
                                            'expires': now + PORTAL_NONCE_TTL}
         # SECURITY (host-header injection → portal ATO): build the sign-in link
         # from the admin-configured canonical portal URL, NOT the attacker-
-        # controllable Host header. A forged Host would otherwise put the nonce
-        # into a link at an attacker origin whose page JS can read it from the
-        # URL fragment and mint a session. Fall back to the request host only
-        # when portal_base_url is unset (single-host installs).
+        # controllable Host header — a forged Host would otherwise put the nonce
+        # into a link at an attacker origin whose page JS reads it from the URL
+        # fragment and mints a session. portal_base_url is REQUIRED to enable the
+        # portal (handle_config_save guard), so it is set here. The backstop is
+        # _request_base_url() which is request-aware via _env() — correct under
+        # CGI, the threaded WSGI worker (host lives in the thread-local _RCTX, not
+        # os.environ) and the SCGI worker alike.
         base = ((_config_ro().get('portal_base_url') or '').strip().rstrip('/')
-                or _request_base_url(os.environ))
+                or _request_base_url())
         link = f'{base}/portal#token={nonce}'
-        _cfg = load(CONFIG_FILE) or {}
-        _to = contact['email']
         _mail_body = ('Click to sign in to the support portal (valid 30 minutes):'
                       f'\n\n{link}\n')
-
-        # Send OUT OF BAND (detached child) so the enrolled-email path returns in
-        # the SAME time as the unenrolled one — a synchronous SMTP send here is a
-        # timing oracle for "is this address a registered portal contact?" despite
-        # the constant response body. Values are captured before the fork; the
-        # detached child touches no storage/DB.
-        def _send_link():
-            try:
-                smtp_notifier.send_email(_cfg, [_to],
-                                         'Your RemotePower portal sign-in link', _mail_body,
-                                         extra_headers={'Auto-Submitted': 'auto-generated'})
-            except Exception:
-                pass      # never reveal delivery success/failure to the caller
-        _run_detached(_send_link)
+        # Send synchronously. The anti-enumeration defenses are the CONSTANT
+        # response body + the per-IP and per-email rate limits above; the residual
+        # timing signal (an enrolled address incurs the SMTP round-trip) is
+        # accepted as LOW. NOTE: do NOT move this to a detached/forked send —
+        # os.fork() from the threaded WSGI worker is unsafe (a C-level lock held by
+        # another thread at the fork instant deadlocks the child → unsent sign-in
+        # emails).
+        try:
+            smtp_notifier.send_email(load(CONFIG_FILE) or {}, [contact['email']],
+                                     'Your RemotePower portal sign-in link', _mail_body,
+                                     extra_headers={'Auto-Submitted': 'auto-generated'})
+        except Exception:
+            pass      # never reveal delivery success/failure to the caller
     respond(200, _CONSTANT)
 
 
@@ -13835,13 +13840,26 @@ def _bp_public(bp):
     }
 
 
-def _request_base_url(environ):
-    """`proto://host` for THIS request — mirrors `_render_agent_install`."""
-    host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
+def _request_base_url(environ=None):
+    """`proto://host` for THIS request, correct under EVERY server model. The
+    threaded WSGI worker keeps request CGI vars in the thread-local _RCTX, NOT in
+    os.environ — so the old `environ.get('HTTP_HOST')` on a passed os.environ
+    collapsed to 'localhost' under WSGI, breaking the portal magic-link and
+    agent-install URLs. Each var is now read from an explicitly-passed `environ`
+    when it carries the key, else from _env() (which reads _RCTX first, then
+    os.environ under CGI). Callers pass os.environ, which is empty of HTTP_HOST
+    under WSGI → the _env()/_RCTX path supplies it."""
+    def _v(k):
+        if environ is not None:
+            val = environ.get(k)
+            if val:
+                return val
+        return _env(k, '')
+    host = _v('HTTP_HOST') or _v('SERVER_NAME') or 'localhost'
     host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]
-    proto = (environ.get('HTTP_X_FORWARDED_PROTO')
-             or environ.get('REQUEST_SCHEME')
-             or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
+    proto = (_v('HTTP_X_FORWARDED_PROTO')
+             or _v('REQUEST_SCHEME')
+             or ('https' if _v('HTTPS') in ('on', '1') else 'https'))
     if proto not in ('http', 'https'):
         proto = 'https'
     return f'{proto}://{host}'
@@ -20706,7 +20724,6 @@ def handle_config_save():
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
     if 'rdp_enabled' in body:             # W6-49: opt-in RDP tunnelling
         cfg['rdp_enabled'] = bool(body['rdp_enabled'])
-    _portal_was_on = bool(cfg.get('portal_enabled'))   # W6-28: capture before mutate
     if 'portal_enabled' in body:          # W6-28: opt-in customer portal
         cfg['portal_enabled'] = bool(body['portal_enabled'])
     if 'portal_base_url' in body:         # W6-28: canonical portal URL for the
@@ -20718,22 +20735,21 @@ def handle_config_save():
             _pp = urllib.parse.urlparse(_pbu)
             _pbu = f'{_pp.scheme}://{_pp.netloc}' if _pp.scheme in ('http', 'https') and _pp.netloc else ''
         cfg['portal_base_url'] = _pbu
-    # W6-28 guard: when portal_base_url is unset the magic-link falls back to the
-    # request Host — fine for a single-host install reached by its real domain,
-    # but if the portal is being ENABLED from a request whose own Host is
-    # non-public (localhost/127.x/empty), that fallback emails a broken sign-in
-    # link (the "https://localhost/portal" class). Turn that into a clear config
-    # error at enable time instead of a silently-broken email. (A real-domain
-    # enable is unaffected, keeping portal_base_url optional as documented.)
-    if (cfg.get('portal_enabled') and not _portal_was_on
-            and not (cfg.get('portal_base_url') or '').strip()):
-        _req_host = (_env('HTTP_HOST', '') or '').split(':')[0].strip().lower()
-        if _req_host in ('', 'localhost', '127.0.0.1', '::1') or _req_host.startswith('127.'):
-            respond(400, {'error': 'Set a "Portal public URL" (Settings → Customer '
-                          'portal) before enabling the customer portal from this '
-                          'address — the sign-in email would link to '
-                          f'"{_req_host or "localhost"}". Use the portal\'s public '
-                          'https:// URL.'})
+    # W6-28 guard (SECURITY): the customer portal is an external, unauthenticated-
+    # entry auth perimeter, and its magic-link email MUST use an explicit canonical
+    # URL — never the request Host. Trusting the Host is a host-header→account-
+    # takeover vector (a forged Host emails the real contact an attacker-origin
+    # link whose JS steals the fragment nonce), and under the threaded WSGI worker
+    # the Host isn't even available (→ broken localhost links). So portal_base_url
+    # is REQUIRED whenever the portal is enabled — reject any save that would leave
+    # it enabled without one (surfaces an existing enabled-without-URL misconfig on
+    # the next save, too, rather than silently emitting broken/ATO-able links).
+    if cfg.get('portal_enabled') and not (cfg.get('portal_base_url') or '').strip():
+        respond(400, {'error': 'Set a "Portal public URL" (Settings → Customer '
+                      'portal) before enabling the customer portal — the sign-in '
+                      'email needs an explicit https:// address (the request host '
+                      'is not trusted for auth links, and is unavailable under the '
+                      'WSGI server).'})
     if 'secrets_scan_paths' in body:
         raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
         paths = []

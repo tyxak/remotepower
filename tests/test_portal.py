@@ -227,7 +227,7 @@ class TestPortalViewHidesInternal(_Base):
             'number': 1, 'subject': 's', 'status': 'ongoing', 'messages': [
                 {'author': 'portal:ct_a', 'body': 'customer msg', 'at': 1},
                 {'author': 'jakob', 'body': 'INTERNAL note', 'internal': True, 'at': 2},
-                {'author': 'jakob', 'body': 'public reply', 'at': 3}]})
+                {'author': 'jakob', 'body': 'public reply', 'direction': 'out', 'at': 3}]})
         bodies = [m['body'] for m in view['messages']]
         self.assertIn('customer msg', bodies)
         self.assertIn('public reply', bodies)
@@ -243,9 +243,11 @@ class TestPortalViewHidesInternal(_Base):
                 {'author': 'portal:ct_a', 'body': 'customer question', 'at': 1},
                 {'author': 'jakob', 'body': 'ESCALATE TO LEGAL', 'direction': 'note', 'at': 2},
                 {'author': 'jakob', 'body': 'emailed answer', 'direction': 'out', 'at': 3},
-                {'author': 'cust@x.io', 'body': 'inbound email', 'direction': 'in', 'at': 4}]})
+                {'author': 'cust@x.io', 'body': 'inbound email', 'direction': 'in', 'at': 4},
+                {'author': 'jakob', 'body': 'FUTURE UNKNOWN TYPE', 'direction': 'draft', 'at': 5}]})
         bodies = [m['body'] for m in view['messages']]
         self.assertNotIn('ESCALATE TO LEGAL', bodies)      # internal note hidden
+        self.assertNotIn('FUTURE UNKNOWN TYPE', bodies)    # allowlist: unknown dir withheld
         self.assertIn('customer question', bodies)
         self.assertIn('emailed answer', bodies)            # outbound reply shown
         self.assertIn('inbound email', bodies)
@@ -287,11 +289,12 @@ class TestReplyRateLimit(_Base):
 
 
 class TestPortalEnableGuard(_Base):
-    """W6-28: enabling the portal from a non-public request Host (localhost) with
-    no Portal public URL set would email a broken magic-link — rejected at save
-    time. A real-domain enable, or one with portal_base_url set, is allowed."""
+    """W6-28 (SECURITY): portal_base_url is REQUIRED whenever the portal is
+    enabled — the magic-link email must use an explicit canonical URL, never the
+    request Host (host-header ATO + broken under WSGI). Any save that would leave
+    the portal enabled without a base URL is rejected, from any host."""
 
-    def _save(self, body, host):
+    def _save(self, body, host='remote.tvipper.com'):
         orig = getattr(api, 'require_admin_auth', None)
         api.require_admin_auth = lambda *a, **k: 'admin'
         api.method = lambda: 'POST'
@@ -311,31 +314,30 @@ class TestPortalEnableGuard(_Base):
     def _rejected_400(self):
         return bool(self._last) and self._last.status == 400
 
-    def test_enable_from_localhost_without_url_rejected(self):
-        api.save(api.CONFIG_FILE, {'portal_enabled': False})
-        api._invalidate_load_cache(api.CONFIG_FILE)
-        self._save({'portal_enabled': True}, host='localhost')
-        self.assertTrue(self._rejected_400())
-
-    def test_enable_from_localhost_with_url_allowed(self):
-        api.save(api.CONFIG_FILE, {'portal_enabled': False})
-        api._invalidate_load_cache(api.CONFIG_FILE)
-        self._save({'portal_enabled': True,
-                    'portal_base_url': 'https://portal.example.com'}, host='localhost')
-        self.assertFalse(self._rejected_400())
-
-    def test_enable_from_real_host_without_url_allowed(self):
-        # single-host install reached by its real domain — base_url stays optional
+    def test_enable_without_url_rejected_even_from_real_host(self):
         api.save(api.CONFIG_FILE, {'portal_enabled': False})
         api._invalidate_load_cache(api.CONFIG_FILE)
         self._save({'portal_enabled': True}, host='remote.tvipper.com')
+        self.assertTrue(self._rejected_400())      # base URL mandatory, any host
+
+    def test_enable_with_url_allowed(self):
+        api.save(api.CONFIG_FILE, {'portal_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._save({'portal_enabled': True,
+                    'portal_base_url': 'https://portal.example.com'})
         self.assertFalse(self._rejected_400())
 
-    def test_already_on_save_not_blocked(self):
-        # not a fresh enable → guard doesn't fire even from localhost
+    def test_already_enabled_without_url_surfaced_on_save(self):
+        # an existing enabled-without-URL misconfig is surfaced on the next save
         api.save(api.CONFIG_FILE, {'portal_enabled': True})
         api._invalidate_load_cache(api.CONFIG_FILE)
-        self._save({'portal_enabled': True}, host='localhost')
+        self._save({'portal_enabled': True})
+        self.assertTrue(self._rejected_400())
+
+    def test_disabled_needs_no_url(self):
+        api.save(api.CONFIG_FILE, {'portal_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._save({'portal_enabled': False})
         self.assertFalse(self._rejected_400())
 
 

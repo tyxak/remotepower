@@ -563,7 +563,7 @@ def chat_openclaw(cfg, messages, system, max_tokens):
     control WS, authenticates on the handshake, sends `chat.send`, and collects
     the assistant text from the reply frames until the run ends or a timeout.
     Best-effort/experimental — the operator supplies the gateway token/password.
-    Never blocks the request longer than HTTP_TIMEOUT_S."""
+    Never blocks the request longer than min(HTTP_TIMEOUT_S, 120)s."""
     url = (cfg.get('base_url') or DEFAULT_BASE_URLS[PROVIDER_OPENCLAW]).rstrip('/')
     auth = {}
     if cfg.get('api_key'):
@@ -597,8 +597,9 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
     perform the HTTP Upgrade handshake, send each JSON message as a masked text
     frame, then read text frames until the socket idles past `timeout` or
     `max_frames` is hit. Returns the parsed JSON of each received text frame.
-    SSRF: the peer IP is re-checked at connect time, same rule as the HTTP path
-    (loopback only when insecure_ssl)."""
+    SSRF: candidate addresses are screened before connect AND the ACTUAL connected
+    peer is re-checked after connect (DNS-rebinding safe), same rule as the HTTP
+    path (loopback only when insecure_ssl)."""
     import base64
     import struct
     import socket as _socket
@@ -617,6 +618,13 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
         raise RuntimeError(f'DNS: {e}')
     sock = _socket.create_connection((host, port), timeout=timeout)
     try:
+        # SSRF TOCTOU guard: create_connection re-resolves DNS independently of the
+        # pre-flight getaddrinfo screen above, so verify the ACTUAL connected peer —
+        # defeats a DNS rebind that answers a public IP at check time and an
+        # internal / cloud-metadata IP at connect time.
+        _peer = sock.getpeername()[0]
+        if _peer_ip_blocked(_peer, allow_loopback=insecure_ssl):
+            raise RuntimeError(f'blocked peer {_peer} (post-connect)')
         if secure:
             ctx = ssl.create_default_context()
             if insecure_ssl:
@@ -663,7 +671,51 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
         # read frames until idle/timeout
         out, deadline = [], time.time() + timeout
         sock.settimeout(2.0)
-        data = leftover
+        data = bytearray(leftover)
+
+        def _drain():
+            # Parse every COMPLETE frame currently buffered in `data` (mutated in
+            # place); append text frames to `out`. Returns True on a close frame.
+            while len(data) >= 2 and len(out) < max_frames:
+                b0, b1 = data[0], data[1]
+                masked = b1 & 0x80
+                ln = b1 & 0x7F
+                off = 2
+                if ln == 126:
+                    if len(data) < 4:
+                        return False
+                    ln = struct.unpack('>H', bytes(data[2:4]))[0]; off = 4
+                elif ln == 127:
+                    if len(data) < 10:
+                        return False
+                    ln = struct.unpack('>Q', bytes(data[2:10]))[0]; off = 10
+                mkey = b''
+                if masked:
+                    if len(data) < off + 4:
+                        return False
+                    mkey = bytes(data[off:off + 4]); off += 4
+                if len(data) < off + ln:
+                    return False
+                payload = bytes(data[off:off + ln])
+                if mkey:
+                    payload = bytes(c ^ mkey[i % 4] for i, c in enumerate(payload))
+                del data[:off + ln]
+                opcode = b0 & 0x0F
+                if opcode == 0x8:            # close
+                    return True
+                if opcode in (0x1, 0x2):
+                    try:
+                        out.append(json.loads(payload.decode('utf-8', 'replace')))
+                    except (ValueError, UnicodeDecodeError):
+                        pass
+            return False
+
+        # Parse anything the server bundled into the SAME TCP segment as the 101
+        # handshake BEFORE blocking on recv — otherwise a reply coalesced with the
+        # handshake, followed by silence, is never parsed and the call spins to the
+        # deadline returning nothing.
+        if _drain():
+            return out
         while len(out) < max_frames and time.time() < deadline:
             try:
                 chunk = sock.recv(4096)
@@ -674,39 +726,8 @@ def _ws_rpc(url, messages, timeout=30, insecure_ssl=False, max_frames=200):
                 if out:
                     break            # got something and the peer went quiet → done
                 continue
-            # parse as many complete frames as we have
-            while len(data) >= 2:
-                b0, b1 = data[0], data[1]
-                masked = b1 & 0x80
-                ln = b1 & 0x7F
-                off = 2
-                if ln == 126:
-                    if len(data) < 4:
-                        break
-                    ln = struct.unpack('>H', data[2:4])[0]; off = 4
-                elif ln == 127:
-                    if len(data) < 10:
-                        break
-                    ln = struct.unpack('>Q', data[2:10])[0]; off = 10
-                mkey = b''
-                if masked:
-                    if len(data) < off + 4:
-                        break
-                    mkey = data[off:off + 4]; off += 4
-                if len(data) < off + ln:
-                    break
-                payload = data[off:off + ln]
-                if mkey:
-                    payload = bytes(c ^ mkey[i % 4] for i, c in enumerate(payload))
-                data = data[off + ln:]
-                opcode = b0 & 0x0F
-                if opcode == 0x8:            # close
-                    return out
-                if opcode in (0x1, 0x2):
-                    try:
-                        out.append(json.loads(payload.decode('utf-8', 'replace')))
-                    except (ValueError, UnicodeDecodeError):
-                        pass
+            if _drain():
+                return out
         return out
     finally:
         try:
