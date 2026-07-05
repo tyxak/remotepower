@@ -828,20 +828,14 @@ function applyTheme() {
   if (btn) btn.innerHTML = light ? _THEME_MOON : _THEME_SUN;
   applyAccent();
 }
-// v4.6.0 "RepellantMatters": "New UI" (the Industrial design system) vs "Old UI"
-// (the classic look). Per-browser preference (rp_ui), default 'new' so the new
-// look ships by default but anyone can revert. Sets body[data-ui="industrial"];
-// pure-CSS reskin, so no reload is needed. The toggle lives in Settings →
-// Interface and My Account → Appearance and is wired via data-action=setUIVersion.
-function _uiVersion() {
-  try { return localStorage.getItem('rp_ui') || 'new'; } catch (_) { return 'new'; }
-}
+// v6.0.0 "ClarityMatters" phase 1: there is ONE interface — the v4.6.0 New/Old
+// (rp_ui) toggle is gone. During the surface-by-surface re-skin the body keeps
+// data-ui="industrial" so not-yet-migrated surfaces render unchanged; each
+// migrated surface has its Industrial override rules DELETED from styles.css
+// (the Clarity-restyled base shows through). When the last surface lands, this
+// attribute and every remaining body[data-ui="industrial"] rule go away.
 function applyUIVersion() {
-  const v = _uiVersion();
-  if (v === 'old') delete document.body.dataset.ui;
-  else document.body.dataset.ui = 'industrial';
-  document.querySelectorAll('[data-action="setUIVersion"]').forEach(b =>
-    b.classList.toggle('sel', b.dataset.arg === v));
+  document.body.dataset.ui = 'industrial';
   try { _applyPageSubtitleInfo(); } catch (_) {}
 }
 // v4.6.0: in the New UI, fold each page's descriptive subtitle into a hover info
@@ -887,10 +881,6 @@ function _applyPageSubtitleInfo() {
     ic.appendChild(tip);
     titleEl.appendChild(ic);
   });
-}
-function setUIVersion(v) {
-  try { localStorage.setItem('rp_ui', v); } catch (_) {}
-  applyUIVersion();
 }
 function toggleTheme() {
   // Header quick-toggle: flip between the dark and light families. The full

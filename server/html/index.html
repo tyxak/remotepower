@@ -30,7 +30,7 @@
 <link rel="stylesheet" href="static/css/styles.css?v=5.8.0-13">
 
 </head>
-<body>
+<body data-ui="industrial"><!-- v6 phase 1: single UI; transitional attribute (see applyUIVersion) — set statically so there's no first-paint flash -->
 <div id="rp-topbar"></div>
 <!-- v5.1.0: faint oversized per-page icon watermark (idea #05); filled by showPage -->
 <div id="page-watermark" aria-hidden="true"></div>
@@ -1177,19 +1177,8 @@
         <!-- v3.14.0 (#46): appearance — theme + accent (stored locally per browser). -->
         <div class="settings-section">
           <div class="section-title">Appearance</div>
-          <!-- v4.6.0: New UI (Industrial) / Old UI (classic) — per browser. -->
-          <div class="form-label mb-6">Interface</div>
-          <p class="hint mb-12">New UI is the Industrial interface (default); Old UI restores the classic look. Colour themes below apply to the Old UI.</p>
-          <div class="ui-toggle mb-16" role="group" aria-label="Interface version">
-            <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="new">
-              <span class="ui-opt-name">New UI</span>
-              <span class="ui-opt-desc">Industrial · default</span>
-            </button>
-            <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="old">
-              <span class="ui-opt-name">Old UI</span>
-              <span class="ui-opt-desc">Classic look</span>
-            </button>
-          </div>
+          <!-- v6.0.0 "ClarityMatters": single interface — the v4.6.0 New/Old
+               toggle is gone; themes + accent apply to the one UI. -->
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
@@ -1356,21 +1345,11 @@
           </div>
         </div>
 
-        <!-- ── Interface (New UI / Old UI) ──────────────────────────────── -->
+        <!-- ── Interface (single UI — informational) ────────────────────── -->
         <div class="settings-pane" id="settings-pane-interface">
           <div class="settings-section">
             <div class="section-title">Interface</div>
-            <p class="hint">Choose how RemotePower looks. <strong>New UI</strong> is the Industrial interface (graphite &amp; steel with the RemotePower blue) — the default. <strong>Old UI</strong> restores the previous look. The choice is saved in this browser and applies instantly; switch back any time. Colour themes under <em>My Account → Appearance</em> apply to the Old UI.</p>
-            <div class="ui-toggle" role="group" aria-label="Interface version">
-              <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="new">
-                <span class="ui-opt-name">New UI</span>
-                <span class="ui-opt-desc">Industrial · default</span>
-              </button>
-              <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="old">
-                <span class="ui-opt-name">Old UI</span>
-                <span class="ui-opt-desc">Classic look</span>
-              </button>
-            </div>
+            <p class="hint">RemotePower has a single interface — the v6 &ldquo;Clarity&rdquo; design. The old New&nbsp;UI&nbsp;/&nbsp;Old&nbsp;UI toggle is gone. Colour themes and the accent picker live under <em>My Account → Appearance</em>.</p>
           </div>
         </div>
 

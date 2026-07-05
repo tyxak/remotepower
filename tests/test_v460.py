@@ -95,7 +95,10 @@ class TestIndustrialTheme(unittest.TestCase):
         self.assertIn('--bg:#0f1217', default_pal)
         self.assertNotIn('--accent:', default_pal)   # must NOT pin accent here
         self.assertIn('--accent:#3b7eff', css)       # the blue default lives on :root
-        self.assertIn('.sidebar*{font-family:var(--font-mono)', css)
+        # v6.0.0 phase 1: the sidebar is the first migrated Clarity surface —
+        # NO industrial sidebar rules may remain (replace, don't layer).
+        self.assertNotIn('.sidebar*{font-family:var(--font-mono)', css)
+        self.assertNotIn('body[data-ui="industrial"].sidebar{', css)
 
     def test_fonts_are_self_hosted_not_external(self):
         # Space Grotesk + IBM Plex Mono ship as same-origin @font-face (the strict
@@ -137,32 +140,35 @@ class TestIndustrialLayoutRegressions(unittest.TestCase):
 
 
 class TestUIVersionToggle(unittest.TestCase):
-    """New UI / Old UI toggle: default new, CSP-safe wiring, reachable by all users."""
+    """v6.0.0 "ClarityMatters": ONE interface — the v4.6.0 New/Old toggle is CUT.
 
-    def test_js_functions_and_default(self):
+    During the phase-1 surface-by-surface re-skin the body stays pinned to
+    data-ui="industrial" (un-migrated surfaces render unchanged; migrated ones
+    have their industrial rules deleted). When the last surface migrates, the
+    attribute + applyUIVersion + every industrial rule go away — update here.
+    """
+
+    def test_js_single_ui_no_preference(self):
         self.assertIn('function applyUIVersion(', _JS)
-        self.assertIn('function setUIVersion(', _JS)
-        # default to 'new' when no preference is stored
-        self.assertRegex(_JS, r"getItem\('rp_ui'\)\s*\|\|\s*'new'")
-        # applied during showApp() init
+        # the transitional pin — always industrial, no rp_ui preference read
+        self.assertIn("document.body.dataset.ui = 'industrial'", _JS)
+        self.assertNotIn('function setUIVersion(', _JS)
+        # no preference is read or written any more (the comment may still
+        # NAME rp_ui historically — assert the functional calls are gone)
+        self.assertNotIn("getItem('rp_ui'", _JS)
+        self.assertNotIn("setItem('rp_ui'", _JS)
+        # still applied during showApp() init
         self.assertIn('applyUIVersion();', _JS)
 
-    def test_toggle_present_in_settings_and_account(self):
-        # the requested admin tab
+    def test_single_interface_no_toggle(self):
+        # the Interface settings pane survives as an informational note
         self.assertIn('data-arg="interface"', _HTML)
         self.assertIn('id="settings-pane-interface"', _HTML)
-        # both New and Old options, wired via data-action (CSP-safe)
-        self.assertIn('data-action="setUIVersion" data-arg="new"', _HTML)
-        self.assertIn('data-action="setUIVersion" data-arg="old"', _HTML)
-        # appears at least twice (Settings + My Account) so non-admins can revert
-        self.assertGreaterEqual(_HTML.count('data-action="setUIVersion"'), 4)
-
-    def test_toggle_is_csp_safe(self):
-        # the toggle markup must not introduce inline styles or on* handlers.
-        for m in re.finditer(r'<button[^>]*data-action="setUIVersion"[^>]*>', _HTML):
-            tag = m.group(0)
-            self.assertNotIn('style=', tag)
-            self.assertNotIn('onclick=', tag)
+        # the toggle buttons are gone everywhere (Settings + My Account)
+        self.assertNotIn('data-action="setUIVersion"', _HTML)
+        self.assertNotIn('ui-opt', _HTML)
+        # the body carries the pinned skin statically (no first-paint flash)
+        self.assertIn('<body data-ui="industrial">', _HTML)
 
 
 class TestSelfSignedCertEndpoint(unittest.TestCase):

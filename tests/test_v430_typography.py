@@ -6,6 +6,12 @@ body, table cells, hints, badges, tiny badges). Off-scale sizes and fractional
 px keep creeping in through new cards and get swept in follow-up releases —
 this pins the rule so review doesn't have to catch it.
 
+v6.0.0 "ClarityMatters": the chosen design (design/v6-claritymatters/
+chosen-design.html) carries half-px stops — 12.5 nav rows, 9.5 mono eyebrows/
+kbd (later 13.5 body, 11.5 sub-sub, 19 pane headings). Surfaces adopt them as
+they migrate; each newly-used stop is added to CANONICAL here, deliberately,
+per surface — anything NOT on the design scale still fails.
+
 Display numerals (big stat digits, the enrollment PIN, icon glyph boxes) are
 deliberate exceptions, enumerated below WITH their allowed occurrence count —
 adding another use of an exception size fails until it's consciously listed.
@@ -18,7 +24,9 @@ from pathlib import Path
 CSS = (Path(__file__).parent.parent / "server" / "html" / "static" / "css"
        / "styles.css").read_text()
 
-CANONICAL = {28, 16, 14, 13, 12, 11, 10}
+# ints = the original scale; halves = v6 Clarity stops adopted so far
+# (sidebar surface: 12.5 nav rows, 9.5 eyebrow labels + count pills).
+CANONICAL = {28, 16, 14, 13, 12.5, 12, 11, 10, 9.5}
 
 # Deliberate display-size exceptions: size → max occurrences.
 # .status-num 64 / .hh-num 48 (big stat digits), .pin-code 36 (enrollment PIN),
@@ -31,25 +39,27 @@ class TestTypographyScale(unittest.TestCase):
     def _sizes(self):
         return [s.strip() for s in re.findall(r'font-size:\s*([^;}]+)', CSS)]
 
-    def test_no_fractional_or_relative_font_sizes(self):
-        bad = [s for s in self._sizes() if not re.fullmatch(r'\d+px', s)]
+    def test_no_offscale_fraction_or_relative_font_sizes(self):
+        # px only; halves allowed ONLY where the v6 design scale has a .5 stop
+        # (checked against CANONICAL below) — no other fractions, no em/rem/%.
+        bad = [s for s in self._sizes() if not re.fullmatch(r'\d+(?:\.5)?px', s)]
         self.assertEqual(bad, [],
-                         f"font-size values must be whole px (no .5px, no "
-                         f"em/rem/%%): {bad}")
+                         f"font-size values must be whole or half px (no other "
+                         f"fractions, no em/rem/%%): {bad}")
 
     def test_sizes_stay_on_the_canonical_scale(self):
-        counts = Counter(int(s[:-2]) for s in self._sizes()
-                         if re.fullmatch(r'\d+px', s))
+        counts = Counter(float(s[:-2]) for s in self._sizes()
+                         if re.fullmatch(r'\d+(?:\.5)?px', s))
         offenders = {}
         for size, n in counts.items():
             if size in CANONICAL:
                 continue
             if size in EXCEPTIONS and n <= EXCEPTIONS[size]:
                 continue
-            offenders[f'{size}px'] = n
+            offenders[f'{size:g}px'] = n
         self.assertEqual(offenders, {},
-                         "font sizes off the canonical {28,16,14,13,12,11,10}px "
-                         "scale (and not a listed display exception): "
+                         "font sizes off the canonical scale (and not a listed "
+                         "display exception): "
                          f"{offenders}. Fold onto the scale, or if genuinely a "
                          "display numeral, add it to EXCEPTIONS with a comment.")
 

@@ -144,6 +144,39 @@
     --amber:#d97706; --purple:#7c3aed;
     --accent-soft:rgba(37,99,235,0.08); --accent-edge:rgba(37,99,235,0.26);
   }
+  /* ── v6.0.0 "ClarityMatters" design tokens (chosen-design.html) ──────────
+     New tokens the Clarity re-skin adds on top of the existing palette:
+       --hair / --hair-2  hairline borders / hover wash (alpha, so they sit on
+                          any surface)
+       --side / --side-ink  sidebar chrome (slightly offset from --bg/--text)
+       --font-ui          the design's system sans stack. Scoped to migrated
+                          surfaces during phase 1; becomes the body font when
+                          the global frame surface migrates.
+     Dark values are the defaults; body.light carries the light set; a named
+     theme (data-theme) derives them from its own palette so every theme keeps
+     a coherent sidebar. */
+  :root {
+    --hair: rgba(255,255,255,.09);
+    --hair-2: rgba(255,255,255,.05);
+    --side: #10151b;
+    --side-ink: #aeb9c6;
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  body.light {
+    --hair: rgba(18,28,40,.11);
+    --hair-2: rgba(18,28,40,.06);
+    --side: #f1f4f8;
+    --side-ink: #3a4756;
+  }
+  /* Any explicit theme: derive the Clarity chrome from the theme's own palette
+     (unique properties — no clash with the per-theme blocks above). */
+  body[data-theme] {
+    --hair: var(--border);
+    --hair-2: var(--surface2);
+    --side: var(--bg);
+    --side-ink: var(--text);
+  }
+
   /* Theme-picker card preview swatches. */
   .theme-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
   .theme-card {
@@ -491,76 +524,96 @@
   @media (prefers-reduced-motion: reduce) {
     .status-badge-dot { animation: none; }
   }
+  /* ── v6.0.0 "ClarityMatters" sidebar (chosen-design.html .side/.nav) ────
+     Flat rail: --side ground, hairline right edge, sentence-case group
+     headers, accent-soft active row with a short accent bar. This REPLACED
+     the Industrial machined-nav overrides (deleted, not layered over). */
   .sidebar {
     position: fixed;
     left: 0;
     top: 0;
     bottom: 0;
-    /* v3.2.0: widened 200 → 220 — "MCP Confirmations" + green/red count
-       badge was clipping at 200px.
-       v4.7.0: widened 220 → 240 — a touch more room so the longest labels
-       (e.g. "MCP Confirmations") render in full without the ellipsis kicking
-       in, so the installed PWA and the browser look identical (the PWA used to
-       clip a few labels the browser showed whole). Keep .app-content in step. */
-    width: 240px;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    padding: 72px 12px 16px;
+    /* v3.2.0: 200 → 220; v4.7.0: 220 → 240 (longest labels un-ellipsised);
+       v6.0.0: 240 → 248 = the chosen-design rail. Keep .app-content in step. */
+    width: 248px;
+    background: var(--side);
+    border-right: 1px solid var(--hair);
+    color: var(--side-ink);
+    font-family: var(--font-ui);
+    padding: 72px 8px 14px;
     z-index: 90;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
     transition: padding-top .2s ease;
   }
   .sidebar-label {
-    font-size: 11px;
-    font-weight: 600;
+    /* design-language eyebrow (chosen-design .h): tiny mono small-caps */
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 400;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: .14em;
     color: var(--muted);
-    padding: 12px 10px 4px;
+    padding: 8px 10px 5px;
   }
   .nav-btn {
     background: transparent;
     border: none;
-    color: var(--muted);
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 13px;
+    color: var(--side-ink);
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 12.5px;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
-    font-family: var(--font);
+    font-family: inherit;
     white-space: nowrap;
     text-align: left;
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 9px;
   }
-  .nav-btn:hover { color: var(--text); background: var(--surface2); }
-  .nav-btn.active { color: var(--text); background: var(--surface2); font-weight: 600; }
+  .nav-btn:hover { background: var(--hair-2); }
+  .nav-btn.active {
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 560;
+    position: relative;
+  }
+  /* short accent bar on the active row's left (chosen-design .pg.on::before) */
+  .nav-btn.active::before {
+    content: "";
+    position: absolute;
+    left: -9px;
+    top: 6px;
+    bottom: 6px;
+    width: 2.5px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
   .nav-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
-  /* v3.4.2: sidebar search box + results dropdown */
-  .sidebar-search-wrap { position: relative; padding: 0 0 6px; }
+  /* v3.4.2: sidebar search box + results dropdown (v6: chosen-design .search) */
+  .sidebar-search-wrap { position: relative; padding: 2px 4px 8px; }
   .sidebar-search {
     width: 100%;
-    background: var(--surface2);
-    border: 1px solid var(--border);
+    background: var(--surface);
+    border: 1px solid var(--hair);
     color: var(--text);
     padding: 7px 10px;
     border-radius: 8px;
-    font-size: 13px;
-    font-family: var(--font);
+    font-size: 12px;
+    font-family: inherit;
     box-sizing: border-box;
   }
   .sidebar-search::placeholder { color: var(--muted); }
   .sidebar-search:focus { outline: none; border-color: var(--accent); }
   .sidebar-search-results {
-    position: absolute; left: 0; right: 0; top: 100%;
+    position: absolute; left: 4px; right: 4px; top: 100%;
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--hair);
     border-radius: 8px;
     margin-top: 4px;
     padding: 4px;
@@ -573,10 +626,10 @@
     display: block; width: 100%; text-align: left;
     background: transparent; border: none; color: var(--text);
     padding: 7px 10px; border-radius: 6px;
-    font-size: 13px; font-family: var(--font); cursor: pointer;
+    font-size: 12.5px; font-family: inherit; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .sidebar-search-hit:hover, .sidebar-search-hit.active { background: var(--surface2); }
+  .sidebar-search-hit:hover, .sidebar-search-hit.active { background: var(--hair-2); }
   .sidebar-search-empty { color: var(--muted); font-size: 12px; padding: 7px 10px; }
   /* No room for the box when the sidebar is collapsed to icons. */
   body.sidebar-collapsed .sidebar-search-wrap { display: none; }
@@ -587,52 +640,54 @@
      collapsed and like a regular nav-btn when active so it's clear it
      does something. Chevron rotates to indicate state. State persists
      in localStorage (sidebar.<group>.expanded). */
-  .sidebar-group { display: flex; flex-direction: column; gap: 2px; }
+  /* v6: domain header rows (chosen-design .dhdr) — sentence case, icon left,
+     chevron right; the whole row is the hover/click target. */
+  .sidebar-group { display: flex; flex-direction: column; gap: 1px; margin-top: 1px; }
   .sidebar-group-toggle {
     background: transparent;
     border: none;
-    color: var(--muted);
-    padding: 12px 10px 4px;
+    color: var(--side-ink);
+    padding: 7px 9px;
     font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-weight: 560;
+    text-transform: none;
+    letter-spacing: normal;
     cursor: pointer;
     text-align: left;
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-family: var(--font);
-    border-radius: 0;
+    gap: 9px;
+    font-family: inherit;
+    border-radius: 7px;
   }
-  .sidebar-group-toggle:hover { color: var(--text); }
-  .sidebar-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .sidebar-group-toggle:hover { background: var(--hair-2); color: var(--side-ink); }
+  .sidebar-group-toggle svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
   /* Grey fold-out (disclosure) chevron between a parent group and its items. */
   .sidebar-group-toggle .chevron {
     margin-left: auto;
     transition: transform 0.18s ease;
-    width: 14px; height: 14px;
+    width: 12px; height: 12px;
     color: var(--muted);
     opacity: 0.7;
   }
   .sidebar-group-toggle:hover .chevron { opacity: 1; }
   .sidebar-group.collapsed .chevron { transform: rotate(-90deg); }
-  /* v4.1.0: tint a child nav item's icon to show WHERE a group's count lives —
-     red = critical (CVEs, monitors down), amber = warning (offline hosts). */
-  .nav-btn.nav-alert > svg { color: var(--red); }
-  .nav-btn.nav-warn  > svg { color: var(--amber); }
-  /* Per-group "needs attention" count badge (offline / monitors-down / CVEs).
-     margin-left:auto pushes it right; the chevron's own auto-margin then sits
-     just after it. Shown only when the count is > 0. */
+  /* v4.1.0 → v6: the icon tints (.nav-alert/.nav-warn > svg) are gone — the
+     flat design keeps icons neutral and colours the count text instead (JS
+     still sets the classes; they're just unstyled now). */
+  /* Per-group "needs attention" count (offline / monitors-down / CVEs) —
+     chosen-design .n pill: hairline outline, mono digits; red text because
+     ours is an attention count, not a page count. Shown only when > 0. */
   .sidebar-group-toggle .nav-group-badge {
     margin-left: auto;
     margin-right: 6px;
     min-width: 16px; height: 16px; line-height: 15px;
-    padding: 0 5px; border-radius: 999px;
-    font-size: 10px; font-weight: 700; text-align: center;
-    background: rgba(220, 53, 69, 0.15); color: var(--red);
-    border: 1px solid var(--red);
+    padding: 0 6px; border-radius: 999px;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 9.5px; font-weight: 400; text-align: center;
+    background: none; color: var(--red);
+    border: 1px solid var(--hair);
   }
   .sidebar-group-items {
     display: flex;
@@ -641,22 +696,24 @@
     overflow: hidden;
     max-height: 1000px;
     transition: max-height 0.18s ease-out;
-    /* Thin rail: a 1px grey line runs down the left of the children, joining a
-       parent group to its items (a little tree connector). The children indent
+    /* Thin rail (chosen-design .kids): a 1px hairline runs down the left of
+       the children, joining a parent group to its items. The children indent
        past it; collapsing hides it with the rest. */
-    margin-left: 16px;
-    border-left: 1px solid var(--border);
+    margin-left: 9px;
+    padding: 2px 0 6px 8px;
+    border-left: 1px solid var(--hair);
   }
   .sidebar-group.collapsed .sidebar-group-items {
     max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
     border-left-color: transparent;
   }
-  /* Group items sit relative to the rail (no extra left indent — the rail +
-     this padding give the hierarchy); compact: -1 size + tight rows. */
-  .sidebar-group .nav-btn { padding: 4px 12px; font-size: 12px; }
+  .sidebar-group .nav-btn { padding: 5px 9px; font-size: 12.5px; }
   .sidebar-group .nav-btn svg { width: 14px; height: 14px; }
-  /* The active branch lights its segment of the rail in the accent colour. */
-  .sidebar-group .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); margin-left: -1px; }
+  /* The active row's accent bar (.nav-btn.active::before, -9px) lands exactly
+     on the group rail — no extra rules needed (the old inset box-shadow +
+     margin-left:-1px hack is gone). */
 
   /* v4.1.0: dashboard title row with a small inline Customize button. */
   .page-title-row { display: flex; align-items: center; gap: 12px; }
@@ -766,16 +823,9 @@
   .bg-prev-circuit   { background-image: linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px),radial-gradient(rgba(74,158,255,0.6) 1.4px,transparent 1.8px); background-size: 12px 12px; }
   .bg-prev-blueprint { background-image: linear-gradient(rgba(74,158,255,0.5) 1px,transparent 1px),linear-gradient(90deg,rgba(74,158,255,0.5) 1px,transparent 1px); background-size: 9px 9px; }
   .bg-prev-glow      { background-image: radial-gradient(36px 26px at 50% 0,rgba(74,158,255,0.85),transparent 70%),radial-gradient(130% 120% at 50% 40%,transparent 45%,rgba(0,0,0,0.45)); }
-  /* ── sidebar eyecandy ─────────────────────────────────────────────────── */
-  /* Active item: tint the icon with the accent, not just the bar. */
-  .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); }
-  .nav-btn.active svg { color: var(--accent, #4a9eff); }
-  /* Faint divider above each group header so groups read as distinct blocks. */
-  .sidebar-group { border-top: 1px solid var(--border); }
-  .sidebar-group:first-of-type { border-top: none; }
-  /* Subtle hover slide on nav rows. */
-  .nav-btn { transition: color .15s, background .15s, transform .12s; }
-  .nav-btn:hover { transform: translateX(2px); }
+  /* (v6.0.0: the old "sidebar eyecandy" — inset accent bar, accent-tinted
+     active icons, group dividers, hover slide — is gone; the Clarity sidebar
+     block near the top of this file owns the whole look now.) */
 
   /* v2.0: documentation page card styling. <details> elements give us
      free expand/collapse without any JS, and they're right-click /
@@ -1033,8 +1083,8 @@
     min-height: calc(100vh - 60px);
   }
   .app-content {
-    /* keep in lockstep with .sidebar width (v4.7.0: 240px) */
-    margin-left: 240px;
+    /* keep in lockstep with .sidebar width (v6.0.0: 248px) */
+    margin-left: 248px;
     flex: 1;
     min-width: 0;
   }
@@ -2751,13 +2801,13 @@ input.form-input[type="text"][data-token],
     top: 56px;
     left: 0;
     bottom: 0;
-    width: 240px;
+    width: 248px;
     z-index: 810;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     overflow-y: auto;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
+    background: var(--side);
+    border-right: 1px solid var(--hair);
     /* Override the 768px rail's `72px 6px 16px` — the drawer already
      * starts below the header at top:56px, so a big top padding just
      * pushes the nav items down into dead space. */
@@ -3817,7 +3867,7 @@ body.no-anim * { transition: none !important; }
   width: 100%;
   padding: 6px 10px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hair);
   border-radius: 6px;
   color: var(--muted);
   cursor: pointer;
@@ -3829,7 +3879,7 @@ body.no-anim * { transition: none !important; }
   margin-bottom: 8px;
   transition: background .15s, color .15s;
 }
-.sidebar-collapse-btn:hover { background: var(--surface2); color: var(--text); }
+.sidebar-collapse-btn:hover { background: var(--hair-2); color: var(--text); }
 
 
 /* ── v3.0.1: ACME UI ──────────────────────────────────────────────────── */
@@ -5075,22 +5125,23 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   margin-top: 8px;
 }
 
-/* v3.2.0 (B1): Alerts inbox — sidebar badge + severity pills */
+/* v3.2.0 (B1) → v6: sidebar item count (chosen-design .pg .c) — bare mono
+   digits, coloured by severity; no pill chrome. */
 .nav-badge {
   display: inline-block;
   margin-left: auto;
-  background: var(--red);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  font-weight: 400;
+  padding: 0;
+  text-align: right;
 }
-.nav-badge.nav-badge-ok    { background: #28a745; }
-.nav-badge.nav-badge-alert { background: var(--red); }
-.nav-badge.nav-badge-info  { background: var(--accent); }
+.nav-badge.nav-badge-ok    { color: var(--muted); }
+.nav-badge.nav-badge-alert { color: var(--red); }
+.nav-badge.nav-badge-info  { color: var(--accent); }
 /* v5.0.0 fix: `.nav-badge` sets display:inline-block and is defined AFTER the
    global `.d-none` (equal specificity → later rule wins), so a hidden zero-count
    badge still painted as an empty red pill (a stray "red dash" next to e.g.
@@ -5736,7 +5787,6 @@ body[data-ui="industrial"].light:not([data-theme]) {
      notifications") to blue in light mode, overriding the accent picker (0,2,1).
      They now come from the structure block's default (0,1,1) and the picker. */
 }
-body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 /* v5.6.x fix (#19): the industrial base block (0,1,1) hardcodes --accent and is
    placed AFTER the body[data-accent="…"] presets (also 0,1,1), so it won by
    source order and the accent PICKER did nothing in the New UI. Re-apply the
@@ -5750,10 +5800,10 @@ body[data-ui="industrial"][data-accent="amber"]   { --accent:#f59e0b; --accent-s
 body[data-ui="industrial"][data-accent="rose"]    { --accent:#f43f5e; --accent-soft:rgba(244,63,94,0.12);  --accent-edge:rgba(244,63,94,0.55); }
 body[data-ui="industrial"][data-accent="cyan"]    { --accent:#06b6d4; --accent-soft:rgba(6,182,212,0.12);  --accent-edge:rgba(6,182,212,0.55); }
 body[data-ui="industrial"] { font-family:var(--font); }
-/* the SIDEBAR keeps the distinctive mono font (the rest of the app reverts to the
-   old Inter font); brand + nav + labels + headers all in IBM Plex Mono */
-body[data-ui="industrial"] .sidebar,
-body[data-ui="industrial"] .sidebar * { font-family:var(--font-mono) !important; }
+/* (v6.0.0 phase 1: the Industrial sidebar overrides — IBM Plex Mono nav, the
+   #0b0e12 machined rail, squared items — are DELETED, not overridden. The
+   sidebar is the first migrated Clarity surface; its look lives entirely in
+   the base .sidebar rules near the top of this file.) */
 
 /* ── Typography: Space Grotesk on every prominent heading / number / brand ── */
 body[data-ui="industrial"] .logo-text,
@@ -5771,47 +5821,10 @@ body[data-ui="industrial"] h3 { font-family:var(--font-display); letter-spacing:
 body[data-ui="industrial"] .stat-value,
 body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
 
-/* ── Sidebar: machined nav ──────────────────────────────────────────────── */
-body[data-ui="industrial"] .sidebar { background:#0b0e12; border-right:1px solid var(--border); }
+/* ── Sidebar: MIGRATED to Clarity (v6 phase 1) — no industrial rules left.
+   Only the header logo styling stays industrial until the header surface goes. */
 body[data-ui="industrial"] .logo-text { text-transform:uppercase; font-weight:700; letter-spacing:0.02em; font-size:16px; }
 body[data-ui="industrial"] .logo-img { border-radius:3px; }
-/* section labels (MAIN) + group headers (FLEET/MONITORING/…) — same size as the
-   nav items, bold, so they read as real headers, not tiny eyebrows */
-body[data-ui="industrial"] .sidebar-label,
-body[data-ui="industrial"] .sidebar-group-toggle {
-  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em;
-  font-size:13px; color:var(--muted); font-weight:700;
-}
-/* square the sidebar items so the active/hover block is a clean rectangle — the
-   universal `* { border-radius:3px }` was rounding the marked item into a
-   "half-rounded square". */
-body[data-ui="industrial"] .nav-btn { border-radius:0 !important; font-family:var(--font); }
-/* one consistent highlight for EVERY active nav item — top-level, group
-   sub-items (which otherwise carry a 2px bar + margin-left:-1px) and favourites */
-body[data-ui="industrial"] .nav-btn.active,
-body[data-ui="industrial"] .sidebar-group .nav-btn.active,
-body[data-ui="industrial"] .nav-favorites .nav-btn.active {
-  box-shadow:none !important;                           /* not a full-height line */
-  background:var(--surface2) !important;                /* subtle grey block, not a blue fill */
-  margin-left:0 !important;
-  color:var(--text) !important;
-  position:relative;
-}
-/* short, vertically-centred accent bar on the left — exactly like
-   identity-mockups.html (3px × 18px, not the full item height). */
-body[data-ui="industrial"] .nav-btn.active::before {
-  content:""; position:absolute; left:0; top:50%; transform:translateY(-50%);
-  width:3px; height:18px; background:var(--accent); border-radius:0 2px 2px 0;
-}
-body[data-ui="industrial"] .nav-btn.active svg { color:var(--accent); }
-/* one consistent sidebar item size — the group sub-items were 12px vs 13px for
-   Home/Alerts/Links; bring them up so the whole menu matches. */
-body[data-ui="industrial"] .sidebar-group .nav-btn { font-size:13px; }
-/* more breathing room before each sidebar group (e.g. Links → Fleet) */
-body[data-ui="industrial"] .sidebar-group { margin-top:10px; padding-top:10px; }
-body[data-ui="industrial"] .nav-badge,
-body[data-ui="industrial"] .nav-group-badge { font-family:var(--font-mono); border-radius:3px; font-size:10px; }
-body[data-ui="industrial"] .sidebar-search { border-radius:2px; font-family:var(--font); }
 
 /* ── Page header ────────────────────────────────────────────────────────── */
 body[data-ui="industrial"] .page-title { font-weight:600; letter-spacing:-0.015em; }
@@ -5834,7 +5847,7 @@ body[data-ui="industrial"] .btn-secondary,
 body[data-ui="industrial"] .form-input,
 body[data-ui="industrial"] .form-select,
 body[data-ui="industrial"] select,
-body[data-ui="industrial"] input[type="text"],
+body[data-ui="industrial"] input[type="text"]:not(.sidebar-search),
 body[data-ui="industrial"] input[type="search"],
 body[data-ui="industrial"] .settings-tab,
 body[data-ui="industrial"] .chip,
@@ -6040,7 +6053,10 @@ body[data-ui="industrial"] td { font-family:var(--font); }
    shape), then restore only genuinely circular UI. `!important` beats the app's
    per-class radii; scoped to the opt-in industrial mode, so the Old UI keeps its
    rounded look. Pseudo-elements (the corner ticks) aren't matched by `*`. ── */
-body[data-ui="industrial"] * { border-radius: 3px !important; }
+/* v6 phase 1: the sidebar subtree is MIGRATED to Clarity — exempt it so its
+   own 6/7/8px radii apply. The exemption dies with this whole block when the
+   re-skin completes. */
+body[data-ui="industrial"] *:not(.sidebar):not(.sidebar *) { border-radius: 3px !important; }
 body[data-ui="industrial"] [class*="avatar"],
 body[data-ui="industrial"] .dot,
 body[data-ui="industrial"] .status-dot,
@@ -6063,17 +6079,7 @@ body[data-ui="industrial"] .device-card::before { border-radius: 0 !important; }
    filled icons are unaffected. Scoped to the industrial UI. ── */
 body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ── New UI / Old UI selector (used in both UIs; CSP-safe, classes only) ── */
-.ui-toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
-.ui-opt { background:var(--surface); border:0; border-right:1px solid var(--border);
-  padding:10px 18px; cursor:pointer; color:var(--muted); font-family:var(--font);
-  text-align:left; display:flex; flex-direction:column; gap:2px; }
-.ui-opt:last-child { border-right:0; }
-.ui-opt:hover { background:var(--surface2); color:var(--text); }
-.ui-opt.sel { background:var(--accent); color:#fff; }
-.ui-opt.sel .ui-opt-desc { color:rgba(255,255,255,0.82); }
-.ui-opt-name { font-size:14px; font-weight:600; }
-.ui-opt-desc { font-size:14px; color:var(--muted); }   /* option description = body prose (14) */
+/* (v6.0.0: the v4.6.0 New UI / Old UI selector CSS is gone with the toggle.) */
 
 /* v4.7.0: Docker-host enrollment block inside the Enroll modal. */
 .enroll-or { text-align:center; color:var(--muted); font-size:12px;
@@ -6448,11 +6454,11 @@ body[data-ui="industrial"] .page > .page-title-row { margin-bottom: 24px; }
   left: auto;
   right: 0;
   border-right: none;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--hair);
 }
 [dir="rtl"] .app-content {
   margin-left: 0;
-  margin-right: 240px;
+  margin-right: 248px;  /* lockstep with .sidebar width */
 }
 /* Collapsed icon-rail keeps the swapped side at its narrow width. */
 [dir="rtl"] body.sidebar-collapsed .app-content,
@@ -6473,18 +6479,19 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 /* The tree connector rail + child indent move to the right. */
 [dir="rtl"] .sidebar-group-items {
   margin-left: 0;
-  margin-right: 16px;
+  margin-right: 9px;
+  padding-left: 0;
+  padding-right: 8px;
   border-left: none;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--hair);
 }
 [dir="rtl"] .sidebar-group.collapsed .sidebar-group-items {
   border-right-color: transparent;
 }
-/* The active branch lights its segment of the (now-right) rail. */
-[dir="rtl"] .sidebar-group .nav-btn.active {
-  box-shadow: inset -2px 0 0 var(--accent, #4a9eff);
-  margin-left: 0;
-  margin-right: -1px;
+/* The active row's short accent bar moves to the (now-right) rail. */
+[dir="rtl"] .nav-btn.active::before {
+  left: auto;
+  right: -9px;
 }
 /* margin-left:auto spacers (group badge + chevron) push to the leading edge. */
 [dir="rtl"] .sidebar-group-toggle .nav-group-badge,
@@ -6762,14 +6769,14 @@ body[data-ui="industrial"].light .journal-wrap{ box-shadow:inset 0 1px 3px rgba(
 
 /* v5.1.0 · INSET WELL on every text input — "anywhere you can type" (industrial).
    Recessed --well-bg + inner shadow so inputs read as wells, matching the spec. */
-body[data-ui="industrial"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+body[data-ui="industrial"] input:not(.sidebar-search):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
 body[data-ui="industrial"] textarea,
 body[data-ui="industrial"] select.form-input,
 body[data-ui="industrial"] .form-input{
   background:var(--well-bg) !important;
   box-shadow:inset 0 2px 5px rgba(0,0,0,.5);
 }
-body[data-ui="industrial"].light input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+body[data-ui="industrial"].light input:not(.sidebar-search):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
 body[data-ui="industrial"].light textarea,
 body[data-ui="industrial"].light .form-input{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
 
