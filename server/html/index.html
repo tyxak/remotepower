@@ -2060,7 +2060,18 @@
               <input type="number" id="cfg-max-devices" class="form-input mw-160" min="1" max="10000000" placeholder="50000"></div>
             <div class="settings-row"><label class="form-label" for="cfg-slo-target">Availability SLO target % (monitor availability + error budget, at <code>GET /api/slo</code> and as Prometheus gauges)</label>
               <input type="number" id="cfg-slo-target" class="form-input mw-160" min="50" max="99.999" step="0.01" placeholder="99.9"></div>
-            <div class="section-title mt-16">Config as code</div>
+            <div class="section-title mt-16">Compliance exports</div>
+            <p class="hint">The compliance evidence pack and the audit-log archive download are signed (HMAC-SHA256) with a per-install key so a tampered export is detectable. Rotate the key if it may be compromised — new exports use the new key; already-issued exports keep their original signature.</p>
+            <div class="row-6"><button class="btn-secondary" data-action="rotateExportKey">Rotate export-signing key</button></div>
+            <div id="export-key-result" class="hint mt-6" role="status" aria-live="polite"></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webhook-block-local"> Block webhooks to link-local / cloud-metadata addresses (on by default; LAN and loopback stay allowed)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-notifications-test-mode"> Notification sandbox mode — log webhook + email deliveries but DON'T send them (for a staging/test instance; the explicit "Send test email" still sends)</label></div>
+          </div>
+
+          <!-- Config-as-code: config export/import for review/backup/git — its own
+               concern, NOT an account guardrail (was nested under that card). -->
+          <div class="settings-section">
+            <div class="section-title">Config as code</div>
             <p class="hint">Download your operator-authored configuration — monitors, checks, alert/automation rules, integrations, webhook destinations, maintenance windows, backup monitors, TLS/DMARC/resolver targets and more — as one versioned JSON document. Secrets are shown as <code>(redacted)</code> and webhook URLs are collapsed to host-only, so the file is safe to commit to git for review, diffing and off-box backup.</p>
             <div class="row-6"><button class="btn-secondary" data-action="exportDeclarativeConfig">Download config-as-code (JSON)</button></div>
             <div class="settings-row mt-8">
@@ -2070,13 +2081,6 @@
             </div>
             <div id="declarative-import-result" class="hint mt-6" role="status" aria-live="polite"></div>
             <p class="hint">Import previews the changes first (a per-collection add/change/remove count) — nothing is written until you confirm Apply. Redacted secrets are kept from the current config by id; webhook destinations are re-entered manually.</p>
-
-            <div class="section-title mt-16">Compliance exports</div>
-            <p class="hint">The compliance evidence pack and the audit-log archive download are signed (HMAC-SHA256) with a per-install key so a tampered export is detectable. Rotate the key if it may be compromised — new exports use the new key; already-issued exports keep their original signature.</p>
-            <div class="row-6"><button class="btn-secondary" data-action="rotateExportKey">Rotate export-signing key</button></div>
-            <div id="export-key-result" class="hint mt-6" role="status" aria-live="polite"></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webhook-block-local"> Block webhooks to link-local / cloud-metadata addresses (on by default; LAN and loopback stay allowed)</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-notifications-test-mode"> Notification sandbox mode — log webhook + email deliveries but DON'T send them (for a staging/test instance; the explicit "Send test email" still sends)</label></div>
           </div>
 
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
