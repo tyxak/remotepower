@@ -8942,7 +8942,7 @@ async function editServicesConfig(devId, devName) {
 // v5.5.0: fleet service baselines — a default set of watched units applied to every
 // device a baseline's scope covers (merged into the per-host list server-side).
 async function openServiceBaselines() {
-  const data = await api('GET', '/api/service-baselines');
+  const data = await api('GET', '/service-baselines');
   window._svcBaselines = (data && Array.isArray(data.baselines)) ? data.baselines : [];
   _renderServiceBaselines();
   openModal('service-baseline-modal');
@@ -8989,7 +8989,7 @@ function removeServiceBaseline(i) {
 async function saveServiceBaselines() {
   _collectServiceBaselines();
   const bl = (window._svcBaselines || []).filter(b => (b.units || []).length);
-  const r = await api('POST', '/api/service-baselines', { baselines: bl });
+  const r = await api('POST', '/service-baselines', { baselines: bl });
   if (r && r.ok) {
     toast(`Saved ${r.baselines.length} baseline(s) — applied on each device's next heartbeat`, 'success');
     closeModal('service-baseline-modal');
