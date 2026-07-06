@@ -14674,6 +14674,17 @@ _HEARTBEAT_PASSTHROUGH_FIELDS = {
     'services_watched': list,
     'log_watch':        list,
     'mailbox_paths':    list,
+    # scope attributes — read AFTER the lock by
+    # `_service_baseline_units_for(saved_dev)` (→ `_device_in_scope`) when it
+    # merges group/tag/site-scoped service baselines into `services_watched`.
+    # Without these, saved_dev carried no group/tags/site, so `_device_in_scope`
+    # always saw '' and ONLY `scope:{type:'all'}` baselines ever applied — a
+    # group-scoped baseline silently never reached any agent (issue: baselines
+    # "not being applied"). The contract guardrail missed it because the read is
+    # indirect (through the helper), not a literal `saved_dev.get('group')`.
+    'group':            str,
+    'tags':             list,
+    'site':             str,
     # v4.9.0: one-shot "Import from agent" DNS-credential harvest. NOT cleared
     # here — unlike the force_* one-shots it stays set until the creds actually
     # arrive (_ingest_dns_creds_harvest clears it), so a missed/failed harvest

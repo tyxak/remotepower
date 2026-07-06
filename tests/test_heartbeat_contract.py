@@ -32,6 +32,17 @@ API_SRC = (ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
 # reason; every entry is a hole in the guarantee, so document each one.
 _ALLOWED_UNWRITTEN: set[str] = set()
 
+# Contract fields that ARE consumed, but INDIRECTLY — `saved_dev` is passed to a
+# helper that reads the field, so it never appears as a literal
+# `saved_dev.get('X')` in the handler body. Each entry needs a real read
+# somewhere; document the consumer. (Keep this tight — an unused cache write is
+# dead work; this list only covers genuine indirect reads.)
+_CONSUMED_INDIRECTLY: set[str] = {
+    # _service_baseline_units_for(saved_dev) → _device_in_scope reads these to
+    # match group/tag/site-scoped service baselines into services_watched.
+    'group', 'tags', 'site',
+}
+
 
 def _heartbeat_body() -> str:
     lines = API_SRC.splitlines()
@@ -78,7 +89,7 @@ class TestHeartbeatContract(unittest.TestCase):
         # consumed — caching a field nothing reads is dead work (this caught two
         # such fields, agentless + cmd_allowlist, when the contract was added).
         self.assertIn('_HEARTBEAT_PASSTHROUGH_FIELDS.items()', self.body)
-        dead = self.table - self.referenced
+        dead = self.table - self.referenced - _CONSUMED_INDIRECTLY
         self.assertEqual(dead, set(),
                          f"contract fields cached but never read: {sorted(dead)}")
 
