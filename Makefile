@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo app-server-wsgi app-server-cgi app-server-status
+.PHONY: help test test-fast format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo app-server-wsgi app-server-cgi app-server-status
 
 PY      ?= python3
 PIP     ?= pip3
@@ -98,6 +98,16 @@ install-dev:
 
 test:
 	$(PY) -m unittest discover -s tests -v
+
+# v6.0.1: FAST pre-flight — the whole suite in parallel across CPU cores (xdist),
+# ~5-6x quicker than `make test`. NOT the authoritative gate: a handful of tests
+# share process-global state (RP_DATA_DIR / module singletons) and can throw
+# FALSE failures under parallelism (they pass serially). Use it to catch failures
+# fast while iterating, then confirm green with `make test` / `make check` before
+# pushing. `--dist loadfile` keeps each file's tests on one worker (fewer false
+# failures than the default). Needs: pip install --break-system-packages pytest pytest-xdist
+test-fast:
+	$(PY) -m pytest tests -q -p no:cacheprovider -n auto --dist loadfile --ignore=tests/test_v430_e2e.py
 
 # v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)
