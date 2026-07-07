@@ -10997,7 +10997,11 @@ async function saveScriptFromEditor(reopenAfter) {
     document.getElementById('script-edit-title').textContent = `Edit script — ${resp.script.name||''}`;
   }
   loadScripts();
-  if (!reopenAfter && id) closeModal('script-edit-modal');
+  // #22: close on a plain Save for a NEW script too — it previously only closed
+  // on an edit (id truthy), so creating a script left the modal open and read as
+  // "no feedback / didn't save". The dry-run-after-save path passes reopenAfter
+  // and still keeps the modal open on purpose.
+  if (!reopenAfter) closeModal('script-edit-modal');
 }
 
 async function dryRunScript(id) {
