@@ -2669,6 +2669,37 @@ input.form-input[type="text"][data-token],
   padding: 16px 18px;
   margin-bottom: 16px;   /* v6: design .grp rhythm */
 }
+
+/* v6.0.1: card header BAND (design study #09). The canonical card header — a
+   .section-title (or a .section-header title+action row) that is the FIRST child
+   of a card — becomes a --surface2 strip with a bottom hairline, bled to the card
+   edges. Scoped to the first-child header so sub-section titles and non-card uses
+   of .section-title stay plain. Negative margins match each container's padding;
+   the inner radius is card-radius minus the 1px border (10px). */
+.dash-card > .section-title:first-child,
+.dash-card > .section-header:first-child,
+.settings-section > .section-title:first-child,
+.settings-section > .section-header:first-child {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--hair);
+  border-radius: 10px 10px 0 0;
+  align-items: center;   /* keeps the title+action row centred inside the band */
+}
+.dash-card > .section-title:first-child,
+.dash-card > .section-header:first-child {
+  margin: -16px -18px 14px;
+  padding: 11px 18px;
+}
+.settings-section > .section-title:first-child,
+.settings-section > .section-header:first-child {
+  margin: -24px -24px 18px;
+  padding: 12px 24px;
+}
+body.density-compact .dash-card > .section-title:first-child,
+body.density-compact .dash-card > .section-header:first-child {
+  margin: -11px -13px 12px;
+  padding: 9px 13px;
+}
 /* v4.7.0: inside the .dash-cols grid the 18px `gap` already spaces the cards;
    the card's own 16px margin-bottom stacked ON TOP of it when the grid wraps to
    one column (18 + 16 = 34px ≈ "double space"). Let the grid gap own it. */
