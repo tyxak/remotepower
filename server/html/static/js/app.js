@@ -771,8 +771,10 @@ function snoozeUpdateBanner(version) {
   toast(`Update reminder for v${version} snoozed for 30 days`, 'info');
 }
 function toggleUpdateSteps() {
-  const s = document.getElementById('update-steps');
-  if (s) s.style.display = s.style.display === 'none' ? 'block' : 'none';
+  // The steps block ships hidden via the `.d-none` utility class (no inline
+  // style), so toggling `style.display` did nothing on the first click. Toggle
+  // the class instead so the first "How to update" click actually expands it.
+  document.getElementById('update-steps')?.classList.toggle('d-none');
 }
 // v3.3.0: theme toggle uses Lucide moon/sun SVGs instead of emoji
 const _THEME_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
@@ -6819,7 +6821,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td class="row-6"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -7326,7 +7328,7 @@ function _registerAutopatchTable() {
     columns: ['name', 'target', 'cron', 'reboot', 'enabled'],
     getColumns: (p) => ({ name: p.name || '', target: `${p.target?.type}:${p.target?.value || ''}`,
       cron: p.cron || '', reboot: p.reboot ? 1 : 0, enabled: p.enabled ? 1 : 0 }),
-    row: (p) => `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${escHtml(p.target?.type)}${p.target?.value ? ':' + escHtml(p.target.value) : ''}</td><td class="mono-12">${escHtml(p.cron)}</td><td>${p.reboot ? 'yes' : 'no'}</td><td>${p.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_autopatchRunBtn" data-id="${escAttr(p.id)}">Run now</button><button class="btn-icon" title="Edit" data-action-btn="_autopatchEditBtn" data-id="${escAttr(p.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteAutopatch" data-arg="${escAttr(p.id)}">${_icon('trash',14)}</button></td></tr>`,
+    row: (p) => `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${escHtml(_autopatchTargetLabel(p.target))}</td><td class="mono-12">${escHtml(p.cron)}</td><td>${p.reboot ? 'yes' : 'no'}</td><td>${p.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_autopatchRunBtn" data-id="${escAttr(p.id)}">Run now</button><button class="btn-icon" title="Edit" data-action-btn="_autopatchEditBtn" data-id="${escAttr(p.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteAutopatch" data-arg="${escAttr(p.id)}">${_icon('trash',14)}</button></td></tr>`,
     emptyMsg: 'No auto-patch policies. Create one to schedule fleet updates.',
     emptyMsgFiltered: 'No policies match the filter.',
   });
@@ -7384,11 +7386,39 @@ function _autopatchSetStaged(p) {
   document.getElementById('autopatch-gate-threshold').value = (p && p.health_gate && p.health_gate.threshold) || 70;
   onAutopatchStagedToggle();
 }
+// v6.0.1: human-readable target label — resolve a single-device target's id to
+// its name; other target types read type:value verbatim.
+function _autopatchTargetLabel(target) {
+  const t = target?.type || 'all', v = target?.value || '';
+  if (t === 'device') {
+    const dv = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === v);
+    return 'device:' + (dv ? dv.name : (v || '?'));
+  }
+  return t + (v ? ':' + v : '');
+}
+// v6.0.1: populate the single-device combo (option value = device id) and
+// toggle it against the free-text Value field based on the target type.
+function _autopatchPopulateDevices(currentId) {
+  const sel = document.getElementById('autopatch-target-device');
+  if (!sel) return;
+  const list = (typeof devices !== 'undefined' ? devices : []);
+  sel.innerHTML = '<option value="">Select a device…</option>' +
+    list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id === currentId ? ' selected' : ''}>${escHtml(dv.name)}</option>`).join('');
+  if (currentId) sel.value = currentId;
+  try { enhanceDeviceCombos(document.getElementById('autopatch-modal')); } catch (_) {}
+}
+function onAutopatchTargetTypeChange() {
+  const isDevice = document.getElementById('autopatch-target-type').value === 'device';
+  document.getElementById('autopatch-target-value-wrap').classList.toggle('hidden', isDevice);
+  document.getElementById('autopatch-target-device-wrap').classList.toggle('hidden', !isDevice);
+}
 function openAutopatchCreate() {
   document.getElementById('autopatch-edit-id').value = '';
   document.getElementById('autopatch-name').value = '';
   document.getElementById('autopatch-target-type').value = 'all';
   document.getElementById('autopatch-target-value').value = '';
+  _autopatchPopulateDevices('');
+  onAutopatchTargetTypeChange();
   document.getElementById('autopatch-cron').value = '0 3 * * 0';
   document.getElementById('autopatch-reboot').checked = false;
   _autopatchSetStaged(null);
@@ -7400,8 +7430,11 @@ function _autopatchEditBtn(btn) {
   const p = _autopatchCache.find(x => x.id === btn.dataset.id); if (!p) return;
   document.getElementById('autopatch-edit-id').value = p.id;
   document.getElementById('autopatch-name').value = p.name;
-  document.getElementById('autopatch-target-type').value = p.target?.type || 'all';
-  document.getElementById('autopatch-target-value').value = p.target?.value || '';
+  const ttype = p.target?.type || 'all';
+  document.getElementById('autopatch-target-type').value = ttype;
+  document.getElementById('autopatch-target-value').value = ttype === 'device' ? '' : (p.target?.value || '');
+  _autopatchPopulateDevices(ttype === 'device' ? (p.target?.value || '') : '');
+  onAutopatchTargetTypeChange();
   document.getElementById('autopatch-cron').value = p.cron || '';
   document.getElementById('autopatch-reboot').checked = !!p.reboot;
   _autopatchSetStaged(p);
@@ -7411,10 +7444,14 @@ function _autopatchEditBtn(btn) {
 }
 async function saveAutopatch() {
   const id = document.getElementById('autopatch-edit-id').value;
+  const _ttype = document.getElementById('autopatch-target-type').value;
+  const _tval = _ttype === 'device'
+    ? document.getElementById('autopatch-target-device').value
+    : document.getElementById('autopatch-target-value').value.trim();
+  if (_ttype === 'device' && !_tval) { toast('Pick a device for this policy', 'error'); return; }
   const body = {
     name: document.getElementById('autopatch-name').value.trim(),
-    target: { type: document.getElementById('autopatch-target-type').value,
-              value: document.getElementById('autopatch-target-value').value.trim() },
+    target: { type: _ttype, value: _tval },
     cron: document.getElementById('autopatch-cron').value.trim(),
     reboot: document.getElementById('autopatch-reboot').checked,
   };
@@ -7883,7 +7920,7 @@ async function loadPatchCatalog() {
   const r = await api('GET', '/patch-catalog').catch(() => null);
   if (!r) { body.innerHTML = '<div class="c-red">Failed to load patch catalog.</div>'; return; }
   const sum = document.getElementById('patch-catalog-summary');
-  if (sum) sum.textContent = `${r.total_packages} package(s) pending`
+  if (sum) sum.textContent = `${r.total_packages} distinct package(s) with an update pending across the fleet`
     + (r.devices_without_detail.length ? ` · ${r.devices_without_detail.length} host(s) report a count only (older agent)` : '');
   // v3.4.2: third-party (flatpak/snap/pip/npm) updates section.
   let tpHtml = '';
@@ -7930,6 +7967,54 @@ function renderPatchTable() {
   tableCtl.render('patches', filtered);
 }
 function exportPatchFiltered(format) { const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; if (df !== 'all' && format !== 'csv' && format !== 'xml') { openDevicePatchReport(df, ''); return; } let url = `/api/patch-report/${format}`; const params = []; if (gf !== 'all') params.push(`group=${encodeURIComponent(gf)}`); if (df !== 'all') params.push(`device_id=${encodeURIComponent(df)}`); if (params.length) url += '?' + params.join('&'); fetch(url, {headers: {'X-Token': getToken()}}).then(r => { if (!r.ok) throw new Error('Export failed'); return r.blob(); }).then(blob => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; const suffix = gf !== 'all' ? `-${gf}` : df !== 'all' ? `-device` : ''; a.download = `patch-report${suffix}-${new Date().toISOString().slice(0,10)}.${format}`; a.click(); URL.revokeObjectURL(u); toast(`${format.toUpperCase()} downloaded`, 'success'); }).catch(() => toast('Export failed', 'error')); }
+
+// v6.0.1 (item 11): PDF export of the filtered patch report. No server-side PDF
+// lib — reuse the browser's print → "Save as PDF" path (same approach as the
+// fleet posture report / invoices), rendered into the CSP-safe #print-report
+// target that the @media print stylesheet reveals. Styling is by external CSS
+// classes only (no inline styles), so the strict CSP is satisfied.
+function exportPatchPdf() {
+  if (!patchReportData) { toast('Load the patch report first (click Refresh)', 'error'); return; }
+  const rep = document.getElementById('print-report');
+  if (!rep) { toast('Print target missing', 'error'); return; }
+  const gf = document.getElementById('patch-group-filter')?.value || 'all';
+  const df = document.getElementById('patch-device-filter')?.value || 'all';
+  const filtered = getFilteredPatchDevices();
+  let total = filtered.length, patched = 0, withPatches = 0, pending = 0;
+  for (const d of filtered) {
+    if (d.patch_status === 'fully_patched') patched++;
+    else if (d.patch_status === 'patches_available') { withPatches++; pending += (d.upgradable || 0); }
+  }
+  const onlineWithData = patched + withPatches;
+  const pct = onlineWithData > 0 ? Math.round((patched / onlineWithData) * 1000) / 10 : 0;
+  const scope = gf !== 'all' ? `Group: ${gf}` : df !== 'all' ? 'Single device' : 'Whole fleet';
+  const rows = filtered.map(d => {
+    let status, cls;
+    if (d.patch_status === 'fully_patched') { status = 'Up to date'; cls = 'pr-ok'; }
+    else if (d.patch_status === 'patches_available') { status = `${d.upgradable || 0} pending`; cls = 'pr-bad'; }
+    else { status = 'No data'; cls = ''; }
+    return `<tr><td>${escHtml(d.name || d.hostname || '?')}</td><td>${escHtml(d.group || '—')}</td><td>${escHtml(d.os || '—')}</td><td>${escHtml(d.pkg_manager || '—')}</td><td class="${cls}">${escHtml(status)}</td></tr>`;
+  }).join('');
+  rep.innerHTML = `
+    <div class="pr-head"><div><h1>Patch report</h1><div class="pr-meta">${escHtml(scope)} · generated ${escHtml(new Date().toLocaleString())}</div></div></div>
+    <div class="pr-cards">
+      <div class="pr-card"><div class="pr-k">Devices</div><div class="pr-v">${total}</div></div>
+      <div class="pr-card"><div class="pr-k">Up to date</div><div class="pr-v">${patched}</div></div>
+      <div class="pr-card"><div class="pr-k">Need patches</div><div class="pr-v">${withPatches}</div></div>
+      <div class="pr-card"><div class="pr-k">Pending updates</div><div class="pr-v">${pending}</div></div>
+      <div class="pr-card"><div class="pr-k">Patched</div><div class="pr-v">${pct}%</div></div>
+    </div>
+    <h2>Devices</h2>
+    <table><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Manager</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No devices match the current filter.</td></tr>'}</tbody></table>
+    <div class="pr-foot">RemotePower patch report — ${escHtml(scope)}</div>`;
+  toast('Opening the print dialog — choose "Save as PDF"', 'info');
+  // Let the injected DOM paint before printing (matches printFleetReport's note),
+  // then clear the target so it doesn't linger for a later plain Ctrl+P.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.print();
+    setTimeout(() => { rep.innerHTML = ''; }, 500);
+  }));
+}
 async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
@@ -8079,16 +8164,31 @@ function _renderCatalog() {
     ? _catalogApps.filter(a => (`${a.name || ''} ${a.category || ''} ${a.description || ''}`).toLowerCase().includes(q))
     : _catalogApps;
   if (!apps.length) { box.innerHTML = '<div class="empty-state">No apps match your search.</div>'; return; }
-  box.innerHTML = apps.map(a => {
+  // v6.0.1 (item 4): render the catalog as a proper, full-width table instead of
+  // a stack of cramped cards in a small scroll box — far more apps visible at once.
+  const sorted = tableCtl.sortRows('catalog', apps.slice(), a => ({
+    name: (a.name || '').toLowerCase(),
+    category: (a.category || '').toLowerCase(),
+    port: a.port || 0,
+  }));
+  const rows = sorted.map(a => {
     const dep = _catalogDev
-      ? `<button class="btn-primary" data-action="catalogDeploy" data-arg="${escAttr(a.id)}">Deploy to ${escHtml(_catalogDev.name)}</button>`
-      : `<span class="hint">Pick a target host above to deploy</span>`;
-    const badge = a.custom ? ' <span class="rp-tag">custom</span>' : '';
+      ? `<button class="btn-primary btn-sm" data-action="catalogDeploy" data-arg="${escAttr(a.id)}" title="Deploy to ${escAttr(_catalogDev.name)}">Deploy</button>`
+      : `<span class="hint">Pick a host</span>`;
     const rm = (a.custom && isAdmin)
-      ? ` <button class="btn-icon c-danger-outline" title="Remove" data-action="removeCatalogApp" data-arg="${escAttr(a.id)}" data-arg2="${escAttr(a.name)}">${_icon('trash',14)}</button>`
+      ? `<button class="btn-icon c-danger-outline" title="Remove" data-action="removeCatalogApp" data-arg="${escAttr(a.id)}" data-arg2="${escAttr(a.name)}">${_icon('trash',14)}</button>`
       : '';
-    return `<div class="dash-card mb-16"><div class="section-title">${escHtml(a.name)}${badge} <span class="hint">· ${escHtml(a.category || '')}</span></div><div class="mb-8">${escHtml(a.description || '')}</div><div class="hint mb-8">Default port: ${escHtml(String(a.port || '—'))}</div>${dep}${rm}</div>`;
+    const badge = a.custom ? ' <span class="rp-tag">custom</span>' : '';
+    return `<tr>
+      <td class="fw-600">${escHtml(a.name)}${badge}</td>
+      <td class="hint">${escHtml(a.category || '—')}</td>
+      <td class="fs-12">${escHtml(a.description || '')}</td>
+      <td class="ta-center mono-12">${escHtml(String(a.port || '—'))}</td>
+      <td><div class="user-actions">${dep}${rm}</div></td>
+    </tr>`;
   }).join('');
+  box.innerHTML = `<div class="table-card"><div class="scrollable-table-wrap audit-scroll"><table><thead id="catalog-thead"><tr><th scope="col" data-col="name">App</th><th scope="col" data-col="category">Category</th><th scope="col">Description</th><th scope="col" data-col="port" class="ta-center">Port</th><th scope="col"></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  tableCtl.wireSortOnly('catalog-thead', 'catalog', _renderCatalog);
 }
 
 async function catalogDeploy(appId) {
@@ -8836,6 +8936,7 @@ function _registerServicesTable() {
 
 async function loadServicesReport() {
   _registerServicesTable();
+  loadServiceBaselinesCard();   // v6.0.1 (item 3): fleet Service-baselines editor card
   const tbody = document.getElementById('services-tbody');
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/services');
@@ -8993,6 +9094,75 @@ async function saveServiceBaselines() {
   if (r && r.ok) {
     toast(`Saved ${r.baselines.length} baseline(s) — applied on each device's next heartbeat`, 'success');
     closeModal('service-baseline-modal');
+    // keep the Services-page card in sync if it's mounted
+    if (document.getElementById('services-baselines-list')) loadServiceBaselinesCard();
+  } else {
+    toast(r?.error || 'Failed to save baselines', 'error');
+  }
+}
+
+// v6.0.1 (item 3): the same fleet Service-baselines editor, mounted as a card on
+// the Services page. Kept fully separate from the modal editor above (its inputs
+// use a `data-bl2` namespace) so the two can't shadow each other's fields.
+async function loadServiceBaselinesCard() {
+  const box = document.getElementById('services-baselines-list');
+  if (!box) return;
+  // Service baselines are admin-only (GET + POST). Hide the whole card for
+  // non-admins rather than show an editor they can't load or save.
+  const card = document.getElementById('services-baselines-card');
+  const isAdmin = !!(_meCache && _meCache.admin);
+  if (card) card.classList.toggle('hidden', !isAdmin);
+  if (!isAdmin) return;
+  const data = await api('GET', '/service-baselines');
+  window._svcBaselinesCard = (data && Array.isArray(data.baselines)) ? data.baselines : [];
+  _renderServiceBaselinesCard();
+}
+function _renderServiceBaselinesCard() {
+  const box = document.getElementById('services-baselines-list');
+  if (!box) return;
+  const bl = window._svcBaselinesCard || [];
+  const opt = (b, t, label) => `<option value="${t}"${((b.scope || {}).type || 'all') === t ? ' selected' : ''}>${label}</option>`;
+  box.innerHTML = bl.length ? bl.map((b, i) => `
+    <div class="dash-card mb-12">
+      <div class="settings-row"><div class="form-group"><label class="form-label">Name</label>
+        <input type="text" class="form-input" data-bl2f="name" data-bl2="${i}" value="${escAttr(b.name || '')}" placeholder="e.g. Core services"></div>
+        <button class="btn-icon c-danger-outline" data-action="removeServiceBaselineCard" data-arg="${i}" title="Delete baseline">${_icon('trash', 14)}</button></div>
+      <div class="settings-row"><label class="form-label">Units (one systemd unit per line)</label>
+        <textarea class="form-input isl-226" rows="3" data-bl2f="units" data-bl2="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
+      <div class="settings-row"><div class="form-group"><label class="form-label">Applies to</label>
+        <select class="form-input mw-160" data-bl2f="scopetype" data-bl2="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <div class="form-group"><label class="form-label">Names (comma-separated; ignored for "All")</label>
+        <input type="text" class="form-input" data-bl2f="scopevals" data-bl2="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
+    </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
+}
+function _collectServiceBaselinesCard() {
+  (window._svcBaselinesCard || []).forEach((b, i) => {
+    const g = (f) => document.querySelector(`[data-bl2f="${f}"][data-bl2="${i}"]`);
+    if (!g('name')) return;
+    b.name = g('name').value.trim();
+    b.units = g('units').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const type = g('scopetype').value;
+    const vals = g('scopevals').value.split(',').map(s => s.trim()).filter(Boolean);
+    b.scope = (type === 'all') ? { type: 'all' } : { type, values: vals };
+  });
+}
+function addServiceBaselineCard() {
+  _collectServiceBaselinesCard();
+  (window._svcBaselinesCard = window._svcBaselinesCard || []).push({ name: '', units: [], scope: { type: 'all' } });
+  _renderServiceBaselinesCard();
+}
+function removeServiceBaselineCard(i) {
+  _collectServiceBaselinesCard();
+  (window._svcBaselinesCard || []).splice(Number(i), 1);
+  _renderServiceBaselinesCard();
+}
+async function saveServiceBaselinesCard() {
+  _collectServiceBaselinesCard();
+  const bl = (window._svcBaselinesCard || []).filter(b => (b.units || []).length);
+  const r = await api('POST', '/service-baselines', { baselines: bl });
+  if (r && r.ok) {
+    toast(`Saved ${r.baselines.length} baseline(s) — applied on each device's next heartbeat`, 'success');
+    loadServiceBaselinesCard();
   } else {
     toast(r?.error || 'Failed to save baselines', 'error');
   }

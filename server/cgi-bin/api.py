@@ -13208,6 +13208,8 @@ def _autopatch_target_devices(target):
             continue
         if t == 'all':
             out.append(did)
+        elif t == 'device' and did == v:
+            out.append(did)
         elif t == 'group' and dev.get('group', '') == v:
             out.append(did)
         elif t == 'tag' and v in (dev.get('tags') or []):
@@ -19814,7 +19816,7 @@ def handle_config_get():
     safe.setdefault('max_devices',            MAX_DEVICES)  # v5.4.1 (A7): enroll cap
     safe.setdefault('slo_target_percent',     99.9)   # v5.4.1 (F3): availability SLO target
     safe.setdefault('fleet_note',             '')     # fleet-wide operator note (dashboard)
-    safe.setdefault('cert_expiry_alerts_enabled', False)  # v3.14.0: cert-expiry alerts, opt-in (noisy)
+    safe.setdefault('cert_expiry_alerts_enabled', True)  # v3.14.0/v6.0.1: cert-expiry alerts on by default (coalesced per host)
     safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
@@ -33042,11 +33044,12 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                 'not_after': int(na) if isinstance(na, (int, float)) and na >= 0 else 0,
             })
         rec['cert_files'] = certs
-        # v3.14.0: cert-expiry alerting is OPT-IN (off by default — see
-        # cert_expiry_alerts_enabled) and only for the host's OWN service
-        # certs, never the CA trust bundle. Coalesced to ONE alert per host
-        # (soonest cert + a count) so it can't flood, edge-triggered.
-        if _config_ro().get('cert_expiry_alerts_enabled'):
+        # v3.14.0 / v6.0.1: cert-expiry alerting is ON by default now that it's
+        # coalesced to ONE alert per host (soonest cert + a count), edge-triggered
+        # and auto-resolving on renewal — the original "noisy" rationale predated
+        # that coalescing. Still only the host's OWN service certs, never the CA
+        # trust bundle. An operator who explicitly turned it off keeps it off.
+        if _config_ro().get('cert_expiry_alerts_enabled', True):
             soon = now + 21 * 86400
             _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
                    '/usr/share/ca-certificates', '/etc/ca-certificates')

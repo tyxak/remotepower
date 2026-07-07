@@ -830,9 +830,16 @@ class TestAlertEvents(_HandlerBase):
         back = self._ingest({'ups': [{'name': 'apc', 'status': 'OL', 'battery_pct': 100}]})
         self.assertIn('ups_on_line', back)
 
-    def test_cert_off_by_default(self):
-        # opt-in: with cert_expiry_alerts_enabled unset, an expiring cert is silent
+    def test_cert_on_by_default(self):
+        # v6.0.1: cert-expiry alerting is ON by default (coalesced to one edge-
+        # triggered alert per host), so an expiring cert fires with the flag unset.
         api.save(api.CONFIG_FILE, {})
+        body = {'cert_files': [{'path': '/etc/ssl/x.pem', 'not_after': 1_000_000 + 10 * 86400}]}
+        self.assertIn('cert_file_expiring', self._ingest(body))
+
+    def test_cert_silenced_when_explicitly_disabled(self):
+        # an operator who explicitly opts out still gets silence
+        api.save(api.CONFIG_FILE, {'cert_expiry_alerts_enabled': False})
         body = {'cert_files': [{'path': '/etc/ssl/x.pem', 'not_after': 1_000_000 + 10 * 86400}]}
         self.assertNotIn('cert_file_expiring', self._ingest(body))
 

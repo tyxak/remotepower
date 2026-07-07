@@ -189,7 +189,7 @@
          Monitoring MUST stay before Security (tests/test_v234). Sub-sub pages
          (Live Monitor / TLS / Containers) keep their hand-built in-page panels. -->
     <div class="sidebar-group" data-group="fleet">
-      <button class="sidebar-group-toggle" title="Devices and inventory — every enrolled host, assets, sites, contacts and the network map">
+      <button class="sidebar-group-toggle" title="Devices and inventory — every enrolled host, assets, sites, contacts, the network map, plus virtual machines and containers">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
         <span>Fleet</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
@@ -227,11 +227,19 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
           <span>Query</span>
         </button>
+        <button class="nav-btn" id="nav-virtualization" data-page="virtualization" title="Virtual machines across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — power and snapshots">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>Virtualization</span>
+        </button>
+        <button class="nav-btn" data-page="containers" title="Docker / Podman / Kubernetes containers from agents, plus Proxmox LXC">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
+          <span>Containers</span>
+        </button>
       </div>
     </div>
 
     <div class="sidebar-group" data-group="monitoring">
-      <button class="sidebar-group-toggle" title="Live checks, logs, services, metrics and boards across the fleet">
+      <button class="sidebar-group-toggle" title="Live checks, logs, services, metrics, boards and integrated-software health across the fleet">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
         <span>Monitoring</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
@@ -277,6 +285,10 @@
         <button class="nav-btn" data-page="tuning" title="Alert tuning — find the noisiest alerts and silence them per host + alert type">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
           <span>Tuning</span>
+        </button>
+        <button class="nav-btn" data-page="integrations" title="Health of integrated homelab/fleet software (Pi-hole, TrueNAS, …)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8cda0690"/></svg>
+          <span>Integrations</span>
         </button>
       </div>
     </div>
@@ -472,7 +484,7 @@
     </div>
 
     <div class="sidebar-group" data-group="access">
-      <button class="sidebar-group-toggle" title="Connectivity — VPN access, DNS, virtualization, containers, integrations and files">
+      <button class="sidebar-group-toggle" title="Connectivity — VPN access, DNS and files">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M2 12h20M4 12a8 8 0 0 1 16 0"/></svg>
         <span>Access</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
@@ -485,18 +497,6 @@
         <button class="nav-btn" data-page="dns" title="Manage DNS zones and records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-9e897a47"/></svg>
           <span>DNS</span>
-        </button>
-        <button class="nav-btn" id="nav-virtualization" data-page="virtualization" title="Virtual machines across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — power and snapshots">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          <span>Virtualization</span>
-        </button>
-        <button class="nav-btn" data-page="containers" title="Docker / Podman / Kubernetes containers from agents, plus Proxmox LXC">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
-          <span>Containers</span>
-        </button>
-        <button class="nav-btn" data-page="integrations" title="Health of integrated homelab/fleet software (Pi-hole, TrueNAS, …)">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8cda0690"/></svg>
-          <span>Integrations</span>
         </button>
         <button class="nav-btn" data-page="files" title="Browse, view and edit files on a host (allowlisted paths, audited) — no SSH needed">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
@@ -2014,7 +2014,7 @@
             <div class="section-title">Listening-port &amp; firewall audit</div>
             <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cert-expiry-alerts-enabled"> Alert on expiring local certificate files (off by default — only your own service certs, not the CA trust store)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cert-expiry-alerts-enabled"> Alert on expiring local certificate files (on by default — one coalesced alert per host, only your own service certs, never the CA trust store)</label></div>
             <!-- W6-41: GeoIP (offline MMDB) -->
             <div class="settings-row"><label class="form-label" for="cfg-geoip-db-path">GeoLite2 Country DB path <span class="meta-sm">(optional — enriches login sources with country; leave blank to disable)</span></label><input type="text" id="cfg-geoip-db-path" class="form-input ff-mono" placeholder="/var/lib/GeoLite2-Country.mmdb" maxlength="512"></div>
             <div class="settings-row"><label class="form-label" for="cfg-geoip-asn-db-path">GeoLite2 ASN DB path <span class="meta-sm">(optional — adds ASN/org)</span></label><input type="text" id="cfg-geoip-asn-db-path" class="form-input ff-mono" placeholder="/var/lib/GeoLite2-ASN.mmdb" maxlength="512"></div>
@@ -4991,18 +4991,31 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="site-map-wrap" class="site-map-wrap">
             <svg id="site-map-svg" viewBox="0 0 360 180" preserveAspectRatio="xMidYMid meet" role="img" aria-label="World map of sites">
               <rect x="0" y="0" width="360" height="180" class="site-map-bg"/>
-              <g class="site-map-land">
-                <path d="M35 30 L95 25 L110 45 L92 66 L70 66 L58 52 L38 50 Z"/>
-                <path d="M70 66 L92 66 L100 78 L92 100 Z"/>
-                <path d="M95 95 L120 92 L128 118 L112 150 L98 140 L96 112 Z"/>
-                <path d="M170 30 L212 28 L214 50 L188 56 L172 48 Z"/>
-                <path d="M176 58 L222 56 L232 92 L206 122 L186 96 L178 74 Z"/>
-                <path d="M212 26 L320 22 L326 60 L286 80 L236 74 L214 52 Z"/>
-                <path d="M292 104 L332 104 L330 130 L298 128 Z"/>
-              </g>
               <g class="site-map-grat">
-                <line x1="0" y1="90" x2="360" y2="90"/>
-                <line x1="180" y1="0" x2="180" y2="180"/>
+                <!-- graticule: equator, tropics, polar circles + 60° meridians -->
+                <line x1="0" y1="23.5" x2="360" y2="23.5"/>
+                <line x1="0" y1="66.5" x2="360" y2="66.5"/>
+                <line x1="0" y1="90" x2="360" y2="90" class="grat-eq"/>
+                <line x1="0" y1="113.5" x2="360" y2="113.5"/>
+                <line x1="0" y1="156.5" x2="360" y2="156.5"/>
+                <line x1="60" y1="0" x2="60" y2="180"/>
+                <line x1="120" y1="0" x2="120" y2="180"/>
+                <line x1="180" y1="0" x2="180" y2="180" class="grat-eq"/>
+                <line x1="240" y1="0" x2="240" y2="180"/>
+                <line x1="300" y1="0" x2="300" y2="180"/>
+              </g>
+              <g class="site-map-land">
+                <!-- Stylised equirectangular world (x = lon+180, y = 90-lat) -->
+                <path d="M15 24 L25 19 L50 20 L80 17 L95 22 L116 30 L124 38 L110 45 L106 50 L100 58 L99 65 L90 61 L83 64 L86 70 L88 75 L75 68 L66 61 L56 50 L55 42 L45 33 L30 30 Z"/>
+                <path d="M98 82 L118 80 L145 88 L145 95 L140 113 L124 125 L117 140 L112 145 L108 143 L110 120 L105 105 L99 90 Z"/>
+                <path d="M168 52 L178 44 L184 37 L190 34 L188 32 L205 20 L240 18 L280 15 L320 18 L350 25 L340 38 L302 52 L290 68 L287 80 L283 88 L278 80 L270 68 L260 75 L257 82 L253 72 L245 65 L238 70 L225 77 L215 68 L208 54 L202 52 L192 50 L180 47 Z"/>
+                <path d="M172 55 L190 53 L205 58 L212 60 L231 80 L230 89 L220 98 L216 110 L208 118 L202 125 L195 118 L192 105 L190 95 L189 90 L185 86 L177 85 L163 76 L168 68 Z"/>
+                <path d="M293 105 L295 102 L313 100 L322 101 L333 110 L331 124 L325 127 L296 122 L293 110 Z"/>
+                <path d="M145 7 L160 20 L135 25 L128 20 Z"/>
+                <path d="M176 35 L177 30 L180 31 L180 36 Z"/>
+                <path d="M336 55 L340 45 L343 48 L339 58 Z"/>
+                <path d="M226 103 L229 105 L231 116 L227 117 Z"/>
+                <path d="M352 133 L355 125 L358 130 L354 136 Z"/>
               </g>
               <g id="site-map-dots"></g>
             </svg>
@@ -5100,7 +5113,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-patches" class="page">
         <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data <a href="docs/patches.md" class="c-accent">Documentation</a></div>
         <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" data-input-debounce="180" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch device filter"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
-        <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button></div>
+        <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button><button class="btn-icon" data-action="exportPatchPdf" title="Render a printable report and save it as PDF">PDF</button></div>
         <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
         <div class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
 
@@ -5142,9 +5155,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.2: fleet-wide patch catalog (by package) -->
         <div class="dash-card mt-16">
-          <div class="row-8-center mb-6"><div class="section-title">Patch catalog</div>
+          <div class="section-header mb-6">
+            <div class="row-8-center"><div class="section-title">Patch catalog</div><span id="patch-catalog-summary" class="fs-12 c-muted"></span></div>
             <button class="btn-icon" data-action="loadPatchCatalog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Refresh</button>
-            <span id="patch-catalog-summary" class="fs-12 c-muted"></span>
           </div>
           <div class="page-subtitle mb-12">Pending updates aggregated by package — which update is waiting, and on how many hosts. The inverse of the device table above.</div>
           <div id="patch-catalog-body"><div class="c-muted">Loading…</div></div>
@@ -5293,6 +5306,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-1bd07cbf"/></svg></div><div><div class="stat-value" id="services-stat-total">0</div><div class="stat-label">Units Watched</div></div></div>
         </div>
         <div class="table-card"><table><thead id="services-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="watched">Watched</th><th scope="col" data-col="up" class="ta-center">Up</th><th scope="col" data-col="down" class="ta-center">Down</th><th scope="col" data-col="last_report">Last report</th><th scope="col"></th></tr></thead><tbody id="services-tbody"><tr><td colspan="7" class="empty-state">Click Refresh to load. </td></tr></tbody></table></div>
+
+        <!-- v6.0.1 (item 3): dedicated fleet Service-baselines editor, previously
+             reachable only from a device's "Configure watched services" modal. -->
+        <div class="dash-card mt-16" id="services-baselines-card">
+          <div class="section-header mb-8">
+            <div class="row-8-center"><div class="section-title">Service baselines</div><span class="hint">Default watched units applied fleet-wide by scope</span></div>
+            <div class="row-8"><button class="btn-icon" data-action="addServiceBaselineCard">+ Add baseline</button><button class="btn-primary btn-sm" data-action="saveServiceBaselinesCard">Save baselines</button></div>
+          </div>
+          <p class="hint mb-8">A baseline watches a default set of systemd units across every device its scope covers — merged with each host's own list, so you don't edit each host. Also reachable from a device's <em>Configure watched services → Edit baselines</em>.</p>
+          <div id="services-baselines-list" class="scroll-cap"><div class="c-muted">Loading…</div></div>
+        </div>
       </div>
 
       <!-- ── v1.8.1: Logs page ─────────────────────────────────────────────── -->
@@ -5781,12 +5805,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- v3.4.0: LAN discovery — unmanaged hosts agents found on their subnet -->
-        <div class="section-header mt-16">
-          <div class="section-title">Unmanaged hosts on the LAN</div>
-          <button class="btn-icon" data-action="loadDiscovery"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+        <div class="dash-card mt-16">
+          <div class="section-header">
+            <div class="section-title">Unmanaged hosts on the LAN</div>
+            <button class="btn-icon" data-action="loadDiscovery"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          </div>
+          <p class="hint">Hosts seen by agents that ran a LAN scan (device drawer → Health &amp; Hardware → Scan LAN) and that aren't enrolled in RemotePower.</p>
+          <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a device's Health &amp; Hardware card.</div></div>
         </div>
-        <div class="page-subtitle">Hosts seen by agents that ran a LAN scan (device drawer → Health &amp; Hardware → Scan LAN) and that aren't enrolled in RemotePower.</div>
-        <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a device's Health &amp; Hardware card.</div></div>
       </div>
 
       <!-- ── v5.0.0: network throughput metrics, scoped fleet/group/tag/site ── -->
@@ -5970,7 +5996,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </button>
         </div>
         <div class="mb-16"><input type="text" id="catalog-filter" class="form-input input-wide-sm" placeholder="Search apps by name, category or description…" data-input="filterCatalog" aria-label="Search apps"></div>
-        <div id="catalog-grid" class="scroll-cap"></div>
+        <div id="catalog-grid"></div>
       </div>
       <!-- ── v5.1.0: Cron + systemd timer management ─────────────────────── -->
       <div id="page-cron" class="page">
@@ -7307,8 +7333,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="autopatch-edit-id">
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="autopatch-name" class="form-input" placeholder="Weekly prod security updates" maxlength="80" aria-label="Name"></div>
   <div class="row-8">
-    <div class="form-group flex-1"><label class="form-label">Target</label><select id="autopatch-target-type" class="form-input" aria-label="Target"><option value="all">All devices</option><option value="group">Group</option><option value="tag">Tag</option><option value="site">Site</option></select></div>
-    <div class="form-group flex-1"><label class="form-label">Value</label><input type="text" id="autopatch-target-value" class="form-input" placeholder="prod" aria-label="Value"></div>
+    <div class="form-group flex-1"><label class="form-label">Target</label><select id="autopatch-target-type" class="form-input" data-change="onAutopatchTargetTypeChange" aria-label="Target"><option value="all">All devices</option><option value="device">Single device</option><option value="group">Group</option><option value="tag">Tag</option><option value="site">Site</option></select></div>
+    <div class="form-group flex-1" id="autopatch-target-value-wrap"><label class="form-label">Value</label><input type="text" id="autopatch-target-value" class="form-input" placeholder="prod" aria-label="Value"></div>
+    <div class="form-group flex-1 hidden" id="autopatch-target-device-wrap"><label class="form-label">Device</label><select id="autopatch-target-device" class="form-input device-combo" data-combo-placeholder="Search devices&hellip;" aria-label="Device"></select></div>
   </div>
   <div class="form-group"><label class="form-label">Schedule (cron: min hour dom mon dow)</label><input type="text" id="autopatch-cron" class="form-input" placeholder="0 3 * * 0" aria-label="Schedule (cron: min hour dom mon dow)"></div>
   <div class="form-group"><label class="form-label"><input type="checkbox" id="autopatch-reboot"> Reboot after upgrade if required</label></div>

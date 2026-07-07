@@ -1256,6 +1256,9 @@
   }
   .btn-icon:hover { background: var(--hair-2); color: var(--text); }
   .btn-icon svg { width: 14px; height: 14px; }
+  /* v6.0.1 (item 10): compact button size for dense rows / table action cells. */
+  .btn-sm { padding: 5px 10px; font-size: 12px; min-height: 0; }
+  .btn-xs { padding: 3px 8px; font-size: 11px; min-height: 0; }
   .enroll-btn {
     background: var(--accent);
     color: #fff;
@@ -4755,7 +4758,9 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-413 { padding-top: 6px }
 .isl-414 { max-height: 200px; margin-top: 6px }
 .isl-415 { font-size: 12px; font-family: var(--font-mono); color: var(--muted) }
-.isl-416 { padding: 4px 8px; font-size: 11px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+/* v6.0.1: sizing-only. The red used to bleed onto the neutral Edit button that
+   shares this class; delete buttons carry .c-danger-outline for the red. */
+.isl-416 { padding: 4px 8px; font-size: 11px }
 .isl-417 { font-family: var(--font-mono); font-size: 11px; color: var(--muted) }
 .isl-418 { text-align: center; color: var(--muted); padding: 20px }
 .isl-419 { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; padding: 1px 4px }
@@ -5187,6 +5192,26 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .isl-712 { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0 }
 .isl-713 { font-weight: 600 }
 .isl-714 { font-size: 13px; margin-bottom: 10px }
+/* v6.0.1 (item 2): Server-status key/value cards. Each card is a separate
+   full-width table, so auto-layout gave every card a different label-column
+   width and the values never lined up down the page. Pin the label column to a
+   fixed width (values start at the same x in every card) and give both cells the
+   same compact rhythm. Scoped to the 2-column info tables (.fs-13 / .isl-714) —
+   the 3-column "Slow requests" table has no such class, so it's untouched. */
+#self-status-body table.fs-13,
+#self-status-body table.isl-714 { table-layout: fixed; }
+#self-status-body table.fs-13 td,
+#self-status-body table.isl-714 td {
+  padding: 4px 12px 4px 0;
+  border-bottom: none;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+#self-status-body table.fs-13 td:first-child,
+#self-status-body table.isl-714 td:first-child {
+  width: 210px;
+  color: var(--muted);
+}
 .isl-715 { cursor: pointer; color: var(--muted); font-size: 12px }
 .isl-716 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(580px,90vw); max-height: 60vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
 .isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 14px; outline: none }
@@ -5843,6 +5868,15 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+/* v6.0.1 (item 10): a lone .btn-primary carries `flex:1` so it splits a modal's
+   action row with Cancel. In an inline control/toolbar row that same grow makes
+   it balloon to fill the whole card. Scope it back to content-size in those rows
+   (modal-actions is untouched, so the Cancel+Save split still works). */
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178,
+    .row-6, .row-6-center, .row-6-wrap, .row-8, .row-8-mb8, .row-8-center,
+    .section-header, .form-row-wrap, .user-actions) > .btn-primary {
+  flex: 0 0 auto;
 }
 
 /* ── v3.12.0: device combobox (filterbox replacing a device <select>) ─────────
@@ -6842,8 +6876,10 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
 .site-map-wrap { width: 100%; max-width: 720px; margin: 8px auto 0; }
 #site-map-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
 .site-map-bg { fill: var(--bg-elev, #0d1117); }
-.site-map-land path { fill: var(--surface-2, #1e2530); stroke: var(--border, #2b3543); stroke-width: 0.5; }
-.site-map-grat line { stroke: var(--border, #2b3543); stroke-width: 0.4; stroke-dasharray: 2 2; }
+.site-map-land path { fill: var(--surface-2, #1e2530); stroke: var(--border, #2b3543); stroke-width: 0.6; stroke-linejoin: round; }
+.site-map-grat line { stroke: var(--border, #2b3543); stroke-width: 0.3; stroke-dasharray: 2 2; opacity: 0.7; }
+/* v6.0.1 (item 6): equator + prime meridian drawn a touch stronger for reference */
+.site-map-grat line.grat-eq { stroke-width: 0.5; stroke-dasharray: none; opacity: 0.5; }
 .site-map-dot { cursor: pointer; stroke: #0d1117; stroke-width: 0.6; }
 .site-map-dot.ok { fill: var(--c-green, #3fb950); }
 .site-map-dot.degraded { fill: var(--c-amber, #d29922); }

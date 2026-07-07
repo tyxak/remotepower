@@ -481,6 +481,8 @@
     "Tokens": { "fr": "Jetons", "de": "Tokens", "zh": "令牌", "hi": "टोकन", "es": "Tokens", "ar": "الرموز" },
     "Top Processes": { "fr": "Principaux processus", "de": "Top-Prozesse", "zh": "进程占用排行", "hi": "शीर्ष Processes", "es": "Procesos principales", "ar": "أبرز العمليات" },
     "Unmanaged hosts on the LAN": { "fr": "Hôtes non gérés sur le LAN", "de": "Nicht verwaltete Hosts im LAN", "zh": "局域网中的未托管主机", "hi": "LAN पर अप्रबंधित hosts", "es": "Hosts no gestionados en la LAN", "ar": "مضيفون غير مُدارين على الشبكة المحلية" },
+    "Service baselines": { "fr": "Références de services", "de": "Dienst-Baselines", "zh": "服务基线", "hi": "सेवा आधाररेखाएँ", "es": "Líneas base de servicios", "ar": "خطوط أساس الخدمات" },
+    "PDF": { "fr": "PDF", "de": "PDF", "zh": "PDF", "hi": "PDF", "es": "PDF", "ar": "PDF" },
     "Users &amp; Roles": { "fr": "Utilisateurs &amp; rôles", "de": "Benutzer &amp; Rollen", "zh": "用户 &amp; 角色", "hi": "उपयोगकर्ता &amp; भूमिकाएँ", "es": "Usuarios y roles", "ar": "المستخدمون &amp; الأدوار" },
     "systemd units watched per device. Click a row to see history, logs, and configuration.": { "zh": "按设备监视的 systemd 单元。点击行可查看历史、日志和配置。", "hi": "प्रति device निगरानी की गई systemd units। इतिहास, लॉग्स, और कॉन्फ़िगरेशन देखने के लिए किसी row पर क्लिक करें।", "es": "Unidades de systemd vigiladas por dispositivo. Haz clic en una fila para ver el historial, los registros y la configuración.", "ar": "وحدات systemd المُراقَبة لكل جهاز. انقر صفًّا لعرض السجل والسجلات والتهيئة." },
     // ── v4.2: dynamic status / empty-state / toast strings ──

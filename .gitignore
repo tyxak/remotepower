@@ -23,6 +23,9 @@ scan-*/
 CLAUDE.md
 opencode.md
 
+# Cursor rules imported from CLAUDE.md — same internal-only treatment
+.cursor/
+
 # Marketing landing page for remotepower.tvipper.com — a standalone deployable
 # kept on disk but untracked, so it never reaches the production repo. Deploy it
 # by copying site/ to that host's web root.
