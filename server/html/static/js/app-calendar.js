@@ -426,8 +426,16 @@ async function deleteCurrentTask() {
   }
 }
 let notificationsEnabled = false;
-function requestNotifications() { if (!('Notification' in window)) return; if (Notification.permission === 'granted') { notificationsEnabled = true; return; } if (Notification.permission !== 'denied') Notification.requestPermission().then(p => { notificationsEnabled = (p === 'granted'); }); }
-function sendNotification(title, body) { if (!notificationsEnabled) return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) { console.warn('Notification failed:', e); } }
+function requestNotifications() {
+  // v6.0.1: do NOT call Notification.requestPermission() here — this runs at app
+  // boot, not from a user gesture, so Firefox logs a warning and Chrome/Safari
+  // auto-defer/deny an unprompted request (and it's an intrusive first-visit
+  // popup). Only reflect an already-granted permission; the actual opt-in happens
+  // from the push-enable button (a real click) via app.js.
+  if (!('Notification' in window)) return;
+  notificationsEnabled = (Notification.permission === 'granted');
+}
+function sendNotification(title, body) { if (!('Notification' in window) || Notification.permission !== 'granted') return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) { console.warn('Notification failed:', e); } }
 let previousDeviceStates = {};
 function checkDeviceNotifications(newDevices) { if (!notificationsEnabled) return; for (const d of newDevices) { const prev = previousDeviceStates[d.id]; if (prev !== undefined && prev !== d.online) sendNotification(`RemotePower: ${d.name}`, d.online ? 'Device came online' : 'Device went offline'); previousDeviceStates[d.id] = d.online; } }
 // v1.8.4: fetch unauthenticated public info (server name, remember-me default)
