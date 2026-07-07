@@ -510,7 +510,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Industrial "New UI" | Graphite/steel default (IBM Plex Mono sidebar) + New/Old toggle, per-browser, CSP-safe *(v4.6.0)* |
+| ClarityMatters interface | Flat, calm v6 UI — `--surface` panels with hairline borders, system font stack, accent-soft active states; a 12-domain sidebar accordion and a left-nav Settings *(v6.0.0)* |
 | Themes | 13 palettes + Follow system + accent presets, persisted per browser |
 | Composable dashboard | Resizable widget grid, 67-widget catalog, size/reorder/show-hide/reset, import/export layout *(v4.1.0)* |
 | Command palette | `/` or `Ctrl/Cmd-K` fuzzy launcher — pages, devices, open alerts, vulnerable hosts, scripts, bulk actions, command history *(v3.0.2)* |

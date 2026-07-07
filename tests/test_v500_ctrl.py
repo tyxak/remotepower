@@ -382,7 +382,7 @@ class TestDiskWatchdog(unittest.TestCase):
     def test_recover_matches_by_target(self):
         # the server_disk_ok branch in _auto_resolve_alerts matches on 'target'
         i = API_SRC.index("def _auto_resolve_alerts(")
-        block = API_SRC[i:i + 4000]
+        block = API_SRC[i:i + 5200]
         self.assertIn("event == 'server_disk_ok'", block)
         self.assertIn("sub_match['target'] = p.get('target')", block)
 

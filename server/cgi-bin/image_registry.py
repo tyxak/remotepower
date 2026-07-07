@@ -130,11 +130,14 @@ def remote_digest(registry, repository, tag, creds=None, timeout=4.0,
 
 
 def _open(req, timeout, opener):
-    """Fetch via the caller-supplied SSRF-safe opener, or fall back to the
-    stdlib default opener when none was provided."""
-    if opener is not None:
-        return opener.open(req, timeout=timeout)
-    return urllib.request.urlopen(req, timeout=timeout)
+    """Fetch via the caller-supplied SSRF-safe opener. The opener is MANDATORY:
+    every image-registry lookup is on an operator-configured registry URL, so it
+    must ride the connect-time peer-IP / no-redirect guard. Fail closed rather
+    than silently fall back to the stdlib opener (which would follow redirects
+    and skip the IP recheck) if a future caller forgets to pass one."""
+    if opener is None:
+        raise ValueError("image_registry._open requires an SSRF-safe opener")
+    return opener.open(req, timeout=timeout)
 
 
 def _manifest_digest(url, headers, timeout, method="HEAD", opener=None):

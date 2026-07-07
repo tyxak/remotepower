@@ -56,13 +56,12 @@ holds long-form docs that don't fit there.
  penetration test — no Critical/High/Medium ships; two Medium read-only-role write
  gates plus Low/defense-in-depth fixes (agent no-redirect, file-manager resolved
  path, `javascript:` link scheme, scrub/arg-terminator hardening).
-- **[security-review-5.6.0.md](security-review-5.6.0.md)** — A prior review:
- the v5.6.0 "HeapMatters" line (knowledge base, automation actions, check
- catalog + `systemd_unit`, recover events) plus a 5-dimension manual pentest and
- the full SAST stack (CodeQL 0, Bandit/gitleaks/njsscan/pip-audit clean) — no
- Critical/High/Medium ships; seven Low fixes (two secret-URL leaks, a read-only-role
- write gate, `systemctl`/`useradd` arg-injection guards, RouterOS/OPNsense
- connect-time SSRF).
+- **[security-review-6.0.1.md](security-review-6.0.1.md)** — The v6.0.1
+ "RefineMatters" review: a whole-project SAST run (CodeQL, Bandit, gitleaks — all
+ clean), DAST scanners and a live authenticated API pentest — no Critical/High/Medium
+ ships; two Medium alert-resolution correctness fixes and Low defense-in-depth
+ hardening (no-redirect vuln-DB lookups, mandatory SSRF-safe image-registry opener,
+ a read-only-role ticket-badge write gate).
 
 ## Release notes
 
@@ -71,7 +70,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v6.0.0.md](v6.0.0.md)** — "ClarityMatters" (unreleased, test): the v6 UI
+- **[v6.0.1.md](v6.0.1.md)** — "RefineMatters": a refinement release — sidebar
+ reorg (Virtualization/Containers → Fleet, Integrations → Monitoring, App catalog →
+ Automation; sub-menus sorted A–Z), a real world map, single-device auto-patch, a
+ Service-baselines card, PDF patch export, a certificate-expiry alert and two new
+ alerts (read-only remount, mail-queue backlog), plus hardening, perf and docs work.
+- **[v6.0.0.md](v6.0.0.md)** — "ClarityMatters": the v6 UI
  overhaul — one flat interface (the New/Old toggle is gone), a 12-domain sidebar
  accordion, left-nav Settings, always-on standard modules, an optional auto-hide
  sidebar and per-page documentation links — plus the accumulated backend work
@@ -97,12 +101,6 @@ The five most recent per-release notes are kept here:
  **enterprise-hardening** program, plus helpdesk-signal + billing polish (AV
  **`av_warning`** alerts, ticket **attachments**, **auto-reply**, **"View email
  thread"**, opt-in **Billing**). All opt-in, default-off. No breaking changes.
-- **[v5.4.0.md](v5.4.0.md)** — "RackMatters": a lightweight **time-tracking +
- billing** layer on one shared time-entry ledger — log billable (debtable) or
- internal hours on tickets and a weekly **timesheet**, then turn them plus
- recurring fees into per-customer **invoices** (worksheet → draft/sent/paid, with
- issue-time hour locking). New read-only **finance** role; CSV / JSON-API /
- browser-PDF export. No breaking changes.
 
 Older release notes (v5.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

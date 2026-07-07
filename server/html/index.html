@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.0.0-2">
+<link rel="stylesheet" href="static/css/styles.css?v=6.0.1">
 
 </head>
 <body>
@@ -1141,14 +1141,14 @@
         <div class="table-card"><table><thead id="users-thead"><tr><th scope="col" data-col="username">Username</th><th scope="col" data-col="created">Created</th><th scope="col" data-col="role">Role</th><th scope="col" data-col="mfa">MFA</th><th scope="col" data-col="source">Source</th><th scope="col"></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
 
         <!-- v3.4.2: custom RBAC roles -->
-        <div class="dash-card mt-24">
+        <div class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Custom roles</div><button class="enroll-btn" data-action="openRoleAdd"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> Add role</button></div>
           <div class="page-subtitle mb-12">A custom role grants a subset of actions — <strong>exec</strong>, <strong>reboot</strong>, <strong>upgrade</strong> — limited to a <strong>scope</strong> (all devices, or only named groups/tags). Members can act on their scope and see only those devices on the Devices roster; server config, user/role management and saved scripts stay admin-only.</div>
           <div id="roles-list" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- ── v5.6.0: timesheet watch grants ──────────────────────────── -->
-        <div class="dash-card mt-24">
+        <div class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Timesheet watchers</div></div>
           <div class="hint mb-12">Let specific users view another user's <strong>timesheet</strong> — read-only, hours only, never rates. Grant a watcher a single <strong>user</strong> or a whole <strong>team</strong>. Admins and the <strong>finance</strong> role already see everyone, so they need no grant. Watchers switch view with the <strong>"Watch for"</strong> box on the Timesheet page.</div>
           <div class="hc-grid-2 mb-8">
@@ -3252,7 +3252,26 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion twelve 12 domains settings left-nav left nav auto-hide autohide watermark always-on modules tickets billing provisioning file manager knowledge base documentation typography headers buttons tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
+          <details class="doc-card" open data-keywords="release notes changelog v6.0.1 refinematters refine polish hardening sidebar reorg virtualization containers fleet integrations monitoring app catalog automation alphabetical sort world map sites real coastline auto-patch single device target service baselines card patch report pdf export button sizing consistent certificate expiry alert readonly read-only remount filesystem mail queue mailq backlog alert process storage recovered resolution fix ssrf cve scanner image registry ticket badge performance heartbeat typography spacing security review pentest">
+            <summary><strong>What's new — v6.0.1 &ldquo;RefineMatters&rdquo;</strong> — a refinement release: a broad polish, hardening and correctness pass. Sidebar reorganised (Virtualization/Containers under Fleet, Integrations under Monitoring, App catalog under Automation; sub-menus sorted A–Z), a real world map, single-device auto-patch targets, a Service-baselines card, PDF patch-report export, and consistent button sizing — plus a certificate-expiry alert and two new alerts (read-only remount, mail-queue backlog). No breaking changes.</summary>
+            <div class="doc-body">
+              <p>v6.0.1 refines v6 across the board. Hard-reload once after upgrading (cache <code>remotepower-shell-v6.0.1</code>).</p>
+              <p><strong>Fleet &amp; interface</strong></p>
+              <ul>
+                <li>Sidebar reorganised — <strong>Virtualization</strong> and <strong>Containers</strong> under Fleet, <strong>Integrations</strong> under Monitoring, the <strong>App catalog</strong> under Automation; every sub-menu is sorted alphabetically.</li>
+                <li>A <strong>real world map</strong> on the Sites page (actual coastlines), <strong>single-device auto-patch</strong> targets, a dedicated <strong>Service baselines</strong> card on the Services page, and a <strong>PDF</strong> patch-report export.</li>
+                <li>Consistent button sizing (no full-width buttons), tidier table actions, and aligned Server-status value columns.</li>
+              </ul>
+              <p><strong>Alerts</strong></p>
+              <ul>
+                <li><strong>Certificate expiry</strong> now raises an alert by default (coalesced per host), with an opt-out in Settings.</li>
+                <li>New alerts: <strong>read-only remount</strong> (a filesystem the kernel flips read-only — a silent data-loss outage) and <strong>mail-queue backlog</strong>.</li>
+                <li>Fixed two cases where recovering one watched process / storage pool cleared the still-open alerts for the others on the same host.</li>
+              </ul>
+              <p><strong>Under the hood</strong> — extra defense-in-depth on outbound vulnerability-database and image-registry lookups, faster heartbeats, standardised typography/spacing, and a published <a href="docs/security-review-6.0.1.md" class="c-accent">security review</a>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion twelve 12 domains settings left-nav left nav auto-hide autohide watermark always-on modules tickets billing provisioning file manager knowledge base documentation typography headers buttons tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
             <summary><strong>What's new — v6.0.0 &ldquo;ClarityMatters&rdquo;</strong> — the v6 interface overhaul: one flat UI (the New-UI/Old-UI toggle is gone), a 12-domain sidebar accordion, left-nav Settings, always-on standard modules, an optional auto-hide sidebar and per-page documentation links — folding in built-in TLS/DANE expiry scheduling, SNMPv3 polling and a GitHub Issues connector (no breaking changes)</summary>
             <div class="doc-body">
               <p>v6.0.0 is the ClarityMatters interface overhaul, folding in the accumulated backend work below. Hard-reload once after upgrading (cache <code>remotepower-shell-v6.0.0</code>).</p>
@@ -3363,20 +3382,6 @@
                 <li><strong>UX.</strong> Localized dates/numbers/currency (<code>Intl</code>), WCAG fixes (aria-live toasts, focus-trapped drawer, skip link), and a first-run guided onboarding tour.</li>
               </ul>
               <p class="hint">See <code>docs/v5.5.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.4.0 rackmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
-            <summary><strong>What's new — v5.4.0 "RackMatters"</strong> — time-tracking and billing: log billable / internal hours on tickets and a weekly timesheet, then turn them (plus recurring fees) into per-customer invoices (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.4.0 adds a lightweight <strong>time-tracking + billing</strong> layer on one shared ledger. Log hours where the work happens; bill them where the money is. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.4.0</code>).</p>
-              <ul>
-                <li><strong>Hours on tickets.</strong> A <em>Log hours</em> button on every ticket — type the hours in 0.25-hour steps (0.25 = 15 min), mark them billable (debtable) or internal. Billable hours attach to the ticket's customer (site).</li>
-                <li><strong>Weekly timesheet.</strong> A personal <em>Timesheet</em> page (also linked from your profile) — a week view you can page back and forth through. Stamp in ad-hoc time too: meetings, education, internal projects. Hours you logged on tickets show up here automatically.</li>
-                <li><strong>Billing.</strong> Under <em>Admin → Billing</em>: a <strong>Worksheet</strong> (hours × rate + recurring fees → subtotal / VAT / total per customer per month), <strong>Invoices</strong> (draft → sent → paid, with void), and <strong>Rates &amp; Fees</strong> (a named rate card, per-customer default rate / VAT / billing address, and recurring license / operation / service fees).</li>
-                <li><strong>Locking &amp; roles.</strong> Issuing an invoice locks the hours it bills so totals can't drift (void to re-bill). A new read-only <strong>finance</strong> role can view and export billing without admin rights; everyone logs their own hours.</li>
-                <li><strong>Export.</strong> CSV and JSON API on the ledger, worksheet and invoices; print an invoice to PDF from the browser.</li>
-              </ul>
-              <p class="hint">See <code>docs/time-billing.md</code> and <code>docs/v5.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -5336,7 +5341,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- Tail viewer -->
-        <div id="logs-viewer-wrap" class="mb-24">
+        <div id="logs-viewer-wrap" class="mb-16">
           <div class="isl-143">
             <div id="logs-viewer-title" class="isl-76">Live tail — auto-refreshing every 30s</div>
             <div class="row-8-center">
@@ -5507,7 +5512,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
           <!-- W2-36: rolling reboot orchestrator -->
-          <details class="dash-card mb-12">
+          <details class="dash-card mb-16">
             <summary class="section-title">Rolling reboot</summary>
             <p class="hint mt-8">Reboot a scope in <strong>dependency-ordered waves</strong> — devices nothing depends on first, upstreams last (from each device's declared <em>depends_on</em>). Each wave is health-gated and verified before the next, exactly like a rollout. Preview the waves, then create the rollout.</p>
             <div class="row-6-center mt-8">
@@ -9088,46 +9093,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=6.0.0-2"></script>
-<script defer src="static/js/app.js?v=6.0.0-2"></script>
+<script defer src="static/js/i18n.js?v=6.0.1"></script>
+<script defer src="static/js/app.js?v=6.0.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-cmdb.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-containers.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-network.js?v=6.0.0-2"></script>
+<script defer src="static/js/app-calendar.js?v=6.0.1"></script>
+<script defer src="static/js/app-cmdb.js?v=6.0.1"></script>
+<script defer src="static/js/app-containers.js?v=6.0.1"></script>
+<script defer src="static/js/app-network.js?v=6.0.1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-compliance.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-integrations.js?v=6.0.0-2"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.0.1"></script>
+<script defer src="static/js/app-compliance.js?v=6.0.1"></script>
+<script defer src="static/js/app-integrations.js?v=6.0.1"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-dns.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-drift.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-dmarc.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-cve.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-firewall.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-backups.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-iac.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-provisioning.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-tuning.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-kb.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-rollouts.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-power.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-gpu.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-proxmox.js?v=6.0.0-2"></script>
-<script defer src="static/js/wg-access.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-billing.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-virt.js?v=6.0.0-2"></script>
+<script defer src="static/js/app-ai.js?v=6.0.1"></script>
+<script defer src="static/js/app-dns.js?v=6.0.1"></script>
+<script defer src="static/js/app-drift.js?v=6.0.1"></script>
+<script defer src="static/js/app-dmarc.js?v=6.0.1"></script>
+<script defer src="static/js/app-cve.js?v=6.0.1"></script>
+<script defer src="static/js/app-firewall.js?v=6.0.1"></script>
+<script defer src="static/js/app-backups.js?v=6.0.1"></script>
+<script defer src="static/js/app-iac.js?v=6.0.1"></script>
+<script defer src="static/js/app-provisioning.js?v=6.0.1"></script>
+<script defer src="static/js/app-tuning.js?v=6.0.1"></script>
+<script defer src="static/js/app-kb.js?v=6.0.1"></script>
+<script defer src="static/js/app-rollouts.js?v=6.0.1"></script>
+<script defer src="static/js/app-power.js?v=6.0.1"></script>
+<script defer src="static/js/app-gpu.js?v=6.0.1"></script>
+<script defer src="static/js/app-proxmox.js?v=6.0.1"></script>
+<script defer src="static/js/wg-access.js?v=6.0.1"></script>
+<script defer src="static/js/app-billing.js?v=6.0.1"></script>
+<script defer src="static/js/app-virt.js?v=6.0.1"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-checks.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-logs.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-remote.js?v=6.0.0-2"></script>
-<script defer src="static/js/app-tickets.js?v=6.0.0-2"></script>
+<script defer src="static/js/app-alerts.js?v=6.0.1"></script>
+<script defer src="static/js/app-checks.js?v=6.0.1"></script>
+<script defer src="static/js/app-logs.js?v=6.0.1"></script>
+<script defer src="static/js/app-remote.js?v=6.0.1"></script>
+<script defer src="static/js/app-tickets.js?v=6.0.1"></script>
 
-<script defer src="static/js/sw-register.js?v=6.0.0-2"></script>
+<script defer src="static/js/sw-register.js?v=6.0.1"></script>
 </body>
 </html>

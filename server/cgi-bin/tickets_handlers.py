@@ -303,7 +303,9 @@ def handle_ticket_get(tid):
     if not t:
         A.respond(404, {'error': 'ticket not found'})
     # Opening the ticket clears the "new customer reply" badge (read receipt).
-    if t.get('new_reply'):
+    # Only a write-capable operator clears it — a pure read-only role (viewer/
+    # mcp/auditor/finance) peeking must not mutate the shared unread state.
+    if t.get('new_reply') and A._caller_can_write():
         try:
             with A._LockedUpdate(A.TICKETS_FILE) as _st:
                 _tk = next((x for x in (_st.get('tickets') or []) if x.get('id') == tid), None)

@@ -10,7 +10,22 @@ import re
 import shutil
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx. The vuln-DB hosts below are fixed public constants, so a
+    redirect can only be an attempt to bounce the request to an unintended
+    (possibly internal) host — blind SSRF. Fail closed instead of following."""
+    def redirect_request(self, *a, **k):  # noqa: D401
+        return None
+
+
+# No-redirect opener for every outbound vuln-DB fetch. Defense in depth: the
+# hosts are hardcoded, no credential is sent and the response is never
+# reflected, but a poisoned DNS answer / 302 must not be followed regardless.
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 OSV_QUERYBATCH_URL = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_URL       = "https://api.osv.dev/v1/vulns/"
@@ -96,17 +111,17 @@ def _osv_querybatch(queries: list) -> list:
         headers={'Content-Type': 'application/json'},
         method='POST',
     )
-    with urllib.request.urlopen(req, timeout=OSV_TIMEOUT) as resp:
+    with _OPENER.open(req, timeout=OSV_TIMEOUT) as resp:
         return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8')).get('results', [])
 
 
 def _osv_vuln_details(vuln_id: str) -> dict | None:
     try:
         req = urllib.request.Request(
-            OSV_VULN_URL + vuln_id,
+            OSV_VULN_URL + urllib.parse.quote(vuln_id, safe=''),
             headers={'Accept': 'application/json'},
         )
-        with urllib.request.urlopen(req, timeout=OSV_DETAIL_TIMEOUT) as resp:
+        with _OPENER.open(req, timeout=OSV_DETAIL_TIMEOUT) as resp:
             return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8'))
     except Exception:
         return None
@@ -344,9 +359,9 @@ def _debian_severity_fallback(cve_id: str) -> str | None:
     if cve_id.startswith('DEBIAN-'):
         cve_id = cve_id[7:]
     try:
-        url = f"https://security-tracker.debian.org/api/json/cve/{cve_id}"
+        url = f"https://security-tracker.debian.org/api/json/cve/{urllib.parse.quote(cve_id, safe='')}"
         req = urllib.request.Request(url, headers={'User-Agent': 'RemotePower'})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _OPENER.open(req, timeout=10) as resp:
             data = json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8'))
         # Debian urgency can carry a '**' suffix (postponed / end-of-life
         # — e.g. 'low**'); strip it before matching.

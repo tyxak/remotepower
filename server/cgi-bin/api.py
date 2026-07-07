@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.0.0'
+SERVER_VERSION = '6.0.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -1327,6 +1327,22 @@ EVENT_REGISTRY = {
     'mount_recovered': dict(
         label='Mount point recovered', kind='mount', title='Mount Point Recovered',
         resolves=('mount_issue',)),
+    # v6.0.1: a local filesystem the kernel remounted read-only is a silent
+    # data-loss outage. It had a Checks-page row but no inbox/webhook path.
+    'readonly_fs': dict(
+        label='A local filesystem was remounted read-only on a host (I/O error / silent outage)',
+        kind='storage', title='Filesystem Remounted Read-Only', severity='high',
+        tags='rotating_light,floppy_disk'),
+    'readonly_fs_cleared': dict(
+        label='Read-only filesystem is read-write again', kind='storage',
+        title='Filesystem Read-Write Again', resolves=('readonly_fs',)),
+    # v6.0.1: mail-queue backlog crossing its threshold (postfix/exim/sendmail).
+    'mailq_high': dict(
+        label='Mail queue depth crossed its alert threshold on a host', kind='mailq',
+        title='Mail Queue Backed Up', severity='medium', tags='warning,envelope'),
+    'mailq_normal': dict(
+        label='Mail queue drained back to normal', kind='mailq',
+        title='Mail Queue Normal', resolves=('mailq_high',)),
     'disk_predict_fail': dict(
         label='A disk is predicted to fail (SMART trend)', kind='disk_predict',
         title='Disk Predicted To Fail', severity='high', tags='warning,floppy_disk'),
@@ -6344,6 +6360,7 @@ CHANNEL_KIND_DEFS = (
     ('timer', 'Scheduled-job failures', 'operational'),
     ('database', 'Database integrity', 'operational'),
     ('mount', 'Mount-point health', 'operational'),
+    ('mailq', 'Mail queue depth', 'operational'),  # v6.0.1
     # v3.14.0: predictive / posture alerts
     ('disk_predict', 'Disk failure prediction', 'operational'),
     ('ups', 'UPS / power state', 'operational'),
@@ -7729,7 +7746,12 @@ def _record_alert(event, payload):
                     # v5.8.0: github_new_issue — repo + number identify the
                     # issue; title/url make the alert self-describing and let
                     # the UI link straight to it.
-                    'repo', 'title', 'url'):
+                    'repo', 'title', 'url',
+                    # v6.0.1: pool identifies a per-pool storage_degraded alert so
+                    # storage_recovered clears only the recovered pool (not every
+                    # pool's alert + scrub_overdue on the host). paths lists the
+                    # read-only mounts for the new readonly_fs alert.
+                    'pool', 'paths', 'threshold'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -7822,6 +7844,18 @@ def _auto_resolve_alerts(event, payload):
     elif event == 'custom_metric_recover':
         # W3-11: per (host, metric name) — clear only this metric's open alert.
         sub_match['metric'] = p.get('metric')
+    elif event == 'process_recovered':
+        # v6.0.1: process_alert is edge-triggered per (device, watched process,
+        # metric). Without this match a recovery on ONE process cleared EVERY
+        # open process_alert on the host — the still-breaching one then never
+        # re-fired (its state stays breaching). Match process + metric.
+        sub_match['process'] = p.get('process')
+        sub_match['metric']  = p.get('metric')
+    elif event == 'storage_recovered':
+        # v6.0.1: storage_degraded fires per-pool; a device-id-only recovery
+        # cleared every pool's open alert (and any scrub_overdue) on the host,
+        # so a still-degraded second pool lost its alert. Match the pool.
+        sub_match['pool'] = p.get('pool')
     elif event == 'mount_recovered':
         # Per-path: a recovered /mnt/a must not clear the open alert for /mnt/b
         # on the same host. Match the mount path.
@@ -11336,6 +11370,16 @@ def _caller_role():
         return 'viewer'
 
 
+def _caller_can_write():
+    """Non-raising form of require_write_role's predicate: admin OR a role with
+    at least one action permission (a scoped operator). Pure read-only roles
+    (viewer/mcp/auditor/finance) → False. Use it to skip an incidental state
+    mutation (e.g. clearing a read-receipt badge) for read-only callers without
+    denying them the read itself."""
+    rr = _resolve_role(_caller_role())
+    return bool(rr.get('admin') or rr.get('permissions'))
+
+
 def _caller_billing_view():
     """True if the caller may see OTHER users' entries + money (admin or finance)."""
     role = _caller_role()
@@ -13713,6 +13757,7 @@ def handle_ansible_playbook_run(pb_id):
         # ansible_user is already charset-filtered above.
         inv_lines = ['[targets]']
         _seen_alias = set()
+        _cmdb_all = load(CMDB_FILE)   # v6.0.1 perf: hoist out of the per-host loop
         for i in ids:
             dev = devices[i]
             alias = re.sub(r'[^A-Za-z0-9_.\-]', '', str(dev.get('name', '') or i)) or i
@@ -13723,7 +13768,7 @@ def handle_ansible_playbook_run(pb_id):
             if not ip:
                 continue
             line = f"{alias} ansible_host={ip} ansible_user={ssh_user}"
-            port = dev.get('ssh_port') or (load(CMDB_FILE).get(i, {}) or {}).get('ssh_port')
+            port = dev.get('ssh_port') or (_cmdb_all.get(i, {}) or {}).get('ssh_port')
             if port:
                 line += f" ansible_port={int(port)}"
             inv_lines.append(line)
@@ -19265,20 +19310,25 @@ def run_monitors_if_due():
 
     Skipped if no monitors are configured (saves the config write).
     """
-    cfg = load(CONFIG_FILE)
-    monitors = cfg.get('monitors', [])
+    # v6.0.1 perf: the not-due path (the common case, every request) only reads
+    # scalars — use _config_ro() so it doesn't deepcopy the whole config. Only
+    # take a mutable load() copy once it's actually due and about to save().
+    ro = _config_ro()
+    monitors = ro.get('monitors', [])
     if not monitors:
         return
-    interval = max(60, int(cfg.get('monitor_interval', 300)))
-    last_run = int(cfg.get('last_monitor_run', 0))
+    interval = max(60, int(ro.get('monitor_interval', 300)))
+    last_run = int(ro.get('last_monitor_run', 0))
     now = int(time.time())
     if (now - last_run) < interval:
         return
 
     # Mark as in-progress *before* running so a long-running monitor
     # check doesn't trigger a parallel run from another CGI request.
+    cfg = load(CONFIG_FILE)
     cfg['last_monitor_run'] = now
     save(CONFIG_FILE, cfg)
+    monitors = cfg.get('monitors', monitors)
 
     results = _execute_monitor_checks(monitors)
     _persist_monitor_results(results)
@@ -26365,6 +26415,42 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
             if not first_seen:
                 _fire('mount_recovered', {'path': path})
         new['mount_issues'] = cur_mi
+
+    # ── read-only remount (v6.0.1) ─────────────────────────────────
+    # A local (non-network) mount the kernel flipped read-only is a silent
+    # data-loss outage; it rides sysinfo.mounts[].ro, separate from
+    # mount_issues, so it had no inbox/webhook path until now. Coalesced to one
+    # alert per host listing the affected paths; edge-triggered.
+    mounts = si.get('mounts')
+    if isinstance(mounts, list):
+        cur_ro = sorted({m.get('path') for m in mounts
+                         if isinstance(m, dict) and m.get('ro')
+                         and not m.get('network') and m.get('path')})
+        prev_ro = set(prev.get('readonly_fs') or [])
+        if cur_ro and (set(cur_ro) - prev_ro) and not first_seen:
+            _fire('readonly_fs', {'paths': list(cur_ro)})
+        elif prev_ro and not cur_ro and not first_seen:
+            _fire('readonly_fs_cleared', {})
+        new['readonly_fs'] = cur_ro
+
+    # ── mail-queue depth (v6.0.1) ──────────────────────────────────
+    # The mailq check surfaces a Checks-page row but never reached the inbox.
+    # Fire once per crossing of the crit default (a real backlog); recover under
+    # the warn floor. Edge-triggered via the stored mailq_high flag.
+    mq = si.get('mailq')
+    if isinstance(mq, (int, float)):
+        mq = int(mq)
+        was_high = bool(prev.get('mailq_high'))
+        if first_seen:
+            new['mailq_high'] = mq >= 500
+        elif mq >= 500 and not was_high:
+            _fire('mailq_high', {'count': mq, 'threshold': 500})
+            new['mailq_high'] = True
+        elif mq < 50 and was_high:
+            _fire('mailq_normal', {'count': mq})
+            new['mailq_high'] = False
+        else:
+            new['mailq_high'] = was_high
 
     # Only persist when the state actually moved. `new` starts as dict(prev)
     # and is mutated in place; on a steady-state heartbeat it equals `prev`, so
@@ -40580,6 +40666,9 @@ def handle_patch_report():
             'cve_fixable_total': 0,
         }
     }
+    # v6.0.1 perf: hoist the fleet-wide command-output store out of the per-device
+    # loop — it was deep-copied once per device (O(N) × whole store).
+    all_cmd_outputs = load(CMD_OUTPUT_FILE)
     for dev_id, dev in devices.items():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
@@ -40674,7 +40763,7 @@ def handle_patch_report():
             report['summary']['total_pending_patches'] += upgradable
 
         # Recent exec history for patch commands
-        outputs = load(CMD_OUTPUT_FILE).get(dev_id, [])
+        outputs = all_cmd_outputs.get(dev_id, [])
         patch_cmds = [o for o in outputs if any(kw in o.get('cmd', '')
                       for kw in ('apt', 'dnf', 'pacman', 'upgrade', 'update'))]
         entry['recent_patch_commands'] = patch_cmds[-5:]
@@ -51903,6 +51992,9 @@ def _expand_event(ev, from_ts, to_ts):
     import datetime as _dt
     import calendar as _cal_mod
     cur = _dt.datetime.fromtimestamp(base_start_ts, tz=_dt.timezone.utc)
+    anchor_day = cur.day   # v6.0.1: clamp off the ORIGINAL day, not the chained
+                           # (already-clamped) one — a monthly-31st event was
+                           # pinned to the 28th forever after passing February.
     count = 0
     while count < 500:
         occ_start = cur.timestamp()
@@ -51923,12 +52015,14 @@ def _expand_event(ev, from_ts, to_ts):
         elif recur == 'monthly':
             m = cur.month + 1; y = cur.year
             if m > 12: m = 1; y += 1
-            day = min(cur.day, _cal_mod.monthrange(y, m)[1])
-            cur = cur.replace(year=y, month=m, day=day)
+            # replace day=1 first so a 31->short-month step can't raise, then set
+            # the clamped anchor day.
+            day = min(anchor_day, _cal_mod.monthrange(y, m)[1])
+            cur = cur.replace(year=y, month=m, day=1).replace(day=day)
         elif recur == 'yearly':
             y = cur.year + 1
-            day = min(cur.day, _cal_mod.monthrange(y, cur.month)[1])
-            cur = cur.replace(year=y, day=day)
+            day = min(anchor_day, _cal_mod.monthrange(y, cur.month)[1])
+            cur = cur.replace(year=y, day=1).replace(day=day)
         else:
             break
 

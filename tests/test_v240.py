@@ -48,7 +48,7 @@ class TestDebianUrgencyFix(unittest.TestCase):
         for urgency, expected in (('high', 'medium'), ('medium', 'medium'),
                                   ('low', 'low'), ('unimportant', 'low'),
                                   ('negligible', 'low')):
-            with m.patch.object(cve.urllib.request, 'urlopen') as mock:
+            with m.patch.object(cve._OPENER, 'open') as mock:
                 fake = m.MagicMock()
                 fake.read.return_value = (
                     '{"urgency": "%s"}' % urgency).encode()
@@ -61,7 +61,7 @@ class TestDebianUrgencyFix(unittest.TestCase):
         # Debian urgency can be 'low**' (postponed) — the ** suffix
         # must be stripped before matching.
         import unittest.mock as m
-        with m.patch.object(cve.urllib.request, 'urlopen') as mock:
+        with m.patch.object(cve._OPENER, 'open') as mock:
             fake = m.MagicMock()
             fake.read.return_value = b'{"urgency": "high**"}'
             mock.return_value.__enter__.return_value = fake
@@ -71,7 +71,7 @@ class TestDebianUrgencyFix(unittest.TestCase):
         # Belt-and-braces: no urgency value can produce high/critical.
         import unittest.mock as m
         for urgency in ('high', 'critical', 'HIGH', 'high**'):
-            with m.patch.object(cve.urllib.request, 'urlopen') as mock:
+            with m.patch.object(cve._OPENER, 'open') as mock:
                 fake = m.MagicMock()
                 fake.read.return_value = ('{"urgency":"%s"}' % urgency).encode()
                 mock.return_value.__enter__.return_value = fake

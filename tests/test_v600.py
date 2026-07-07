@@ -27,7 +27,9 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.0.0"
+    # v6.0.1: loosened to dynamic (tracks the current version) — test_v601 owns
+    # the strict current-release pins now, same as test_v560/570/580 before it.
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -65,9 +67,11 @@ class TestVersionBumps(unittest.TestCase):
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}", _html())
 
-    def test_changelog_header_is_claritymatters(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.0.0 — "ClarityMatters"', head)
+    def test_changelog_has_claritymatters_entry(self):
+        # ClarityMatters is no longer the top entry (loosened) — just assert its
+        # release section still exists in the complete history.
+        self.assertIn('## v6.0.0 — "ClarityMatters"',
+                      (_ROOT / "CHANGELOG.md").read_text())
 
 
 class TestClarityMattersInterface(unittest.TestCase):

@@ -2,6 +2,45 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.0.1 — "RefineMatters" — unreleased (test)
+
+A refinement release — a broad polish, hardening and correctness pass over the
+whole product, plus a batch of UI fixes and two new alerts.
+
+### Fleet & UI
+- **Sidebar reorganised** — Virtualization and Containers now live under **Fleet**,
+  Integrations under **Monitoring**, and the App catalog under **Automation**;
+  every sidebar sub-menu is now sorted alphabetically.
+- **Real world map** on the Sites page — actual coastline geography replaces the
+  previous stylised outline.
+- **Auto-patch** policies can now target a **single device**, not just a group/tag/site.
+- **App catalog** renders as a full, sortable table; **Services** gains a dedicated
+  Service-baselines editor card; **Patch report** adds a **PDF** export alongside CSV/XML.
+- Button sizing is consistent everywhere (no more full-width buttons), tables and
+  action buttons are tidied and aligned, and the Server-status cards line their
+  values up in one column.
+
+### Alerts & monitoring
+- **Certificate expiry now raises an alert** by default (coalesced one-per-host),
+  not just a needs-attention item.
+- **New alert: read-only remount** — a local filesystem the kernel flips read-only
+  (a silent data-loss outage) now reaches the Alerts inbox and webhooks.
+- **New alert: mail-queue backlog** — a host whose mail queue crosses its threshold
+  now raises an alert.
+- Fixed two alert-resolution bugs where recovering one watched process / one storage
+  pool could clear the still-open alerts for the others on the same host.
+
+### Hardening & performance
+- Additional defense-in-depth on outbound vulnerability-database lookups
+  (no-redirect, argument-quoted) and image-registry fetches (SSRF-safe by
+  construction); read-only roles can no longer nudge shared state on a ticket read.
+- Faster heartbeats: several per-request maintenance gates and report builders no
+  longer copy whole stores on the common path.
+
+### Docs & housekeeping
+- Documentation refreshed to match the current product; typography and spacing
+  standardised; security review published for this release.
+
 ## v6.0.0 — "ClarityMatters" — 2026-07-05
 
 ### UI overhaul — the v6 "ClarityMatters" interface

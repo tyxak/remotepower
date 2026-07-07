@@ -62,7 +62,13 @@ class TestVersionBumps(unittest.TestCase):
                       (_ROOT / "server/html/index.html").read_text())
 
     def test_codename(self):
-        self.assertIn("RackMatters", (_ROOT / "docs" / "v5.4.0.md").read_text())
+        # v6.0.1: v5.4.0 dropped out of the keep-5 docs/vX.Y.Z set — the codename
+        # lives on in CHANGELOG.md (complete history) instead.
+        doc = _ROOT / "docs" / "v5.4.0.md"
+        if not doc.exists():
+            self.assertIn("RackMatters", (_ROOT / "CHANGELOG.md").read_text())
+            return
+        self.assertIn("RackMatters", doc.read_text())
 
     def test_feature_guide_exists(self):
         self.assertTrue((_ROOT / "docs/time-billing.md").exists())

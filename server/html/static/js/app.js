@@ -13686,7 +13686,9 @@ function _renderHomeWidgets(home) {
   const h = home.health || {};
   bigStat('home-w-healthscore-body', typeof h.score === 'number' ? h.score : '—',
           h.grade ? `grade: ${h.grade}` : 'fleet health',
-          h.score >= 90 ? 'c-green' : h.score >= 70 ? 'c-amber' : 'c-red');
+          // v6.0.1: don't paint the no-data em-dash red (reads as "critical").
+          typeof h.score !== 'number' ? 'c-muted'
+            : h.score >= 90 ? 'c-green' : h.score >= 70 ? 'c-amber' : 'c-red');
   const onlineN = counted.filter(d => d.online).length;
   bigStat('home-w-fleettotal-body', counted.length,
           `${onlineN} up · ${counted.length - onlineN} down`);
@@ -14577,6 +14579,8 @@ function _renderHomeActivity(fleetEvents) {
     'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
+    // v6.0.1: read-only remount (silent data-loss) + mail-queue backlog
+    'readonly_fs', 'readonly_fs_cleared', 'mailq_high', 'mailq_normal',
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
@@ -14793,6 +14797,9 @@ function _homeActivityAttrs(event, p) {
     case 'db_integrity_failed':
       return `${base} data-home-act="self"`;
     case 'mount_issue': case 'mount_recovered':
+    case 'readonly_fs': case 'readonly_fs_cleared':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    case 'mailq_high': case 'mailq_normal':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':

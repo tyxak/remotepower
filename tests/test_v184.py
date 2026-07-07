@@ -323,6 +323,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v5.6.x: ticket lifecycle
             'ticket_opened', 'ticket_resolved',                   # v5.3.0 helpdesk SLA breach
             'mount_recovered',                       # v3.14.0 fix
+            'readonly_fs', 'readonly_fs_cleared',    # v6.0.1 RO remount
+            'mailq_high', 'mailq_normal',            # v6.0.1 mail-queue backlog
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew
             'gateway_unreachable', 'gateway_reachable',  # v4.1.0 gateway

@@ -241,7 +241,10 @@ class TestEventWiring(unittest.TestCase):
         # or the inbox/feed rows render empty (whitelists are silent when missed).
         # v5.8.0: the fleet-event whitelist was extended past 'label' with more
         # feed-detail fields, so it no longer closes on 'label'):.
-        self.assertIn("'repo', 'title', 'url'):", src)
+        # v6.0.1: the _record_alert whitelist gained pool/paths/threshold after
+        # repo/title/url, so it no longer closes on url'):.
+        self.assertIn("'repo', 'title', 'url',", src)
+        self.assertIn("'pool', 'paths', 'threshold'):", src)
         self.assertIn("'repo', 'title', 'url', 'label',", src)
 
 

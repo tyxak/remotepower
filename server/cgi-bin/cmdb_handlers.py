@@ -1419,22 +1419,24 @@ def handle_scoped_credentials_add() -> None:
         A.respond(400, {'error': 'password required'})
     if len(password) > A.MAX_CMDB_PASSWORD:
         A.respond(400, {'error': f'password too long (max {A.MAX_CMDB_PASSWORD})'})
-    store = A._scoped_creds_load()
-    if len(store['creds']) >= A.MAX_SCOPED_CREDS:
-        A.respond(400, {'error': f'max {A.MAX_SCOPED_CREDS} scoped credentials'})
-    try:
-        blob = A.cmdb_vault.encrypt(key, password)
-    except A.cmdb_vault.VaultError as e:
-        A.respond(500, {'error': f'encrypt failed: {e}'})
-    now = int(time.time())
     new_id = 'scred_' + secrets.token_hex(8)
-    store['creds'].append({
-        'id': new_id, 'scope_type': scope_type, 'scope_value': scope_value,
-        'label': label, 'username': username, 'note': note,
-        'nonce': blob['nonce'], 'ct': blob['ct'],
-        'created_by': actor, 'created_at': now,
-    })
-    A.save(A.SCOPED_VAULT_FILE, store)
+    # v6.0.1: RMW under a lock — two concurrent adds were a silent lost-write on a
+    # security-sensitive store. respond() inside aborts the save via SystemExit.
+    with A._LockedUpdate(A.SCOPED_VAULT_FILE) as store:
+        if not isinstance(store.get('creds'), list):
+            store['creds'] = []
+        if len(store['creds']) >= A.MAX_SCOPED_CREDS:
+            A.respond(400, {'error': f'max {A.MAX_SCOPED_CREDS} scoped credentials'})
+        try:
+            blob = A.cmdb_vault.encrypt(key, password)
+        except A.cmdb_vault.VaultError as e:
+            A.respond(500, {'error': f'encrypt failed: {e}'})
+        store['creds'].append({
+            'id': new_id, 'scope_type': scope_type, 'scope_value': scope_value,
+            'label': label, 'username': username, 'note': note,
+            'nonce': blob['nonce'], 'ct': blob['ct'],
+            'created_by': actor, 'created_at': int(time.time()),
+        })
     A.audit_log(actor, 'scoped_credential_add',
               detail=f'{scope_type}={scope_value} cred={new_id} label={label[:40]}')
     A.respond(200, {'ok': True, 'id': new_id})
@@ -1447,12 +1449,12 @@ def handle_scoped_credentials_delete(cred_id: str) -> None:
         A.respond(405, {'error': 'Method not allowed'})
     if not cred_id.startswith('scred_') or not A._validate_id(cred_id[len('scred_'):]):
         A.respond(404, {'error': 'credential not found'})
-    store = A._scoped_creds_load()
-    before = len(store['creds'])
-    store['creds'] = [c for c in store['creds'] if c.get('id') != cred_id]
-    if len(store['creds']) == before:
-        A.respond(404, {'error': 'credential not found'})
-    A.save(A.SCOPED_VAULT_FILE, store)
+    with A._LockedUpdate(A.SCOPED_VAULT_FILE) as store:
+        creds = store.get('creds') if isinstance(store.get('creds'), list) else []
+        before = len(creds)
+        store['creds'] = [c for c in creds if c.get('id') != cred_id]
+        if len(store['creds']) == before:
+            A.respond(404, {'error': 'credential not found'})   # SystemExit aborts save
     A.audit_log(actor, 'scoped_credential_delete', detail=f'cred={cred_id}')
     A.respond(200, {'ok': True})
 

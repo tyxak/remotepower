@@ -85,7 +85,7 @@ class TestKeystoneWiring(unittest.TestCase):
 
     def test_no_v6_labels_leaked(self):
         # the keystone was briefly labelled v6.0.0 then settled on v5.5.0
-        for f in ("docs/features.md", "docs/scaling.md", "docs/deployment.md",
+        for f in ("docs/scaling.md", "docs/deployment.md",
                   "server/conf/remotepower-wsgi.service",
                   "server/conf/remotepower-scheduler.service"):
             self.assertNotIn("v6.0.0", (_ROOT / f).read_text(), f)
