@@ -2013,6 +2013,10 @@
      so they hug their select; genuinely full-width selects are untouched. */
   .settings-row:has(> .form-label) .rp-ddwrap:has(> .mw-160),
   .settings-row:has(> .form-label) .rp-ddwrap:has(> .mw-200) { align-self: flex-start; }
+  /* v6.0.1: a button in one of these column-stretch rows was blown out to full
+     row width by align-items:stretch (flex:0 0 auto can't beat a cross-axis
+     stretch). Hug the content instead — buttons stay tidy. */
+  .settings-row:has(> .form-label) > :is(.btn-primary, .btn-secondary, .btn-icon) { align-self: flex-start; }
   .user-row td:last-child { text-align: right; }
   .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
@@ -6874,7 +6878,7 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
 .site-map-wrap { width: 100%; max-width: 720px; margin: 8px auto 0; }
 #site-map-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
 .site-map-bg { fill: var(--bg-elev, #0d1117); }
-.site-map-land path { fill: var(--surface-2, #263042); stroke: var(--accent, #58a6ff); stroke-width: 0.4; stroke-opacity: 0.55; stroke-linejoin: round; shape-rendering: geometricPrecision; }
+.site-map-land path { fill: var(--surface-2, #2a3547); fill-rule: evenodd; stroke: var(--hair, #3a4557); stroke-width: 0.15; stroke-linejoin: round; shape-rendering: geometricPrecision; }
 .site-map-grat line { stroke: var(--border, #2b3543); stroke-width: 0.3; stroke-dasharray: 2 2; opacity: 0.55; }
 /* v6.0.1 (item 6): equator + prime meridian drawn a touch stronger for reference */
 .site-map-grat line.grat-eq { stroke-width: 0.4; stroke-dasharray: none; opacity: 0.45; }
