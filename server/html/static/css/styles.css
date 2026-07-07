@@ -1208,7 +1208,10 @@
   /* v6 (chosen-design .grp .gt): 13px card/section heading */
   .section-title { font-size: 13px; font-weight: 620; }
   .btn-primary {
-    flex: 1;
+    /* v6.0.1: content-sized by default — a lone primary button no longer grows
+       to span its flex row / card. The modal Cancel+Save split re-adds flex:1
+       just inside .modal-actions (below), so modals are unchanged. */
+    flex: 0 0 auto;
     background: var(--accent);
     color: #fff;
     border: none;
@@ -1776,6 +1779,10 @@
   .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .pin-countdown { color: var(--amber); font-weight: 600; }
   .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
+  /* v6.0.1: the primary action in a modal fills the row beside the auto-width
+     Cancel (base .btn-primary is content-sized now). Mobile splits both 50/50
+     via the .modal-actions button rule in the max-width:720px block. */
+  .modal-actions .btn-primary { flex: 1; }
   .confirm-icon {
     width: 48px; height: 48px;
     border-radius: 12px;
@@ -5869,15 +5876,6 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   justify-content: center;
   gap: 6px;
 }
-/* v6.0.1 (item 10): a lone .btn-primary carries `flex:1` so it splits a modal's
-   action row with Cancel. In an inline control/toolbar row that same grow makes
-   it balloon to fill the whole card. Scope it back to content-size in those rows
-   (modal-actions is untouched, so the Cancel+Save split still works). */
-:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178,
-    .row-6, .row-6-center, .row-6-wrap, .row-8, .row-8-mb8, .row-8-center,
-    .section-header, .form-row-wrap, .user-actions) > .btn-primary {
-  flex: 0 0 auto;
-}
 
 /* ── v3.12.0: device combobox (filterbox replacing a device <select>) ─────────
    The native select is kept (value holder) but visually hidden; a text input +
@@ -6876,10 +6874,10 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
 .site-map-wrap { width: 100%; max-width: 720px; margin: 8px auto 0; }
 #site-map-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
 .site-map-bg { fill: var(--bg-elev, #0d1117); }
-.site-map-land path { fill: var(--surface-2, #1e2530); stroke: var(--border, #2b3543); stroke-width: 0.6; stroke-linejoin: round; }
-.site-map-grat line { stroke: var(--border, #2b3543); stroke-width: 0.3; stroke-dasharray: 2 2; opacity: 0.7; }
+.site-map-land path { fill: var(--surface-2, #263042); stroke: var(--accent, #58a6ff); stroke-width: 0.4; stroke-opacity: 0.55; stroke-linejoin: round; shape-rendering: geometricPrecision; }
+.site-map-grat line { stroke: var(--border, #2b3543); stroke-width: 0.3; stroke-dasharray: 2 2; opacity: 0.55; }
 /* v6.0.1 (item 6): equator + prime meridian drawn a touch stronger for reference */
-.site-map-grat line.grat-eq { stroke-width: 0.5; stroke-dasharray: none; opacity: 0.5; }
+.site-map-grat line.grat-eq { stroke-width: 0.4; stroke-dasharray: none; opacity: 0.45; }
 .site-map-dot { cursor: pointer; stroke: #0d1117; stroke-width: 0.6; }
 .site-map-dot.ok { fill: var(--c-green, #3fb950); }
 .site-map-dot.degraded { fill: var(--c-amber, #d29922); }

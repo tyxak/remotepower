@@ -1094,7 +1094,24 @@ function toggleSidebarGroup(name) {
   _openSidebarGroup(group.classList.contains('collapsed') ? name : null);
 }
 
+// v6.0.1: sort each sidebar group's sub-menu items alphabetically by label.
+// Runs once at load (before i18n translates the DOM), so the order is by the
+// canonical English label — stable regardless of UI language.
+function _sortSidebarGroups() {
+  const label = (b) => {
+    const s = Array.from(b.querySelectorAll('span')).find(x =>
+      !x.classList.contains('nav-badge') && !x.classList.contains('nav-group-badge'));
+    return (s ? s.textContent : b.textContent).trim().toLowerCase();
+  };
+  document.querySelectorAll('.sidebar-group-items').forEach(items => {
+    const btns = Array.from(items.querySelectorAll(':scope > .nav-btn'));
+    if (btns.length < 2) return;
+    btns.sort((a, b) => label(a).localeCompare(label(b)));
+    btns.forEach(b => items.appendChild(b));   // re-append in sorted order
+  });
+}
 function _restoreSidebarGroups() {
+  _sortSidebarGroups();
   let open = null;
   try { open = localStorage.getItem('sidebar.open_group'); } catch (_) {}
   // Default (no stored state): everything closed — the tidy 12-domain rail;
@@ -8142,12 +8159,22 @@ async function _renderCatalogDeviceResults(term) {
 }
 
 function pickCatalogDevice(id, name) {
-  _catalogDev = { id, name };
+  // Keep the id an opaque string — the data-action dispatcher coerces all-numeric
+  // args to Number, which would then miss the string-keyed devices store on deploy.
+  _catalogDev = { id: String(id), name };
   document.getElementById('catalog-device-results').classList.add('hidden');
   document.getElementById('catalog-device-search').value = name;
   const cur = document.getElementById('catalog-device-current');
   if (cur) cur.textContent = 'Target: ' + name;
   _renderCatalog();
+}
+// v6.0.1: the table's "Pick a host" button focuses the target-host search so the
+// picker is one obvious click away (it lives in a separate card above the table).
+function focusCatalogHostSearch() {
+  const s = document.getElementById('catalog-device-search');
+  if (!s) return;
+  s.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  s.focus();
 }
 
 function filterCatalog() { _renderCatalog(); }
@@ -8174,7 +8201,7 @@ function _renderCatalog() {
   const rows = sorted.map(a => {
     const dep = _catalogDev
       ? `<button class="btn-primary btn-sm" data-action="catalogDeploy" data-arg="${escAttr(a.id)}" title="Deploy to ${escAttr(_catalogDev.name)}">Deploy</button>`
-      : `<span class="hint">Pick a host</span>`;
+      : `<button class="btn-icon btn-sm" data-action="focusCatalogHostSearch" title="Choose a target host above">Pick a host</button>`;
     const rm = (a.custom && isAdmin)
       ? `<button class="btn-icon c-danger-outline" title="Remove" data-action="removeCatalogApp" data-arg="${escAttr(a.id)}" data-arg2="${escAttr(a.name)}">${_icon('trash',14)}</button>`
       : '';
