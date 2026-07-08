@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.0.1 — "RefineMatters" — unreleased (test)
+## v6.0.1 — "RefineMatters" — 2026-07-08
 
 A refinement release — a broad polish, hardening and correctness pass over the
 whole product, plus a batch of UI fixes and two new alerts.
