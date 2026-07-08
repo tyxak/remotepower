@@ -12,8 +12,9 @@ database" backend an operator can switch to under Settings → Advanced.
 Design goals:
   * Drop-in behind the existing 4 helpers — api.py branches to us when the
     active backend is 'sqlite', so the ~1000 call sites don't change.
-  * stdlib sqlite3 only, zero new dependencies. Fits the FastCGI/fcgiwrap
-    runtime (one process per request — no server or connection pool to run).
+  * stdlib sqlite3 only, zero new dependencies. Works under both the
+    fork-per-request-shaped bootstrap and the persistent gunicorn/Flask
+    app server (no server or connection pool to run).
   * WAL mode: concurrent readers + a single writer, each write a fast row op.
   * Full decomposition of the hot, high-cardinality files so a heartbeat
     becomes a single-row UPSERT instead of a whole-file rewrite.

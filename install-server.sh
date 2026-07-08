@@ -11,13 +11,16 @@ die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
 [[ $EUID -ne 0 ]] && die "Run as root: sudo bash install-server.sh"
 
-# ── Optional opt-in scaling features (v6.x) — DEFAULT OFF ─────────────────────
-# With none of these requested the install below is the standard, unchanged
-# nginx + fcgiwrap (CGI) deployment. Each can also be set via an env var so the
-# unified wizard (install.sh) and CI can pass them through.
-APP_SERVER="${RP_APP_SERVER:-}"          # "wsgi" → persistent gunicorn app tier
-WITH_SCHEDULER="${RP_WITH_SCHEDULER:-0}" # 1 → out-of-band maintenance scheduler
-WITH_POSTGRES="${RP_WITH_POSTGRES:-0}"   # 1 → provision a PostgreSQL backend
+# ── Enterprise single-node topology (v6.1+) — DEFAULT ON ──────────────────────
+# The standard install is Postgres + the persistent gunicorn/Flask app tier
+# (the only server — CGI/fcgiwrap is retired, see CHANGELOG v6.1.0) + the
+# out-of-band maintenance scheduler + a co-located scanner satellite, all on
+# this one node. Postgres/scheduler/scanner can be opted back OUT for a
+# lightweight/dev install. Each can also be set via an env var so the unified
+# wizard (install.sh) and CI can pass them through.
+WITH_SCHEDULER="${RP_WITH_SCHEDULER:-1}" # 1 → out-of-band maintenance scheduler
+WITH_POSTGRES="${RP_WITH_POSTGRES:-1}"   # 1 → provision a PostgreSQL backend
+WITH_SCANNER="${RP_WITH_SCANNER:-1}"     # 1 → install a co-located scanner satellite
 
 _usage() {
   cat <<EOF
@@ -25,28 +28,33 @@ RemotePower server installer
 
 Usage: sudo bash install-server.sh [options]
 
-  --app-server=wsgi   Run the API under a persistent gunicorn WSGI tier
-  --with-wsgi         (alias for --app-server=wsgi) — installs gunicorn +
-                      remotepower-wsgi.service and points nginx /api/ at
-                      http://127.0.0.1:8090 (default deployment stays CGI)
-  --with-scheduler    Run the ~33 maintenance sweeps out-of-band — installs
-                      remotepower-scheduler.service and sets
-                      RP_EXTERNAL_SCHEDULER=1 in /etc/remotepower/api.env
-  --with-postgres     Provision a PostgreSQL backend (packaging/postgres-setup.sh)
+  --with-scheduler      Run the ~33 maintenance sweeps out-of-band — installs
+                        remotepower-scheduler.service and sets
+                        RP_EXTERNAL_SCHEDULER=1 in /etc/remotepower/api.env
+                        (default)
+  --no-scheduler        Opt out — run maintenance sweeps on the request path
+  --with-postgres        Provision a PostgreSQL backend (default)
+  --no-postgres          Opt out — use the single-file/SQLite backend
+  --with-scanner          Install a scanner satellite on this node, for
+                        Security → Pentest scans (default)
+  --no-scanner            Opt out — set one up later on a separate machine
+                        per docs/security-scans.md
   -h, --help          Show this help
 
-All three are OPT-IN and default OFF; the standard install is unchanged when
-none are given. See docs/wsgi.md and docs/scaling.md.
+This is the "enterprise" single-node default: Postgres + gunicorn/Flask +
+scheduler + scanner all on one box. Pass the --no-* flags for a lightweight
+install. See docs/wsgi.md, docs/scaling.md, docs/security-scans.md.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --app-server=*)   APP_SERVER="${1#*=}" ;;
-    --app-server)     APP_SERVER="${2:?--app-server needs a value (wsgi)}"; shift ;;
-    --with-wsgi)      APP_SERVER="wsgi" ;;
     --with-scheduler) WITH_SCHEDULER=1 ;;
+    --no-scheduler)   WITH_SCHEDULER=0 ;;
     --with-postgres)  WITH_POSTGRES=1 ;;
+    --no-postgres)    WITH_POSTGRES=0 ;;
+    --with-scanner)   WITH_SCANNER=1 ;;
+    --no-scanner)     WITH_SCANNER=0 ;;
     -h|--help)        _usage; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
@@ -63,7 +71,7 @@ echo ""
 if   command -v apt-get &>/dev/null; then PKG_MGR=apt
 elif command -v dnf     &>/dev/null; then PKG_MGR=dnf
 elif command -v pacman  &>/dev/null; then PKG_MGR=pacman
-else die "Unsupported distro — install nginx, fcgiwrap, python3 manually then re-run."
+else die "Unsupported distro — install nginx, gunicorn, python3 manually then re-run."
 fi
 info "Detected package manager: ${PKG_MGR}"
 
@@ -72,13 +80,13 @@ info "Installing dependencies..."
 case $PKG_MGR in
   apt)
     apt-get update -qq
-    apt-get install -y nginx fcgiwrap python3 python3-pip iputils-ping --no-install-recommends
+    apt-get install -y nginx python3 python3-pip iputils-ping --no-install-recommends
     ;;
   dnf)
-    dnf install -y -q nginx fcgiwrap python3 python3-pip iputils
+    dnf install -y -q nginx python3 python3-pip iputils
     ;;
   pacman)
-    pacman -Sy --noconfirm --noprogressbar nginx fcgiwrap python python-pip iputils
+    pacman -Sy --noconfirm --noprogressbar nginx python python-pip iputils
     ;;
 esac
 success "Dependencies installed"
@@ -206,6 +214,43 @@ else
       || warn "dnspython unavailable — TLS expiry monitor still works, only DANE checks need it"
 fi
 
+# ── flask + gunicorn (v6.1.0+: the app server — required, not optional) ──────
+# server/cgi-bin/wsgi.py is a real Flask app; gunicorn is the only way it's
+# served (CGI/fcgiwrap is retired). Prefer the distro package (gunicorn lands
+# at /usr/bin/gunicorn, matching remotepower-wsgi.service's ExecStart) and
+# fall back to pip.
+info "Installing flask + gunicorn (the app server)..."
+if python3 -c "import flask" 2>/dev/null; then
+    success "flask already available"
+else
+    case $PKG_MGR in
+      apt)    apt-get install -y --no-install-recommends python3-flask 2>/dev/null \
+                || pip3 install flask --break-system-packages 2>/dev/null \
+                || pip3 install flask || die "flask install failed — the app server cannot run" ;;
+      dnf)    dnf install -y -q python3-flask 2>/dev/null \
+                || pip3 install flask || die "flask install failed — the app server cannot run" ;;
+      pacman) pacman -S --noconfirm python-flask 2>/dev/null \
+                || pip install flask || die "flask install failed — the app server cannot run" ;;
+    esac
+    python3 -c "import flask" 2>/dev/null || die "flask install failed — the app server cannot run"
+    success "flask installed"
+fi
+if ! command -v gunicorn >/dev/null 2>&1; then
+    case $PKG_MGR in
+      apt)    apt-get install -y --no-install-recommends gunicorn 2>/dev/null \
+                || pip3 install gunicorn --break-system-packages 2>/dev/null \
+                || pip3 install gunicorn || die "gunicorn install failed — the app server cannot run" ;;
+      dnf)    dnf install -y -q python3-gunicorn 2>/dev/null \
+                || pip3 install gunicorn || die "gunicorn install failed — the app server cannot run" ;;
+      pacman) pacman -S --noconfirm gunicorn 2>/dev/null \
+                || pip install gunicorn || die "gunicorn install failed — the app server cannot run" ;;
+    esac
+fi
+command -v gunicorn >/dev/null 2>&1 || die "gunicorn install failed — the app server cannot run"
+# The unit hardcodes /usr/bin/gunicorn; symlink if pip put it elsewhere.
+[[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
+success "gunicorn installed"
+
 # ── Nginx user (differs by distro) ──────────────────────────────────────────────
 case $PKG_MGR in
   apt)    NGINX_USER=www-data ;;
@@ -268,21 +313,19 @@ if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then
 fi
 # Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
 # cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
-# The CGI entry points (api_cgi.py shim, and api.py for a direct install) need
-# +x; the rest are imports so 644 is fine.
+# wsgi.py (the gunicorn entry point) and api.py need +x; the rest are imports
+# so 644 is fine.
 for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
     name="$(basename "$f")"
-    if [[ "$name" == "api.py" || "$name" == "api_cgi.py" ]]; then
+    if [[ "$name" == "api.py" || "$name" == "wsgi.py" ]]; then
         install -m 755 "$f" /var/www/remotepower/cgi-bin/"$name"
     else
         install -m 644 "$f" /var/www/remotepower/cgi-bin/"$name"
     fi
 done
-# Precompile the backend so the CGI user loads cached bytecode. The api_cgi.py
-# entry point imports api, and a CGI *main script* never uses the .pyc cache --
-# precompiling here means the ~50k-line module is not recompiled on every
-# request. cgi-bin/ is root-owned, so the running CGI user can't write the
-# .pyc itself; build it now.
+# Precompile the backend so gunicorn loads cached bytecode on first request
+# instead of recompiling the ~50k-line module. cgi-bin/ is root-owned, so the
+# running www-data user can't write the .pyc itself; build it now.
 python3 -m compileall -q /var/www/remotepower/cgi-bin/ || true
 # v1.11.0: extension-less helper scripts (cron runners, etc.)
 for helper in remotepower-tls-check; do
@@ -294,25 +337,9 @@ done
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 success "Web files installed"
 
-# ── SCGI prefork API worker service (optional perf; not enabled by default) ──
-# Copies the unit file so the operator can enable it later with:
-#   systemctl enable --now remotepower-api
-# then switch nginx to the scgi_pass block (see server/conf/remotepower.conf).
-if [[ -f "$SCRIPT_DIR/server/conf/remotepower-api.service" ]]; then
-    install -m 644 "$SCRIPT_DIR/server/conf/remotepower-api.service" \
-        /etc/systemd/system/remotepower-api.service
-    # The unit reads operator env/secrets from /etc/remotepower/api.env via
-    # EnvironmentFile= (e.g. RP_BACKUP_PASSPHRASE). Create the dir so the operator
-    # can drop that 0600 file in per the unit's header (the secret file itself is
-    # never created here — only the directory).
-    install -d -m 755 -o root -g root /etc/remotepower
-    systemctl daemon-reload
-    success "SCGI worker unit installed (not started — enable with: systemctl enable --now remotepower-api)"
-fi
-
 # ── WG Access privileged helper + scoped sudoers (v5.2.0) ───────────────────────
 # The road-warrior WireGuard feature needs a root-owned helper to drive
-# wireguard-go / wg / nft (the CGI runs unprivileged). It is invoked ONLY via a
+# wireguard-go / wg / nft (the app server runs unprivileged as www-data). It is invoked ONLY via a
 # scoped sudoers rule granting NOPASSWD for this one script to the web user —
 # exactly the deploy-remote-site.sh precedent. The helper uses in-kernel
 # WireGuard when present and falls back to wireguard-go. The feature shows an
@@ -390,20 +417,17 @@ fi
 nginx -t && systemctl reload nginx
 success "Nginx configured"
 
-# ── fcgiwrap ────────────────────────────────────────────────────────────────────
-info "Starting fcgiwrap..."
-systemctl enable --now fcgiwrap fcgiwrap.socket 2>/dev/null || \
-  systemctl enable --now fcgiwrap 2>/dev/null || \
-  warn "Could not auto-start fcgiwrap — check: systemctl status fcgiwrap"
-
-# Socket permissions so Nginx can reach it
-FCGI_SOCK=/run/fcgiwrap.socket
-if [[ -S $FCGI_SOCK ]]; then
-    chmod 660 "$FCGI_SOCK"
-    chown "${NGINX_USER}:${NGINX_USER}" "$FCGI_SOCK" 2>/dev/null || \
-      usermod -aG "${NGINX_USER}" fcgiwrap
-fi
-success "fcgiwrap running"
+# ── gunicorn/Flask app server (the only server) ───────────────────────────────
+# nginx already proxies /api/ to 127.0.0.1:8090 (the shipped locations
+# snippet) — start the app tier it's pointing at.
+info "Starting the app server (gunicorn + wsgi.py)..."
+install -m 644 "$SCRIPT_DIR/server/conf/remotepower-wsgi.service" \
+    /etc/systemd/system/remotepower-wsgi.service
+install -d -m 755 -o root -g root /etc/remotepower
+systemctl daemon-reload
+systemctl enable --now remotepower-wsgi \
+    && success "remotepower-wsgi started (gunicorn on 127.0.0.1:8090)" \
+    || warn "Could not start remotepower-wsgi — check: systemctl status remotepower-wsgi"
 
 # ── Admin user ──────────────────────────────────────────────────────────────────
 echo ""
@@ -443,18 +467,89 @@ PYEOF
 chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/users.json
 success "Admin user '${ADMIN_USER}' created"
 
-# ── OPT-IN: PostgreSQL backend (v6.x; default backend is single-file) ─────────
-# Runs the existing provisioner so the operator can pick PG at install time. It
-# writes the storage marker; existing file-based data (incl. the admin user just
-# created) still needs a one-time migration to land in the DB.
+# ── Scanner satellite (default; --no-scanner to opt out) ─────────────────────
+# Co-located Security → Pentest scan worker. Mints its own token directly into
+# satellites.json (same file-write pattern as the admin user above) and points
+# at this node over loopback. See packaging/scanner-setup.sh's own header for
+# the isolation trade-off this makes vs. the doc-recommended separate machine.
+# Runs BEFORE the Postgres block below so its token is included in the
+# migration into Postgres, not left behind on the file backend.
+if [[ "$WITH_SCANNER" == "1" ]]; then
+    info "Installing the scanner satellite (packaging/scanner-setup.sh)..."
+    if [[ -f "$SCRIPT_DIR/packaging/scanner-setup.sh" ]]; then
+        if RP_DATA_DIR=/var/lib/remotepower bash "$SCRIPT_DIR/packaging/scanner-setup.sh" --mint-local; then
+            chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/satellites.json 2>/dev/null || true
+            success "Scanner satellite installed (remotepower-scanner)"
+        else
+            warn "scanner-setup.sh failed — install continues without a scanner satellite"
+        fi
+    else
+        warn "packaging/scanner-setup.sh not found — skipping scanner satellite"
+    fi
+fi
+
+# ── psycopg (needed for the PostgreSQL backend) ───────────────────────────────
 if [[ "$WITH_POSTGRES" == "1" ]]; then
+    info "Installing psycopg for the PostgreSQL backend..."
+    if python3 -c "import psycopg" 2>/dev/null; then
+        success "psycopg already available"
+    else
+        case $PKG_MGR in
+          apt)    apt-get install -y python3-psycopg 2>/dev/null \
+                    || pip3 install 'psycopg[binary]' --break-system-packages 2>/dev/null \
+                    || pip3 install 'psycopg[binary]' \
+                    || warn "psycopg install failed — Postgres backend will be unavailable" ;;
+          dnf)    dnf install -y -q python3-psycopg 2>/dev/null \
+                    || pip3 install 'psycopg[binary]' \
+                    || warn "psycopg install failed — Postgres backend will be unavailable" ;;
+          pacman) pacman -S --noconfirm python-psycopg 2>/dev/null \
+                    || pip install 'psycopg[binary]' \
+                    || warn "psycopg install failed — Postgres backend will be unavailable" ;;
+        esac
+        python3 -c "import psycopg" 2>/dev/null \
+          && success "psycopg installed" \
+          || warn "psycopg unavailable — Postgres backend will not work until it is installed"
+    fi
+fi
+
+# ── PostgreSQL backend (default; --no-postgres to opt out) ────────────────────
+# Runs the existing provisioner (without --write-marker — we set the marker
+# ourselves below, via a real migration, not a blind flip), then migrates the
+# admin user + scanner token — both always written to the JSON files above,
+# regardless of backend — into Postgres directly, so the default install
+# actually works without a manual follow-up step. RP_DB_PASS is generated
+# here (not left to postgres-setup.sh) so this script knows the DSN without
+# having to scrape it back out of that script's human-readable output.
+if [[ "$WITH_POSTGRES" == "1" ]]; then
+    export RP_DB_NAME="${RP_DB_NAME:-remotepower}"
+    export RP_DB_USER="${RP_DB_USER:-rp}"
+    export RP_DB_PASS="${RP_DB_PASS:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')}"
     info "Provisioning PostgreSQL backend (packaging/postgres-setup.sh)..."
     if [[ -f "$SCRIPT_DIR/packaging/postgres-setup.sh" ]]; then
-        if bash "$SCRIPT_DIR/packaging/postgres-setup.sh" --install --write-marker /var/lib/remotepower; then
-            chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/storage_backend.json 2>/dev/null || true
-            success "PostgreSQL provisioned + storage marker written"
-            warn "Migrate existing data into Postgres so the admin user is visible:"
-            warn "  python3 tools/migrate_storage.py  (or Settings → Advanced → Storage backend)"
+        if bash "$SCRIPT_DIR/packaging/postgres-setup.sh" --install; then
+            success "PostgreSQL provisioned"
+            PG_DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:5432/${RP_DB_NAME}"
+            info "Migrating the admin user + scanner token into Postgres..."
+            # RP_STORAGE_BACKEND is left unset for this one call so the migration
+            # reads its SOURCE data from the JSON files just written, not from
+            # (empty) Postgres; _migrate_storage_pg writes storage_backend.json
+            # itself once migration verifies clean.
+            if RP_DATA_DIR=/var/lib/remotepower RP_PG_DSN="$PG_DSN" python3 - <<'PYEOF'
+import os
+import sys
+sys.path.insert(0, '/var/www/remotepower/cgi-bin')
+import api
+result = api._migrate_storage_pg('postgres', os.environ['RP_PG_DSN'], log=print)
+print('[migrate]', result)
+sys.exit(0 if result.get('ok') else 1)
+PYEOF
+            then
+                chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/storage_backend.json 2>/dev/null || true
+                success "Admin user + scanner token migrated — Postgres is the active backend"
+            else
+                warn "Postgres migration failed — admin user/scanner token stay on the file backend"
+                warn "  Retry from Settings → Advanced → Storage backend once the server is up"
+            fi
         else
             warn "postgres-setup.sh failed — install continues on the default backend"
         fi
@@ -463,11 +558,9 @@ if [[ "$WITH_POSTGRES" == "1" ]]; then
     fi
 fi
 
-# ── OPT-IN: out-of-band maintenance scheduler (v6.x) ──────────────────────────
-# Installs remotepower-scheduler.service and tells the API worker to stop running
-# the cadence on the request path (RP_EXTERNAL_SCHEDULER=1 in api.env). NB the
-# plain CGI/fcgiwrap path does NOT read api.env — pair --with-scheduler with the
-# SCGI worker (remotepower-api) or --with-wsgi so the flag is actually honoured.
+# ── Out-of-band maintenance scheduler (default; --no-scheduler to opt out) ───
+# Installs remotepower-scheduler.service and tells gunicorn to stop running
+# the cadence on the request path (RP_EXTERNAL_SCHEDULER=1 in api.env).
 if [[ "$WITH_SCHEDULER" == "1" ]]; then
     info "Enabling the out-of-band maintenance scheduler..."
     install -m 644 "$SCRIPT_DIR/server/conf/remotepower-scheduler.service" \
@@ -481,97 +574,8 @@ if [[ "$WITH_SCHEDULER" == "1" ]]; then
     systemctl enable --now remotepower-scheduler \
         && success "Out-of-band scheduler enabled (remotepower-scheduler)" \
         || warn "Could not start remotepower-scheduler — check: systemctl status remotepower-scheduler"
-    # If a persistent worker is running, restart it so it picks up the flag.
-    systemctl is-active --quiet remotepower-api  2>/dev/null && systemctl restart remotepower-api  || true
+    # Restart gunicorn so it picks up the flag from api.env.
     systemctl is-active --quiet remotepower-wsgi 2>/dev/null && systemctl restart remotepower-wsgi || true
-fi
-
-# ── OPT-IN: persistent gunicorn WSGI app tier (v6.x) ──────────────────────────
-# Installs gunicorn + remotepower-wsgi.service and repoints nginx /api/ from
-# fcgiwrap to the gunicorn proxy. The rewrite of the DEPLOYED locations snippet
-# is validated with `nginx -t` and reverted to fcgiwrap if it fails.
-if [[ "$APP_SERVER" == "wsgi" ]]; then
-    info "Setting up the persistent WSGI app tier (gunicorn)..."
-    # gunicorn is NOT a RemotePower dependency. Prefer the distro package (lands
-    # at /usr/bin/gunicorn, matching the unit's ExecStart) and fall back to pip.
-    if ! command -v gunicorn >/dev/null 2>&1; then
-        case $PKG_MGR in
-          apt)    apt-get install -y --no-install-recommends gunicorn 2>/dev/null \
-                    || pip3 install gunicorn --break-system-packages 2>/dev/null \
-                    || pip3 install gunicorn || warn "gunicorn install failed — WSGI tier unavailable" ;;
-          dnf)    dnf install -y -q python3-gunicorn 2>/dev/null \
-                    || pip3 install gunicorn || warn "gunicorn install failed — WSGI tier unavailable" ;;
-          pacman) pacman -S --noconfirm gunicorn 2>/dev/null \
-                    || pip install gunicorn || warn "gunicorn install failed — WSGI tier unavailable" ;;
-        esac
-    fi
-    if command -v gunicorn >/dev/null 2>&1; then
-        # The unit hardcodes /usr/bin/gunicorn; symlink if pip put it elsewhere.
-        [[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
-        install -m 644 "$SCRIPT_DIR/server/conf/remotepower-wsgi.service" \
-            /etc/systemd/system/remotepower-wsgi.service
-        install -d -m 755 -o root -g root /etc/remotepower
-        systemctl daemon-reload
-        systemctl enable --now remotepower-wsgi \
-            && success "remotepower-wsgi started (gunicorn on 127.0.0.1:8090)" \
-            || warn "Could not start remotepower-wsgi — check: systemctl status remotepower-wsgi"
-        _snip=/etc/nginx/snippets/remotepower-locations.conf
-        if [[ -f "$_snip" ]]; then
-            cp -a "$_snip" "${_snip}.cgi.bak"
-            python3 - "$_snip" <<'PYEOF'
-import re, sys
-from pathlib import Path
-p = Path(sys.argv[1]); text = p.read_text()
-# Rewrite each ACTIVE (non-commented) location block that drives fcgiwrap into a
-# gunicorn proxy_pass block. Commented example blocks start with '#' so the
-# line-anchored matcher skips them; brace matching is depth-aware so the nested
-# `limit_except { … }` doesn't confuse it.
-loc_re = re.compile(r'(?m)^[ \t]*location\b[^{]*')
-out, pos = [], 0
-while True:
-    m = loc_re.search(text, pos)
-    if not m:
-        out.append(text[pos:]); break
-    out.append(text[pos:m.start()])
-    sel = m.group(0)
-    bopen = text.index('{', m.start())
-    depth, j = 0, bopen
-    while j < len(text):
-        if text[j] == '{': depth += 1
-        elif text[j] == '}':
-            depth -= 1
-            if depth == 0: break
-        j += 1
-    block = text[bopen:j + 1]
-    if 'fcgiwrap.socket' in block:
-        pim = re.search(r'PATH_INFO\s+(\S+);', block)
-        suffix = pim.group(1) if (pim and pim.group(1) != '$uri') else ''
-        le = re.search(r'limit_except[^{]*\{[^}]*\}', block)
-        le_line = ('\n    ' + le.group(0)) if le else ''
-        indent = re.match(r'[ \t]*', sel).group(0)
-        out.append(
-            sel.rstrip() + ' {\n'
-            '    proxy_pass http://127.0.0.1:8090' + suffix + ';\n'
-            '    proxy_set_header Host $host;\n'
-            '    proxy_set_header X-Real-IP $remote_addr;\n'
-            '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
-            '    proxy_set_header X-Forwarded-Proto $scheme;\n'
-            '    proxy_read_timeout 130s;' + le_line + '\n' + indent + '}')
-    else:
-        out.append(sel + block)
-    pos = j + 1
-p.write_text(''.join(out))
-PYEOF
-            if nginx -t >/dev/null 2>&1; then
-                systemctl reload nginx
-                success "nginx /api/ now proxies to the WSGI tier (backup: ${_snip}.cgi.bak)"
-            else
-                warn "nginx -t failed after the WSGI switch — reverting to fcgiwrap"
-                cp -a "${_snip}.cgi.bak" "$_snip"
-                nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
-            fi
-        fi
-    fi
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────────
@@ -587,8 +591,7 @@ echo ""
 echo "  User mgmt: python3 /var/www/remotepower/cgi-bin/remotepower-passwd"
 echo "             (add / change / delete users and list accounts)"
 echo ""
-echo "  Perf (optional): systemctl enable --now remotepower-api"
-echo "    then switch nginx /api/ to scgi_pass (see server/conf/remotepower.conf)"
+echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}"
 echo ""
 echo "  Next: Install the client on each machine you want to control:"
 echo "    sudo bash install-client.sh"

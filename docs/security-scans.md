@@ -220,6 +220,24 @@ WantedBy=multi-user.target
 
 Then: `sudo systemctl enable --now remotepower-scanner`.
 
+**Scripted install** — `packaging/scanner-setup.sh` does the above for you
+(installs the script, writes the env file + systemd unit, enables it):
+
+```bash
+sudo RP_SERVER_URL=https://YOUR-SERVER RP_SATELLITE_TOKEN='…' \
+    bash packaging/scanner-setup.sh
+```
+
+**Co-located on the server itself** — `install-server.sh` installs a scanner
+satellite on the same node by default (single-node "enterprise" installs;
+`--no-scanner` to opt out). It mints its own token directly and runs
+`RP_SCAN_RUNNER=nuclei` against localhost, skipping the Docker-socket
+requirement above entirely (no docker/podman needed — see
+`packaging/scanner-setup.sh`'s header for why). This trades the isolation
+this doc recommends (a separate machine) for a one-command install; the
+standalone paths above remain the better-isolated option for anything beyond
+a lab/small-fleet install.
+
 ---
 
 ## Is this safe / legal to run?

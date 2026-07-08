@@ -9,13 +9,14 @@ LABEL description="RemotePower - Self-hosted remote device management"
 LABEL version="${VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/tyxak/remotepower"
 
-# Install nginx, fcgiwrap and runtime deps.
+# Install nginx and runtime deps (gunicorn+flask is the app server — the only
+# server; CGI/fcgiwrap is retired, see CHANGELOG v6.1.0).
 # xmlsec1 = the system binary pysaml2 shells out to for SAML signature
 # verification (v4.2.0 B1); without it SAML SSO reports unavailable.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
-        nginx fcgiwrap spawn-fcgi procps xmlsec1 openssl iputils-ping && \
-    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn && \
+        nginx procps xmlsec1 openssl iputils-ping && \
+    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn flask 'psycopg[binary]' && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Directories
@@ -37,16 +38,15 @@ COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
 # (href="docs/<name>.md") resolve. (Also indexed for RAG from the data dir.)
 COPY docs/                          /var/www/remotepower/docs/
 RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
-              /var/www/remotepower/cgi-bin/api_cgi.py \
+              /var/www/remotepower/cgi-bin/wsgi.py \
               /var/www/remotepower/cgi-bin/remotepower-passwd \
               /var/www/remotepower/agent/remotepower-agent && \
     # v1.11.0: helper scripts need +x too
     if [ -f /var/www/remotepower/cgi-bin/remotepower-tls-check ]; then \
         chmod 755 /var/www/remotepower/cgi-bin/remotepower-tls-check; \
     fi && \
-    # Precompile so the CGI user loads cached bytecode: api_cgi.py imports api,
-    # and a CGI main script never uses the .pyc cache, so without this the
-    # ~50k-line module is recompiled on every request.
+    # Precompile so gunicorn loads cached bytecode on first request instead of
+    # recompiling the ~50k-line module.
     python3 -m compileall -q /var/www/remotepower/cgi-bin/
 
 # Nginx config (Docker variant - listens on 8080, no IPv6 listen). The shared

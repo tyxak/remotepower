@@ -6,16 +6,16 @@ sudo sed -i '/listen \[::\]/d' /etc/nginx/sites-available/remotepower
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-**fcgiwrap socket permission denied**
+**502 from nginx / app server not answering**
 ```bash
-sudo chmod 660 /run/fcgiwrap.socket
-sudo chown www-data:www-data /run/fcgiwrap.socket
-sudo systemctl restart fcgiwrap nginx
+sudo systemctl status remotepower-wsgi
+sudo journalctl -u remotepower-wsgi -n 40
+sudo systemctl restart remotepower-wsgi nginx
 ```
 
 **Long-poll exec times out immediately**
-- Check `fastcgi_read_timeout` in your Nginx config - must be ≥ 130 s
-- The CGI process holds the connection; fcgiwrap must not be configured with a process limit that kills long-running requests
+- Check `proxy_read_timeout` in your Nginx config - must be ≥ 130 s
+- gunicorn's own `--timeout` (in `remotepower-wsgi.service`) must also allow long-running requests
 
 **Metrics not appearing**
 ```bash
@@ -41,7 +41,7 @@ curl -v https://your-server/api/heartbeat
 **Reset everything**
 ```bash
 sudo rm -rf /var/lib/remotepower/
-sudo systemctl restart nginx fcgiwrap
+sudo systemctl restart nginx remotepower-wsgi
 sudo python3 /var/www/remotepower/cgi-bin/remotepower-passwd
 ```
 

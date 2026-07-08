@@ -27,13 +27,14 @@
 #   * pacman / AUR   → pacman -Sy the remotepower-server package
 #   * apt / dpkg     → apt-get install the latest remotepower-server package
 #   * container      → refuses (an image must be repulled by the orchestrator)
-# then restarts the SCGI worker (classic-CGI installs need no restart — fcgiwrap
-# re-execs the new code on the next request) and reloads nginx.
+# then restarts the app server (gunicorn/Flask — the only server since v6.1.0,
+# a persistent process that must be restarted to pick up new code) and reloads
+# nginx.
 #
 # TUNE via the environment (e.g. in the API unit's EnvironmentFile,
 # /etc/remotepower/api.env). Defaults match a standard install:
 #   RP_INSTALL_DIR   install root for a git checkout   (default /var/www/remotepower)
-#   RP_API_SERVICE   systemd unit to restart           (default remotepower-api)
+#   RP_API_SERVICE   systemd unit to restart           (default remotepower-wsgi)
 #   RP_UPDATE_REF    git ref to update to    (default: latest release TAG, not a
 #                    branch tip — set e.g. RP_UPDATE_REF=v5.0.0, or a branch only
 #                    if you deliberately want unreleased code)
@@ -43,7 +44,7 @@
 set -euo pipefail
 
 INSTALL_DIR="${RP_INSTALL_DIR:-/var/www/remotepower}"
-API_SERVICE="${RP_API_SERVICE:-remotepower-api}"
+API_SERVICE="${RP_API_SERVICE:-remotepower-wsgi}"
 UPDATE_REF="${RP_UPDATE_REF:-}"   # empty → resolve the latest release tag below
 PKG_NAME="${RP_PKG_NAME:-remotepower-server}"
 
@@ -110,16 +111,16 @@ else
 fi
 
 # ── Restart the service ─────────────────────────────────────────────────────
-# deploy-server.sh already restarts the worker for git installs; the package
-# branches do not, so restart here. A restart is idempotent, so this is safe
-# either way. Classic-CGI installs have no worker unit — fcgiwrap picks up the
-# new code on the next request, so a missing unit is not an error.
+# deploy-server.sh already restarts the app server for git installs; the
+# package branches do not, so restart here. A restart is idempotent, so this
+# is safe either way. The app server is a persistent process (gunicorn) — a
+# missing unit means the install is misconfigured, not a valid fallback state.
 if command -v systemctl >/dev/null 2>&1; then
   if systemctl list-unit-files 2>/dev/null | grep -q "^${API_SERVICE}\.service"; then
     log "restarting ${API_SERVICE} ..."
     systemctl restart "$API_SERVICE"
   else
-    log "no ${API_SERVICE}.service unit (classic CGI) — nothing to restart"
+    log "WARNING: no ${API_SERVICE}.service unit found — the app server was NOT restarted, it is still running the OLD code. Set RP_API_SERVICE if your unit has a different name." >&2
   fi
   systemctl reload nginx 2>/dev/null || true
 fi

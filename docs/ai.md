@@ -87,19 +87,20 @@ picker dropdown above the chat).
 
 Local thinking models (smallthinker, qwq, deepseek-r1) can spend
 60–180 seconds generating a response. nginx's default
-`fastcgi_read_timeout` of 60s will close the connection before
+`proxy_read_timeout` of 60s will close the connection before
 that, and the browser sees a 504 Gateway Timeout. The HTTP timeout
 on the Python side was bumped to 5 minutes in v2.1.4; for nginx
 you must add a per-location block:
 
 ```nginx
 location /api/ai/ {
- include fastcgi_params;
- fastcgi_pass unix:/var/run/fcgiwrap.socket;
- fastcgi_read_timeout 300s;
- fastcgi_send_timeout 300s;
- fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api_cgi.py;
- fastcgi_param PATH_INFO $uri;
+ proxy_pass http://127.0.0.1:8090;
+ proxy_set_header Host $host;
+ proxy_set_header X-Real-IP $remote_addr;
+ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+ proxy_set_header X-Forwarded-Proto $scheme;
+ proxy_read_timeout 300s;
+ proxy_send_timeout 300s;
 }
 ```
 

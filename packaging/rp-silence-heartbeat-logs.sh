@@ -2,12 +2,10 @@
 # rp-silence-heartbeat-logs.sh
 #
 # v2.1.1 added per-heartbeat sys.stderr.write() calls to make the
-# offline bug debuggable. Under FastCGI, stderr lands in nginx's error
-# log tagged [error] — because the FCGI_STDERR record type has no
-# severity dimension, anything you write to fd 2 becomes "error" to
-# nginx. With the offline bug now fixed in v2.1.2, those routine
-# heartbeat lines are pure noise drowning out anything that actually
-# matters in /var/log/nginx/*_error.log.
+# offline bug debuggable. Under the app server (gunicorn), stderr lands
+# in `journalctl -u remotepower-wsgi` / nginx's error log. With the
+# offline bug now fixed in v2.1.2, those routine heartbeat lines are
+# pure noise drowning out anything that actually matters in the logs.
 #
 # This script gates the noisy writes behind env vars:
 #
@@ -32,8 +30,8 @@
 # Revert:
 #   sudo cp <printed backup path> $API_PY
 #
-# Re-enable for a debugging window (in /etc/default/fcgiwrap or your
-# systemd drop-in, then `systemctl restart fcgiwrap`):
+# Re-enable for a debugging window (in /etc/remotepower/api.env, then
+# `systemctl restart remotepower-wsgi`):
 #   RP_LOG_HEARTBEATS=1
 #   RP_LOG_LOCK_WAITS=1
 

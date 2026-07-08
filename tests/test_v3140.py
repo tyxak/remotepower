@@ -2542,7 +2542,8 @@ class TestRosterAndTransport(unittest.TestCase):
         self.assertEqual(self.AGENT, self.AGENT_X)        # extensionless in sync
 
     def test_deployment_scripts_present(self):
-        for rel in ('packaging/satellite-setup.sh', 'packaging/postgres-setup.sh',
+        for rel in ('packaging/satellite-setup.sh', 'packaging/scanner-setup.sh',
+                    'packaging/postgres-setup.sh',
                     'packaging/postgres-ha-primary.sh', 'packaging/postgres-ha-standby.sh',
                     'packaging/pgbouncer-setup.sh', 'packaging/loadbalancer-haproxy.cfg.example',
                     'client/install-macos.sh'):

@@ -22,6 +22,9 @@ paths = [
   '''packaging/aur/[^/]+/pkg/.*''', # AUR makepkg package tree (regenerated)
   '''.*\.BUILDINFO''',              # AUR build metadata (regenerated)
   '''site/.*''',                    # marketing site (gitignored, separate deploy)
+  '''\.cursor/.*''',                # gitignored Cursor IDE rules mirror — contains
+                                    # the maintainer's public PGP fingerprint
+                                    # (validpgpkeys=), not a secret
 
   # ── Documentation examples — illustrative tokens / Authorization headers,
   #    never real credentials (docs audit confirms no sensitive leaks) ───────

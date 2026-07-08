@@ -281,17 +281,17 @@ class TestAgentLifecycleDefaultOff(unittest.TestCase):
 
 
 class TestApiUnitEnvironmentFile(unittest.TestCase):
-    """The SCGI worker unit must read operator env/secrets from an external file.
+    """The app-server unit must read operator env/secrets from an external file.
 
-    deploy-server.sh / install-server.sh overwrite the unit on every redeploy, so
-    an inline `Environment=RP_BACKUP_PASSPHRASE=...` edit is silently wiped on the
-    next update. An optional EnvironmentFile keeps the operator's passphrase (and
+    install-server.sh overwrites the unit on every redeploy, so an inline
+    `Environment=RP_BACKUP_PASSPHRASE=...` edit is silently wiped on the next
+    update. An optional EnvironmentFile keeps the operator's passphrase (and
     other secrets) in a file the deploy never touches — mirrors the agent unit's
     `EnvironmentFile=-/etc/remotepower/agent.env`.
     """
 
     def test_unit_loads_operator_env_file(self):
-        unit = (_ROOT / "server" / "conf" / "remotepower-api.service").read_text()
+        unit = (_ROOT / "server" / "conf" / "remotepower-wsgi.service").read_text()
         # `-` prefix → optional, no boot failure when the file is absent.
         self.assertIn("EnvironmentFile=-/etc/remotepower/api.env", unit)
 

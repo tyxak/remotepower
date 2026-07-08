@@ -9,7 +9,7 @@ notify.py / checks.py / integrations.py, which cannot host handlers):
     service is accessed as ``A.<name>`` — a DYNAMIC attribute lookup, so
     the test suite's monkeypatching of api.respond / api.require_auth /
     api.method keeps working unchanged, and the CGI (__main__) and
-    imported-module (api_worker/scheduler) execution models both resolve
+    imported-module (wsgi.py/scheduler.py) execution models both resolve
     to the same live namespace.
   - api.py then from-imports every public and private name back into its
     own globals, so the route tables (globals()[name]) and every existing

@@ -181,8 +181,7 @@ const CHECK_CATALOG = [
   { c: 'System', l: 'auditd', t: 'process', p: 'auditd', n: 'auditd running' },
   { c: 'System', l: 'Reboot-required flag absent', t: 'file_absent', p: '/var/run/reboot-required', n: 'No pending reboot' },
   // RemotePower (self-infra)
-  { c: 'RemotePower (self-infra)', l: 'API / SCGI worker', t: 'systemd_unit', p: 'remotepower-api.service', n: 'RemotePower API (SCGI) active' },
-  { c: 'RemotePower (self-infra)', l: 'WSGI app server', t: 'systemd_unit', p: 'remotepower-wsgi.service', n: 'RemotePower WSGI active' },
+  { c: 'RemotePower (self-infra)', l: 'App server', t: 'systemd_unit', p: 'remotepower-wsgi.service', n: 'RemotePower app server active' },
   { c: 'RemotePower (self-infra)', l: 'Scheduler', t: 'systemd_unit', p: 'remotepower-scheduler.service', n: 'RemotePower scheduler active' },
   { c: 'RemotePower (self-infra)', l: 'Satellite / relay', t: 'systemd_unit', p: 'remotepower-satellite.service', n: 'RemotePower satellite active' },
   { c: 'RemotePower (self-infra)', l: 'Scanner', t: 'systemd_unit', p: 'remotepower-scanner.service', n: 'RemotePower scanner active' },

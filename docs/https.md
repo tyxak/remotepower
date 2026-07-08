@@ -16,17 +16,13 @@ server {
     index index.html;
 
     location /api/ {
-        include fastcgi_params;
-        fastcgi_pass unix:/run/fcgiwrap.socket;
-        fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api_cgi.py;  # shim → runs api.py from cached bytecode
-        fastcgi_param PATH_INFO $uri;
-        fastcgi_param REQUEST_METHOD $request_method;
-        fastcgi_param CONTENT_TYPE $content_type;
-        fastcgi_param CONTENT_LENGTH $content_length;
-        fastcgi_param HTTP_X_TOKEN $http_x_token;
-        fastcgi_param RP_DATA_DIR /var/lib/remotepower;
+        proxy_pass http://127.0.0.1:8090;   # gunicorn + wsgi.py (the app server)
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         # Long-poll exec needs an extended timeout
-        fastcgi_read_timeout 130s;
+        proxy_read_timeout 130s;
         limit_except GET POST DELETE PATCH { deny all; }
     }
 

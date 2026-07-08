@@ -67,8 +67,8 @@ Retention defaults to 14 days. Older tarballs are pruned on each run. Change the
 There's no in-UI restore — backup files are tarballs you can extract yourself. Procedure:
 
 ```bash
-# Stop the agent + nginx (we don't want writes during restore)
-systemctl stop fcgiwrap nginx
+# Stop the app server + nginx (we don't want writes during restore)
+systemctl stop remotepower-wsgi nginx
 
 # Back up the existing data dir (paranoid)
 mv /var/lib/remotepower /var/lib/remotepower.before-restore
@@ -84,7 +84,7 @@ rmdir remotepower
 chown -R www-data:www-data /var/lib/remotepower
 
 # Start back up
-systemctl start fcgiwrap nginx
+systemctl start remotepower-wsgi nginx
 ```
 
 If the backup was created on a host with a different `RP_PROXMOX_TOKEN_SECRET` environment variable, re-set Settings → Proxmox → token secret. Same for SMTP / LDAP bind passwords if they were redacted (they always are in `config.json` exports).

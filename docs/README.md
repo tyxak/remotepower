@@ -22,7 +22,7 @@ holds long-form docs that don't fit there.
  (Linux/Windows/macOS), satellites, app nodes, load balancer, Postgres/HA —
  which script installs each and when you need it.
 - **[scaling.md](scaling.md)** — Running large fleets (1000+ agents): the
- PostgreSQL backend, poll-interval tuning, FastCGI worker pool, load-balanced
+ PostgreSQL backend, poll-interval tuning, the gunicorn worker pool, load-balanced
  multi-node, relay satellites, PgBouncer, retention, and the encryption matrix.
 - **[satellites.md](satellites.md)** — Relay satellites for segmented networks:
  add one, encrypt the agent→satellite hop, point agents at it, revoke.
@@ -43,25 +43,29 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-6.0.0.md](security-review-6.0.0.md)** — Latest review:
- the v6.0.0 "ClarityMatters" line (the v6 UI overhaul) plus a whole-project
- manual audit, the full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live
- authenticated review — no Critical/High/Medium ships; three Medium fixes
- (read-only-role write gates on the shared Calendar/Tasks boards, two agent-data
- XSS paths) plus Low/defense-in-depth (integration SSRF passthrough, DNS id
- quoting, a config-file lock).
-- **[security-review-5.8.0.md](security-review-5.8.0.md)** — A prior review:
- the v5.8.0 "WatchMatters" line plus a whole-project, eight-stream manual audit,
- the full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live authenticated
- penetration test — no Critical/High/Medium ships; two Medium read-only-role write
- gates plus Low/defense-in-depth fixes (agent no-redirect, file-manager resolved
- path, `javascript:` link scheme, scrub/arg-terminator hardening).
-- **[security-review-6.0.1.md](security-review-6.0.1.md)** — The v6.0.1
- "RefineMatters" review: a whole-project SAST run (CodeQL, Bandit, gitleaks — all
- clean), DAST scanners and a live authenticated API pentest — no Critical/High/Medium
- ships; two Medium alert-resolution correctness fixes and Low defense-in-depth
- hardening (no-redirect vuln-DB lookups, mandatory SSRF-safe image-registry opener,
- a read-only-role ticket-badge write gate).
+- **[security-review-6.1.0.md](security-review-6.1.0.md)** — Latest review: the
+ v6.1.0 "Runt1meMatters" enterprise-productization line (Postgres/gunicorn+Flask/
+ scheduler/scanner as the single-node default, CGI/SCGI fully retired) plus the
+ full SAST stack (CodeQL, Bandit, gitleaks, Semgrep — all clean) and a structured,
+ independently-verified multi-agent code review of the whole diff — no Critical/
+ High/Medium ships; six pre-release findings fixed (client-IP resolution broken by
+ the new proxy_pass transport, a Postgres migration data-loss risk on independent
+ volume resets, a default Postgres password shipped enabled-by-default, a Flask
+ method-routing gap, and a response-capture proxy that could be silently defeated
+ by stdout reassignment).
+- **[security-review-6.0.1.md](security-review-6.0.1.md)** — A prior review: the
+ v6.0.1 "RefineMatters" review: a whole-project SAST run (CodeQL, Bandit, gitleaks
+ — all clean), DAST scanners and a live authenticated API pentest — no Critical/
+ High/Medium ships; two Medium alert-resolution correctness fixes and Low
+ defense-in-depth hardening (no-redirect vuln-DB lookups, mandatory SSRF-safe
+ image-registry opener, a read-only-role ticket-badge write gate).
+- **[security-review-6.0.0.md](security-review-6.0.0.md)** — the v6.0.0
+ "ClarityMatters" line (the v6 UI overhaul) plus a whole-project manual audit, the
+ full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live authenticated review
+ — no Critical/High/Medium ships; three Medium fixes (read-only-role write gates
+ on the shared Calendar/Tasks boards, two agent-data XSS paths) plus Low/
+ defense-in-depth (integration SSRF passthrough, DNS id quoting, a config-file
+ lock).
 
 ## Release notes
 
@@ -70,6 +74,11 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v6.1.0.md](v6.1.0.md)** — "Runt1meMatters": the enterprise-productization
+ release — Postgres + the out-of-band scheduler + a co-located scanner satellite
+ are now the single-node default (`install-server.sh`/`docker-compose.yml`), and
+ the server runs entirely on **gunicorn + Flask** (CGI/fcgiwrap and the SCGI
+ worker are retired). No breaking API changes.
 - **[v6.0.1.md](v6.0.1.md)** — "RefineMatters": a refinement release — sidebar
  reorg (Virtualization/Containers → Fleet, Integrations → Monitoring, App catalog →
  Automation; sub-menus sorted A–Z), a real world map, single-device auto-patch, a
@@ -94,15 +103,7 @@ The five most recent per-release notes are kept here:
  **alert Tuning** page that surfaces the noisiest alerts with per-host **mute**
  (the Ack button becomes an X mute); and **timesheet watchers** (view another
  user's hours, by user or team). All opt-in, default-off. No breaking changes.
-- **[v5.5.0.md](v5.5.0.md)** — "ScaleMatters": the persistent-tier + enterprise
- release — the **keystone** (opt-in **gunicorn WSGI app server** + leader-elected
- **out-of-band scheduler**) that lifts the fork-per-request scale ceiling, **hard
- multi-tenancy** with optional **Postgres row-level security**, a large opt-in
- **enterprise-hardening** program, plus helpdesk-signal + billing polish (AV
- **`av_warning`** alerts, ticket **attachments**, **auto-reply**, **"View email
- thread"**, opt-in **Billing**). All opt-in, default-off. No breaking changes.
-
-Older release notes (v5.0.1 and earlier) live in
+Older release notes (v5.5.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

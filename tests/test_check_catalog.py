@@ -60,7 +60,7 @@ class TestCatalogFrontend(unittest.TestCase):
             self.assertIn(fn, _APP_JS)
 
     def test_remotepower_self_infra_in_catalog(self):
-        for unit in ('remotepower-api.service', 'remotepower-wsgi.service',
+        for unit in ('remotepower-wsgi.service',
                      'remotepower-scheduler.service', 'remotepower-satellite.service'):
             self.assertIn(unit, _APP_JS, f'catalog missing {unit}')
 

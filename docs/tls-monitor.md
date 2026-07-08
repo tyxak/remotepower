@@ -263,6 +263,6 @@ actual gap so you know how long it's been. (-3 means three days
 ago.)
 
 **Scan timed out from the dashboard.** With many targets, "Scan
-now" takes longer than the fcgiwrap timeout (typically 30s).
-Either trigger the cron script directly via SSH, or split the
-watchlist and run partial scans.
+now" takes longer than the app server's request timeout (`proxy_read_timeout`,
+typically 30-130s depending on the route). Either trigger the cron
+script directly via SSH, or split the watchlist and run partial scans.

@@ -82,8 +82,9 @@ MODE="interactive"; DRY=0
 HOST=""; TLS_MODE=""; ADMIN_USER="admin"; ADMIN_PASS=""; PORT=""
 PREFIX=""; SANDBOX=0; PKG_MGR=""; NGINX_USER=""; CA_FP=""; PURGE=0
 # Optional opt-in scaling features (v6.x) — default OFF; the interactive default
-# install is unchanged unless one of these is explicitly requested.
-APP_SERVER=""; WITH_SCHEDULER=0; WITH_POSTGRES=0
+# install is unchanged unless one of these is explicitly requested. (The app
+# server itself — gunicorn/Flask — is NOT optional, see _enable_services.)
+WITH_SCHEDULER=0; WITH_POSTGRES=0
 
 usage() {
   cat <<EOF
@@ -106,8 +107,6 @@ Options:
   --admin-user U Admin username (default: admin)
   --admin-pass P Admin password (else prompted, or generated)
   --port N       HTTPS port (default: 443)
-  --app-server W Persistent app tier: 'wsgi' runs gunicorn instead of CGI (opt-in)
-  --with-wsgi    Alias for --app-server wsgi
   --with-scheduler  Run maintenance sweeps out-of-band (remotepower-scheduler)
   --with-postgres   Provision a PostgreSQL backend (packaging/postgres-setup.sh)
   --unattended   No prompts, no eye candy (CI / Ansible)
@@ -198,12 +197,28 @@ _detect_pkg() {
 }
 _install_deps() {
   case "$PKG_MGR" in
-    apt) apt-get update -qq; apt-get install -y --no-install-recommends nginx fcgiwrap python3 python3-pip;;
-    dnf) dnf install -y -q nginx fcgiwrap python3 python3-pip;;
-    pacman) pacman -Sy --noconfirm --noprogressbar nginx fcgiwrap python python-pip;;
-    *) step_no "unsupported distro — install nginx/fcgiwrap/python3 manually"; return 1;;
+    apt) apt-get update -qq; apt-get install -y --no-install-recommends nginx python3 python3-pip;;
+    dnf) dnf install -y -q nginx python3 python3-pip;;
+    pacman) pacman -Sy --noconfirm --noprogressbar nginx python python-pip;;
+    *) step_no "unsupported distro — install nginx/gunicorn/python3 manually"; return 1;;
   esac
-  # Best-effort optional libs (each degrades gracefully in api.py).
+  # flask + gunicorn are the app server — required, not optional (CGI/fcgiwrap
+  # is retired). Best-effort optional libs (bcrypt) degrade gracefully in api.py.
+  python3 -c "import flask" 2>/dev/null || \
+    { case "$PKG_MGR" in
+        apt) apt-get install -y --no-install-recommends python3-flask 2>/dev/null || pip3 install flask --break-system-packages 2>/dev/null || pip3 install flask 2>/dev/null;;
+        dnf) dnf install -y -q python3-flask 2>/dev/null || pip3 install flask 2>/dev/null;;
+        pacman) pacman -S --noconfirm python-flask 2>/dev/null || pip install flask 2>/dev/null;;
+      esac; }
+  python3 -c "import flask" 2>/dev/null || step_no "flask install failed — the app server cannot run"
+  command -v gunicorn >/dev/null 2>&1 || \
+    { case "$PKG_MGR" in
+        apt) apt-get install -y --no-install-recommends gunicorn 2>/dev/null || pip3 install gunicorn --break-system-packages 2>/dev/null || pip3 install gunicorn 2>/dev/null;;
+        dnf) dnf install -y -q python3-gunicorn 2>/dev/null || pip3 install gunicorn 2>/dev/null;;
+        pacman) pacman -S --noconfirm gunicorn 2>/dev/null || pip install gunicorn 2>/dev/null;;
+      esac; }
+  command -v gunicorn >/dev/null 2>&1 && { [ -x /usr/bin/gunicorn ] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn; } \
+    || step_no "gunicorn install failed — the app server cannot run"
   python3 -c "import bcrypt" 2>/dev/null || pip3 install bcrypt --break-system-packages 2>/dev/null || pip install bcrypt 2>/dev/null || true
 }
 _copy_files() {
@@ -215,13 +230,12 @@ _copy_files() {
   [ -d "$SRC/server/html/static" ] && cp -rp "$SRC/server/html/static/." "$(_p "$WWW")/static/" || true
   for f in "$SRC"/server/cgi-bin/*.py; do
     case "$(basename "$f")" in
-      api.py|api_cgi.py) install -m755 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")" ;;
-      *)                 install -m644 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")" ;;
+      api.py|wsgi.py) install -m755 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")" ;;
+      *)               install -m644 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")" ;;
     esac
   done
-  # Precompile so the CGI user loads cached bytecode (api_cgi.py imports api; a
-  # CGI main script never uses the .pyc cache → the ~50k-line module would be
-  # recompiled on every request without this).
+  # Precompile so gunicorn loads cached bytecode on first request instead of
+  # recompiling the ~50k-line module.
   python3 -m compileall -q "$(_p "$WWW")/cgi-bin/" 2>/dev/null || true
   install -m755 "$SRC/server/remotepower-passwd" "$(_p "$WWW")/cgi-bin/remotepower-passwd" 2>/dev/null || true
   install -m755 "$SRC/client/remotepower-agent"  "$(_p "$WWW")/agent/remotepower-agent" 2>/dev/null || true
@@ -295,18 +309,24 @@ os.chmod(p, 0o600)   # lock the hash file (install-server.sh left it 644)
 PY
 }
 _enable_services() {
-  systemctl enable --now fcgiwrap.socket 2>/dev/null || systemctl enable --now fcgiwrap 2>/dev/null || \
-    step_no "could not start fcgiwrap — check: systemctl status fcgiwrap"
+  local SRC="$1"
   nginx -t && systemctl reload nginx
+  # gunicorn/Flask (the only app server — CGI/fcgiwrap is retired). nginx's
+  # shipped locations snippet already proxy_passes to 127.0.0.1:8090.
+  install -m644 "$SRC/server/conf/remotepower-wsgi.service" /etc/systemd/system/remotepower-wsgi.service
+  install -d -m755 -o root -g root "$RPETC"
+  systemctl daemon-reload
+  systemctl enable --now remotepower-wsgi 2>/dev/null || \
+    step_no "could not start remotepower-wsgi — check: systemctl status remotepower-wsgi"
 }
 
 # ── Optional opt-in scaling features (v6.x) — real-mode only, default OFF ──────
-# Mirrors install-server.sh: provision PostgreSQL, the out-of-band scheduler, and
-# the persistent gunicorn WSGI tier. Each is gated behind its flag, so a plain
-# install never touches any of this.
+# Mirrors install-server.sh: provision PostgreSQL and the out-of-band scheduler.
+# Each is gated behind its flag, so a plain install never touches any of this.
+# (The app server itself — gunicorn/Flask — is unconditional, see _enable_services.)
 _apply_optins() {
   local SRC="$1"
-  if [ -z "$APP_SERVER" ] && [ "$WITH_SCHEDULER" != 1 ] && [ "$WITH_POSTGRES" != 1 ]; then return 0; fi
+  if [ "$WITH_SCHEDULER" != 1 ] && [ "$WITH_POSTGRES" != 1 ]; then return 0; fi
   section "Optional scaling features"
 
   if [ "$WITH_POSTGRES" = 1 ]; then
@@ -314,7 +334,7 @@ _apply_optins() {
       if bash "$SRC/packaging/postgres-setup.sh" --install --write-marker "$DATA"; then
         [ -n "$NGINX_USER" ] && chown "$NGINX_USER:$NGINX_USER" "$DATA/storage_backend.json" 2>/dev/null || true
         step_ok "PostgreSQL provisioned + storage marker written"
-        note "Migrate existing data (tools/migrate_storage.py or Settings → Advanced) so the admin user is visible."
+        note "Migrate existing data (Settings → Advanced → Storage backend) so the admin user is visible."
       else
         step_no "postgres-setup.sh failed — continuing on the default backend"
       fi
@@ -331,89 +351,19 @@ _apply_optins() {
     systemctl daemon-reload
     systemctl enable --now remotepower-scheduler && step_ok "Out-of-band scheduler enabled" \
       || step_no "scheduler failed — systemctl status remotepower-scheduler"
-    systemctl is-active --quiet remotepower-api  2>/dev/null && systemctl restart remotepower-api  || true
     systemctl is-active --quiet remotepower-wsgi 2>/dev/null && systemctl restart remotepower-wsgi || true
-    note "The plain CGI path doesn't read api.env — pair with --with-wsgi or the SCGI worker so the flag is honoured."
-  fi
-
-  if [ "$APP_SERVER" = "wsgi" ]; then
-    if ! command -v gunicorn >/dev/null 2>&1; then
-      case "$PKG_MGR" in
-        apt) apt-get install -y --no-install-recommends gunicorn 2>/dev/null \
-               || pip3 install gunicorn --break-system-packages 2>/dev/null || pip3 install gunicorn 2>/dev/null || true;;
-        dnf) dnf install -y -q python3-gunicorn 2>/dev/null || pip3 install gunicorn 2>/dev/null || true;;
-        pacman) pacman -S --noconfirm gunicorn 2>/dev/null || pip install gunicorn 2>/dev/null || true;;
-      esac
-    fi
-    if command -v gunicorn >/dev/null 2>&1; then
-      [ -x /usr/bin/gunicorn ] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
-      install -m644 "$SRC/server/conf/remotepower-wsgi.service" /etc/systemd/system/remotepower-wsgi.service
-      install -d -m755 -o root -g root "$RPETC"
-      systemctl daemon-reload
-      systemctl enable --now remotepower-wsgi && step_ok "WSGI tier (gunicorn :8090) enabled" \
-        || step_no "remotepower-wsgi failed — systemctl status remotepower-wsgi"
-      local snip="$NGX/snippets/remotepower-locations.conf"
-      if [ -f "$snip" ]; then
-        cp -a "$snip" "$snip.cgi.bak"
-        python3 - "$snip" <<'PYEOF'
-import re, sys
-from pathlib import Path
-p = Path(sys.argv[1]); text = p.read_text()
-loc_re = re.compile(r'(?m)^[ \t]*location\b[^{]*')
-out, pos = [], 0
-while True:
-    m = loc_re.search(text, pos)
-    if not m:
-        out.append(text[pos:]); break
-    out.append(text[pos:m.start()])
-    sel = m.group(0)
-    bopen = text.index('{', m.start())
-    depth, j = 0, bopen
-    while j < len(text):
-        if text[j] == '{': depth += 1
-        elif text[j] == '}':
-            depth -= 1
-            if depth == 0: break
-        j += 1
-    block = text[bopen:j + 1]
-    if 'fcgiwrap.socket' in block:
-        pim = re.search(r'PATH_INFO\s+(\S+);', block)
-        suffix = pim.group(1) if (pim and pim.group(1) != '$uri') else ''
-        le = re.search(r'limit_except[^{]*\{[^}]*\}', block)
-        le_line = ('\n    ' + le.group(0)) if le else ''
-        indent = re.match(r'[ \t]*', sel).group(0)
-        out.append(
-            sel.rstrip() + ' {\n'
-            '    proxy_pass http://127.0.0.1:8090' + suffix + ';\n'
-            '    proxy_set_header Host $host;\n'
-            '    proxy_set_header X-Real-IP $remote_addr;\n'
-            '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
-            '    proxy_set_header X-Forwarded-Proto $scheme;\n'
-            '    proxy_read_timeout 130s;' + le_line + '\n' + indent + '}')
-    else:
-        out.append(sel + block)
-    pos = j + 1
-p.write_text(''.join(out))
-PYEOF
-        if nginx -t >/dev/null 2>&1; then systemctl reload nginx; step_ok "nginx /api/ now proxies to the WSGI tier"
-        else step_no "nginx -t failed — reverting to fcgiwrap"; cp -a "$snip.cgi.bak" "$snip"; nginx -t >/dev/null 2>&1 && systemctl reload nginx || true; fi
-      fi
-    else
-      step_no "gunicorn unavailable — WSGI tier skipped (still on CGI)"
-    fi
   fi
 }
-
 run_install() {
   section "Installing"
   local SRC; SRC="$(cd "$(dirname "$0")" && pwd)"
   if [ "$MODE" = "demo" ]; then
-    _demo "Dependencies installed" "pkg install nginx fcgiwrap python3"
+    _demo "Dependencies installed" "pkg install nginx gunicorn python3"
     _demo "Web + backend files installed" "copy server/ + docs → /var/www/remotepower"
     _demo "Self-signed CA + certificate issued" "gen-ca → /etc/remotepower/tls"
     _demo "nginx vhost written (no hand-editing)" "template → /etc/nginx, nginx -t, reload"
     _demo "Admin account created" "users.json (bcrypt, 0600)"
-    _demo "Services started + health-checked" "fcgiwrap + nginx, GET /api/health"
+    _demo "Services started + health-checked" "gunicorn + nginx, GET /api/health"
     return
   fi
   _detect_pkg
@@ -434,7 +384,7 @@ run_install() {
   _write_nginx "$SRC"; step_ok "nginx vhost written (server_name=${HOST}, no hand-editing)"
   _create_admin && step_ok "Admin account '${ADMIN_USER}' created"
 
-  # The web process (fcgiwrap CGI) runs as the nginx user and must OWN its data
+  # The app server (gunicorn) runs as the nginx user and must OWN its data
   # dir to read/write config, users, devices, metrics, … Without this the 0700
   # root-owned dir is unreadable and every API call — including the admin login
   # just created — fails. (Code under $WWW stays root-owned; the web user only
@@ -445,8 +395,8 @@ run_install() {
     step_ok "Data dir owned by ${NGINX_USER}"
   fi
 
-  if [ "$SANDBOX" = 1 ]; then step_wait "Services (fcgiwrap/nginx) — skipped (sandbox)"
-  else _enable_services && step_ok "Services started + health-checked"; fi
+  if [ "$SANDBOX" = 1 ]; then step_wait "Services (gunicorn/nginx) — skipped (sandbox)"
+  else _enable_services "$SRC" && step_ok "Services started + health-checked"; fi
 
   # Opt-in scaling features (default OFF; only touch the box in real mode).
   [ "$SANDBOX" != 1 ] && _apply_optins "$SRC"
@@ -494,7 +444,8 @@ cmd_install() {
 cmd_uninstall() {
   banner; section "Uninstalling RemotePower server"
   if [ "$SANDBOX" = 0 ]; then
-    systemctl disable --now remotepower-api 2>/dev/null || true   # our SCGI worker (fcgiwrap is generic — left alone)
+    systemctl disable --now remotepower-wsgi 2>/dev/null || true      # the app server
+    systemctl disable --now remotepower-scheduler 2>/dev/null || true  # optional, no-op if absent
   fi
   rm -f "$(_p "$NGX")/sites-available/remotepower" \
         "$(_p "$NGX")/sites-enabled/remotepower" \
@@ -503,7 +454,8 @@ cmd_uninstall() {
         "$(_p "$NGX")/snippets/remotepower-ssl.conf" 2>/dev/null || true
   step_ok "nginx config removed"
   [ "$SANDBOX" = 0 ] && { nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true; }
-  rm -f "$(_p /etc/systemd/system/remotepower-api.service)" 2>/dev/null || true
+  rm -f "$(_p /etc/systemd/system/remotepower-wsgi.service)" \
+        "$(_p /etc/systemd/system/remotepower-scheduler.service)" 2>/dev/null || true
   rm -rf "$(_p "$WWW")"; step_ok "web + backend removed (${WWW})"
   rm -rf "$(_p "$RPETC")/tls"; step_ok "TLS certs removed (${RPETC}/tls)"
   if [ "$PURGE" = 1 ]; then
@@ -569,9 +521,6 @@ while [ $# -gt 0 ]; do
     --admin-user) ADMIN_USER="${2:-}"; shift 2;;
     --admin-pass) ADMIN_PASS="${2:-}"; shift 2;;
     --port) PORT="${2:-}"; shift 2;;
-    --app-server) APP_SERVER="${2:-}"; shift 2;;
-    --app-server=*) APP_SERVER="${1#*=}"; shift;;
-    --with-wsgi) APP_SERVER="wsgi"; shift;;
     --with-scheduler) WITH_SCHEDULER=1; shift;;
     --with-postgres) WITH_POSTGRES=1; shift;;
     --unattended) MODE="unattended"; shift;;

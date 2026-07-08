@@ -67,11 +67,11 @@ class TestVersionBumps(unittest.TestCase):
         self.assertEqual(len(vdocs), 5, f'expected exactly 5 version docs, got {vdocs}')
 
 
-class TestScgiWorkerCapNetRaw(unittest.TestCase):
-    """Fix 1: the SCGI worker unit must grant CAP_NET_RAW ambiently so ping works."""
+class TestAppServerCapNetRaw(unittest.TestCase):
+    """Fix 1: the app-server unit must grant CAP_NET_RAW ambiently so ping works."""
 
     def test_unit_grants_cap_net_raw(self):
-        unit = (_ROOT / 'server/conf/remotepower-api.service').read_text()
+        unit = (_ROOT / 'server/conf/remotepower-wsgi.service').read_text()
         self.assertIn('AmbientCapabilities=CAP_NET_RAW', unit)
         # and still keeps the hardening it pairs with
         self.assertIn('NoNewPrivileges=true', unit)

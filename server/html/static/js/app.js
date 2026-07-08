@@ -22040,7 +22040,7 @@ async function loadSelfStatus() {
   const _rtRow = (label, value, note, state) =>
     `<tr><td class="c-muted-padded">${label}</td><td>${_rtIco(state)} <strong>${escHtml(value)}</strong>${note ? ` <span class="hint">— ${escHtml(note)}</span>` : ''}</td></tr>`;
   const _beMap = { postgres: ['PostgreSQL', 'shared DB — scales across app nodes', 'ok'], sqlite: ['SQLite', 'single-box embedded DB', 'ok'], json: ['JSON files', 'dev / very small fleets only', 'warn'] };
-  const _tierMap = { wsgi: ['WSGI · gunicorn', 'persistent worker pool', 'ok'], scgi: ['SCGI · prefork', 'persistent prefork worker', 'ok'], cgi: ['CGI · fcgiwrap', 'fork-per-request (fine for small fleets)', 'warn'] };
+  const _tierMap = { wsgi: ['WSGI · gunicorn', 'persistent worker pool (the only server)', 'ok'], cgi: ['direct', 'bare api.py invocation, not through wsgi.py', 'warn'] };
   const be = _beMap[rt.storage_backend] || [rt.storage_backend || 'unknown', '', 'warn'];
   const tier = _tierMap[rt.server_tier] || [rt.server_tier || 'unknown', '', 'warn'];
   let schedVal, schedNote, schedState;

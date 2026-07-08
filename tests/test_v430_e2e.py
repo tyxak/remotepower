@@ -5,11 +5,12 @@ Everything else in the suite checks the JS at the source level (V8 parse +
 regex pins); regressions that only exist at runtime (broken event wiring,
 a render that throws, CSS that hides the app) shipped repeatedly because
 nothing clicked through the app. This suite boots the real stack (static
-files + the SCGI worker) in a real Chromium and walks the core path:
+files + gunicorn+wsgi.py) in a real Chromium and walks the core path:
 login → dashboard → devices → settings, failing on any page error.
 
-Self-skips when playwright (or its Chromium) is not installed:
-    pip install playwright && python -m playwright install chromium
+Self-skips when playwright (or its Chromium) is not installed, or when
+gunicorn (a hard app-server dependency since v6.1.0) is not installed:
+    pip install playwright gunicorn && python -m playwright install chromium
 Run directly via `make e2e`.
 """
 import unittest
@@ -34,14 +35,19 @@ class TestSmoke(unittest.TestCase):
         _here = _os.path.dirname(_os.path.abspath(__file__))
         if _here not in _sys.path:
             _sys.path.insert(0, _here)
-        from e2e_harness import start_stack  # local import: harness needs no deps
+        from e2e_harness import start_stack
         cls._pw = sync_playwright().start()
         try:
             cls.browser = cls._pw.chromium.launch()
         except Exception as exc:               # browser binary missing
             cls._pw.stop()
             raise unittest.SkipTest(f'chromium not available: {exc}')
-        cls.base, cls._shutdown = start_stack()
+        try:
+            cls.base, cls._shutdown = start_stack()
+        except Exception as exc:               # gunicorn (or the app) failed to start
+            cls.browser.close()
+            cls._pw.stop()
+            raise unittest.SkipTest(f'app stack not available: {exc}')
 
     @classmethod
     def tearDownClass(cls):

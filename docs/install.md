@@ -54,14 +54,14 @@ above isn't enough.
 ```bash
 git clone https://github.com/tyxak/remotepower
 cd remotepower
-sudo bash install-server.sh        # nginx + fcgiwrap + Python deps; prompts for admin credentials
+sudo bash install-server.sh        # nginx + gunicorn/Flask + Postgres + Python deps; prompts for admin credentials
 ```
 
 **Arch Linux (AUR):** `yay -S remotepower-server` installs the code + deps; then
-finish setup as the package prints (enable `fcgiwrap.socket`, drop the sample
-vhost from `/usr/share/doc/remotepower-server/` into `/etc/nginx/conf.d/` with
-your `server_name`/TLS, and `remotepower-passwd` to create the admin). Or use the
-Docker image (below).
+finish setup as the package prints (enable `remotepower-wsgi.service`, drop the
+sample vhost from `/usr/share/doc/remotepower-server/` into `/etc/nginx/conf.d/`
+with your `server_name`/TLS, and `remotepower-passwd` to create the admin). Or
+use the Docker image (below).
 
 The installer asks for an admin username and password, then prints the URL. Open it in a browser and log in.
 
@@ -151,34 +151,20 @@ python3 /var/www/remotepower/cgi-bin/remotepower-passwd
 
 Interactive CLI for adding users, changing passwords, deleting accounts, and listing all users.  Supports bcrypt (preferred) and salted PBKDF2-HMAC-SHA256 (fallback when bcrypt is absent) — the same hash formats the server verifies.
 
-#### High-performance API worker (SCGI prefork — optional)
+#### The app server + out-of-band scheduler (default since v6.1.0)
 
-By default the API runs as a classic CGI process (one Python startup per request).  For busier deployments, switch to the persistent SCGI prefork worker installed at `/etc/systemd/system/remotepower-api.service`:
-
-```bash
-systemctl enable --now remotepower-api          # start the worker
-# then switch the /api/ location in nginx to the scgi_pass block
-# (commented alternative in server/conf/remotepower.conf) and reload nginx
-nginx -t && systemctl reload nginx
-```
-
-Roll back at any time by reverting the nginx block to `fastcgi_pass` — the worker and fcgiwrap can coexist.
-
-#### Persistent WSGI app server + out-of-band scheduler (optional, v5.5.0)
-
-For the largest fleets there is a fully-persistent tier — the same `api.py` under **gunicorn** with thread-local request isolation (no fork) — paired with a dedicated, leader-elected maintenance scheduler that runs the cadence off the request path (measured ~25× lower request latency on a networked Postgres backend). Both are opt-in and default-off; CGI stays the supported default.
-
-**On an existing install, switch back and forth with one command** (from the checkout):
-
-```bash
-sudo make app-server-wsgi     # → gunicorn WSGI tier + out-of-band scheduler
-sudo make app-server-cgi      # → back to CGI/fcgiwrap (and stop the scheduler)
-make app-server-status        # which tier is active + unit/scheduler state
-```
-
-`app-server-wsgi` installs gunicorn, enables `remotepower-wsgi.service`, repoints the nginx `/api/` blocks to the gunicorn proxy (validated with `nginx -t`, auto-reverted on failure; the original config is saved to `<file>.cgi.bak` so the switch back is lossless), and enables the scheduler (`NO_SCHEDULER=1` to skip). `app-server-cgi` restores that backup and disables the scheduler (`KEEP_SCHEDULER=1` to keep it).
-
-It works with **fcgiwrap CGI _and_ the SCGI worker**, and with a **custom vhost**: it finds the shared snippet, or auto-detects the nginx file holding your `/api` backend, or you point it at one with `RP_NGINX_CONF=/etc/nginx/sites-available/<your-vhost>`. The rewrite is **surgical** — it swaps only the `fastcgi_pass`/`scgi_pass` (+ their `*_param`/`*_params`/`*_read_timeout`) lines for `proxy_pass`, preserving every other directive in the block (`include …/fw_private_rp`, `modsecurity off`, `limit_except`, `auth_request`, …) and leaving non-backend locations (e.g. a webterm websocket proxy) untouched. The underlying units also carry manual install/rollback steps in their headers — see **[scaling.md](scaling.md)** and **[wsgi.md](wsgi.md)**.
+`install-server.sh` defaults to a fully-persistent single-node tier — `api.py`
+served by **gunicorn** through a real Flask app (`server/cgi-bin/wsgi.py`,
+thread-local request isolation, no fork) — paired with a dedicated,
+leader-elected maintenance scheduler that runs the cadence off the request
+path (measured ~25× lower request latency on a networked Postgres backend),
+plus a co-located scanner satellite for Security → Pentest. This is the
+**only** server (the earlier CGI/fcgiwrap and SCGI-worker paths are retired);
+`--no-scheduler`/`--no-postgres`/`--no-scanner` opt back down to a lighter
+single-file/no-scanner install. Tune worker/thread counts in
+`server/conf/remotepower-wsgi.service`, then `systemctl daemon-reload &&
+systemctl restart remotepower-wsgi` — see **[wsgi.md](wsgi.md)** and
+**[scaling.md](scaling.md)**.
 
 ### Public demo / sandbox
 
@@ -189,7 +175,7 @@ sudo bash packaging/install-demo.sh demoremote.example.com
 sudo certbot --nginx -d demoremote.example.com
 ```
 
-This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo/`), shared CGI code, `RP_READ_ONLY=1` set per-vhost. Visitors log in as `demo` / `demo`, browse everything, but mutations get a friendly 403 toast. Your production install at `remote.<domain>` is untouched. The vhost auto-seeds 16 fake homelab devices using the unallocated `.lab` TLD.
+This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo/`), its own dedicated `remotepower-wsgi-demo` gunicorn process on a second port (shared app code), `RP_READ_ONLY=1` set per-vhost. Visitors log in as `demo` / `demo`, browse everything, but mutations get a friendly 403 toast. Your production install at `remote.<domain>` is untouched. The vhost auto-seeds 16 fake homelab devices using the unallocated `.lab` TLD.
 
 ### Docker (one-liner alternative)
 

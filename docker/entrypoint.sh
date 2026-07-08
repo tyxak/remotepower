@@ -28,8 +28,47 @@ cfg['server_version'] = server_v
 cfg_path.write_text(json.dumps(cfg, indent=2))
 PYEOF
 
-# Create admin user if users.json doesn't exist
-if [ ! -f "$USERS_FILE" ]; then
+# ── Does Postgres already have real bootstrap data? ──────────────────────────
+# v6.1.0 originally gated admin-bootstrap on `users.json` and Postgres
+# migration on a separate `$DATA_DIR/.pg_migrated` marker — both living on
+# the app-data volume (`remotepower_data`), which has an INDEPENDENT lifecycle
+# from the actual Postgres volume (`remotepower_pg`). Resetting just the data
+# volume (e.g. to force-regenerate the admin account) made both files look
+# like "first boot" to a Postgres store that still held real users/config/
+# satellites — silently overwriting it with a fresh near-empty snapshot, and
+# printing a "GENERATED ADMIN CREDENTIALS" banner for credentials that could
+# never actually log in (the app was still reading Postgres, unaffected).
+# Fix: ask Postgres itself whether it already has bootstrap data, and gate
+# BOTH the admin-mint and the migration on that live answer instead of on a
+# marker file that can drift out of sync with the store it's meant to guard.
+PG_HAS_USERS=""
+if [ "${RP_STORAGE_BACKEND:-}" = "postgres" ] && [ -n "${RP_PG_DSN:-}" ]; then
+    if RP_PG_DSN="$RP_PG_DSN" python3 - <<'PYEOF'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, '/var/www/remotepower/cgi-bin')
+import storage_pg
+storage_pg.configure_dsn(os.environ['RP_PG_DSN'])
+try:
+    storage_pg._connect(None)
+    users = storage_pg.load(Path('/var/lib/remotepower/users.json'))
+except Exception as e:
+    print(f'[!] could not query Postgres for existing users: {e}', file=sys.stderr)
+    sys.exit(2)
+sys.exit(0 if users else 1)
+PYEOF
+    then
+        PG_HAS_USERS="yes"
+    fi
+    # exit code 2 (Postgres unreachable) falls through with PG_HAS_USERS
+    # unset, same as "no" — the admin-bootstrap/migration blocks below will
+    # attempt to proceed and their own error handling covers a down database.
+fi
+
+# Create admin user if users.json doesn't exist AND Postgres (when that's the
+# backend) doesn't already have real users — otherwise this would mint local
+# credentials that can never log in against an already-bootstrapped Postgres.
+if [ ! -f "$USERS_FILE" ] && [ "$PG_HAS_USERS" != "yes" ]; then
     RP_ADMIN_USER="${RP_ADMIN_USER:-admin}"
     # v2.2.6: if RP_ADMIN_PASS isn't set, generate a strong random
     # password instead of refusing to start. The password is printed
@@ -89,6 +128,101 @@ PYEOF
     unset RP_ADMIN_PASS
 fi
 
+# ── Co-located scanner satellite token (v6.1+; default on) ──────────────────
+# RP_WITH_SCANNER=1 (default) mints a local scanner-satellite token directly
+# into satellites.json (same file-write pattern as the admin user above) and
+# drops the plaintext token into a 0600 file for the `scanner` compose service
+# to read — satellites.json only ever stores the HASH (see
+# handle_satellites_create in api.py), so the plaintext has to go somewhere
+# once, same as the generated admin password above. Idempotent across
+# restarts: skipped once the token file exists.
+SCANNER_TOKEN_FILE="$DATA_DIR/.scanner-token"
+if { [ "${RP_WITH_SCANNER:-1}" = "1" ] || [ "${RP_WITH_SCANNER:-1}" = "true" ]; } \
+        && [ ! -f "$SCANNER_TOKEN_FILE" ]; then
+    echo "[*] RP_WITH_SCANNER set — minting a local scanner satellite token"
+    RP_DATA_DIR="$DATA_DIR" python3 - <<'PYEOF'
+import json, os, time, secrets, hashlib
+from pathlib import Path
+
+data_dir = Path(os.environ['RP_DATA_DIR'])
+sats_path = data_dir / 'satellites.json'
+sats = json.loads(sats_path.read_text()) if sats_path.exists() else {}
+
+token = secrets.token_urlsafe(32)
+sid = secrets.token_hex(8)
+sats[sid] = {
+    'name': 'local-scanner',
+    'token_hash': hashlib.sha256(token.encode('utf-8')).hexdigest(),
+    'created': int(time.time()),
+    'last_seen': None,
+    'last_ip': '',
+    'scanner': True,
+}
+sats_path.write_text(json.dumps(sats, indent=2))
+(data_dir / '.scanner-token').write_text(token)
+PYEOF
+    chown www-data:www-data "$DATA_DIR/satellites.json" "$SCANNER_TOKEN_FILE"
+    chmod 600 "$SCANNER_TOKEN_FILE"
+    echo "[+] Scanner satellite token minted — Security → Pentest is ready once the scanner service is up"
+fi
+
+# ── Warn on the default Postgres password ────────────────────────────────────
+# docker-compose.yml's RP_PG_PASSWORD default (remotepower-dev-changeme) is
+# static and public (it's in the open-source repo) — unlike the admin password,
+# it can't be auto-generated here (Postgres already initialized with it by the
+# time this container boots; the value has to come from the docker-compose
+# invocation itself). Postgres has no host port mapping, so this isn't
+# internet-reachable, but warn loudly and repeatedly (every boot) so it
+# doesn't go unnoticed, matching the TLS-not-configured warning below.
+if [ -n "${RP_PG_DSN:-}" ] && printf '%s' "$RP_PG_DSN" | grep -q 'remotepower-dev-changeme'; then
+    echo ""
+    echo "  ╔══════════════════════════════════════════════════════════╗"
+    echo "  ║  WARNING: DEFAULT POSTGRES PASSWORD IN USE                ║"
+    echo "  ║  RP_PG_DSN still has the built-in default password —      ║"
+    echo "  ║  it's public (in the open-source repo). Not internet-     ║"
+    echo "  ║  reachable (no host port mapping), but set your own:      ║"
+    echo "  ║    RP_PG_PASSWORD=<random> docker compose up -d           ║"
+    echo "  ╚══════════════════════════════════════════════════════════╝"
+    echo ""
+fi
+
+# ── Auto-migrate bootstrap data into Postgres (v6.1+ default topology) ──────
+# The admin user + scanner token above are written to the JSON files first
+# (bcrypt/etc run before any storage backend is chosen). When
+# RP_STORAGE_BACKEND=postgres — this container's default per docker-compose.yml
+# — that data is invisible to the app until migrated in, so a fresh
+# `docker compose up -d` would print an admin password that can't log in.
+# Run the same migration Settings → Advanced → Storage backend uses
+# (_migrate_storage_pg in api.py) directly, once, before nginx starts serving.
+# RP_STORAGE_BACKEND is unset for this one subprocess so `load()` inside the
+# migration reads the JSON source data, not (empty) Postgres.
+#
+# Gated on PG_HAS_USERS (computed above by querying Postgres itself), NOT a
+# DATA_DIR marker file — a marker on the app-data volume can't distinguish
+# "never migrated" from "the data volume was reset but Postgres still has
+# real data," which previously caused this block to blindly overwrite live
+# Postgres rows with a freshly re-bootstrapped, near-empty JSON snapshot.
+if [ "${RP_STORAGE_BACKEND:-}" = "postgres" ] && [ -n "${RP_PG_DSN:-}" ] \
+        && [ "$PG_HAS_USERS" != "yes" ]; then
+    echo "[*] RP_STORAGE_BACKEND=postgres — migrating bootstrap data into Postgres"
+    if RP_DATA_DIR="$DATA_DIR" RP_PG_DSN="$RP_PG_DSN" \
+            env -u RP_STORAGE_BACKEND python3 - <<'PYEOF'
+import os
+import sys
+sys.path.insert(0, '/var/www/remotepower/cgi-bin')
+import api
+result = api._migrate_storage_pg('postgres', os.environ['RP_PG_DSN'], log=print)
+print('[migrate]', result)
+sys.exit(0 if result.get('ok') else 1)
+PYEOF
+    then
+        echo "[+] Bootstrap data migrated into Postgres"
+    else
+        echo "[!] Postgres migration failed — admin user / scanner token may not be visible" >&2
+        echo "[!] Retry via Settings -> Advanced -> Storage backend, or restart the container." >&2
+    fi
+fi
+
 # ── Opt-in self-signed TLS (v4.5.0) ──────────────────────────────────────────
 # RP_TLS_SELFSIGNED=1 makes the container terminate TLS itself: generate a CA +
 # leaf into the persistent data volume (once) and serve HTTPS on :8443. Prefer a
@@ -115,84 +249,21 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
     echo ""
 fi
 
-# ── Opt-in persistent WSGI app tier (v6.x) ──────────────────────────────────
-# RP_APP_SERVER=wsgi runs the SAME api.py under gunicorn (persistent, threaded
-# workers) instead of fork-per-request fcgiwrap, and repoints nginx /api/ at it.
-# Default (unset) = the unchanged fcgiwrap path. Validated by nginx -t; reverts
-# to fcgiwrap if the location rewrite doesn't parse. See docs/wsgi.md.
-if [ "${RP_APP_SERVER:-}" = "wsgi" ]; then
-    echo "[*] RP_APP_SERVER=wsgi — switching nginx /api/ to the gunicorn proxy"
-    SNIP=/etc/nginx/snippets/remotepower-docker-locations.conf
-    cp -a "$SNIP" "$SNIP.cgi.bak"
-    python3 - "$SNIP" <<'PYEOF'
-import re, sys
-from pathlib import Path
-p = Path(sys.argv[1]); text = p.read_text()
-loc_re = re.compile(r'(?m)^[ \t]*location\b[^{]*')
-out, pos = [], 0
-while True:
-    m = loc_re.search(text, pos)
-    if not m:
-        out.append(text[pos:]); break
-    out.append(text[pos:m.start()])
-    sel = m.group(0)
-    bopen = text.index('{', m.start())
-    depth, j = 0, bopen
-    while j < len(text):
-        if text[j] == '{': depth += 1
-        elif text[j] == '}':
-            depth -= 1
-            if depth == 0: break
-        j += 1
-    block = text[bopen:j + 1]
-    if 'fcgiwrap.socket' in block:
-        pim = re.search(r'PATH_INFO\s+(\S+);', block)
-        suffix = pim.group(1) if (pim and pim.group(1) != '$uri') else ''
-        le = re.search(r'limit_except[^{]*\{[^}]*\}', block)
-        le_line = ('\n    ' + le.group(0)) if le else ''
-        indent = re.match(r'[ \t]*', sel).group(0)
-        out.append(
-            sel.rstrip() + ' {\n'
-            '    proxy_pass http://127.0.0.1:8090' + suffix + ';\n'
-            '    proxy_set_header Host $host;\n'
-            '    proxy_set_header X-Real-IP $remote_addr;\n'
-            '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
-            '    proxy_set_header X-Forwarded-Proto $scheme;\n'
-            '    proxy_read_timeout 130s;' + le_line + '\n' + indent + '}')
-    else:
-        out.append(sel + block)
-    pos = j + 1
-p.write_text(''.join(out))
-PYEOF
-    if ! nginx -t >/dev/null 2>&1; then
-        echo "[!] nginx -t failed after the WSGI switch — reverting to fcgiwrap"
-        cp -a "$SNIP.cgi.bak" "$SNIP"
-        RP_APP_SERVER=""
-    fi
-fi
+# ── Persistent gunicorn/Flask app tier (v6.1.0+, the only server) ────────────
+# server/cgi-bin/wsgi.py is a real Flask app; nginx's shipped location snippets
+# (docker/nginx-docker-locations.conf, nginx-docker-tls.conf) already proxy_pass
+# to it — no runtime rewrite needed. See docs/wsgi.md.
+echo "[*] Starting gunicorn on 127.0.0.1:8090..."
+cd /var/www/remotepower/cgi-bin
+RP_DATA_DIR=/var/lib/remotepower \
+  gunicorn --workers 2 --threads 8 --timeout 120 --bind 127.0.0.1:8090 wsgi:application &
+cd /
+echo "[+] gunicorn started (pid $!)"
 
-if [ "${RP_APP_SERVER:-}" = "wsgi" ]; then
-    echo "[*] Starting gunicorn WSGI tier on 127.0.0.1:8090..."
-    cd /var/www/remotepower/cgi-bin
-    RP_DATA_DIR=/var/lib/remotepower \
-      gunicorn --workers 2 --threads 8 --timeout 120 --bind 127.0.0.1:8090 wsgi:application &
-    cd /
-    echo "[+] gunicorn started (pid $!)"
-else
-    # Default path — classic CGI via fcgiwrap (unchanged).
-    echo "[*] Starting fcgiwrap..."
-    # Create socket dir
-    mkdir -p /run
-    spawn-fcgi -s /run/fcgiwrap.socket -u www-data -g www-data -- /usr/sbin/fcgiwrap
-    chmod 660 /run/fcgiwrap.socket
-    chown www-data:www-data /run/fcgiwrap.socket
-    echo "[+] fcgiwrap started"
-fi
-
-# ── Opt-in out-of-band maintenance scheduler (v6.x) ──────────────────────────
-# RP_EXTERNAL_SCHEDULER=1 launches scheduler.py in the background; the WSGI/CGI
-# request path stops running the cadence (gunicorn inherits the env var). Default
-# (unset) = the cadence piggy-backs on requests exactly as before.
+# ── Out-of-band maintenance scheduler (default on, see RP_EXTERNAL_SCHEDULER above) ──
+# RP_EXTERNAL_SCHEDULER=1 launches scheduler.py in the background; the app
+# server's request path stops running the cadence (gunicorn inherits the env
+# var). Unset = the cadence piggy-backs on requests instead.
 if [ "${RP_EXTERNAL_SCHEDULER:-}" = "1" ] || [ "${RP_EXTERNAL_SCHEDULER:-}" = "true" ]; then
     echo "[*] RP_EXTERNAL_SCHEDULER set — launching scheduler.py in the background"
     RP_DATA_DIR=/var/lib/remotepower python3 /var/www/remotepower/cgi-bin/scheduler.py &

@@ -11,13 +11,12 @@ the longer, operational companion.
 
 RemotePower has three parts:
 
-- **The server** — nginx in front of Python CGI. It serves the
-  dashboard and API, ingests agent heartbeats, runs CVE and monitor
-  checks, and stores everything in flat JSON files by default — or, on
-  larger fleets, an optional embedded SQLite backend (stdlib only, no
-  external database server) you can switch to in place. See
-  [security.md](security.md) for the on-disk data layout and the
-  storage backends.
+- **The server** — nginx in front of a persistent gunicorn/Flask app
+  server. It serves the dashboard and API, ingests agent heartbeats,
+  runs CVE and monitor checks, and stores everything in Postgres (the
+  default, single-node "enterprise" install) or flat JSON/SQLite for a
+  lightweight install. See [security.md](security.md) for the on-disk
+  data layout and the storage backends.
 - **The agent** — a small Python script (`remotepower-agent`) on
   each managed host. It heartbeats out to the server every 60
   seconds. The agent reaches the server; the server never needs
@@ -25,8 +24,8 @@ RemotePower has three parts:
 - **The web terminal daemon** *(optional)* — a hardened daemon that
   proxies browser SSH sessions.
 
-The server needs Python 3 (standard library only — no pip packages),
-nginx, and a CGI runner (`fcgiwrap`). The agent needs only Python 3.
+The server needs Python 3, nginx, and gunicorn + Flask (the app
+server). The agent needs only Python 3.
 
 ---
 
@@ -66,10 +65,10 @@ want to wire each piece yourself. On the host that will run the dashboard:
 sudo bash install-server.sh
 ```
 
-The installer provisions nginx, fcgiwrap and the Python pieces,
-lays out the data directory, and prints the dashboard URL plus an
-auto-generated admin password. Use that password for the first
-login.
+The installer provisions nginx, gunicorn + Flask, Postgres, and the
+out-of-band scheduler by default (single-node), lays out the data
+directory, and prints the dashboard URL plus an auto-generated admin
+password. Use that password for the first login.
 
 ### 2.2 What the installer lays down
 
@@ -148,7 +147,8 @@ it as narrow as the device's role needs.
 Sensitive config — the Proxmox API token secret, for instance — can
 be supplied through an environment variable (`RP_PROXMOX_TOKEN_SECRET`)
 rather than living in `config.json`. The backup export redacts
-secret fields. Set these in the nginx/fcgiwrap service environment.
+secret fields. Set these in `/etc/remotepower/api.env` (the
+`remotepower-wsgi` service's `EnvironmentFile=`).
 
 ---
 

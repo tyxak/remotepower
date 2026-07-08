@@ -1,24 +1,25 @@
 # AUR package — `remotepower-server`
 
-Arch User Repository packaging for the **RemotePower server** (nginx + Python
-CGI). `arch=any`, built from the **signed** GitHub release tarball and
-PGP-verified against the maintainer key before packaging.
+Arch User Repository packaging for the **RemotePower server** (nginx +
+gunicorn/Flask). `arch=any`, built from the **signed** GitHub release tarball
+and PGP-verified against the maintainer key before packaging.
 
 Unlike `remotepower-agent`, the server is **not turnkey** — the package installs
 the code + deps + a *sample* nginx vhost + the shared locations snippet + a
 tmpfiles-managed data dir, and the operator finishes setup (nginx `server_name`
-/ TLS, enable `fcgiwrap.socket`, create the admin with `remotepower-passwd`). The
-`.install` scriptlet prints the exact steps.
+/ TLS, enable `remotepower-wsgi.service`, create the admin with
+`remotepower-passwd`). The `.install` scriptlet prints the exact steps.
 
 What it installs:
 
 | Path | What |
 |---|---|
-| `/var/www/remotepower/` | cgi-bin (api.py + modules), static, html, docs, agent binary |
+| `/var/www/remotepower/` | cgi-bin (api.py, wsgi.py + modules), static, html, docs, agent binary |
 | `/usr/bin/remotepower-passwd` | symlink → the admin/user tool |
 | `/etc/nginx/snippets/remotepower-locations.conf` | shared location blocks (backup-tracked) |
 | `/usr/share/doc/remotepower-server/remotepower.conf.sample` | sample vhost (copy → `/etc/nginx/conf.d/`) |
-| `/usr/share/doc/remotepower-server/remotepower-api.service` | optional SCGI prefork worker |
+| `/usr/share/doc/remotepower-server/remotepower-wsgi.service` | the app server unit (copy → `/etc/systemd/system/`) |
+| `/usr/share/doc/remotepower-server/remotepower-scheduler.service` | optional out-of-band maintenance scheduler |
 | `/usr/lib/tmpfiles.d/remotepower.conf` | creates `/var/lib/remotepower` (0700, `http`) |
 
 Hard deps are all in the official repos; `python-webauthn` (passkeys) and

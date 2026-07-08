@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.0.1'
+SERVER_VERSION = '6.1.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2880,12 +2880,11 @@ def _external_scheduler_active():
         return False
 
 
-# v5.6.x: which request tier is executing this process. Default 'cgi' (a fresh
-# fcgiwrap-forked api.py per request). The persistent entry points OVERWRITE this
-# at import: wsgi.py sets 'wsgi' (gunicorn), api_worker.py sets 'scgi' (SCGI
-# prefork). Surfaced read-only on the Server-status page so an operator can see
-# what is ACTUALLY serving (this is what would have made the recent
-# "am I really on WSGI?" question answerable at a glance).
+# v5.6.x: which request tier is executing this process. Default 'cgi' (a bare,
+# one-shot api.py invocation not routed through wsgi.py — the CGI/fcgiwrap tier
+# itself was retired in v6.1.0). wsgi.py OVERWRITES this to 'wsgi' at import
+# (gunicorn, the only server). Surfaced read-only on the Server-status page so
+# an operator can see what is ACTUALLY serving.
 _SERVER_TIER = 'cgi'
 
 
@@ -3981,17 +3980,34 @@ def _get_client_ip():
     the proxy appended — the RIGHTMOST entry, which is the peer the trusted proxy
     actually connected to (a client can prepend spoofed entries, but the proxy
     appends the real one last, so this can't be forged). Off by default →
-    REMOTE_ADDR, unchanged for single-node installs."""
+    REMOTE_ADDR, unchanged for single-node installs.
+
+    v6.1.0: the gunicorn/Flask tier is now always fronted by a LOCAL nginx
+    proxy_pass hop (server/conf/remotepower-locations.conf,
+    docker/nginx-docker-locations.conf both proxy_pass to 127.0.0.1:8090), so
+    REMOTE_ADDR is nginx's own loopback peer on every default install, not the
+    real client — silently defeating the IP allowlist, enrollment rate-limit
+    and audit source_ip unless the operator also knows to flip `trust_proxy`.
+    A remote attacker cannot forge REMOTE_ADDR==loopback (that requires an
+    actual TCP handshake from localhost), so trust X-Real-IP/X-Forwarded-For
+    whenever the immediate peer IS loopback, unconditionally — this is a
+    narrower, always-safe trust boundary than the load-balancer `trust_proxy`
+    flag, and doesn't require separate operator configuration for the local
+    proxy hop this repo itself sets up."""
     remote = _env('REMOTE_ADDR', '0.0.0.0')
     try:
-        if _config_ro().get('trust_proxy'):
-            xff = _env('HTTP_X_FORWARDED_FOR', '').strip()
-            if xff:
-                ip = xff.split(',')[-1].strip()
-                if ip:
-                    return ip
+        trust = _config_ro().get('trust_proxy') or remote in ('127.0.0.1', '::1')
     except Exception:
-        pass
+        trust = remote in ('127.0.0.1', '::1')
+    if trust:
+        xff = _env('HTTP_X_FORWARDED_FOR', '').strip()
+        if xff:
+            ip = xff.split(',')[-1].strip()
+            if ip:
+                return ip
+        real_ip = _env('HTTP_X_REAL_IP', '').strip()
+        if real_ip:
+            return real_ip
     return remote
 
 def _check_login_ratelimit(username: str) -> bool:
@@ -23429,7 +23445,11 @@ def handle_agent_install():
     installer with this server's URL baked in. Auth-exempt: it embeds no secret
     (the caller passes a one-time --token) and the server URL is public, exactly
     like the agent binary it downloads."""
-    body = _render_agent_install(os.environ).encode()
+    # v6.1.0: os.environ is process-global — correct under CGI (fresh process
+    # per request) but WRONG under the persistent gunicorn/Flask tier (now the
+    # default), where it would read another thread's or no request's data.
+    # Use the thread-local per-request environ when one is active, same as _env().
+    body = _render_agent_install(getattr(_RCTX, 'environ', None) or os.environ).encode()
     print("Status: 200 OK")
     print("Content-Type: text/x-shellscript; charset=utf-8")
     print(f"Content-Length: {len(body)}")

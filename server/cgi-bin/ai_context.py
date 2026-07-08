@@ -47,8 +47,10 @@ are operating in:
 - Storage is flat JSON files, not a database. Configuration lives in
   config.json; device state in devices.json; webhook events in
   webhook_log.json; scheduled jobs in schedule.json.
-- The server is pure-stdlib Python under nginx + fcgiwrap. No pip
-  dependencies are allowed in suggestions unless explicitly asked.
+- The server runs under nginx + gunicorn/Flask (server/cgi-bin/wsgi.py).
+  Feature code stays near-stdlib Python — flask/gunicorn/psycopg are the
+  only required third-party packages; don't suggest new pip
+  dependencies for a feature unless explicitly asked.
 - There is a script library (multi-line bash, stored in scripts.json)
   that goes through bash -n syntax checking and a dangerous-pattern
   detector before save. Scripts can be batch-run across devices,

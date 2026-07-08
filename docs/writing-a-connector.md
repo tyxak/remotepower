@@ -122,4 +122,5 @@ def test_mything():
 1. Copy your `.py` into `server/cgi-bin/connectors.d/` on the server.
 2. Make sure the file is root-owned (`chown root:root`), matching `cgi-bin/`.
 3. Reload — the connector appears in **Settings → Integrations**. A load error
-   shows in the server error log (nginx/fcgiwrap).
+   shows in the server error log (`journalctl -u remotepower-wsgi`, or nginx's
+   error log).

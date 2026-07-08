@@ -48,17 +48,16 @@ info "Deploying all cgi-bin Python modules..."
 # and any future ones) — no need to edit this script when adding a new module.
 for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
     name="$(basename "$f")"
-    # CGI entry points (api_cgi.py shim + api.py) need +x; others are pure imports
-    if [[ "$name" == "api.py" || "$name" == "api_cgi.py" ]]; then
+    # wsgi.py (the gunicorn entry point) + api.py need +x; others are pure imports
+    if [[ "$name" == "api.py" || "$name" == "wsgi.py" ]]; then
         install -m 755 "$f" /var/www/remotepower/cgi-bin/"$name"
     else
         install -m 644 "$f" /var/www/remotepower/cgi-bin/"$name"
     fi
     echo "      → cgi-bin/$name"
 done
-# Precompile so the CGI user loads cached bytecode: api_cgi.py imports api, and a
-# CGI *main script* never uses the .pyc cache, so without this the ~50k-line
-# module is recompiled on every request. cgi-bin/ is root-owned (the http user
+# Precompile so gunicorn loads cached bytecode instead of recompiling the
+# ~50k-line module on first request. cgi-bin/ is root-owned (the http user
 # can't write __pycache__ itself), so build it now. Re-run on every deploy so a
 # replaced api.py is recompiled rather than recompiled-per-request.
 python3 -m compileall -q /var/www/remotepower/cgi-bin/ || true
@@ -165,42 +164,16 @@ fi
 info "Deploying remotepower-passwd..."
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 
-# ── SCGI prefork API worker — update service unit if installed ────────────────
-# The shippable unit ships in server/conf/remotepower-api.service. On first
-# install it is copied by install-server.sh (as disabled). Here we keep it
-# current on every redeploy: if the unit file already exists in systemd, update
-# it and reload the daemon; if the service was active, restart it so it picks up
-# the new api_worker.py.
-SVC_SRC="$SCRIPT_DIR/server/conf/remotepower-api.service"
-SVC_DST="/etc/systemd/system/remotepower-api.service"
 # The unit loads operator secrets from /etc/remotepower/api.env (EnvironmentFile=,
 # e.g. RP_BACKUP_PASSPHRASE). Ensure the dir exists across redeploys so that file
 # — which deploy never touches, so the passphrase survives updates — has a home.
 [[ -d /etc/remotepower ]] || install -d -m 755 -o root -g root /etc/remotepower 2>/dev/null || true
-if [[ -f "$SVC_SRC" ]]; then
-    if [[ -f "$SVC_DST" ]]; then
-        install -m 644 "$SVC_SRC" "$SVC_DST"
-        systemctl daemon-reload
-        if systemctl is-active --quiet remotepower-api; then
-            systemctl restart remotepower-api
-            info "SCGI worker restarted (service was active)"
-        else
-            info "SCGI worker unit updated (service is not running)"
-        fi
-    else
-        # Not yet installed — copy it so the operator can enable it later
-        install -m 644 "$SVC_SRC" "$SVC_DST"
-        systemctl daemon-reload
-        info "SCGI worker unit installed (not started — enable with: systemctl enable --now remotepower-api)"
-    fi
-fi
 
-# ── Optional WSGI tier + out-of-band scheduler — keep current + restart ───────
+# ── App server (gunicorn) + out-of-band scheduler — keep current + restart ───
 # wsgi.py / scheduler.py already deploy via the *.py glob above (644, importable).
-# If the operator has the optional units installed, refresh them and — because a
-# persistent process won't pick up the freshly-deployed code on its own — restart
-# any that are running (same reason the SCGI worker is restarted above). No-op
-# when neither unit is installed (the default CGI deployment).
+# The units themselves were installed by install-server.sh; refresh them here and
+# — because a persistent process won't pick up the freshly-deployed code on its
+# own — restart any that are running so the redeploy actually takes effect.
 for _svc in remotepower-wsgi remotepower-scheduler; do
     _src="$SCRIPT_DIR/server/conf/${_svc}.service"
     _dst="/etc/systemd/system/${_svc}.service"

@@ -1,0 +1,41 @@
+# RemotePower scanner satellite image — the Security → Pentest scan worker for
+# the single-node docker-compose default (see docker-compose.yml's `scanner`
+# service). Built FROM the main server image so its www-data UID/GID match
+# exactly, letting this container read the token minted by the main
+# container's entrypoint.sh into the shared data volume without any
+# cross-container UID/permission setup.
+#
+# Runner: RP_SCAN_RUNNER=nuclei — a single static binary, run directly, NOT
+# RP_SCAN_RUNNER=docker/podman. This container is never given the Docker
+# socket (mounting docker.sock into any container, even read-only, is
+# effectively host root — see CLAUDE.md). That trades tool coverage (no
+# nikto/nmap/zap/wapiti, which normally run as sibling containers via the
+# socket) for a default that needs no privileged access at all; operators who
+# want the full toolchain should point RP_SCAN_RUNNER at docker/podman on a
+# separate, dedicated scanner machine per docs/security-scans.md instead.
+ARG BASE_IMAGE=ghcr.io/tyxak/remotepower:latest
+FROM ${BASE_IMAGE}
+
+ARG NUCLEI_VERSION=3.3.5
+
+USER root
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends curl ca-certificates unzip && \
+    ARCH="$(dpkg --print-architecture)" && \
+    case "$ARCH" in amd64) NARCH=amd64 ;; arm64) NARCH=arm64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac && \
+    curl -fsSL -o /tmp/nuclei.zip \
+        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${NARCH}.zip" && \
+    unzip -q /tmp/nuclei.zip -d /usr/local/bin nuclei && \
+    chmod 755 /usr/local/bin/nuclei && \
+    rm -f /tmp/nuclei.zip && \
+    apt-get purge -y curl unzip && apt-get autoremove -y && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/remotepower
+COPY client/remotepower-scanner.py /opt/remotepower/remotepower-scanner.py
+COPY docker/scanner-entrypoint.sh  /usr/local/bin/scanner-entrypoint.sh
+RUN chmod 755 /opt/remotepower/remotepower-scanner.py /usr/local/bin/scanner-entrypoint.sh
+
+VOLUME ["/var/lib/remotepower"]
+USER www-data
+ENTRYPOINT ["/usr/local/bin/scanner-entrypoint.sh"]

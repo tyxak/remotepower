@@ -9,7 +9,7 @@ the tickets_handlers / cmdb_handlers / vpn_handlers pattern:
     every api service is reached as ``A.<name>`` — a DYNAMIC attribute lookup,
     which keeps the test suite's monkeypatching of api._ct_fetch_domain /
     api._ssrf_safe_opener / api.respond working, and resolves identically under
-    the CGI (__main__) and imported-module (api_worker/scheduler) models.
+    the CGI (__main__) and imported-module (wsgi.py/scheduler.py) models.
   - api.py then from-imports every public + private name back into its own
     globals, so the route tables, the main() _safe() cadence calls, and
     scheduler.py's CADENCE tuple keep resolving the names unchanged.

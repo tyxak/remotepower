@@ -4,9 +4,8 @@
 Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       │
                       ├─ /              → Dashboard (1 HTML + 1 CSS + 1 JS, no framework, no build)
-                      ├─ /api/*         → Python app tier — CGI via fcgiwrap (default), or the
-                      │                   persistent SCGI worker, or the gunicorn WSGI server (v5.5.0)
-                      │                   — same api.py, nginx picks which serves; see docs/wsgi.md
+                      ├─ /api/*         → Python app tier — gunicorn + Flask (server/cgi-bin/wsgi.py),
+                      │                   the only server since v6.1.0; see docs/wsgi.md
                       ├─ /api/webterm/connect → wss://, proxied to remotepower-webterm daemon
                       ├─ /static/*      → Logos, CSS, JS
                       ├─ /agent/        → Agent binary (static, for self-update)
@@ -36,13 +35,21 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                               └── (each .json gets a rolling .json.bak sibling on every save)
 
   Storage backends (one shared, backend-agnostic helper layer):
-    • flat JSON  — the zero-dependency default (above).
+    • flat JSON  — the code-level default when nothing else is configured.
     • SQLite     — embedded, WAL mode, stdlib sqlite3 (v3.12.0+); hot data is
                    stored row-per-entity so a heartbeat updates one row instead
                    of rewriting a file. In-place, reversible migration.
-    • PostgreSQL — for large fleets (v4.0.0+): automatic failover across a
-                   multi-host DSN, optional read replicas, and a PgBouncer pooler.
+    • PostgreSQL — automatic failover across a multi-host DSN, optional read
+                   replicas, and a PgBouncer pooler (v4.0.0+). Default for a
+                   single-node install via install-server.sh/docker-compose.yml
+                   since v6.1.0 (--no-postgres opts down to the file backend).
   Switch under Settings → Advanced → Storage backend. See docs/scaling.md.
+
+  Out-of-band maintenance scheduler (default since v6.1.0, v5.5.0+):
+    • remotepower-scheduler.service runs the ~33 maintenance sweeps from one
+      leader-elected process (file-lock + pg_advisory_lock on Postgres) instead
+      of piggy-backing on request traffic. --no-scheduler opts back down to the
+      request-path cadence. See docs/scaling.md.
 
   Scale-out (optional, v4.0.0+):
     • Relay satellites — agents in a segmented network reach a satellite that
@@ -50,10 +57,6 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
       every hop refuses TLS below 1.2. See docs/satellites.md.
     • Load-balanced multi-node — several stateless app nodes behind a trusted
       proxy, all pointed at the shared PostgreSQL backend.
-    • Persistent app server + out-of-band scheduler (v5.5.0, opt-in) — gunicorn
-      WSGI workers (thread-local request isolation) instead of fork-per-request,
-      plus remotepower-scheduler.service running the maintenance cadence from one
-      leader-elected process (file-lock + pg_advisory_lock). See docs/scaling.md.
 
   Hard multi-tenancy (optional, v5.5.0):
     • App-layer — tenancy_enforced confines tenant admins to their own devices.
@@ -65,7 +68,7 @@ Optional sibling daemon (only if you install the web terminal):
   systemd: remotepower-webterm.service
   └─ asyncio Python (websockets + asyncssh)
        └─ Listens on 127.0.0.1:8765, proxied by nginx
-            ├─ Validates one-time tickets minted by the CGI auth handler
+            ├─ Validates one-time tickets minted by the app's auth handler
             ├─ Pumps WebSocket bytes <-> SSH session
             └─ Records every session as asciinema v2 .cast file
 
@@ -112,7 +115,7 @@ remotepower/
 │   └── entrypoint.sh              # Docker entrypoint
 ├── server/
 │   ├── html/index.html            # Dashboard (vanilla HTML/CSS/JS, no framework)
-│   ├── cgi-bin/api.py             # REST API (Python 3, CGI via fcgiwrap)
+│   ├── cgi-bin/api.py             # REST API (Python 3, served via gunicorn + wsgi.py)
 │   ├── cgi-bin/integrations.py    # Homelab software integration connectors
 │   ├── conf/remotepower.conf      # Nginx site config
 │   └── remotepower-passwd         # User management utility

@@ -3,13 +3,14 @@
 
 Serves the real app the way production does, without nginx:
   * static files straight from server/html/
-  * /api/* proxied over SCGI to a real api_worker.py (the v4.3.0 persistent
-    worker) — so the e2e suite exercises the production worker path, not a
-    test-only shim.
+  * /api/* proxied over plain HTTP to a real gunicorn+wsgi.py (the same
+    Flask app / gunicorn invocation remotepower-wsgi.service runs) — so the
+    e2e suite exercises the production app-server path, not a test-only shim.
 
 Returns (base_url, shutdown_callable). Everything runs on localhost with a
 throwaway RP_DATA_DIR.
 """
+import http.client
 import http.server
 import os
 import socket
@@ -25,43 +26,37 @@ _CGI = _ROOT / 'server' / 'cgi-bin'
 _HTML = _ROOT / 'server' / 'html'
 
 
-def _scgi_request(sock_path, env, body=b''):
-    """One SCGI round-trip; returns the raw CGI-style response bytes."""
-    blob = b''.join(k.encode() + b'\x00' + v.encode() + b'\x00'
-                    for k, v in env.items())
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(60)
-    s.connect(sock_path)
-    s.sendall(str(len(blob)).encode() + b':' + blob + b',' + body)
-    chunks = []
-    while True:
-        c = s.recv(65536)
-        if not c:
-            break
-        chunks.append(c)
+def _free_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(('127.0.0.1', 0))
+    port = s.getsockname()[1]
     s.close()
-    return b''.join(chunks)
+    return port
 
 
 def start_stack():
     data_dir = tempfile.mkdtemp(prefix='rp-e2e-data-')
-    sock_dir = tempfile.mkdtemp(prefix='rp-e2e-sock-')
-    sock_path = os.path.join(sock_dir, 'api.sock')
+    gunicorn_port = _free_port()
 
     worker = subprocess.Popen(
-        [sys.executable, str(_CGI / 'api_worker.py')],
-        env=dict(os.environ, RP_DATA_DIR=data_dir, RP_SCGI_SOCKET=sock_path,
-                 RP_WORKER_MAX='8'),
+        [sys.executable, '-m', 'gunicorn', '--workers', '2', '--threads', '8',
+         '--bind', f'127.0.0.1:{gunicorn_port}', 'wsgi:application'],
+        cwd=str(_CGI),
+        env=dict(os.environ, RP_DATA_DIR=data_dir),
         stderr=subprocess.PIPE)
     deadline = time.time() + 60
-    while not os.path.exists(sock_path):
+    while True:
         if worker.poll() is not None:
-            raise RuntimeError('api worker died: '
+            raise RuntimeError('gunicorn died: '
                                + worker.stderr.read().decode(errors='replace'))
-        if time.time() > deadline:
-            worker.kill()
-            raise RuntimeError('api worker socket never appeared')
-        time.sleep(0.1)
+        try:
+            socket.create_connection(('127.0.0.1', gunicorn_port), timeout=0.5).close()
+            break
+        except OSError:
+            if time.time() > deadline:
+                worker.kill()
+                raise RuntimeError('gunicorn never started listening')
+            time.sleep(0.1)
 
     # The worker's import seeded the default admin (must_change_password=True,
     # which gates most endpoints). The smoke tests exercise the app POST-login,
@@ -79,7 +74,7 @@ def start_stack():
         env=dict(os.environ, RP_DATA_DIR=data_dir),
         capture_output=True, timeout=120)
     if fix.returncode != 0:
-        worker.kill()
+        worker.terminate()
         raise RuntimeError('seed-user fixup failed: '
                            + fix.stderr.decode(errors='replace'))
 
@@ -93,33 +88,18 @@ def start_stack():
         def _proxy_api(self):
             length = int(self.headers.get('Content-Length') or 0)
             body = self.rfile.read(length) if length else b''
-            path, _, query = self.path.partition('?')
-            env = {
-                'CONTENT_LENGTH': str(len(body)),
-                'SCGI': '1',
-                'REQUEST_METHOD': self.command,
-                'PATH_INFO': path,
-                'QUERY_STRING': query,
-                'CONTENT_TYPE': self.headers.get('Content-Type', ''),
-                'REMOTE_ADDR': '127.0.0.1',
-                'RP_DATA_DIR': data_dir,
-            }
-            for name, val in self.headers.items():
-                env['HTTP_' + name.upper().replace('-', '_')] = val
-            raw = _scgi_request(sock_path, env, body)
-            head, _, payload = raw.partition(b'\n\n')
-            if b'\r\n\r\n' in raw and (raw.index(b'\r\n\r\n') < len(head)):
-                head, _, payload = raw.partition(b'\r\n\r\n')
-            status = 200
-            hdrs = []
-            for line in head.decode(errors='replace').splitlines():
-                k, _, v = line.partition(':')
-                if k.strip().lower() == 'status':
-                    status = int(v.strip().split()[0])
-                elif _:
-                    hdrs.append((k.strip(), v.strip()))
-            self.send_response(status)
-            for k, v in hdrs:
+            conn = http.client.HTTPConnection('127.0.0.1', gunicorn_port, timeout=60)
+            headers = {k: v for k, v in self.headers.items()
+                       if k.lower() not in ('host', 'content-length')}
+            headers['Content-Length'] = str(len(body))
+            conn.request(self.command, self.path, body=body, headers=headers)
+            resp = conn.getresponse()
+            payload = resp.read()
+            conn.close()
+            self.send_response(resp.status)
+            for k, v in resp.getheaders():
+                if k.lower() in ('content-length', 'transfer-encoding', 'connection'):
+                    continue
                 self.send_header(k, v)
             self.send_header('Content-Length', str(len(payload)))
             self.end_headers()

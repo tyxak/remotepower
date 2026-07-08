@@ -1,36 +1,41 @@
 # Advanced: scaling RemotePower to a heavy fleet (1000+ agents)
 
-> **ADVANCED — you do NOT need any of this for a normal install.** A single box
-> with the default SQLite backend comfortably runs a typical homelab / SMB fleet
-> (up to a few hundred hosts). Postgres, HA, satellites, app nodes and load
-> balancers below are a separate **heavy-fleet** track — ignore them unless you
-> are genuinely at large scale. The [installer](install.md) never asks about any
-> of it.
+> **ADVANCED — you do NOT need most of this for a normal install.** Since
+> v6.1.0, a single box already runs the full single-node stack by default —
+> PostgreSQL, gunicorn/Flask, the out-of-band scheduler and a co-located
+> scanner satellite, all provisioned automatically by
+> [`install-server.sh`](install.md) / `docker compose up` with no flags — and
+> comfortably runs a typical homelab / SMB fleet (up to a few hundred hosts).
+> HA (read replicas/failover), relay satellites, multiple **app nodes** and
+> load balancers below are the separate **heavy-fleet** track — ignore them
+> unless you are genuinely at large scale.
 
 This guide is for **large fleets — roughly 1,000 agents and up**, where the
 defaults start to strain. It explains *what actually limits scale*, then the
 levers, in the order you should pull them.
 
 > TL;DR for 1000+: **(1) move the storage backend to PostgreSQL, (2) raise the
-> agent poll interval, (3) widen the fcgiwrap worker pool, and only then (4) go
-> horizontal behind a load balancer.** Most fleets never need step 4.
+> agent poll interval, (3) tune the gunicorn worker/thread pool, and only then
+> (4) go horizontal behind a load balancer.** Most fleets never need step 4.
 
 ---
 
 ## How RemotePower is deployed (why scale behaves the way it does)
 
 ```
-agents ──HTTPS──> nginx ──FastCGI──> fcgiwrap ──fork──> api.py (one process / request)
-                    │                                        │
-                    └─ serves static assets directly         └─ reads/writes the storage backend
+agents ──HTTPS──> nginx ──proxy_pass──> gunicorn (threaded workers) ──> wsgi.py (Flask) ──> api.py
+                    │                                                                          │
+                    └─ serves static assets directly                    reads/writes the storage backend
 ```
 
 Two facts drive everything below:
 
-1. **The app is request-scoped CGI.** `fcgiwrap` forks a fresh `api.py` process
-   per request. There is no long-lived application server holding state — which
-   is *great* for horizontal scaling (any node can serve any request) but means
-   **throughput is bounded by how many CGI processes can run at once.**
+1. **The app is a persistent gunicorn/Flask server** (the only server since
+   v6.1.0 — CGI/fcgiwrap is retired). Request state (context, output buffer, DB
+   connections) is thread-local, so a worker serves requests concurrently on
+   threads with no per-request fork/startup cost — which is *great* for
+   horizontal scaling (any node can serve any request) and means **throughput
+   is bounded by `--workers` × `--threads`, not process spawn cost.**
 2. **All shared state lives in the storage backend.** With the default JSON
    backend that's flat files guarded by per-file locks — fine at small scale,
    a contention point under concurrent writes. The backend is pluggable
@@ -50,7 +55,8 @@ requests/sec ≈ number_of_agents ÷ poll_interval_seconds
 - 5,000 agents @ 300 s ≈ **17 req/s**.
 
 Each heartbeat is a short read-modify-write. The work is small; the limit is
-*concurrency* (CGI process count) and *write contention* (storage backend).
+*concurrency* (gunicorn `--workers` × `--threads`) and *write contention*
+(storage backend).
 
 ---
 
@@ -63,7 +69,7 @@ process handling your request:
 | Row | What it tells you |
 |-----|-------------------|
 | **Storage backend** | `PostgreSQL` / `SQLite` / `JSON files` — the active `RP_STORAGE_BACKEND`. |
-| **Request tier** | `WSGI · gunicorn` / `SCGI · prefork` / `CGI · fcgiwrap` — how requests are executed. |
+| **Request tier** | `WSGI · gunicorn` (the only server) — how requests are executed. |
 | **Out-of-band scheduler** | `Running` (with a live heartbeat age), `Configured — no heartbeat` (flag set but the process is dead — fix it), or `Off`. |
 | **Per-request maintenance** | Whether the ~33 sweeps run *inside each request* or are *offloaded to the scheduler*. |
 
@@ -134,96 +140,43 @@ proportionally.
 
 ---
 
-## Step 3 — Widen the FastCGI worker pool
+## Step 3 — Tune the gunicorn worker pool
 
-CGI throughput = how many `api.py` processes can run concurrently. The stock
-`fcgiwrap` spawns a small number of children; that's the ceiling you hit first.
+Throughput is `--workers` (processes) × `--threads` (per process) — both set
+in `server/conf/remotepower-wsgi.service`'s `ExecStart` (`install-server.sh`
+installs it by default; a fresh install ships `--workers 4 --threads 8`).
+Request state (context, output buffer, DB connections) is thread-local, so a
+worker serves requests concurrently on threads with no fork and no
+per-request startup cost — validated correct under load on both the SQLite
+and Postgres backends (no load-cache, correlation-id, or response-body bleed
+across threads).
 
-- Run fcgiwrap with more children — e.g. `fcgiwrap -c <N>` (or
-  `FCGI_CHILDREN=<N>` via the spawn unit). A good starting point is
-  **2–4× CPU cores**; the work is I/O-bound on the DB, so you can oversubscribe.
-- Make sure nginx's `fastcgi_pass` socket and the worker pool aren't the
-  bottleneck: raise `worker_connections`, and the OS file-descriptor limit
-  (`LimitNOFILE`) for both nginx and the fcgiwrap unit.
-- Keep `fastcgi_read_timeout 600s` (already set) for the slow AI / scan
-  endpoints, but those are rare; heartbeats return in milliseconds.
+- **Workers** ≈ CPU cores (each is a real process — more than that just adds
+  memory/context-switch overhead without more throughput on a CPU-bound host).
+- **Threads** — the work is I/O-bound on the DB, so oversubscribe here: 8–16
+  threads per worker is a good starting point.
+- Edit the unit, then `systemctl daemon-reload && systemctl restart remotepower-wsgi`.
+- Keep `proxy_read_timeout 130s` (already set in the shipped nginx snippet)
+  for the slow AI / scan endpoints and the `/api/exec/wait` long-poll; those
+  are rare — heartbeats return in milliseconds.
 
-Rule of thumb: enough children that steady-state heartbeat req/s (Step 1
-arithmetic) uses well under half the pool, leaving headroom for UI + bursts.
+Rule of thumb: enough `workers × threads` that steady-state heartbeat req/s
+(Step 1 arithmetic) uses well under half the pool, leaving headroom for UI +
+bursts. See [wsgi.md](wsgi.md) for the full worker-model writeup.
 
-### Or skip the CGI tax entirely: the persistent API worker (v4.3.0)
+### The out-of-band maintenance scheduler (v5.5.0, default on)
 
-Widening fcgiwrap raises *concurrency*, but every request still pays the
-classic-CGI startup cost — fork + Python interpreter start + parsing the whole
-`api.py` source — before a single handler line runs. The persistent worker
-removes that cost instead: `server/cgi-bin/api_worker.py` (SCGI prefork)
-imports `api.py` **once** at service start and forks per request, which keeps
-CGI's process-isolation semantics (each request runs in a pristine
-copy-on-write copy, crashes are isolated) while the startup tax is paid once.
-
-```bash
-cp server/conf/remotepower-api.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now remotepower-api
-# then switch the nginx /api/ location to the commented scgi_pass block in
-# server/conf/remotepower.conf (or your deployed copy) and reload nginx
-```
-
-Concurrency is capped by `RP_WORKER_MAX` (default 32). Rollback is the nginx
-block swap in reverse — the worker and fcgiwrap can coexist; nginx decides
-which serves. On a busy fleet this is the single biggest latency win in this
-guide: it applies to **every** request, heartbeats and dashboard alike.
-
-### Or go fully persistent: the WSGI app server (v5.5.0, experimental, opt-in)
-
-The SCGI worker still **forks per request**. For the largest fleets there is a
-fully-persistent tier: the same `api.py` served under **gunicorn** with threaded
-workers, where request state (request context, output buffer, DB connections) is
-**thread-local**, so a worker serves requests concurrently on threads with no
-fork and no per-request startup. It is validated correct under load on both the
-SQLite and Postgres backends — per-request isolation holds (no load-cache,
-correlation-id, or response-body bleed across threads).
-
-```bash
-pip install gunicorn                       # NOT a RemotePower dependency
-cp server/conf/remotepower-wsgi.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now remotepower-wsgi
-# point nginx /api/ at the proxy_pass block (http://127.0.0.1:8090) and reload
-```
-
-Tune `--workers` (processes) × `--threads` (per process) to your CPU and DB-pool
-budget. **Pair it with the out-of-band scheduler below** (`RP_EXTERNAL_SCHEDULER=1`)
-so the request path stops running the cadence. CGI/`api_cgi.py` remains the
-default and fully-supported deployment; keep it as the fallback (repoint nginx)
-until you've validated the WSGI tier under your own load. See
-[wsgi.md](wsgi.md).
-
-**Switch back and forth on an existing install with one command** (from the
-checkout) — no manual nginx editing:
-
-```bash
-sudo make app-server-wsgi     # gunicorn WSGI tier + out-of-band scheduler
-sudo make app-server-cgi      # back to CGI/fcgiwrap (stops the scheduler)
-make app-server-status        # show the active tier + unit/scheduler state
-```
-
-It saves the CGI nginx snippet to `…/remotepower-locations.conf.cgi.bak`, so the
-switch back is lossless, and validates every nginx change with `nginx -t`
-(auto-reverting on failure). `NO_SCHEDULER=1` / `KEEP_SCHEDULER=1` control the
-scheduler independently.
-
-### The out-of-band maintenance scheduler (v5.5.0)
-
-RemotePower runs ~33 `run_*_if_due` maintenance sweeps. By default they
-**piggy-back on request traffic** — convenient on a single CGI node, but it means
+RemotePower runs ~33 `run_*_if_due` maintenance sweeps. Left in-process they'd
+**piggy-back on request traffic** — convenient on a single node, but it means
 (a) no traffic ⇒ no maintenance, (b) every request makes ~33 "is it due?" DB
-round-trips, and (c) N horizontal nodes all race the same sweep. The optional
+round-trips, and (c) N horizontal nodes all race the same sweep. The default
 `remotepower-scheduler.service` runs the cadence from one dedicated process:
 
 ```bash
 cp server/conf/remotepower-scheduler.service /etc/systemd/system/
-printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env   # on the WORKER
+printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env   # on the app server
 systemctl daemon-reload && systemctl enable --now remotepower-scheduler
-systemctl restart remotepower-api          # (or remotepower-wsgi)
+systemctl restart remotepower-wsgi
 ```
 
 A host file-lock plus (on Postgres) a `pg_advisory_lock` make it **leader-elected**:
@@ -241,14 +194,15 @@ read *Running* with a recent heartbeat, and *Per-request maintenance* should rea
 *Offloaded to scheduler*. If the scheduler row says *Configured — no heartbeat*,
 the `remotepower-scheduler` process isn't running; if *Per-request maintenance*
 still says *Runs in each request*, the flag didn't reach the worker (check
-`api.env` and that you restarted `remotepower-wsgi`/`remotepower-api`).
+`api.env` and that you restarted `remotepower-wsgi`).
 
 ---
 
 ## Step 4 — Go horizontal (load balancer + shared Postgres)
 
 Only needed past the point a single beefy node can serve (many thousands of
-agents, or for redundancy). Because the app is stateless CGI, this is
+agents, or for redundancy). Because the app server holds no cross-request
+state (per-request context is thread-local, never shared), this is
 straightforward **once you're on Postgres**:
 
 ```
@@ -257,7 +211,7 @@ agents / UI ──> Load Balancer (TLS) ──> app node 1 ─┐
                                        ──> app node N ─┘
 ```
 
-- Each app node is an identical nginx + fcgiwrap + RemotePower install,
+- Each app node is an identical nginx + gunicorn + RemotePower install,
   **all pointed at the same Postgres DSN** (`RP_PG_DSN` per node, or the storage
   marker). No node holds *database* state.
 - **No session stickiness required** — sessions are token-based, validated
@@ -351,11 +305,13 @@ for multi-site fleets regardless of raw scale.
 
 ## Step 5b — Connection pooling (PgBouncer), optional
 
-The CGI model opens a fresh Postgres connection per request. At high request
-rates that connection setup (and Postgres's per-connection memory) becomes the
-ceiling before anything else. **PgBouncer** in front of Postgres pools and
-reuses server connections, so the app's many short-lived connects map onto a
-small, stable set of real Postgres sessions.
+Each gunicorn thread caches and reuses ONE Postgres connection across requests
+(thread-local, reconnects only if broken) — so live connections per node are
+bounded by `--workers × --threads`, not one per request. At many app nodes (or
+a large worker/thread count), that fixed pool can still add up to more
+connections than Postgres's `max_connections` comfortably serves. **PgBouncer**
+in front of Postgres pools and reuses server connections, so many app-side
+connections map onto a small, stable set of real Postgres sessions.
 
 - **`packaging/pgbouncer-setup.sh`** installs + configures it (per app node on
   `127.0.0.1:6432`, or a central pooler). Then point RemotePower's DSN at
@@ -368,8 +324,9 @@ small, stable set of real Postgres sessions.
   follows a failover (or keep RemotePower's own multi-host DSN and point it at a
   per-node PgBouncer — either layering works).
 
-This is the cheaper alternative to a persistent application server: you keep the
-stateless CGI app and just stop paying per-request connection setup.
+Reach for this once you're running enough app nodes (Step 4) that their
+combined connection counts approach Postgres's limit — a single node rarely
+needs it given the per-thread connection reuse above.
 
 ## Transport encryption (who's encrypted, who isn't)
 
@@ -413,9 +370,9 @@ At 1000+ agents the time-series and logs are what grow. Keep them bounded:
 ## nginx / OS tuning checklist
 
 - `worker_processes auto;` and a high `worker_connections`.
-- Raise `LimitNOFILE` for nginx **and** the fcgiwrap unit (sockets + DB conns).
+- Raise `LimitNOFILE` for nginx **and** the `remotepower-wsgi` unit (sockets + DB conns).
 - Static assets are already served directly by nginx with an immutable cache +
-  precompressed (brotli/gzip) — don't route them through FastCGI.
+  precompressed (brotli/gzip) — don't route them through the app server.
 - `application/json` is intentionally **not** gzipped (defence-in-depth); leave
   it.
 - Put Postgres on a low-latency link to the app nodes (same VPC/subnet); the
@@ -427,14 +384,14 @@ At 1000+ agents the time-series and logs are what grow. Keep them bounded:
 
 | Fleet size | Backend | Poll interval | Shape |
 |-----------:|---------|--------------:|-------|
-| ≤ 200 | JSON (default) | 60 s | single small box |
-| 200–1,000 | SQLite or Postgres | 60–120 s | single box, widen fcgiwrap |
+| ≤ 200 | PostgreSQL (default) or SQLite/JSON | 60 s | single small box |
+| 200–1,000 | PostgreSQL | 60–120 s | single box, tune gunicorn workers/threads |
 | 1,000–5,000 | **PostgreSQL** | 120–300 s | single strong box, or 2 nodes + LB |
 | 5,000+ | PostgreSQL (+ HA) | 300 s | N app nodes behind an LB |
 
 Start at Step 1+2 (Postgres + interval) — that alone carries most fleets to
 several thousand agents on a single node. Add Steps 3–4 only when the metrics
-(fcgiwrap saturation, DB wait) say you need them.
+(gunicorn saturation, DB wait) say you need them.
 
 See also: [architecture.md](architecture.md), [install.md](install.md),
 [admin-guide.md](admin-guide.md).

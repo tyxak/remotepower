@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test test-fast format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo app-server-wsgi app-server-cgi app-server-status
+.PHONY: help test test-fast format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo
 
 PY      ?= python3
 PIP     ?= pip3
@@ -11,12 +11,11 @@ PIP     ?= pip3
 # black + isort + strict mypy. The bulk of api.py predates the formatter
 # pass and reformatting it in one go would produce an unreviewable diff;
 # expanding the scope is a deliberate, separate effort.
-# v4.3.0: every NEW module gets added here at creation (api_worker.py is the
-# template). The legacy monolith files (api.py, app.js-era tests) stay out —
-# reformatting them is an unreviewable diff for zero behavior change.
+# v4.3.0: every NEW module gets added here at creation. The legacy monolith
+# files (api.py, app.js-era tests) stay out — reformatting them is an
+# unreviewable diff for zero behavior change.
 LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/openapi_spec.py \
-            server/cgi-bin/api_worker.py \
             server/cgi-bin/integrations.py \
             server/cgi-bin/hypervisor.py \
             server/cgi-bin/dns_resolve.py \
@@ -28,7 +27,8 @@ LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/checks.py \
             tests/test_v190.py \
             tests/test_v1100.py \
-            tests/test_v430_worker.py
+            tests/test_wsgi_entrypoint.py \
+            tests/test_enterprise_defaults.py
 TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/openapi_spec.py \
                  server/cgi-bin/integrations.py \
@@ -70,9 +70,6 @@ help:
 	@echo "  make version     - print the current version ($(VERSION))"
 	@echo "  make tls-selfsigned HOST=rp.internal [NGINX=1] - self-signed CA + leaf (prefer a real cert)"
 	@echo "  make tls-renew   - re-issue the server leaf from the existing CA (clients unaffected)"
-	@echo "  sudo make app-server-wsgi  - switch this install to the gunicorn WSGI tier + scheduler (NO_SCHEDULER=1 to skip)"
-	@echo "  sudo make app-server-cgi   - switch back to the CGI/fcgiwrap tier (KEEP_SCHEDULER=1 to keep the scheduler)"
-	@echo "  make app-server-status     - show the active app tier + unit/scheduler state"
 	@echo "  make install-dev - install black, isort, mypy locally"
 	@echo "  make scan-demo   - drive a B5 security scan to completion (needs a running server)"
 	@echo "  make clean       - drop __pycache__ trees + dist/"
@@ -126,23 +123,10 @@ tls-selfsigned:
 tls-renew:
 	sudo bash tools/gen-ca.sh --renew $(if $(NGINX),--reload,)
 
-# v5.5.0: switch an EXISTING install between the persistent gunicorn WSGI app
-# tier and the default CGI/fcgiwrap tier, idempotently and reversibly. The WSGI
-# switch saves the CGI nginx snippet to .cgi.bak so the way back is lossless.
-# `app-server-wsgi` also enables the out-of-band scheduler (pass NO_SCHEDULER=1
-# to skip); `app-server-cgi` disables it (KEEP_SCHEDULER=1 to leave it on).
-app-server-wsgi:
-	sudo bash packaging/remotepower-app-server.sh wsgi $(if $(NO_SCHEDULER),--no-scheduler,)
-
-app-server-cgi:
-	sudo bash packaging/remotepower-app-server.sh cgi $(if $(KEEP_SCHEDULER),--keep-scheduler,)
-
-app-server-status:
-	@bash packaging/remotepower-app-server.sh status
-
 # v4.3.0: browser smoke suite (Playwright + Chromium). Self-skips when
-# playwright isn't installed: pip install playwright && python -m playwright
-# install chromium. Boots the real stack (static + SCGI worker) headless.
+# playwright (or gunicorn — the app server, a hard dependency since v6.1.0)
+# isn't installed: pip install playwright gunicorn && python -m playwright
+# install chromium. Boots the real stack (static + gunicorn+wsgi.py) headless.
 e2e:
 	cd tests && $(PY) -m unittest test_v430_e2e -v
 

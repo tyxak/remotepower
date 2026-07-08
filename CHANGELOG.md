@@ -2,6 +2,62 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.1.0 — "Runt1meMatters" — unreleased (test)
+
+The enterprise-productization release: the single-node "enterprise" topology
+is now the default install, and the server runs entirely on gunicorn + Flask.
+
+### Single-node enterprise defaults
+- **`install-server.sh`** now provisions **PostgreSQL**, the **out-of-band
+  maintenance scheduler**, and a co-located **scanner satellite** by default
+  alongside the app server — `--no-postgres`/`--no-scheduler`/`--no-scanner`
+  opt back down.
+- **`docker-compose.yml`** gained a `postgres` service and a `scanner`
+  service (new `Dockerfile.scanner`, running `nuclei` directly — no
+  Docker-socket mount), both on by default.
+- New **`packaging/scanner-setup.sh`** installs a scanner satellite as a
+  systemd service.
+- Bootstrap data (the initial admin user, the scanner's token) is migrated
+  into Postgres automatically on first boot — no manual storage-backend step
+  for a fresh install.
+
+### App server: gunicorn + Flask only
+- **CGI (`api_cgi.py`/fcgiwrap) and the SCGI prefork worker (`api_worker.py`/
+  `remotepower-api.service`) are retired.** `server/cgi-bin/wsgi.py` is now a
+  real Flask app served by gunicorn — the only server. Every shipped nginx
+  config `proxy_pass`es directly to it; the install-time nginx-block rewriter
+  is gone.
+- Request handling is unchanged: the same dispatch table, auth/CSRF/
+  read-only enforcement, and ~33 maintenance sweeps run exactly as before.
+- **Fixed:** the `/install` one-line agent installer read the server
+  hostname/enrollment token from the process environment instead of the
+  per-request context — harmless under CGI, but silently broken (pointed at
+  `localhost`, dropped the token) under any persistent server. Now correct.
+- `packaging/remotepower-server-update.sh` now restarts `remotepower-wsgi`
+  by default.
+- `packaging/install-demo.sh`'s read-only public demo runs its own dedicated
+  `remotepower-wsgi-demo` gunicorn process instead of relying on per-request
+  CGI parameter overrides.
+- `Makefile`'s `app-server-wsgi`/`app-server-cgi`/`app-server-status`
+  targets and `packaging/remotepower-app-server.sh` are removed.
+
+### Security
+- A full SAST (CodeQL, Bandit, gitleaks, Semgrep — all clean) plus structured,
+  independently-verified code review of the whole cutover found and fixed six
+  pre-release issues, none of which shipped: client-IP resolution broken by
+  the new `proxy_pass` transport (defeated the IP allowlist/enrollment
+  rate-limit/audit trail), a Postgres migration data-loss risk when the
+  app-data and Postgres Docker volumes are reset independently, fictitious
+  admin credentials from the same root cause, a default Postgres password
+  shipped enabled-by-default, a Flask method-routing gap, and a
+  response-capture proxy that could be silently defeated by stdout
+  reassignment. Full write-up: `docs/security-review-6.1.0.md`.
+
+### Docs
+- `docs/wsgi.md`, `docs/scaling.md`, `docs/architecture.md`, and the nginx/
+  install/deployment guides rewritten for the gunicorn/Flask-only
+  architecture.
+
 ## v6.0.1 — "RefineMatters" — 2026-07-08
 
 A refinement release — a broad polish, hardening and correctness pass over the

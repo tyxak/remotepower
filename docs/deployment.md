@@ -39,17 +39,18 @@ need it. Start at the top; most installs only need the first two rows.
 
 | Component | Script | When you need it |
 |-----------|--------|------------------|
-| **Server** | `install-server.sh` | always (the dashboard + API) |
+| **Server** | `install-server.sh` | always (the dashboard + API) — Postgres + WSGI + scheduler + a co-located scanner satellite are all default-on single-node; `--no-postgres`/`--app-server=cgi`/`--no-scheduler`/`--no-scanner` opt back down |
 | **Linux agent** | `install-client.sh` | each Linux host to manage |
 | **Windows agent** | `client/install-windows.ps1` | each Windows host |
 | **macOS agent** | `client/install-macos.sh` | each Mac |
 | **Relay satellite** | `packaging/satellite-setup.sh` | agents in a segmented network — see [satellites.md](satellites.md) |
-| **PostgreSQL backend** | `packaging/postgres-setup.sh` | larger fleets / multi-node — see [scaling.md](scaling.md) |
+| **Scanner satellite** | `packaging/scanner-setup.sh` | Security → Pentest scans — default-on, co-located, via `install-server.sh`; run standalone for the doc-recommended separate machine — see [security-scans.md](security-scans.md) |
+| **PostgreSQL backend** | `packaging/postgres-setup.sh` | default-on via `install-server.sh` — see [scaling.md](scaling.md) |
 | **Postgres HA (primary)** | `packaging/postgres-ha-primary.sh` | DB failover |
 | **Postgres HA (standby)** | `packaging/postgres-ha-standby.sh` | DB failover |
 | **PgBouncer pooler** | `packaging/pgbouncer-setup.sh` | very high request rates |
-| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | large fleets wanting a pre-warmed gunicorn app server instead of CGI — see [wsgi.md](wsgi.md) *(opt-in, v5.5.0)* |
-| **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | run the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) *(opt-in, v5.5.0)* |
+| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | default-on via `install-server.sh` — a pre-warmed gunicorn app server instead of CGI — see [wsgi.md](wsgi.md) |
+| **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | default-on via `install-server.sh` — runs the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) |
 | **Load balancer** | `packaging/loadbalancer-haproxy.cfg.example` | multi-node |
 | **Web SSH terminal** | `packaging/install-webterm.sh` | optional browser SSH |
 | **Read-only demo** | `packaging/install-demo.sh` | a public sandbox vhost |
@@ -60,7 +61,7 @@ need it. Start at the top; most installs only need the first two rows.
 
 ```bash
 git clone https://github.com/tyxak/remotepower && cd remotepower
-sudo bash install-server.sh        # nginx + fcgiwrap + deps + admin password
+sudo bash install-server.sh        # nginx + gunicorn/Flask + Postgres + deps + admin password
 sudo certbot --nginx -d remote.example.com   # TLS (or your own cert)
 ```
 
@@ -125,8 +126,9 @@ An app node is just **another `install-server.sh` install pointed at the shared
 Postgres** — the app is stateless, so any node serves any request:
 
 1. Install the server code on the node (`install-server.sh`).
-2. Point it at the shared DB: set `RP_PG_DSN` (env, in the fcgiwrap unit) or the
-   storage marker `DATA_DIR/storage_backend.json` → the HA DSN.
+2. Point it at the shared DB: set `RP_PG_DSN` (env, in `/etc/remotepower/api.env`,
+   the `remotepower-wsgi` unit's `EnvironmentFile=`) or the storage marker
+   `DATA_DIR/storage_backend.json` → the HA DSN.
 3. **Mount `DATA_DIR` on shared storage (NFS/EFS)** so file artifacts (avatars,
    SCAP reports, host-config snapshots, mitigation logs) are visible from every
    node, and deploy the `agent/` binary to each node. (DB stores are in Postgres

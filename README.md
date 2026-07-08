@@ -14,7 +14,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.0.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.1.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -84,17 +84,19 @@ opening firewall ports on them. Each host runs a small Python agent that **polls
 the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-digit
 PIN, like pairing a console controller.
 
-Deliberately small and **readable**: nginx + Python CGI + flat JSON files — around
+Deliberately small and **readable**: nginx + Python (gunicorn + Flask) — around
 **~87,000 lines** of server Python, one HTML file, one CSS file and a handful of
-vanilla JS files. No external database, no Node.js, no Redis, no Kubernetes,
-**no build step, no bundler, no framework** — you can read every line. The whole
+vanilla JS files. No Node.js, no Redis, no Kubernetes, **no build step, no
+bundler, no frontend framework** — you can read every line. A single
+`install-server.sh` run or `docker compose up` provisions the full single-node
+stack by default: **PostgreSQL**, the app server, an out-of-band maintenance
+scheduler and a co-located scanner satellite — no flags required. The whole
 `/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs
-running 5–50 devices, fine up to a few
-hundred — and for larger or write-heavy fleets you can switch to an optional
-embedded **SQLite** backend, or scale all the way to **PostgreSQL** (failover +
-read replicas), load-balanced **app nodes** and **relay satellites** for segmented
-networks. That's an **advanced, heavy-fleet** track — most installs never touch
-it. See **[docs/scaling.md](docs/scaling.md)**.
+running 5–50 devices, fine up to a few hundred, and for constrained/dev installs
+you can opt back down to the lightweight flat-JSON backend
+(`--no-postgres`) — or scale further up with failover + read replicas,
+load-balanced **app nodes** and **relay satellites** for segmented networks. See
+**[docs/scaling.md](docs/scaling.md)**.
 
 ## Quick start
 
@@ -163,12 +165,11 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
+- **v6.1.0 "Runt1meMatters"** — the enterprise-productization release. **Postgres, the out-of-band scheduler, and a co-located scanner satellite are now the single-node default** (`install-server.sh` and `docker-compose.yml` — `--no-postgres`/`--no-scheduler`/`--no-scanner` opt back down), and **the server runs entirely on gunicorn + Flask** — the CGI (`fcgiwrap`) entry point and the SCGI prefork worker are retired, every shipped nginx config proxies straight to the app server, and a fresh install migrates its bootstrap data into Postgres automatically. Fixed a latent bug where the `/install` one-line agent installer could silently point at the wrong host under a persistent server. No breaking API changes.
 - **v6.0.1 "RefineMatters" — 2026-07-08** — a refinement release: a broad polish, hardening and correctness pass over the whole product. Sidebar reorganised (Virtualization/Containers under **Fleet**, Integrations under **Monitoring**, App catalog under **Automation**; every sub-menu sorted alphabetically); a **real world map** on the Sites page; **single-device auto-patch** targets; the App catalog as a full sortable table; a dedicated **Service baselines** card; **PDF** patch-report export; and consistent button sizing throughout. **Certificate expiry now raises an alert** by default, plus two new alerts — **read-only remount** (silent data-loss) and **mail-queue backlog** — and two alert-resolution fixes. Extra defense-in-depth on outbound vuln-DB/registry lookups, faster heartbeats, and refreshed documentation. No breaking changes.
 - **v6.0.0 "ClarityMatters" — 2026-07-05** — the v6 interface overhaul. One flat, modern UI replaces the Industrial New-UI/Old-UI toggle (system fonts, hairline panels, accent-soft active states); the sidebar is regrouped into **12 domains** as a one-open-at-a-time accordion and **Settings** gets a left-nav; **Tickets, Billing, Provisioning, the host File manager and the Knowledge base are now standard, always-on modules** (server-side Terraform execution stays an explicit admin switch); an optional **auto-hide sidebar** (on by default, revealed while alerts are open), a faint per-page watermark, and consistent headings/buttons/typography throughout; **every page links its own documentation**. Folds in the accumulated backend work — built-in **TLS/DANE expiry schedule**, **SNMPv3 (USM)** polling for agentless devices, and the **GitHub issue monitor** connector. Security: a whole-project audit + full SAST (CodeQL 0) with three Medium and several Low fixes — no Critical/High/Medium ships. No breaking API changes.
 - **v5.7.0 — F4ct0rMatters** — a refactor-and-fix release. Fixes five New-UI bugs reported by @AndiBSE — devices can be **deleted** again, the profile menu is readable in **light mode**, the **accent picker** and full **themes** work in the New UI, and the accent reaches chamfered buttons — plus a **mobile/narrow-viewport** pass (no horizontal scroll at phone width). Adds **ticket lifecycle events**, **whole-tree config-secret encryption** and **multi-table Postgres RLS** (both opt-in, default-off). Faster to start (lazy `<template>` pages, parallel fonts, nav preload) on a much slimmer, modular server (`api.py` ~57k→~52k lines). No breaking changes.
 - **v5.6.0 — HeapMatters** — the IaC / automation + alert-tuning release. An opt-in **Provisioning** page (Admin → Provisioning): a folder-tree **catalog of infrastructure blueprints** — Terraform, cloud-init, Ansible, iPXE — that you fill in and **render** (copy/download; cloud-init can bake the agent install one-liner), or **run Terraform server-side** — **Plan / Apply / Destroy** — behind a separate execute gate, with persistent per-blueprint state, a run lock, and secrets passed as environment (never to disk). The standalone Ansible runner folds in here. Plus an **alert Tuning** page (Monitoring → Tuning) that surfaces the noisiest alerts from the timeline with a per-host **mute** (the Alerts/dashboard Ack button becomes an **X mute** silencing one exact alert from one host), and **timesheet watchers** — let specific non-finance users view another user's hours, by user or whole team. Also: **virtualization lifecycle beyond Proxmox** — VMware (vSphere/vCenter, Cloud Director) and OpenShift Virtualization now get list / power / snapshot control on the Virtualization page; an opt-in **Knowledge Base** (operator-authored SOPs/runbooks, searchable, fed to the AI as a RAG source); and three new automation actions (open a ticket, add a tag, mute the alert). Everything opt-in, default-off — no breaking changes.
-- **v5.5.0 — ScaleMatters** — the persistent-tier + enterprise release. The **keystone** that lifts the CGI/fork-per-request scale ceiling: an opt-in **gunicorn WSGI app server** (thread-local request isolation) and a **leader-elected out-of-band scheduler** (file-lock + Postgres `pg_advisory_lock`, ~25× lower request latency). **Hard multi-tenancy** (`tenancy_enforced`) with optional **Postgres row-level security** (`tenancy_rls`, `FORCE` RLS + per-request GUC, applied live) as DB-enforced defense-in-depth. Plus a large opt-in **enterprise-hardening** program (identity, credential-at-rest, DR + restore-verify, API contract, observability) and helpdesk-signal + billing polish (AV scan **`av_warning`** alerts, ticket **attachments**, loop-safe **auto-reply**, **"View email thread"**, opt-in **Billing**). Everything opt-in, default-off — no breaking changes.
-
 Full release history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security

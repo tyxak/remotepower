@@ -17,8 +17,9 @@
 #   RP_DB_PASS   role password   (default: a generated 32-char secret, printed once)
 #   --install            apt-install PostgreSQL if it isn't present
 #   --write-marker DIR   write DIR/storage_backend.json so a local RemotePower
-#                        install uses this DB (does NOT migrate data — use the
-#                        in-app migrate or tools/migrate_storage.py for that)
+#                        install uses this DB (does NOT migrate data — use
+#                        Settings → Advanced → Storage backend for that;
+#                        tools/migrate_storage.py only covers json<->sqlite)
 #   --listen             open postgresql.conf listen_addresses + pg_hba for LAN
 #                        (needed when app nodes are on other hosts)
 #
@@ -120,8 +121,9 @@ if [ -n "$WRITE_MARKER" ]; then
 { "backend": "postgres", "dsn": "${DSN}" }
 EOF
   chmod 600 "$MARKER"
-  echo "   → migrate existing data with:  Settings → Advanced → Storage backend → Migrate"
-  echo "     (or)  RP_STORAGE_BACKEND=postgres RP_PG_DSN='${DSN}' python tools/migrate_storage.py …"
+  echo "   → this only points a local install at this DB — it does NOT migrate data."
+  echo "     Migrate existing data with:  Settings → Advanced → Storage backend → Migrate"
+  echo "     (tools/migrate_storage.py only covers json<->sqlite, not postgres)"
 fi
 
 echo

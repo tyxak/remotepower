@@ -238,7 +238,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Passive profile | nuclei, nikto, nmap |
 | Active profile | OWASP ZAP, wapiti — gated behind an authorization attestation + (enrolled) a maintenance window; audited |
 | On-host audit | lynis hardening audit via the agent (read-only) |
-| Scanner satellites | Toolchain runs on a hardened relay node; pin a scan to a satellite |
+| Scanner satellites | Toolchain runs on a hardened relay node; pin a scan to a satellite. `install-server.sh`/`docker-compose.yml` install a co-located scanner by default *(v6.1.0)* — `--no-scanner` opts down to a separate dedicated machine |
 | Scheduled scans | Cron cadence; recurring findings notify a channel; quick/full intensity + vhost |
 
 ## Host security & hardening
@@ -483,12 +483,12 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Architecture | nginx + fcgiwrap + stdlib Python; one HTML + CSS + vanilla-JS modules; no build step |
+| Architecture | nginx + gunicorn/Flask (the only app server) + stdlib Python; one HTML + CSS + vanilla-JS modules; no build step *(v6.1.0)* |
 | SQLite backend | Optional, WAL, stdlib; row-per-entity hot data; reversible migration *(v3.12.0)* |
-| PostgreSQL backend | Optional, automatic failover + read replicas *(v4.0.0)* |
-| Persistent app server | Optional gunicorn WSGI tier (`remotepower-wsgi.service`) as an alternative to CGI fork-per-request — pre-warmed threaded workers with thread-local request isolation for large fleets; CGI stays the default + fallback *(v5.5.0)* |
-| Out-of-band scheduler | Optional dedicated maintenance process (`remotepower-scheduler.service`, `RP_EXTERNAL_SCHEDULER=1`) — leader-elected (host file-lock + Postgres `pg_advisory_lock`) so one node runs the cadence; runs sweeps without request traffic and cuts per-request latency *(v5.5.0)* |
-| Serving & runtime panel | Server-status page shows what's ACTUALLY serving — storage backend (JSON/SQLite/PostgreSQL), request tier (CGI·fcgiwrap / SCGI·prefork / WSGI·gunicorn) and out-of-band scheduler state (running + heartbeat age, configured-but-dead, or off) with a per-request-cadence indicator; verify tiers at a glance, links to `scaling.md` *(v5.6.x)* |
+| PostgreSQL backend | Default single-node backend via `install-server.sh`/`docker-compose.yml`; automatic failover + read replicas *(v4.0.0; default since v6.1.0)* |
+| Persistent app server | gunicorn/Flask (`remotepower-wsgi.service`) — pre-warmed threaded workers with thread-local request isolation, the only server; installed and enabled by default *(v5.5.0; only server since v6.1.0)* |
+| Out-of-band scheduler | Default dedicated maintenance process (`remotepower-scheduler.service`, `RP_EXTERNAL_SCHEDULER=1`) — leader-elected (host file-lock + Postgres `pg_advisory_lock`) so one node runs the cadence; runs sweeps without request traffic and cuts per-request latency *(v5.5.0; default since v6.1.0)* |
+| Serving & runtime panel | Server-status page shows what's ACTUALLY serving — storage backend (JSON/SQLite/PostgreSQL), request tier (`WSGI · gunicorn`) and out-of-band scheduler state (running + heartbeat age, configured-but-dead, or off) with a per-request-cadence indicator; verify tiers at a glance, links to `scaling.md` *(v5.6.x)* |
 | Hard multi-tenancy | Optional tenant entity + `tenancy_enforced` (Settings → Security) — tenant admins confined to their own devices; a default-tenant admin is the cross-tenant superadmin *(v5.5.0)* |
 | Postgres row-level security | Optional DB-enforced tenant isolation (`tenancy_rls`) on the devices table — `FORCE` RLS + per-request `app.rp_tenant` GUC, fail-closed; defense-in-depth beneath the app-layer tenancy; schema applied live *(v5.5.0)* |
 | Relay satellites | For segmented networks; agent→satellite over HTTPS; internal-CA trust *(v4.0.0)* |

@@ -10,7 +10,7 @@ provisioning_handlers:
     service is reached as ``A.<name>`` — a DYNAMIC attribute lookup, which keeps
     the test suite's monkeypatching of api._wg_run / api._wg_helper_available /
     api.respond working, and resolves identically under the CGI (__main__) and
-    imported-module (api_worker/scheduler) execution models.
+    imported-module (wsgi.py/scheduler.py) execution models.
   - api.py then from-imports every public and private name back into its own
     globals, so the route tables and every existing caller are untouched.
   - Calls BETWEEN these functions ALSO go through ``A.`` — the VPN tests patch
@@ -91,10 +91,11 @@ def _wg_find(name):
 
 def _wg_direct() -> bool:
     """Direct mode: invoke the helper WITHOUT sudo because this process already
-    holds the needed privilege (CAP_NET_ADMIN granted ambiently in the SCGI
-    worker unit). This is the hardening-preserving path — it works under
-    NoNewPrivileges=true, where sudo's setuid escalation is blocked. The classic
-    fcgiwrap CGI (no caps, no sandbox) leaves this unset and uses sudo."""
+    holds the needed privilege (CAP_NET_ADMIN granted ambiently in the
+    remotepower-wsgi unit). This is the hardening-preserving path — it works
+    under NoNewPrivileges=true, where sudo's setuid escalation is blocked. A
+    process without that ambient capability (no caps, no sandbox) leaves this
+    unset and uses sudo."""
     return str(os.environ.get('RP_WG_DIRECT', '')).strip().lower() in ('1', 'true', 'yes', 'on')
 
 

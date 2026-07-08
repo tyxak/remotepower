@@ -12,6 +12,10 @@
 #
 #     RP_TLS_HOST=rp.lan docker compose up -d
 #
+# This is the single-node "enterprise" default: Postgres + the persistent
+# gunicorn WSGI tier + the out-of-band scheduler + a co-located scanner
+# satellite, all in this one compose stack. Comment out env vars / services
+# below to opt back down to the lightweight single-file/CGI/no-scanner setup.
 services:
   remotepower:
     image: ghcr.io/tyxak/remotepower:latest   # or `build: .` to build locally
@@ -32,17 +36,18 @@ services:
       # which is the systemd path and doesn't exist in the container. Without it,
       # scheduled backups are written in PLAINTEXT.
       # RP_BACKUP_PASSPHRASE: "${RP_BACKUP_PASSPHRASE:-}"
-      # ── Optional scaling (v6.x) — all default OFF; uncomment to opt in ──────
-      # Run the API under a persistent gunicorn WSGI tier (instead of fork-per-
-      # request fcgiwrap) and run the maintenance sweeps from a dedicated in-
-      # container process. See docs/wsgi.md and docs/scaling.md.
-      # RP_APP_SERVER: "wsgi"        # gunicorn on 127.0.0.1:8090; nginx auto-repointed
-      # RP_EXTERNAL_SCHEDULER: "1"   # run scheduler.py; request path stops the cadence
-      # Point the storage backend at the optional postgres service below:
-      # RP_STORAGE_BACKEND: "postgres"
-      # RP_PG_DSN: "postgresql://rp:CHANGE_ME@postgres:5432/remotepower"
-    # depends_on:                    # uncomment alongside the postgres service below
-    #   - postgres
+      # ── Single-node enterprise topology — all default ON ───────────────────
+      # gunicorn+Flask (server/cgi-bin/wsgi.py) is the only server, started
+      # unconditionally by the entrypoint. Run the maintenance sweeps from a
+      # dedicated in-container process instead. See docs/wsgi.md and docs/scaling.md.
+      RP_EXTERNAL_SCHEDULER: "1"   # run scheduler.py; request path stops the cadence
+      RP_WITH_SCANNER: "1"         # mint a token for the `scanner` service below
+      # Point the storage backend at the postgres service below:
+      RP_STORAGE_BACKEND: "postgres"
+      RP_PG_DSN: "postgresql://rp:${RP_PG_PASSWORD:-remotepower-dev-changeme}@postgres:5432/remotepower"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - remotepower_data:/var/lib/remotepower
     healthcheck:
@@ -54,22 +59,48 @@ services:
       start_period: 15s
       retries: 3
 
-  # ── Optional PostgreSQL backend (v6.x) ──────────────────────────────────────
-  # The default backend is the single-file SQLite/JSON store baked into the data
-  # volume — fine for typical fleets. For large fleets / multiple app nodes,
-  # uncomment this service AND the RP_STORAGE_BACKEND / RP_PG_DSN env above, then
-  # migrate existing data with tools/migrate_storage.py after first switching.
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: remotepower-db
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: remotepower
-  #     POSTGRES_USER: rp
-  #     POSTGRES_PASSWORD: CHANGE_ME
-  #   volumes:
-  #     - remotepower_pg:/var/lib/postgresql/data
+  # PostgreSQL backend — for large fleets / multiple app nodes the default
+  # single-file SQLite/JSON store also works fine; drop this service and the
+  # RP_STORAGE_BACKEND/RP_PG_DSN env above to opt back down to it (existing
+  # Postgres data then needs tools/migrate_storage.py run the other way, or
+  # start fresh on the file backend).
+  postgres:
+    image: postgres:16-alpine
+    container_name: remotepower-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: remotepower
+      POSTGRES_USER: rp
+      # Not exposed to the host (no `ports:` mapping) — only reachable from
+      # other containers on this compose network. Still, override for
+      # anything beyond local/lab use: RP_PG_PASSWORD=... docker compose up -d
+      POSTGRES_PASSWORD: "${RP_PG_PASSWORD:-remotepower-dev-changeme}"
+    volumes:
+      - remotepower_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rp -d remotepower"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Scanner satellite — the Security → Pentest scan worker. Reads its token
+  # from the shared data volume once `remotepower` mints it (RP_WITH_SCANNER
+  # above); see Dockerfile.scanner for why it runs nuclei directly instead of
+  # via a Docker-socket-mounted sibling container. Comment this service out
+  # (and RP_WITH_SCANNER above) to opt out and set one up on a separate
+  # machine per docs/security-scans.md instead — the doc's recommended,
+  # better-isolated path.
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.scanner
+    container_name: remotepower-scanner
+    restart: unless-stopped
+    depends_on:
+      - remotepower
+    volumes:
+      - remotepower_data:/var/lib/remotepower:ro
 
 volumes:
   remotepower_data:
-  # remotepower_pg:   # uncomment together with the optional postgres service above
+  remotepower_pg:

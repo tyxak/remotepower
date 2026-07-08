@@ -3,7 +3,8 @@ refinement release (whole-project polish/hardening/correctness pass, sidebar
 reorg, real world map, single-device auto-patch, PDF patch export, cert-expiry
 alert, two new alerts: read-only remount + mail-queue backlog).
 
-Loosen TestVersionBumps to dynamic (V = api.SERVER_VERSION) on the NEXT bump.
+TestVersionBumps loosened to dynamic (V = api.SERVER_VERSION) on the v6.1.0
+bump — see tests/test_v610.py for the new strict version-surface pins.
 """
 import importlib.util
 import os
@@ -26,7 +27,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.0.1"
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -62,10 +63,6 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}", _html())
-
-    def test_changelog_header_is_refinematters(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.0.1 — "RefineMatters"', head)
 
 
 class TestRefineMattersFeatures(unittest.TestCase):

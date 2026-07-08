@@ -13,6 +13,8 @@
 bcrypt          # password hashing (PBKDF2-SHA256 fallback if absent)
 cryptography    # AES-GCM: encrypted backups, CMDB vault, config-secret encryption (C2)
 dnspython       # DNS resolve/propagation, DMARC/SPF/DKIM, resolver health
+flask           # the app server (server/cgi-bin/wsgi.py) — the only server since v6.1.0
+gunicorn        # WSGI server flask:application runs under (see docs/wsgi.md)
 
 # ── optional (feature-gated; absence hides or degrades the feature) ───────────
 reportlab       # PDF report export

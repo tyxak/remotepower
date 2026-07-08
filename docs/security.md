@@ -21,13 +21,14 @@ could be exploited is fixed before release, on both the server and the agent.
 
 Each release is reviewed for security at the code level and scanned with an
 external toolchain in addition to the CI guardrails. The most recent review,
-**v6.0.1**, ran a whole-project, multi-stream server + agent security audit with
-the SAST tooling (CodeQL, Bandit, gitleaks — all clean) plus a live authenticated
-penetration test of the production deployment, held to the bar — **no Critical,
-High, or Medium finding ships** — see
-[security-review-6.0.1.md](security-review-6.0.1.md). It builds on
-**v6.0.0** (see [security-review-6.0.0.md](security-review-6.0.0.md)) and
-**v5.8.0** (see [security-review-5.8.0.md](security-review-5.8.0.md)), which
+**v6.1.0**, ran the full SAST stack (CodeQL, Bandit, gitleaks, Semgrep — all
+clean) plus a structured, independently-verified multi-agent code review of the
+whole diff — the new single-node Postgres/gunicorn+Flask/scheduler/scanner
+default topology got particular attention as new attack surface — held to the
+bar — **no Critical, High, or Medium finding ships** — see
+[security-review-6.1.0.md](security-review-6.1.0.md). It builds on
+**v6.0.1** (see [security-review-6.0.1.md](security-review-6.0.1.md)) and
+**v6.0.0** (see [security-review-6.0.0.md](security-review-6.0.0.md)), which
 underwent the same review. The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
@@ -81,7 +82,7 @@ security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
 state-changing requests, and the SSRF-safe fetch path were all verified live. A
 durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-6.0.1.md) files.
+[`security-review-*.md`](security-review-6.1.0.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -146,7 +147,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.0.1.md](security-review-6.0.1.md).
+summarised in the latest, [security-review-6.1.0.md](security-review-6.1.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -289,8 +290,8 @@ defences in place (kept current):
 - Request body capped at 64 KB.
 - Static `.json` and `.tmp` files denied (defence against accidental data-dir exposure).
 - The `/cgi-bin/` path is denied as a static location (defence in depth — the
-  Python backend lives there but is only ever executed via `/api/` through
-  fcgiwrap, so its URL should never resolve to a static file).
+  Python backend lives there but is only ever imported by gunicorn, never
+  served over HTTP, so its URL should never resolve to a static file).
 - HSTS commented out — uncomment after HTTPS is fully tested.
 
 ### Internet-facing access control
@@ -323,7 +324,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-6.0.1.md](security-review-6.0.1.md)).
+  [security-review-6.1.0.md](security-review-6.1.0.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
   semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

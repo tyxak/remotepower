@@ -12,8 +12,8 @@ Level-3 (embeddings) as an optional rerank layer.
 
 Design constraints that shaped every decision here:
 
-  * Pure stdlib. The server runs under nginx + fcgiwrap with no pip
-    deps allowed, so there is no faiss / chromadb / numpy. BM25 runs
+  * Pure stdlib. RAG indexing itself takes no pip deps, so there is no
+    faiss / chromadb / numpy. BM25 runs
     over a hand-built inverted index; cosine similarity is a plain
     Python dot product. At the scale this tool targets (~10 devices,
     a few dozen docs → low thousands of chunks) that is sub-millisecond

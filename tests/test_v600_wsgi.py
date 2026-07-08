@@ -34,6 +34,13 @@ def _environ(method, path, body=b'', query='', headers=None):
         'REMOTE_ADDR': '127.0.0.1',
         'wsgi.input': io.BytesIO(body),
         'wsgi.errors': io.BytesIO(),
+        # PEP 3333 keys Werkzeug's URL routing requires (the pre-Flask bridge
+        # was a bare function and didn't need these; the Flask app does).
+        'wsgi.version': (1, 0),
+        'wsgi.url_scheme': 'http',
+        'wsgi.multithread': True,
+        'wsgi.multiprocess': False,
+        'wsgi.run_once': False,
     }
     if body:
         env['CONTENT_LENGTH'] = str(len(body))
@@ -189,6 +196,40 @@ class TestWsgiShim(unittest.TestCase):
         self.assertEqual(status, '201 Created')
         self.assertEqual(body, b'{"ok":true}')
         self.assertIn(('Content-Type', 'application/json'), headers)
+
+    def test_capture_survives_external_stdout_reassignment(self):
+        # v6.1.0 pentest sweep: the capture proxy was installed ONCE at
+        # import time (`if not isinstance(sys.stdout, _OutProxy): sys.stdout
+        # = _OutProxy(...)`). Anything that later reassigns sys.stdout
+        # wholesale (a test harness's capture fixture, a logging/APM library
+        # that wraps stdout) silently discards the proxy: every following
+        # request's respond()/HTTPError output then writes straight to
+        # whatever now owns sys.stdout instead of the per-request buffer,
+        # so the WSGI response comes back with an EMPTY body while the real
+        # content leaks into that other stream. _run_request() must
+        # re-verify (and reinstall if needed) the proxy on every call.
+        real_stdout = sys.stdout
+        try:
+            class _ExternalCapture:
+                def __init__(self):
+                    self.chunks = []
+                def write(self, s):
+                    self.chunks.append(s)
+                    return len(s)
+                def flush(self):
+                    pass
+
+            external = _ExternalCapture()
+            sys.stdout = external  # simulate an external library swapping stdout
+            self.assertFalse(isinstance(sys.stdout, wsgi._OutProxy))
+
+            r = _call('GET', '/api/health')
+            self.assertTrue(r['status'].startswith('200'), r['status'])
+            self.assertIn(b'ok', r['body'].lower(), 'response body must not be empty')
+            self.assertEqual(''.join(external.chunks), '',
+                              'response content must not leak into the reassigned stdout')
+        finally:
+            sys.stdout = real_stdout
 
 
 if __name__ == '__main__':
