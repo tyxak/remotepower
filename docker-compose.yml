@@ -18,7 +18,7 @@
 # below to opt back down to the lightweight single-file/CGI/no-scanner setup.
 services:
   remotepower:
-    image: ghcr.io/tyxak/remotepower:latest   # or `build: .` to build locally
+    build: .   # builds this checkout; swap for `image: ghcr.io/tyxak/remotepower:latest` once a release is published
     container_name: remotepower
     restart: unless-stopped
     ports:
