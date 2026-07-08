@@ -180,5 +180,22 @@ class TestPostgresMigrationGatedOnLiveData(unittest.TestCase):
         self.assertNotIn(".pg_migrated", cond)
 
 
+class TestSelfSignedCertCoversScannerHostname(unittest.TestCase):
+    """Real-world sweep: the co-located `scanner` service (docker-compose.yml)
+    connects to https://remotepower:8443 -- the fixed Docker Compose service
+    name -- but the self-signed cert was issued with only RP_TLS_HOST (the
+    operator's external hostname) as a SAN, so the scanner's cert-pinned TLS
+    verification always failed with a hostname mismatch. rp-gen-ca must be
+    called with "remotepower" as an additional --host SAN."""
+
+    SRC = (Path(__file__).parent.parent / "docker" / "entrypoint.sh").read_text()
+
+    def test_gen_ca_includes_remotepower_san(self):
+        i = self.SRC.index("rp-gen-ca --host")
+        line = self.SRC[i : i + 200]
+        self.assertIn('--host "$TLS_HOST"', line)
+        self.assertIn("--host remotepower", line)
+
+
 if __name__ == "__main__":
     unittest.main()

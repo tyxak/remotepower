@@ -231,8 +231,16 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
     TLS_HOST="${RP_TLS_HOST:-localhost}"
     TLS_DIR=/var/lib/remotepower/tls
     if [ ! -f "$TLS_DIR/server.crt" ]; then
-        echo "[*] RP_TLS_SELFSIGNED set — generating self-signed CA + leaf for ${TLS_HOST}"
-        /usr/local/bin/rp-gen-ca --host "$TLS_HOST" --dir "$TLS_DIR" >/tmp/genca.log 2>&1 || {
+        # v6.1.0: always add "remotepower" as a second SAN — that's the fixed
+        # Docker Compose service/container name the co-located `scanner`
+        # service connects to (RP_SERVER_URL=https://remotepower:8443 in
+        # docker/scanner-entrypoint.sh), which is never the same as
+        # RP_TLS_HOST (the operator's external hostname). Without it the
+        # scanner's cert-pinned TLS verification fails with a hostname
+        # mismatch even though it trusts the right CA. Harmless to include
+        # even when the scanner is disabled.
+        echo "[*] RP_TLS_SELFSIGNED set — generating self-signed CA + leaf for ${TLS_HOST} (+ remotepower)"
+        /usr/local/bin/rp-gen-ca --host "$TLS_HOST" --host remotepower --dir "$TLS_DIR" >/tmp/genca.log 2>&1 || {
             echo "[!] cert generation failed:"; cat /tmp/genca.log; exit 1; }
     fi
     chown -R www-data:www-data "$TLS_DIR" 2>/dev/null || true
