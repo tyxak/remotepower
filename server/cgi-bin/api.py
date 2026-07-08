@@ -6867,6 +6867,12 @@ _ALERT_IDENTITY_FIELDS = (
     'ip', 'label', 'port', 'proto', 'script_name', 'cve_id', 'container', 'rtype',
     'client_id',   # v5.2.0: WG Access clients (no device_id) coalesce by client_id
     'check_id',    # v5.6.0: custom checks coalesce per (host, check)
+    # v6.0.1: storage_degraded fires per POOL and process_alert per PROCESS — without
+    # these, two degraded pools (or two watched processes) on one host coalesced into
+    # a single alert, so the per-pool / per-process recovery (storage_recovered /
+    # process_recovered sub_match) resolved the wrong one or masked a still-bad one.
+    'pool',
+    'process',
 )
 
 
@@ -16380,8 +16386,14 @@ def handle_heartbeat():
                                    _si['listening_ports'])
         except Exception:
             pass
-    # v3.11.0: storage / firewall / timer / new-source-login detections
-    if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth')):
+    # v3.11.0: storage / firewall / timer / new-source-login detections.
+    # v6.0.1: mounts / mailq / mount_issues MUST be in this gate too — the agent
+    # sends them independently of the four v3.11.0 keys, so a minimal host (no ZFS,
+    # no detected firewall, no timers, no recent login) would otherwise never reach
+    # _ingest_posture_v3110 and its readonly_fs / mailq_high / mount_issue checks
+    # never fire — exactly the "silent outage on any host" the feature targets.
+    if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth',
+                                'mounts', 'mailq', 'mount_issues')):
         try:
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
         except Exception as e:

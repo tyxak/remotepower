@@ -166,6 +166,9 @@ Older release notes (v5.0.1 and earlier) live in
  ticket types/priorities/SLA, ownership/teams/groups, master & sub-tickets,
  alert↔ticket linkage, and email in/out.
 - **[contacts.md](contacts.md)** — The internal team contact directory.
+- **[customer-portal.md](customer-portal.md)** — The opt-in, self-service portal
+ where customers raise and follow their own tickets by magic-link (tickets only;
+ closed `/api/portal/*` surface).
 - **[knowledge-base.md](knowledge-base.md)** — Opt-in operator-authored IT
  documentation (SOPs / how-tos / runbooks) in a category tree; searchable and
  fed to the AI as a RAG source.
