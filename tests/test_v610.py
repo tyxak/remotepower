@@ -197,5 +197,81 @@ class TestSelfSignedCertCoversScannerHostname(unittest.TestCase):
         self.assertIn("--host remotepower", line)
 
 
+class TestInstallServerAdminUserIdempotent(unittest.TestCase):
+    """Re-running install-server.sh on an EXISTING install previously
+    overwrote the current admin account unconditionally (no users.json-exists
+    guard, unlike every other step in the script). That made it unsafe to
+    call install-server.sh a second time -- including from the new
+    convert-to-wsgi.sh conversion script, which needs to."""
+
+    SRC = (Path(__file__).parent.parent / "install-server.sh").read_text()
+
+    def test_admin_creation_guarded_on_users_file(self):
+        i = self.SRC.index("Creating admin user")
+        block = self.SRC[i - 200 : i]
+        self.assertIn("if [[ -f /var/lib/remotepower/users.json ]]", block)
+
+    def test_skip_message_present(self):
+        self.assertIn("Admin user already exists", self.SRC)
+
+
+class TestConvertToWsgiScript(unittest.TestCase):
+    """packaging/convert-to-wsgi.sh -- self-detecting pre-6.1.0 -> gunicorn/
+    Flask conversion. Source-text assertions matching the pattern used across
+    this suite for installer/packaging surfaces (no root/systemd in CI)."""
+
+    _ROOT = Path(__file__).parent.parent
+    SCRIPT_PATH = _ROOT / "packaging" / "convert-to-wsgi.sh"
+    SRC = SCRIPT_PATH.read_text() if SCRIPT_PATH.exists() else ""
+
+    def test_script_exists_and_executable(self):
+        self.assertTrue(self.SCRIPT_PATH.exists())
+        self.assertTrue(os.access(self.SCRIPT_PATH, os.X_OK), "convert-to-wsgi.sh must be +x")
+
+    def test_bash_syntax_valid(self):
+        import subprocess
+
+        r = subprocess.run(["bash", "-n", str(self.SCRIPT_PATH)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_detects_existing_wsgi_before_reinstalling(self):
+        self.assertIn("systemctl is-active --quiet remotepower-wsgi", self.SRC)
+
+    def test_calls_install_server_transport_only(self):
+        self.assertIn("install-server.sh", self.SRC)
+        self.assertIn("--no-postgres --no-scheduler --no-scanner", self.SRC)
+
+    def test_health_checks_before_touching_old_services(self):
+        # The health-check block must appear BEFORE the fcgiwrap
+        # stop/disable block, so a failed conversion never tears down a
+        # still-working old transport.
+        i_health = self.SRC.index("Health-checking the gunicorn tier")
+        i_fcgiwrap = self.SRC.index("fcgiwrap.socket")
+        self.assertLess(i_health, i_fcgiwrap)
+
+    def test_stops_old_fcgiwrap_and_scgi_worker(self):
+        self.assertIn("systemctl disable --now fcgiwrap", self.SRC)
+        self.assertIn("remotepower-api.service", self.SRC)
+
+    def test_removes_stranded_cgi_entry_points(self):
+        self.assertIn("api_cgi.py", self.SRC)
+        self.assertIn("api_worker.py", self.SRC)
+
+    def test_detects_and_upgrades_demo_vhost(self):
+        self.assertIn("remotepower-demo", self.SRC)
+        self.assertIn("remotepower-wsgi-demo", self.SRC)
+        self.assertIn("install-demo.sh", self.SRC)
+
+    def test_has_dry_run_flag(self):
+        self.assertIn("--dry-run", self.SRC)
+
+    def test_never_touches_storage_backend_flags(self):
+        # This is a transport-only conversion -- must never pass
+        # --with-postgres or otherwise opt someone into the newer topology.
+        self.assertNotIn("--with-postgres", self.SRC)
+        self.assertNotIn("--with-scheduler", self.SRC)
+        self.assertNotIn("--with-scanner", self.SRC)
+
+
 if __name__ == "__main__":
     unittest.main()

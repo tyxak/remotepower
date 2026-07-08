@@ -430,18 +430,26 @@ systemctl enable --now remotepower-wsgi \
     || warn "Could not start remotepower-wsgi — check: systemctl status remotepower-wsgi"
 
 # ── Admin user ──────────────────────────────────────────────────────────────────
-echo ""
-info "Creating admin user..."
-read -rp "  Admin username [admin]: " ADMIN_USER
-ADMIN_USER="${ADMIN_USER:-admin}"
-read -srp "  Admin password: " ADMIN_PASS
-echo ""
+# Guarded on users.json NOT already existing — every other step in this script
+# is safe to re-run (nginx config, gunicorn install, wsgi.service), but this one
+# previously wasn't: re-running install-server.sh on an EXISTING install would
+# silently overwrite the current admin account with whatever was typed at the
+# prompt. Matches the same idempotent pattern docker/entrypoint.sh already uses.
+if [[ -f /var/lib/remotepower/users.json ]]; then
+    info "Admin user already exists (/var/lib/remotepower/users.json) — skipping"
+else
+    echo ""
+    info "Creating admin user..."
+    read -rp "  Admin username [admin]: " ADMIN_USER
+    ADMIN_USER="${ADMIN_USER:-admin}"
+    read -srp "  Admin password: " ADMIN_PASS
+    echo ""
 
-# Use bcrypt if available, else salted PBKDF2-HMAC-SHA256 — matches api.py's
-# hash_password() exactly (never bare unsalted SHA-256). The password is passed
-# via the environment, not interpolated into the script, so a password
-# containing quotes can't break or inject into the Python source.
-RP_ADMIN_USER="${ADMIN_USER}" RP_ADMIN_PASS="${ADMIN_PASS}" python3 - <<'PYEOF'
+    # Use bcrypt if available, else salted PBKDF2-HMAC-SHA256 — matches api.py's
+    # hash_password() exactly (never bare unsalted SHA-256). The password is passed
+    # via the environment, not interpolated into the script, so a password
+    # containing quotes can't break or inject into the Python source.
+    RP_ADMIN_USER="${ADMIN_USER}" RP_ADMIN_PASS="${ADMIN_PASS}" python3 - <<'PYEOF'
 import json, time, os, hashlib, secrets
 from pathlib import Path
 
@@ -464,8 +472,9 @@ path.write_text(json.dumps(users, indent=2))
 print(f"  User saved (hash: {hash_type}).")
 PYEOF
 
-chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/users.json
-success "Admin user '${ADMIN_USER}' created"
+    chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/users.json
+    success "Admin user '${ADMIN_USER}' created"
+fi
 
 # ── Scanner satellite (default; --no-scanner to opt out) ─────────────────────
 # Co-located Security → Pentest scan worker. Mints its own token directly into
