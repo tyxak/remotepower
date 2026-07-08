@@ -372,7 +372,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Rate limiting | Per-IP login throttle + per-username lockout; enroll/register throttle |
 | IP allowlist | Per-IP/CIDR allowlist; loopback always allowed; agent paths exempt; can't lock yourself out *(v3.3.0)* |
 | Login banner | Optional security notice above the sign-in form *(v5.0.0)* |
-| Read-only demo mode | Rejects all mutations for public sandboxes *(v2.0)* |
+| Read-only demo mode | Rejects all mutations for public sandboxes; `install-demo.sh` runs it on its own dedicated gunicorn process, with an optional separate PostgreSQL database via `--postgres` matching the main install's backend *(v2.0; own process + `--postgres` since v6.1.0)* |
 
 ## Audit & governance
 

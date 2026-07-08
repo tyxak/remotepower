@@ -1,5 +1,10 @@
 # Installation
 
+> **Already have RemotePower installed and just want to update it?** See
+> [upgrading.md](upgrading.md) — `sudo bash install.sh update` is the one
+> command for both "pick up new code" and "convert a pre-6.1.0 CGI/SCGI
+> install to gunicorn+Flask," self-detected.
+
 ## Quickest path
 
 **Server — Docker (recommended):**

@@ -265,9 +265,10 @@ code — upgrading is always a deliberate operator action.
 
 1. **Back up** the data directory (§6).
 2. Pull the new release.
-3. Re-deploy the `server/` tree to the web root.
-4. Reload nginx.
-5. Update agents (the dashboard can push an agent update, or
+3. `sudo bash install.sh update` — self-detects whether that's a plain code
+   deploy or a pre-6.1.0 CGI/SCGI-to-gunicorn/Flask conversion, re-deploys
+   the `server/` tree, and reloads nginx. Full detail: [upgrading.md](upgrading.md).
+4. Update agents (the dashboard can push an agent update, or
    re-run `install-client.sh`). Keep agent and server versions
    aligned — a feature that spans both needs both updated.
 

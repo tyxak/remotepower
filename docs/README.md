@@ -26,7 +26,9 @@ holds long-form docs that don't fit there.
  multi-node, relay satellites, PgBouncer, retention, and the encryption matrix.
 - **[satellites.md](satellites.md)** — Relay satellites for segmented networks:
  add one, encrypt the agent→satellite hop, point agents at it, revoke.
-- **[upgrading.md](upgrading.md)** — Migration steps between versions.
+- **[upgrading.md](upgrading.md)** — One command (`install.sh update`) for
+ every upgrade, self-detecting whether that's a plain code update or a
+ pre-6.1.0 CGI/SCGI-to-gunicorn/Flask conversion.
 - **[troubleshooting.md](troubleshooting.md)** — Common issues and
  diagnostics.
 

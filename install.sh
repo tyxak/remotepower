@@ -7,10 +7,14 @@
 #
 #     remotepower install     interactive wizard (default): nginx + app + TLS + admin
 #     remotepower uninstall   remove the install   (keeps data; --purge wipes it)
+#     remotepower update      one command for BOTH cases: pick up new code on an
+#                             already-current install, or convert a pre-6.1.0
+#                             CGI/SCGI install to gunicorn+Flask — self-detects
+#                             which one applies, including a demo vhost if present
 #     remotepower agent ...    print / SSH-push the device-enrol one-liner
 #     remotepower doctor      preflight / health check
-#   NOT YET WIRED: `tls` / `passwd` / `update` are stubs — for those today use
-#   install-server.sh, tools/gen-ca.sh + `make tls-selfsigned`, and deploy-server.sh.
+#   NOT YET WIRED: `tls` / `passwd` are stubs — for those today use
+#   tools/gen-ca.sh + `make tls-selfsigned`.
 #
 # nginx stays the front door — the operator never edits an nginx file by hand;
 # this script writes the vhost + TLS for them. Heavy-fleet scaling (Postgres,
@@ -22,9 +26,9 @@
 #   --demo                     run the full visual flow WITHOUT touching the box
 #   --dry-run                  print each action instead of doing it
 #
-# The install / uninstall / agent flows are functional (they perform real
-# changes; use --dry-run to preview, or --demo to see the flow without touching
-# the box). The tls/passwd/update subcommands are not yet wired (see above).
+# The install / uninstall / update / agent flows are functional (they perform
+# real changes; use --dry-run to preview, or --demo to see the install flow
+# without touching the box). The tls/passwd subcommands are not yet wired.
 set -euo pipefail
 
 VERSION="5.0.1"
@@ -97,7 +101,9 @@ Commands:
   uninstall      Remove the server (keeps data; --purge to wipe it too)
   tls            (Re)issue or renew TLS certificates
   passwd         Manage admin accounts
-  update         Update an existing install in place
+  update         Update an existing install in place — self-detects whether
+                to just deploy new code or convert a pre-6.1.0 CGI/SCGI
+                install to gunicorn+Flask, and upgrades a demo vhost too
   doctor         Run preflight checks only
   agent          Print the one-line device-enrol command
 
@@ -126,18 +132,62 @@ port_free() { # $1 = port → 0 if free
   elif command -v lsof >/dev/null 2>&1; then ! lsof -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
   else return 0; fi
 }
+port_owner() { # $1 = port -> best-effort "processname(pid)" of whatever's bound, or empty
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null | awk -v p=":$1" '$4 ~ p"$" {print $NF; exit}' | sed -E 's/.*"([^"]+)".*pid=([0-9]+).*/\1(\2)/'
+  fi
+}
+disk_free_mb() { # $1 = path -> free MB on that filesystem, or empty if df unavailable
+  command -v df >/dev/null 2>&1 && df -Pm "$1" 2>/dev/null | awk 'NR==2{print $4}'
+}
+transport_state() { # prints one of: none | cgi | wsgi
+  [ -d /var/www/remotepower ] || { echo none; return; }
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet remotepower-wsgi 2>/dev/null; then
+    echo wsgi
+  else
+    echo cgi
+  fi
+}
 preflight() {
   section "Preflight"
   step_ok "OS .............. $(detect_os)"
+  if [ -f /.dockerenv ]; then
+    step_no "container ....... running inside a container — this script targets a bare-metal/VM"
+    note "     host with systemd. For Docker, use docker-compose.yml directly instead."
+  fi
   if command -v nginx >/dev/null 2>&1; then step_ok "nginx ........... $(nginx -v 2>&1 | grep -oE '[0-9.]+' | head -1)"
   else step_wait "nginx ........... not installed (the installer will add it)"; fi
   if command -v python3 >/dev/null 2>&1; then step_ok "python3 ......... $(python3 -V 2>&1 | awk '{print $2}')"
   else step_no "python3 ......... missing (required)"; fi
-  local p="${PORT:-443}"
-  if port_free 80 && port_free "$p"; then step_ok "ports ........... 80 + $p free"
-  else step_wait "ports ........... 80/$p in use (will reuse / reconfigure)"; fi
+  if command -v systemctl >/dev/null 2>&1; then step_ok "systemd ......... $(systemctl --version 2>/dev/null | head -1 | awk '{print $2}')"
+  else step_no "systemd ......... missing — this script manages services via systemctl"; fi
+  local p="${PORT:-443}" owner80 ownerP
+  if port_free 80 && port_free "$p"; then
+    step_ok "ports ........... 80 + $p free"
+  else
+    owner80="$(port_owner 80)"; ownerP="$(port_owner "$p")"
+    if [ "$(transport_state)" = "none" ]; then
+      # Nothing of ours installed yet, but something already holds the port —
+      # this is the "something else is squatting on 80/443" case, not "will
+      # reuse our own nginx". Name the culprit when we can.
+      step_no "ports ........... 80${owner80:+ ($owner80)} / $p${ownerP:+ ($ownerP)} already in use by another service"
+      note "     free the port, or pass --port to use a different one"
+    else
+      step_wait "ports ........... 80/$p in use (assumed to be this install's own nginx — will reuse)"
+    fi
+  fi
+  local dfree; dfree="$(disk_free_mb /var)"
+  if [ -n "$dfree" ]; then
+    if [ "$dfree" -lt 512 ]; then step_no "disk space ...... ${dfree} MB free on /var — under 512 MB, install may fail"
+    else step_ok "disk space ...... ${dfree} MB free on /var"; fi
+  fi
   if [ -e /var/lib/remotepower ]; then step_wait "data dir ........ /var/lib/remotepower exists (will reuse)"
   else step_ok "data dir ........ /var/lib/remotepower (new)"; fi
+  case "$(transport_state)" in
+    none) step_ok "install ......... none found — 'install' will do a fresh setup" ;;
+    wsgi) step_ok "install ......... existing, already on gunicorn/Flask (v6.1.0+) — 'update' just deploys new code" ;;
+    cgi)  step_no "install ......... existing, still on the retired CGI/SCGI transport" ; note "     run: sudo bash $SELF update" ;;
+  esac
 }
 
 # ── wizard prompts ───────────────────────────────────────────────────────────
@@ -466,6 +516,55 @@ cmd_uninstall() {
   echo; note "RemotePower server uninstalled."; echo
 }
 
+# ── update: detect current state, dispatch to the right underlying tool ─────
+# CGI (fcgiwrap)/SCGI are retired as of v6.1.0 — a persistent gunicorn/Flask
+# process (remotepower-wsgi.service) is the only server now. This detects
+# which state the box is in and calls the ONE script built for it, instead of
+# asking the operator to know the difference themselves:
+#   already on gunicorn/Flask  -> deploy-server.sh (just refresh the code)
+#   still on CGI/SCGI          -> packaging/convert-to-wsgi.sh (installs
+#                                 gunicorn+Flask, converts nginx, retires the
+#                                 old transport)
+# Either way, packaging/convert-to-wsgi.sh runs afterwards — it's a no-op
+# fast-path when the transport is already current, and its remaining job in
+# that case is checking for a demo vhost that needs the same treatment (or a
+# storage-backend mismatch against the main install). Neither branch touches
+# the storage backend, scheduler mode or scanner beyond what was already
+# configured — this is a transport update, not a topology change.
+cmd_update() {
+  banner
+  section "Detecting current install"
+  local SRC; SRC="$(cd "$(dirname "$0")" && pwd)"
+
+  if [ -f /.dockerenv ]; then
+    step_no "Running inside a container"
+    note "Update via your orchestrator instead: docker compose pull && docker compose up -d --build"
+    return 1
+  fi
+  if [ ! -d /var/www/remotepower ]; then
+    step_no "No existing install found at /var/www/remotepower"
+    note "Run: sudo bash $SELF install"
+    return 1
+  fi
+
+  if systemctl is-active --quiet remotepower-wsgi 2>/dev/null; then
+    step_ok "Already on the v6.1.0 gunicorn/Flask transport"
+    section "Deploying current code"
+    if [ "$DRY" = 1 ]; then note "DRY-RUN: would run: sudo bash $SRC/deploy-server.sh"
+    else bash "$SRC/deploy-server.sh"; fi
+  else
+    step_wait "Still on the retired CGI/SCGI transport"
+  fi
+
+  section "Converting to gunicorn+Flask (no-op if already done) + checking the demo"
+  if [ ! -f "$SRC/packaging/convert-to-wsgi.sh" ]; then
+    step_no "packaging/convert-to-wsgi.sh not found next to this script"
+    return 1
+  fi
+  if [ "$DRY" = 1 ]; then bash "$SRC/packaging/convert-to-wsgi.sh" --dry-run
+  else bash "$SRC/packaging/convert-to-wsgi.sh"; fi
+}
+
 # ── agent: print the enrol one-liner, or push it over SSH ────────────────────
 # `remotepower agent push --server URL --token T user@host …` runs the served
 # one-line installer on each host over SSH. Operator-side (uses YOUR ssh), so the
@@ -536,7 +635,8 @@ done
 case "$CMD" in
   install) cmd_install;;
   uninstall) cmd_uninstall;;
+  update) cmd_update;;
   doctor)  banner; preflight; echo;;
-  tls|passwd|update)
+  tls|passwd)
     banner; note "'$CMD' is part of the unified tool — wiring lands with the real install steps."; echo;;
 esac

@@ -36,6 +36,7 @@ NGINX_SITES_AVAIL="/etc/nginx/sites-available"
 NGINX_SITES_ENABL="/etc/nginx/sites-enabled"
 DRY_RUN=0
 SKIP_RESEED=0
+WITH_POSTGRES=0
 
 # ─── Args ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,12 @@ Options:
                        Don't change unless your install is non-standard.
   --skip-reseed        Don't re-run the seed script. Useful if you've
                        customised the demo data and don't want it overwritten.
+  --postgres           Provision a SEPARATE PostgreSQL database + role for the
+                       demo (packaging/postgres-setup.sh, database
+                       remotepower_demo / role rp_demo by default) and migrate
+                       the seeded data into it, matching the main install's
+                       default backend. Off by default (the demo stays on the
+                       lightweight flat-JSON backend unless you ask for this).
   --dry-run            Print what would happen without doing anything.
   -h, --help           This help.
 EOF
@@ -76,6 +83,16 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   [[ "$EUID" -ne 0 ]] && { echo "Run as root: sudo bash $0 --uninstall"; exit 1; }
   [[ "$DEMO_DATA_DIR" == "/var/lib/remotepower" ]] && { echo "✗ refusing to touch the PRODUCTION data dir"; exit 1; }
   echo "── Uninstalling RemotePower demo…"
+  # If the demo was migrated to Postgres, its marker names the database —
+  # surface that BEFORE the data dir (and the marker with it) is removed, so
+  # the operator knows to drop it manually (not done automatically here).
+  if [[ -f "$DEMO_DATA_DIR/storage_backend.json" ]]; then
+    _pg_db="$(sed -n 's/.*"dsn":\s*"[^\/]*\/\/[^\/]*\/\([^"]*\)".*/\1/p' "$DEMO_DATA_DIR/storage_backend.json" 2>/dev/null | head -1)"
+    if [[ -n "$_pg_db" ]]; then
+      echo "  (demo was PostgreSQL-backed: database '$_pg_db' is left in place —"
+      echo "   drop it yourself if you're done with it: sudo -u postgres dropdb $_pg_db)"
+    fi
+  fi
   # Safety: only remove a dir that carries the demo marker (never real data).
   if [[ -e "$DEMO_DATA_DIR/.rp-demo-marker" ]]; then
     rm -rf "$DEMO_DATA_DIR" && echo "  removed demo data: $DEMO_DATA_DIR"
@@ -97,6 +114,7 @@ while [[ $# -gt 0 ]]; do
     --data-dir)    DEMO_DATA_DIR="$2"; shift 2 ;;
     --htdocs)      PROD_HTDOCS="$2"; shift 2 ;;
     --skip-reseed) SKIP_RESEED=1; shift ;;
+    --postgres)    WITH_POSTGRES=1; shift ;;
     --dry-run)     DRY_RUN=1; shift ;;
     -h|--help)     usage; exit 0 ;;
     *)             echo "Unknown flag: $1"; usage; exit 1 ;;
@@ -202,6 +220,53 @@ else
     echo "DRY-RUN: would run: sudo -u $CGI_USER python3 $SEED_SCRIPT --data-dir $DEMO_DATA_DIR --apply"
   else
     sudo -u "$CGI_USER" python3 "$SEED_SCRIPT" --data-dir "$DEMO_DATA_DIR" --apply
+  fi
+fi
+
+# ─── Step 2a: optional PostgreSQL backend for the demo (--postgres) ─────────
+# seed-demo-data.py only ever writes flat JSON (it has no storage-backend
+# awareness) — so a Postgres-backed demo means seeding into JSON as usual,
+# then migrating that JSON into a SEPARATE demo database, the same two-step
+# pattern install-server.sh uses for the main install (provision, generate
+# our own password so we know the DSN without scraping it back out of
+# postgres-setup.sh's human-readable output, then api._migrate_storage_pg()).
+# No systemd unit changes needed: the migration writes
+# $DEMO_DATA_DIR/storage_backend.json, and remotepower-wsgi-demo already runs
+# with RP_DATA_DIR=$DEMO_DATA_DIR — _storage_backend() picks the marker up on
+# its own, exactly like a bare-metal main install (which also pins Postgres
+# via the marker, not an env var — only the Docker/Compose path pins via env).
+if [[ "$WITH_POSTGRES" -eq 1 ]]; then
+  echo "── Provisioning a separate demo PostgreSQL database…"
+  RP_DB_NAME="${RP_DEMO_DB_NAME:-remotepower_demo}"
+  RP_DB_USER="${RP_DEMO_DB_USER:-rp_demo}"
+  RP_DB_PASS="${RP_DEMO_DB_PASS:-}"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "DRY-RUN: would run: RP_DB_NAME=$RP_DB_NAME RP_DB_USER=$RP_DB_USER RP_DB_PASS=<generated> bash $SCRIPT_DIR/postgres-setup.sh --install"
+    echo "DRY-RUN: would migrate $DEMO_DATA_DIR (JSON) -> postgres via api._migrate_storage_pg"
+  else
+    [[ -n "$RP_DB_PASS" ]] || RP_DB_PASS="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+    [[ -f "$SCRIPT_DIR/postgres-setup.sh" ]] || die "packaging/postgres-setup.sh not found — can't provision the demo database"
+    RP_DB_NAME="$RP_DB_NAME" RP_DB_USER="$RP_DB_USER" RP_DB_PASS="$RP_DB_PASS" \
+      bash "$SCRIPT_DIR/postgres-setup.sh" --install \
+      || die "postgres-setup.sh failed — demo stays on the flat-JSON backend"
+    PG_DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:5432/${RP_DB_NAME}"
+    echo "── Migrating demo data into Postgres ($RP_DB_NAME)…"
+    # RP_STORAGE_BACKEND intentionally unset here so the migration reads its
+    # SOURCE data from the JSON files just seeded, not from (empty) Postgres.
+    if RP_DATA_DIR="$DEMO_DATA_DIR" RP_PG_DSN="$PG_DSN" python3 - <<PYEOF
+import os, sys
+sys.path.insert(0, '$PROD_HTDOCS/cgi-bin')
+import api
+result = api._migrate_storage_pg('postgres', os.environ['RP_PG_DSN'], log=print)
+print('[migrate]', result)
+sys.exit(0 if result.get('ok') else 1)
+PYEOF
+    then
+      chown "$CGI_USER:$CGI_GROUP" "$DEMO_DATA_DIR/storage_backend.json" 2>/dev/null || true
+      echo "  → demo data migrated — PostgreSQL is now the demo's active backend"
+    else
+      die "demo migration into Postgres failed — see output above"
+    fi
   fi
 fi
 
@@ -384,6 +449,7 @@ cat <<EOF
    Code:        $PROD_HTDOCS  (shared with production)
    Data dir:    $DEMO_DATA_DIR  (separate from production)
    Mode:        read-only (RP_READ_ONLY=1, its own gunicorn process on :$DEMO_PORT)
+   Backend:     $([ "$WITH_POSTGRES" -eq 1 ] && echo "PostgreSQL (${RP_DEMO_DB_NAME:-remotepower_demo}, separate from production)" || echo "flat-JSON (pass --postgres to use PostgreSQL instead)")
    systemd:     $UNIT_PATH
    nginx conf:  $NGINX_CONF
 
@@ -398,8 +464,9 @@ Next steps:
   3. Visit https://$DEMO_HOST and log in as demo / demo.
 
 To re-seed the demo data later (e.g. after a code update):
-  sudo -u $CGI_USER python3 $SEED_SCRIPT --data-dir $DEMO_DATA_DIR --apply
-  sudo systemctl restart remotepower-wsgi-demo
+  sudo bash $0 $DEMO_HOST$([ "$WITH_POSTGRES" -eq 1 ] && echo " --postgres")
+  (re-running this script is idempotent — it re-seeds and, with --postgres,
+  re-migrates into the same demo database)
 
 To remove:
   sudo systemctl disable --now remotepower-wsgi-demo
@@ -409,5 +476,12 @@ To remove:
   sudo rm -rf $DEMO_DATA_DIR
   sudo systemctl daemon-reload
   sudo nginx -t && sudo systemctl reload nginx
+$([ "$WITH_POSTGRES" -eq 1 ] && cat <<PGEOF
+  # Demo used PostgreSQL — drop its database/role too if you're done with it
+  # (left in place by default; not touched by the removal steps above):
+  sudo -u postgres dropdb ${RP_DEMO_DB_NAME:-remotepower_demo}
+  sudo -u postgres dropuser ${RP_DEMO_DB_USER:-rp_demo}
+PGEOF
+)
 ────────────────────────────────────────────────────────────────────
 EOF

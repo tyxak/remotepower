@@ -272,6 +272,122 @@ class TestConvertToWsgiScript(unittest.TestCase):
         self.assertNotIn("--with-scheduler", self.SRC)
         self.assertNotIn("--with-scanner", self.SRC)
 
+    def test_demo_backend_matches_main_install(self):
+        # The demo's storage backend should MATCH whatever the main install
+        # ended up on (transport-only conversion), not be forced to Postgres
+        # unconditionally.
+        self.assertIn("MAIN_IS_POSTGRES", self.SRC)
+        self.assertIn("DEMO_IS_POSTGRES", self.SRC)
+        self.assertIn("--postgres", self.SRC)
+
+
+class TestInstallDemoPostgresOption(unittest.TestCase):
+    """packaging/install-demo.sh --postgres: provisions a SEPARATE demo
+    database and migrates the seeded JSON data into it, matching the pattern
+    install-server.sh already uses for the main install."""
+
+    SRC = (Path(__file__).parent.parent / "packaging" / "install-demo.sh").read_text()
+
+    def test_bash_syntax_valid(self):
+        import subprocess
+
+        r = subprocess.run(
+            ["bash", "-n", str(Path(__file__).parent.parent / "packaging" / "install-demo.sh")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_postgres_flag_present(self):
+        self.assertIn("--postgres)", self.SRC)
+        self.assertIn("WITH_POSTGRES", self.SRC)
+
+    def test_uses_separate_demo_database(self):
+        self.assertIn("remotepower_demo", self.SRC)
+        self.assertIn("rp_demo", self.SRC)
+        # Must never reuse the main install's own database/role names.
+        self.assertNotIn('RP_DB_NAME:-remotepower}"', self.SRC)
+
+    def test_migrates_via_api_migrate_storage_pg(self):
+        self.assertIn("api._migrate_storage_pg", self.SRC)
+        self.assertIn("postgres-setup.sh", self.SRC)
+
+    def test_seed_runs_before_migration(self):
+        i_seed = self.SRC.index("Seeding fake homelab data")
+        i_migrate = self.SRC.index("api._migrate_storage_pg")
+        self.assertLess(i_seed, i_migrate)
+
+    def test_default_stays_json_backend(self):
+        # --postgres is opt-in; without it the demo must stay on flat-JSON.
+        self.assertIn("flat-JSON", self.SRC)
+
+    def test_uninstall_warns_about_postgres_cleanup(self):
+        i = self.SRC.index("--uninstall")
+        block = self.SRC[i : i + 1500]
+        self.assertIn("storage_backend.json", block)
+        self.assertIn("dropdb", block)
+
+
+class TestInstallShUpdateCommand(unittest.TestCase):
+    """install.sh's `update` subcommand: previously a stub, now dispatches to
+    deploy-server.sh (already-current installs) or packaging/convert-to-wsgi.sh
+    (pre-6.1.0 CGI/SCGI installs), matching the same self-detection story."""
+
+    SRC = (Path(__file__).parent.parent / "install.sh").read_text()
+
+    def test_bash_syntax_valid(self):
+        import subprocess
+
+        r = subprocess.run(
+            ["bash", "-n", str(Path(__file__).parent.parent / "install.sh")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_update_no_longer_a_stub(self):
+        i = self.SRC.index('case "$CMD" in')
+        dispatch = self.SRC[i : i + 400]
+        self.assertIn("update) cmd_update", dispatch)
+        # The old stub case handled tls/passwd/update together; update must
+        # no longer be one of the commands routed to that stub message.
+        stub_case = self.SRC[self.SRC.index("tls|passwd)") : self.SRC.index("is part of the unified tool")]
+        self.assertNotIn("update", stub_case)
+
+    def test_detects_docker_and_refuses(self):
+        i = self.SRC.index("cmd_update()")
+        body = self.SRC[i : i + 1500]
+        self.assertIn("/.dockerenv", body)
+        self.assertIn("docker compose", body)
+
+    def test_detects_no_existing_install(self):
+        i = self.SRC.index("cmd_update()")
+        body = self.SRC[i : i + 1500]
+        self.assertIn("/var/www/remotepower", body)
+
+    def test_dispatches_to_deploy_or_convert(self):
+        i = self.SRC.index("cmd_update()")
+        body = self.SRC[i : i + 2000]
+        self.assertIn("deploy-server.sh", body)
+        self.assertIn("convert-to-wsgi.sh", body)
+
+    def test_doctor_reports_transport_state(self):
+        self.assertIn("transport_state()", self.SRC)
+        i = self.SRC.index("transport_state()")
+        body = self.SRC[i : i + 400]
+        self.assertIn("remotepower-wsgi", body)
+
+    def test_doctor_checks_disk_space(self):
+        self.assertIn("disk_free_mb", self.SRC)
+
+    def test_doctor_names_port_conflict_owner(self):
+        self.assertIn("port_owner()", self.SRC)
+
+    def test_doctor_detects_container(self):
+        i = self.SRC.index("preflight()")
+        body = self.SRC[i : i + 800]
+        self.assertIn("/.dockerenv", body)
+
 
 if __name__ == "__main__":
     unittest.main()

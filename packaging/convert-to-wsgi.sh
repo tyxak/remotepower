@@ -163,29 +163,52 @@ else
   info "No old CGI/SCGI artifacts found — nothing to clean up."
 fi
 
-# ── Step 5: is there a demo vhost, and is it still on the old model? ────────
+# ── Step 5: is there a demo vhost, and does it match the main install? ──────
+# Two things can be stale independently: the demo might still be on the old
+# per-request CGI RP_DATA_DIR/RP_READ_ONLY override model (needs
+# install-demo.sh to give it its own remotepower-wsgi-demo process at all),
+# and/or it might be on the right process model but a different storage
+# backend than the main install just ended up on. The demo's backend is made
+# to MATCH the main install's, not forced to Postgres unconditionally — this
+# script is a transport-only conversion (see the --no-postgres/--no-scheduler
+# --no-scanner note above), so if the main install stayed on the file
+# backend, the demo does too.
+MAIN_IS_POSTGRES=0
+if [[ -f /var/lib/remotepower/storage_backend.json ]] \
+    && grep -q '"backend"[[:space:]]*:[[:space:]]*"postgres"' /var/lib/remotepower/storage_backend.json 2>/dev/null; then
+  MAIN_IS_POSTGRES=1
+fi
+
 DEMO_CONF=""
 for candidate in /etc/nginx/sites-available/remotepower-demo /etc/nginx/conf.d/remotepower-demo.conf; do
   [[ -f "$candidate" ]] && DEMO_CONF="$candidate" && break
 done
 
+DEMO_IS_POSTGRES=0
+if [[ -f /var/lib/remotepower-demo/storage_backend.json ]] \
+    && grep -q '"backend"[[:space:]]*:[[:space:]]*"postgres"' /var/lib/remotepower-demo/storage_backend.json 2>/dev/null; then
+  DEMO_IS_POSTGRES=1
+fi
+
 if [[ -z "$DEMO_CONF" ]]; then
   info "No demo vhost detected — skipping."
-elif systemctl is-active --quiet remotepower-wsgi-demo 2>/dev/null; then
-  success "Demo vhost found and already on its own remotepower-wsgi-demo process — nothing to do."
+elif systemctl is-active --quiet remotepower-wsgi-demo 2>/dev/null && [[ "$DEMO_IS_POSTGRES" -eq "$MAIN_IS_POSTGRES" ]]; then
+  success "Demo vhost found, already on its own remotepower-wsgi-demo process, backend matches the main install — nothing to do."
 else
   DEMO_HOST="$(sed -n 's/^\s*server_name\s\+\([^;]*\);.*/\1/p' "$DEMO_CONF" | head -1 | awk '{print $1}')"
   if [[ -z "$DEMO_HOST" ]]; then
     warn "Found a demo vhost ($DEMO_CONF) but couldn't parse its server_name — convert it manually: bash packaging/install-demo.sh <demo-hostname>"
   else
-    info "Found demo vhost for '$DEMO_HOST' on the old model — upgrading via install-demo.sh..."
+    demo_pg_flag=()
+    [[ "$MAIN_IS_POSTGRES" -eq 1 ]] && demo_pg_flag=(--postgres)
+    info "Found demo vhost for '$DEMO_HOST' needing an update — upgrading via install-demo.sh${demo_pg_flag:+ ${demo_pg_flag[*]}}..."
     if [[ "$DRY_RUN" -eq 1 ]]; then
-      echo "DRY-RUN: bash \"$ROOT/packaging/install-demo.sh\" \"$DEMO_HOST\""
+      echo "DRY-RUN: bash \"$ROOT/packaging/install-demo.sh\" \"$DEMO_HOST\" ${demo_pg_flag[*]:-}"
     else
       [[ -f "$ROOT/packaging/install-demo.sh" ]] || die "packaging/install-demo.sh not found — can't upgrade the demo"
-      bash "$ROOT/packaging/install-demo.sh" "$DEMO_HOST"
+      bash "$ROOT/packaging/install-demo.sh" "$DEMO_HOST" "${demo_pg_flag[@]}"
     fi
-    success "Demo vhost '$DEMO_HOST' upgraded to its own remotepower-wsgi-demo process."
+    success "Demo vhost '$DEMO_HOST' upgraded (own remotepower-wsgi-demo process, backend matches the main install)."
   fi
 fi
 

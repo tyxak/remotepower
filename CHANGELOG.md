@@ -41,6 +41,30 @@ is now the default install, and the server runs entirely on gunicorn + Flask.
 - `Makefile`'s `app-server-wsgi`/`app-server-cgi`/`app-server-status`
   targets and `packaging/remotepower-app-server.sh` are removed.
 
+### One-command upgrades
+- **`install.sh update` is now wired** (previously a stub): self-detects
+  whether an existing install just needs new code deployed, or is still on
+  the retired CGI/SCGI transport and needs converting to gunicorn + Flask —
+  either way, one command. New `packaging/convert-to-wsgi.sh` does the
+  conversion itself: installs gunicorn+Flask, deploys the code, converts
+  nginx to `proxy_pass`, health-checks the new tier *before* touching
+  anything old, then retires `fcgiwrap`/`remotepower-api.service` and any
+  stranded `api_cgi.py`/`api_worker.py` files. A failed health check leaves
+  the old transport completely untouched — no half-converted state.
+- **Fixed:** re-running `install-server.sh` on an existing install silently
+  overwrote the current admin account (no `users.json`-exists guard, unlike
+  every other step in that script). Now skipped when an admin already
+  exists, matching the pattern `docker/entrypoint.sh` already used.
+- `install.sh doctor` now reports free disk space, names whatever's already
+  bound to ports 80/443 when they're not free (instead of assuming it's this
+  install's own nginx), detects running inside a container, and reports the
+  current CGI/SCGI-vs-gunicorn transport state directly.
+- `packaging/install-demo.sh` gained `--postgres`: provisions a separate
+  demo database and migrates the seeded data into it, matching the main
+  install's backend. The conversion script above detects a demo vhost
+  automatically and upgrades it (transport, and backend to match the main
+  install) the same way.
+
 ### Security
 - A full SAST (CodeQL, Bandit, gitleaks, Semgrep — all clean) plus structured,
   independently-verified code review of the whole cutover found and fixed six
