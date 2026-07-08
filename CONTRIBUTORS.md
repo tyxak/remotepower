@@ -35,6 +35,14 @@ Thanks to everyone who has contributed fixes, features, and reports.
   - #19 — reported the accent-colour picker was ignored in the New UI (and, in
     follow-up, that full themes and the accent on chamfered buttons in light mode
     were affected by the same class of bug)
+  - #20 — reported devices showing offline from an ICMP/ping reachability issue
+    (fixed with a ping fallback so a host that answers ping isn't marked down)
+  - #21 — reported fleet service baselines weren't applying — scoped
+    (group/tag/site) baselines were never merged in, and the save/list API hit a
+    doubled `/api/api/…` path (404); both fixed
+- **@shrekki1816** — first contributed in v6.0.1:
+  - #22 — reported the New Script dialog gave no visual feedback on save (it only
+    closed after an edit, not when creating a new script)
 
 ---
 
