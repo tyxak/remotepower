@@ -12,6 +12,11 @@
 #
 #     RP_TLS_HOST=rp.lan docker compose up -d
 #
+# If host port 80/443 is already taken by something else, remap either or
+# both — the container always listens on 8080/8443 internally:
+#
+#     RP_HTTP_PORT=8080 RP_HTTPS_PORT=8443 docker compose up -d
+#
 # This is the single-node "enterprise" default: Postgres + the persistent
 # gunicorn WSGI tier + the out-of-band scheduler + a co-located scanner
 # satellite, all in this one compose stack. Comment out env vars / services
@@ -22,8 +27,8 @@ services:
     container_name: remotepower
     restart: unless-stopped
     ports:
-      - "443:8443"   # HTTPS — self-signed by default
-      - "80:8080"    # HTTP  — health, /ca.crt, redirects to HTTPS
+      - "${RP_HTTPS_PORT:-443}:8443"   # HTTPS — self-signed by default
+      - "${RP_HTTP_PORT:-80}:8080"     # HTTP  — health, /ca.crt, redirects to HTTPS
     environment:
       # HTTPS on first boot, no cert wrangling. Set RP_TLS_HOST to your address:
       RP_TLS_SELFSIGNED: "1"
