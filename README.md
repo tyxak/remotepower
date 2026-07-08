@@ -84,10 +84,11 @@ opening firewall ports on them. Each host runs a small Python agent that **polls
 the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-digit
 PIN, like pairing a console controller.
 
-Deliberately small and **readable**: nginx + Python (gunicorn + Flask) — around
-**~87,000 lines** of server Python, one HTML file, one CSS file and a handful of
-vanilla JS files. No Node.js, no Redis, no Kubernetes, **no build step, no
-bundler, no frontend framework** — you can read every line. A single
+Deliberately small and **readable**: nginx + Python (gunicorn + Flask) on the
+server, **plain vanilla JS in the browser** — around **~87,000 lines** of server
+Python, one HTML file, one CSS file and a handful of JS files, no React/Vue/
+Angular, no JSX, no build step, no bundler, no transpiling. No Node.js, no
+Redis, no Kubernetes either — you can read every line. A single
 `install-server.sh` run or `docker compose up` provisions the full single-node
 stack by default: **PostgreSQL**, the app server, an out-of-band maintenance
 scheduler and a co-located scanner satellite — no flags required. The whole
