@@ -547,13 +547,20 @@ cmd_update() {
     return 1
   fi
 
-  if systemctl is-active --quiet remotepower-wsgi 2>/dev/null; then
+  # A service NAMED remotepower-wsgi being active isn't sufficient on its
+  # own: a pre-v6.1.0 "experimental" opt-in WSGI bridge used the same unit
+  # name without needing Flask. Confirmed live: deploy-server.sh (code-only,
+  # no dependency installs) redeployed this session's Flask-based wsgi.py
+  # onto a box whose old bridge never had Flask, and every worker crashed
+  # with ModuleNotFoundError. Require BOTH the service active AND Flask
+  # importable before taking the cheap deploy-only path.
+  if systemctl is-active --quiet remotepower-wsgi 2>/dev/null && python3 -c 'import flask' 2>/dev/null; then
     step_ok "Already on the v6.1.0 gunicorn/Flask transport"
     section "Deploying current code"
     if [ "$DRY" = 1 ]; then note "DRY-RUN: would run: sudo bash $SRC/deploy-server.sh"
     else bash "$SRC/deploy-server.sh"; fi
   else
-    step_wait "Still on the retired CGI/SCGI transport"
+    step_wait "Still on the retired CGI/SCGI transport, or missing a dependency (Flask) — converting"
   fi
 
   section "Converting to gunicorn+Flask (no-op if already done) + checking the demo"

@@ -169,6 +169,44 @@ install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-
 # — which deploy never touches, so the passphrase survives updates — has a home.
 [[ -d /etc/remotepower ]] || install -d -m 755 -o root -g root /etc/remotepower 2>/dev/null || true
 
+# ── Flask/gunicorn present before we (re)start the app server ────────────────
+# Found live on a real upgrade: a pre-v6.1.0 "experimental" opt-in WSGI
+# bridge used the SAME remotepower-wsgi.service unit name without needing
+# Flask. This script only ever redeploys CODE (never installs packages, by
+# design — see the header), so restarting remotepower-wsgi after deploying
+# this session's Flask-based wsgi.py onto such a box crash-looped every
+# worker on ModuleNotFoundError. Installing a genuinely missing hard
+# dependency isn't optional anymore the way it was pre-6.1.0 — check and
+# install it here rather than let the restart below discover it by crashing.
+if systemctl list-unit-files 2>/dev/null | grep -q '^remotepower-wsgi\.service' \
+        && ! python3 -c "import flask" 2>/dev/null; then
+    info "Flask not found but remotepower-wsgi is installed — installing it now..."
+    if   command -v apt-get >/dev/null 2>&1; then _pm=apt
+    elif command -v dnf     >/dev/null 2>&1; then _pm=dnf
+    elif command -v pacman  >/dev/null 2>&1; then _pm=pacman
+    else _pm=""; fi
+    case "$_pm" in
+      apt)    apt-get install -y --no-install-recommends python3-flask 2>/dev/null \
+                || pip3 install flask --break-system-packages 2>/dev/null \
+                || pip3 install flask ;;
+      dnf)    dnf install -y -q python3-flask 2>/dev/null || pip3 install flask ;;
+      pacman) pacman -S --noconfirm python-flask 2>/dev/null || pip install flask ;;
+      *)      pip3 install flask --break-system-packages 2>/dev/null || pip3 install flask ;;
+    esac
+    python3 -c "import flask" 2>/dev/null \
+        && success "flask installed" \
+        || echo "      → WARNING: flask install failed — remotepower-wsgi will fail to start. Run install-server.sh instead." >&2
+    command -v gunicorn >/dev/null 2>&1 || {
+        case "$_pm" in
+          apt)    apt-get install -y --no-install-recommends gunicorn 2>/dev/null || pip3 install gunicorn --break-system-packages 2>/dev/null || pip3 install gunicorn ;;
+          dnf)    dnf install -y -q python3-gunicorn 2>/dev/null || pip3 install gunicorn ;;
+          pacman) pacman -S --noconfirm gunicorn 2>/dev/null || pip install gunicorn ;;
+          *)      pip3 install gunicorn --break-system-packages 2>/dev/null || pip3 install gunicorn ;;
+        esac
+        [[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn 2>/dev/null || true
+    }
+fi
+
 # ── App server (gunicorn) + out-of-band scheduler — keep current + restart ───
 # wsgi.py / scheduler.py already deploy via the *.py glob above (644, importable).
 # The units themselves were installed by install-server.sh; refresh them here and

@@ -133,6 +133,28 @@ class TestSeedNewData(unittest.TestCase):
             self.assertIn('temp', rec['samples'][0])
             self.assertIn('ts', rec['samples'][0])
 
+    def test_history_is_wrapped_dict_not_bare_list(self):
+        # Found live on a real Postgres migration: history.json was a bare
+        # list, but storage.py's WRAPPED_LIST_FILES registry expects
+        # {"entries": [...]} for this exact file -- migrating a bare list
+        # through the Postgres "wrapped-list" storage class silently
+        # produces a different shape on read-back, failing
+        # _migrate_storage_pg's round-trip verification ("history.json:
+        # content differs after migrate"). Also affected the JSON backend
+        # cosmetically: the History table reads device_name/command, not
+        # the old device/action/detail field names, so every row rendered
+        # with blank Device/Command columns even without Postgres involved.
+        history = self.m.build_history()
+        self.assertIsInstance(history, dict)
+        self.assertIn('entries', history)
+        self.assertIsInstance(history['entries'], list)
+        self.assertTrue(history['entries'])
+        for entry in history['entries']:
+            self.assertIn('device_name', entry)
+            self.assertIn('command', entry)
+            self.assertTrue(entry['device_name'])
+            self.assertTrue(entry['command'])
+
 
 class TestV610CoverageFill(unittest.TestCase):
     """v6.1.0: closed the gap between docs/features.md and what the demo

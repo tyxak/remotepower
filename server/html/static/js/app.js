@@ -22040,7 +22040,7 @@ async function loadSelfStatus() {
   const _rtRow = (label, value, note, state) =>
     `<tr><td class="c-muted-padded">${label}</td><td>${_rtIco(state)} <strong>${escHtml(value)}</strong>${note ? ` <span class="hint">— ${escHtml(note)}</span>` : ''}</td></tr>`;
   const _beMap = { postgres: ['PostgreSQL', 'shared DB — scales across app nodes', 'ok'], sqlite: ['SQLite', 'single-box embedded DB', 'ok'], json: ['JSON files', 'dev / very small fleets only', 'warn'] };
-  const _tierMap = { wsgi: ['WSGI · gunicorn', 'persistent worker pool (the only server)', 'ok'], cgi: ['direct', 'bare api.py invocation, not through wsgi.py', 'warn'] };
+  const _tierMap = { wsgi: ['WSGI · gunicorn + Flask', 'persistent worker pool (the only server)', 'ok'], cgi: ['direct', 'bare api.py invocation, not through wsgi.py', 'warn'] };
   const be = _beMap[rt.storage_backend] || [rt.storage_backend || 'unknown', '', 'warn'];
   const tier = _tierMap[rt.server_tier] || [rt.server_tier || 'unknown', '', 'warn'];
   let schedVal, schedNote, schedState;
@@ -22072,7 +22072,7 @@ async function loadSelfStatus() {
         <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
         ${la['1m'] != null ? `<tr><td class="c-muted-padded">Load average</td><td>${la['1m'].toFixed(2)} · ${la['5m'].toFixed(2)} · ${la['15m'].toFixed(2)} <span class="c-muted">(1m · 5m · 15m)</span></td></tr>` : ''}
         ${mem.used_pct != null ? `<tr><td class="c-muted-padded">System memory</td><td>${mem.used_pct}% used · ${_selfFmtBytes((mem.total_kb - mem.available_kb)*1024)} of ${_selfFmtBytes(mem.total_kb*1024)} ${memBar}</td></tr>` : ''}
-        ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">CGI process RSS</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
+        ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">Worker process RSS</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
         ${sess.active != null ? `<tr><td class="c-muted-padded">Active sessions</td><td>${sess.active}</td></tr>` : ''}
         <tr><td class="c-muted-padded">Devices online</td><td>${onlinePctText}</td></tr>
         ${s.process?.pid ? `<tr><td class="c-muted-padded">PID</td><td>${s.process.pid}</td></tr>` : ''}

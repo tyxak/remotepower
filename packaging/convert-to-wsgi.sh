@@ -80,12 +80,22 @@ echo "╚═══════════════════════�
 echo ""
 
 # ── Step 1: is the new transport already active? ────────────────────────────
-wsgi_active() { systemctl is-active --quiet remotepower-wsgi 2>/dev/null; }
+# A service NAMED remotepower-wsgi being active is not sufficient on its
+# own: an "experimental" opt-in WSGI bridge existed before v6.1.0 (same unit
+# name, no Flask dependency) — if that's what's actually running, the
+# service check alone says "already converted" while gunicorn's workers are
+# actually crash-looping on `ModuleNotFoundError: No module named 'flask'`
+# the moment new code gets deployed onto it. Confirmed live. Require BOTH:
+# the service active AND flask importable by the same python3 the app uses.
+wsgi_active() {
+  systemctl is-active --quiet remotepower-wsgi 2>/dev/null || return 1
+  python3 -c 'import flask' 2>/dev/null
+}
 
 if wsgi_active; then
-  success "remotepower-wsgi is already active — this box is on the v6.1.0 transport."
+  success "remotepower-wsgi is already active and Flask is installed — this box is on the v6.1.0 transport."
 else
-  info "remotepower-wsgi is not active — this box needs converting from CGI/SCGI."
+  info "remotepower-wsgi is not active (or Flask isn't installed yet) — this box needs converting from CGI/SCGI."
 
   # ── Step 2: run install-server.sh, transport-only ──────────────────────────
   # --no-postgres/--no-scheduler/--no-scanner: install-server.sh's own

@@ -237,6 +237,18 @@ class TestConvertToWsgiScript(unittest.TestCase):
     def test_detects_existing_wsgi_before_reinstalling(self):
         self.assertIn("systemctl is-active --quiet remotepower-wsgi", self.SRC)
 
+    def test_wsgi_active_check_also_verifies_flask_importable(self):
+        # Real-world bug: a pre-v6.1.0 "experimental" opt-in WSGI bridge used
+        # the SAME systemd unit name (remotepower-wsgi) without needing
+        # Flask. Checking only "is the service active" reports a box as
+        # already-converted while Flask is still missing -- confirmed live,
+        # gunicorn's workers crash-looped on ModuleNotFoundError the moment
+        # this session's Flask-based wsgi.py got deployed onto one. The
+        # active-check must also confirm Flask is importable.
+        i = self.SRC.index("wsgi_active()")
+        body = self.SRC[i : i + 300]
+        self.assertIn("import flask", body)
+
     def test_calls_install_server_transport_only(self):
         self.assertIn("install-server.sh", self.SRC)
         self.assertIn("--no-postgres --no-scheduler --no-scanner", self.SRC)
@@ -369,6 +381,18 @@ class TestInstallShUpdateCommand(unittest.TestCase):
         i = self.SRC.index("cmd_update()")
         body = self.SRC[i : i + 2000]
         self.assertIn("deploy-server.sh", body)
+
+    def test_cheap_deploy_path_also_verifies_flask_importable(self):
+        # Same real-world bug as convert-to-wsgi.sh's wsgi_active(): a
+        # service named remotepower-wsgi being active doesn't guarantee
+        # Flask is installed (a pre-v6.1.0 experimental WSGI bridge used the
+        # same unit name without needing it). The cheap deploy-only path
+        # must not be taken unless Flask is confirmed importable too.
+        i = self.SRC.index("cmd_update()")
+        body = self.SRC[i : i + 2500]
+        i_check = body.index("systemctl is-active --quiet remotepower-wsgi")
+        cond = body[i_check : i_check + 150]
+        self.assertIn("import flask", cond)
         self.assertIn("convert-to-wsgi.sh", body)
 
     def test_doctor_reports_transport_state(self):
@@ -387,6 +411,50 @@ class TestInstallShUpdateCommand(unittest.TestCase):
         i = self.SRC.index("preflight()")
         body = self.SRC[i : i + 800]
         self.assertIn("/.dockerenv", body)
+
+
+class TestDeployServerInstallsMissingFlask(unittest.TestCase):
+    """deploy-server.sh only ever redeploys code, by design (see its own
+    header: "Does NOT touch Nginx config") -- it never installed packages.
+    That's exactly what let a real upgrade crash: a pre-v6.1.0 experimental
+    WSGI bridge had the remotepower-wsgi.service unit already installed
+    without Flask; deploying this session's Flask-based wsgi.py onto it and
+    restarting crash-looped every worker. Flask/gunicorn are hard
+    dependencies now, not optional -- deploy-server.sh must check and
+    install them before it restarts a unit that needs them."""
+
+    SRC = (Path(__file__).parent.parent / "deploy-server.sh").read_text()
+
+    def test_bash_syntax_valid(self):
+        import subprocess
+
+        r = subprocess.run(
+            ["bash", "-n", str(Path(__file__).parent.parent / "deploy-server.sh")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_checks_flask_before_restarting_wsgi(self):
+        i_check = self.SRC.index("import flask")
+        i_restart = self.SRC.index("for _svc in remotepower-wsgi")
+        self.assertLess(i_check, i_restart,
+                         "Flask check must run before the restart loop, not after")
+
+    def test_installs_via_package_manager_not_bare_pip(self):
+        # The bug that caused this fix in the first place (blinker installed
+        # by apt, pip refusing to override it) means the distro package must
+        # be tried first, matching install-server.sh's own pattern.
+        self.assertIn("python3-flask", self.SRC)
+        self.assertIn("--break-system-packages", self.SRC)
+
+    def test_only_triggers_when_wsgi_service_is_installed(self):
+        # Must not try to install Flask on a box that's still on plain CGI
+        # with no remotepower-wsgi unit at all -- that's convert-to-wsgi.sh's
+        # job, not deploy-server.sh's.
+        i = self.SRC.index("import flask")
+        block = self.SRC[max(0, i - 500) : i]
+        self.assertIn("systemctl list-unit-files", block)
 
 
 if __name__ == "__main__":

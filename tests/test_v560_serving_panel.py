@@ -96,6 +96,17 @@ class TestWiring(unittest.TestCase):
         self.assertIn("Serving & runtime", _SCALING)
         self.assertIn("api.env", _SCALING)
 
+    def test_wsgi_tier_label_mentions_flask(self):
+        # v6.1.0: server_tier=='wsgi' can ONLY be set by wsgi.py, which
+        # requires importing Flask successfully to reach that line -- so the
+        # label is direct proof Flask loaded, not just that a service named
+        # remotepower-wsgi happens to be running (a pre-v6.1.0 "experimental"
+        # WSGI bridge used the same unit name without needing Flask at all,
+        # which is exactly what confused an operator upgrading a real box).
+        i = _APP_JS.index("_tierMap")
+        line = _APP_JS[i : i + 300]
+        self.assertIn("Flask", line)
+
 
 if __name__ == "__main__":
     unittest.main()

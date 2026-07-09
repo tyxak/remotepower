@@ -55,6 +55,18 @@ is now the default install, and the server runs entirely on gunicorn + Flask.
   overwrote the current admin account (no `users.json`-exists guard, unlike
   every other step in that script). Now skipped when an admin already
   exists, matching the pattern `docker/entrypoint.sh` already used.
+- **Fixed (found live, on a real upgrade):** a pre-v6.1.0 "experimental"
+  opt-in WSGI bridge used the same `remotepower-wsgi.service` unit name
+  without needing Flask. `install.sh update` and `convert-to-wsgi.sh` both
+  checked only "is the service active" to decide a box was already
+  converted, so a box with the old bridge active took the cheap
+  deploy-only path — deploying this session's Flask-based `wsgi.py` onto a
+  box that never had Flask installed, crash-looping every gunicorn worker
+  on `ModuleNotFoundError`. Both scripts now also verify Flask is
+  importable before taking that path. The "Serving & runtime" panel's
+  request-tier label now says "WSGI · gunicorn + Flask" explicitly, since
+  the panel rendering at all is proof Flask loaded (it's served through
+  the same Flask app it's reporting on).
 - `install.sh doctor` now reports free disk space, names whatever's already
   bound to ports 80/443 when they're not free (instead of assuming it's this
   install's own nginx), detects running inside a container, and reports the

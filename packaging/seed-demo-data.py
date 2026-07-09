@@ -1048,18 +1048,36 @@ def build_cmdb() -> dict:
     return out
 
 
-def build_history() -> list:
-    """A handful of past commands shown on the History page."""
-    return [
-        {'ts': now() - 3600 * 1,  'actor': 'demo', 'device': 'pmx01',  'action': 'reboot',           'detail': 'scheduled — kernel update'},
-        {'ts': now() - 3600 * 4,  'actor': 'demo', 'device': 'jf01',   'action': 'exec',             'detail': 'systemctl restart jellyfin'},
-        {'ts': now() - 3600 * 8,  'actor': 'demo', 'device': 'nc01',   'action': 'upgrade',          'detail': 'apt-get upgrade — 12 packages'},
-        {'ts': now() - 86400 * 1, 'actor': 'demo', 'device': 'gt01',   'action': 'exec',             'detail': 'docker compose pull && docker compose up -d'},
-        {'ts': now() - 86400 * 2, 'actor': 'demo', 'device': 'tnas',   'action': 'exec',             'detail': 'zpool scrub tank'},
-        {'ts': now() - 86400 * 3, 'actor': 'demo', 'device': 'pi1',    'action': 'reboot',           'detail': 'manual'},
-        {'ts': now() - 86400 * 5, 'actor': 'demo', 'device': 'pmx01',  'action': 'upgrade',          'detail': 'apt-get upgrade — 7 packages'},
-        {'ts': now() - 86400 * 7, 'actor': 'demo', 'device': 'all',    'action': 'agent_update',     'detail': 'fleet-wide agent update to v2.2.0'},
+def build_history() -> dict:
+    """Command dispatch history shown on the History page. Shape verified
+    against handle_history/_record_command_history (api.py ~5195-5210,
+    ~21853-21856): {"entries": [{ts, actor, device_id, device_name,
+    command}]} -- NOT a bare list (that shape only round-trips through the
+    JSON backend by accident; the Postgres "wrapped-list" storage class
+    (storage.py's _classify) expects the {"entries": [...]} wrapper and a
+    bare list fails migration verification with "content differs after
+    migrate"). Field names also matter: the History table
+    (_registerHistoryTable, app.js) reads device_name/command specifically,
+    not device/action/detail -- the old shape rendered blank columns."""
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    plan = [
+        (1,  'pmx01', 'reboot — scheduled: kernel update'),
+        (4,  'jf01',  'systemctl restart jellyfin'),
+        (8,  'nc01',  'apt-get upgrade — 12 packages'),
+        (24, 'gt01',  'docker compose pull && docker compose up -d'),
+        (48, 'tnas',  'zpool scrub tank'),
+        (72, 'pi1',   'reboot — manual'),
+        (120, 'pmx01', 'apt-get upgrade — 7 packages'),
+        (168, None,   'fleet-wide agent update to v2.2.0'),
     ]
+    entries = []
+    for hours_ago, dev_id, command in plan:
+        entries.append({
+            'ts': now() - 3600 * hours_ago, 'actor': 'demo',
+            'device_id': dev_id or '', 'device_name': name_of.get(dev_id, 'all devices'),
+            'command': command,
+        })
+    return {'entries': entries}
 
 
 def build_audit_log() -> dict:
