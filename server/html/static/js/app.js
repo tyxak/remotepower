@@ -2973,6 +2973,25 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
 }
 
 
+// v6.1.1: tenancy isolation-coverage transparency panel. Superadmin-only API —
+// a non-superadmin's request 404s/403s and the panel just stays hidden, no error.
+async function _loadTenancyReadiness() {
+  const wrap = document.getElementById('tenancy-readiness-wrap');
+  const list = document.getElementById('tenancy-readiness-list');
+  if (!wrap || !list) return;
+  const r = await api('GET', '/tenancy/readiness').catch(() => null);
+  if (!r || !r.ok || !Array.isArray(r.stores)) { wrap.classList.add('hidden'); return; }
+  list.innerHTML = r.stores.map(s => {
+    const pill = s.isolated ? '<span class="chk-pill chk-ok">isolated</span>'
+      : (s.deliberate ? '<span class="chk-pill chk-unknown">shared — by design</span>'
+                       : '<span class="chk-pill chk-warning">shared — not isolated</span>');
+    return `<div class="settings-row">${pill} <strong>${escHtml(s.label)}</strong> ` +
+           `<span class="hint">(${escHtml(s.layer)}) — ${escHtml(s.note)}</span></div>`;
+  }).join('');
+  wrap.classList.remove('hidden');
+}
+
+
 async function loadSettings() {
   const data = await api('GET', '/config');
   if (!data) return;
@@ -3118,6 +3137,7 @@ async function loadSettings() {
   if (_tEn) _tEn.checked = !!data.tenancy_enforced;
   const _tRls = document.getElementById('cfg-tenancy-rls');   // v6.1.0 (Phase 6): DB-RLS
   if (_tRls) _tRls.checked = !!data.tenancy_rls;
+  _loadTenancyReadiness();
   // v3.14.0 #48: agentless SSH
   const _sshEn = document.getElementById('cfg-agentless-ssh-enabled');
   if (_sshEn) {

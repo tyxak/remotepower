@@ -2893,6 +2893,85 @@ class TestTenancyP1(_HandlerBase):
         self.assertEqual(api._user_tenant('u2'), 'default')
 
 
+class TestTenancyReadiness(_HandlerBase):
+    """v6.1.1 — tenancy isolation-coverage transparency panel
+    (docs/feature-buildout-scoping-internal.md #1)."""
+
+    def _get(self):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_tenancy_readiness)
+
+    def test_off_by_default_none_isolated(self):
+        api.save(api.CONFIG_FILE, {})
+        r = self._get()
+        self.assertTrue(r['ok'])
+        self.assertFalse(r['tenancy_enforced'])
+        self.assertFalse(r['tenancy_rls'])
+        devices = next(s for s in r['stores'] if s['key'] == 'devices')
+        self.assertFalse(devices['isolated'])
+        self.assertEqual(devices['layer'], 'none (tenancy off)')
+
+    def test_enforced_without_rls_marks_devices_app_only(self):
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True})
+        r = self._get()
+        self.assertTrue(r['tenancy_enforced'])
+        self.assertFalse(r['tenancy_rls'])
+        devices = next(s for s in r['stores'] if s['key'] == 'devices')
+        self.assertTrue(devices['isolated'])
+        self.assertEqual(devices['layer'], 'app only')
+        derived = next(s for s in r['stores'] if s['key'] == 'device_derived')
+        self.assertTrue(derived['isolated'])
+        self.assertEqual(derived['layer'], 'app only')
+
+    def test_enforced_with_rls_active_marks_app_plus_db(self):
+        # Patch the higher-level _tenancy_rls_active, not _storage_backend directly
+        # — _storage_backend also drives real load()/save() routing for every other
+        # store the handler reads (e.g. config itself), so flipping it to 'postgres'
+        # here would route CONFIG_FILE reads through storage_pg with no live DSN.
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True, 'tenancy_rls': True})
+        orig = api._tenancy_rls_active
+        api._tenancy_rls_active = lambda: True
+        try:
+            r = self._get()
+        finally:
+            api._tenancy_rls_active = orig
+        self.assertTrue(r['tenancy_rls'])
+        devices = next(s for s in r['stores'] if s['key'] == 'devices')
+        self.assertEqual(devices['layer'], 'app + database (RLS)')
+
+    def test_singleton_stores_never_isolated_regardless_of_flags(self):
+        # The real remaining gap: turning tenancy on must not make these look
+        # covered — tickets/CMDB/billing/audit/roles are single shared stores
+        # at every layer, flags or no flags.
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True, 'tenancy_rls': True})
+        orig = api._tenancy_rls_active
+        api._tenancy_rls_active = lambda: True
+        try:
+            r = self._get()
+        finally:
+            api._tenancy_rls_active = orig
+        for key in ('tickets', 'cmdb', 'billing', 'audit', 'roles'):
+            store = next(s for s in r['stores'] if s['key'] == key)
+            self.assertFalse(store['isolated'], key)
+            self.assertEqual(store['layer'], 'none', key)
+
+    def test_audit_and_roles_flagged_deliberate_not_a_gap(self):
+        r = self._get()
+        for key in ('audit', 'roles'):
+            store = next(s for s in r['stores'] if s['key'] == key)
+            self.assertTrue(store.get('deliberate'), key)
+        for key in ('tickets', 'cmdb', 'billing'):
+            store = next(s for s in r['stores'] if s['key'] == key)
+            self.assertFalse(store.get('deliberate'), key)
+
+    def test_ui_wired(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="tenancy-readiness-wrap"', html)
+        app = client_js()
+        self.assertIn('_loadTenancyReadiness', app)
+        self.assertIn("api('GET', '/tenancy/readiness')", app)
+
+
 class TestScim(_HandlerBase):
     """v3.14.0 #30 — SCIM 2.0 provisioning (IdP-driven create + deactivate)."""
 

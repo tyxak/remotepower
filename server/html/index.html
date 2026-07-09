@@ -2174,6 +2174,11 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-enforced"> Enforce tenant isolation</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-rls"> Also enforce at the database (Postgres row-level security)</label>
               <span class="hint">Defense-in-depth: partitions the <code>devices</code> roster at the database via RLS, so a tenant's rows are unreachable cross-tenant even if an application scope check is missed. <strong>Postgres backend only</strong>; requires "Enforce tenant isolation" above. Applied on next start.</span></div>
+            <div class="settings-row hidden" id="tenancy-readiness-wrap">
+              <div class="section-title">Isolation coverage</div>
+              <p class="hint">What's actually tenant-isolated right now, per store — so turning tenancy on doesn't quietly imply more coverage than exists.</p>
+              <div class="scroll-cap-sm" id="tenancy-readiness-list"></div>
+            </div>
           </div>
 
           <!-- v3.14.0 #48: agentless SSH -->

@@ -1241,6 +1241,7 @@
     "Logrotate": { "fr": "Logrotate", "de": "Logrotate", "zh": "Logrotate", "hi": "Logrotate", "es": "Logrotate", "ar": "Logrotate" },
     "Logs (last 50)": { "fr": "Journaux (50 derniers)", "de": "Protokolle (letzte 50)", "zh": "日志（最近 50 条）", "hi": "Logs (अंतिम 50)", "es": "Registros (últimos 50)", "ar": "السجلات (آخر 50)" },
     "London DC, Team Platform, Acme Corp…": { "zh": "London DC, Team Platform, Acme Corp…", "hi": "London DC, Team Platform, Acme Corp…", "es": "London DC, Team Platform, Acme Corp…", "ar": "London DC، Team Platform، Acme Corp…" },
+    "Isolation coverage": { "fr": "Couverture de l'isolation", "de": "Isolationsabdeckung", "zh": "隔离覆盖范围", "hi": "पृथक्करण कवरेज", "es": "Cobertura de aislamiento", "ar": "تغطية العزل" },
     "Long session (days)": { "fr": "Session longue (jours)", "de": "Lange Sitzung (Tage)", "zh": "长会话（天）", "hi": "लंबा session (दिन)", "es": "Sesión larga (días)", "ar": "جلسة طويلة (أيام)" },
     "Low": { "fr": "Faible", "de": "Niedrig", "zh": "低", "hi": "निम्न", "es": "Bajo", "ar": "منخفض" },
     "MAC": { "fr": "MAC", "de": "MAC", "zh": "MAC", "hi": "MAC", "es": "MAC", "ar": "MAC" },

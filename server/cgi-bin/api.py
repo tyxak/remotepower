@@ -12523,6 +12523,49 @@ def handle_tenants_list():
     respond(200, {'ok': True, 'tenants': out})
 
 
+def handle_tenancy_readiness():
+    """GET /api/tenancy/readiness — which stores are actually tenant-isolated right
+    now, and at which layer, so an operator turning on tenancy_enforced/tenancy_rls
+    can see what IS and ISN'T covered instead of assuming "tenancy on" means
+    "everything is isolated." Superadmin only, same audience as /api/tenants.
+    Static-but-accurate description of current coverage (see
+    docs/feature-buildout-scoping-internal.md #1) — devices + everything keyed by a
+    device id inherit the tenancy boundary (app layer always when enforced; also the
+    database via RLS when tenancy_rls is on); tickets/CMDB/billing are single shared
+    stores with no tenant partitioning at any layer; audit/roles are deliberately
+    left as global control-plane, not an oversight."""
+    require_superadmin_auth('view tenancy isolation coverage')
+    enforced = _tenancy_enforced()
+    rls = _tenancy_rls_active()
+    device_layer = 'none (tenancy off)'
+    if enforced:
+        device_layer = 'app + database (RLS)' if rls else 'app only'
+    stores = [
+        {'key': 'devices', 'label': 'Devices', 'isolated': enforced, 'layer': device_layer,
+         'note': 'Primary tenant boundary — every store below inherits its scoping '
+                 'from a device id you can only discover within your own tenant.'},
+        {'key': 'device_derived', 'label': 'Metrics, history/alerts, entity records',
+         'isolated': enforced, 'layer': device_layer,
+         'note': 'Keyed by device id; scoped indirectly via the devices boundary '
+                 '(app layer) and directly via RLS on entity/listrow/metric_samples '
+                 'when database-level isolation is on.'},
+        {'key': 'tickets', 'label': 'Tickets', 'isolated': False, 'layer': 'none',
+         'note': 'Single shared store — not tenant-partitioned at any layer.'},
+        {'key': 'cmdb', 'label': 'CMDB assets & credentials', 'isolated': False,
+         'layer': 'none', 'note': 'Single shared store — not tenant-partitioned at any layer.'},
+        {'key': 'billing', 'label': 'Billing, time-tracking & invoices', 'isolated': False,
+         'layer': 'none', 'note': 'Single shared store — not tenant-partitioned at any layer.'},
+        {'key': 'audit', 'label': 'Audit log', 'isolated': False, 'layer': 'none', 'deliberate': True,
+         'note': 'Deliberately global control-plane — a superadmin needs one complete '
+                 'trail across tenants; not a gap to close.'},
+        {'key': 'roles', 'label': 'Users & roles', 'isolated': False, 'layer': 'none', 'deliberate': True,
+         'note': 'Deliberately global control-plane — user/role management stays a '
+                 'superadmin concern; not a gap to close.'},
+    ]
+    respond(200, {'ok': True, 'tenancy_enforced': enforced, 'tenancy_rls': rls,
+                  'storage_backend': _storage_backend(), 'stores': stores})
+
+
 def handle_tenant_create():
     """POST /api/tenants — create a tenant {name}. Superadmin only."""
     actor = require_superadmin_auth('create tenants')
@@ -53399,6 +53442,8 @@ def _build_exact_routes():
         # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
         ('GET', '/api/tenants'): handle_tenants_list,
         ('POST', '/api/tenants'): handle_tenant_create,
+        # v6.1.1: tenancy isolation-coverage transparency panel
+        ('GET', '/api/tenancy/readiness'): handle_tenancy_readiness,
         # v3.6.0: backup orchestration + auto-patch policies
         ('GET', '/api/backup-jobs'): handle_backup_jobs_list,
         ('POST', '/api/backup-jobs'): handle_backup_job_create,
