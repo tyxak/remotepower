@@ -20,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v6.1.0';   // bump on every asset change
+const CACHE_NAME = 'remotepower-shell-v6.1.0-2';   // bump on every asset change
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.
@@ -96,7 +96,24 @@ self.addEventListener('fetch', (event) => {
 
   // 2. /api/* — network-only. Never serve stale fleet data from cache.
   //    If the network is down the app's own error handling shows "offline".
-  if (url.pathname.startsWith('/api/')) return;
+  //    MUST explicitly respondWith() here, not just return: navigation preload
+  //    (enabled below) already started a real network fetch in parallel with
+  //    this handler for any navigate-mode request. If nothing consumes
+  //    event.preloadResponse, the browser falls back to ITS OWN separate
+  //    fetch for the navigation -- two physical requests for one URL. That's
+  //    merely wasteful for an idempotent GET, but for a single-use flow like
+  //    the OIDC callback (state is popped/consumed on first hit,
+  //    api.py:handle_oidc_callback) it's a genuine race: whichever duplicate
+  //    request the server sees second gets "invalid or expired state" even
+  //    though the other one succeeded -- found live, intermittent SSO login
+  //    failures traced to exactly this. Always consume the preload (or fetch
+  //    ourselves) exactly once so only one request ever goes out.
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(
+      Promise.resolve(event.preloadResponse).then((preloaded) => preloaded || fetch(request))
+    );
+    return;
+  }
 
   // 3. Non-GET requests (POST, DELETE, PATCH) — pass through uncached.
   if (request.method !== 'GET') return;

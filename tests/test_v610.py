@@ -631,5 +631,37 @@ class TestDeployServerInstallsMissingFlask(unittest.TestCase):
         self.assertIn("systemctl list-unit-files", block)
 
 
+class TestServiceWorkerApiRequestNotDuplicated(unittest.TestCase):
+    """sw.js: navigation preload (enabled in the activate handler) starts a
+    real network fetch in parallel with the fetch event for any navigate-mode
+    request, BEFORE the handler even runs. If nothing consumes
+    event.preloadResponse, the browser falls back to its own separate fetch
+    for the same navigation -- two physical requests for one URL. Found live:
+    this raced with the single-use OIDC state (api.py's handle_oidc_callback
+    pops the state on first hit), so intermittent SSO logins failed with
+    "invalid or expired state" even though the OTHER duplicate request
+    succeeded -- whichever the browser happened to display lost the race."""
+
+    SRC = (Path(__file__).parent.parent / "server" / "html" / "sw.js").read_text()
+
+    def test_api_branch_explicitly_responds_with_preload_or_fetch(self):
+        i = self.SRC.index("url.pathname.startsWith('/api/')")
+        block = self.SRC[i : i + 400]
+        self.assertIn("event.respondWith(", block)
+        self.assertIn("event.preloadResponse", block)
+        self.assertIn("fetch(request)", block)
+
+    def test_api_branch_does_not_bare_return_before_responding(self):
+        # The old bug: `if (...) return;` with no respondWith() at all lets
+        # the browser's own fallback fetch fire independently of the already
+        # in-flight preload request.
+        i = self.SRC.index("url.pathname.startsWith('/api/')")
+        block = self.SRC[i : i + 120]
+        self.assertNotIn(") return;", block)
+
+    def test_cache_name_bumped_past_the_fix(self):
+        self.assertIn("remotepower-shell-v6.1.0-2", self.SRC)
+
+
 if __name__ == "__main__":
     unittest.main()

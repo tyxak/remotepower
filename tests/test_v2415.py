@@ -130,14 +130,25 @@ class TestServiceWorker(unittest.TestCase):
                       'sw.js has no /api/ bypass rule')
 
     def test_api_bypass_returns_early(self):
-        """The /api/ bypass must use 'return' to skip cache logic entirely."""
+        """The /api/ bypass must never touch cache.match()/cache.put() —
+        network-only, no caching. v6.1.0-2: the bypass now explicitly
+        respondWith()s (consuming any in-flight navigation-preload request
+        instead of leaving it to race a second browser-initiated fetch — see
+        TestServiceWorkerApiRequestNotDuplicated in test_v610.py), so a bare
+        'return' immediately after the match is no longer the exact shape;
+        the invariant this test actually protects (never cached) still
+        holds — 'return' still ends the branch, just further down."""
         # Find the actual code check (pathname.startsWith), not the comment.
         idx = self.sw.find("pathname.startsWith('/api/')")
         self.assertGreater(idx, 0,
                            "pathname.startsWith('/api/') not found in sw.js code")
-        context = self.sw[idx: idx + 80]
-        self.assertIn('return', context,
-                      '/api/ check does not return early — API may be cached')
+        # The branch must end before the next routing check (non-GET pass-through).
+        end = self.sw.find("Non-GET requests", idx)
+        branch = self.sw[idx:end]
+        self.assertIn('return', branch,
+                      '/api/ check does not return — falls through to cache logic')
+        self.assertNotIn('cache.match', branch)
+        self.assertNotIn('cache.put', branch)
 
     def test_shell_assets_listed(self):
         """SW must pre-cache at least the main HTML, JS, and CSS."""
