@@ -13080,6 +13080,231 @@ def handle_device_files(dev_id):
     respond(200, {'ok': rc == 0, 'op': op, 'path': path, 'result': result})
 
 
+# ── v6.1.1: folder-as-tar streaming archive ──────────────────────────────────
+# The base64-blob/90s-longpoll file-manager channel above can't carry a whole
+# directory (synchronous 90s wait, MAX_BODY_BYTES 50MB total per request). This
+# is a SEPARATE, agent-initiated chunked-upload channel: the browser starts a
+# job (queues an agent command, returns immediately); the agent walks the
+# subtree, builds a tar.gz locally, and POSTs it back in bounded chunks
+# authenticated by its OWN device token (the same body-carried device_id+token
+# pattern as /api/heartbeat, not a user session) — never one giant request. The
+# browser polls status and downloads once done. See
+# docs/feature-buildout-scoping-internal.md #9.
+FILE_ARCHIVE_JOBS_FILE = DATA_DIR / 'file_archive_jobs.json'
+FILE_ARCHIVE_SPOOL_DIR = DATA_DIR / 'file_archives'
+_FILE_ARCHIVE_CHUNK_MAX = 4 * 1024 * 1024          # per-chunk cap, well under MAX_BODY_BYTES
+_FILE_ARCHIVE_TOTAL_MAX = 200 * 1024 * 1024        # whole-archive cap
+_FILE_ARCHIVE_STALE_SECS = 600                     # no chunk in 10m -> presumed dead
+_FILE_ARCHIVE_TTL_SECS = 3600                      # GC a finished job's spool after 1h
+
+
+def _file_archive_spool_path(job_id):
+    # job_id is our own secrets.token_urlsafe output, never attacker-controlled
+    # path input — still keep the same "no traversal" posture as everything
+    # else here that touches a filesystem path.
+    safe = re.sub(r'[^A-Za-z0-9_-]', '', job_id)[:64]
+    return str(FILE_ARCHIVE_SPOOL_DIR / f'{safe}.tar.gz')
+
+
+def _file_archive_gc(jobs):
+    """Drop finished/stale job records + their spool files. Called opportunistically
+    from the start handler (cheap: one dict scan) — no separate cadence thread
+    needed for a feature this low-volume. Mutates `jobs` in place; caller is
+    expected to be inside the _LockedUpdate that will save it."""
+    now = int(time.time())
+    dead = []
+    for jid, j in list(jobs.items()):
+        if not isinstance(j, dict):
+            dead.append(jid)
+            continue
+        if j.get('status') in ('running', 'pending') and now - j.get('updated', 0) > _FILE_ARCHIVE_STALE_SECS:
+            j['status'] = 'failed'
+            j['error'] = 'no activity from the agent — timed out'
+            j['updated'] = now
+        if j.get('status') in ('done', 'failed', 'cancelled') and now - j.get('updated', 0) > _FILE_ARCHIVE_TTL_SECS:
+            dead.append(jid)
+    for jid in dead:
+        try:
+            p = jobs[jid].get('spool')
+            if p and os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            pass
+        jobs.pop(jid, None)
+
+
+def handle_files_archive_start(dev_id):
+    """POST /api/devices/{id}/files/archive {path} — start a folder-as-tar job.
+    Returns {job_id} immediately; the agent streams the archive back over
+    /files/archive-chunk asynchronously — poll /files/archive-status for
+    progress, then GET /files/archive-download once status is 'done'."""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    fm = _file_mgr_cfg()
+    roots = [str(r) for r in (fm.get('roots') or [])
+             if isinstance(r, str) and r.startswith('/')] or list(_FILE_MGR_DEFAULT_ROOTS)
+    body = get_json_obj()
+    path = str(body.get('path', '')).strip()
+    if not _valid_abs_path(path):
+        respond(400, {'error': 'path must be an absolute path with no ".." segment'})
+    if not _file_path_under_roots(path, roots):
+        respond(403, {'error': 'path is outside the allowlisted file-manager roots'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    if _device_quarantined(devices[dev_id]):
+        respond(409, {'error': 'Device is quarantined — archiving is disabled.'})
+    job_id = secrets.token_urlsafe(16)
+    now = int(time.time())
+    with _LockedUpdate(FILE_ARCHIVE_JOBS_FILE) as jobs:
+        _file_archive_gc(jobs)
+        jobs[job_id] = {'device_id': dev_id, 'path': path, 'status': 'pending',
+                         'bytes_received': 0, 'created': now, 'updated': now,
+                         'error': None, 'requested_by': actor,
+                         'spool': _file_archive_spool_path(job_id)}
+    command = 'files:archive:' + job_id + ':' + _base64.urlsafe_b64encode(path.encode()).decode()
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, [])
+        if command not in cmds[dev_id]:
+            cmds[dev_id].append(command)
+    audit_log(actor, 'file_archive_start', detail=f'device={dev_id} path={path} job={job_id}'[:200])
+    respond(200, {'ok': True, 'job_id': job_id})
+
+
+def handle_files_archive_status(dev_id):
+    """GET /api/devices/{id}/files/archive-status?job=<id>"""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    require_perm('command', [dev_id])
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    job_id = (qs.get('job', [''])[0] or '').strip()
+    jobs = load(FILE_ARCHIVE_JOBS_FILE) or {}
+    j = jobs.get(job_id)
+    if not j or j.get('device_id') != dev_id:
+        respond(404, {'error': 'Unknown job'})
+    respond(200, {'ok': True, 'status': j.get('status'), 'bytes_received': j.get('bytes_received', 0),
+                  'error': j.get('error'), 'path': j.get('path')})
+
+
+def handle_files_archive_cancel(dev_id):
+    """POST /api/devices/{id}/files/archive-cancel {job_id} — the agent's chunk
+    loop checks job status on its NEXT chunk POST and stops (see
+    handle_files_archive_chunk); there is no way to interrupt it mid-chunk."""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_obj()
+    job_id = str(body.get('job_id', '')).strip()
+    spool = None
+    with _LockedUpdate(FILE_ARCHIVE_JOBS_FILE) as jobs:
+        j = jobs.get(job_id)
+        if not j or j.get('device_id') != dev_id:
+            respond(404, {'error': 'Unknown job'})
+        if j.get('status') in ('pending', 'running'):
+            j['status'] = 'cancelled'
+            j['updated'] = int(time.time())
+            spool = j.get('spool')
+    try:
+        if spool and os.path.exists(spool):
+            os.remove(spool)
+    except Exception:
+        pass
+    audit_log(actor, 'file_archive_cancel', detail=f'device={dev_id} job={job_id}'[:200])
+    respond(200, {'ok': True})
+
+
+def handle_files_archive_download(dev_id):
+    """GET /api/devices/{id}/files/archive-download?job=<id> — streams the
+    finished tar.gz once status=='done'. Read whole-file-into-memory, same as
+    the existing backup-export/diagnostics-bundle downloads — fine at the
+    _FILE_ARCHIVE_TOTAL_MAX (200MB) cap."""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    job_id = (qs.get('job', [''])[0] or '').strip()
+    jobs = load(FILE_ARCHIVE_JOBS_FILE) or {}
+    j = jobs.get(job_id)
+    if not j or j.get('device_id') != dev_id:
+        respond(404, {'error': 'Unknown job'})
+    if j.get('status') != 'done':
+        respond(409, {'error': f'job is {j.get("status")}, not ready'})
+    try:
+        with open(j.get('spool'), 'rb') as f:
+            data = f.read()
+    except OSError:
+        respond(410, {'error': 'archive is no longer available'})
+    audit_log(actor, 'file_archive_download', detail=f'device={dev_id} job={job_id} bytes={len(data)}'[:200])
+    fname = 'archive-' + re.sub(r'[^A-Za-z0-9_-]+', '_', j.get('path', 'files')).strip('_')[:60] + '.tar.gz'
+    print("Status: 200 OK"); print("Content-Type: application/gzip")
+    print(f"Content-Disposition: attachment; filename={fname}")
+    print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff"); print()
+    sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
+
+
+def handle_files_archive_chunk(dev_id):
+    """POST /api/devices/{id}/files/archive-chunk — AGENT-authenticated (a
+    device token in the body, like /api/heartbeat — never a user session). The
+    agent streams one bounded chunk at a time; the response tells it whether
+    to keep going, so a cancel/failure/size-cap breach is discovered on the
+    NEXT chunk, not mid-transfer."""
+    if not _validate_id(dev_id):
+        respond(403, {'error': 'Unauthorized device'})
+    body = get_json_obj()
+    dev_token = str(body.get('token', '')).strip()
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev or not _device_token_ok(dev, dev_token):
+        respond(403, {'error': 'Unauthorized device'})
+    _mtls_ok, _mtls_why = _agent_mtls_ok(dev_id)
+    if not _mtls_ok:
+        respond(403, {'error': _mtls_why})
+    job_id = str(body.get('job_id', '')).strip()
+    final = bool(body.get('final'))
+    agent_error = body.get('error')     # the agent aborted locally (size cap / walk failure)
+    chunk_b64 = body.get('chunk', '')
+    try:
+        raw = _base64.b64decode(str(chunk_b64 or ''), validate=False) if chunk_b64 else b''
+    except Exception:
+        respond(400, {'error': 'chunk must be base64'})
+    if len(raw) > _FILE_ARCHIVE_CHUNK_MAX:
+        respond(413, {'error': f'chunk exceeds {_FILE_ARCHIVE_CHUNK_MAX} bytes'})
+    known = False
+    cont = False
+    with _LockedUpdate(FILE_ARCHIVE_JOBS_FILE) as jobs:
+        j = jobs.get(job_id)
+        if j and j.get('device_id') == dev_id:
+            known = True
+            if j.get('status') not in ('pending', 'running'):
+                cont = False   # already cancelled/failed/done — tell the agent to stop
+            else:
+                os.makedirs(FILE_ARCHIVE_SPOOL_DIR, exist_ok=True)
+                spool = j.get('spool') or _file_archive_spool_path(job_id)
+                if agent_error:
+                    j['status'] = 'failed'
+                    j['error'] = str(agent_error)[:300]
+                    j['updated'] = int(time.time())
+                else:
+                    new_total = j.get('bytes_received', 0) + len(raw)
+                    if new_total > _FILE_ARCHIVE_TOTAL_MAX:
+                        j['status'] = 'failed'
+                        j['error'] = f'archive exceeds the {_FILE_ARCHIVE_TOTAL_MAX} byte cap'
+                        j['updated'] = int(time.time())
+                    else:
+                        if raw:
+                            with open(spool, 'ab') as f:
+                                f.write(raw)
+                        j['bytes_received'] = new_total
+                        j['status'] = 'done' if final else 'running'
+                        j['updated'] = int(time.time())
+                        cont = True
+    if not known:
+        respond(404, {'error': 'Unknown job'})
+    respond(200, {'ok': True, 'continue': cont})
+
+
 # ── v5.1.0: host cron + systemd-timer management ─────────────────────────────
 # Viewing reads the heartbeat sysinfo (cron / timers). Edits ride a structured
 # `cron:` command (base64-wrapped, NEVER a shell) through the audited
@@ -53673,6 +53898,12 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET', 'PATCH'), '/api/devices/', '/pdu', 'handle_device_pdu', "pi.startswith('/api/devices/') and pi.endswith('/pdu') and m in ('GET', 'PATCH')"),
     ('pat', ('POST',), '/api/devices/', '/kill', 'handle_process_kill', "pi.startswith('/api/devices/') and pi.endswith('/kill') and m == 'POST'"),
     ('pat', ('GET', 'POST'), '/api/devices/', '/files', 'handle_device_files', "pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST')"),
+    # v6.1.1: folder-as-tar streaming archive (separate chunked-upload channel)
+    ('pat', ('POST',), '/api/devices/', '/files/archive', 'handle_files_archive_start', "pi.startswith('/api/devices/') and pi.endswith('/files/archive') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/files/archive-status', 'handle_files_archive_status', "pi.startswith('/api/devices/') and pi.endswith('/files/archive-status') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/files/archive-cancel', 'handle_files_archive_cancel', "pi.startswith('/api/devices/') and pi.endswith('/files/archive-cancel') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/files/archive-download', 'handle_files_archive_download', "pi.startswith('/api/devices/') and pi.endswith('/files/archive-download') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/files/archive-chunk', 'handle_files_archive_chunk', "pi.startswith('/api/devices/') and pi.endswith('/files/archive-chunk') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/cron-action', 'handle_device_cron_action', "pi.startswith('/api/devices/') and pi.endswith('/cron-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/storage-action', 'handle_device_storage_action', "pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/fail2ban-action', 'handle_device_fail2ban_action', "pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST'"),

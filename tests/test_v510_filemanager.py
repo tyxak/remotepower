@@ -149,5 +149,117 @@ class TestAgentFileOps(unittest.TestCase):
             self.m._audit_mode = orig
 
 
+class TestAgentArchiveOp(unittest.TestCase):
+    """v6.1.1 — folder-as-tar streaming archive, agent side. A SEPARATE channel
+    from _handle_file_op above: it tar.gz's the directory locally and streams
+    the result back in bounded chunks over its own endpoint, authenticated the
+    same way heartbeat is (device_id/token in the body), rather than returning
+    one bounded result through the normal cmd_output path (see
+    docs/feature-buildout-scoping-internal.md #9)."""
+
+    def setUp(self):
+        import tempfile
+        self.m = _load_agent()
+        self.tmp = Path(tempfile.mkdtemp(prefix='rp-fm-archive-'))
+        self.m.FILE_MGR_DEFAULT_ROOTS = (str(self.tmp),)
+        self.m.load_credentials = lambda: {
+            'server_url': 'https://server.example', 'device_id': 'dev1', 'token': 'tok'}
+        self.posts = []
+
+        def _fake_post(url, data, timeout=10):
+            self.posts.append((url, data))
+            return {'ok': True, 'continue': True}
+        self.m.http_post = _fake_post
+
+    def _cmd(self, job_id, path):
+        import base64
+        return 'files:archive:' + job_id + ':' + base64.urlsafe_b64encode(path.encode()).decode()
+
+    def _posted_blob(self):
+        import base64
+        return b''.join(base64.b64decode(d['chunk']) for _, d in self.posts if d.get('chunk'))
+
+    def test_archives_directory_and_posts_valid_tar(self):
+        (self.tmp / 'a.txt').write_text('hello')
+        (self.tmp / 'sub').mkdir()
+        (self.tmp / 'sub' / 'b.txt').write_text('world')
+        r = self.m._handle_file_archive(self._cmd('job1', str(self.tmp)))
+        self.assertEqual(r['rc'], 0)
+        self.assertTrue(self.posts)
+        for url, data in self.posts:
+            self.assertEqual(data['job_id'], 'job1')
+            self.assertEqual(data['token'], 'tok')
+            self.assertIn('/api/devices/dev1/files/archive-chunk', url)
+        self.assertTrue(self.posts[-1][1]['final'])
+        import io
+        import tarfile
+        with tarfile.open(fileobj=io.BytesIO(self._posted_blob()), mode='r:gz') as tar:
+            names = sorted(tar.getnames())
+        self.assertIn('a.txt', names)
+        self.assertIn(os.path.join('sub', 'b.txt'), names)
+
+    def test_symlinked_file_and_dir_excluded(self):
+        (self.tmp / 'kept.txt').write_text('x')
+        outside = self.tmp.parent / 'archive-outside-secret'
+        outside.write_text('secret')
+        link = self.tmp / 'escape.txt'
+        linkdir = self.tmp / 'escape-dir'
+        try:
+            link.symlink_to(outside)
+            linkdir.symlink_to(self.tmp.parent, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('symlinks unavailable')
+        r = self.m._handle_file_archive(self._cmd('job2', str(self.tmp)))
+        self.assertEqual(r['rc'], 0)
+        import io
+        import tarfile
+        with tarfile.open(fileobj=io.BytesIO(self._posted_blob()), mode='r:gz') as tar:
+            names = sorted(tar.getnames())
+        self.assertIn('kept.txt', names)
+        self.assertNotIn('escape.txt', names)
+        self.assertFalse(any(n.startswith('escape-dir' + os.sep) for n in names))
+
+    def test_path_outside_roots_reports_error(self):
+        r = self.m._handle_file_archive(self._cmd('job3', '/etc/passwd'))
+        self.assertEqual(r['rc'], 1)
+        self.assertTrue(self.posts)
+        self.assertTrue(self.posts[-1][1].get('error'))
+
+    def test_raw_size_cap_reports_error(self):
+        (self.tmp / 'big.bin').write_bytes(b'x' * 1000)
+        orig_cap = self.m._FILE_ARCHIVE_RAW_MAX
+        self.m._FILE_ARCHIVE_RAW_MAX = 500
+        try:
+            r = self.m._handle_file_archive(self._cmd('job4', str(self.tmp)))
+        finally:
+            self.m._FILE_ARCHIVE_RAW_MAX = orig_cap
+        self.assertEqual(r['rc'], 1)
+        self.assertTrue(self.posts[-1][1].get('error'))
+
+    def test_server_stop_breaks_the_loop_before_the_whole_file_is_sent(self):
+        orig_chunk = self.m._FILE_ARCHIVE_CHUNK
+        self.m._FILE_ARCHIVE_CHUNK = 1024
+        (self.tmp / 'a.bin').write_bytes(os.urandom(4000))   # incompressible -> needs >1 chunk
+        calls = {'n': 0}
+
+        def _stop_after_one(url, data, timeout=10):
+            calls['n'] += 1
+            self.posts.append((url, data))
+            return {'ok': True, 'continue': False}
+        self.m.http_post = _stop_after_one
+        try:
+            r = self.m._handle_file_archive(self._cmd('job5', str(self.tmp)))
+        finally:
+            self.m._FILE_ARCHIVE_CHUNK = orig_chunk
+        self.assertEqual(r['rc'], 0)
+        self.assertEqual(calls['n'], 1)   # stopped after the first chunk, not the whole file
+
+    def test_missing_credentials_does_not_raise(self):
+        self.m.load_credentials = lambda: None
+        r = self.m._handle_file_archive(self._cmd('job6', str(self.tmp)))
+        self.assertEqual(r['rc'], 1)
+        self.assertFalse(self.posts)   # nowhere to report the error without creds
+
+
 if __name__ == '__main__':
     unittest.main()

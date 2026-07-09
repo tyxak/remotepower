@@ -5953,7 +5953,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon" data-action="fmUp">Up</button>
             <button class="btn-icon" data-action="fmMkdir">New folder</button>
             <button class="btn-icon" data-action="fmUpload">Upload file</button>
+            <button class="btn-icon" data-action="fmArchiveCwd">Download as .tar.gz</button>
             <span id="fm-summary" class="isl-100"></span>
+          </div>
+          <div id="fm-archive-progress" class="settings-row hidden">
+            <span id="fm-archive-status" class="hint"></span>
+            <button class="btn-icon" data-action="fmArchiveCancel">Cancel</button>
           </div>
           <div class="table-card">
             <div class="scrollable-table-wrap audit-scroll">

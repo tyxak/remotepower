@@ -6460,6 +6460,123 @@ def _file_mgr_allowed(logical_path):
     return False
 
 
+# v6.1.1: folder-as-tar streaming archive — a SEPARATE channel from _handle_file_op
+# below. That one returns a single bounded result through the normal cmd_output
+# path; an archive can be far bigger than any single heartbeat/exec response can
+# carry, so this builds the tar.gz locally and streams it back to the server in
+# bounded chunks over its own endpoint, authenticated the same way heartbeat is
+# (device_id/token in the body). See docs/feature-buildout-scoping-internal.md #9.
+_FILE_ARCHIVE_RAW_MAX = 300 * 1024 * 1024   # generous vs. the server's 200MB compressed cap
+_FILE_ARCHIVE_CHUNK = 4 * 1024 * 1024       # matches the server's _FILE_ARCHIVE_CHUNK_MAX
+
+
+def _archive_report_error(creds, dev_id, job_id, message):
+    """Tell the server this job failed, even with zero chunk data sent, so the
+    browser sees it via /archive-status instead of waiting out the server's
+    10-minute stale-job timeout."""
+    try:
+        http_post(f"{creds['server_url']}/api/devices/{dev_id}/files/archive-chunk",
+                  {'token': creds['token'], 'job_id': job_id, 'final': True,
+                   'chunk': '', 'error': str(message)[:300]})
+    except Exception as e:
+        log.warning(f"Archive error report failed: {e}")
+
+
+def _handle_file_archive(cmd):
+    """files:archive:<job_id>:<b64path> — tar.gz an allowlisted directory and
+    stream it back in bounded chunks. Never raises into the caller; every
+    failure path reports itself to the server so a job never just sits
+    'pending' waiting for the stale timeout. Symlinked files/dirs are skipped
+    entirely (not resolved-and-rechecked like the single-file ops above) —
+    the simplest correct answer for a whole-subtree walk that could otherwise
+    touch thousands of entries."""
+    import tarfile
+    import tempfile
+    import base64 as _b64
+    import json as _json
+
+    bits = cmd.split(':', 3)
+    job_id = bits[2] if len(bits) > 2 else ''
+    raw_path = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
+                if len(bits) > 3 else '')
+    logical = os.path.normpath(raw_path)
+    creds = load_credentials()
+    if not creds:
+        return {'cmd': cmd, 'rc': 1,
+                'output': _json.dumps({'error': 'agent has no credentials'})}
+    dev_id = creds['device_id']
+
+    if not logical.startswith('/') or not _file_mgr_allowed(logical):
+        _archive_report_error(creds, dev_id, job_id, 'path is outside the allowlisted roots')
+        return {'cmd': cmd, 'rc': 1,
+                'output': _json.dumps({'error': 'path is outside the allowlisted roots'})}
+    fs = Path(host_path(logical))
+    real = os.path.realpath(fs)
+    if not _file_mgr_allowed(unhost_path(real)) or not os.path.isdir(real):
+        _archive_report_error(creds, dev_id, job_id,
+                               'resolved path escapes the allowlisted roots or is not a directory')
+        return {'cmd': cmd, 'rc': 1,
+                'output': _json.dumps({'error': 'not an allowlisted directory'})}
+
+    total = 0
+    for root, dirs, files in os.walk(real, followlinks=False):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        for name in files:
+            p = os.path.join(root, name)
+            if os.path.islink(p):
+                continue
+            try:
+                total += os.lstat(p).st_size
+            except OSError:
+                continue
+        if total > _FILE_ARCHIVE_RAW_MAX:
+            _archive_report_error(creds, dev_id, job_id,
+                                   f'directory exceeds the {_FILE_ARCHIVE_RAW_MAX} byte archive cap')
+            return {'cmd': cmd, 'rc': 1, 'output': _json.dumps({'error': 'too large to archive'})}
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.tar.gz', prefix='rp-archive-')
+    os.close(tmp_fd)
+    try:
+        with tarfile.open(tmp_path, mode='w:gz') as tar:
+            for root, dirs, files in os.walk(real, followlinks=False):
+                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+                for name in files:
+                    p = os.path.join(root, name)
+                    if os.path.islink(p):
+                        continue
+                    arcname = os.path.relpath(p, real)
+                    try:
+                        tar.add(p, arcname=arcname, recursive=False)
+                    except OSError:
+                        continue   # vanished/unreadable mid-walk — skip, don't abort the job
+
+        url = f"{creds['server_url']}/api/devices/{dev_id}/files/archive-chunk"
+        seq = 0
+        size = os.path.getsize(tmp_path)
+        sent = 0
+        with open(tmp_path, 'rb') as f:
+            while True:
+                chunk = f.read(_FILE_ARCHIVE_CHUNK)
+                final = f.tell() >= size
+                resp = http_post(url, {'token': creds['token'], 'job_id': job_id,
+                                        'seq': seq, 'final': final,
+                                        'chunk': _b64.b64encode(chunk).decode('ascii') if chunk else ''})
+                sent += len(chunk)
+                seq += 1
+                if not resp.get('continue', False) or final:
+                    break   # server cancelled/rejected it, or this was the last chunk
+        return {'cmd': cmd, 'rc': 0,
+                'output': _json.dumps({'path': logical, 'job_id': job_id, 'bytes': sent})}
+    except Exception as e:
+        _archive_report_error(creds, dev_id, job_id, f'{type(e).__name__}: {e}')
+        return {'cmd': cmd, 'rc': 1, 'output': _json.dumps({'error': str(e)[:300]})}
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def _handle_file_op(cmd):
     """Execute a `files:` op → standard cmd_output dict with a JSON `output`.
     Never raises; the danger is path-traversal, blocked by a symlink-resolved
@@ -6629,6 +6746,11 @@ def _run_process_kill(cmd):
 
 
 def execute_command(cmd):
+    # v6.1.1: folder-as-tar archive is its own channel (see _handle_file_archive) —
+    # check it BEFORE the general 'files:' prefix below, which would otherwise
+    # route it into the single-result _handle_file_op op switch.
+    if isinstance(cmd, str) and cmd.startswith('files:archive:'):
+        return _handle_file_archive(cmd)
     # v5.1.0: file-manager ops carry their own audit-mode policy (reads allowed,
     # mutations refused) so dispatch them BEFORE the blanket audit-mode guard.
     if isinstance(cmd, str) and cmd.startswith('files:'):

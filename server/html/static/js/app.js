@@ -8401,6 +8401,8 @@ let _fmDev = null;        // {id, name}
 let _fmCwd = '/etc';
 let _fmEditing = null;    // path currently open in the editor
 let _fmRows = [];
+let _fmArchiveJob = null; // {id, path} of the in-flight archive job, or null
+let _fmArchiveTimer = null;
 
 async function loadFileMgr() {
   const tbody = document.getElementById('fm-tbody');
@@ -8469,7 +8471,8 @@ function _renderFm() {
     const isDir = r.type === 'dir';
     const child = base + r.name;
     const act = isDir
-      ? `<button class="btn-icon" data-action="fmListPath" data-arg="${escAttr(child)}">Open</button>`
+      ? `<button class="btn-icon" data-action="fmListPath" data-arg="${escAttr(child)}">Open</button> `
+        + `<button class="btn-icon" data-action="fmArchiveDir" data-arg="${escAttr(child)}">Download as .tar.gz</button>`
       : `<button class="btn-icon" data-action="fmOpen" data-arg="${escAttr(child)}">View / edit</button> `
         + `<button class="btn-icon" data-action="fmDownload" data-arg="${escAttr(child)}" data-arg2="${escAttr(r.name)}">Download</button>`;
     return `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.type)}</td><td>${isDir ? '' : _fmtBytes(r.size || 0)}</td><td>${escHtml(_fmtTs(r.mtime))}</td><td><span class="hint">${escHtml(r.mode || '')}</span></td><td>${act}</td></tr>`;
@@ -8515,6 +8518,93 @@ async function fmDownload(path, name) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } catch (e) { toast(String(e), 'error'); }
+}
+
+// v6.1.1: folder-as-tar streaming archive. A SEPARATE channel from fmDownload
+// above (which round-trips one file through the request/response file-manager
+// op) — the agent streams a whole directory back in bounded chunks over its
+// own endpoint, so this starts a job then polls status instead of a single
+// request/response call. See docs/feature-buildout-scoping-internal.md #9.
+function fmArchiveCwd() {
+  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  fmArchiveDir(_fmCwd);
+}
+
+async function fmArchiveDir(path) {
+  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  if (_fmArchiveJob) { toast('An archive is already running — cancel it first', 'error'); return; }
+  try {
+    const r = await api('POST', `/devices/${_fmDev.id}/files/archive`, { path });
+    if (!r || !r.ok) { toast((r && r.error) || 'Failed to start archive', 'error'); return; }
+    _fmArchiveJob = { id: r.job_id, path };
+    _fmArchiveShowProgress('Starting…');
+    _fmArchiveTimer = setInterval(_fmArchivePoll, 2000);
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+function _fmArchiveShowProgress(text) {
+  const wrap = document.getElementById('fm-archive-progress');
+  const status = document.getElementById('fm-archive-status');
+  if (wrap) wrap.classList.remove('hidden');
+  if (status) status.textContent = text;
+}
+
+function _fmArchiveStopPolling() {
+  if (_fmArchiveTimer) { clearInterval(_fmArchiveTimer); _fmArchiveTimer = null; }
+}
+
+async function _fmArchivePoll() {
+  if (!_fmDev || !_fmArchiveJob) { _fmArchiveStopPolling(); return; }
+  try {
+    const r = await api('GET', `/devices/${_fmDev.id}/files/archive-status?job=${encodeURIComponent(_fmArchiveJob.id)}`);
+    if (!r || !r.ok) { _fmArchiveFail('Lost track of the archive job'); return; }
+    if (r.status === 'pending' || r.status === 'running') {
+      _fmArchiveShowProgress(`${r.status === 'pending' ? 'Waiting for the agent…' : 'Archiving…'} ${_fmtBytes(r.bytes_received || 0)} so far`);
+    } else if (r.status === 'done') {
+      _fmArchiveStopPolling();
+      _fmArchiveShowProgress('Done — downloading…');
+      await _fmArchiveDownload();
+      document.getElementById('fm-archive-progress').classList.add('hidden');
+      _fmArchiveJob = null;
+    } else {   // failed / cancelled
+      _fmArchiveFail(r.error || (r.status === 'cancelled' ? 'Cancelled' : 'Archive failed'));
+    }
+  } catch (e) { _fmArchiveFail(String(e)); }
+}
+
+function _fmArchiveFail(message) {
+  _fmArchiveStopPolling();
+  toast(message, 'error');
+  document.getElementById('fm-archive-progress').classList.add('hidden');
+  _fmArchiveJob = null;
+}
+
+async function _fmArchiveDownload() {
+  const job = _fmArchiveJob;
+  if (!job) return;
+  try {
+    const resp = await fetch(`/api/devices/${_fmDev.id}/files/archive-download?job=${encodeURIComponent(job.id)}`,
+                             { headers: { 'X-Token': getToken() } });
+    if (!resp.ok) throw new Error('download failed');
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const base = job.path.split('/').filter(Boolean).pop() || 'archive';
+    a.href = url; a.download = base + '.tar.gz';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Archive downloaded', 'success');
+  } catch (e) { toast('Download failed: ' + String(e), 'error'); }
+}
+
+async function fmArchiveCancel() {
+  if (!_fmDev || !_fmArchiveJob) return;
+  const job = _fmArchiveJob;
+  _fmArchiveStopPolling();
+  try { await api('POST', `/devices/${_fmDev.id}/files/archive-cancel`, { job_id: job.id }); } catch (_) { /* best-effort */ }
+  document.getElementById('fm-archive-progress').classList.add('hidden');
+  _fmArchiveJob = null;
+  toast('Archive cancelled', 'success');
 }
 
 // W3-50: upload a picked file (base64) into the current directory.

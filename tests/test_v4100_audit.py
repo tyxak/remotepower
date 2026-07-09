@@ -28,7 +28,9 @@ class TestAuditModeLinuxAgent(unittest.TestCase):
         # v5.1.0: a `files:` op is dispatched BEFORE the blanket guard (it carries
         # its own audit policy — reads allowed, mutations refused), so the blanket
         # _audit_mode() guard moved a few lines down; widen the head window.
-        head = AGENT[i:i + 900]
+        # v6.1.1: files:archive: dispatched even earlier still (its own channel,
+        # see _handle_file_archive) pushed the guard further down again.
+        head = AGENT[i:i + 1200]
         self.assertIn('_audit_mode()', head)
         self.assertIn('audit (read-only) mode', head)
 

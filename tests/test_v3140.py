@@ -10,6 +10,7 @@ smoke checks.
 import os
 import re
 import json
+import base64
 import tempfile
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
@@ -59,7 +60,7 @@ class _HandlerBase(unittest.TestCase):
                      'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
-                     'CONFIRMATIONS_FILE', 'TENANTS_FILE'):
+                     'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -3012,6 +3013,181 @@ class TestConnectorsReload(_HandlerBase):
         self.assertIn('async function reloadConnectors', app)
         self.assertIn("api('POST', '/connectors/reload')", app)
         self.assertIn('function renderConnectorPlugins', app)
+
+
+class TestFileArchive(_HandlerBase):
+    """v6.1.1 — folder-as-tar streaming archive: a chunked-upload channel
+    separate from the request/response file-manager ops, since a whole
+    directory can be far bigger than the 90s-longpoll/50MB-body channel those
+    ops share (docs/feature-buildout-scoping-internal.md #9)."""
+
+    DEV_TOKEN = 'test-device-token-abc123'
+
+    def setUp(self):
+        super().setUp()
+        self._orig_spool = api.FILE_ARCHIVE_SPOOL_DIR
+        api.FILE_ARCHIVE_SPOOL_DIR = self.d / 'file_archives'
+        api.save(api.DEVICES_FILE, {'dev1': {
+            'name': 'dev1', 'token_hash': api._hash_device_token(self.DEV_TOKEN)}})
+
+    def tearDown(self):
+        api.FILE_ARCHIVE_SPOOL_DIR = self._orig_spool
+        super().tearDown()
+
+    def _start(self, path='/etc'):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'path': path}
+        return self.call(api.handle_files_archive_start, 'dev1')
+
+    def _status(self, job_id):
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = f'job={job_id}'
+        try:
+            return self.call(api.handle_files_archive_status, 'dev1')
+        finally:
+            os.environ.pop('QUERY_STRING', None)
+
+    def _chunk(self, job_id, chunk_bytes=b'', final=False, error=None, token=None):
+        api.method = lambda: 'POST'
+        body = {'token': self.DEV_TOKEN if token is None else token,
+                'job_id': job_id, 'final': final,
+                'chunk': base64.b64encode(chunk_bytes).decode() if chunk_bytes else ''}
+        if error:
+            body['error'] = error
+        api.get_json_body = lambda: body
+        return self.call(api.handle_files_archive_chunk, 'dev1')
+
+    def _cancel(self, job_id):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'job_id': job_id}
+        return self.call(api.handle_files_archive_cancel, 'dev1')
+
+    def _download_bytes(self, job_id):
+        import io
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = f'job={job_id}'
+        buf = io.BytesIO()
+        real_stdout = api.sys.stdout
+
+        class _FakeStdout:
+            def __init__(self): self.buffer = buf
+            def write(self, *a, **k): pass
+            def flush(self): pass
+        api.sys.stdout = _FakeStdout()
+        try:
+            api.handle_files_archive_download('dev1')
+        except SystemExit:
+            pass
+        finally:
+            api.sys.stdout = real_stdout
+            os.environ.pop('QUERY_STRING', None)
+        return buf.getvalue()
+
+    def test_start_creates_pending_job_and_queues_command(self):
+        r = self._start('/etc')
+        self.assertTrue(r['ok'])
+        job_id = r['job_id']
+        jobs = api.load(api.FILE_ARCHIVE_JOBS_FILE)
+        self.assertEqual(jobs[job_id]['status'], 'pending')
+        self.assertEqual(jobs[job_id]['device_id'], 'dev1')
+        cmds = api.load(api.CMDS_FILE)
+        self.assertTrue(any(c.startswith(f'files:archive:{job_id}:')
+                            for c in cmds.get('dev1', [])))
+
+    def test_start_rejects_path_outside_roots(self):
+        self._start('/root/.ssh')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_status_unknown_job_404(self):
+        self._status('nope')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_chunk_ingest_happy_path_marks_done_and_download_works(self):
+        job_id = self._start('/etc')['job_id']
+        payload = b'fake-tar-gz-bytes'
+        r = self._chunk(job_id, payload, final=True)
+        self.assertTrue(r['ok'])
+        self.assertTrue(r['continue'])
+        st = self._status(job_id)
+        self.assertEqual(st['status'], 'done')
+        self.assertEqual(st['bytes_received'], len(payload))
+        self.assertEqual(self._download_bytes(job_id), payload)
+
+    def test_multi_chunk_accumulates_bytes(self):
+        job_id = self._start('/etc')['job_id']
+        self._chunk(job_id, b'part1', final=False)
+        r = self._chunk(job_id, b'part2', final=True)
+        self.assertTrue(r['continue'])
+        st = self._status(job_id)
+        self.assertEqual(st['status'], 'done')
+        self.assertEqual(st['bytes_received'], len(b'part1part2'))
+        self.assertEqual(self._download_bytes(job_id), b'part1part2')
+
+    def test_chunk_wrong_device_token_rejected(self):
+        job_id = self._start('/etc')['job_id']
+        self._chunk(job_id, b'x', token='not-the-real-token')
+        self.assertEqual(self.cap['s'], 403)
+        # the job must be untouched by the rejected request
+        self.assertEqual(api.load(api.FILE_ARCHIVE_JOBS_FILE)[job_id]['status'], 'pending')
+
+    def test_chunk_unknown_job_404(self):
+        self._chunk('nope', b'x')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_chunk_over_total_cap_fails_job_and_stops_agent(self):
+        job_id = self._start('/etc')['job_id']
+        orig_cap = api._FILE_ARCHIVE_TOTAL_MAX
+        api._FILE_ARCHIVE_TOTAL_MAX = 10
+        try:
+            r = self._chunk(job_id, b'x' * 20, final=False)
+        finally:
+            api._FILE_ARCHIVE_TOTAL_MAX = orig_cap
+        self.assertTrue(r['ok'])
+        self.assertFalse(r['continue'])   # tells the agent to stop sending
+        st = self._status(job_id)
+        self.assertEqual(st['status'], 'failed')
+        self.assertIn('cap', st['error'])
+
+    def test_agent_reported_error_fails_job(self):
+        job_id = self._start('/etc')['job_id']
+        r = self._chunk(job_id, error='agent walk failed: Permission denied', final=True)
+        self.assertFalse(r['continue'])
+        st = self._status(job_id)
+        self.assertEqual(st['status'], 'failed')
+        self.assertIn('Permission denied', st['error'])
+
+    def test_cancel_then_next_chunk_told_to_stop(self):
+        job_id = self._start('/etc')['job_id']
+        self._chunk(job_id, b'first', final=False)
+        r = self._cancel(job_id)
+        self.assertTrue(r['ok'])
+        self.assertEqual(api.load(api.FILE_ARCHIVE_JOBS_FILE)[job_id]['status'], 'cancelled')
+        # the agent's next chunk (already in flight when cancel happened) must
+        # be told to stop, not silently accepted into a cancelled job
+        r2 = self._chunk(job_id, b'second-should-be-dropped', final=False)
+        self.assertTrue(r2['ok'])
+        self.assertFalse(r2['continue'])
+        self.assertEqual(api.load(api.FILE_ARCHIVE_JOBS_FILE)[job_id]['status'], 'cancelled')
+
+    def test_download_before_done_409(self):
+        job_id = self._start('/etc')['job_id']
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = f'job={job_id}'
+        try:
+            self.call(api.handle_files_archive_download, 'dev1')
+        finally:
+            os.environ.pop('QUERY_STRING', None)
+        self.assertEqual(self.cap['s'], 409)
+
+    def test_ui_wired(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('data-action="fmArchiveCwd"', html)
+        self.assertIn('data-action="fmArchiveCancel"', html)
+        app = client_js()
+        self.assertIn('data-action="fmArchiveDir"', app)   # built into the row template, not static HTML
+        self.assertIn('async function fmArchiveDir', app)
+        self.assertIn('async function _fmArchivePoll', app)
+        self.assertIn("api('POST', `/devices/${_fmDev.id}/files/archive`", app)
 
 
 class TestScim(_HandlerBase):
