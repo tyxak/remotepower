@@ -285,6 +285,28 @@ class TestDispatch(unittest.TestCase):
     def test_nikto_does_not_force_ssl(self):
         self.assertNotIn('-ssl', sc._nikto_argv('example.com', 'passive', 'quick'))
 
+    def test_nmap_gets_raw_socket_capabilities(self):
+        # Found live: a blanket --cap-drop ALL silently broke nearly every nmap
+        # probe -- nsock_pcap_open() failed on lo/docker0/the host iface, and the
+        # "safe" NSE script set (always included, see _nmap_argv) includes
+        # dhcp-discover, which needs NET_BIND_SERVICE to bind 0.0.0.0:68. nmap's
+        # -sV + "safe" scripts genuinely need raw sockets; every other tool here
+        # is pure HTTP/L7 and must NOT get capabilities back.
+        if sc.RUNNER not in ('docker', 'podman'):
+            self.skipTest('RUNNER is not a container runtime')
+        nmap_argv = sc._nmap_argv('10.0.0.5', 'passive', 'quick')
+        self.assertIn('--cap-add', nmap_argv)
+        self.assertIn('NET_RAW', nmap_argv)
+        self.assertIn('NET_BIND_SERVICE', nmap_argv)
+        # cap-add must come after cap-drop ALL, or docker treats it as a no-op.
+        self.assertLess(nmap_argv.index('--cap-drop'), nmap_argv.index('--cap-add'))
+
+        for other in (sc._nuclei_argv('example.com', 'passive', 'quick'),
+                      sc._nikto_argv('example.com', 'passive', 'quick'),
+                      sc._zap_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json'),
+                      sc._wapiti_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')):
+            self.assertNotIn('--cap-add', other)
+
 
 if __name__ == '__main__':
     unittest.main()

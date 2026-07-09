@@ -91,20 +91,28 @@ _TOOL_IMAGE = {
 }
 
 
-def _sandbox(image, tool_argv, volumes=None, workdir=None, env=None):
+def _sandbox(image, tool_argv, volumes=None, workdir=None, env=None, caps=None):
     """Wrap a tool's argv in a locked-down container (or run it bare when
     RP_SCAN_RUNNER names a local binary). `volumes` (list of 'name:/path') are
     persistent named volumes — used to cache nuclei's template store so it isn't
     re-downloaded every run. `workdir` sets the container working dir (-w) and
     `env` (dict) sets environment vars (-e) — used to point a tool's HOME/cwd at
-    a writable mount so its scratch files don't hit a read-only container path."""
+    a writable mount so its scratch files don't hit a read-only container path.
+    `caps` (list of capability names, e.g. ['NET_RAW']) are added back on top of
+    --cap-drop ALL for a tool that genuinely needs them (nmap's -sV and its
+    "safe" NSE scripts use raw sockets/pcap — found live, a blanket cap-drop
+    silently broke nearly every nmap probe: nsock_pcap_open() failed on every
+    interface, and the dhcp-discover script's bind to 0.0.0.0:68 needs
+    NET_BIND_SERVICE). Every other tool here is pure HTTP/L7 and needs none."""
     if RUNNER in ('docker', 'podman'):
         # Hardened but NOT --read-only: the tools must write scratch/report files
         # (zap /zap/wrk, wapiti session, nmap NSE temp) — a read-only rootfs makes
         # them silently produce nothing (0 findings). Ephemeral (--rm) +
         # cap-drop + no-new-privileges + pids cap keep it locked down.
-        cmd = [RUNNER, 'run', '--rm', '--network', 'host', '--cap-drop', 'ALL',
-               '--security-opt', 'no-new-privileges', '--pids-limit', '512']
+        cmd = [RUNNER, 'run', '--rm', '--network', 'host', '--cap-drop', 'ALL']
+        for c in (caps or []):
+            cmd += ['--cap-add', c]
+        cmd += ['--security-opt', 'no-new-privileges', '--pids-limit', '512']
         for v in (volumes or []):
             cmd += ['-v', v]
         if workdir:
@@ -335,7 +343,8 @@ def _nmap_argv(target, profile, intensity):
     # quick = top 100 ports (-F); full = every port (-p-).
     ports = ['-F'] if _quick(intensity) else ['-p-']
     return _sandbox(_TOOL_IMAGE['nmap'],
-                    ['-sV', '-Pn', '-T3'] + ports + ['--script', scripts, '-oX', '-', target])
+                    ['-sV', '-Pn', '-T3'] + ports + ['--script', scripts, '-oX', '-', target],
+                    caps=['NET_RAW', 'NET_BIND_SERVICE'])
 
 
 def _zap_argv(target, profile, intensity, workdir, report):
