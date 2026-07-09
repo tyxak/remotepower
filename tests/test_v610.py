@@ -400,6 +400,70 @@ class TestInstallDemoPostgresOption(unittest.TestCase):
         self.assertLess(i_reuse, i_generate)
 
 
+class TestInstallDemoOutOfBandScheduler(unittest.TestCase):
+    """packaging/install-demo.sh: the demo must get its own out-of-band
+    scheduler, not run the ~33 maintenance sweeps on its request path. Found
+    live: a Postgres-backed demo without this was noticeably slow -- the
+    scheduler unit's own comment measures ~0.68s -> ~0.027s per request (25x)
+    for moving the cadence off the request path on a networked backend."""
+
+    SRC = (Path(__file__).parent.parent / "packaging" / "install-demo.sh").read_text()
+
+    def test_bash_syntax_valid(self):
+        import subprocess
+
+        r = subprocess.run(
+            ["bash", "-n", str(Path(__file__).parent.parent / "packaging" / "install-demo.sh")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_demo_wsgi_unit_sets_external_scheduler(self):
+        i = self.SRC.index("UNIT_BODY=$(cat <<EOF")
+        block = self.SRC[i : i + 1200]
+        self.assertIn("Environment=RP_EXTERNAL_SCHEDULER=1", block)
+
+    def test_dedicated_demo_scheduler_unit_written(self):
+        self.assertIn("remotepower-scheduler-demo", self.SRC)
+        i = self.SRC.index("SCHEDULER_UNIT_BODY=$(cat <<EOF")
+        block = self.SRC[i : i + 900]
+        self.assertIn("Environment=RP_DATA_DIR=$DEMO_DATA_DIR", block)
+        self.assertIn("Environment=RP_EXTERNAL_SCHEDULER=1", block)
+        self.assertIn("scheduler.py", block)
+
+    def test_scheduler_unit_enabled_alongside_wsgi_unit(self):
+        i = self.SRC.index("systemctl enable --now remotepower-scheduler-demo")
+        self.assertGreater(i, 0)
+
+    def test_uninstall_stops_both_units(self):
+        i = self.SRC.index('== "--uninstall"')
+        block = self.SRC[i : i + 700]
+        self.assertIn("remotepower-wsgi-demo", block)
+        self.assertIn("remotepower-scheduler-demo", block)
+        self.assertIn("systemctl disable --now", block)
+
+
+class TestInstallDemoServesPwaAssets(unittest.TestCase):
+    """packaging/install-demo.sh's generated nginx vhost: /sw.js and
+    /manifest.json are fetched from the site root and don't match the
+    /static/, /api/, = /, or \\.html$ location blocks -- the catch-all
+    `location / { return 404; }` was swallowing both. Found live: the demo's
+    service-worker registration failed with a 404 fetching sw.js."""
+
+    SRC = (Path(__file__).parent.parent / "packaging" / "install-demo.sh").read_text()
+
+    def test_sw_js_location_precedes_catchall(self):
+        i_sw = self.SRC.index("location = /sw.js")
+        i_catchall = self.SRC.index("location / {\n        return 404;")
+        self.assertLess(i_sw, i_catchall)
+
+    def test_manifest_json_location_precedes_catchall(self):
+        i_manifest = self.SRC.index("location = /manifest.json {\n        expires 1h;")
+        i_catchall = self.SRC.index("location / {\n        return 404;")
+        self.assertLess(i_manifest, i_catchall)
+
+
 class TestPostgresSetupPinsPortOnEveryCall(unittest.TestCase):
     """packaging/postgres-setup.sh: found live on a box running TWO separate
     local Postgres server processes (one on the client-default socket, one on
