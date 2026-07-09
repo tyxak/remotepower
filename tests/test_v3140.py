@@ -61,7 +61,7 @@ class _HandlerBase(unittest.TestCase):
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
                      'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE',
-                     'APIKEYS_FILE'):
+                     'APIKEYS_FILE', 'QUERY_TEMPLATES_FILE', 'DRIFT_STATE_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -3281,6 +3281,146 @@ class TestApiKeyRotation(_HandlerBase):
         self.assertIn('async function rotateApiKey', app)
         self.assertIn("api('POST', '/apikeys/' + id + '/rotate'", app)
         self.assertIn('data-action="rotateApiKey"', app)
+
+
+class TestQueryEngineHandlers(_HandlerBase):
+    """v6.1.1 — ad-hoc fleet query engine, the api.py handler layer (entity
+    loaders, auth/tenancy scoping, saved templates). The predicate-tree
+    mechanics themselves are covered directly in tests/test_query_engine.py
+    (docs/feature-buildout-scoping-internal.md #2)."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web-1', 'group': 'prod', 'site': 's1', 'version': '6.1.1',
+                   'monitored': True, 'tags': ['edge'],
+                   'sysinfo': {'os': 'Ubuntu 24.04', 'cpu_percent': 91, 'mem_percent': 60,
+                               'reboot_required': True}},
+            'd2': {'name': 'db-1', 'group': 'prod', 'site': 's1', 'version': '6.1.1',
+                   'monitored': True, 'tags': [],
+                   'sysinfo': {'os': 'Debian 12', 'cpu_percent': 20, 'mem_percent': 30}},
+        })
+
+    def _query(self, entity, where=None, **kw):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'entity': entity, 'where': where, **kw}
+        return self.call(api.handle_query)
+
+    def test_devices_no_predicate_returns_all(self):
+        r = self._query('devices')
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['meta']['total'], 2)
+        self.assertEqual({row['name'] for row in r['rows']}, {'web-1', 'db-1'})
+
+    def test_devices_predicate_filters(self):
+        r = self._query('devices', {'field': 'cpu_pct', 'op': 'gt', 'value': 50})
+        self.assertEqual([row['name'] for row in r['rows']], ['web-1'])
+
+    def test_devices_and_predicate(self):
+        r = self._query('devices', {'and': [
+            {'field': 'group', 'op': 'eq', 'value': 'prod'},
+            {'field': 'reboot_required', 'op': 'eq', 'value': True},
+        ]})
+        self.assertEqual([row['name'] for row in r['rows']], ['web-1'])
+
+    def test_unknown_entity_400(self):
+        self._query('nope-such-entity')
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_unknown_field_400(self):
+        self._query('devices', {'field': 'ssh_private_key', 'op': 'eq', 'value': 'x'})
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_sort_and_pagination(self):
+        r = self._query('devices', None, sort='cpu_pct', sort_desc=True, limit=1)
+        self.assertEqual(r['rows'][0]['name'], 'web-1')
+        self.assertEqual(r['meta']['total'], 2)
+        self.assertEqual(len(r['rows']), 1)
+
+    def test_cves_flattened_one_row_per_finding(self):
+        api.save(api.CVE_FINDINGS_FILE, {'d1': {'findings': [
+            {'vuln_id': 'CVE-1', 'severity': 'critical', 'package': 'openssl'},
+            {'vuln_id': 'CVE-2', 'severity': 'low', 'package': 'curl', 'ignored': True},
+        ]}})
+        r = self._query('cves')
+        self.assertEqual(r['meta']['total'], 2)
+        crit = self._query('cves', {'field': 'severity', 'op': 'eq', 'value': 'critical'})
+        self.assertEqual([row['cve_id'] for row in crit['rows']], ['CVE-1'])
+
+    def test_cves_scoped_to_visible_devices(self):
+        # a finding for a device outside the caller's scope must not leak in
+        api.save(api.CVE_FINDINGS_FILE, {'ghost-device': {'findings': [
+            {'vuln_id': 'CVE-X', 'severity': 'critical'}]}})
+        r = self._query('cves')
+        self.assertEqual(r['meta']['total'], 0)
+
+    def test_drift_flattened_and_computed_flag(self):
+        api.save(api.DRIFT_STATE_FILE, {'d1': {'files': {
+            '/etc/ssh/sshd_config': {'exists': True, 'current_hash': 'a', 'baseline_hash': 'b'},
+            '/etc/hosts': {'exists': True, 'current_hash': 'x', 'baseline_hash': 'x'},
+        }}})
+        r = self._query('drift', {'field': 'drifted', 'op': 'eq', 'value': True})
+        self.assertEqual([row['path'] for row in r['rows']], ['/etc/ssh/sshd_config'])
+
+    def test_fields_endpoint_lists_entities(self):
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_query_fields)
+        self.assertIn('devices', r['entities'])
+        self.assertIn('cpu_pct', r['entities']['devices'])
+        self.assertIn('cves', r['entities'])
+        self.assertIn('drift', r['entities'])
+
+    def test_template_create_list_delete_roundtrip(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Hot boxes', 'entity': 'devices',
+                                     'where': {'field': 'cpu_pct', 'op': 'gt', 'value': 80}}
+        created = self.call(api.handle_query_template_create)
+        self.assertTrue(created['ok'])
+        tid = created['id']
+
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual([t['name'] for t in listed['templates']], ['Hot boxes'])
+
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_query_template_delete, tid)
+        api.method = lambda: 'GET'
+        listed2 = self.call(api.handle_query_templates)
+        self.assertEqual(listed2['templates'], [])
+
+    def test_template_create_validates_predicate(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Bad', 'entity': 'devices',
+                                     'where': {'field': 'nope', 'op': 'eq', 'value': 1}}
+        self.call(api.handle_query_template_create)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_template_delete_forbidden_for_non_owner_non_admin(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Mine', 'entity': 'devices'}
+        tid = self.call(api.handle_query_template_create)['id']
+        # simulate a different, non-admin caller
+        api.require_auth = lambda **kw: 'someone-else'
+        orig_resolve = api._resolve_role
+        api._resolve_role = lambda role: {'admin': False}
+        api.verify_token = lambda t: ('someone-else', 'viewer')
+        try:
+            api.method = lambda: 'DELETE'
+            self.call(api.handle_query_template_delete, tid)
+        finally:
+            api._resolve_role = orig_resolve
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_ui_wired(self):
+        # id="page-dataexplorer", NOT "page-query" -- that id already belongs
+        # to the older, simpler device-only Fleet Query page (v3.4.2).
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="page-dataexplorer"', html)
+        self.assertIn('data-page="dataexplorer"', html)
+        app = client_js()
+        self.assertIn("api('POST', '/query'", app)
+        self.assertIn("api('GET', '/query/fields'", app)
+        self.assertIn("if (name === 'dataexplorer') loadQueryPage()", app)
 
 
 class TestScim(_HandlerBase):

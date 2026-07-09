@@ -762,6 +762,7 @@ except Exception as _e:   # pragma: no cover - defensive
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
 import notify as notify_mod    # notification-channel payload builders (pure)
 import checks as checks_mod    # per-host Checks engine (pure)
+import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
 # rather than a cached `import`, because the test suite execs many api
 # instances per process — a process-cached tickets_handlers would stay bound
@@ -22182,6 +22183,209 @@ def _paginate_list(items):
         nxt = offset + limit if (limit and offset + limit < len(items)) else None
         return _envelope(page, (limit or None), offset, nxt)
     return page
+
+
+# ── v6.1.1: ad-hoc fleet query engine ────────────────────────────────────────
+# A small, WHITELISTED predicate-tree query surface (query_engine.py) over a
+# handful of registered entities -- deliberately not raw SQL (see that
+# module's docstring for why: a raw-SQL surface would be a direct RLS-bypass
+# risk). v1 loads each entity's rows through the SAME load()-backed path
+# every other handler already uses (_scope_filter_devices etc.), so whatever
+# RBAC/tenancy scoping already applies to that data stays applied here, and
+# filters in Python -- correct on every storage backend, since load() already
+# normalizes JSON/SQLite/Postgres to the same in-memory shape. SQL pushdown
+# for very large fleets is a deferred perf optimization, not a v1 correctness
+# requirement. See docs/feature-buildout-scoping-internal.md #2.
+def _qe_devices_rows():
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    out = []
+    for dev_id, d in devices.items():
+        si = d.get('sysinfo') or {}
+        out.append({
+            'device_id': dev_id, 'name': d.get('name', dev_id),
+            'group': d.get('group', ''), 'site': d.get('site', ''),
+            'os': si.get('os', ''), 'agent_version': d.get('version', ''),
+            'monitored': d.get('monitored', True) is not False,
+            'agentless': bool(d.get('agentless')),
+            'reboot_required': bool(si.get('reboot_required')),
+            'cpu_pct': si.get('cpu_percent'), 'mem_pct': si.get('mem_percent'),
+            'disk_pct': si.get('disk_percent'), 'swap_pct': si.get('swap_percent'),
+            'tags': ','.join(d.get('tags') or []),
+        })
+    return out
+
+
+_QE_DEVICE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'name', 'group', 'site', 'os', 'agent_version', 'monitored',
+    'agentless', 'reboot_required', 'cpu_pct', 'mem_pct', 'disk_pct', 'swap_pct', 'tags')}
+
+
+def _qe_cve_rows():
+    """One row per (device, finding) -- CVE_FINDINGS_FILE is device-keyed with
+    a nested `findings` list, flattened here the same way the runbook
+    snapshot (~line 32625) does for its top-10 preview, just unbounded."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    findings_all = load(CVE_FINDINGS_FILE) or {}
+    out = []
+    for dev_id, rec in findings_all.items():
+        if dev_id not in devices:
+            continue
+        dname = devices.get(dev_id, {}).get('name', dev_id)
+        for f in (rec.get('findings') or []):
+            out.append({
+                'device_id': dev_id, 'device_name': dname,
+                'cve_id': f.get('vuln_id', ''), 'severity': f.get('severity', ''),
+                'package': f.get('package', ''), 'fixed_version': f.get('fixed_version', ''),
+                'ignored': bool(f.get('ignored')),
+            })
+    return out
+
+
+_QE_CVE_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'cve_id', 'severity', 'package', 'fixed_version', 'ignored')}
+
+
+def _qe_drift_rows():
+    """One row per (device, watched file) -- DRIFT_STATE_FILE is device-keyed
+    with a nested `files` dict, flattened the same way handle_drift_overview
+    (~line 37960) aggregates it into counts, just per-file instead of summed."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    state = load(DRIFT_STATE_FILE) or {}
+    out = []
+    for dev_id, dev_state in state.items():
+        if dev_id not in devices:
+            continue
+        dname = devices.get(dev_id, {}).get('name', dev_id)
+        for path, f in ((dev_state or {}).get('files') or {}).items():
+            drifted = (not f.get('dormant') and not f.get('ignored')
+                      and f.get('exists', True)
+                      and f.get('current_hash') != f.get('baseline_hash'))
+            out.append({
+                'device_id': dev_id, 'device_name': dname, 'path': path,
+                'drifted': bool(drifted), 'exists': f.get('exists', True) is not False,
+                'dormant': bool(f.get('dormant')), 'ignored': bool(f.get('ignored')),
+            })
+    return out
+
+
+_QE_DRIFT_FIELDS = {k: (lambda r, k=k: r.get(k)) for k in (
+    'device_id', 'device_name', 'path', 'drifted', 'exists', 'dormant', 'ignored')}
+
+_QE_ENTITIES = {
+    'devices': (_qe_devices_rows, _QE_DEVICE_FIELDS),
+    'cves':    (_qe_cve_rows, _QE_CVE_FIELDS),
+    'drift':   (_qe_drift_rows, _QE_DRIFT_FIELDS),
+}
+
+QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
+
+
+def handle_query():
+    """POST /api/query — {entity, where?, sort?, sort_desc?, limit?, offset?}.
+    Read-only, whitelisted-field predicate tree. Auth-scoped the same as every
+    other fleet-data read (RBAC device scope, app-layer tenancy) since it
+    rides the same load()+_scope_filter_devices path every other handler
+    uses — never a raw connection outside that."""
+    require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    entity = str(body.get('entity', '')).strip()
+    if entity not in _QE_ENTITIES:
+        respond(400, {'error': f'unknown entity: {entity!r}. Choose from: {sorted(_QE_ENTITIES)}'})
+    loader, fields = _QE_ENTITIES[entity]
+    where = body.get('where')
+    rows = loader()
+    if where:
+        try:
+            query_engine.validate_predicate(where, fields)
+        except query_engine.QueryError as e:
+            respond(400, {'error': str(e)})
+        matched = query_engine.run(rows, where, fields)
+    else:
+        matched = rows
+    sort_key = str(body.get('sort', '')).strip()
+    if sort_key and sort_key in fields:
+        extractor = fields[sort_key]
+        matched = sorted(matched, key=lambda r: (extractor(r) is None, extractor(r)),
+                         reverse=bool(body.get('sort_desc')))
+    total = len(matched)
+    try:
+        limit = min(max(int(body.get('limit', 500) or 500), 1), 2000)
+    except (TypeError, ValueError):
+        limit = 500
+    try:
+        offset = max(int(body.get('offset', 0) or 0), 0)
+    except (TypeError, ValueError):
+        offset = 0
+    respond(200, {'ok': True, 'entity': entity, 'rows': matched[offset:offset + limit],
+                  'meta': {'total': total, 'limit': limit, 'offset': offset}})
+
+
+def handle_query_fields():
+    """GET /api/query/fields — the entity/field registry, for the query
+    builder UI's dropdowns (not a schema dump of anything else)."""
+    require_auth()
+    respond(200, {'ok': True, 'entities': {name: sorted(fields)
+                  for name, (_, fields) in _QE_ENTITIES.items()}})
+
+
+def handle_query_templates():
+    """GET /api/query/templates — saved queries (name/entity/where/sort). Any
+    authenticated user can save/run one; write is confined to the owner or an
+    admin (mirrors the pattern for other per-user saved-item stores)."""
+    require_auth()
+    templates = load(QUERY_TEMPLATES_FILE) or {}
+    respond(200, {'ok': True, 'templates': sorted(templates.values(),
+                  key=lambda t: t.get('name', '').lower())})
+
+
+def handle_query_template_create():
+    """POST /api/query/templates {name, entity, where?, sort?, sort_desc?}."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(body.get('name', ''), 80)
+    entity = str(body.get('entity', '')).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    if entity not in _QE_ENTITIES:
+        respond(400, {'error': f'unknown entity: {entity!r}'})
+    _, fields = _QE_ENTITIES[entity]
+    where = body.get('where')
+    if where:
+        try:
+            query_engine.validate_predicate(where, fields)
+        except query_engine.QueryError as e:
+            respond(400, {'error': str(e)})
+    tid = secrets.token_hex(8)
+    with _LockedUpdate(QUERY_TEMPLATES_FILE) as templates:
+        if len(templates) >= 200:
+            respond(400, {'error': 'template limit reached (max 200)'})
+        templates[tid] = {'id': tid, 'name': name, 'entity': entity, 'where': where,
+                          'sort': str(body.get('sort', '')).strip() or None,
+                          'sort_desc': bool(body.get('sort_desc')),
+                          'owner': actor, 'created': int(time.time())}
+    respond(201, {'ok': True, 'id': tid})
+
+
+def handle_query_template_delete(tid):
+    """DELETE /api/query/templates/{id} — owner or admin."""
+    actor = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(tid):
+        respond(404, {'error': 'Template not found'})
+    with _LockedUpdate(QUERY_TEMPLATES_FILE) as templates:
+        t = templates.get(tid)
+        if not t:
+            respond(404, {'error': 'Template not found'})
+        _, role = verify_token(get_token_from_request())
+        if t.get('owner') != actor and not _resolve_role(role).get('admin'):
+            respond(403, {'error': 'only the owner or an admin can delete this template'})
+        del templates[tid]
+    respond(200, {'ok': True})
 
 
 def handle_history():
@@ -53875,6 +54079,11 @@ def _build_exact_routes():
         ('POST', '/api/integrations/test'): handle_integration_test,
         ('GET',  '/api/integrations/status'): handle_integrations_status,
         ('POST', '/api/connectors/reload'): handle_connectors_reload,   # v6.1.1
+        # v6.1.1: ad-hoc fleet query engine
+        ('POST', '/api/query'): handle_query,
+        ('GET', '/api/query/fields'): handle_query_fields,
+        ('GET', '/api/query/templates'): handle_query_templates,
+        ('POST', '/api/query/templates'): handle_query_template_create,
         ('POST', '/api/cloud/import'): handle_cloud_import,             # v3.14.0 #32
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,
@@ -54177,6 +54386,7 @@ _PATTERN_ROUTE_DEFS = (
     # suffix would otherwise swallow '.../rotate' as an update call with a bad id).
     ('pat', ('POST',), '/api/apikeys/', '/rotate', 'handle_apikeys_rotate', "pi.startswith('/api/apikeys/') and pi.endswith('/rotate') and m == 'POST'"),
     ('pat', ('PATCH', 'POST'), '/api/apikeys/', '', 'handle_apikeys_update', "pi.startswith('/api/apikeys/') and m in ('PATCH', 'POST')"),
+    ('pat', ('DELETE',), '/api/query/templates/', '', 'handle_query_template_delete', "pi.startswith('/api/query/templates/') and m == 'DELETE'"),   # v6.1.1
     ('pat', ('GET',), '/api/patch-report/device/', '', 'handle_patch_report_device', "pi.startswith('/api/patch-report/device/') and m == 'GET'"),
     ('eq', ('DELETE',), '/api/audit-log', '', 'handle_audit_log_clear', "pi == '/api/audit-log' and m == 'DELETE'"),
     ('pat', ('GET',), '/api/users/', '/avatar', 'handle_user_avatar', "pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET'"),

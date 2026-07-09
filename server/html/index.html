@@ -445,6 +445,10 @@
           <span>Command Queue</span>
           <span class="nav-badge d-none" id="cmdqueue-badge"></span>
         </button>
+        <button class="nav-btn" data-page="dataexplorer" title="Advanced predicate query across devices, CVEs and drift — nested AND/OR conditions, build, run, save as a template. Separate from the simpler device-only Fleet Query page.">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Data Explorer</span>
+        </button>
         <button class="nav-btn" data-page="confirmations" title="Pending actions awaiting a second admin's approval (MCP writes + change-approval)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>Confirmations</span>
@@ -4907,6 +4911,47 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <input type="text" id="cmdqueue-filter" class="form-input mb-8" placeholder="Filter by device, actor, or command…" data-input="_renderCommandQueue" data-input-debounce="180" aria-label="Filter by device, actor, or command">
           <div id="cmdqueue-body"><div class="c-muted">Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- v6.1.1: ad-hoc fleet query engine. Separate from the older, simpler
+           device-only Fleet Query page above (page-query, v3.4.2, AND-only
+           fixed facets over Smart Groups) -- this one is a general nested
+           and/or/not predicate tree over multiple entities (devices/CVEs/
+           drift), so it gets its own id/nav/title to avoid any confusion
+           between the two. -->
+      <div id="page-dataexplorer" class="page">
+        <div class="page-title">Data Explorer</div>
+        <div class="page-subtitle">Build a filter across devices, CVEs, or drift — run it, save it as a template. Read-only; scoped to what you can already see.</div>
+        <div class="dash-card">
+          <div class="section-title">Query builder</div>
+          <div class="settings-row">
+            <label class="form-label" for="qe-entity">Entity</label>
+            <select id="qe-entity" class="form-input mw-140" data-change="qeEntityChanged" aria-label="Entity"></select>
+            <button class="btn-icon" data-action="qeAddCondition">Add condition</button>
+            <label class="form-label ml-12" for="qe-sort">Sort by</label>
+            <select id="qe-sort" class="form-input mw-160" aria-label="Sort by"></select>
+            <select id="qe-sort-dir" class="form-input mw-100" aria-label="Sort direction"><option value="">asc</option><option value="1">desc</option></select>
+          </div>
+          <div id="qe-conditions"></div>
+          <div class="settings-row mt-8">
+            <button class="btn-primary" data-action="qeRun">Run query</button>
+            <input type="text" id="qe-template-name" class="form-input mw-220" placeholder="Template name (optional)" aria-label="Template name">
+            <button class="btn-icon" data-action="qeSaveTemplate">Save as template</button>
+            <span id="qe-status" class="hint ml-8"></span>
+          </div>
+        </div>
+        <div class="dash-card mt-16">
+          <div class="section-title">Saved queries</div>
+          <div id="qe-templates" class="scroll-cap-sm"><div class="empty-state">No saved queries yet.</div></div>
+        </div>
+        <div class="dash-card mt-16">
+          <div class="section-title">Results</div>
+          <div id="qe-results-summary" class="hint mb-8"></div>
+          <div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full">
+            <thead id="qe-results-thead"></thead>
+            <tbody id="qe-results-tbody"><tr><td class="empty-state">Run a query to see results.</td></tr></tbody>
+          </table></div>
         </div>
       </div>
 

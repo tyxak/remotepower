@@ -1570,6 +1570,7 @@ function showPage(name, btn) {
   if (name === 'backups')  loadBackupJobs();
   if (name === 'provisioning') loadProvisioning();   // also loads the Ansible playbooks card
   if (name === 'cmdqueue') loadCommandQueue();
+  if (name === 'dataexplorer') loadQueryPage();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
   if (name === 'patches')        loadPatchReport();
@@ -6341,6 +6342,177 @@ async function clearDispatchLog() {
   const r = await api('DELETE', '/history').catch(() => null);
   if (r?.ok) { toast('Command history cleared', 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
+}
+
+// ── v6.1.1: ad-hoc fleet query engine ─────────────────────────────────────────
+// The UI builder only produces a flat AND list of conditions (by far the
+// common case); the API itself accepts full nested and/or/not for power
+// users or the AI advisor. Results are a genuinely dynamic-shaped table (the
+// column set depends on which entity was picked at runtime), so this does
+// NOT go through the shared tableCtl sort/filter convention that assumes a
+// fixed known column set — sort is instead part of the query itself (the
+// Sort by / asc-desc controls above), sent to the server.
+const _QE_OPS = [
+  ['eq', '='], ['ne', '≠'], ['gt', '>'], ['gte', '≥'], ['lt', '<'], ['lte', '≤'],
+  ['contains', 'contains'], ['in', 'in (comma-separated)'], ['exists', 'is set'],
+];
+let _qeFieldsByEntity = {};
+let _qeLastRows = [];
+
+async function loadQueryPage() {
+  const r = await api('GET', '/query/fields').catch(() => null);
+  _qeFieldsByEntity = (r && r.entities) || {};
+  const sel = document.getElementById('qe-entity');
+  if (sel) sel.innerHTML = Object.keys(_qeFieldsByEntity)
+    .map(e => `<option value="${escAttr(e)}">${escHtml(e)}</option>`).join('');
+  qeEntityChanged();
+  await qeLoadTemplates();
+}
+
+function _qeCurrentFields() {
+  const entity = document.getElementById('qe-entity')?.value || Object.keys(_qeFieldsByEntity)[0] || '';
+  return _qeFieldsByEntity[entity] || [];
+}
+
+function qeEntityChanged() {
+  const fields = _qeCurrentFields();
+  const sortSel = document.getElementById('qe-sort');
+  if (sortSel) sortSel.innerHTML = '<option value="">(none)</option>' +
+    fields.map(f => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('');
+  const wrap = document.getElementById('qe-conditions');
+  if (wrap) wrap.innerHTML = '';
+  qeAddCondition();
+}
+
+function qeAddCondition() {
+  const fields = _qeCurrentFields();
+  const wrap = document.getElementById('qe-conditions');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'settings-row qe-cond-row';
+  const fieldOpts = fields.map(f => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('');
+  const opOpts = _QE_OPS.map(([v, label]) => `<option value="${escAttr(v)}">${escHtml(label)}</option>`).join('');
+  row.innerHTML =
+    `<select class="form-input mw-160 qe-cond-field" aria-label="Field">${fieldOpts}</select>` +
+    `<select class="form-input mw-160 qe-cond-op" aria-label="Operator">${opOpts}</select>` +
+    `<input type="text" class="form-input mw-160 qe-cond-value" placeholder="value" aria-label="Value">` +
+    `<button class="btn-icon" data-action="qeRemoveCondition" data-pass-btn="1">Remove</button>`;
+  wrap.appendChild(row);
+}
+
+function qeRemoveCondition(btn) {
+  btn.closest('.qe-cond-row')?.remove();
+}
+
+function _qeBuildWhere() {
+  const rows = Array.from(document.querySelectorAll('#qe-conditions .qe-cond-row'));
+  const nodes = rows.map(row => {
+    const field = row.querySelector('.qe-cond-field')?.value;
+    const op = row.querySelector('.qe-cond-op')?.value;
+    const raw = (row.querySelector('.qe-cond-value')?.value || '').trim();
+    if (!field || !op) return null;
+    if (op === 'exists') return { field, op };
+    if (op === 'in') return { field, op, value: raw.split(',').map(s => s.trim()).filter(Boolean) };
+    const num = Number(raw);
+    const value = (raw !== '' && !isNaN(num)) ? num : raw;
+    return { field, op, value };
+  }).filter(Boolean);
+  if (!nodes.length) return null;
+  return nodes.length === 1 ? nodes[0] : { and: nodes };
+}
+
+function _qeBody() {
+  const entity = document.getElementById('qe-entity')?.value || '';
+  const sort = document.getElementById('qe-sort')?.value || '';
+  const sort_desc = !!document.getElementById('qe-sort-dir')?.value;
+  const body = { entity, where: _qeBuildWhere() };
+  if (sort) { body.sort = sort; body.sort_desc = sort_desc; }
+  return body;
+}
+
+async function qeRun() {
+  const status = document.getElementById('qe-status');
+  if (status) status.textContent = 'Running…';
+  const r = await api('POST', '/query', _qeBody()).catch(e => ({ error: String(e) }));
+  if (!r || !r.ok) { if (status) status.textContent = ''; toast((r && r.error) || 'Query failed', 'error'); return; }
+  _qeLastRows = r.rows || [];
+  _qeRenderResults(r);
+  if (status) status.textContent = '';
+}
+
+function _qeRenderResults(r) {
+  const summary = document.getElementById('qe-results-summary');
+  const thead = document.getElementById('qe-results-thead');
+  const tbody = document.getElementById('qe-results-tbody');
+  if (!thead || !tbody) return;
+  const rows = r.rows || [];
+  const meta = r.meta || {};
+  if (summary) summary.textContent = `${rows.length} of ${meta.total || 0} row(s) shown` +
+    (meta.total > rows.length ? ` (limit ${meta.limit})` : '');
+  if (!rows.length) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '<tr><td class="empty-state">No matching rows.</td></tr>';
+    return;
+  }
+  const cols = Object.keys(rows[0]);
+  thead.innerHTML = '<tr>' + cols.map(c => `<th scope="col">${escHtml(c)}</th>`).join('') + '</tr>';
+  tbody.innerHTML = rows.map(row =>
+    '<tr>' + cols.map(c => `<td>${escHtml(String(row[c] ?? ''))}</td>`).join('') + '</tr>'
+  ).join('');
+}
+
+async function qeSaveTemplate() {
+  const name = (document.getElementById('qe-template-name')?.value || '').trim();
+  if (!name) { toast('Name the template first', 'error'); return; }
+  const body = { name, ..._qeBody() };
+  const r = await api('POST', '/query/templates', body).catch(e => ({ error: String(e) }));
+  if (r?.ok) {
+    toast('Template saved', 'success');
+    document.getElementById('qe-template-name').value = '';
+    await qeLoadTemplates();
+  } else toast(r?.error || 'Save failed', 'error');
+}
+
+async function qeLoadTemplates() {
+  const r = await api('GET', '/query/templates').catch(() => null);
+  const wrap = document.getElementById('qe-templates');
+  if (!wrap) return;
+  const templates = (r && r.templates) || [];
+  wrap.innerHTML = templates.length ? templates.map(t =>
+    `<div class="settings-row"><strong>${escHtml(t.name)}</strong> <span class="hint">(${escHtml(t.entity)})</span> ` +
+    `<button class="btn-icon" data-action="qeRunTemplate" data-arg="${escAttr(t.id)}">Run</button> ` +
+    `<button class="btn-icon c-danger-outline" data-action="qeDeleteTemplate" data-arg="${escAttr(t.id)}">Delete</button></div>`
+  ).join('') : '<div class="empty-state">No saved queries yet.</div>';
+}
+
+async function qeRunTemplate(id) {
+  const r = await api('GET', '/query/templates').catch(() => null);
+  const t = (r && r.templates || []).find(x => x.id === id);
+  if (!t) { toast('Template not found', 'error'); return; }
+  const entitySel = document.getElementById('qe-entity');
+  if (entitySel) entitySel.value = t.entity;
+  qeEntityChanged();
+  if (t.sort) {
+    const sortSel = document.getElementById('qe-sort');
+    if (sortSel) sortSel.value = t.sort;
+    const dirSel = document.getElementById('qe-sort-dir');
+    if (dirSel) dirSel.value = t.sort_desc ? '1' : '';
+  }
+  const status = document.getElementById('qe-status');
+  if (status) status.textContent = 'Running…';
+  const res = await api('POST', '/query', { entity: t.entity, where: t.where, sort: t.sort, sort_desc: t.sort_desc })
+    .catch(e => ({ error: String(e) }));
+  if (!res || !res.ok) { if (status) status.textContent = ''; toast((res && res.error) || 'Query failed', 'error'); return; }
+  _qeLastRows = res.rows || [];
+  _qeRenderResults(res);
+  if (status) status.textContent = '';
+}
+
+async function qeDeleteTemplate(id) {
+  if (!await uiConfirm('Delete this saved query?')) return;
+  const r = await api('DELETE', '/query/templates/' + id).catch(() => null);
+  if (r?.ok) { toast('Deleted', 'success'); qeLoadTemplates(); }
+  else toast(r?.error || 'Delete failed', 'error');
 }
 
 let _apiKeysCache = [];
@@ -22471,7 +22643,7 @@ function _palBuildIndex() {
     ['Server status', 'self'], ['Documentation', 'docs'],
     ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],
     ['API Keys', 'apikeys'], ['Scripts', 'scripts'], ['Command Library', 'cmdlib'],
-    ['Command Queue', 'cmdqueue'],
+    ['Command Queue', 'cmdqueue'], ['Fleet Query', 'query'], ['Data Explorer', 'dataexplorer'],
     ['Maintenance', 'maintenance'], ['Services', 'services'], ['About', 'about'],
     // v3.4.1: new + previously-missing destinations
     ['Timeline', 'timeline'], ['Reports', 'reports'], ['Alerts', 'alerts'],
