@@ -6221,6 +6221,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">ZFS, mdadm and btrfs pool/array state across the fleet. Degraded or faulted arrays are listed first and raise an alert; ZFS scrub freshness is tracked. <a href="docs/storage.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadStorage" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-secondary" data-action="openStorageProvision">Provision storage…</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / pool…" data-input="filterRows" data-input-el="1" data-filter-target="#storage-tbody tr" aria-label="Filter device / pool">
           <span id="storage-summary" class="isl-100"></span>
         </div>
@@ -7858,6 +7859,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <p class="hint">Commands run on the host through the audited command queue. <strong>Read actions</strong> (status, usage, list snapshots, …) show their output here once the host checks in. <strong>Scrubs and balances</strong> run in the background and update the pool's status on the next check-in. Everything is also logged to the host's command output under Devices.</p>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="storage-maint-modal">Close</button></div>
+</div></div>
+<!-- v6.1.1: guided storage provisioning -- whole-disk RAID/LVM/mkfs, not a
+     general partition editor. Every recipe requires a server-checked
+     type-to-confirm (this preview/confirm split is UX only; the server
+     independently verifies the typed value, see handle_device_storage_provision). -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="storage-prov-title" id="storage-prov-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="storage-prov-title">Provision storage</div>
+  <div class="modal-subtitle">Whole-disk devices only (no partitions) -- create a RAID array, LVM volume, or filesystem. Destructive; requires typing the exact target to confirm.</div>
+  <div class="form-group"><label class="form-label" for="sp-device-select">Device</label>
+    <select id="sp-device-select" class="form-input" aria-label="Target device"></select></div>
+  <div class="form-group"><label class="form-label" for="sp-recipe">Recipe</label>
+    <select id="sp-recipe" class="form-input" data-change="spRecipeChanged" aria-label="Recipe">
+      <option value="mdadm_create">Create RAID array (mdadm)</option>
+      <option value="lvm_pvcreate">LVM: create physical volume(s)</option>
+      <option value="lvm_vgcreate">LVM: create volume group</option>
+      <option value="lvm_lvcreate">LVM: create logical volume</option>
+      <option value="mkfs">Create filesystem (mkfs)</option>
+    </select></div>
+  <div id="sp-fields"></div>
+  <div class="settings-row mt-8"><button class="btn-secondary" data-action="spPreview">Preview command</button></div>
+  <div id="sp-preview" class="hint mt-8"></div>
+  <div class="form-group mt-8 d-none" id="sp-confirm-wrap">
+    <div class="rp-haz mb-8" aria-hidden="true"></div>
+    <label class="form-label" for="sp-confirm">Type <code id="sp-confirm-target"></code> to confirm</label>
+    <input type="text" id="sp-confirm" class="form-input ff-mono" autocomplete="off">
+  </div>
+  <p class="hint">Routed through the audited command queue, same as pool maintenance -- and additionally requires a second admin's approval whenever change-approval is enabled at all (Settings → Security), regardless of this action's own default gate.</p>
+  <div class="modal-actions">
+    <button class="btn-secondary c-red" data-action="spExecute">Provision</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="storage-prov-modal">Close</button>
+  </div>
 </div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-detail-title" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>
 <!-- v3.14.0: on-demand container logs -->

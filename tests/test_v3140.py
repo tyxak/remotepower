@@ -62,7 +62,7 @@ class _HandlerBase(unittest.TestCase):
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
                      'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE',
                      'APIKEYS_FILE', 'QUERY_TEMPLATES_FILE', 'DRIFT_STATE_FILE',
-                     'PATCH_SNAPSHOTS_FILE'):
+                     'PATCH_SNAPSHOTS_FILE', 'AUDIT_LOG_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -3594,6 +3594,87 @@ class TestInvoicePdfUiWired(unittest.TestCase):
         self.assertIn('id="bc-issuer-address"', app)
         self.assertIn('issuer_name:', app)
         self.assertIn('issuer_address:', app)
+
+
+class TestStorageProvisionHandler(_HandlerBase):
+    """v6.1.1 — POST /api/devices/{id}/storage-provision handler layer: the
+    dry_run/confirm/force_approval wiring. _sp_build's per-recipe validation
+    is covered directly in tests/test_storage_provision.py."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.DEVICES_FILE, {'dev1': {'name': 'dev1'}})
+
+    def _call(self, body):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: body
+        return self.call(api.handle_device_storage_provision, 'dev1')
+
+    def test_dry_run_has_zero_side_effects(self):
+        r = self._call({'recipe': 'mkfs', 'params': {'device': '/dev/sdb', 'fstype': 'ext4'},
+                        'dry_run': True})
+        self.assertTrue(r['ok'])
+        self.assertTrue(r['dry_run'])
+        self.assertEqual(r['command'], 'mkfs.ext4 -F /dev/sdb')
+        self.assertEqual(r['confirm_target'], '/dev/sdb')
+        self.assertEqual(api.load(api.CMDS_FILE), {})   # nothing queued
+        self.assertFalse(api.load(api.AUDIT_LOG_FILE).get('entries'))   # nothing audited
+
+    def test_missing_confirm_rejected(self):
+        self._call({'recipe': 'mkfs', 'params': {'device': '/dev/sdb', 'fstype': 'ext4'}})
+        self.assertEqual(self.cap['s'], 400)
+        self.assertEqual(api.load(api.CMDS_FILE), {})
+
+    def test_wrong_confirm_rejected(self):
+        self._call({'recipe': 'mkfs', 'params': {'device': '/dev/sdb', 'fstype': 'ext4'},
+                    'confirm': '/dev/sdc'})
+        self.assertEqual(self.cap['s'], 400)
+        self.assertEqual(api.load(api.CMDS_FILE), {})
+
+    def test_correct_confirm_queues_and_audits(self):
+        r = self._call({'recipe': 'mkfs', 'params': {'device': '/dev/sdb', 'fstype': 'ext4'},
+                        'confirm': '/dev/sdb'})
+        self.assertTrue(r['ok'])
+        cmds = api.load(api.CMDS_FILE)
+        self.assertIn('exec:mkfs.ext4 -F /dev/sdb', cmds.get('dev1', []))
+
+    def test_invalid_recipe_params_400(self):
+        self._call({'recipe': 'mkfs', 'params': {'device': '/dev/sda1', 'fstype': 'ext4'},
+                    'confirm': '/dev/sda1'})
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_change_approval_parks_instead_of_queueing(self):
+        # force_approval=True means a storage-provision call is subject to the
+        # 4-eyes gate whenever change_approval is on at ALL -- not just when
+        # its own _command_kind happens to be in the default gated set (the
+        # same hook guided CIS remediation uses).
+        api.save(api.CONFIG_FILE, {'change_approval_enabled': True})
+        r = self._call({'recipe': 'mkfs', 'params': {'device': '/dev/sdb', 'fstype': 'ext4'},
+                        'confirm': '/dev/sdb'})
+        self.assertTrue(r.get('approval_required'))
+        self.assertEqual(self.cap['s'], 202)
+        self.assertEqual(api.load(api.CMDS_FILE), {})   # not queued -- parked instead
+
+    def test_raid_create_end_to_end(self):
+        r = self._call({'recipe': 'mdadm_create',
+                        'params': {'device': '/dev/md0', 'level': '1',
+                                   'members': ['/dev/sdb', '/dev/sdc']},
+                        'confirm': '/dev/md0'})
+        self.assertTrue(r['ok'])
+        cmds = api.load(api.CMDS_FILE)['dev1']
+        self.assertIn('exec:mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sdb /dev/sdc --run', cmds)
+
+    def test_method_and_route_wired(self):
+        api.method = lambda: 'GET'
+        api.get_json_body = lambda: {}
+        self.call(api.handle_device_storage_provision, 'dev1')
+        self.assertEqual(self.cap['s'], 405)
+        src = (Path(__file__).parent.parent / "server/cgi-bin/api.py").read_text()
+        self.assertIn("'/storage-provision', 'handle_device_storage_provision'", src)
+
+    def test_ui_wired(self):
+        app = client_js()
+        self.assertIn('/storage-provision', app)
 
 
 class TestScim(_HandlerBase):

@@ -13639,6 +13639,148 @@ def handle_device_storage_action(dev_id):
     _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
 
 
+# ── v6.1.1: guided storage provisioning (create, not just maintain) ─────────
+# _STORAGE_ACTIONS above only operates on pools/volumes that already exist.
+# This is the "create a RAID array / LVM volume / filesystem" counterpart,
+# deliberately narrower than a general partition-table editor
+# (docs/feature-buildout-scoping-internal.md #7):
+#   - whole-disk block devices only (/dev/sdX, /dev/vdX, /dev/nvmeXnY) --
+#     no partitions, no arbitrary paths. An operator wanting partition-level
+#     control still has the existing exec/shell channel; this feature is for
+#     the common "grab N blank disks, build an array" case.
+#   - every recipe requires the caller to type the exact identifier of the
+#     thing being created/overwritten (`confirm`) and the server checks it
+#     itself -- unlike the Proxmox snapshot-rollback type-to-confirm, which
+#     is UI-only (see handle_proxmox_snapshot_action's docstring); that gap
+#     is not propagated here.
+#   - every recipe routes through _queue_command(..., force_approval=True) --
+#     the same hook guided CIS remediation uses, so it's subject to 4-eyes
+#     whenever change-approval is enabled at all, not just when its own kind
+#     happens to be in the default gated set.
+#   - a dry_run pass returns the constructed command with ZERO side effects
+#     (no queue, no audit) so the UI can always show exactly what would run
+#     before the confirm step.
+_DEVICE_PATH_RE = re.compile(r'^/dev/(sd[a-z]{1,2}|vd[a-z]{1,2}|nvme[0-9]{1,2}n[0-9]{1,2})$')
+_MD_DEVICE_RE = re.compile(r'^/dev/md[0-9]{1,3}$')
+_LVM_NAME_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_.-]{0,62}$')   # lvm2 name rules, roughly
+_RAID_LEVELS = ('0', '1', '5', '6', '10')
+_MKFS_TYPES = ('ext4', 'xfs', 'btrfs')
+MAX_STORAGE_PROVISION_MEMBERS = 24
+
+
+def _sp_devices(raw, minimum=1):
+    """A list of whole-disk device paths, deduplicated, each _DEVICE_PATH_RE-valid.
+    Rejects (returns None) rather than silently truncating a too-long list --
+    for a destructive operation, building an array from a silently-truncated
+    subset of what the operator listed is a worse failure mode than a clear
+    error asking them to split the request."""
+    if not isinstance(raw, list) or len(raw) > MAX_STORAGE_PROVISION_MEMBERS:
+        return None
+    out = []
+    for d in raw:
+        d = str(d).strip()
+        if not _DEVICE_PATH_RE.match(d) or d in out:
+            return None
+        out.append(d)
+    return out if len(out) >= minimum else None
+
+
+def _sp_build(recipe, params):
+    """Validate `params` for `recipe` and return (command, confirm_target,
+    audit_detail) or raise ValueError(message) on any bad input. No I/O --
+    pure so it's directly unit-testable without a request context."""
+    if recipe == 'mdadm_create':
+        device = str(params.get('device', '')).strip()
+        level = str(params.get('level', '')).strip()
+        members = _sp_devices(params.get('members'), minimum=2)
+        if not _MD_DEVICE_RE.match(device):
+            raise ValueError('device must be a /dev/mdN path')
+        if level not in _RAID_LEVELS:
+            raise ValueError(f'level must be one of {", ".join(_RAID_LEVELS)}')
+        if not members:
+            raise ValueError(f'members must be 2..{MAX_STORAGE_PROVISION_MEMBERS} whole-disk /dev paths')
+        min_members = {'0': 2, '1': 2, '5': 3, '6': 4, '10': 4}[level]
+        if len(members) < min_members:
+            raise ValueError(f'RAID{level} needs at least {min_members} members')
+        cmd = (f'mdadm --create {device} --level={level} '
+              f'--raid-devices={len(members)} {" ".join(members)} --run')
+        return cmd, device, f'mdadm_create {device} raid{level} members={",".join(members)}'
+
+    if recipe == 'lvm_pvcreate':
+        members = _sp_devices(params.get('members'), minimum=1)
+        if not members:
+            raise ValueError('members must be 1..%d whole-disk /dev paths' % MAX_STORAGE_PROVISION_MEMBERS)
+        cmd = 'pvcreate ' + ' '.join(members)
+        return cmd, ' '.join(members), f'lvm_pvcreate members={",".join(members)}'
+
+    if recipe == 'lvm_vgcreate':
+        vgname = str(params.get('vgname', '')).strip()
+        members = _sp_devices(params.get('members'), minimum=1)
+        if not _LVM_NAME_RE.match(vgname):
+            raise ValueError('vgname must be a valid LVM name')
+        if not members:
+            raise ValueError('members must be 1..%d whole-disk /dev paths' % MAX_STORAGE_PROVISION_MEMBERS)
+        cmd = f'vgcreate {vgname} ' + ' '.join(members)
+        return cmd, vgname, f'lvm_vgcreate {vgname} members={",".join(members)}'
+
+    if recipe == 'lvm_lvcreate':
+        vgname = str(params.get('vgname', '')).strip()
+        lvname = str(params.get('lvname', '')).strip()
+        if not _LVM_NAME_RE.match(vgname) or not _LVM_NAME_RE.match(lvname):
+            raise ValueError('vgname and lvname must be valid LVM names')
+        size = str(params.get('size', '')).strip()
+        if size:
+            if not re.fullmatch(r'[0-9]{1,6}[MGT]', size):
+                raise ValueError('size must look like 500G / 10T / 100M, or blank for 100%FREE')
+            extent = f'-L {size}'
+        else:
+            extent = '-l 100%FREE'
+        cmd = f'lvcreate -n {lvname} {extent} {vgname}'
+        return cmd, lvname, f'lvm_lvcreate {vgname}/{lvname} size={size or "100%FREE"}'
+
+    if recipe == 'mkfs':
+        device = str(params.get('device', '')).strip()
+        fstype = str(params.get('fstype', '')).strip()
+        if not _DEVICE_PATH_RE.match(device):
+            raise ValueError('device must be a whole-disk /dev path')
+        if fstype not in _MKFS_TYPES:
+            raise ValueError(f'fstype must be one of {", ".join(_MKFS_TYPES)}')
+        cmd = f'mkfs.{fstype} -f {device}' if fstype == 'btrfs' else f'mkfs.{fstype} -F {device}'
+        return cmd, device, f'mkfs {fstype} {device}'
+
+    raise ValueError(f'unknown recipe: {recipe}')
+
+
+def handle_device_storage_provision(dev_id):
+    """POST /api/devices/{id}/storage-provision
+    {recipe, params:{...}, confirm, dry_run?} — see the module comment above
+    _sp_build for the guardrails. recipe in mdadm_create/lvm_pvcreate/
+    lvm_vgcreate/lvm_lvcreate/mkfs. dry_run=true returns the command with no
+    side effects at all (not queued, not audited)."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_obj()
+    recipe = str(body.get('recipe', '')).strip()
+    params = body.get('params') if isinstance(body.get('params'), dict) else {}
+    try:
+        cmd, confirm_target, detail = _sp_build(recipe, params)
+    except ValueError as e:
+        respond(400, {'error': str(e)})
+        return
+    if bool(body.get('dry_run')):
+        respond(200, {'ok': True, 'dry_run': True, 'command': cmd, 'confirm_target': confirm_target})
+        return
+    confirm = str(body.get('confirm', '')).strip()
+    if not confirm or not hmac.compare_digest(confirm, confirm_target):
+        respond(400, {'error': f'confirm must exactly match "{confirm_target}"'})
+        return
+    audit_log(actor, 'storage_provision', detail=f'device={dev_id} {detail}'[:200])
+    _queue_command(dev_id, f'exec:{cmd}', actor, force_approval=True)   # responds + exits
+
+
 def handle_device_fail2ban_action(dev_id):
     """POST /api/devices/{id}/fail2ban-action — ban/unban an IP or start/stop a
     jail. Body: {action: ban|unban|enable|disable, jail, ip?}. jail + ip strictly
@@ -54610,6 +54752,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/files/archive-chunk', 'handle_files_archive_chunk', "pi.startswith('/api/devices/') and pi.endswith('/files/archive-chunk') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/cron-action', 'handle_device_cron_action', "pi.startswith('/api/devices/') and pi.endswith('/cron-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/storage-action', 'handle_device_storage_action', "pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/storage-provision', 'handle_device_storage_provision', "pi.startswith('/api/devices/') and pi.endswith('/storage-provision') and m == 'POST'"),   # v6.1.1
     ('pat', ('POST',), '/api/devices/', '/fail2ban-action', 'handle_device_fail2ban_action', "pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/av-scan', 'handle_av_scan', "pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/av', 'handle_av_status', "pi.startswith('/api/devices/') and pi.endswith('/av') and m == 'GET'"),
