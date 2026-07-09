@@ -340,6 +340,16 @@ fi
 
 echo "── Writing nginx config to $NGINX_CONF…"
 
+# Found live: a box with IPv6 disabled at the kernel level (common on some
+# VPS/cloud providers) makes nginx -t fail outright on `listen [::]:80` —
+# "socket() [::]:80 failed (97: Address family not supported by protocol)"
+# — which blocked the ENTIRE config, not just this vhost, until the line was
+# manually removed. /proc/net/if_inet6 only exists when the kernel has IPv6
+# enabled (a standard, portable Linux check) — only emit the IPv6 listen
+# line when that's true.
+IPV6_LISTEN=""
+[[ -f /proc/net/if_inet6 ]] && IPV6_LISTEN="    listen      [::]:80;"
+
 # Generate the config. Note: we leave TLS to the user (certbot, acme.sh, etc.).
 # The skeleton listens on port 80 only and includes a hint for HTTPS at the
 # bottom. If the user already has TLS termination configured for their main
@@ -357,7 +367,7 @@ NGINX_BODY=$(cat <<EOF
 
 server {
     listen      80;
-    listen      [::]:80;
+$IPV6_LISTEN
     server_name $DEMO_HOST;
 
     # Shared htdocs with the main install; static assets only — /api/ goes

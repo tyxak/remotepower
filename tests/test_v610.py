@@ -333,6 +333,24 @@ class TestInstallDemoPostgresOption(unittest.TestCase):
         # --postgres is opt-in; without it the demo must stay on flat-JSON.
         self.assertIn("flat-JSON", self.SRC)
 
+    def test_ipv6_listen_is_conditional_not_hardcoded(self):
+        # Found live: a host with IPv6 disabled at the kernel level failed
+        # nginx -t outright on an unconditional `listen [::]:80` --
+        # "socket() [::]:80 failed (97: Address family not supported by
+        # protocol)" -- which blocked the whole nginx config, not just this
+        # vhost. /proc/net/if_inet6 only exists when the kernel has IPv6
+        # enabled; the listen line must be built from that check, not
+        # hardcoded into the heredoc unconditionally.
+        self.assertIn("/proc/net/if_inet6", self.SRC)
+        i = self.SRC.index("IPV6_LISTEN=")
+        block = self.SRC[i : i + 200]
+        self.assertIn('listen      [::]:80;', block)
+        # The heredoc must interpolate the variable, not the literal line.
+        heredoc_i = self.SRC.index("NGINX_BODY=$(cat <<EOF")
+        heredoc = self.SRC[heredoc_i : heredoc_i + 800]
+        self.assertIn("$IPV6_LISTEN", heredoc)
+        self.assertNotIn("    listen      [::]:80;", heredoc)
+
     def test_uninstall_warns_about_postgres_cleanup(self):
         i = self.SRC.index("--uninstall")
         block = self.SRC[i : i + 1500]
