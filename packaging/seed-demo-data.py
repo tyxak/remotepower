@@ -58,7 +58,11 @@ DEMO_MARKER = '.rp-demo-marker'
 PROTECTED_DATA_DIRS = {'/var/lib/remotepower'}
 
 # Accounts the seed itself creates — their presence does NOT make a dir "real".
-_DEMO_ACCOUNTS = {'demo', 'alice', 'bob'}
+# Bug fix: 'finance' (the read-only billing login, build_users()) was added
+# after this set and never added here — every re-seed after the first was
+# refused ("contains real (non-demo) account: finance"), silently breaking
+# the documented cron re-seed workflow.
+_DEMO_ACCOUNTS = {'demo', 'alice', 'bob', 'finance'}
 
 
 def _guard_demo_target(target, override=False):
@@ -190,6 +194,11 @@ def _iso_in_days(days: int) -> str:
 SITE_HQ   = _stable_id('site', 'hq-copenhagen')
 SITE_DC   = _stable_id('site', 'dc-frankfurt')
 SITE_EDGE = _stable_id('site', 'edge-london')
+
+# v6.1.0 coverage fill: rack ids, referenced by both build_cmdb() (rack_id on
+# each placed asset) and build_racks() (the rack records themselves).
+RACK_DC = _stable_id('rack', 'dc-frankfurt-r1')
+RACK_HQ = _stable_id('rack', 'hq-copenhagen-r1')
 
 SITE_OF = {
     # Frankfurt DC — the heavy iron lives here.
@@ -520,6 +529,45 @@ def build_devices() -> dict:
             # the SNMP-Metrics page stay blank even with the cache populated.
             rec['snmp'] = {'enabled': True, 'community': 'public',
                            'port': 161, 'version': '2c'}
+
+        # v6.1.0 coverage fill: per-interface MAC list (device drawer network
+        # panel — distinct from cmdb.json's NAT-focused `interfaces`, see
+        # build_cmdb()). Only the multi-NIC hosts, so it looks deliberate
+        # rather than padded onto every device.
+        if dev['id'] == 'pmx01':
+            rec.setdefault('sysinfo', {})['network'] = [
+                {'iface': 'eno1', 'ip': '10.0.1.10', 'mac': dev['mac']},
+                {'iface': 'eno2', 'ip': '10.0.1.11', 'mac': '52:54:00:11:01:11'},
+            ]
+        elif dev['id'] == 'tnas':
+            rec.setdefault('sysinfo', {})['network'] = [
+                {'iface': 'mgmt0', 'ip': '10.0.1.20', 'mac': dev['mac']},
+                {'iface': 'stor0', 'ip': '10.0.1.21', 'mac': '52:54:00:11:01:21'},
+            ]
+        elif dev['id'] == 'fw01':
+            rec.setdefault('sysinfo', {})['network'] = [
+                {'iface': 'em0', 'ip': '203.0.113.7',  'mac': dev['mac']},
+                {'iface': 'em1', 'ip': '10.0.0.254',   'mac': '52:54:00:11:00:ff'},
+                {'iface': 'em2', 'ip': '10.0.99.1',    'mac': '52:54:00:11:00:fd'},
+            ]
+
+        # v6.1.0 coverage fill: guided CIS remediation is a per-host opt-in
+        # (default off) — a couple of package-manager hosts have it on so the
+        # Compliance page shows the fix-it action, most stay off to show the
+        # gate itself.
+        if dev['id'] in ('ng01', 'gt01'):
+            rec['remediation_enabled'] = True
+
+        # v6.1.0 coverage fill: OPNsense connector — DISABLED. Even in
+        # read-only demo mode, GET requests reach the live connector code
+        # (_enforce_read_only only blocks mutations), so enabled:true here
+        # would make ordinary page loads fire a real outbound HTTPS call to
+        # a fake host. enabled:false short-circuits before any network I/O
+        # while still showing the connector as "configured" in the UI.
+        if dev['id'] == 'fw01':
+            rec['opnsense'] = {'enabled': False, 'api_key': 'demo-key-not-real',
+                                'api_secret': 'demo-secret-not-real',
+                                'port': 443, 'verify': False}
 
         out[dev['id']] = rec
     return out
@@ -964,6 +1012,39 @@ def build_cmdb() -> dict:
             'updated_by':      'demo',
             'updated_at':      now() - 86400 * 5,
         }
+
+    # v6.1.0 coverage fill: rack placement (rack_id/rack_unit/rack_height_u —
+    # rack_unit is the BOTTOM U, 1-based) and per-interface NAT mappings
+    # (iface/ip/nat_ip/primary — distinct from the agent-reported MAC list in
+    # devices.json[id]['sysinfo']['network'], see build_devices()). Rack ids
+    # match build_racks() below (both derived from the same stable key).
+    for dev_id, rack_id, bottom_u, height_u in (
+        ('sw02',  RACK_DC, 1, 1),
+        ('pr01',  RACK_DC, 3, 1),
+        ('bk01',  RACK_DC, 5, 2),
+        ('tnas',  RACK_DC, 10, 4),
+        ('pmx01', RACK_DC, 20, 3),
+        ('sw01',  RACK_HQ, 1, 1),
+        ('fw01',  RACK_HQ, 3, 1),
+    ):
+        if dev_id not in out:
+            out[dev_id] = {'asset_id': '', 'server_function': '', 'business_function': '',
+                            'hypervisor_url': '', 'ssh_port': 22, 'documentation': '',
+                            'docs': [], 'warranty_expiry': '', 'license_expiry': '',
+                            'support_contract_expiry': '', 'credentials': [],
+                            'updated_by': 'demo', 'updated_at': now() - 86400 * 5}
+        out[dev_id]['rack_id'] = rack_id
+        out[dev_id]['rack_unit'] = bottom_u
+        out[dev_id]['rack_height_u'] = height_u
+
+    out['fw01']['interfaces'] = [
+        {'iface': 'em0', 'ip': '203.0.113.7',   'nat_ip': '', 'primary': False},  # WAN
+        {'iface': 'em1', 'ip': '10.0.0.254',    'nat_ip': '', 'primary': True},   # LAN
+        {'iface': 'em2', 'ip': '10.0.99.1',     'nat_ip': '', 'primary': False},  # DMZ
+    ]
+    out['nc01']['interfaces'] = [
+        {'iface': 'eth0', 'ip': '10.0.2.60', 'nat_ip': '203.0.113.7', 'primary': True},
+    ]
     return out
 
 
@@ -1496,6 +1577,125 @@ def build_config() -> dict:
             'enabled': True,
             'roots':   ['/etc', '/var/log', '/opt', '/srv', '/home', '/usr/local'],
         },
+
+        # ── v6.1.0 coverage fill: previously-unseeded config surfaces ──────
+        # Schemas verified directly against the handlers that read them
+        # (handle_config_save / _execute_monitor_checks / etc in api.py) —
+        # field names below are NOT guesses (e.g. it's `via_satellite`, not
+        # `satellite_id`; `steps`, not `http_flow_steps`; escalation/oncall
+        # are two separate keys, not one).
+
+        # Active monitors (Monitor page + satellite-probed checks).
+        'monitors': [
+            {'label': 'Public site — nginx.lab', 'type': 'http',
+             'target': 'https://nginx.lab/', 'target_kind': 'host',
+             'expect_status': 200, 'max_latency_ms': 800},
+            {'label': 'Nextcloud status endpoint', 'type': 'http',
+             'target': 'https://nextcloud.lab/status.php', 'target_kind': 'host',
+             'body_match': {'mode': 'contains', 'value': 'installed'}},
+            {'label': 'Gitea Postgres', 'type': 'db',
+             'target': 'gitea.lab:5432', 'target_kind': 'host', 'db_kind': 'postgres'},
+            {'label': 'Vaultwarden cache', 'type': 'db',
+             'target': 'vaultwarden.lab:6379', 'target_kind': 'host', 'db_kind': 'redis'},
+            {'label': 'Pi-hole resolves itself', 'type': 'dns',
+             'target': 'pihole.lab', 'target_kind': 'host', 'expect': '10.0.2.10'},
+            {'label': 'Core switch reachability', 'type': 'icmp',
+             'target': 'switch-core', 'target_kind': 'host',
+             'max_latency_ms': 20, 'max_loss_pct': 5},
+            {'label': 'Critical hosts — tag ping sweep', 'type': 'ping',
+             'target': 'critical', 'target_kind': 'tag'},
+            {'label': 'Route to Frankfurt DC', 'type': 'path',
+             'target': 'truenas.lab', 'target_kind': 'host'},
+            {'label': 'Nextcloud login flow', 'type': 'http_flow', 'steps': [
+                {'url': 'https://nextcloud.lab/login', 'method': 'GET', 'expect_status': 200},
+                {'url': 'https://nextcloud.lab/status.php', 'method': 'GET',
+                 'expect_contains': 'installed'},
+            ]},
+            {'label': 'Edge site — probed from the HQ relay', 'type': 'ping',
+             'target': 'nginx.lab', 'target_kind': 'host',
+             'via_satellite': _stable_hex('satellite', 'hq-relay', nbytes=8)},
+        ],
+
+        # Backup freshness watch (device-drawer Backups card + 3-2-1 score).
+        # State lives in backup_state.json, keyed "<device_id>:<path>".
+        'backup_monitors': [
+            {'path': '/mnt/backup/restic-repo', 'label': 'Restic repo (backup.lab)',
+             'max_age_hours': 26, 'tool': 'restic',
+             'verify_enabled': True, 'verify_max_age_hours': 168},
+            {'path': '/mnt/data/nextcloud-dump.sql.gz', 'label': 'Nextcloud DB dump',
+             'max_age_hours': 24, 'tool': 'tar', 'verify_enabled': False},
+            {'path': '/tank/backups', 'label': 'TrueNAS replicated snapshots',
+             'max_age_hours': 48, 'tool': 'auto',
+             'verify_enabled': True, 'verify_max_age_hours': 168,
+             'restore_drill_enabled': True, 'restore_sample_path': '/tank/backups/latest',
+             'restore_drill_max_age_hours': 336},
+        ],
+
+        # Mail round-trip probe (single global probe).
+        'mailflow': {
+            'enabled': True, 'to_address': 'mailcheck@nginx.lab',
+            'imap_host': 'nginx.lab', 'imap_port': 993, 'imap_user': 'mailcheck',
+            'imap_folder': 'INBOX', 'imap_ssl': True, 'imap_verify_tls': True,
+            'max_latency_seconds': 120,
+        },
+
+        # Certificate-Transparency watch.
+        'ct_watch_domains': ['nginx.lab'],
+
+        # Quiet hours (do-not-disturb window for notifications).
+        'quiet_hours': {'enabled': True, 'start': '22:00', 'end': '07:00',
+                         'min_severity': 'high'},
+
+        # Escalation tiers + on-call rotation (two separate config keys).
+        'escalation': {'enabled': True,
+                        'tiers': [{'after_minutes': 15},
+                                  {'after_minutes': 60, 'target': 'wh_pushover_demo'}],
+                        'severities': ['critical', 'high']},
+        'oncall': {'enabled': True, 'contacts': ['alice', 'bob'],
+                   'rotation_days': 7, 'anchor': now() - 86400 * 3},
+
+        # Alert → runbook links (event name, or "check:<id>", -> KB article id).
+        'alert_runbooks': {
+            'backup_stale':  'kb_' + _stable_hex('kb', 5, nbytes=3)[:5],
+            'monitor_down':  'kb_' + _stable_hex('kb', 2, nbytes=3)[:5],
+        },
+
+        # Patch-compliance SLA rules (state lives in patch_age.json).
+        'patch_sla': [
+            {'match_type': 'tag', 'pattern': 'critical', 'sec_days': 7, 'all_days': 30},
+            {'match_type': 'all', 'sec_days': 14, 'all_days': 60},
+        ],
+
+        # Container-image CVE scanning toggle (findings live in image_cves.json).
+        'image_scan_enabled': True,
+
+        # Saved custom-check bundles (script_ids must exist in custom_scripts.json
+        # — reuses the ids build_custom_scripts() already mints).
+        'monitoring_profiles': [
+            {'id': 'mp_' + _stable_id('monprofile', 'storage-baseline', length=8),
+             'name': 'Storage baseline',
+             'script_ids': ['cs_' + _stable_id('custom_script', 'Check ZFS scrub age', length=11),
+                             'cs_' + _stable_id('custom_script', 'Backup repo integrity', length=11)],
+             'created': now() - 86400 * 40, 'created_by': 'alice'},
+        ],
+
+        # RDP remote-access action + customer self-service portal.
+        'rdp_enabled':     True,
+        'portal_enabled':  True,
+        'portal_base_url': 'https://demoremote.tvipper.example/portal',
+
+        # Proxmox connector — cosmetically "configured" but DISABLED (no
+        # token secret, proxmox_enabled False), so Containers/Virtualization
+        # pages never make a live outbound call to the fake host even on a
+        # plain GET (read-only mode only blocks mutations, not GETs — see the
+        # opnsense note on the fw01 device record in build_devices()).
+        'proxmox_enabled':            False,
+        'proxmox_lifecycle_enabled':  False,
+        'proxmox_host':               'proxmox.lab',
+        'proxmox_node':               'pmx01',
+        'proxmox_token_id':           'root@pam!remotepower',
+        'proxmox_token_secret':       '',
+        'proxmox_verify_tls':         True,
     }
 
 
@@ -1667,12 +1867,17 @@ def build_sites() -> dict:
                 out.append('-'); prev_dash = True
         return ''.join(out).strip('-')
     return {
+        # lat/lng (v6.1.0 coverage fill) — required together for a site to
+        # appear as a dot on the NOC map (handle_sites_map skips either-None).
         SITE_HQ:   {'name': 'HQ - Copenhagen', 'slug': slug('HQ - Copenhagen'),
-                    'created': now() - 86400 * 300, 'created_by': 'demo'},
+                    'created': now() - 86400 * 300, 'created_by': 'demo',
+                    'lat': 55.6761, 'lng': 12.5683},
         SITE_DC:   {'name': 'DC - Frankfurt',  'slug': slug('DC - Frankfurt'),
-                    'created': now() - 86400 * 280, 'created_by': 'demo'},
+                    'created': now() - 86400 * 280, 'created_by': 'demo',
+                    'lat': 50.1109, 'lng': 8.6821},
         SITE_EDGE: {'name': 'Edge - London',   'slug': slug('Edge - London'),
-                    'created': now() - 86400 * 120, 'created_by': 'demo'},
+                    'created': now() - 86400 * 120, 'created_by': 'demo',
+                    'lat': 51.5074, 'lng': -0.1278},
     }
 
 
@@ -3379,15 +3584,23 @@ def build_tickets() -> dict:
 
 def build_contacts() -> dict:
     """Internal contacts directory (viewer-visible; admin-mutate)."""
-    def _ct(seq, name, role, company, email, phone, notes, created_days):
-        return {'id': _stable_id('contact', seq), 'name': name, 'role': role,
-                'company': company, 'email': email, 'phone': phone, 'notes': notes,
-                'created_at': now() - 86400 * created_days,
-                'updated_at': now() - 86400 * max(0, created_days - 2)}
+    def _ct(seq, name, role, company, email, phone, notes, created_days,
+            site='', portal_enabled=False):
+        c = {'id': _stable_id('contact', seq), 'name': name, 'role': role,
+             'company': company, 'email': email, 'phone': phone, 'notes': notes,
+             'created_at': now() - 86400 * created_days,
+             'updated_at': now() - 86400 * max(0, created_days - 2)}
+        # v6.1.0 coverage fill: customer portal access — magic-link auth only
+        # (no password field), gated on portal_enabled + a matching site.
+        if site or portal_enabled:
+            c['site'] = site
+            c['portal_enabled'] = portal_enabled
+        return c
     contacts = [
         _ct(1, 'Mette Sørensen', 'Account manager', 'Acme Hosting ApS',
             'mette@acme-hosting.example', '+45 20 12 34 56',
-            'Primary contact for the HQ-Copenhagen site. Escalate P1s here first.', 60),
+            'Primary contact for the HQ-Copenhagen site. Escalate P1s here first.', 60,
+            site=SITE_HQ, portal_enabled=True),
         _ct(2, 'Priya Nair', 'DC operations lead', 'FrankfurtColo GmbH',
             'priya@fra-colo.example', '+49 69 1234 5678',
             'Frankfurt remote-hands + smart-hands. 24/7 NOC line.', 45),
@@ -3908,6 +4121,346 @@ def build_scap() -> dict:
     }
 
 
+# ─── v6.1.0 coverage fill: previously-unseeded subsystems ───────────────────
+# Every builder below has its exact on-disk shape verified against the
+# handler that reads it in server/cgi-bin/api.py (noted in each docstring),
+# not guessed from docs/features.md's prose.
+
+def build_tasks() -> dict:
+    """Fleet task board → tasks.json. Shape verified against
+    handle_tasks_add (api.py ~52362): {"tasks": [{id,title,description,
+    state,device_id,created_by,created_at,updated_at,updated_by?}]}.
+    state in TASK_STATES = (upcoming, ongoing, pending, closed)."""
+    plan = [
+        ('Rotate Nextcloud admin credentials', 'Overdue per the CMDB rotation reminder.',
+         'pending', 'nc01', 'alice', 30),
+        ('Verify offsite Restic replica', 'Confirm backup.lab -> off-host copy still lands nightly.',
+         'ongoing', 'bk01', 'bob', 4),
+        ('Replace TrueNAS disk (RMA in progress)', 'Serial matched from the SMART alert; RMA filed with Datera.',
+         'ongoing', 'tnas', 'alice', 12),
+        ('Plan Proxmox host reboot window', 'Kernel upgrade pending; needs a maintenance window.',
+         'upcoming', 'pmx01', 'alice', 1),
+        ('Decommission backup.lab', 'Migrating to a newer box; unmonitored while mid-migration.',
+         'upcoming', 'bk01', 'bob', 2),
+        ('Onboard new Gitea CI runner', 'Deploy key rotated; runner registered.',
+         'closed', 'gt01', 'bob', 45),
+    ]
+    tasks = []
+    for i, (title, desc, state, dev_id, actor, days_ago) in enumerate(plan):
+        created = now() - 86400 * days_ago
+        t = {'id': _stable_hex('task', i, nbytes=8), 'title': title,
+             'description': desc, 'state': state, 'device_id': dev_id,
+             'created_by': actor, 'created_at': created, 'updated_at': created}
+        if state == 'closed':
+            t['updated_at'] = created + 86400 * (days_ago - 1) if days_ago > 1 else created
+            t['updated_by'] = actor
+        tasks.append(t)
+    return {'tasks': tasks}
+
+
+def build_racks() -> dict:
+    """Rack elevation view → racks.json. Shape verified against
+    handle_racks/handle_rack (api.py ~11010/11053): {rack_id: {name, site,
+    height_u, created}}. Placement (rack_id/rack_unit/rack_height_u) lives on
+    the CMDB record — see build_cmdb()."""
+    return {
+        RACK_DC: {'name': 'DC-Frankfurt Rack 1', 'site': SITE_DC,
+                  'height_u': 42, 'created': now() - 86400 * 280},
+        RACK_HQ: {'name': 'HQ-Copenhagen Rack 1', 'site': SITE_HQ,
+                  'height_u': 12, 'created': now() - 86400 * 300},
+    }
+
+
+def build_subnets() -> dict:
+    """IPAM subnets → subnets.json. Shape verified against
+    handle_ipam_subnets/handle_ipam_subnet (api.py ~11191/11234):
+    {subnet_id: {cidr, site, vlan, notes, reservations: {ip: label}, created}}.
+    Occupancy is derived live from device/CMDB-interface IPs falling inside
+    the CIDR — not stored here."""
+    return {
+        _stable_id('subnet', 'core-10.0.0.0-24'): {
+            'cidr': '10.0.0.0/24', 'site': SITE_HQ, 'vlan': 'VLAN 1 - Core',
+            'notes': 'Office network + core network gear.',
+            'reservations': {'10.0.0.1': 'switch-core', '10.0.0.254': 'firewall LAN'},
+            'created': now() - 86400 * 300,
+        },
+        _stable_id('subnet', 'services-10.0.2.0-24'): {
+            'cidr': '10.0.2.0/24', 'site': SITE_EDGE, 'vlan': 'VLAN 20 - Services',
+            'notes': 'App/service hosts — web, media, git, cloud.',
+            'reservations': {'10.0.2.254': 'reserved - future DR host'},
+            'created': now() - 86400 * 280,
+        },
+        _stable_id('subnet', 'infra-10.0.1.0-24'): {
+            'cidr': '10.0.1.0/24', 'site': SITE_DC, 'vlan': 'VLAN 10 - Infra',
+            'notes': 'Hypervisor + storage management network.',
+            'reservations': {},
+            'created': now() - 86400 * 280,
+        },
+    }
+
+
+def build_device_profiles() -> dict:
+    """Saved metric-threshold/monitoring bundles → device_profiles.json.
+    Shape verified against handle_device_profiles (api.py ~10759). Distinct
+    from the unrelated drift profiles (cfg['drift']['profiles'], ids
+    dp_web/dp_db) despite the similar naming — these are a separate
+    subsystem, so ids here use a different prefix on purpose."""
+    return {
+        _stable_id('deviceprofile', 'critical-infra'): {
+            'name': 'Critical infra', 'created': now() - 86400 * 60,
+            'poll_interval': 30,
+            'services_watched': ['nginx', 'postgresql', 'docker'],
+            'log_watch': ['/var/log/syslog'],
+            'metric_thresholds': {
+                'disk_warn_percent': 75, 'disk_crit_percent': 88,
+                'mem_warn_percent': 80, 'mem_crit_percent': 92,
+            },
+        },
+        _stable_id('deviceprofile', 'lightweight-iot'): {
+            'name': 'Lightweight / IoT', 'created': now() - 86400 * 40,
+            'poll_interval': 120,
+            'services_watched': [],
+            'metric_thresholds': {
+                'mem_warn_percent': 88, 'mem_crit_percent': 97,
+            },
+        },
+    }
+
+
+def build_smart_groups() -> dict:
+    """Saved dynamic device-group predicates → smart_groups.json. Shape
+    verified against handle_smart_groups (api.py ~10907) + _smart_group_match
+    (~4767). Keyed by lowercase name; members/evaluated_ts are normally
+    server-materialized, precomputed here since the seed runs offline."""
+    def _ids(pred):
+        out = []
+        for d in FAKE_DEVICES:
+            ok = True
+            if 'tag' in pred and pred['tag'] not in d['tags']:
+                ok = False
+            if 'group' in pred and d['group'] != pred['group']:
+                ok = False
+            if 'agentless' in pred and d['agentless'] != pred['agentless']:
+                ok = False
+            if ok:
+                out.append(d['id'])
+        return out
+    groups = {
+        'critical-infra':    {'rules': {'tag': 'critical'}},
+        'agentless-network': {'rules': {'agentless': True, 'group': 'network'}},
+        'backup-fleet':      {'rules': {'tag': 'backup'}},
+    }
+    ts = now() - 3600
+    return {
+        **{name: {**g, 'members': _ids(g['rules']), 'evaluated_ts': ts,
+                  'created': now() - 86400 * 50}
+           for name, g in groups.items()},
+        '_meta': {'last_run': ts},
+    }
+
+
+def build_backup_state() -> dict:
+    """Per-path backup freshness → backup_state.json, keyed "<device_id>:
+    <path>" matching config.json['backup_monitors']. Shape verified against
+    the agent-heartbeat ingest (api.py ~16131-16290)."""
+    return {
+        'bk01:/mnt/backup/restic-repo': {
+            'ok': True, 'age_h': 2.3, 'size': 812_000_000_000,
+            'size_hist': [780, 795, 801, 806, 812],
+            'size_anom': False, 'verify_status': 'ok',
+            'verify_output': 'restic check: no errors', 'verify_at': now() - 3600 * 20,
+            'verify_tool': 'restic',
+        },
+        'nc01:/mnt/data/nextcloud-dump.sql.gz': {
+            'ok': False, 'age_h': 41.0, 'size': 2_400_000_000,
+            'size_hist': [2300, 2350, 2380, 2400],
+            'size_anom': False, 'verify_status': 'unknown', 'verify_output': '',
+            'verify_at': 0, 'verify_tool': '',
+        },
+        'tnas:/tank/backups': {
+            'ok': True, 'age_h': 6.1, 'size': 6_100_000_000_000,
+            'size_hist': [5800, 5900, 6000, 6050, 6100],
+            'size_anom': False, 'verify_status': 'ok',
+            'verify_output': 'zfs receive: resilvered clean', 'verify_at': now() - 3600 * 5,
+            'verify_tool': 'auto',
+        },
+    }
+
+
+def build_mailflow_state() -> dict:
+    """Mail round-trip probe state → mailflow_state.json (flat dict, ONE
+    probe). Shape verified against run_mailflow_if_due/_mailflow_step
+    (api.py ~28298)."""
+    return {'sent_ts': now() - 300, 'last_latency': 14,
+            'last_ok_ts': now() - 300, 'alerted': False, 'last_tick': now() - 60}
+
+
+def build_ct_watch() -> dict:
+    """Certificate-Transparency watch state → ct_watch.json, keyed by domain
+    (matching config.json['ct_watch_domains']). Shape verified against
+    run_ct_watch_if_due (tls_ct_handlers.py ~354)."""
+    return {
+        'nginx.lab': {
+            'seen': {_stable_hex('ct-cert', 'nginx.lab', 1, nbytes=16): now() - 86400 * 60},
+            'baselined': True, 'last_check': now() - 3600 * 4, 'fail_streak': 0,
+        },
+    }
+
+
+def build_patch_age() -> dict:
+    """Patch-compliance SLA aging → patch_age.json. Shape verified against
+    run_patch_sla_if_due/_eval_patch_sla (api.py ~28196): {device_id:
+    {all_first?, sec_first?}, "_last_run", "_breaching"}."""
+    breaching = ['tnas']
+    return {
+        'tnas': {'sec_first': now() - 86400 * 10, 'all_first': now() - 86400 * 25},
+        'ng01': {'all_first': now() - 86400 * 3},
+        '_last_run': now() - 3600,
+        '_breaching': breaching,
+    }
+
+
+def build_image_cves() -> dict:
+    """Container image CVE findings → image_cves.json. Shape verified
+    against _ingest_image_cves/_sanitize_image_cves (api.py ~26036-26093):
+    {device_id: {ts, images: [{image, critical, high, medium, top:
+    [{id, pkg, severity, installed, fixed}]}]}}."""
+    return {
+        'gt01': {'ts': now() - 3600 * 6, 'images': [
+            {'image': 'gitea/gitea:1.22', 'critical': 0, 'high': 1, 'medium': 3,
+             'top': [{'id': 'CVE-2024-23456', 'pkg': 'libssl3', 'severity': 'high',
+                      'installed': '3.0.11', 'fixed': '3.0.13'}]},
+        ]},
+        'nc01': {'ts': now() - 3600 * 5, 'images': [
+            {'image': 'nextcloud:30-apache', 'critical': 1, 'high': 2, 'medium': 4,
+             'top': [{'id': 'CVE-2023-99999', 'pkg': 'libxml2', 'severity': 'critical',
+                      'installed': '2.9.14', 'fixed': '2.11.7'}]},
+        ]},
+        'ha01': {'ts': now() - 3600 * 8, 'images': [
+            {'image': 'redis:7', 'critical': 0, 'high': 0, 'medium': 1, 'top': []},
+        ]},
+    }
+
+
+def build_cve_campaigns() -> dict:
+    """CVE remediation campaigns → cve_campaigns.json. Shape verified
+    against handle_cve_campaigns/handle_cve_campaign (api.py ~48781-48886):
+    {"campaigns": [{id,name,owner,cve_ids,severities,kev_only,target_date,
+    created_at,completed_at,samples:[{ts,affected}]}], "_last_sample"}."""
+    created = now() - 86400 * 21
+    return {
+        'campaigns': [
+            {'id': 'camp_' + _stable_hex('campaign', 'kev-burndown', nbytes=5),
+             'name': 'Critical KEV burn-down Q3', 'owner': 'alice',
+             'cve_ids': [], 'severities': ['critical'], 'kev_only': True,
+             'target_date': _iso_in_days(21), 'created_at': created,
+             'completed_at': None,
+             'samples': [{'ts': created + 86400 * i, 'affected': max(0, 6 - i)}
+                         for i in range(0, 21, 3)]},
+        ],
+        '_last_sample': now() - 3600 * 12,
+    }
+
+
+def build_lldp_neighbors() -> dict:
+    """LLDP topology discovery → lldp_neighbors.json. Shape verified
+    against the heartbeat ingest (api.py ~16380-16395): {device_id: {ts,
+    neighbors: [{local_if, peer_name, peer_port, mgmt_ip}]}}. Mirrors the
+    real connected_to topology so it reads as confirmation, not noise."""
+    ts = now() - 900
+    return {
+        'pmx01': {'ts': ts, 'neighbors': [
+            {'local_if': 'eno1', 'peer_name': 'switch-rack',
+             'peer_port': 'GigabitEthernet1/0/3', 'mgmt_ip': '10.0.0.2'}]},
+        'tnas': {'ts': ts, 'neighbors': [
+            {'local_if': 'mgmt0', 'peer_name': 'switch-rack',
+             'peer_port': 'GigabitEthernet1/0/4', 'mgmt_ip': '10.0.0.2'}]},
+        'fw01': {'ts': ts, 'neighbors': [
+            {'local_if': 'em1', 'peer_name': 'switch-core',
+             'peer_port': 'GigabitEthernet1/0/1', 'mgmt_ip': '10.0.0.1'}]},
+    }
+
+
+def build_sudo_log() -> dict:
+    """Sudo audit trail → sudo_log.json. Shape verified against the
+    heartbeat ingest + _redact_sudo_command (api.py ~16322-16348, ~28644):
+    {device_id: [{ts, user, tty, pwd, target, command}]}."""
+    entries = [
+        ('pmx01', 'alice', 'pts/0', '/root', 'root', 'apt-get update && apt-get -y upgrade'),
+        ('pmx01', 'alice', 'pts/0', '/root', 'root', 'systemctl restart pveproxy'),
+        ('tnas',  'bob',   'pts/1', '/home/bob', 'root', 'zpool status tank'),
+        ('fw01',  'alice', '',      '/root', 'root', 'visudo -c'),
+        ('gt01',  'bob',   'pts/0', '/opt/gitea', 'root', 'useradd -m deploy'),
+    ]
+    out = {}
+    for i, (dev_id, user, tty, pwd, target, command) in enumerate(entries):
+        out.setdefault(dev_id, []).append({
+            'ts': now() - 3600 * (48 - i * 6), 'user': user, 'tty': tty,
+            'pwd': pwd, 'target': target, 'command': command,
+        })
+    return out
+
+
+def build_incidents() -> dict:
+    """Status-page incidents → incidents.json. Shape verified against
+    handle_incidents/handle_incident_update (api.py ~36894-36934):
+    {"incidents": [{id,title,impact,status,created_at,updated_at,
+    updates:[{ts,status,body}]}]}. impact in (minor,major,maintenance),
+    status in (investigating,identified,monitoring,resolved)."""
+    t0 = now() - 86400 * 18
+    return {'incidents': [
+        {'id': 'inc_' + _stable_hex('incident', 1, nbytes=5),
+         'title': 'Elevated latency — Frankfurt DC',
+         'impact': 'minor', 'status': 'resolved',
+         'created_at': t0, 'updated_at': t0 + 3600 * 3,
+         'updates': [
+             {'ts': t0, 'status': 'investigating',
+              'body': 'Investigating elevated response times on Frankfurt-hosted services.'},
+             {'ts': t0 + 3600, 'status': 'identified',
+              'body': 'Identified as a saturated uplink on the DC rack switch.'},
+             {'ts': t0 + 3600 * 3, 'status': 'resolved',
+              'body': 'Uplink capacity restored; latency back to baseline.'},
+         ]},
+        {'id': 'inc_' + _stable_hex('incident', 2, nbytes=5),
+         'title': 'Scheduled maintenance — Nextcloud upgrade',
+         'impact': 'maintenance', 'status': 'resolved',
+         'created_at': t0 + 86400 * 10, 'updated_at': t0 + 86400 * 10 + 3600,
+         'updates': [
+             {'ts': t0 + 86400 * 10, 'status': 'monitoring',
+              'body': 'Nextcloud upgraded to 30.x; monitoring for regressions.'},
+             {'ts': t0 + 86400 * 10 + 3600, 'status': 'resolved',
+              'body': 'No issues observed; maintenance window closed.'},
+         ]},
+    ]}
+
+
+def build_commands() -> dict:
+    """Pending command queue → commands.json. Shape verified against
+    handle_command_queue/_queue_command (api.py ~17458/17310): a FLAT dict
+    of device_id -> [raw command strings] — NOT a list of objects. Dispatch
+    history lives separately in history.json (see build_history)."""
+    return {'ng01': ['exec:systemctl restart nginx'], 'pmx01': ['reboot']}
+
+
+def build_update_logs() -> dict:
+    """Rolling apt/dnf update-run history → update_logs.json. Shape
+    verified against the heartbeat ingest (api.py ~15955-15972): {device_id:
+    [{started_at,finished_at,exit_code,output,package_manager,triggered_by}]}."""
+    def _run(dev_id, offset_days, ok, pm, extra=''):
+        started = now() - 86400 * offset_days
+        return {'started_at': started, 'finished_at': started + 38,
+                'exit_code': 0 if ok else 1,
+                'output': (f'Reading package lists...\nBuilding dependency tree...\n'
+                           f'{extra or "0 upgraded, 3 newly installed, 0 to remove."}'),
+                'package_manager': pm, 'triggered_by': ''}
+    return {
+        'ng01':  [_run('ng01', 14, True, 'apt'), _run('ng01', 3, True, 'apt')],
+        'gt01':  [_run('gt01', 20, True, 'apt'),
+                  _run('gt01', 6, False, 'apt', 'E: Unable to fetch some archives.')],
+        'pi1':   [_run('pi1', 9, True, 'apt')],
+    }
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -4016,6 +4569,23 @@ BUILDERS = {
     'app_catalog_custom.json':     build_app_catalog_custom,
     'scan_schedules.json':         build_scan_schedules,
     'scap.json':                   build_scap,
+    # ── v6.1.0 coverage fill ──────────────────────────────────────────────
+    'tasks.json':                  build_tasks,
+    'racks.json':                  build_racks,
+    'subnets.json':                build_subnets,
+    'device_profiles.json':        build_device_profiles,
+    'smart_groups.json':           build_smart_groups,
+    'backup_state.json':           build_backup_state,
+    'mailflow_state.json':         build_mailflow_state,
+    'ct_watch.json':               build_ct_watch,
+    'patch_age.json':              build_patch_age,
+    'image_cves.json':             build_image_cves,
+    'cve_campaigns.json':          build_cve_campaigns,
+    'lldp_neighbors.json':         build_lldp_neighbors,
+    'sudo_log.json':               build_sudo_log,
+    'incidents.json':              build_incidents,
+    'commands.json':               build_commands,
+    'update_logs.json':            build_update_logs,
 }
 
 
