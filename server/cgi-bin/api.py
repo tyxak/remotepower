@@ -245,6 +245,7 @@ COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs', 'upd
 PACKAGES_FILE       = DATA_DIR / 'packages.json'
 CVE_FINDINGS_FILE   = DATA_DIR / 'cve_findings.json'
 CVE_IGNORE_FILE     = DATA_DIR / 'cve_ignore.json'
+PATCH_SNAPSHOTS_FILE = DATA_DIR / 'patch_snapshots.json'   # v6.1.1: package-repo snapshot ledger
 CVE_CAMPAIGNS_FILE  = DATA_DIR / 'cve_campaigns.json'   # W2-35 remediation campaigns
 CVE_CAMPAIGN_SAMPLE_INTERVAL = 24 * 3600               # W2-35 daily burn-down sample
 # v3.14.0: CVE prioritization feeds — CISA Known-Exploited (KEV) + FIRST EPSS.
@@ -41612,6 +41613,206 @@ def handle_patch_report_xml():
     sys.exit(0)
 
 
+# ── v6.1.1: package-repo snapshot & promotion ledger ─────────────────────────
+# Scoped down from "mirror an APT/YUM/Chocolatey repo" to what's actually
+# buildable without a new agent-side per-package version-pinned-install
+# capability (the agent's auto-patch dispatch is one fixed `upgrade` command
+# per package manager today — see _autopatch_queue/_SCHED_UPGRADE_CMD — it
+# has no protocol for "install pkg=EXACT_VERSION" yet). What ships instead:
+# freeze the fleet's current installed-package state into a named, immutable
+# snapshot (reusing PACKAGES_FILE, the same data patch-report already reads);
+# diff two snapshots; "promote" one to a tag as a REFERENCE point; and report
+# DRIFT of that tag's devices away from the promoted snapshot. This is
+# real-and-honest reproducibility/audit tooling on its own — enforcement
+# (actually constraining what auto-patch installs) is a separate, larger
+# follow-up flagged in docs/feature-buildout-scoping-internal.md #4, not
+# claimed here.
+MAX_PATCH_SNAPSHOTS = 200
+
+
+def _ps_build_entries():
+    """{pkg_name: newest version seen} merged across every (scope-visible)
+    device's PACKAGES_FILE entry — the same source patch-report reads."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    store = load(PACKAGES_FILE) or {}
+    newest = {}
+    for dev_id, rec in store.items():
+        if dev_id not in devices:
+            continue
+        for pkg in (rec.get('packages') or []):
+            name, version = pkg.get('name'), pkg.get('version')
+            if not name or not version:
+                continue
+            if name not in newest or _pkg_version_key(version) > _pkg_version_key(newest[name]):
+                newest[name] = version
+    return newest
+
+
+def _pkg_version_key(v):
+    """Best-effort sortable key for a package version string — splits on the
+    first run of digits per dot-segment so '1.10' sorts after '1.9' (a plain
+    string compare would put '1.10' before '1.9'). Not a full Debian/RPM
+    version-compare (epochs, ~, etc.) — good enough for 'which is newer' on
+    the common case, and ties just keep whichever was seen first, which is
+    fine for a fleet-wide snapshot (any device's version is a legitimate
+    answer to "what's currently running somewhere")."""
+    parts = re.split(r'[.\-+~]', str(v))
+    key = []
+    for p in parts:
+        m = re.match(r'(\d+)', p)
+        key.append(int(m.group(1)) if m else -1)
+        key.append(p)
+    return key
+
+
+def handle_patch_snapshots():
+    """GET /api/patch-snapshots — list (metadata only, no full entry list —
+       keep it light; GET the single-snapshot route for entries).
+       POST /api/patch-snapshots {name} — freeze the current fleet package
+       state into a new named snapshot."""
+    if method() == 'GET':
+        require_auth()
+        snaps = load(PATCH_SNAPSHOTS_FILE) or {}
+        out = [{'id': sid, 'name': s.get('name', ''), 'created': s.get('created', 0),
+                'created_by': s.get('created_by', ''), 'entry_count': s.get('entry_count', 0),
+                'promoted_tag': s.get('promoted_tag')}
+               for sid, s in snaps.items()]
+        out.sort(key=lambda s: s['created'], reverse=True)
+        respond(200, {'ok': True, 'snapshots': out})
+        return
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(body.get('name', ''), 80).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    entries = _ps_build_entries()
+    sid = secrets.token_hex(8)
+    with _LockedUpdate(PATCH_SNAPSHOTS_FILE) as snaps:
+        if len(snaps) >= MAX_PATCH_SNAPSHOTS:
+            respond(400, {'error': f'snapshot limit reached (max {MAX_PATCH_SNAPSHOTS})'})
+        snaps[sid] = {'id': sid, 'name': name, 'created': int(time.time()),
+                     'created_by': actor, 'entry_count': len(entries), 'entries': entries,
+                     'promoted_tag': None}
+    audit_log(actor, 'patch_snapshot_create', detail=f'{name} ({len(entries)} packages)')
+    respond(201, {'ok': True, 'id': sid, 'entry_count': len(entries)})
+
+
+def handle_patch_snapshot_get(sid):
+    """GET /api/patch-snapshots/{id} — full entries."""
+    require_auth()
+    if not _validate_id(sid):
+        respond(404, {'error': 'Snapshot not found'})
+    snaps = load(PATCH_SNAPSHOTS_FILE) or {}
+    s = snaps.get(sid)
+    if not s:
+        respond(404, {'error': 'Snapshot not found'})
+    respond(200, {'ok': True, 'id': sid, 'name': s.get('name', ''), 'created': s.get('created', 0),
+                  'created_by': s.get('created_by', ''), 'promoted_tag': s.get('promoted_tag'),
+                  'entries': s.get('entries') or {}})
+
+
+def handle_patch_snapshot_delete(sid):
+    """DELETE /api/patch-snapshots/{id} — admin (a promoted snapshot is a
+    reference point other reports key off; deleting it is a real change)."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(sid):
+        respond(404, {'error': 'Snapshot not found'})
+    with _LockedUpdate(PATCH_SNAPSHOTS_FILE) as snaps:
+        if sid not in snaps:
+            respond(404, {'error': 'Snapshot not found'})
+        name = snaps[sid].get('name', '')
+        del snaps[sid]
+    audit_log(actor, 'patch_snapshot_delete', detail=f'{sid} ({name})')
+    respond(200, {'ok': True})
+
+
+def handle_patch_snapshot_promote(sid):
+    """POST /api/patch-snapshots/{id}/promote {tag} — mark this snapshot as
+    the reference state for `tag` (a device tag/group name). Promoting a new
+    snapshot to a tag already in use supersedes the old one for that tag —
+    "promotion" here is a pointer, not a queue; only the latest matters for
+    the drift report. tag=null clears the promotion (POST {} demotes)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(sid):
+        respond(404, {'error': 'Snapshot not found'})
+    body = get_json_obj()
+    tag = _sanitize_str(body.get('tag', ''), 64).strip() or None
+    with _LockedUpdate(PATCH_SNAPSHOTS_FILE) as snaps:
+        s = snaps.get(sid)
+        if not s:
+            respond(404, {'error': 'Snapshot not found'})
+        # a tag promotes to exactly one snapshot -- clear it from any other
+        if tag:
+            for other_id, other in snaps.items():
+                if other_id != sid and other.get('promoted_tag') == tag:
+                    other['promoted_tag'] = None
+        s['promoted_tag'] = tag
+    audit_log(actor, 'patch_snapshot_promote', detail=f'{sid} -> tag={tag}')
+    respond(200, {'ok': True, 'promoted_tag': tag})
+
+
+def handle_patch_snapshot_diff():
+    """GET /api/patch-snapshots/diff?a=<id>&b=<id> — set-diff between two
+    snapshots' package/version maps."""
+    require_auth()
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    a_id = (qs.get('a', [''])[0] or '').strip()
+    b_id = (qs.get('b', [''])[0] or '').strip()
+    snaps = load(PATCH_SNAPSHOTS_FILE) or {}
+    a, b = snaps.get(a_id), snaps.get(b_id)
+    if not a or not b:
+        respond(404, {'error': 'both a and b must be existing snapshot ids'})
+    a_entries, b_entries = a.get('entries') or {}, b.get('entries') or {}
+    added = sorted(set(b_entries) - set(a_entries))
+    removed = sorted(set(a_entries) - set(b_entries))
+    changed = sorted(pkg for pkg in (set(a_entries) & set(b_entries))
+                     if a_entries[pkg] != b_entries[pkg])
+    respond(200, {'ok': True,
+                  'added': [{'pkg': p, 'version': b_entries[p]} for p in added],
+                  'removed': [{'pkg': p, 'version': a_entries[p]} for p in removed],
+                  'changed': [{'pkg': p, 'from': a_entries[p], 'to': b_entries[p]} for p in changed]})
+
+
+def handle_patch_snapshot_drift(sid):
+    """GET /api/patch-snapshots/{id}/drift — for devices carrying the
+    snapshot's promoted tag (all scope-visible devices if it isn't promoted
+    to one), report which installed packages differ from what was pinned.
+    Read-only reporting — does not touch auto-patch dispatch (see the module
+    docstring above for why enforcement is out of scope for this feature)."""
+    require_auth()
+    if not _validate_id(sid):
+        respond(404, {'error': 'Snapshot not found'})
+    snaps = load(PATCH_SNAPSHOTS_FILE) or {}
+    s = snaps.get(sid)
+    if not s:
+        respond(404, {'error': 'Snapshot not found'})
+    pinned = s.get('entries') or {}
+    tag = s.get('promoted_tag')
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    if tag:
+        devices = {k: v for k, v in devices.items() if tag in (v.get('tags') or [])}
+    pkg_store = load(PACKAGES_FILE) or {}
+    out = []
+    for dev_id, dev in devices.items():
+        installed = {p.get('name'): p.get('version')
+                    for p in (pkg_store.get(dev_id, {}).get('packages') or [])
+                    if p.get('name') and p.get('version')}
+        mismatches = [{'pkg': pkg, 'pinned': pinver, 'installed': installed[pkg]}
+                     for pkg, pinver in pinned.items()
+                     if pkg in installed and installed[pkg] != pinver]
+        if mismatches:
+            out.append({'device_id': dev_id, 'device_name': dev.get('name', dev_id),
+                        'mismatches': mismatches})
+    respond(200, {'ok': True, 'snapshot_id': sid, 'tag': tag,
+                  'devices_checked': len(devices), 'devices_drifted': len(out), 'drift': out})
+
+
 # ── v3.4.1: fleet posture report ───────────────────────────────────────────────
 # One report that binds together the four posture surfaces operators otherwise
 # read on separate pages — patches, CVEs, health score, and compliance — so a
@@ -54084,6 +54285,9 @@ def _build_exact_routes():
         ('GET', '/api/query/fields'): handle_query_fields,
         ('GET', '/api/query/templates'): handle_query_templates,
         ('POST', '/api/query/templates'): handle_query_template_create,
+        # v6.1.1: package-repo snapshot & promotion ledger
+        (None, '/api/patch-snapshots'): handle_patch_snapshots,   # GET list + POST create
+        ('GET', '/api/patch-snapshots/diff'): handle_patch_snapshot_diff,   # exact -- wins over the /{id} pattern below
         ('POST', '/api/cloud/import'): handle_cloud_import,             # v3.14.0 #32
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,
@@ -54387,6 +54591,13 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/apikeys/', '/rotate', 'handle_apikeys_rotate', "pi.startswith('/api/apikeys/') and pi.endswith('/rotate') and m == 'POST'"),
     ('pat', ('PATCH', 'POST'), '/api/apikeys/', '', 'handle_apikeys_update', "pi.startswith('/api/apikeys/') and m in ('PATCH', 'POST')"),
     ('pat', ('DELETE',), '/api/query/templates/', '', 'handle_query_template_delete', "pi.startswith('/api/query/templates/') and m == 'DELETE'"),   # v6.1.1
+    # v6.1.1: package-repo snapshot & promotion ledger. The /promote and /drift
+    # suffix routes MUST precede the generic /{id} pattern below (same prefix,
+    # empty suffix would otherwise swallow them with a bad id).
+    ('pat', ('POST',), '/api/patch-snapshots/', '/promote', 'handle_patch_snapshot_promote', "pi.startswith('/api/patch-snapshots/') and pi.endswith('/promote') and m == 'POST'"),
+    ('pat', ('GET',), '/api/patch-snapshots/', '/drift', 'handle_patch_snapshot_drift', "pi.startswith('/api/patch-snapshots/') and pi.endswith('/drift') and m == 'GET'"),
+    ('pat', ('GET',), '/api/patch-snapshots/', '', 'handle_patch_snapshot_get', "pi.startswith('/api/patch-snapshots/') and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/patch-snapshots/', '', 'handle_patch_snapshot_delete', "pi.startswith('/api/patch-snapshots/') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/patch-report/device/', '', 'handle_patch_report_device', "pi.startswith('/api/patch-report/device/') and m == 'GET'"),
     ('eq', ('DELETE',), '/api/audit-log', '', 'handle_audit_log_clear', "pi == '/api/audit-log' and m == 'DELETE'"),
     ('pat', ('GET',), '/api/users/', '/avatar', 'handle_user_avatar', "pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET'"),

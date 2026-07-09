@@ -449,6 +449,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Data Explorer</span>
         </button>
+        <button class="nav-btn" data-page="patchsnapshots" title="Freeze the fleet's current package versions into a named snapshot, diff two snapshots, promote one as a tag's reference state, and see which devices have drifted from it">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 12h6"/></svg>
+          <span>Package Snapshots</span>
+        </button>
         <button class="nav-btn" data-page="confirmations" title="Pending actions awaiting a second admin's approval (MCP writes + change-approval)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>Confirmations</span>
@@ -4952,6 +4956,35 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <thead id="qe-results-thead"></thead>
             <tbody id="qe-results-tbody"><tr><td class="empty-state">Run a query to see results.</td></tr></tbody>
           </table></div>
+        </div>
+      </div>
+
+      <!-- v6.1.1: package-repo snapshot & promotion ledger -->
+      <div id="page-patchsnapshots" class="page">
+        <div class="page-title">Package Snapshots</div>
+        <div class="page-subtitle">Freeze the fleet's current package versions into a named snapshot, diff two snapshots, promote one as a tag's reference state, and see which devices have drifted from it. Read-only reporting — does not change what auto-patch installs.</div>
+        <div class="dash-card">
+          <div class="section-title">Snapshots</div>
+          <div class="settings-row">
+            <input type="text" id="ps-name" class="form-input mw-220" placeholder="Snapshot name" aria-label="Snapshot name">
+            <button class="btn-primary" data-action="psCreate">Create snapshot</button>
+            <span id="ps-status" class="hint ml-8"></span>
+          </div>
+          <div id="ps-list" class="scroll-cap mt-8"><div class="empty-state">No snapshots yet.</div></div>
+        </div>
+        <div class="dash-card mt-16">
+          <div class="section-title">Diff two snapshots</div>
+          <div class="settings-row">
+            <select id="ps-diff-a" class="form-input mw-220" aria-label="Snapshot A"></select>
+            <span class="hint">vs</span>
+            <select id="ps-diff-b" class="form-input mw-220" aria-label="Snapshot B"></select>
+            <button class="btn-icon" data-action="psDiff">Show diff</button>
+          </div>
+          <div id="ps-diff-result" class="mt-8"></div>
+        </div>
+        <div class="dash-card mt-16">
+          <div class="section-title">Drift vs. a promoted snapshot</div>
+          <div id="ps-drift-result"><div class="empty-state">Click "Drift" on a promoted snapshot above.</div></div>
         </div>
       </div>
 

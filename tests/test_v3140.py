@@ -61,7 +61,8 @@ class _HandlerBase(unittest.TestCase):
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
                      'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE',
-                     'APIKEYS_FILE', 'QUERY_TEMPLATES_FILE', 'DRIFT_STATE_FILE'):
+                     'APIKEYS_FILE', 'QUERY_TEMPLATES_FILE', 'DRIFT_STATE_FILE',
+                     'PATCH_SNAPSHOTS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -3421,6 +3422,161 @@ class TestQueryEngineHandlers(_HandlerBase):
         self.assertIn("api('POST', '/query'", app)
         self.assertIn("api('GET', '/query/fields'", app)
         self.assertIn("if (name === 'dataexplorer') loadQueryPage()", app)
+
+
+class TestPatchSnapshots(_HandlerBase):
+    """v6.1.1 — package-repo snapshot & promotion ledger
+    (docs/feature-buildout-scoping-internal.md #4). Scoped to snapshot +
+    diff + promote + drift-reporting; deliberately does NOT claim to
+    constrain what auto-patch actually installs (see the module docstring
+    in api.py for why that's a separate, larger follow-up)."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web-1', 'tags': ['prod']},
+            'd2': {'name': 'web-2', 'tags': ['prod']},
+            'd3': {'name': 'dev-1', 'tags': []},
+        })
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.20'}, {'name': 'curl', 'version': '7.80'}]},
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.22'}, {'name': 'curl', 'version': '7.80'}]},
+            'd3': {'packages': [{'name': 'nginx', 'version': '1.18'}]},
+        })
+
+    def _create(self, name='snap-1'):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': name}
+        return self.call(api.handle_patch_snapshots)
+
+    def _list(self):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_patch_snapshots)
+
+    def _get(self, sid):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_patch_snapshot_get, sid)
+
+    def test_create_merges_newest_version_fleet_wide(self):
+        r = self._create('baseline')
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['entry_count'], 2)
+        detail = self._get(r['id'])
+        self.assertEqual(detail['entries']['nginx'], '1.22')   # newest of 1.20/1.22/1.18
+        self.assertEqual(detail['entries']['curl'], '7.80')
+
+    def test_list_is_metadata_only_no_entries(self):
+        self._create('baseline')
+        listed = self._list()
+        self.assertEqual(len(listed['snapshots']), 1)
+        self.assertNotIn('entries', listed['snapshots'][0])
+        self.assertEqual(listed['snapshots'][0]['entry_count'], 2)
+
+    def test_get_unknown_snapshot_404(self):
+        self._get('nope')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_delete_roundtrip(self):
+        sid = self._create('temp')['id']
+        api.method = lambda: 'DELETE'
+        r = self.call(api.handle_patch_snapshot_delete, sid)
+        self.assertTrue(r['ok'])
+        self.assertEqual(self._list()['snapshots'], [])
+
+    def test_diff_added_removed_changed(self):
+        a = self._create('a')['id']
+        # bump d1's curl and add a new package before snapshot b
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.20'}, {'name': 'curl', 'version': '7.81'},
+                                {'name': 'jq', 'version': '1.7'}]},
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.22'}]},   # curl removed fleet-wide
+            'd3': {'packages': [{'name': 'nginx', 'version': '1.18'}]},
+        })
+        b = self._create('b')['id']
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = f'a={a}&b={b}'
+        try:
+            r = self.call(api.handle_patch_snapshot_diff)
+        finally:
+            os.environ.pop('QUERY_STRING', None)
+        self.assertEqual([x['pkg'] for x in r['added']], ['jq'])
+        self.assertEqual([x['pkg'] for x in r['removed']], [])   # curl still present via d1's 7.81
+        changed = {x['pkg']: (x['from'], x['to']) for x in r['changed']}
+        self.assertEqual(changed.get('curl'), ('7.80', '7.81'))
+
+    def test_diff_missing_id_404(self):
+        a = self._create('a')['id']
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = f'a={a}&b=nope'
+        try:
+            self.call(api.handle_patch_snapshot_diff)
+        finally:
+            os.environ.pop('QUERY_STRING', None)
+        self.assertEqual(self.cap['s'], 404)
+
+    def _promote(self, sid, tag):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'tag': tag}
+        return self.call(api.handle_patch_snapshot_promote, sid)
+
+    def _drift(self, sid):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_patch_snapshot_drift, sid)
+
+    def test_promote_sets_tag_and_supersedes_prior_holder(self):
+        s1 = self._create('s1')['id']
+        s2 = self._create('s2')['id']
+        self._promote(s1, 'prod')
+        self.assertIsNone(self._get(s2)['promoted_tag'])
+        self._promote(s2, 'prod')   # supersedes s1 for the same tag
+        self.assertEqual(self._get(s2)['promoted_tag'], 'prod')
+        self.assertIsNone(self._get(s1)['promoted_tag'])
+
+    def test_drift_scoped_to_promoted_tag(self):
+        sid = self._create('baseline')['id']   # pins nginx=1.22 (newest seen)
+        self._promote(sid, 'prod')
+        # d1 (tagged prod) drifts below the pin; d2 (tagged prod) matches it;
+        # d3 is untagged -- must be excluded entirely, even though it's the
+        # most out-of-date host in the fleet.
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.19'}]},
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.22'}]},
+            'd3': {'packages': [{'name': 'nginx', 'version': '1.05'}]},
+        })
+        r = self._drift(sid)
+        self.assertEqual(r['tag'], 'prod')
+        self.assertEqual(r['devices_checked'], 2)   # d1 + d2, not d3
+        self.assertEqual(r['devices_drifted'], 1)
+        self.assertEqual(r['drift'][0]['device_id'], 'd1')
+        self.assertEqual(r['drift'][0]['mismatches'][0],
+                         {'pkg': 'nginx', 'pinned': '1.22', 'installed': '1.19'})
+
+    def test_drift_checks_whole_fleet_when_not_promoted(self):
+        sid = self._create('baseline')['id']   # never promoted
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.19'}]},
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.22'}]},
+            'd3': {'packages': [{'name': 'nginx', 'version': '1.22'}]},
+        })
+        r = self._drift(sid)
+        self.assertIsNone(r['tag'])
+        self.assertEqual(r['devices_checked'], 3)
+        self.assertEqual(r['devices_drifted'], 1)   # only d1
+
+    def test_delete_requires_admin_route_and_method(self):
+        sid = self._create('x')['id']
+        api.method = lambda: 'GET'   # wrong method
+        self.call(api.handle_patch_snapshot_delete, sid)
+        self.assertEqual(self.cap['s'], 405)
+
+    def test_ui_wired(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="page-patchsnapshots"', html)
+        app = client_js()
+        self.assertIn("api('POST', '/patch-snapshots'", app)
+        self.assertIn("api('GET', `/patch-snapshots/diff", app)   # template literal, not a plain string
+        self.assertIn('async function psDrift', app)
+        self.assertIn('async function psPromote', app)
 
 
 class TestScim(_HandlerBase):

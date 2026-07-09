@@ -1571,6 +1571,7 @@ function showPage(name, btn) {
   if (name === 'provisioning') loadProvisioning();   // also loads the Ansible playbooks card
   if (name === 'cmdqueue') loadCommandQueue();
   if (name === 'dataexplorer') loadQueryPage();
+  if (name === 'patchsnapshots') loadPatchSnapshotsPage();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
   if (name === 'patches')        loadPatchReport();
@@ -6513,6 +6514,122 @@ async function qeDeleteTemplate(id) {
   const r = await api('DELETE', '/query/templates/' + id).catch(() => null);
   if (r?.ok) { toast('Deleted', 'success'); qeLoadTemplates(); }
   else toast(r?.error || 'Delete failed', 'error');
+}
+
+// ── v6.1.1: package-repo snapshot & promotion ledger ──────────────────────────
+// Read-only reporting on top of the same package inventory the Patches page
+// already reads -- freezing a named point-in-time reference, diffing two of
+// them, and reporting drift of a tag's devices away from a promoted one.
+// Deliberately does NOT claim to constrain what auto-patch installs (see the
+// module docstring in api.py for why enforcement is a separate follow-up).
+let _psSnapshots = [];
+
+async function loadPatchSnapshotsPage() {
+  await psRefreshList();
+}
+
+async function psRefreshList() {
+  const r = await api('GET', '/patch-snapshots').catch(() => null);
+  _psSnapshots = (r && r.snapshots) || [];
+  _psRenderList();
+  _psRenderDiffSelects();
+}
+
+function _psRenderList() {
+  const wrap = document.getElementById('ps-list');
+  if (!wrap) return;
+  wrap.innerHTML = _psSnapshots.length ? _psSnapshots.map(s => {
+    const tag = s.promoted_tag
+      ? `<span class="patch-badge ok">promoted → ${escHtml(s.promoted_tag)}</span> ` +
+        `<button class="btn-icon" data-action="psPromote" data-arg="${escAttr(s.id)}">Change tag</button> ` +
+        `<button class="btn-icon" data-action="psDemote" data-arg="${escAttr(s.id)}">Demote</button> ` +
+        `<button class="btn-icon" data-action="psDrift" data-arg="${escAttr(s.id)}">Drift</button>`
+      : `<button class="btn-icon" data-action="psPromote" data-arg="${escAttr(s.id)}">Promote to tag…</button> ` +
+        `<button class="btn-icon" data-action="psDrift" data-arg="${escAttr(s.id)}">Drift (whole fleet)</button>`;
+    return `<div class="settings-row"><strong>${escHtml(s.name)}</strong> ` +
+      `<span class="hint">${new Date(s.created * 1000).toLocaleString()} · ${s.entry_count} package(s) · by ${escHtml(s.created_by || '?')}</span> ` +
+      tag + ` <button class="btn-icon c-danger-outline" data-action="psDelete" data-arg="${escAttr(s.id)}">Delete</button></div>`;
+  }).join('') : '<div class="empty-state">No snapshots yet.</div>';
+}
+
+function _psRenderDiffSelects() {
+  const opts = _psSnapshots.map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('');
+  const a = document.getElementById('ps-diff-a');
+  const b = document.getElementById('ps-diff-b');
+  if (a) a.innerHTML = opts;
+  if (b) b.innerHTML = opts;
+}
+
+async function psCreate() {
+  const nameEl = document.getElementById('ps-name');
+  const name = (nameEl?.value || '').trim();
+  if (!name) { toast('Name the snapshot first', 'error'); return; }
+  const status = document.getElementById('ps-status');
+  if (status) status.textContent = 'Freezing current package state…';
+  const r = await api('POST', '/patch-snapshots', { name }).catch(e => ({ error: String(e) }));
+  if (status) status.textContent = '';
+  if (r?.ok) {
+    toast(`Snapshot saved (${r.entry_count} packages)`, 'success');
+    if (nameEl) nameEl.value = '';
+    await psRefreshList();
+  } else toast(r?.error || 'Failed', 'error');
+}
+
+async function psDelete(id) {
+  if (!await uiConfirm('Delete this snapshot? Any drift report keyed off it will stop working.')) return;
+  const r = await api('DELETE', '/patch-snapshots/' + id).catch(() => null);
+  if (r?.ok) { toast('Deleted', 'success'); psRefreshList(); }
+  else toast(r?.error || 'Delete failed', 'error');
+}
+
+async function psPromote(id) {
+  const tag = await uiPrompt({ title: 'Promote to tag', placeholder: 'prod',
+    message: 'Devices carrying this tag will be checked against this snapshot on the Drift report. Promoting supersedes any snapshot already promoted to the same tag.' });
+  if (!tag) return;
+  const r = await api('POST', `/patch-snapshots/${id}/promote`, { tag }).catch(() => null);
+  if (r?.ok) { toast(`Promoted to "${tag}"`, 'success'); psRefreshList(); }
+  else toast(r?.error || 'Promote failed', 'error');
+}
+
+async function psDemote(id) {
+  const r = await api('POST', `/patch-snapshots/${id}/promote`, { tag: null }).catch(() => null);
+  if (r?.ok) { toast('Demoted', 'success'); psRefreshList(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function psDiff() {
+  const a = document.getElementById('ps-diff-a')?.value;
+  const b = document.getElementById('ps-diff-b')?.value;
+  const out = document.getElementById('ps-diff-result');
+  if (!a || !b || !out) return;
+  if (a === b) { toast('Pick two different snapshots', 'error'); return; }
+  const r = await api('GET', `/patch-snapshots/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).catch(() => null);
+  if (!r || !r.ok) { toast((r && r.error) || 'Diff failed', 'error'); return; }
+  const rows = [
+    ...r.added.map(x => `<tr><td class="c-green">added</td><td>${escHtml(x.pkg)}</td><td></td><td>${escHtml(x.version)}</td></tr>`),
+    ...r.removed.map(x => `<tr><td class="c-red">removed</td><td>${escHtml(x.pkg)}</td><td>${escHtml(x.version)}</td><td></td></tr>`),
+    ...r.changed.map(x => `<tr><td class="c-amber">changed</td><td>${escHtml(x.pkg)}</td><td>${escHtml(x.from)}</td><td>${escHtml(x.to)}</td></tr>`),
+  ];
+  out.innerHTML = rows.length
+    ? `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr><th>Change</th><th>Package</th><th>From</th><th>To</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+    : '<div class="empty-state">Identical package sets.</div>';
+}
+
+async function psDrift(id) {
+  const out = document.getElementById('ps-drift-result');
+  if (!out) return;
+  out.innerHTML = '<div class="c-muted">Loading…</div>';
+  const r = await api('GET', `/patch-snapshots/${id}/drift`).catch(() => null);
+  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Drift report failed')}</div>`; return; }
+  const scope = r.tag ? `tag "${r.tag}"` : 'the whole visible fleet (not promoted to a tag)';
+  if (!r.drift.length) {
+    out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} device(s) in ${escHtml(scope)}.</div><div class="empty-state">No drift — every checked device matches the pinned versions.</div>`;
+    return;
+  }
+  const rows = r.drift.flatMap(d => d.mismatches.map(m =>
+    `<tr><td>${escHtml(d.device_name)}</td><td>${escHtml(m.pkg)}</td><td>${escHtml(m.pinned)}</td><td>${escHtml(m.installed)}</td></tr>`));
+  out.innerHTML = `<div class="hint mb-8">Checked ${r.devices_checked} device(s) in ${escHtml(scope)} — ${r.devices_drifted} drifted.</div>` +
+    `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full"><thead><tr><th>Device</th><th>Package</th><th>Pinned</th><th>Installed</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
 let _apiKeysCache = [];
@@ -22644,6 +22761,7 @@ function _palBuildIndex() {
     ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],
     ['API Keys', 'apikeys'], ['Scripts', 'scripts'], ['Command Library', 'cmdlib'],
     ['Command Queue', 'cmdqueue'], ['Fleet Query', 'query'], ['Data Explorer', 'dataexplorer'],
+    ['Package Snapshots', 'patchsnapshots'],
     ['Maintenance', 'maintenance'], ['Services', 'services'], ['About', 'about'],
     // v3.4.1: new + previously-missing destinations
     ['Timeline', 'timeline'], ['Reports', 'reports'], ['Alerts', 'alerts'],
