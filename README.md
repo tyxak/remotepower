@@ -137,6 +137,17 @@ many hosts? Push the installer over SSH: `install.sh agent push user@h1 user@h2 
 For longer paths (Windows client, demo vhost, Ansible, advanced TLS), see
 **[docs/install.md](docs/install.md)**.
 
+**Upgrading an existing install?** One command handles both cases — picking
+up new code, or converting a pre-6.1.0 install off the retired CGI transport:
+
+```bash
+git pull origin main
+sudo bash install.sh update
+```
+
+`sudo bash install.sh doctor` shows what it'll do first. Details:
+**[docs/upgrading.md](docs/upgrading.md)**.
+
 ### Try the live demo
 
 A read-only demo deployment runs at **<https://demoremote.tvipper.com>** —
@@ -166,11 +177,33 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
-- **v6.1.0 "Runt1meMatters"** — the enterprise-productization release. **Postgres, the out-of-band scheduler, and a co-located scanner satellite are now the single-node default** (`install-server.sh` and `docker-compose.yml` — `--no-postgres`/`--no-scheduler`/`--no-scanner` opt back down), and **the server runs entirely on gunicorn + Flask** — the CGI (`fcgiwrap`) entry point and the SCGI prefork worker are retired, every shipped nginx config proxies straight to the app server, and a fresh install migrates its bootstrap data into Postgres automatically. Fixed a latent bug where the `/install` one-line agent installer could silently point at the wrong host under a persistent server. No breaking API changes.
-- **v6.0.1 "RefineMatters" — 2026-07-08** — a refinement release: a broad polish, hardening and correctness pass over the whole product. Sidebar reorganised (Virtualization/Containers under **Fleet**, Integrations under **Monitoring**, App catalog under **Automation**; every sub-menu sorted alphabetically); a **real world map** on the Sites page; **single-device auto-patch** targets; the App catalog as a full sortable table; a dedicated **Service baselines** card; **PDF** patch-report export; and consistent button sizing throughout. **Certificate expiry now raises an alert** by default, plus two new alerts — **read-only remount** (silent data-loss) and **mail-queue backlog** — and two alert-resolution fixes. Extra defense-in-depth on outbound vuln-DB/registry lookups, faster heartbeats, and refreshed documentation. No breaking changes.
-- **v6.0.0 "ClarityMatters" — 2026-07-05** — the v6 interface overhaul. One flat, modern UI replaces the Industrial New-UI/Old-UI toggle (system fonts, hairline panels, accent-soft active states); the sidebar is regrouped into **12 domains** as a one-open-at-a-time accordion and **Settings** gets a left-nav; **Tickets, Billing, Provisioning, the host File manager and the Knowledge base are now standard, always-on modules** (server-side Terraform execution stays an explicit admin switch); an optional **auto-hide sidebar** (on by default, revealed while alerts are open), a faint per-page watermark, and consistent headings/buttons/typography throughout; **every page links its own documentation**. Folds in the accumulated backend work — built-in **TLS/DANE expiry schedule**, **SNMPv3 (USM)** polling for agentless devices, and the **GitHub issue monitor** connector. Security: a whole-project audit + full SAST (CodeQL 0) with three Medium and several Low fixes — no Critical/High/Medium ships. No breaking API changes.
-- **v5.7.0 — F4ct0rMatters** — a refactor-and-fix release. Fixes five New-UI bugs reported by @AndiBSE — devices can be **deleted** again, the profile menu is readable in **light mode**, the **accent picker** and full **themes** work in the New UI, and the accent reaches chamfered buttons — plus a **mobile/narrow-viewport** pass (no horizontal scroll at phone width). Adds **ticket lifecycle events**, **whole-tree config-secret encryption** and **multi-table Postgres RLS** (both opt-in, default-off). Faster to start (lazy `<template>` pages, parallel fonts, nav preload) on a much slimmer, modular server (`api.py` ~57k→~52k lines). No breaking changes.
-- **v5.6.0 — HeapMatters** — the IaC / automation + alert-tuning release. An opt-in **Provisioning** page (Admin → Provisioning): a folder-tree **catalog of infrastructure blueprints** — Terraform, cloud-init, Ansible, iPXE — that you fill in and **render** (copy/download; cloud-init can bake the agent install one-liner), or **run Terraform server-side** — **Plan / Apply / Destroy** — behind a separate execute gate, with persistent per-blueprint state, a run lock, and secrets passed as environment (never to disk). The standalone Ansible runner folds in here. Plus an **alert Tuning** page (Monitoring → Tuning) that surfaces the noisiest alerts from the timeline with a per-host **mute** (the Alerts/dashboard Ack button becomes an **X mute** silencing one exact alert from one host), and **timesheet watchers** — let specific non-finance users view another user's hours, by user or whole team. Also: **virtualization lifecycle beyond Proxmox** — VMware (vSphere/vCenter, Cloud Director) and OpenShift Virtualization now get list / power / snapshot control on the Virtualization page; an opt-in **Knowledge Base** (operator-authored SOPs/runbooks, searchable, fed to the AI as a RAG source); and three new automation actions (open a ticket, add a tag, mute the alert). Everything opt-in, default-off — no breaking changes.
+- **v6.1.0 "Runt1meMatters"** — enterprise-productization. Postgres, an
+  out-of-band scheduler and a co-located scanner satellite are now the
+  single-node default (opt back down with `--no-postgres`/`--no-scheduler`/
+  `--no-scanner`); the server now runs entirely on **gunicorn + Flask** — CGI
+  and the old SCGI worker are retired, and a fresh install migrates into
+  Postgres automatically. One command (`install.sh update`) now takes any
+  existing install straight to this. No breaking API changes.
+- **v6.0.1 "RefineMatters" — 2026-07-08** — a polish, hardening and
+  correctness pass: sidebar reorganised, a real world map on the Sites page,
+  single-device auto-patch targets, PDF patch-report export. Certificate
+  expiry now alerts by default, plus new read-only-remount and
+  mail-queue-backlog alerts. No breaking changes.
+- **v6.0.0 "ClarityMatters" — 2026-07-05** — the v6 interface overhaul: one
+  flat modern UI (no more Industrial/New-UI toggle), a 12-domain accordion
+  sidebar, and Tickets/Billing/Provisioning/File-manager/Knowledge-base
+  promoted to standard always-on modules. Full SAST audit, no Critical/High/
+  Medium findings. No breaking API changes.
+- **v5.7.0 — F4ct0rMatters** — a refactor-and-fix release: five New-UI bugs
+  fixed (device delete, light-mode profile menu, theme/accent picker), a
+  mobile/narrow-viewport pass, ticket lifecycle events, and a slimmer,
+  faster-starting server. No breaking changes.
+- **v5.6.0 — HeapMatters** — the IaC / automation release: a **Provisioning**
+  page (Terraform/cloud-init/Ansible/iPXE blueprints, with an opt-in
+  server-side Terraform Plan/Apply/Destroy), an alert **Tuning** page with
+  per-alert mute, and virtualization lifecycle for VMware/OpenShift alongside
+  Proxmox. Everything opt-in, default-off — no breaking changes.
+
 Full release history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security
