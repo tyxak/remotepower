@@ -6204,7 +6204,11 @@ function _registerApiKeysTable() {
       }
       const rate = k.rate_limit ? `${k.rate_limit}/min` : '<span class="hint">unlimited</span>';
       const editBtn = `<button class="btn-icon" data-action="editApiKey" data-arg="${escAttr(k.id)}" title="Edit name, role, expiry and rate limit (the key secret stays the same)">${_icon('edit',14)}</button>`;
-      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><div class="user-actions">${editBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
+      // v6.1.1: one-click rotation — mints a replacement key and deactivates
+      // this one; hidden for an already-rotated-out (inactive) key.
+      const rotateBtn = k.active === false ? '' :
+        `<button class="btn-icon" data-action="rotateApiKey" data-arg="${escAttr(k.id)}" data-arg2="${escAttr(k.name)}" title="Rotate: mint a replacement key and deactivate this one">${_icon('refresh',14)}</button>`;
+      return `<tr><td class="fw-600">${escHtml(k.name)}${k.active === false ? ' <span class="hint">(rotated out)</span>' : ''}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><div class="user-actions">${editBtn}${rotateBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
@@ -6362,7 +6366,7 @@ function _setApiKeyScope(scope) {
   if (st) st.value = (scope && scope.type) || 'all';
   if (sv) sv.value = (scope && Array.isArray(scope.values)) ? scope.values.join(', ') : '';
 }
-function openApiKeyCreate() { _apiKeyEditId = null; const t = _apiKeyModalTitle(); if (t) t.textContent = 'Create API key'; document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; _setApiKeyScope(null); const ia = document.getElementById('apikey-ip-allow'); if (ia) ia.value = ''; document.getElementById('apikey-result').style.display = 'none'; const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Create'; openModal('apikey-create-modal'); }
+function openApiKeyCreate() { _apiKeyEditId = null; const t = _apiKeyModalTitle(); if (t) t.textContent = 'Create API key'; document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; const rd = document.getElementById('apikey-rotate-days'); if (rd) rd.value = ''; _setApiKeyScope(null); const ia = document.getElementById('apikey-ip-allow'); if (ia) ia.value = ''; document.getElementById('apikey-result').style.display = 'none'; const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Create'; openModal('apikey-create-modal'); }
 function editApiKey(id) {
   const k = _apiKeysCache.find(x => x.id === id);
   if (!k) { toast('Key not found', 'error'); return; }
@@ -6373,6 +6377,7 @@ function editApiKey(id) {
   const ex = document.getElementById('apikey-expires');
   if (ex) ex.value = k.expires_at ? new Date(k.expires_at * 1000).toISOString().slice(0, 10) : '';
   const rl = document.getElementById('apikey-rate'); if (rl) rl.value = k.rate_limit || '';
+  const rd = document.getElementById('apikey-rotate-days'); if (rd) rd.value = k.rotate_after_days || '';
   _setApiKeyScope(k.scope);
   const ia = document.getElementById('apikey-ip-allow'); if (ia) ia.value = (Array.isArray(k.ip_allow) ? k.ip_allow.join(', ') : '');
   document.getElementById('apikey-result').style.display = 'none';   // never show a secret on edit
@@ -6387,11 +6392,12 @@ async function createApiKey() {
   let expires_at = null;
   if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } expires_at = ts; }
   const rlVal = parseInt(document.getElementById('apikey-rate')?.value || '0', 10);
+  const rdVal = parseInt(document.getElementById('apikey-rotate-days')?.value || '0', 10);
   // Edit mode: PATCH metadata in place; the key secret is never touched.
   const ipAllow = (document.getElementById('apikey-ip-allow')?.value || '').trim();
   if (_apiKeyEditId) {
     // scope + ip_allow sent explicitly (empty clears) so edit can remove them
-    const body = {name, role, expires_at, rate_limit: rlVal > 0 ? rlVal : 0, scope: _apiKeyScopeFromForm(), ip_allow: ipAllow};
+    const body = {name, role, expires_at, rate_limit: rlVal > 0 ? rlVal : 0, rotate_after_days: rdVal > 0 ? rdVal : 0, scope: _apiKeyScopeFromForm(), ip_allow: ipAllow};
     const data = await api('PATCH', '/apikeys/' + _apiKeyEditId, body);
     if (data?.ok) { toast('Key updated', 'info'); closeModal('apikey-create-modal'); _apiKeyEditId = null; loadApiKeys(); } else toast(data?.error || 'Failed', 'error');
     return;
@@ -6399,10 +6405,30 @@ async function createApiKey() {
   const body = {name, role};
   if (expires_at) body.expires_at = expires_at;
   if (rlVal > 0) body.rate_limit = rlVal;
+  if (rdVal > 0) body.rotate_after_days = rdVal;
   const sc = _apiKeyScopeFromForm(); if (sc) body.scope = sc;
   if (ipAllow) body.ip_allow = ipAllow;
   const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteApiKey(id) { if (!await uiConfirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+
+// v6.1.1: one-click rotation. Mints a replacement key and deactivates this
+// one; the new secret is revealed exactly once via the SAME reveal panel
+// createApiKey() uses — never emailed/auto-delivered anywhere (see
+// docs/feature-buildout-scoping-internal.md #3 for why: this stays a
+// human-triggered action on purpose, not a silent background job).
+async function rotateApiKey(id, name) {
+  if (!await uiConfirm(`Rotate '${name}'? A new key is minted and this one is deactivated immediately — update every script/integration using it.`)) return;
+  const data = await api('POST', '/apikeys/' + id + '/rotate', {});
+  if (data?.ok) {
+    const t = _apiKeyModalTitle(); if (t) t.textContent = 'Key rotated';
+    document.getElementById('apikey-value-display').textContent = data.key;
+    document.getElementById('apikey-result').style.display = 'block';
+    document.getElementById('apikey-create-btn').style.display = 'none';
+    openModal('apikey-create-modal');
+    toast('Key rotated — the old key is now inactive', 'success');
+    loadApiKeys();
+  } else toast(data?.error || 'Rotation failed', 'error');
+}
 
 // ─── v5.2.0 AccessMatters: WG Access (WireGuard road-warrior VPN) ─────────────
 // Tunnels = WireGuard hub interfaces; clients = per-device peers issued under a
@@ -10048,10 +10074,30 @@ async function _refreshAuditChainBadge() {
 
 function _renderAuditChainBadge(d) {
   const el = document.getElementById('audit-chain-badge');
-  if (!el) return;
-  el.innerHTML = d.ok
-    ? `<span class="patch-badge ok fs-11" title="${d.verified} chained entries verified">chain intact</span>`
-    : `<span class="patch-badge crit fs-11" title="Hash-chain broken at entry #${d.broken_at}">TAMPER DETECTED</span>`;
+  if (el) {
+    el.innerHTML = d.ok
+      ? `<span class="patch-badge ok fs-11" title="${d.verified} chained entries verified">chain intact</span>`
+      : `<span class="patch-badge crit fs-11" title="Hash-chain broken at entry #${d.broken_at}">TAMPER DETECTED</span>`;
+  }
+  // v6.1.1: signing-key generation, from the same /audit-log/verify response.
+  const kv = document.getElementById('audit-hmac-version');
+  if (kv && d.key_version) {
+    kv.textContent = `signing key: generation ${d.key_version}` +
+      (d.key_rotations ? ` (${d.key_rotations} rotation${d.key_rotations === 1 ? '' : 's'})` : '');
+  }
+}
+
+// v6.1.1: mint a new audit-chain HMAC generation. Every past entry keeps
+// verifying against whichever generation actually signed it (see
+// docs/feature-buildout-scoping-internal.md #3) -- this only bounds the
+// blast radius of a leaked key going forward, nothing to back up or migrate.
+async function rotateAuditHmacKey() {
+  if (!await uiConfirm('Rotate the audit-chain signing key? Past entries stay verifiable; new entries sign with the new key.')) return;
+  const r = await api('POST', '/audit/rotate-hmac-key', {});
+  if (r?.ok) {
+    toast(`Signing key rotated to generation ${r.version}`, 'success');
+    _refreshAuditChainBadge();
+  } else toast(r?.error || 'Rotation failed', 'error');
 }
 
 function _formatTs(ts) {

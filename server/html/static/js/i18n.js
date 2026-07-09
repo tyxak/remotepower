@@ -1528,6 +1528,7 @@
     "Save ticket mailbox": { "fr": "Enregistrer la boîte mail des tickets", "de": "Ticket-Postfach speichern", "zh": "保存工单邮箱", "hi": "टिकट मेलबॉक्स सहेजें", "es": "Guardar buzón de tickets", "ar": "حفظ صندوق بريد التذاكر" },
     "Save auto-reply": { "fr": "Enregistrer la réponse automatique", "de": "Autoantwort speichern", "zh": "保存自动回复", "hi": "स्वतः-उत्तर सहेजें", "es": "Guardar respuesta automática", "ar": "حفظ الرد التلقائي" },
     "Rotate export-signing key": { "fr": "Faire pivoter la clé de signature d'export", "de": "Export-Signierschlüssel rotieren", "zh": "轮换导出签名密钥", "hi": "निर्यात-हस्ताक्षर कुंजी घुमाएँ", "es": "Rotar la clave de firma de exportación", "ar": "تدوير مفتاح توقيع التصدير" },
+    "Rotate signing key": { "fr": "Faire pivoter la clé de signature", "de": "Signierschlüssel rotieren", "zh": "轮换签名密钥", "hi": "हस्ताक्षर कुंजी घुमाएँ", "es": "Rotar la clave de firma", "ar": "تدوير مفتاح التوقيع" },
     "Test restore (latest backup)": { "fr": "Tester la restauration (dernière sauvegarde)", "de": "Wiederherstellung testen (neueste Sicherung)", "zh": "测试恢复（最新备份）", "hi": "पुनर्स्थापना परीक्षण (नवीनतम बैकअप)", "es": "Probar restauración (última copia)", "ar": "اختبار الاستعادة (أحدث نسخة احتياطية)" },
     "Take a tour": { "fr": "Faire une visite guidée", "de": "Tour starten", "zh": "开始导览", "hi": "एक टूर लें", "es": "Hacer un recorrido", "ar": "جولة تعريفية" },
     "Test IMAP": { "fr": "Tester IMAP", "de": "IMAP testen", "zh": "测试 IMAP", "hi": "IMAP जाँचें", "es": "Probar IMAP", "ar": "اختبار IMAP" },

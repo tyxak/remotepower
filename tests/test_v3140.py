@@ -60,7 +60,8 @@ class _HandlerBase(unittest.TestCase):
                      'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
-                     'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE'):
+                     'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE',
+                     'APIKEYS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -3188,6 +3189,98 @@ class TestFileArchive(_HandlerBase):
         self.assertIn('async function fmArchiveDir', app)
         self.assertIn('async function _fmArchivePoll', app)
         self.assertIn("api('POST', `/devices/${_fmDev.id}/files/archive`", app)
+
+
+class TestApiKeyRotation(_HandlerBase):
+    """v6.1.1 — one-click API-key rotation + the rotate_after_days attention
+    item (docs/feature-buildout-scoping-internal.md #3). Deliberately human-
+    triggered, not a silent background job — see handle_apikeys_rotate's
+    docstring for why."""
+
+    def _create(self, **extra):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'ci-deploy', 'role': 'admin', **extra}
+        return self.call(api.handle_apikeys_create)
+
+    def _rotate(self, kid):
+        api.method = lambda: 'POST'
+        return self.call(api.handle_apikeys_rotate, kid)
+
+    def test_rotate_mints_replacement_and_deactivates_old(self):
+        old = self._create(rate_limit=42, rotate_after_days=90)
+        old_kid = old['id']
+        r = self._rotate(old_kid)
+        self.assertTrue(r['ok'])
+        new_kid = r['id']
+        self.assertNotEqual(new_kid, old_kid)
+        self.assertTrue(r['key'])           # new plaintext secret, shown once
+        self.assertEqual(r['replaced'], old_kid)
+
+        keys = api.load(api.APIKEYS_FILE)
+        self.assertFalse(keys[old_kid]['active'])
+        self.assertEqual(keys[old_kid]['rotated_to'], new_kid)
+        self.assertTrue(keys[new_kid]['active'])
+        # policy + metadata carried forward onto the replacement
+        self.assertEqual(keys[new_kid]['rate_limit'], 42)
+        self.assertEqual(keys[new_kid]['rotate_after_days'], 90)
+        self.assertEqual(keys[new_kid]['name'], 'ci-deploy')
+        self.assertEqual(keys[new_kid]['rotated_from'], old_kid)
+
+    def test_rotated_key_hash_differs_and_old_secret_stops_working(self):
+        old = self._create()
+        old_kid = old['id']
+        r = self._rotate(old_kid)
+        keys = api.load(api.APIKEYS_FILE)
+        self.assertNotEqual(keys[old_kid]['key_hash'], keys[r['id']]['key_hash'])
+
+    def test_rotate_unknown_key_404(self):
+        self._rotate('doesnotexist')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_rotate_route_does_not_collide_with_generic_update(self):
+        # v6.1.1 gotcha: /api/apikeys/{kid}/rotate must NOT fall through to the
+        # catch-all PATCH/POST update route (which would try to treat
+        # "{kid}/rotate" as a single malformed id).
+        src = (Path(__file__).parent.parent / "server/cgi-bin/api.py").read_text()
+        rotate_idx = src.index("'/api/apikeys/', '/rotate'")
+        update_idx = src.index("'/api/apikeys/', '', 'handle_apikeys_update'")
+        self.assertLess(rotate_idx, update_idx,
+                        "the specific /rotate route must be registered before the generic catch-all")
+
+    def test_attention_item_for_key_past_rotation_policy(self):
+        rec = self._create(rotate_after_days=30)
+        with api._LockedUpdate(api.APIKEYS_FILE) as keys:
+            keys[rec['id']]['created'] = int(api.time.time()) - 31 * 86400
+        items = api._compute_attention()
+        due = [i for i in items if i['kind'] == 'apikey_rotation_due']
+        self.assertEqual(len(due), 1)
+        self.assertIn('ci-deploy', due[0]['summary'])
+
+    def test_no_attention_item_before_policy_age_or_without_policy(self):
+        self._create(rotate_after_days=30)     # freshly created — not due yet
+        self._create()                          # no policy at all
+        items = api._compute_attention()
+        self.assertFalse([i for i in items if i['kind'] == 'apikey_rotation_due'])
+
+    def test_inactive_rotated_key_not_flagged_again(self):
+        old = self._create(rotate_after_days=30)
+        with api._LockedUpdate(api.APIKEYS_FILE) as keys:
+            keys[old['id']]['created'] = int(api.time.time()) - 31 * 86400
+        self._rotate(old['id'])
+        items = api._compute_attention()
+        # the OLD (now inactive) key must not still be flagged; the new one is fresh
+        self.assertFalse([i for i in items if i['kind'] == 'apikey_rotation_due'])
+
+    def test_channel_kind_registered(self):
+        self.assertIn('apikey_rotation_due', {k for k, *_ in api.CHANNEL_KIND_DEFS})
+
+    def test_ui_wired(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="apikey-rotate-days"', html)
+        app = client_js()
+        self.assertIn('async function rotateApiKey', app)
+        self.assertIn("api('POST', '/apikeys/' + id + '/rotate'", app)
+        self.assertIn('data-action="rotateApiKey"', app)
 
 
 class TestScim(_HandlerBase):

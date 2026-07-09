@@ -130,11 +130,155 @@ class TestRetentionMoved(unittest.TestCase):
         self.assertTrue(arch.exists())
 
 
+class TestHmacKeyRotation(unittest.TestCase):
+    """v6.1.1 — versioned audit-HMAC rotation. Old entries must keep verifying
+    against the generation that actually signed them; new entries sign with
+    whatever's current; a chain spanning a rotation still verifies end-to-end
+    (docs/feature-buildout-scoping-internal.md #3)."""
+
+    def _chain_valid(self, api):
+        entries = (api.load(api.AUDIT_LOG_FILE) or {}).get("entries", [])
+        prev = ""
+        for e in entries:
+            body = {k: v for k, v in e.items() if k != "_hash"}
+            if e.get("_hash") != api._audit_entry_hash(prev, body):
+                return False, len(entries)
+            prev = e.get("_hash", "")
+        return True, len(entries)
+
+    def _rotate(self, api):
+        # Deliberately do NOT stub audit_log — the rotation's own audited event
+        # is part of what these tests verify stays chain-valid.
+        api.require_admin_auth = lambda **kw: 'admin'
+        api.method = lambda: 'POST'
+        cap = {}
+
+        def _resp(s, b=None):
+            cap['s'] = s
+            cap['b'] = b
+            raise SystemExit(0)
+        api.respond = _resp
+        try:
+            api.handle_audit_hmac_rotate()
+        except SystemExit:
+            pass
+        return cap['b']
+
+    def test_starts_at_version_1(self):
+        api = _load_api("json")
+        self.assertEqual(api._audit_hmac_active_version(), 1)
+
+    def test_rotate_bumps_version_and_persists_key(self):
+        api = _load_api("json")
+        r = self._rotate(api)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['version'], 2)
+        self.assertEqual(api._audit_hmac_active_version(), 2)
+        rotations = api.load(api.AUDIT_HMAC_ROTATIONS_FILE)
+        self.assertIn('2', rotations)
+        self.assertTrue(rotations['2']['key_hex'])
+
+    def test_second_rotation_bumps_to_3(self):
+        api = _load_api("json")
+        self._rotate(api)
+        r = self._rotate(api)
+        self.assertEqual(r['version'], 3)
+
+    def test_chain_spans_rotation_and_still_verifies(self):
+        api = _load_api("json")
+        for i in range(3):
+            api.audit_log(f"admin{i}", "act", detail=f"before-{i}")
+        self._rotate(api)
+        for i in range(3):
+            api.audit_log(f"admin{i}", "act", detail=f"after-{i}")
+        ok, n = self._chain_valid(api)
+        self.assertTrue(ok)
+        self.assertEqual(n, 7)   # 3 before + the rotation's own entry + 3 after
+        entries = (api.load(api.AUDIT_LOG_FILE) or {}).get("entries", [])
+        kvs = [e.get('_kv', 1) for e in entries]
+        self.assertEqual(kvs[:3], [1, 1, 1])
+        self.assertTrue(all(v == 2 for v in kvs[3:]))
+
+    def test_old_key_still_verifies_v1_entries_after_rotation(self):
+        api = _load_api("json")
+        api.audit_log("admin", "act", detail="v1-entry")
+        v1_entries = (api.load(api.AUDIT_LOG_FILE) or {}).get("entries", [])
+        self._rotate(api)
+        body = {k: v for k, v in v1_entries[0].items() if k != "_hash"}
+        self.assertEqual(v1_entries[0]['_hash'], api._audit_entry_hash('', body))
+
+    def test_legacy_entry_with_no_kv_defaults_to_v1_key(self):
+        # A real legacy entry has no _kv key in its canonical content AT ALL
+        # (it predates key rotation) -- comparing against a dict with _kv
+        # added would compare two different canonical forms, not this
+        # invariant. What must hold: _audit_entry_hash signs it with the v1
+        # key specifically, independent of whatever the CURRENT active
+        # rotation version is.
+        api = _load_api("json")
+        self._rotate(api)   # active version is now 2 -- must not affect this
+        legacy = {'ts': 1, 'actor': 'old', 'action': 'ancient'}   # no _kv field
+        h = api._audit_entry_hash('', legacy)
+        msg = '' + api.json.dumps(legacy, sort_keys=True, separators=(',', ':'))
+        expected = api.hmac.new(api._audit_hmac_key(1), msg.encode('utf-8'),
+                                api.hashlib.sha256).hexdigest()
+        self.assertEqual(h, expected)
+
+    def test_tamper_still_detected_across_a_rotation(self):
+        api = _load_api("json")
+        api.audit_log("admin", "act", detail="before")
+        self._rotate(api)
+        api.audit_log("admin", "act", detail="after")
+        with api._LockedUpdate(api.AUDIT_LOG_FILE) as al:
+            al['entries'][-1]['detail'] = 'TAMPERED'
+        entries = (api.load(api.AUDIT_LOG_FILE) or {}).get("entries", [])
+        checked, broken_at = api._audit_chain_walk(entries)
+        self.assertEqual(broken_at, len(entries) - 1)
+
+    def test_unknown_generation_falls_back_to_v1_key(self):
+        api = _load_api("json")
+        self.assertEqual(api._audit_hmac_key(99), api._audit_hmac_key(1))
+
+    def test_verify_endpoint_reports_key_version(self):
+        api = _load_api("json")
+        api.audit_log("admin", "act", detail="x")
+        self._rotate(api)
+        api.require_admin_or_auditor_auth = lambda **kw: 'admin'
+        cap = {}
+
+        def _resp(s, b=None):
+            cap['s'] = s
+            cap['b'] = b
+            raise SystemExit(0)
+        api.respond = _resp
+        try:
+            api.handle_audit_log_verify()
+        except SystemExit:
+            pass
+        self.assertTrue(cap['b']['ok'])
+        self.assertEqual(cap['b']['key_version'], 2)
+        self.assertEqual(cap['b']['key_rotations'], 1)
+
+
 class TestWiring(unittest.TestCase):
     def test_append_uses_chained_primitive(self):
         src = (_CGI / "api.py").read_text()
         self.assertIn("_m.list_append_chained(AUDIT_LOG_FILE, _build, cap=MAX_AUDIT_LOG)", src)
         self.assertIn("('audit_log_retention_days',     'AUDIT_LOG_FILE',           'entries')", src)
+
+    def test_rotate_hmac_endpoint_wired(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("def handle_audit_hmac_rotate", src)
+        self.assertIn("('POST', '/api/audit/rotate-hmac-key'): handle_audit_hmac_rotate", src)
+
+    def test_rotate_hmac_ui_wired(self):
+        html = (_ROOT / "server" / "html" / "index.html").read_text()
+        self.assertIn('data-action="rotateAuditHmacKey"', html)
+        self.assertIn('id="audit-hmac-version"', html)
+        app = "".join((_ROOT / "server" / "html" / "static" / "js" / f).read_text()
+                       for f in ("app.js", "i18n.js"))
+        self.assertIn("async function rotateAuditHmacKey", app)
+        self.assertIn("api('POST', '/audit/rotate-hmac-key'", app)
+        self.assertIn('"Rotate signing key"', app)   # i18n DICT entry
 
 
 if __name__ == "__main__":

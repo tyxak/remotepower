@@ -67,6 +67,7 @@ LONGPOLL_FILE    = DATA_DIR / 'longpoll.json'
 APIKEYS_FILE     = DATA_DIR / 'apikeys.json'
 RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
+AUDIT_HMAC_ROTATIONS_FILE = DATA_DIR / 'audit_hmac_rotations.json'   # v6.1.1: key generations 2+
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 WEBHOOK_DLQ_FILE = DATA_DIR / 'webhook_dlq.json'  # v5.0.0 #R2: dead-letter queue
@@ -5244,36 +5245,74 @@ def _record_slow_handler(path, method_, elapsed_ms):
         pass
 
 # ── Audit log with IP tracking ─────────────────────────────────────────────────
-def _audit_hmac_key():
-    """Per-install HMAC key for the audit hash-chain (A2). Created once at 0600;
-    a leaked audit_log.json alone can't be re-chained without it."""
-    kf = DATA_DIR / 'audit_hmac.key'
-    try:
-        if kf.exists():
-            return bytes.fromhex(kf.read_text().strip())
-    except Exception:
-        pass
-    key = os.urandom(32)
-    try:
-        fd = os.open(str(kf), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, 'w') as f:
-            f.write(key.hex())
-    except FileExistsError:
+def _audit_hmac_key(version=1):
+    """Per-install HMAC key for the audit hash-chain (A2), by generation.
+
+    v1 is the ORIGINAL single-key-file — created once at 0600, and this
+    function's behaviour for version<=1 is untouched by rotation (v6.1.1):
+    every pre-rotation install, and any install that never rotates, stays on
+    it forever, byte-for-byte the same as before. v2+ generations live in
+    AUDIT_HMAC_ROTATIONS_FILE (minted by handle_audit_hmac_rotate, same 0600
+    protection via save()'s O_CREAT|0o600 tmp-then-rename). A leaked
+    audit_log.json alone still can't be re-chained without whichever
+    generation(s) actually signed it."""
+    version = int(version or 1)
+    if version <= 1:
+        kf = DATA_DIR / 'audit_hmac.key'
         try:
-            return bytes.fromhex(kf.read_text().strip())
+            if kf.exists():
+                return bytes.fromhex(kf.read_text().strip())
         except Exception:
             pass
-    except Exception:
-        pass
-    return key
+        key = os.urandom(32)
+        try:
+            fd = os.open(str(kf), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, 'w') as f:
+                f.write(key.hex())
+        except FileExistsError:
+            try:
+                return bytes.fromhex(kf.read_text().strip())
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return key
+    rotations = load(AUDIT_HMAC_ROTATIONS_FILE) or {}
+    rec = rotations.get(str(version))
+    if rec and rec.get('key_hex'):
+        try:
+            return bytes.fromhex(rec['key_hex'])
+        except Exception:
+            pass
+    # Unknown/missing generation — fall back to v1 rather than raise out of a
+    # hash computation. This can only make a chain-verify FAIL loud (hash
+    # mismatch on that entry), never silently accept a forged one.
+    return _audit_hmac_key(1)
+
+
+def _audit_hmac_active_version():
+    """v6.1.1: the generation new audit entries are signed with. 1 until the
+    first rotation; the rotations store then always wins (append-only,
+    monotonically increasing version numbers, never deleted)."""
+    rotations = load(AUDIT_HMAC_ROTATIONS_FILE) or {}
+    versions = [int(k) for k in rotations if str(k).isdigit()]
+    return max(versions) if versions else 1
 
 
 def _audit_entry_hash(prev_hash, entry):
     """v4.2.0 (A2): HMAC-SHA256 over (prev_hash || canonical entry) — the
-    tamper-evident chain link. _hash itself is excluded from the canonical form."""
+    tamper-evident chain link. _hash itself is excluded from the canonical form.
+
+    v6.1.1: keyed by the entry's OWN `_kv` (key version) field, defaulting to 1
+    for entries written before key rotation existed. The write path stamps
+    `entry['_kv']` with the CURRENT active version before calling this (so it's
+    itself part of what gets hashed — an attacker can't just claim a different,
+    possibly-leaked generation signed an entry to fake a verification). A chain
+    that spans a rotation still verifies end-to-end: each entry is checked
+    against whichever generation actually signed it, not the current one."""
     content = {k: entry[k] for k in entry if k != '_hash'}
     msg = (prev_hash or '') + json.dumps(content, sort_keys=True, separators=(',', ':'))
-    return hmac.new(_audit_hmac_key(), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+    return hmac.new(_audit_hmac_key(entry.get('_kv', 1)), msg.encode('utf-8'), hashlib.sha256).hexdigest()
 
 
 def _export_signing_key():
@@ -5387,6 +5426,7 @@ def audit_log(actor, action, detail='', source_ip=None,
         def _build(prev):
             try:
                 prev_hash = (prev or {}).get('_hash', '') if prev else ''
+                entry['_kv'] = _audit_hmac_active_version()   # v6.1.1: which key generation signs this
                 entry['_hash'] = _audit_entry_hash(prev_hash, entry)
             except Exception as _he:
                 sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
@@ -5398,6 +5438,7 @@ def audit_log(actor, action, detail='', source_ip=None,
             entries = al.get('entries', [])
             try:
                 prev_hash = entries[-1].get('_hash', '') if entries else ''
+                entry['_kv'] = _audit_hmac_active_version()   # v6.1.1: which key generation signs this
                 entry['_hash'] = _audit_entry_hash(prev_hash, entry)
             except Exception as _he:
                 sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
@@ -6419,6 +6460,8 @@ CHANNEL_KIND_DEFS = (
     ('proxmox_backup', 'Stale Proxmox backups (NA)', 'operational'),
     # v3.7.0: CMDB credential rotation due (NA)
     ('cred_rotation', 'Credential rotation due (NA)', 'operational'),
+    # v6.1.1: API key rotation due (NA) -- see handle_apikeys_rotate
+    ('apikey_rotation_due', 'API key rotation due (NA)', 'operational'),
     ('agent_integrity', 'Agent integrity (NA)', 'informational'),
     ('after_hours', 'After-hours activity (NA)', 'informational'),
     ('mailbox', 'Mailbox threshold', 'informational'),
@@ -35475,6 +35518,26 @@ def _compute_attention():
                               'summary': f"Credential '{c.get('label','?')}' is {age}d old "
                                          f"(rotate every {rad}d)"})
 
+    # v6.1.1: API keys past their rotate_after_days policy — surfaced, never
+    # auto-rotated (see handle_apikeys_rotate; the one-click Rotate action lives
+    # in Settings -> API keys). Skips already-inactive/rotated-out keys.
+    try:
+        _keys_rot = load(APIKEYS_FILE) or {}
+    except Exception:
+        _keys_rot = {}
+    for _kid, _k in _keys_rot.items():
+        if not _k.get('active', True):
+            continue
+        rad = int(_k.get('rotate_after_days', 0) or 0)
+        if not rad:
+            continue
+        age = int((now - int(_k.get('created', 0) or 0)) / 86400)
+        if age > rad:
+            items.append({'severity': 'info', 'kind': 'apikey_rotation_due',
+                          'device': _k.get('name') or _kid,
+                          'summary': f"API key '{_k.get('name','?')}' is {age}d old "
+                                     f"(rotate every {rad}d)"})
+
     # v3.4.2: agent integrity — a running agent whose binary hash differs from
     # the canonical published build on the current version (tamper / partial
     # update / corruption). Critical: it's a security signal.
@@ -39527,7 +39590,10 @@ def handle_apikeys_list():
                    'rate_limit': int(v.get('rate_limit') or 0),
                    'scope': v.get('scope'),            # v5.4.1 (D6): per-key device scope (or null)
                    'ip_allow': v.get('ip_allow'),      # v5.4.1 (D7): per-key source-IP allowlist (or null)
-                   'expires_at': v.get('expires_at')}
+                   'expires_at': v.get('expires_at'),
+                   'rotate_after_days': v.get('rotate_after_days'),   # v6.1.1
+                   'rotated_from': v.get('rotated_from'),             # v6.1.1
+                   'rotated_to': v.get('rotated_to')}                 # v6.1.1
                   for kid, v in apikeys.items()]))   # v5.4.1 (E3): list convention
 
 
@@ -39555,6 +39621,14 @@ def handle_apikeys_create():
         respond(400, {'error': 'rate_limit must be 0..100000'})
     key_scope = _validate_key_scope(body.get('scope'))   # v5.4.1 (D6)
     key_ipallow = _validate_ip_allow(body.get('ip_allow'))   # v5.4.1 (D7)
+    # v6.1.1: optional rotation-due policy (mirrors the CMDB credential field of
+    # the same name) — surfaced as an attention item, never auto-rotated silently.
+    try:
+        rotate_after_days = int(body.get('rotate_after_days') or 0)
+    except (TypeError, ValueError):
+        respond(400, {'error': 'rotate_after_days must be an integer'})
+    if rotate_after_days < 0 or rotate_after_days > 3650:
+        respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
     apikeys = load(APIKEYS_FILE)
     if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
     key_value = secrets.token_urlsafe(40)
@@ -39588,6 +39662,8 @@ def handle_apikeys_create():
         apikeys[kid]['scope'] = key_scope
     if key_ipallow:                                      # v5.4.1 (D7)
         apikeys[kid]['ip_allow'] = key_ipallow
+    if rotate_after_days:                                 # v6.1.1
+        apikeys[kid]['rotate_after_days'] = rotate_after_days
     save(APIKEYS_FILE, apikeys)
     respond(201, {'ok': True, 'id': kid, 'key': key_value,
                   'note': 'Store this key securely — it will not be shown again.'})
@@ -39657,8 +39733,62 @@ def handle_apikeys_update(kid):
             rec['ip_allow'] = ia
         else:
             rec.pop('ip_allow', None)                    # empty/null clears it
+    if 'rotate_after_days' in body:                       # v6.1.1
+        try:
+            rad = int(body.get('rotate_after_days') or 0)
+        except (TypeError, ValueError):
+            respond(400, {'error': 'rotate_after_days must be an integer'})
+        if rad < 0 or rad > 3650:
+            respond(400, {'error': 'rotate_after_days must be 0..3650 (0 = no policy)'})
+        if rad:
+            rec['rotate_after_days'] = rad
+        else:
+            rec.pop('rotate_after_days', None)
     save(APIKEYS_FILE, apikeys)
     respond(200, {'ok': True})
+
+
+def handle_apikeys_rotate(kid):
+    """POST /api/apikeys/{kid}/rotate — mint a REPLACEMENT key carrying the same
+    name/role/scope/rate_limit/ip_allow/expires_at/rotate_after_days, deactivate
+    the old one, and return the new plaintext secret once (same "shown once,
+    never persisted" contract as create). v6.1.1: closes gap C9
+    (docs/feature-buildout-scoping-internal.md #3) — a guided one-click
+    rotation instead of delete+recreate+reconfigure-every-consumer by hand.
+    Deliberately does NOT auto-deliver the new secret anywhere (no email/
+    webhook of a credential) — the admin doing the rotation sees it, exactly
+    like at creation time; that's why this stays a human-triggered action
+    (surfaced as an attention item) rather than a silent background job."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(kid):
+        respond(404, {'error': 'API key not found'})
+    new_kid = secrets.token_hex(8)
+    key_value = secrets.token_urlsafe(40)
+    with _LockedUpdate(APIKEYS_FILE) as apikeys:
+        old = apikeys.get(kid)
+        if not old:
+            respond(404, {'error': 'API key not found'})
+        new_rec = {'name': old.get('name', ''), 'key_hash': _apikey_hash(key_value),
+                   'user': old.get('user', 'api'), 'role': old.get('role', 'admin'),
+                   'created': int(time.time()), 'active': True,
+                   'rate_limit': int(old.get('rate_limit') or 0),
+                   'expires_at': old.get('expires_at'), 'rotated_from': kid}
+        if old.get('scope'):
+            new_rec['scope'] = old['scope']
+        if old.get('ip_allow'):
+            new_rec['ip_allow'] = old['ip_allow']
+        if old.get('rotate_after_days'):
+            new_rec['rotate_after_days'] = old['rotate_after_days']
+        apikeys[new_kid] = new_rec
+        old['active'] = False
+        old['rotated_to'] = new_kid
+        old['rotated_at'] = int(time.time())
+    audit_log(actor, 'apikey_rotate', detail=f'{kid} -> {new_kid}')
+    respond(201, {'ok': True, 'id': new_kid, 'key': key_value, 'replaced': kid,
+                  'note': 'Store this key securely — it will not be shown again. '
+                          'The rotated-out key is now inactive.'})
 
 
 def _longpoll_wait(dev_id, timeout):
@@ -41851,7 +41981,32 @@ def handle_audit_log_verify():
     entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
     checked, broken_at = _audit_chain_walk(entries)
     respond(200, {'ok': broken_at is None, 'entries': len(entries),
-                  'verified': checked, 'broken_at': broken_at})
+                  'verified': checked, 'broken_at': broken_at,
+                  # v6.1.1: current signing generation + how many rotations
+                  # have happened, so the UI can show it without a second call.
+                  'key_version': _audit_hmac_active_version(),
+                  'key_rotations': len(load(AUDIT_HMAC_ROTATIONS_FILE) or {})})
+
+
+def handle_audit_hmac_rotate():
+    """POST /api/audit/rotate-hmac-key — mint a new audit-chain HMAC generation.
+    v6.1.1, closes part of gap C9/C4 (docs/feature-buildout-scoping-internal.md
+    #3): periodic rotation bounds the blast radius of a leaked key to entries
+    signed since the last rotation, WITHOUT invalidating any prior entry's
+    verifiability — each entry is checked against the generation that actually
+    signed it (its own `_kv` field, see _audit_entry_hash), not the current one.
+    The old generation is retained forever (never deleted, never needed to be
+    memorised/copied anywhere) so historical entries keep verifying."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    with _LockedUpdate(AUDIT_HMAC_ROTATIONS_FILE) as rotations:
+        versions = [int(k) for k in rotations if str(k).isdigit()]
+        new_version = (max(versions) if versions else 1) + 1
+        rotations[str(new_version)] = {'key_hex': os.urandom(32).hex(),
+                                       'created': int(time.time())}
+    audit_log(actor, 'audit_hmac_rotate', detail=f'rotated to generation {new_version}')
+    respond(200, {'ok': True, 'version': new_version})
 
 
 def handle_audit_log_archive():
@@ -53496,6 +53651,7 @@ def _build_exact_routes():
         ('GET', '/api/attention'): handle_attention,
         ('GET', '/api/audit-log'): handle_audit_log,
         ('GET', '/api/audit-log/verify'): handle_audit_log_verify,
+        ('POST', '/api/audit/rotate-hmac-key'): handle_audit_hmac_rotate,   # v6.1.1
         ('GET', '/api/audit-log/archive'): handle_audit_log_archive,
         ('GET', '/api/security-posture'): handle_security_posture,
         # v4.2.0 (A1): WebAuthn / passkeys
@@ -54017,6 +54173,9 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/status-token', '', 'handle_status_token', "pi == '/api/status-token' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/scan-packages', 'handle_force_package_scan', "pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST'"),
     ('pat', ('DELETE',), '/api/apikeys/', '', 'handle_apikeys_delete', "pi.startswith('/api/apikeys/') and m == 'DELETE'"),
+    # v6.1.1: MUST precede the catch-all update route below (same prefix, empty
+    # suffix would otherwise swallow '.../rotate' as an update call with a bad id).
+    ('pat', ('POST',), '/api/apikeys/', '/rotate', 'handle_apikeys_rotate', "pi.startswith('/api/apikeys/') and pi.endswith('/rotate') and m == 'POST'"),
     ('pat', ('PATCH', 'POST'), '/api/apikeys/', '', 'handle_apikeys_update', "pi.startswith('/api/apikeys/') and m in ('PATCH', 'POST')"),
     ('pat', ('GET',), '/api/patch-report/device/', '', 'handle_patch_report_device', "pi.startswith('/api/patch-report/device/') and m == 'GET'"),
     ('eq', ('DELETE',), '/api/audit-log', '', 'handle_audit_log_clear', "pi == '/api/audit-log' and m == 'DELETE'"),
