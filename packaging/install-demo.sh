@@ -244,12 +244,30 @@ if [[ "$WITH_POSTGRES" -eq 1 ]]; then
     echo "DRY-RUN: would run: RP_DB_NAME=$RP_DB_NAME RP_DB_USER=$RP_DB_USER RP_DB_PASS=<generated> bash $SCRIPT_DIR/postgres-setup.sh --install"
     echo "DRY-RUN: would migrate $DEMO_DATA_DIR (JSON) -> postgres via api._migrate_storage_pg"
   else
+    # Reuse the password already sitting in an existing Postgres-backed marker
+    # instead of always minting a new one. Found live: a re-run whose migration
+    # step didn't complete (killed mid-hang, or a genuine failure) still let
+    # postgres-setup.sh reset the role's password on its way in — leaving the
+    # ROLE on the new password but the stale marker on the old one, so every
+    # subsequent boot 500'd with "password authentication failed" until the
+    # marker was regenerated. Reusing the marker's password makes the ALTER
+    # ROLE in postgres-setup.sh a no-op on a clean re-run, so it can't drift.
+    if [[ -z "$RP_DB_PASS" && -f "$DEMO_DATA_DIR/storage_backend.json" ]]; then
+      _existing_dsn="$(sed -n 's/.*"dsn":[[:space:]]*"\([^"]*\)".*/\1/p' "$DEMO_DATA_DIR/storage_backend.json" 2>/dev/null | head -1)"
+      RP_DB_PASS="$(printf '%s' "$_existing_dsn" | sed -n "s#^postgresql://${RP_DB_USER}:\\([^@]*\\)@.*#\\1#p")"
+      [[ -n "$RP_DB_PASS" ]] && echo "  (reusing the existing demo DB password from the current marker)"
+    fi
     [[ -n "$RP_DB_PASS" ]] || RP_DB_PASS="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
     [[ -f "$SCRIPT_DIR/postgres-setup.sh" ]] || die "packaging/postgres-setup.sh not found — can't provision the demo database"
     RP_DB_NAME="$RP_DB_NAME" RP_DB_USER="$RP_DB_USER" RP_DB_PASS="$RP_DB_PASS" \
       bash "$SCRIPT_DIR/postgres-setup.sh" --install \
       || die "postgres-setup.sh failed — demo stays on the flat-JSON backend"
-    PG_DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:5432/${RP_DB_NAME}"
+    # Don't hardcode 5432 -- found live, a box running Postgres on a
+    # non-default port got a DSN that hung every connection instead of
+    # failing fast. Same auto-detect postgres-setup.sh itself uses.
+    RP_DB_PORT="$(sudo -u postgres psql -tAc 'SHOW port' 2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$RP_DB_PORT" ]] || RP_DB_PORT=5432
+    PG_DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:${RP_DB_PORT}/${RP_DB_NAME}"
     echo "── Migrating demo data into Postgres ($RP_DB_NAME)…"
     # RP_STORAGE_BACKEND intentionally unset here so the migration reads its
     # SOURCE data from the JSON files just seeded, not from (empty) Postgres.

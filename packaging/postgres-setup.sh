@@ -15,6 +15,11 @@
 #   RP_DB_NAME   database name   (default: remotepower)
 #   RP_DB_USER   role name       (default: rp)
 #   RP_DB_PASS   role password   (default: a generated 32-char secret, printed once)
+#   RP_DB_PORT   TCP port        (default: auto-detected via `SHOW port`, falls
+#                                back to 5432 if detection fails — found live,
+#                                a box running Postgres on a non-default port
+#                                got a DSN hardcoded to 5432, which hung every
+#                                connection attempt instead of failing fast)
 #   --install            apt-install PostgreSQL if it isn't present
 #   --write-marker DIR   write DIR/storage_backend.json so a local RemotePower
 #                        install uses this DB (does NOT migrate data — use
@@ -31,6 +36,7 @@ set -euo pipefail
 RP_DB_NAME="${RP_DB_NAME:-remotepower}"
 RP_DB_USER="${RP_DB_USER:-rp}"
 RP_DB_PASS="${RP_DB_PASS:-}"
+RP_DB_PORT="${RP_DB_PORT:-}"
 DO_INSTALL=0
 WRITE_MARKER=""
 DO_LISTEN=0
@@ -62,6 +68,34 @@ if ! command -v psql >/dev/null 2>&1; then
 fi
 systemctl enable --now postgresql >/dev/null 2>&1 || true
 
+# ── port (auto-detect; the DSN we hand back must be right or every connection
+# from the app just hangs on a non-listening/wrong-protocol port instead of
+# failing fast — confirmed live) ───────────────────────────────────────────────
+# Multiple local Postgres server processes (e.g. a leftover default instance
+# on 5432 alongside the real one on a custom port) each get their own
+# peer-auth socket, named after THEIR OWN port. A bare `sudo -u postgres
+# psql` with no -p only ever reaches the socket for the CLIENT default port
+# (5432) — on a multi-instance box that can be a totally different server
+# than the one the operator actually means. Confirmed live: auto-detect
+# picked one instance's port, but every subsequent role/database call below
+# (before this fix) ran unpinned and landed on the *other*, 5432 one — so the
+# DSN pointed at 5433 while the role only ever existed on 5432, and every app
+# connection failed auth even right after a successful ALTER ROLE.
+if [ -z "$RP_DB_PORT" ]; then
+  RP_DB_PORT="$(sudo -u postgres psql -tAc 'SHOW port' 2>/dev/null | tr -d '[:space:]')"
+  if [ -z "$RP_DB_PORT" ]; then
+    RP_DB_PORT=5432
+    log "Could not auto-detect the Postgres port — defaulting to 5432 (set RP_DB_PORT to override)."
+  else
+    log "Detected Postgres listening on port ${RP_DB_PORT}."
+  fi
+fi
+if [ "$(ls /var/run/postgresql/.s.PGSQL.* 2>/dev/null | wc -l)" -gt 1 ]; then
+  log "WARNING: multiple local Postgres sockets found — this box is running more"
+  log "  than one Postgres server. Auto-detect picked port ${RP_DB_PORT}; if that's"
+  log "  not the instance you mean, re-run with RP_DB_PORT=<port> set explicitly."
+fi
+
 # ── password ──────────────────────────────────────────────────────────────────
 GENERATED=0
 if [ -z "$RP_DB_PASS" ]; then
@@ -69,17 +103,20 @@ if [ -z "$RP_DB_PASS" ]; then
   GENERATED=1
 fi
 
-psql_su() { sudo -u postgres psql -v ON_ERROR_STOP=1 -tAc "$1"; }
+# Every peer-auth call from here on is pinned to -p "$RP_DB_PORT" — it MUST be
+# the same instance the DSN we hand back will connect to over TCP, or role/db
+# creation silently lands on a different local Postgres server (see above).
+psql_su() { sudo -u postgres psql -p "$RP_DB_PORT" -v ON_ERROR_STOP=1 -tAc "$1"; }
 
 # ── role (idempotent) ──────────────────────────────────────────────────────────
 if [ "$(psql_su "SELECT 1 FROM pg_roles WHERE rolname='${RP_DB_USER}'")" = "1" ]; then
   log "Role '${RP_DB_USER}' exists — updating its password."
   # quote the password safely via a parameterised DO block
-  sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+  sudo -u postgres psql -p "$RP_DB_PORT" -v ON_ERROR_STOP=1 -c \
     "ALTER ROLE \"${RP_DB_USER}\" WITH LOGIN PASSWORD '$(printf "%s" "$RP_DB_PASS" | sed "s/'/''/g")';" >/dev/null
 else
   log "Creating role '${RP_DB_USER}'."
-  sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+  sudo -u postgres psql -p "$RP_DB_PORT" -v ON_ERROR_STOP=1 -c \
     "CREATE ROLE \"${RP_DB_USER}\" WITH LOGIN PASSWORD '$(printf "%s" "$RP_DB_PASS" | sed "s/'/''/g")';" >/dev/null
 fi
 
@@ -88,15 +125,15 @@ if [ "$(psql_su "SELECT 1 FROM pg_database WHERE datname='${RP_DB_NAME}'")" = "1
   log "Database '${RP_DB_NAME}' already exists."
 else
   log "Creating database '${RP_DB_NAME}' owned by '${RP_DB_USER}'."
-  sudo -u postgres createdb -O "${RP_DB_USER}" "${RP_DB_NAME}"
+  sudo -u postgres createdb -p "$RP_DB_PORT" -O "${RP_DB_USER}" "${RP_DB_NAME}"
 fi
 # RemotePower creates its own tables on first connect; just ensure connect/usage.
 psql_su "GRANT ALL PRIVILEGES ON DATABASE \"${RP_DB_NAME}\" TO \"${RP_DB_USER}\"" >/dev/null
 
 # ── optional: listen on the LAN for multi-node app servers ──────────────────────
 if [ "$DO_LISTEN" -eq 1 ]; then
-  PGCONF="$(sudo -u postgres psql -tAc 'SHOW config_file')"
-  PGHBA="$(sudo -u postgres psql -tAc 'SHOW hba_file')"
+  PGCONF="$(sudo -u postgres psql -p "$RP_DB_PORT" -tAc 'SHOW config_file')"
+  PGHBA="$(sudo -u postgres psql -p "$RP_DB_PORT" -tAc 'SHOW hba_file')"
   log "Opening listen_addresses (edit ${PGCONF} / ${PGHBA} to scope to your app subnet!)."
   if ! grep -qE "^listen_addresses *= *'\*'" "$PGCONF"; then
     echo "listen_addresses = '*'   # RemotePower: scope this down in production" >> "$PGCONF"
@@ -111,7 +148,7 @@ EOF
 fi
 
 # ── DSN + marker ────────────────────────────────────────────────────────────────
-DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:5432/${RP_DB_NAME}"
+DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:${RP_DB_PORT}/${RP_DB_NAME}"
 
 if [ -n "$WRITE_MARKER" ]; then
   mkdir -p "$WRITE_MARKER"
@@ -138,5 +175,5 @@ echo "   DSN (set RP_PG_DSN or the storage marker's \"dsn\"):"
 echo "     ${DSN}"
 echo
 echo "   For HA, point the DSN at every node, e.g.:"
-echo "     postgresql://${RP_DB_USER}:****@pg-primary,pg-standby:5432/${RP_DB_NAME}"
+echo "     postgresql://${RP_DB_USER}:****@pg-primary,pg-standby:${RP_DB_PORT}/${RP_DB_NAME}"
 echo "   then run postgres-ha-primary.sh (here) and postgres-ha-standby.sh (standby)."

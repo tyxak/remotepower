@@ -99,6 +99,18 @@ class TestRunt1meMattersFeatures(unittest.TestCase):
         body = src[i : i + 800]
         self.assertIn("getattr(_RCTX, 'environ', None) or os.environ", body)
 
+    def test_install_server_pg_dsn_port_is_autodetected_not_hardcoded(self):
+        # Found live: a box running Postgres on a non-default port (5433) got
+        # a DSN hardcoded to 5432, hanging every connection from the app
+        # server instead of failing fast. Same fix already applied to
+        # postgres-setup.sh and install-demo.sh's own DSN construction.
+        src = (_ROOT / "install-server.sh").read_text()
+        i = src.index('PG_DSN="postgresql://${RP_DB_USER}')
+        block = src[max(0, i - 300) : i + 100]
+        self.assertIn("SHOW port", block)
+        self.assertIn("${RP_DB_PORT}/${RP_DB_NAME}", block)
+        self.assertNotIn(':5432/${RP_DB_NAME}"', src)
+
 
 class TestClientIpBehindLocalProxy(unittest.TestCase):
     """v6.1.0 pentest sweep: the CGI->proxy_pass cutover made REMOTE_ADDR
@@ -356,6 +368,86 @@ class TestInstallDemoPostgresOption(unittest.TestCase):
         block = self.SRC[i : i + 1500]
         self.assertIn("storage_backend.json", block)
         self.assertIn("dropdb", block)
+
+    def test_demo_dsn_port_is_autodetected_not_hardcoded(self):
+        # Found live: a box running Postgres on a non-default port (5433) got
+        # a demo DSN hardcoded to 5432, so every connection from the demo's
+        # gunicorn worker hung instead of failing fast.
+        i = self.SRC.index('PG_DSN="postgresql://${RP_DB_USER}')
+        block = self.SRC[max(0, i - 300) : i + 100]
+        self.assertIn("SHOW port", block)
+        self.assertIn("${RP_DB_PORT}/${RP_DB_NAME}", block)
+        self.assertNotIn(':5432/${RP_DB_NAME}"', self.SRC)
+
+    def test_reuses_existing_marker_password_on_rerun(self):
+        # Found live: a re-run whose migration didn't complete (Ctrl+C'd
+        # during the pre-port-fix hang) still let postgres-setup.sh reset the
+        # role's password on its way in, leaving the ROLE on a new password
+        # but the stale marker on the old one -- so every subsequent boot
+        # 500'd with "password authentication failed" until a human patched
+        # it by hand. A clean re-run must reuse the marker's own password so
+        # the ALTER ROLE in postgres-setup.sh is a no-op, and can't drift.
+        i = self.SRC.index("Reuse the password already sitting")
+        block = self.SRC[i : i + 1200]
+        self.assertIn('storage_backend.json', block)
+        self.assertIn('"dsn"', block)
+        self.assertIn('s#^postgresql://${RP_DB_USER}:', block)
+        # This whole reuse block must run BEFORE the fallback-generate line.
+        i_reuse = self.SRC.index("_existing_dsn=")
+        i_generate = self.SRC.index(
+            "RP_DB_PASS=\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')\""
+        )
+        self.assertLess(i_reuse, i_generate)
+
+
+class TestPostgresSetupPinsPortOnEveryCall(unittest.TestCase):
+    """packaging/postgres-setup.sh: found live on a box running TWO separate
+    local Postgres server processes (one on the client-default socket, one on
+    a custom port) -- a bare `sudo -u postgres psql` with no -p always talks
+    to the default-port one, so CREATE ROLE / CREATE DATABASE silently landed
+    on a different instance than the one the auto-detected port pointed the
+    DSN at. Every peer-auth call after port resolution must pin -p, or role/db
+    provisioning and the DSN can silently diverge onto two different servers."""
+
+    SRC = (Path(__file__).parent.parent / "packaging" / "postgres-setup.sh").read_text()
+
+    def test_bash_syntax_valid(self):
+        import subprocess
+
+        r = subprocess.run(
+            ["bash", "-n", str(Path(__file__).parent.parent / "packaging" / "postgres-setup.sh")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_psql_su_helper_pins_port(self):
+        i = self.SRC.index("psql_su()")
+        line = self.SRC[i : i + 120]
+        self.assertIn('-p "$RP_DB_PORT"', line)
+
+    def test_role_create_and_alter_pin_port(self):
+        i = self.SRC.index("Creating role")
+        block = self.SRC[max(0, i - 400) : i + 400]
+        # Both the ALTER (existing role) and CREATE (new role) branches.
+        self.assertEqual(block.count('-p "$RP_DB_PORT"'), 2)
+
+    def test_createdb_pins_port(self):
+        i = self.SRC.index("createdb")
+        line = self.SRC[i : i + 60]
+        self.assertIn('-p "$RP_DB_PORT"', line)
+
+    def test_listen_hba_queries_pin_port(self):
+        i = self.SRC.index("PGCONF=")
+        block = self.SRC[i : i + 200]
+        self.assertIn("config_file", block)
+        self.assertIn('-p "$RP_DB_PORT"', block)
+
+    def test_warns_when_multiple_local_sockets_found(self):
+        self.assertIn(".s.PGSQL.*", self.SRC)
+        i = self.SRC.index(".s.PGSQL.*")
+        block = self.SRC[i : i + 400]
+        self.assertIn("multiple local Postgres", block.replace("\n", " "))
 
 
 class TestInstallShUpdateCommand(unittest.TestCase):

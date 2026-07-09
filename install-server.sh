@@ -537,7 +537,12 @@ if [[ "$WITH_POSTGRES" == "1" ]]; then
     if [[ -f "$SCRIPT_DIR/packaging/postgres-setup.sh" ]]; then
         if bash "$SCRIPT_DIR/packaging/postgres-setup.sh" --install; then
             success "PostgreSQL provisioned"
-            PG_DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:5432/${RP_DB_NAME}"
+            # Don't hardcode 5432 -- found live, a box running Postgres on a
+            # non-default port got a DSN that hung every connection instead
+            # of failing fast. Same auto-detect postgres-setup.sh itself uses.
+            RP_DB_PORT="$(sudo -u postgres psql -tAc 'SHOW port' 2>/dev/null | tr -d '[:space:]')"
+            [[ -n "$RP_DB_PORT" ]] || RP_DB_PORT=5432
+            PG_DSN="postgresql://${RP_DB_USER}:${RP_DB_PASS}@localhost:${RP_DB_PORT}/${RP_DB_NAME}"
             info "Migrating the admin user + scanner token into Postgres..."
             # RP_STORAGE_BACKEND is left unset for this one call so the migration
             # reads its SOURCE data from the JSON files just written, not from
