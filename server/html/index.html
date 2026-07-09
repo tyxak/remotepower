@@ -1725,6 +1725,16 @@
               </label>
             </div>
           </div>
+          <!-- v6.1.1: connector plugin discoverability + reload -->
+          <div class="settings-section">
+            <div class="section-title">Connector plugins</div>
+            <p class="hint">Every connector type above, built-in or third-party. A third-party connector is a <code>*.py</code> file dropped into <code>connectors.d/</code> on the server (root-owned, filesystem-only — there's deliberately no upload-from-browser path). After adding or updating a file there, reload to pick it up without restarting the service.</p>
+            <div id="connector-plugins-list" class="mb-12 scroll-cap-sm"></div>
+            <div class="settings-row">
+              <button class="btn-secondary" data-action="reloadConnectors">Reload connectors</button>
+              <span id="connector-reload-status" class="hint ml-8"></span>
+            </div>
+          </div>
           <!-- v3.14.0 #32: cloud inventory import (AWS EC2) -->
           <div class="settings-section">
             <div class="section-title">Cloud import (AWS EC2 · Hetzner · DigitalOcean)</div>

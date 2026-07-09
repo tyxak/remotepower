@@ -10194,6 +10194,36 @@ async function loadIntegrations() {
     .filter(c => c.category === 'virtualization')
     .map(c => `<option value="${escAttr(c.type)}">${escHtml(c.label)}</option>`).join('');
   renderIntegrations();
+  renderConnectorPlugins();
+}
+
+// v6.1.1: connector-repository discoverability panel — every registered
+// connector type, built-in or third-party (connectors.d/), with version/
+// author metadata when a plugin sets it.
+function renderConnectorPlugins() {
+  const list = document.getElementById('connector-plugins-list');
+  if (!list) return;
+  list.innerHTML = _integrationCatalog.map(c => {
+    const meta = [c.plugin ? 'plugin' : 'built-in', c.version, c.author].filter(Boolean).join(' · ');
+    return `<div class="settings-row"><strong>${escHtml(c.label)}</strong> ` +
+           `<span class="hint">(${escHtml(c.category)}${meta ? ' — ' + escHtml(meta) : ''})</span></div>`;
+  }).join('') || '<div class="empty-state">No connectors registered.</div>';
+}
+
+async function reloadConnectors() {
+  const status = document.getElementById('connector-reload-status');
+  if (status) status.textContent = 'Reloading…';
+  try {
+    const r = await api('POST', '/connectors/reload');
+    _integrationCatalog = (r && r.catalog) || _integrationCatalog;
+    renderConnectorPlugins();
+    const n = (r && r.new_types && r.new_types.length) || 0;
+    if (status) status.textContent = n ? `Reloaded — ${n} new` : 'Reloaded ✓';
+    toast(n ? `Reloaded — ${n} new connector type(s)` : 'Connectors reloaded', 'success');
+  } catch (e) {
+    if (status) status.textContent = '';
+    toast((e && e.message) || 'Reload failed', 'error');
+  }
 }
 
 function _integrationFields(type) {

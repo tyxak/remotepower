@@ -88,6 +88,31 @@ class TestPluginLoader(unittest.TestCase):
         (Path(self.dir) / "README.md").write_text("not python")
         self.assertEqual(I.load_plugins(self.dir), [])
 
+    def test_plugin_metadata_surfaces_in_catalog(self):
+        # v6.1.1: version/author/homepage are optional display metadata a
+        # third-party plugin can set so the connector-repository panel has
+        # something to show beyond a bare type/label.
+        self._write("meta.py", '''
+            from integrations import _register, OK
+            @_register("plugintest_meta", "Meta", "apps", [], notes="x",
+                       version="1.2.0", author="someone", homepage="https://example.invalid/meta")
+            def _meta(inst, c): return {"status": OK}
+        ''')
+        I.load_plugins(self.dir)
+        cat = {c["type"]: c for c in I.list_connectors()}
+        entry = cat["plugintest_meta"]
+        self.assertEqual(entry["version"], "1.2.0")
+        self.assertEqual(entry["author"], "someone")
+        self.assertEqual(entry["homepage"], "https://example.invalid/meta")
+        self.assertTrue(entry["plugin"])
+
+    def test_builtin_metadata_defaults_blank_and_not_flagged_plugin(self):
+        cat = {c["type"]: c for c in I.list_connectors()}
+        builtin = next(c for c in cat.values() if not c["plugin"])
+        self.assertEqual(builtin["version"], "")
+        self.assertEqual(builtin["author"], "")
+        self.assertEqual(builtin["homepage"], "")
+
 
 class TestWiring(unittest.TestCase):
     def test_api_calls_load_plugins(self):
@@ -97,6 +122,13 @@ class TestWiring(unittest.TestCase):
     def test_dir_and_docs_exist(self):
         self.assertTrue((_CGI / "connectors.d" / "README.md").exists())
         self.assertTrue((_ROOT / "docs" / "writing-a-connector.md").exists())
+
+    def test_reload_endpoint_wired(self):
+        # v6.1.1: reload connectors.d/ from the UI without a service restart.
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("def handle_connectors_reload", src)
+        self.assertIn("require_admin_auth", src.split("def handle_connectors_reload")[1][:600])
+        self.assertIn("('POST', '/api/connectors/reload'): handle_connectors_reload", src)
 
 
 if __name__ == "__main__":

@@ -2972,6 +2972,48 @@ class TestTenancyReadiness(_HandlerBase):
         self.assertIn("api('GET', '/tenancy/readiness')", app)
 
 
+class TestConnectorsReload(_HandlerBase):
+    """v6.1.1 — reload connectors.d/ from the UI without a service restart
+    (docs/feature-buildout-scoping-internal.md #10)."""
+
+    def test_reload_returns_ok_and_catalog(self):
+        api.method = lambda: 'POST'
+        r = self.call(api.handle_connectors_reload)
+        self.assertTrue(r['ok'])
+        self.assertIsInstance(r['catalog'], list)
+        self.assertIsInstance(r['new_types'], list)
+        self.assertIsInstance(r['files_scanned'], list)
+
+    def test_picks_up_new_plugin_file(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "t.py").write_text(
+            "from integrations import _register, OK\n"
+            "@_register('plugintest_reload_e2e', 'E2E', 'apps', [], notes='x')\n"
+            "def _f(inst, c): return {'status': OK}\n"
+        )
+        orig_load = api.integrations_mod.load_plugins
+        api.integrations_mod.load_plugins = lambda plugin_dir=None: orig_load(str(d))
+        try:
+            api.method = lambda: 'POST'
+            r = self.call(api.handle_connectors_reload)
+        finally:
+            api.integrations_mod.load_plugins = orig_load
+            api.integrations_mod.CONNECTORS.pop('plugintest_reload_e2e', None)
+            api.integrations_mod.PLUGIN_CONNECTORS.discard('plugintest_reload_e2e')
+        self.assertIn('plugintest_reload_e2e', r['new_types'])
+        types = {c['type'] for c in r['catalog']}
+        self.assertIn('plugintest_reload_e2e', types)
+
+    def test_ui_wired(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="connector-plugins-list"', html)
+        self.assertIn('data-action="reloadConnectors"', html)
+        app = client_js()
+        self.assertIn('async function reloadConnectors', app)
+        self.assertIn("api('POST', '/connectors/reload')", app)
+        self.assertIn('function renderConnectorPlugins', app)
+
+
 class TestScim(_HandlerBase):
     """v3.14.0 #30 — SCIM 2.0 provisioning (IdP-driven create + deactivate)."""
 

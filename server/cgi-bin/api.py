@@ -19142,6 +19142,29 @@ def handle_integrations_list():
                   'show_provisioning': bool(cfg.get('show_provisioning'))})
 
 
+def handle_connectors_reload():
+    """POST /api/connectors/reload — v6.1.1: re-scan connectors.d/ for new or
+    changed plugin files without a full service restart. Admin-only, audited.
+
+    This does NOT add an install/upload path — connectors.d/ stays root-owned,
+    filesystem-only (see integrations.load_plugins docstring); this just closes
+    the "now go restart the service" gap for picking up a file an operator
+    already dropped there by hand."""
+    actor = require_admin_auth()
+    before = set(integrations_mod.CONNECTORS)
+    try:
+        loaded_files = integrations_mod.load_plugins()
+    except Exception as e:   # pragma: no cover - defensive, load_plugins already
+                              # catches per-file errors; this guards the scan itself
+        respond(500, {'ok': False, 'error': f'{e.__class__.__name__}: {e}'})
+        return
+    new_types = sorted(set(integrations_mod.CONNECTORS) - before)
+    audit_log(actor, 'connectors_reload',
+              f'{len(loaded_files)} plugin file(s) scanned, {len(new_types)} new connector type(s)')
+    respond(200, {'ok': True, 'files_scanned': loaded_files, 'new_types': new_types,
+                  'catalog': integrations_mod.list_connectors()})
+
+
 def handle_integrations_save():
     """POST /api/integrations — replace the instance list (admin only).
 
@@ -53470,6 +53493,7 @@ def _build_exact_routes():
         ('POST', '/api/integrations'): handle_integrations_save,
         ('POST', '/api/integrations/test'): handle_integration_test,
         ('GET',  '/api/integrations/status'): handle_integrations_status,
+        ('POST', '/api/connectors/reload'): handle_connectors_reload,   # v6.1.1
         ('POST', '/api/cloud/import'): handle_cloud_import,             # v3.14.0 #32
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,

@@ -109,8 +109,13 @@ class HTTPClient:
 CONNECTORS: dict = {}
 
 
-def _register(type_, label, category, fields, notes=""):
-    """Decorator registering a connector + its UI metadata."""
+def _register(type_, label, category, fields, notes="", version="", author="", homepage=""):
+    """Decorator registering a connector + its UI metadata.
+
+    version/author/homepage (v6.1.1) are optional display metadata so the
+    connector-repository panel has something to show beyond a bare type/label —
+    built-ins leave them blank (they're versioned with the product itself);
+    third-party connectors.d/ plugins are expected to set them."""
 
     def deco(fn):
         CONNECTORS[type_] = {
@@ -119,6 +124,9 @@ def _register(type_, label, category, fields, notes=""):
             "category": category,
             "fields": fields,
             "notes": notes,
+            "version": version,
+            "author": author,
+            "homepage": homepage,
             "health": fn,
         }
         return fn
@@ -190,6 +198,10 @@ def list_connectors():
                 "category": c["category"],
                 "fields": c["fields"],
                 "notes": c["notes"],
+                "version": c.get("version") or "",
+                "author": c.get("author") or "",
+                "homepage": c.get("homepage") or "",
+                "plugin": c["type"] in PLUGIN_CONNECTORS,
             }
         )
     out.sort(key=lambda c: (c["category"], c["label"]))
