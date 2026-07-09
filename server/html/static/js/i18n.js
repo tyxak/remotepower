@@ -1038,6 +1038,7 @@
     "Down": { "fr": "Hors service", "de": "Ausgefallen", "zh": "离线", "hi": "बंद", "es": "Caído", "ar": "متوقف" },
     "Download": { "fr": "Télécharger", "de": "Herunterladen", "zh": "下载", "hi": "डाउनलोड करें", "es": "Descargar", "ar": "تنزيل" },
     "Download CSV": { "fr": "Télécharger le CSV", "de": "CSV herunterladen", "zh": "下载 CSV", "hi": "CSV डाउनलोड करें", "es": "Descargar CSV", "ar": "تنزيل CSV" },
+    "Download PDF": { "fr": "Télécharger le PDF", "de": "PDF herunterladen", "zh": "下载 PDF", "hi": "PDF डाउनलोड करें", "es": "Descargar PDF", "ar": "تنزيل PDF" },
     "Download as .tar.gz": { "fr": "Télécharger en .tar.gz", "de": "Als .tar.gz herunterladen", "zh": "下载为 .tar.gz", "hi": ".tar.gz के रूप में डाउनलोड करें", "es": "Descargar como .tar.gz", "ar": "تنزيل بصيغة ‎.tar.gz" },
     "Download JSON": { "fr": "Télécharger le JSON", "de": "JSON herunterladen", "zh": "下载 JSON", "hi": "JSON डाउनलोड करें", "es": "Descargar JSON", "ar": "تنزيل JSON" },
     "Download a JSON bundle of every device's desired + current host config": { "fr": "Télécharger un ensemble JSON de la configuration hôte souhaitée + actuelle de chaque appareil", "de": "Ein JSON-Paket der gewünschten + aktuellen Host-Konfiguration jedes Geräts herunterladen", "zh": "下载包含每台设备期望及当前主机配置的 JSON 包", "hi": "हर device के वांछित + वर्तमान host config का JSON bundle डाउनलोड करें", "es": "Descargar un paquete JSON con la configuración de host deseada y actual de cada dispositivo", "ar": "تنزيل حزمة JSON لتهيئة المضيف المرغوبة + الحالية لكل جهاز" },

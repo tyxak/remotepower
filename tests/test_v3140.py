@@ -3579,6 +3579,23 @@ class TestPatchSnapshots(_HandlerBase):
         self.assertIn('async function psPromote', app)
 
 
+class TestInvoicePdfUiWired(unittest.TestCase):
+    """v6.1.1 — invoice PDF export UI (server-side handler behavior + the
+    full billing.py math are covered directly in tests/test_v540_features.py;
+    this just confirms the frontend is wired to it)."""
+
+    def test_ui_wired(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('data-action="invoiceExportPdfCurrent"', html)
+        app = client_js()
+        self.assertIn('function invoiceExportPdf', app)
+        self.assertIn("format=pdf", app)
+        self.assertIn('id="bc-issuer-name"', app)       # JS-generated, not static HTML
+        self.assertIn('id="bc-issuer-address"', app)
+        self.assertIn('issuer_name:', app)
+        self.assertIn('issuer_address:', app)
+
+
 class TestScim(_HandlerBase):
     """v3.14.0 #30 — SCIM 2.0 provisioning (IdP-driven create + deactivate)."""
 

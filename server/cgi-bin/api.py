@@ -11838,6 +11838,11 @@ def handle_billing_config():
                       'invoice_prefix': cfg.get('invoice_prefix', ''),
                       'reminders_enabled': bool(cfg.get('reminders_enabled')),
                       'reminder_days': cfg.get('reminder_days', 14),
+                      # v6.1.1: the "bill FROM" identity for the invoice PDF header --
+                      # distinct from brand_name (the product's own white-label name);
+                      # an operator billing THEIR clients wants THEIR business here.
+                      'issuer_name': cfg.get('issuer_name', ''),
+                      'issuer_address': cfg.get('issuer_address', ''),
                       'rate_card': cfg.get('rate_card') or [], 'sites': rows,
                       'fee_kinds': list(billing_mod.FEE_KINDS)})
     if method() != 'POST':
@@ -11853,6 +11858,10 @@ def handle_billing_config():
         cfg['default_vat'] = max(0.0, min(100.0, billing_mod._num(body.get('default_vat'))))
     if 'invoice_prefix' in body:
         cfg['invoice_prefix'] = _sanitize_str(str(body.get('invoice_prefix') or ''), 16)
+    if 'issuer_name' in body:      # v6.1.1
+        cfg['issuer_name'] = _sanitize_str(str(body.get('issuer_name') or ''), 200)
+    if 'issuer_address' in body:   # v6.1.1
+        cfg['issuer_address'] = _sanitize_str(str(body.get('issuer_address') or ''), 1000)
     if 'reminders_enabled' in body:   # W1-30
         cfg['reminders_enabled'] = bool(body.get('reminders_enabled'))
     if 'reminder_days' in body:
@@ -12031,23 +12040,44 @@ def handle_invoices():
 
 
 def handle_invoice_get(iid):
-    """GET /api/invoices/{id}[?format=csv] — one invoice (admin/finance)."""
+    """GET /api/invoices/{id}[?format=csv|pdf] — one invoice (admin/finance)."""
     if not _billing_enabled():
         respond(404, {'error': 'billing is disabled'})
-    require_admin_or_finance_auth()
+    actor = require_admin_or_finance_auth()
     inv = next((x for x in ((load(INVOICES_FILE) or {}).get('invoices') or [])
                 if x.get('id') == iid), None)
     if not inv:
         respond(404, {'error': 'invoice not found'})
     sites = load(SITES_FILE) or {}
-    sb = (_billing_cfg().get('sites') or {}).get(inv.get('site_id')) or {}
+    cfg = _billing_cfg()
+    sb = (cfg.get('sites') or {}).get(inv.get('site_id')) or {}
     resp = dict(inv)
     resp['site_name'] = sites.get(inv.get('site_id'), {}).get('name', inv.get('site_id'))
     resp['billing_contact'] = sb.get('billing_contact', '')
     resp['billing_address'] = sb.get('billing_address', '')
-    if (urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
-            .get('format') or [''])[0].strip().lower() == 'csv':
+    fmt = (urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+           .get('format') or [''])[0].strip().lower()
+    if fmt == 'csv':
         _csv_invoice(resp)   # exits
+    if fmt == 'pdf':
+        if not _pdf_available():
+            respond(501, {'error': 'PDF export unavailable on this install — '
+                                    'pip install reportlab (see packaging/requirements-server.txt)'})
+        data = _invoice_pdf_bytes(resp, cfg)
+        sig = _export_sign(data)   # v5.4.1 (C4) tamper-evidence, same as the audit archive download
+        audit_log(actor, 'invoice_pdf_download', detail=f"#{inv.get('number', '')}")
+        print("Status: 200 OK")
+        print("Content-Type: application/pdf")
+        print(f'Content-Disposition: attachment; filename="invoice-{inv.get("number", iid)}.pdf"')
+        print(f"Content-Length: {len(data)}")
+        print(f"X-RP-Signature: hmac-sha256={sig}")
+        print("Cache-Control: no-store")
+        print("X-Content-Type-Options: nosniff")
+        print()
+        sys.stdout.flush()
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+        sys.exit(0)
     respond(200, {'ok': True, 'invoice': resp})
 
 
@@ -12270,6 +12300,111 @@ def _csv_invoice(inv):
     _csv_money_lines('invoice-' + str(inv.get('number', '')), inv.get('currency'),
                      inv.get('line_items'), inv.get('subtotal'), inv.get('vat_rate'),
                      inv.get('vat_amount'), inv.get('total'))
+
+
+def _pdf_available():
+    try:
+        import reportlab  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _invoice_pdf_bytes(inv, cfg):
+    """v6.1.1: a real generated invoice document (reportlab, lazily imported —
+    an install without it just 404s this one export with a clear message,
+    everything else keeps working). Replaces depending on the recipient's
+    browser print dialog (still there client-side as invoicePrint(), now a
+    fallback rather than the only option) with something that can be
+    archived/emailed as an actual file. Tamper-evidenced the same way the
+    audit-archive download already is (_export_sign over the bytes)."""
+    import io
+    from html import escape as _esc
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=20 * mm,
+                            leftMargin=20 * mm, rightMargin=20 * mm,
+                            title=f"Invoice {inv.get('number', '')}")
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('RPInvTitle', parent=styles['Title'], fontSize=18, spaceAfter=2 * mm)
+    small = ParagraphStyle('RPInvSmall', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
+    label = ParagraphStyle('RPInvLabel', parent=styles['Normal'], fontSize=9,
+                           textColor=colors.grey, spaceAfter=0)
+
+    story = []
+    issuer_name = (cfg.get('issuer_name') or 'RemotePower').strip()
+    story.append(Paragraph(_esc(issuer_name), title_style))
+    if cfg.get('issuer_address'):
+        story.append(Paragraph(_esc(cfg['issuer_address']).replace('\n', '<br/>'), small))
+    story.append(Spacer(1, 8 * mm))
+    story.append(Paragraph(f"Invoice {_esc(str(inv.get('number', '')))}", styles['Heading2']))
+
+    period = inv.get('period') or {}
+    issued = inv.get('issued_at')
+    issued_str = time.strftime('%Y-%m-%d', time.gmtime(issued)) if issued else ''
+    contact_lines = [x for x in (inv.get('billing_contact', ''), inv.get('billing_address', '')) if x]
+    bill_to = _esc(str(inv.get('site_name', '')))
+    if contact_lines:
+        bill_to += '<br/>' + _esc('\n'.join(contact_lines)).replace('\n', '<br/>')
+    meta = Table([
+        [Paragraph('Status', label), Paragraph(_esc(str(inv.get('status', '')).capitalize()), styles['Normal'])],
+        [Paragraph('Issued', label), Paragraph(_esc(issued_str), styles['Normal'])],
+        [Paragraph('Period', label), Paragraph(_esc(f"{period.get('from', '')} – {period.get('to', '')}"), styles['Normal'])],
+        [Paragraph('Bill to', label), Paragraph(bill_to, styles['Normal'])],
+    ], colWidths=[30 * mm, 130 * mm])
+    meta.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]))
+    story.append(meta)
+    story.append(Spacer(1, 6 * mm))
+
+    currency = inv.get('currency') or ''
+    rows = [['Description', 'Qty', 'Unit', 'Amount']]
+    for li in (inv.get('line_items') or []):
+        qty = li.get('qty')
+        unit = li.get('unit')
+        rows.append([
+            Paragraph(_esc(str(li.get('label', ''))), styles['Normal']),
+            '' if qty is None else f'{qty:g}',
+            '' if unit is None else f'{unit:.2f}',
+            f"{li.get('amount', 0):.2f}",
+        ])
+    table = Table(rows, colWidths=[90 * mm, 20 * mm, 25 * mm, 25 * mm])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f0f0f0')),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 4 * mm))
+
+    totals = Table([
+        ['Subtotal', f"{inv.get('subtotal', 0):.2f} {currency}"],
+        [f"VAT ({inv.get('vat_rate', 0):g}%)", f"{inv.get('vat_amount', 0):.2f} {currency}"],
+        ['Total', f"{inv.get('total', 0):.2f} {currency}"],
+    ], colWidths=[115 * mm, 45 * mm])
+    totals.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('LINEABOVE', (0, -1), (-1, -1), 0.75, colors.black),
+        ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    story.append(totals)
+
+    if inv.get('notes'):
+        story.append(Spacer(1, 8 * mm))
+        story.append(Paragraph('Notes', styles['Heading4']))
+        story.append(Paragraph(_esc(str(inv['notes'])).replace('\n', '<br/>'), styles['Normal']))
+
+    doc.build(story)
+    return buf.getvalue()
 
 
 def handle_sites_list():

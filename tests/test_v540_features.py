@@ -7,7 +7,9 @@ worksheet totals, invoice issue + entry LOCK, locked-edit refusal, void + unlock
 and the finance-role read gate.
 """
 import importlib.util
+import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -223,6 +225,98 @@ class TestBillingHandlers(unittest.TestCase):
         finally:
             sys.stdout = old
         self.assertIn(b'Date,User,Hours', data)
+
+
+class TestInvoicePdf(TestBillingHandlers):
+    """v6.1.1 — real generated invoice PDFs (reportlab), replacing depending
+    on the recipient's browser print dialog as the only export path.
+    Deliberately self-contained (no third-party API keys) -- the
+    payment/accounting-integration half of item #6 is a separate follow-up
+    (docs/feature-buildout-scoping-internal.md #6)."""
+
+    def _issue_invoice(self):
+        self._config()
+        self._call(api.handle_ticket_hours, 'POST',
+                  {'hours': 1.0, 'rate_name': 'Standard', 'date': '2026-06-15'}, arg='tk1')
+        r = self._call(api.handle_invoices, 'POST', {'site_id': 'site1', 'month': '2026-06',
+                       'notes': 'Thanks <script>alert(1)</script>'})
+        self.assertEqual(r.code, 200, r.body)
+        return r.body['id']
+
+    def test_pdf_bytes_are_a_valid_pdf(self):
+        if not api._pdf_available():
+            self.skipTest('reportlab not installed')
+        inv = {'number': '00001', 'status': 'sent', 'currency': 'USD', 'vat_rate': 25,
+               'subtotal': 100.0, 'vat_amount': 25.0, 'total': 125.0,
+               'line_items': [{'label': 'Work', 'qty': 1, 'unit': 100.0, 'amount': 100.0}]}
+        data = api._invoice_pdf_bytes(inv, {'issuer_name': 'Acme MSP'})
+        self.assertTrue(data.startswith(b'%PDF-'))
+
+    def test_pdf_bytes_survive_markup_in_notes_and_site_name(self):
+        # notes/site_name/billing_contact are user-authored free text fed into
+        # reportlab's markup-interpreting Paragraph -- must be HTML-escaped,
+        # not just "doesn't crash".
+        if not api._pdf_available():
+            self.skipTest('reportlab not installed')
+        inv = {'number': '00002', 'status': 'draft', 'currency': 'USD', 'vat_rate': 0,
+               'subtotal': 0, 'vat_amount': 0, 'total': 0, 'line_items': [],
+               'site_name': '<b>Injected</b>', 'notes': '<script>alert(1)</script>'}
+        data = api._invoice_pdf_bytes(inv, {})
+        self.assertTrue(data.startswith(b'%PDF-'))
+        # the raw tags must not appear literally in the PDF's content streams
+        # (reportlab would either escape them into text or the build would
+        # fail loudly -- either way "<script>" as raw bytes is the failure mode)
+        self.assertNotIn(b'<script>alert(1)</script>', data)
+
+    def test_handler_streams_pdf_with_signature(self):
+        if not api._pdf_available():
+            self.skipTest('reportlab not installed')
+        iid = self._issue_invoice()
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = 'format=pdf'
+
+        class _Cap:
+            def __init__(self):
+                self.text = []
+                self.buffer = io.BytesIO()
+            def write(self, s):
+                self.text.append(s)
+            def flush(self):
+                pass
+        old = sys.stdout
+        sys.stdout = _Cap()
+        try:
+            api.handle_invoice_get(iid)
+        except SystemExit as e:
+            self.assertEqual(e.code, 0)
+            headers = ''.join(sys.stdout.text)
+            data = sys.stdout.buffer.getvalue()
+        finally:
+            sys.stdout = old
+        self.assertIn('Content-Type: application/pdf', headers)
+        self.assertIn('Content-Disposition: attachment', headers)
+        m = re.search(r'X-RP-Signature: hmac-sha256=([0-9a-f]+)', headers)
+        self.assertTrue(m, headers)
+        self.assertEqual(m.group(1), api._export_sign(data))
+        self.assertTrue(data.startswith(b'%PDF-'))
+
+    def test_pdf_export_501_when_reportlab_unavailable(self):
+        iid = self._issue_invoice()
+        orig = api._pdf_available
+        api._pdf_available = lambda: False
+        try:
+            r = self._call(api.handle_invoice_get, 'GET', qs='format=pdf', arg=iid)
+        finally:
+            api._pdf_available = orig
+        self.assertEqual(r.code, 501)
+
+    def test_billing_config_issuer_fields_roundtrip(self):
+        r = self._call(api.handle_billing_config, 'POST', {
+            'issuer_name': 'My MSP LLC', 'issuer_address': '1 Main St\nSpringfield'})
+        self.assertEqual(r.code, 200, r.body)
+        r = self._call(api.handle_billing_config, 'GET')
+        self.assertEqual(r.body['issuer_name'], 'My MSP LLC')
+        self.assertEqual(r.body['issuer_address'], '1 Main St\nSpringfield')
 
 
 if __name__ == '__main__':

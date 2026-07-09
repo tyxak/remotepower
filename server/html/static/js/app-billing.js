@@ -582,6 +582,7 @@ async function _billingInvoices() {
       <td><div class="row-6">
         <button class="btn-icon cell-sm" data-action="invoiceView" data-arg="${escAttr(inv.id)}" title="View / print">${_bIcon('eye', 13)}</button>
         <button class="btn-icon cell-sm" data-action="invoiceExportCsv" data-arg="${escAttr(inv.id)}" title="CSV">${_bIcon('download', 13)}</button>
+        <button class="btn-icon cell-sm" data-action="invoiceExportPdf" data-arg="${escAttr(inv.id)}" title="PDF">${_bIcon('download', 13)}</button>
         ${emailAct}
         ${adminActs}
       </div></td></tr>`;
@@ -591,7 +592,9 @@ async function _billingInvoices() {
     <tbody>${rows}</tbody></table></div></div>`;
 }
 
+let _invViewId = null;   // v6.1.1: which invoice the view modal currently shows (for the PDF button)
 async function invoiceView(iid) {
+  _invViewId = iid;
   const r = await api('GET', '/invoices/' + encodeURIComponent(iid));
   if (!r || !r.ok) { toast('Failed to load invoice', 'error'); return; }
   const inv = r.invoice;
@@ -619,6 +622,9 @@ async function invoiceView(iid) {
   if (t) t.textContent = 'Invoice ' + (inv.number || '');
   openModal('invoice-view-modal');
 }
+function invoiceExportPdfCurrent() {
+  if (_invViewId) invoiceExportPdf(_invViewId);
+}
 function invoicePrint() {
   document.body.classList.add('printing-invoice');
   window.print();
@@ -626,6 +632,13 @@ function invoicePrint() {
 }
 function invoiceExportCsv(iid) {
   _downloadAuthed('/api/invoices/' + encodeURIComponent(iid) + '?format=csv', 'invoice.csv', 'Invoice CSV downloaded');
+}
+// v6.1.1: a real generated PDF document, not just window.print() -- can be
+// archived/emailed without depending on the recipient's browser. Falls back
+// to the CSV/print-based flow gracefully (a clear error toast) on an install
+// without reportlab.
+function invoiceExportPdf(iid) {
+  _downloadAuthed('/api/invoices/' + encodeURIComponent(iid) + '?format=pdf', 'invoice.pdf', 'Invoice PDF downloaded');
 }
 async function invoiceSetStatus(iid, status) {
   const r = await api('PATCH', '/invoices/' + encodeURIComponent(iid), { status });
@@ -667,6 +680,10 @@ async function _billingRates() {
         <div class="form-group"><label class="form-label">Default VAT %</label><input id="bc-vat" type="number" step="0.1" class="form-input" value="${escAttr(String(r.default_vat || 0))}" ${readonly ? 'disabled' : ''}></div>
         <div class="form-group"><label class="form-label">Invoice prefix</label><input id="bc-prefix" class="form-input" value="${escAttr(r.invoice_prefix || '')}" placeholder="e.g. 2026-" ${readonly ? 'disabled' : ''}></div>
       </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Issuer name (invoice PDF header)</label><input id="bc-issuer-name" class="form-input" value="${escAttr(r.issuer_name || '')}" placeholder="Your business name" ${readonly ? 'disabled' : ''}></div>
+        <div class="form-group"><label class="form-label">Issuer address</label><textarea id="bc-issuer-address" class="form-input" rows="2" placeholder="Street, city, tax ID…" ${readonly ? 'disabled' : ''}>${escHtml(r.issuer_address || '')}</textarea></div>
+      </div>
       <div class="settings-row mt-8"><label class="form-label"><input type="checkbox" id="bc-reminders" ${r.reminders_enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}> Email overdue-invoice reminders</label></div>
       <div class="form-group"><label class="form-label" for="bc-reminder-days">Remind after N days unpaid</label><input id="bc-reminder-days" type="number" min="1" max="365" class="form-input" value="${escAttr(String(r.reminder_days || 14))}" ${readonly ? 'disabled' : ''}><span class="hint">One reminder per invoice that stays in <em>sent</em> status this many days after it was last emailed. Uses the same SMTP as notifications.</span></div>
       <div class="section-title mt-12">Rate card</div>
@@ -706,6 +723,8 @@ async function saveBillingGlobals() {
     default_rate: parseFloat(document.getElementById('bc-rate')?.value || '0') || 0,
     default_vat: parseFloat(document.getElementById('bc-vat')?.value || '0') || 0,
     invoice_prefix: document.getElementById('bc-prefix')?.value || '',
+    issuer_name: document.getElementById('bc-issuer-name')?.value || '',
+    issuer_address: document.getElementById('bc-issuer-address')?.value || '',
     reminders_enabled: !!document.getElementById('bc-reminders')?.checked,
     reminder_days: parseInt(document.getElementById('bc-reminder-days')?.value || '14', 10) || 14,
     rate_card: card,
