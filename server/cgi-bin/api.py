@@ -2318,12 +2318,30 @@ def _retention_cutoff(cfg, key):
     return (int(time.time()) - days * 86400) if days > 0 else None
 
 
+def _litigation_hold_active(cfg=None):
+    """docs/master-improvement-scoping-internal.md #21: True when a litigation
+    hold is in effect. Deliberately global/coarse (suspend ALL age-based
+    retention purging), not a per-entity flag -- a per-entity hold risks a bug
+    where something that SHOULD have been preserved wasn't, which defeats the
+    whole point of a legally-defensible hold. Manual delete actions (a device,
+    a ticket, a user) are untouched -- those are deliberate operator actions,
+    not the automated purge sweep this gates."""
+    if cfg is None:
+        cfg = _config_ro()
+    return bool((cfg.get('litigation_hold') or {}).get('enabled'))
+
+
 def _purge_old_data(cfg=None):
     """Drop append-log entries older than their configured retention (days).
     Independent of the existing count caps. Returns {filename: removed_count}.
-    A log whose retention is 0/unset is left alone."""
+    A log whose retention is 0/unset is left alone. #21: a no-op, entirely,
+    while a litigation hold is active -- both call sites (the daily sweep and
+    the manual "Run maintenance now" button) route through this one function,
+    so gating here is the single choke point neither can bypass."""
     if cfg is None:
         cfg = load(CONFIG_FILE) or {}
+    if _litigation_hold_active(cfg):
+        return {'_litigation_hold': True}
     removed = {}
     _audit_dropped = []   # v5.8.0: archived after the lock (compliance)
     for ckey, pathattr, wrapkey in _RETENTION_LOGS:
@@ -2463,6 +2481,45 @@ def handle_maintenance_mode_set():
     respond(200, {'ok': True, 'enabled': enabled, 'reason': reason})
 
 
+def handle_litigation_hold_get():
+    """GET /api/litigation-hold — current hold state. Any authenticated user
+    (a viewer/auditor should be able to SEE that a hold is active and why),
+    same visibility model as maintenance mode."""
+    require_auth()
+    hold = _config_ro().get('litigation_hold') or {}
+    respond(200, {'ok': True, 'enabled': bool(hold.get('enabled')),
+                  'reason': hold.get('reason', ''),
+                  'started_at': hold.get('started_at'),
+                  'started_by': hold.get('started_by', '')})
+
+
+def handle_litigation_hold_set():
+    """POST /api/litigation-hold {enabled, reason?} — docs/master-improvement-
+    scoping-internal.md #21. While active, _purge_old_data() (the ONLY thing
+    that age-based-deletes data in this app) is a full no-op -- see its
+    docstring for exactly what is and isn't covered. Admin-only; both
+    enabling AND disabling are audit-logged (lifting a hold is just as
+    consequential as starting one). A reason is required to enable, since
+    "why" is the whole point of a legally-defensible hold record."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    enabled = bool(body.get('enabled'))
+    reason = _sanitize_str(body.get('reason', ''), 500, allow_empty=True) or ''
+    if enabled and not reason.strip():
+        respond(400, {'error': 'a reason is required to start a litigation hold'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        if enabled:
+            cfg['litigation_hold'] = {'enabled': True, 'reason': reason,
+                                      'started_at': int(time.time()), 'started_by': actor}
+        else:
+            cfg['litigation_hold'] = {'enabled': False}
+    audit_log(actor, 'litigation_hold',
+              detail=f"enabled={enabled} reason={reason[:200]}")
+    respond(200, {'ok': True, 'enabled': enabled})
+
+
 def handle_maintenance_run():
     """POST /api/db-maintenance — purge old data per the configured retention,
     and (under SQLite) VACUUM + checkpoint + integrity_check. Admin-only."""
@@ -2471,6 +2528,7 @@ def handle_maintenance_run():
         respond(405, {'error': 'Method not allowed'})
     cfg = load(CONFIG_FILE) or {}
     pruned = _purge_old_data(cfg)
+    litigation_hold = pruned.pop('_litigation_hold', False)   # #21: not a real filename count
     db = {}
     if _storage_backend() == 'sqlite':
         try:
@@ -2485,8 +2543,10 @@ def handle_maintenance_run():
         except Exception as e:
             db = {'error': str(e)}
     audit_log(actor, 'maintenance_run',
-              detail=f'pruned={sum(pruned.values())} backend={_storage_backend()}')
+              detail=(f'litigation_hold active — nothing pruned' if litigation_hold
+                      else f'pruned={sum(pruned.values())} backend={_storage_backend()}'))
     respond(200, {'ok': True, 'pruned': pruned, 'db': db,
+                  'litigation_hold': litigation_hold,
                   'backend': _storage_backend()})
 
 
@@ -55311,6 +55371,8 @@ def _build_exact_routes():
         ('POST', '/api/devices/bulk-tags'): handle_devices_bulk_tags,      # v5.0.0 #F2
         ('GET', '/api/maintenance-mode'): handle_maintenance_mode_get,    # v5.0.0 #R3
         ('POST', '/api/maintenance-mode'): handle_maintenance_mode_set,
+        ('GET', '/api/litigation-hold'): handle_litigation_hold_get,      # v6.1.1 (#21)
+        ('POST', '/api/litigation-hold'): handle_litigation_hold_set,
         ('GET', '/api/webhook/dlq'): handle_webhook_dlq_list,         # v5.0.0 #R2
         ('POST', '/api/webhook/dlq/retry'): handle_webhook_dlq_retry,
         ('DELETE', '/api/webhook/dlq'): handle_webhook_dlq_clear,

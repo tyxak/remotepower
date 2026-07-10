@@ -3396,6 +3396,7 @@ async function loadSettings() {
   { const m = document.getElementById('cfg-require-agent-mtls'); if (m) m.checked = !!data.require_agent_mtls; }
   { const d = document.getElementById('cfg-disk-watchdog-pct'); if (d) d.value = data.disk_watchdog_pct ?? 85; }
   loadMaintenanceMode();
+  loadLitigationHold();
 
   // Activate tab from URL hash
   const hash = (location.hash || '').replace(/^#/, '');
@@ -3939,6 +3940,45 @@ async function toggleMaintenanceMode() {
   if (data?.ok) {
     toast(enabled ? 'Maintenance mode ON — command dispatch paused' : 'Maintenance mode OFF', enabled ? 'info' : 'success');
     _applyMaintenanceBanner(data);
+  } else {
+    toast(data?.error || 'Failed', 'error');
+    if (cb) cb.checked = !enabled;   // revert on failure
+  }
+}
+
+// v6.1.1 (#21): litigation hold — suspend all age-based purging.
+async function loadLitigationHold() {
+  const data = await api('GET', '/litigation-hold');
+  if (!data) return;
+  const cb = document.getElementById('cfg-litigation-hold');
+  if (cb) cb.checked = !!data.enabled;
+  const rs = document.getElementById('cfg-litigation-hold-reason');
+  if (rs && data.reason) rs.value = data.reason;
+  _applyLitigationHoldStatus(data);
+}
+function _applyLitigationHoldStatus(data) {
+  const el = document.getElementById('litigation-hold-status');
+  if (!el) return;
+  if (data && data.enabled) {
+    const started = data.started_at ? new Date(data.started_at * 1000).toLocaleString() : '';
+    el.textContent = `Active since ${started}${data.started_by ? ' by ' + data.started_by : ''}${data.reason ? ' — ' + data.reason : ''}.`;
+  } else {
+    el.textContent = '';
+  }
+}
+async function toggleLitigationHold() {
+  const cb = document.getElementById('cfg-litigation-hold');
+  const reason = (document.getElementById('cfg-litigation-hold-reason')?.value || '').trim();
+  const enabled = !!cb?.checked;
+  if (enabled && !reason) {
+    toast('A reason is required to start a litigation hold', 'error');
+    if (cb) cb.checked = false;
+    return;
+  }
+  const data = await api('POST', '/litigation-hold', { enabled, reason });
+  if (data?.ok) {
+    toast(enabled ? 'Litigation hold ON — automated purging suspended' : 'Litigation hold OFF', enabled ? 'info' : 'success');
+    loadLitigationHold();
   } else {
     toast(data?.error || 'Failed', 'error');
     if (cb) cb.checked = !enabled;   // revert on failure

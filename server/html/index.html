@@ -2635,6 +2635,21 @@
             </div>
             <pre id="maintenance-result" class="hint sb-result" hidden></pre>
           </div>
+
+          <!-- ── v6.1.1 (#21): litigation hold ────────────────────────────── -->
+          <div class="settings-section">
+            <div class="section-title">Litigation hold</div>
+            <p class="hint">Suspends ALL age-based data purging above (command history, fleet events, webhook log, monitor history, resolved alerts, metric samples) while active — the retention settings are ignored until the hold is lifted. Manual delete actions (a device, a ticket, a user) are not affected.</p>
+            <label class="isl-33">
+              <input type="checkbox" id="cfg-litigation-hold" class="isl-34" data-action="toggleLitigationHold">
+              <span>Enable litigation hold (stop all automated data purging)</span>
+            </label>
+            <div class="form-group mt-8 mw-200" id="litigation-hold-reason-wrap">
+              <label for="cfg-litigation-hold-reason" class="form-label">Reason (required to enable)</label>
+              <input type="text" id="cfg-litigation-hold-reason" class="form-input" maxlength="500" placeholder="Pending case #123">
+            </div>
+            <div class="hint" id="litigation-hold-status"></div>
+          </div>
         </div>
 
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->

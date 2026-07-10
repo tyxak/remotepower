@@ -756,6 +756,66 @@ class TestRetentionMaintenance(_HandlerBase):
             'alerts_retention_days', 'audit_log_retention_days',
             'metric_samples_retention_days'})   # v3.14.0
 
+    # ── #21: litigation hold ─────────────────────────────────────────────
+    def test_purge_is_a_no_op_while_hold_active(self):
+        api.save(api.HISTORY_FILE, {'entries': [{'ts': self.old}, {'ts': self.now}]})
+        cfg = {'history_retention_days': 90,
+               'litigation_hold': {'enabled': True, 'reason': 'x'}}
+        removed = api._purge_old_data(cfg)
+        self.assertEqual(removed, {'_litigation_hold': True})
+        self.assertEqual(len(api.load(api.HISTORY_FILE)['entries']), 2, 'nothing purged')
+
+    def test_purge_resumes_once_hold_cleared(self):
+        api.save(api.HISTORY_FILE, {'entries': [{'ts': self.old}, {'ts': self.now}]})
+        api._purge_old_data({'history_retention_days': 90,
+                             'litigation_hold': {'enabled': True, 'reason': 'x'}})
+        self.assertEqual(len(api.load(api.HISTORY_FILE)['entries']), 2)
+        removed = api._purge_old_data({'history_retention_days': 90,
+                                       'litigation_hold': {'enabled': False}})
+        self.assertEqual(removed.get('history.json'), 1)
+
+    def test_maintenance_endpoint_reports_hold_and_prunes_nothing(self):
+        api.method = lambda: 'POST'
+        api.save(api.CONFIG_FILE, {'history_retention_days': 90,
+                                   'litigation_hold': {'enabled': True, 'reason': 'x'}})
+        api.save(api.HISTORY_FILE, {'entries': [{'ts': self.old}, {'ts': self.now}]})
+        res = self.call(api.handle_maintenance_run)
+        self.assertTrue(res['ok'])
+        self.assertTrue(res['litigation_hold'])
+        self.assertNotIn('_litigation_hold', res['pruned'])   # marker popped, not leaked
+        self.assertEqual(len(api.load(api.HISTORY_FILE)['entries']), 2)
+
+    def test_set_requires_reason_to_enable(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'enabled': True}
+        self.call(api.handle_litigation_hold_set)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_set_enable_then_disable_roundtrip(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'enabled': True, 'reason': 'pending case #123'}
+        res = self.call(api.handle_litigation_hold_set)
+        self.assertTrue(res['ok'])
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_litigation_hold_get)
+        self.assertTrue(got['enabled'])
+        self.assertEqual(got['reason'], 'pending case #123')
+        self.assertEqual(got['started_by'], 'jakob')
+        self.assertIsNotNone(got['started_at'])
+        # disable doesn't need a reason
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'enabled': False}
+        res = self.call(api.handle_litigation_hold_set)
+        self.assertTrue(res['ok'])
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_litigation_hold_get)
+        self.assertFalse(got['enabled'])
+
+    def test_route_registered(self):
+        routes = api._build_exact_routes()
+        self.assertIs(routes[('GET', '/api/litigation-hold')], api.handle_litigation_hold_get)
+        self.assertIs(routes[('POST', '/api/litigation-hold')], api.handle_litigation_hold_set)
+
 
 class TestLargeFleetUI(unittest.TestCase):
     """v3.12.0: filter boxes on previously-unfiltered pages + a reusable helper."""

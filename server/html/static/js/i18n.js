@@ -1872,6 +1872,7 @@
     'Lowest health hosts':    { fr: 'Hôtes à la plus faible santé', de: 'Hosts mit niedrigstem Zustand', zh: '健康度最低的主机', hi: 'सबसे कम स्वास्थ्य वाले hosts', es: 'Hosts con menor salud', ar: 'المضيفون الأقل صحة' },
     'Mailbox watch':          { fr: 'Surveillance de boîte mail', de: 'Postfach-Überwachung', zh: '邮箱监视', hi: 'मेलबॉक्स निगरानी', es: 'Vigilancia del buzón', ar: 'مراقبة صندوق البريد' },
     'Maintenance mode':       { fr: 'Mode maintenance', de: 'Wartungsmodus', zh: '维护模式', hi: 'रखरखाव मोड', es: 'Modo de mantenimiento', ar: 'وضع الصيانة' },
+    'Litigation hold':        { fr: 'Conservation légale', de: 'Aufbewahrungssperre', zh: '诉讼保全', hi: 'मुकदमा रोक', es: 'Retención legal', ar: 'حجز قانوني للبيانات' },
     'Maintenance windows':    { fr: 'Fenêtres de maintenance', de: 'Wartungsfenster', zh: '维护窗口', hi: 'रखरखाव विंडो', es: 'Ventanas de mantenimiento', ar: 'نوافذ الصيانة' },
     'Monitor status':         { fr: 'État du moniteur', de: 'Monitor-Status', zh: '监控状态', hi: 'मॉनिटर स्थिति', es: 'Estado del monitor', ar: 'حالة المراقبة' },
     'Monitoring coverage':    { fr: 'Couverture de surveillance', de: 'Überwachungsabdeckung', zh: '监控覆盖率', hi: 'निगरानी कवरेज', es: 'Cobertura de monitorización', ar: 'تغطية المراقبة' },

@@ -3641,6 +3641,32 @@ class TestStepUpUiWired(unittest.TestCase):
         self.assertIn("data.code === 'step_up_required'", app)
 
 
+class TestLitigationHoldUiWired(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #21."""
+
+    def test_markup_present(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="cfg-litigation-hold"', html)
+        self.assertIn('id="cfg-litigation-hold-reason"', html)
+        self.assertIn('data-action="toggleLitigationHold"', html)
+
+    def test_no_inline_style_or_handler(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        start = html.index('Litigation hold</div>')
+        end = html.index('</div>\n        </div>', start)
+        snippet = html[start:end]
+        self.assertNotIn('style="', snippet)
+        self.assertNotRegex(snippet, r'\son\w+=')
+
+    def test_load_and_toggle_wired(self):
+        app = client_js()
+        self.assertIn('async function loadLitigationHold()', app)
+        self.assertIn('async function toggleLitigationHold()', app)
+        self.assertIn("api('GET', '/litigation-hold')", app)
+        self.assertIn("api('POST', '/litigation-hold'", app)
+        self.assertIn('loadLitigationHold();', app)   # called from the settings loader
+
+
 class TestPatchSnapshots(_HandlerBase):
     """v6.1.1 — package-repo snapshot & promotion ledger
     (docs/feature-buildout-scoping-internal.md #4). Snapshot + diff + promote
