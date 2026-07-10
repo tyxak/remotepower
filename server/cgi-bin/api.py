@@ -10119,22 +10119,15 @@ def handle_devices_list():
     # snmp metrics, brute_force_active). Used by Home + nav loaders that
     # only need ID/name/online/group — saves ~1.5 MB JSON per Home
     # refresh on a 50-device fleet. Default behaviour unchanged.
-    # ?limit=N&offset=N optionally paginates for very large fleets. Both
-    # are no-ops at default (limit=0 means unbounded). Order is stable:
-    # sorted by device name then id, so a paged client iterating with
-    # increasing offset gets a deterministic walk over the fleet.
+    # v6.1.1 (#59): pagination now rides the shared `_paginate_list()`
+    # convention (?limit=&offset=&q=&sort=&order=&meta=1) instead of a
+    # hand-rolled limit/offset slice -- gets a real `total` count via
+    # ?meta=1 for free (the bare-slice shape was previously a dead end for
+    # a "page N of M" UI, since the client had no way to know the total
+    # without a second, unpaginated request). Sorted stable by group then
+    # name below, exactly as before; ?sort=/?order= can override that.
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     slim = (qs.get('slim') or [''])[0] == '1'
-    try:
-        limit = int((qs.get('limit') or ['0'])[0])
-    except ValueError:
-        limit = 0
-    try:
-        offset = int((qs.get('offset') or ['0'])[0])
-    except ValueError:
-        offset = 0
-    limit = max(0, min(2000, limit))
-    offset = max(0, offset)
     bf_data, pb_data, snmp_store, hw_store = {}, {}, {}, {}
     if not slim:
         bf_data  = load(BRUTE_FORCE_FILE) or {}   if backend_exists(BRUTE_FORCE_FILE)   else {}
@@ -10302,11 +10295,10 @@ def handle_devices_list():
                                  else ''),
             }
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
-    # v3.3.0 D3: optional limit/offset pagination. Default returns
-    # the whole sorted list (back-compat with every existing caller).
-    if limit or offset:
-        result = result[offset:offset + limit] if limit else result[offset:]
-    respond(200, result)
+    # v3.3.0 D3 / v6.1.1 #59: optional limit/offset pagination via the shared
+    # _paginate_list() convention. Default (no ?limit, no ?meta) returns the
+    # whole sorted list unchanged -- back-compat with every existing caller.
+    respond(200, _paginate_list(result))
 
 
 def _purge_device(dev_id):

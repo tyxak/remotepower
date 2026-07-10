@@ -966,5 +966,57 @@ class TestAgentFirewallDetail(unittest.TestCase):
         self.assertIn("out['firewall'] = _fwd", src)
 
 
+class TestDevicesListPagination(_HandlerBase):
+    """docs/master-improvement-scoping-internal.md #59 -- handle_devices_list
+    now slices via the shared _paginate_list() convention instead of a
+    hand-rolled limit/offset, so ?meta=1 returns a real `total` count (the
+    old bare-slice shape had no way to tell a client how many pages exist)."""
+    def setUp(self):
+        super().setUp()
+        api.method = lambda: 'GET'
+        api.save(api.DEVICES_FILE, {
+            f'd{i}': {'name': f'host{i:02d}', 'monitored': True,
+                      'last_seen': int(time.time())}
+            for i in range(5)})
+
+    def tearDown(self):
+        os.environ.pop('QUERY_STRING', None)
+        super().tearDown()
+
+    def test_no_query_returns_bare_full_list(self):
+        os.environ['QUERY_STRING'] = ''
+        res = self.call(api.handle_devices_list)
+        self.assertIsInstance(res, list)
+        self.assertEqual(len(res), 5)
+
+    def test_limit_returns_bare_sliced_list(self):
+        os.environ['QUERY_STRING'] = 'limit=2'
+        res = self.call(api.handle_devices_list)
+        self.assertIsInstance(res, list)
+        self.assertEqual(len(res), 2)
+
+    def test_limit_offset_meta_returns_envelope_with_total(self):
+        os.environ['QUERY_STRING'] = 'limit=2&offset=2&meta=1'
+        res = self.call(api.handle_devices_list)
+        self.assertIsInstance(res, dict)
+        self.assertEqual(res['total'], 5)
+        self.assertEqual(res['limit'], 2)
+        self.assertEqual(res['offset'], 2)
+        self.assertEqual(len(res['items']), 2)
+        self.assertIsNotNone(res['next'])
+
+    def test_last_page_has_no_next(self):
+        os.environ['QUERY_STRING'] = 'limit=2&offset=4&meta=1'
+        res = self.call(api.handle_devices_list)
+        self.assertEqual(len(res['items']), 1)
+        self.assertIsNone(res['next'])
+
+    def test_stable_group_name_sort_preserved_under_pagination(self):
+        os.environ['QUERY_STRING'] = 'limit=100'
+        res = self.call(api.handle_devices_list)
+        names = [d['name'] for d in res]
+        self.assertEqual(names, sorted(names))
+
+
 if __name__ == '__main__':
     unittest.main()
