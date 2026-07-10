@@ -13113,6 +13113,49 @@ def handle_tenant_assign_user(tid):
     respond(200, {'ok': True, 'username': username, 'tenant_id': tid})
 
 
+def handle_tenant_branding(tid):
+    """GET/PUT /api/tenants/{id}/branding — docs/master-improvement-scoping-
+    internal.md #17 (per-tenant config overrides) applied concretely to #15
+    (per-tenant white-label). Every OTHER config field (SMTP, storage
+    backend, webhook URLs, …) stays deliberately instance-wide — a general
+    "override any config key per tenant" mechanism is a much larger surface
+    (which keys are even safe to diverge per tenant needs its own review per
+    field) than this item's effort; branding is the concrete, well-bounded
+    instance that's actually asked for.
+
+    A tenant's own admin may set THEIR OWN tenant's branding (this is a
+    self-service white-label knob, not a platform-operator concern the way
+    rename/suspend/delete are); a superadmin may set any tenant's. Unset
+    falls back to the instance-wide brand_name/brand_accent — see handle_me,
+    which is where the final resolved value actually reaches the UI (the
+    login page, pre-auth, has no tenant to resolve yet and always shows the
+    instance-wide brand — a tenant is only known once its user authenticates)."""
+    actor = require_admin_auth()
+    is_super = _caller_is_superadmin()
+    if not is_super and _caller_effective_tenant(actor) != tid:
+        respond(403, {'error': "you may only manage your own tenant's branding"})
+    tenants = _load_tenants()
+    if tid not in tenants:
+        respond(404, {'error': 'tenant not found'})
+    if method() == 'GET':
+        t = tenants[tid]
+        respond(200, {'ok': True, 'name': t.get('brand_name', ''),
+                      'accent': t.get('brand_accent', '')})
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    with _LockedUpdate(TENANTS_FILE) as tenants:
+        if tid not in tenants:
+            respond(404, {'error': 'tenant not found'})
+        if 'name' in body:
+            tenants[tid]['brand_name'] = _sanitize_str(str(body.get('name') or ''), 40).strip()
+        if 'accent' in body:
+            _ba = str(body.get('accent') or '').strip().lower()
+            tenants[tid]['brand_accent'] = _ba if _ba in BRAND_ACCENTS else ''
+    audit_log(actor, 'tenant_branding_update', detail=f'tenant={tid}')
+    respond(200, {'ok': True})
+
+
 def handle_device_site(dev_id):
     """PATCH /api/devices/{id}/site — assign a device to a site (or '')."""
     require_admin_auth()
@@ -44256,6 +44299,15 @@ def handle_me():
     u = (load(USERS_FILE) or {}).get(user) or {}
     perms = _resolve_role(role)
     prefs = u.get('ui_prefs') or {}
+    # v6.1.1 (#17/#15): resolve the caller's own tenant's branding override,
+    # falling back to the instance-wide brand_name/brand_accent when unset
+    # (or when tenancy isn't in play at all — the default tenant record
+    # normally carries no override, so this is a no-op for the common case).
+    _tenant_id = _user_tenant(user)
+    _tenant_rec = _load_tenants().get(_tenant_id) or {}
+    _cfg = load(CONFIG_FILE) or {}
+    _brand_name = _tenant_rec.get('brand_name') or _cfg.get('brand_name', '')
+    _brand_accent = _tenant_rec.get('brand_accent') or _cfg.get('brand_accent', '')
     respond(200, {
         'username':             user,
         'role':                 role,
@@ -44278,8 +44330,10 @@ def handle_me():
         # until per-tenant isolation lands).
         'tenant':               _user_tenant(user),
         # v3.14.0 (#45): in-app white-label branding, applied early by the UI.
-        'brand':                {'name': (load(CONFIG_FILE) or {}).get('brand_name', ''),
-                                 'accent': (load(CONFIG_FILE) or {}).get('brand_accent', '')},
+        # v6.1.1 (#17/#15): now resolves the caller's tenant's OWN override
+        # first (see above) -- the pre-auth login page has no tenant to
+        # resolve yet, so it always shows the instance-wide brand.
+        'brand':                {'name': _brand_name, 'accent': _brand_accent},
     })
 
 
@@ -55654,6 +55708,11 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('PUT',), '/api/gitops', '', 'handle_gitops_set', "pi == '/api/gitops' and m == 'PUT'"),
     ('eq', ('POST',), '/api/gitops/sync', '', 'handle_gitops_sync', "pi == '/api/gitops/sync' and m == 'POST'"),
     ('pat', ('POST',), '/api/tenants/', '/users', 'handle_tenant_assign_user', "pi.startswith('/api/tenants/') and pi.endswith('/users') and m == 'POST'"),
+    # v6.1.1 (#17/#15): MUST precede the general handle_tenant_update PUT row
+    # below (which has no suffix restriction and would otherwise swallow
+    # PUT /api/tenants/{id}/branding first, calling the wrong handler with
+    # tid='{id}/branding').
+    ('pat', ('GET', 'PUT'), '/api/tenants/', '/branding', 'handle_tenant_branding', "pi.startswith('/api/tenants/') and pi.endswith('/branding') and m in ('GET', 'PUT')"),
     ('pat', ('PUT',), '/api/tenants/', '', 'handle_tenant_update', "pi.startswith('/api/tenants/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/tenants/', '', 'handle_tenant_delete', "pi.startswith('/api/tenants/') and m == 'DELETE'"),
     ('eq', None, '/api/scim/v2/Users', '', 'handle_scim_users_collection', "pi == '/api/scim/v2/Users'"),

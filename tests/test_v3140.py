@@ -2130,6 +2130,125 @@ class TestTenancyP2(_HandlerBase):
         self.assertTrue(self.call(api.handle_config_get)['tenancy_enforced'])
 
 
+class TestTenantBranding(_HandlerBase):
+    """docs/master-improvement-scoping-internal.md #17/#15 -- per-tenant
+    config overrides, applied concretely to white-label branding. A tenant's
+    own admin manages THEIR OWN tenant's override; a superadmin manages any
+    tenant's; unset falls back to the instance-wide brand_name/brand_accent
+    (resolved in handle_me, which is where the UI actually reads it)."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active'}})
+        api.save(api.USERS_FILE, {
+            'super':     {'role': 'admin', 'tenant_id': 'default'},
+            'acmeadmin': {'role': 'admin', 'tenant_id': 'acme'},
+            'otheradmin': {'role': 'admin', 'tenant_id': 'other'},
+        })
+        api.save(api.CONFIG_FILE, {'brand_name': 'RemotePower', 'brand_accent': 'blue'})
+
+    def _as(self, user):
+        api.verify_token = lambda t: (user, 'admin')
+        api.require_admin_auth = lambda: user
+
+    def test_tenant_admin_sets_own_branding(self):
+        self._as('acmeadmin')
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'name': 'Acme Ops', 'accent': 'violet'}
+        res = self.call(api.handle_tenant_branding, 'acme')
+        self.assertTrue(res['ok'])
+        t = api.load(api.TENANTS_FILE)['acme']
+        self.assertEqual(t['brand_name'], 'Acme Ops')
+        self.assertEqual(t['brand_accent'], 'violet')
+
+    def test_tenant_admin_cannot_set_other_tenants_branding(self):
+        self._as('acmeadmin')
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'name': 'Hijacked'}
+        self.call(api.handle_tenant_branding, 'default')
+        self.assertEqual(self.cap.get('s'), 403)
+
+    def test_superadmin_sets_any_tenants_branding(self):
+        self._as('super')
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'name': 'Acme Ops'}
+        res = self.call(api.handle_tenant_branding, 'acme')
+        self.assertTrue(res['ok'])
+        self.assertEqual(api.load(api.TENANTS_FILE)['acme']['brand_name'], 'Acme Ops')
+
+    def test_invalid_accent_rejected_not_500(self):
+        self._as('acmeadmin')
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'accent': 'not-a-real-accent'}
+        res = self.call(api.handle_tenant_branding, 'acme')
+        self.assertTrue(res['ok'])
+        self.assertEqual(api.load(api.TENANTS_FILE)['acme'].get('brand_accent'), '')
+
+    def test_get_returns_current_override(self):
+        self._as('acmeadmin')
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'name': 'Acme Ops', 'accent': 'rose'}
+        self.call(api.handle_tenant_branding, 'acme')
+        api.method = lambda: 'GET'
+        res = self.call(api.handle_tenant_branding, 'acme')
+        self.assertEqual(res['name'], 'Acme Ops')
+        self.assertEqual(res['accent'], 'rose')
+
+    def test_unknown_tenant_404s(self):
+        self._as('super')
+        api.method = lambda: 'GET'
+        self.call(api.handle_tenant_branding, 'nope')
+        self.assertEqual(self.cap.get('s'), 404)
+
+    def test_me_resolves_tenant_override_over_instance_wide(self):
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active',
+                                            'brand_name': 'Acme Ops', 'brand_accent': 'violet'}})
+        self._as('acmeadmin')
+        res = self.call(api.handle_me)
+        self.assertEqual(res['brand'], {'name': 'Acme Ops', 'accent': 'violet'})
+
+    def test_me_falls_back_to_instance_wide_when_no_override(self):
+        self._as('acmeadmin')   # acme tenant has no brand_name/brand_accent set
+        res = self.call(api.handle_me)
+        self.assertEqual(res['brand'], {'name': 'RemotePower', 'accent': 'blue'})
+
+    def test_me_default_tenant_never_sees_a_stray_override(self):
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active',
+                                            'brand_name': 'Acme Ops'}})
+        self._as('super')   # in the default tenant
+        res = self.call(api.handle_me)
+        self.assertEqual(res['brand'], {'name': 'RemotePower', 'accent': 'blue'})
+
+    def test_route_registered(self):
+        rows = [(kind, methods, a, b, fn) for kind, methods, a, b, fn, _src
+                in api._PATTERN_ROUTE_DEFS if kind == 'pat' and fn == 'handle_tenant_branding']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0], ('pat', ('GET', 'PUT'), '/api/tenants/', '/branding',
+                                   'handle_tenant_branding'))
+
+    def test_branding_route_wins_over_general_tenant_update(self):
+        # ordering guard: PUT /api/tenants/{id}/branding must NOT be
+        # swallowed by the broader (no-suffix) handle_tenant_update PUT
+        # pattern -- first-match-wins dispatch, so the more specific
+        # (suffix-restricted) row has to come first in the ordered tuple.
+        names = [row[4] for row in api._PATTERN_ROUTE_DEFS
+                 if row[0] == 'pat' and row[2] == '/api/tenants/']
+        self.assertLess(names.index('handle_tenant_branding'), names.index('handle_tenant_update'))
+
+    def test_dispatch_resolves_branding_path_to_right_handler_and_tid(self):
+        # end-to-end through the real dispatcher (not just the static defs
+        # list) -- proves the ordering guard actually holds at runtime.
+        api._PATTERN_ROUTES = None   # force a fresh build so this test isn't order-dependent on prior tests
+        self._as('acmeadmin')
+        api.method = lambda: 'GET'
+        self.call(api._dispatch, '/api/tenants/acme/branding', 'GET')
+        self.assertEqual(self.cap.get('s'), 200)
+        self.assertIn('accent', self.cap['b'])   # handle_tenant_branding's shape, not handle_tenant_update's
+
+
 class TestApiKeyTenantIsolation(_HandlerBase):
     """docs/master-improvement-scoping-internal.md #16 -- a REAL cross-tenant
     isolation bypass found and fixed this session: an admin-role API key's
