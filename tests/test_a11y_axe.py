@@ -6,19 +6,12 @@ browser smoke suite (test_v430_e2e.py) was: reuses the shared e2e_harness
 deps aren't installed.
 
 Bar: zero axe 'critical'/'serious' violations on the login page and the
-post-login dashboard, EXCEPT two rules disabled below with a named reason —
+post-login dashboard, EXCEPT one rule disabled below with a named reason —
 this app hasn't had a full WCAG audit pass yet (see master-improvement-
 scoping #62), and gating on every finding today would either fail on a
 backlog unrelated to whatever change triggered the run, or need everything
 triaged/allowlisted up front. What's disabled is diagnosed, not guessed:
 
-  - color-contrast: two confirmed, SHARED-variable patterns, each far too
-    wide-blast-radius to safely fix as a side-effect of adding this test —
-    white text on --accent (.btn-primary/.enroll-btn/#topbar-avatar; the
-    default #3b7eff only reaches 3.74:1, and every user-selectable accent
-    color, e.g. amber #f59e0b, would need its own contrast-safe text-color
-    decision), and var(--muted) at 4.22:1 vs the 4.5:1 floor (309 use sites
-    across the whole app). Both belong to #62's dedicated contrast audit.
   - nested-interactive: EVERY sidebar nav button fails this — the
     favorite-star toggle (.nav-star, role="button" tabindex="0") is
     injected as a DESCENDANT of the <button class="nav-btn">, which is
@@ -29,10 +22,19 @@ triaged/allowlisted up front. What's disabled is diagnosed, not guessed:
     visual-regression pass across every sidebar state (collapsed/expanded/
     active/badge overlap) — out of scope for this test's addition.
 
+color-contrast is FULLY ENFORCED (#62's fix landed in the same session that
+added this gate): every theme's --accent got a computed --accent-contrast
+(black text clears 4.5:1 against every current accent except the `paper`
+theme, which keeps white), --muted was retuned per-theme where it fell
+short against --surface, and two remaining hardcoded-color outliers
+(.sev-pill.sev-low, .isl-751) got dedicated colors sized for their actual
+composited background. See CHANGELOG / the #62 tracker row for the full
+per-theme numbers.
+
 Every OTHER axe rule stays enforced, so this gate still catches a genuinely
 new structural issue (a missing aria-label's role, a broken focus trap, a
 button with no accessible name) — it just doesn't (yet) claim to cover
-color contrast or the pre-existing nav-star nesting.
+the pre-existing nav-star nesting.
 
 Install to run:
     pip install playwright gunicorn axe-core-python
@@ -60,7 +62,6 @@ _SERIOUS_IMPACTS = ('critical', 'serious')
 # Disabled with a named, diagnosed reason -- see the module docstring. NOT a
 # blanket "ignore everything" allowlist; every other rule stays enforced.
 _AXE_OPTIONS = {'rules': {
-    'color-contrast':     {'enabled': False},   # #62's dedicated contrast audit
     'nested-interactive': {'enabled': False},   # .nav-star inside .nav-btn, root-caused above
 }}
 

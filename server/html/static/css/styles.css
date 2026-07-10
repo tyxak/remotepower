@@ -29,6 +29,10 @@
     --border: #242b34;
     --accent: #3b7eff;
     --accent2: #7ea9ff;
+    /* WCAG AA text-on-accent (item #62): #3b7eff only clears 4.5:1 against
+       black (5.61:1), not white (3.74:1) -- every theme below sets its own,
+       computed the same way (contrast vs black and white, pick the winner). */
+    --accent-contrast: #000;
     --text: #e8edf3;
     --muted: #7f8b98;
     /* status colours = chosen-design --ok/--crit/--warn */
@@ -79,17 +83,19 @@
      theme's default accent. `dark`/`midnight` = :root; `light` = body.light. */
   body[data-theme="nord"] {
     --bg:#2e3440; --surface:#3b4252; --surface2:#434c5e; --border:#4c566a;
-    --text:#eceff4; --muted:#8a93a5; --accent:#88c0d0; --accent2:#8fbcbb;
+    --text:#eceff4; --muted:#aab0bd; --accent:#88c0d0; --accent2:#8fbcbb;
     --green:#a3be8c; --green-dim:#4a5a3a; --red:#bf616a; --red-dim:#5a2f33;
     --amber:#ebcb8b; --purple:#b48ead;
     --accent-soft:rgba(136,192,208,0.12); --accent-edge:rgba(136,192,208,0.30);
+    --accent-contrast:#000;
   }
   body[data-theme="dracula"] {
     --bg:#282a36; --surface:#2f3240; --surface2:#383b4a; --border:#44475a;
-    --text:#f8f8f2; --muted:#8a8fa3; --accent:#bd93f9; --accent2:#ff79c6;
+    --text:#f8f8f2; --muted:#989dae; --accent:#bd93f9; --accent2:#ff79c6;
     --green:#50fa7b; --green-dim:#1d5a2e; --red:#ff5555; --red-dim:#6e2222;
     --amber:#f1fa8c; --purple:#bd93f9;
     --accent-soft:rgba(189,147,249,0.14); --accent-edge:rgba(189,147,249,0.32);
+    --accent-contrast:#000;
   }
   body[data-theme="gruvbox"] {
     --bg:#1d2021; --surface:#282828; --surface2:#32302f; --border:#3c3836;
@@ -97,6 +103,7 @@
     --green:#b8bb26; --green-dim:#4f5320; --red:#fb4934; --red-dim:#6b2018;
     --amber:#fabd2f; --purple:#d3869b;
     --accent-soft:rgba(250,189,47,0.12); --accent-edge:rgba(250,189,47,0.32);
+    --accent-contrast:#000;
   }
   body[data-theme="catppuccin"] {
     --bg:#1e1e2e; --surface:#24273a; --surface2:#313244; --border:#363a4f;
@@ -104,13 +111,15 @@
     --green:#a6e3a1; --green-dim:#3e5a3c; --red:#f38ba8; --red-dim:#6b2f3e;
     --amber:#f9e2af; --purple:#cba6f7;
     --accent-soft:rgba(203,166,247,0.13); --accent-edge:rgba(203,166,247,0.30);
+    --accent-contrast:#000;
   }
   body[data-theme="tokyo"] {
     --bg:#1a1b26; --surface:#1f2335; --surface2:#24283b; --border:#2f3549;
-    --text:#c0caf5; --muted:#7a82a8; --accent:#7aa2f7; --accent2:#bb9af7;
+    --text:#c0caf5; --muted:#838bae; --accent:#7aa2f7; --accent2:#bb9af7;
     --green:#9ece6a; --green-dim:#3d5230; --red:#f7768e; --red-dim:#6b2733;
     --amber:#e0af68; --purple:#bb9af7;
     --accent-soft:rgba(122,162,247,0.13); --accent-edge:rgba(122,162,247,0.30);
+    --accent-contrast:#000;
   }
   body[data-theme="rosepine"] {
     --bg:#191724; --surface:#1f1d2e; --surface2:#26233a; --border:#2a273f;
@@ -118,27 +127,31 @@
     --green:#9ccfd8; --green-dim:#2f4f55; --red:#eb6f92; --red-dim:#6b2a3c;
     --amber:#f6c177; --purple:#c4a7e7;
     --accent-soft:rgba(196,167,231,0.13); --accent-edge:rgba(196,167,231,0.30);
+    --accent-contrast:#000;
   }
   body[data-theme="solarized"] {
     --bg:#002b36; --surface:#073642; --surface2:#0a4250; --border:#0f4b5a;
-    --text:#b3c0c0; --muted:#5d7479; --accent:#268bd2; --accent2:#2aa198;
+    --text:#b3c0c0; --muted:#899fa4; --accent:#268bd2; --accent2:#2aa198;
     --green:#859900; --green-dim:#3a4400; --red:#dc322f; --red-dim:#5e1716;
     --amber:#b58900; --purple:#6c71c4;
     --accent-soft:rgba(38,139,210,0.13); --accent-edge:rgba(38,139,210,0.32);
+    --accent-contrast:#000;
   }
   body[data-theme="oceanic"] {
     --bg:#0f1c24; --surface:#152733; --surface2:#1b313f; --border:#23404f;
-    --text:#cde3ec; --muted:#6f8a97; --accent:#22b8cf; --accent2:#3ddbd9;
+    --text:#cde3ec; --muted:#78919d; --accent:#22b8cf; --accent2:#3ddbd9;
     --green:#37b67a; --green-dim:#1c4f39; --red:#e85d6f; --red-dim:#5e2630;
     --amber:#e0a458; --purple:#9d7cd8;
     --accent-soft:rgba(34,184,207,0.13); --accent-edge:rgba(34,184,207,0.32);
+    --accent-contrast:#000;
   }
   body[data-theme="solarized-light"] {
     --bg:#fdf6e3; --surface:#fbf3d9; --surface2:#f3ead0; --border:#e6dcc0;
-    --text:#3f5258; --muted:#93a1a1; --accent:#268bd2; --accent2:#2aa198;
+    --text:#3f5258; --muted:#606e6e; --accent:#268bd2; --accent2:#2aa198;
     --green:#6f7d00; --green-dim:#d3d9a0; --red:#dc322f; --red-dim:#f0c0bf;
     --amber:#a07700; --purple:#6c71c4;
     --accent-soft:rgba(38,139,210,0.10); --accent-edge:rgba(38,139,210,0.28);
+    --accent-contrast:#000;
   }
   body[data-theme="nord-light"] {
     --bg:#eceff4; --surface:#ffffff; --surface2:#e5e9f0; --border:#d8dee9;
@@ -146,6 +159,7 @@
     --green:#4a7a2f; --green-dim:#c8d8b8; --red:#bf616a; --red-dim:#e8c4c8;
     --amber:#9a6f00; --purple:#9d7cb0;
     --accent-soft:rgba(94,129,172,0.10); --accent-edge:rgba(94,129,172,0.28);
+    --accent-contrast:#000;
   }
   body[data-theme="paper"] {
     --bg:#fafafa; --surface:#ffffff; --surface2:#f4f4f5; --border:#e4e4e7;
@@ -153,6 +167,7 @@
     --green:#16a34a; --green-dim:#bbf7d0; --red:#dc2626; --red-dim:#fecaca;
     --amber:#d97706; --purple:#7c3aed;
     --accent-soft:rgba(37,99,235,0.08); --accent-edge:rgba(37,99,235,0.26);
+    --accent-contrast:#fff;
   }
   /* ── v6.0.0 "ClarityMatters" design tokens (chosen-design.html) ──────────
      New tokens the Clarity re-skin adds on top of the existing palette:
@@ -203,11 +218,14 @@
 
   /* v3.14.0 (#46): per-user accent presets — declared AFTER the data-theme
      blocks so a chosen accent overrides the theme's default accent. */
-  body[data-accent="emerald"] { --accent: #10b981; --accent-soft: rgba(16,185,129,0.10); --accent-edge: rgba(16,185,129,0.30); }
-  body[data-accent="violet"]  { --accent: #8b5cf6; --accent-soft: rgba(139,92,246,0.10); --accent-edge: rgba(139,92,246,0.30); }
-  body[data-accent="amber"]   { --accent: #f59e0b; --accent-soft: rgba(245,158,11,0.10); --accent-edge: rgba(245,158,11,0.30); }
-  body[data-accent="rose"]    { --accent: #f43f5e; --accent-soft: rgba(244,63,94,0.10);  --accent-edge: rgba(244,63,94,0.30); }
-  body[data-accent="cyan"]    { --accent: #06b6d4; --accent-soft: rgba(6,182,212,0.10);  --accent-edge: rgba(6,182,212,0.30); }
+  /* WCAG AA text-on-accent (item #62): a chosen accent preset overrides
+     --accent-contrast too -- all 5 presets clear 4.5:1 against black (the
+     tightest, violet, is 4.96:1; white would fail all 5, worst 2.15:1). */
+  body[data-accent="emerald"] { --accent: #10b981; --accent-soft: rgba(16,185,129,0.10); --accent-edge: rgba(16,185,129,0.30); --accent-contrast: #000; }
+  body[data-accent="violet"]  { --accent: #8b5cf6; --accent-soft: rgba(139,92,246,0.10); --accent-edge: rgba(139,92,246,0.30); --accent-contrast: #000; }
+  body[data-accent="amber"]   { --accent: #f59e0b; --accent-soft: rgba(245,158,11,0.10); --accent-edge: rgba(245,158,11,0.30); --accent-contrast: #000; }
+  body[data-accent="rose"]    { --accent: #f43f5e; --accent-soft: rgba(244,63,94,0.10);  --accent-edge: rgba(244,63,94,0.30); --accent-contrast: #000; }
+  body[data-accent="cyan"]    { --accent: #06b6d4; --accent-soft: rgba(6,182,212,0.10);  --accent-edge: rgba(6,182,212,0.30); --accent-contrast: #000; }
 
   .theme-btn {
     background: transparent;
@@ -1054,7 +1072,7 @@
   .tour-pop-meta { font-size: 12px; color: var(--muted); margin-right: auto; }
   /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused. */
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 1000;
-    background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 0 0 6px 0;
+    background: var(--accent); color: var(--accent-contrast, #fff); padding: 8px 14px; border-radius: 0 0 6px 0;
     font-size: 14px; text-decoration: none; }
   .skip-link:focus { left: 0; }
   .fl-wrap { flex-wrap: wrap; }
@@ -1105,7 +1123,7 @@
   .side-foot .acct-dropdown { top: auto; bottom: calc(100% + 6px); left: 0; right: 0; }
   .acct-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; cursor: pointer; color: inherit; padding: 4px 6px; border-radius: 6px; }
   .acct-btn:hover { background: rgba(127,127,127,0.12); }
-  .acct-avatar-sm { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: #3b7eff; color: #fff; font-size: 12px; font-weight: 600; overflow: hidden; }
+  .acct-avatar-sm { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-contrast, #fff); font-size: 12px; font-weight: 600; overflow: hidden; }
   .acct-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
   .acct-name { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* v5.6.x fix (#18): was background:var(--card, #1e1e24) — but --card is never
@@ -1116,7 +1134,7 @@
   .acct-dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .acct-dropdown-item:hover { background: rgba(127,127,127,0.14); }
   .acct-profile { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-  .acct-avatar { display: inline-flex; align-items: center; justify-content: center; width: 72px; height: 72px; border-radius: 50%; background: #3b7eff; color: #fff; font-size: 28px; font-weight: 600; overflow: hidden; }
+  .acct-avatar { display: inline-flex; align-items: center; justify-content: center; width: 72px; height: 72px; border-radius: 50%; background: var(--accent); color: var(--accent-contrast, #fff); font-size: 28px; font-weight: 600; overflow: hidden; }
   .acct-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .acct-profile-meta { display: flex; flex-direction: column; gap: 8px; }
   .doc-card kbd {
@@ -1213,7 +1231,7 @@
        just inside .modal-actions (below), so modals are unchanged. */
     flex: 0 0 auto;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-contrast, #fff);
     border: none;
     padding: 8px 14px;
     border-radius: 7px;
@@ -1264,7 +1282,7 @@
   .btn-xs { padding: 3px 8px; font-size: 11px; min-height: 0; }
   .enroll-btn {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-contrast, #fff);
     border: none;
     padding: 8px 18px;
     border-radius: 8px;
@@ -1876,8 +1894,8 @@
   /* v5.1.1: explicit, readable text selection. With no rule, "marking" (selecting)
    * text in a filter box fell back to the browser default and could render the
    * selection bar AND the text both accent-blue (blue-on-blue = invisible). */
-  ::selection { background: var(--accent); color: #fff; -webkit-text-fill-color: #fff; }
-  ::-moz-selection { background: var(--accent); color: #fff; }
+  ::selection { background: var(--accent); color: var(--accent-contrast, #fff); -webkit-text-fill-color: var(--accent-contrast, #fff); }
+  ::-moz-selection { background: var(--accent); color: var(--accent-contrast, #fff); }
   /* v5.1.1: kill Chrome's autofill paint. On a dark theme an autofilled field
    * (e.g. a value Chrome remembers) renders solid blue with clashing text —
    * "blue-on-blue". Force our surface + text colour for EVERY input, in every
@@ -2113,7 +2131,7 @@
     border-radius: 8px; padding: 10px 12px; margin: -16px 0 24px; color: var(--text);
   }
   .login-btn {
-    width: 100%; background: var(--accent); color: #fff; border: none;
+    width: 100%; background: var(--accent); color: var(--accent-contrast, #fff); border: none;
     padding: 12px; border-radius: 8px; font-size: 14px; font-weight: 600;
     cursor: pointer; transition: background 0.2s; margin-top: 8px;
     font-family: var(--font);
@@ -2231,8 +2249,8 @@
   .cal-day:hover { background: var(--surface2); }
   .cal-day-num { font-size: 13px; font-weight: 500; color: var(--muted); }
   .cal-day.today .cal-day-num {
-    color: var(--accent); font-weight: 600;
-    background: var(--accent); color: white;
+    font-weight: 600;
+    background: var(--accent); color: var(--accent-contrast, #fff);
     width: 22px; height: 22px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     font-size: 12px;
@@ -2309,7 +2327,7 @@
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   }
   .kanban-card-device {
-    background: var(--accent); color: white;
+    background: var(--accent); color: var(--accent-contrast, #fff);
     padding: 1px 6px; border-radius: 3px;
     font-size: 10px; font-family: var(--font-mono);
   }
@@ -2743,7 +2761,7 @@ body.density-compact .dash-card > .section-header:first-child {
 .dash-feed-item:last-child { border-bottom: none; }
 .isl-750 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .isl-750 h3 { margin: 0; }
-.isl-751 { font-size: 11px; padding: 2px 8px; opacity: 0.7; }
+.isl-751 { font-size: 11px; padding: 2px 8px; opacity: 0.7; color: #abb3bb; }
 .isl-751:hover { opacity: 1; }
 .isl-754 { width: 64px !important; text-align: center; }
 .isl-755 { width: 120px !important; }
@@ -3415,7 +3433,7 @@ body.modal-open .modal { touch-action: auto; }
   transition: background .12s, color .12s, border-color .12s;
 }
 .hc-tab:hover  { background: var(--surface2); color: var(--text); }
-.hc-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hc-tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast, #fff); }
 
 /* ── v2.6.0: Mobile performance & UX optimisations ─────────────────────────
  *
@@ -4741,7 +4759,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .metric-stats { font-size: 11px; color: var(--muted); }
 .metric-range-picker { display: flex; gap: 6px; margin-bottom: 12px; }
 .metric-range-btn { padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 13px; cursor: pointer; }
-.metric-range-btn.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+.metric-range-btn.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast, #fff); }
 .metric-note { margin-bottom: 12px; }
 /* v3.14.0 (#41): chargeback cost-allocation tables */
 .chargeback-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
@@ -5300,7 +5318,7 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .input-url-dest { flex: 1; padding: 6px 10px; font-size: 13px; }
 
 /* CSP L1 — variant classes for the rules that used JS expressions */
-.isl-307.sel { background: var(--accent); color: #fff }
+.isl-307.sel { background: var(--accent); color: var(--accent-contrast, #fff) }
 .isl-311.active { background: rgba(59,126,255,0.2); color: var(--accent); border-color: var(--accent) }
 .isl-314.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,126,255,0.2) }
 /* v3.4.0 Forecast page */
@@ -5414,7 +5432,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .sev-pill.sev-critical { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
 .sev-pill.sev-high     { background: rgba(255,140,0,0.15); color: #ff8c00; border: 1px solid #ff8c00; }
 .sev-pill.sev-medium   { background: rgba(255,193,7,0.15); color: #d4a017; border: 1px solid #d4a017; }
-.sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
+.sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: #8a95a1; border: 1px solid var(--muted); }
 .sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
 .sev-pill.sev-info     { background: rgba(59,130,246,0.15); color: var(--accent); border: 1px solid var(--accent); }
 .tl-dot.sev-info       { background: var(--accent); }
@@ -5632,7 +5650,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   text-transform: capitalize;
 }
 .tl-chip:hover { border-color: var(--accent); color: var(--accent); }
-.tl-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tl-chip.active { background: var(--accent); color: var(--accent-contrast, #fff); border-color: var(--accent); }
 .tl-list { position: relative; }
 .tl-row {
   display: grid; grid-template-columns: 14px 1fr auto; gap: 12px;
