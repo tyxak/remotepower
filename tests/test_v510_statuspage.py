@@ -86,5 +86,67 @@ class TestProjection(unittest.TestCase):
         self.assertEqual(proj['components'][0]['uptime_pct'], 100.0)
 
 
+class TestPublicStatusControlPlaneUptime(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #51 — RemotePower's own
+    observed availability (_control_uptime, previously admin-only via
+    GET /api/self-test) is now also on the public status page. Calls the
+    real handle_public_status() end-to-end."""
+
+    def setUp(self):
+        self.d = Path(__import__('tempfile').mkdtemp())
+        self._saved = {}
+        for a in ('CONFIG_FILE', 'DEVICES_FILE', 'MON_HIST_FILE', 'CONTROL_UPTIME_FILE'):
+            self._saved[a] = getattr(api, a)
+            setattr(api, a, self.d / Path(getattr(api, a)).name)
+        api.save(api.CONFIG_FILE, {'status_token': 'sekret-tok'})
+        api.save(api.DEVICES_FILE, {})
+        api.save(api.MON_HIST_FILE, {})
+        self._orig_env = api._env
+        self._qs = 'token=sekret-tok'
+        api._env = lambda k, d=None: (self._qs if k == 'QUERY_STRING' else d)
+        self.cap = {}
+
+        def _resp(s, b=None):
+            self.cap['s'] = s
+            self.cap['b'] = b
+            raise api.HTTPError(s, b)
+        self._orig_respond = api.respond
+        api.respond = _resp
+
+    def tearDown(self):
+        for a, v in self._saved.items():
+            setattr(api, a, v)
+        api._env = self._orig_env
+        api.respond = self._orig_respond
+
+    def _call(self):
+        try:
+            api.handle_public_status()
+        except api.HTTPError:
+            pass
+        return self.cap.get('b')
+
+    def test_no_tracking_yet_omits_control_plane(self):
+        api.save(api.CONTROL_UPTIME_FILE, {})
+        body = self._call()
+        self.assertNotIn('control_plane', body)
+
+    def test_tracking_surfaces_rolling_windows(self):
+        now = int(time.time())
+        hr = now - (now % 3600)
+        api.save(api.CONTROL_UPTIME_FILE, {'hours': [hr, hr - 3600], 'since': hr - 3600})
+        body = self._call()
+        self.assertIn('control_plane', body)
+        self.assertIn('24h', body['control_plane']['windows'])
+        self.assertEqual(body['control_plane']['since'], hr - 3600)
+
+    def test_wrong_token_never_reaches_control_plane_data(self):
+        api.save(api.CONTROL_UPTIME_FILE, {'hours': [int(time.time())], 'since': 0})
+        self._qs = 'token=wrong'
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_public_status()
+        self.assertEqual(cm.exception.status, 401)
+
+
 if __name__ == "__main__":
     unittest.main()

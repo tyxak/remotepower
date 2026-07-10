@@ -179,7 +179,7 @@ class TestHandlers(unittest.TestCase):
     def setUp(self):
         self._orig = {k: getattr(api, k) for k in
                       ('respond', 'require_admin_or_auditor_auth', 'require_admin_auth',
-                       '_get_client_ip')}
+                       '_get_client_ip', 'method', 'get_json_obj')}
         api.respond = lambda s, d: (_ for _ in ()).throw(_Responded(s, d))
         api.require_admin_or_auditor_auth = lambda: 'admin'
         api.require_admin_auth = lambda: 'admin'
@@ -191,7 +191,10 @@ class TestHandlers(unittest.TestCase):
             'pool': '10.97.0.0/24', 'endpoint': 'vpn.example.com:51820', 'dns': '',
             'hub_pubkey': '', 'allow_internet': False, 'reach_scope_type': 'site',
             'reach_scope_value': 'HQ', 'enabled': True, 'expires_at': None,
-            'clients': []}]})
+            'clients': [{'id': 'wgc_test', 'name': 'laptop', 'pubkey': 'x', 'address': '10.97.0.2',
+                        'enabled': True, 'expires_at': None, 'created_by': 'admin',
+                        'created_at': 0, 'last_handshake': 0, 'rx_bytes': 0, 'tx_bytes': 0,
+                        'endpoint': ''}]}]})
 
     def tearDown(self):
         for k, v in self._orig.items():
@@ -210,6 +213,71 @@ class TestHandlers(unittest.TestCase):
             api.handle_vpn_clients_list('wgt_test')
         self.assertEqual(cm.exception.status, 200)
 
+    # ── #87: per-peer RX/TX history ──────────────────────────────────────
+    def test_client_history_ok(self):
+        api.save(api.VPN_STATS_HIST_FILE,
+                 {'wgc_test': [{'ts': 100, 'rx_bytes': 10, 'tx_bytes': 5},
+                               {'ts': 200, 'rx_bytes': 30, 'tx_bytes': 15}]})
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_client_history('wgt_test', 'wgc_test')
+        self.assertEqual(cm.exception.status, 200)
+        self.assertEqual(cm.exception.data['samples'],
+                         [{'ts': 100, 'rx_bytes': 10, 'tx_bytes': 5},
+                          {'ts': 200, 'rx_bytes': 30, 'tx_bytes': 15}])
+
+    def test_client_history_empty_when_no_samples_yet(self):
+        api.save(api.VPN_STATS_HIST_FILE, {})
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_client_history('wgt_test', 'wgc_test')
+        self.assertEqual(cm.exception.status, 200)
+        self.assertEqual(cm.exception.data['samples'], [])
+
+    def test_client_history_unknown_client_404(self):
+        api.save(api.VPN_STATS_HIST_FILE, {})
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_client_history('wgt_test', 'wgc_nope')
+        self.assertEqual(cm.exception.status, 404)
+
+    # ── #88: default tunnel-scope template ───────────────────────────────
+    def test_default_template_empty_when_unset(self):
+        api.method = lambda: 'GET'
+        api.save(api.CONFIG_FILE, {})
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_default_template()
+        self.assertEqual(cm.exception.status, 200)
+        self.assertEqual(cm.exception.data['template'], {})
+
+    def test_default_template_save_and_reload(self):
+        api.method = lambda: 'POST'
+        api.save(api.CONFIG_FILE, {})
+        api.get_json_obj = lambda: {'allow_internet': False, 'reach_scope_type': 'site',
+                                    'reach_scope_value': 'HQ', 'dns': '10.0.0.1'}
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_default_template()
+        self.assertEqual(cm.exception.status, 200)
+        self.assertEqual(cm.exception.data['template']['reach_scope_value'], 'HQ')
+        self.assertEqual(api.load(api.CONFIG_FILE)['vpn_default_template']['dns'], '10.0.0.1')
+        api.method = lambda: 'GET'
+        with self.assertRaises(_Responded) as cm2:
+            api.handle_vpn_default_template()
+        self.assertEqual(cm2.exception.data['template']['reach_scope_type'], 'site')
+
+    def test_default_template_rejects_invalid_scope(self):
+        api.method = lambda: 'POST'
+        api.save(api.CONFIG_FILE, {})
+        api.get_json_obj = lambda: {'reach_scope_type': 'bogus'}
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_default_template()
+        self.assertEqual(cm.exception.status, 400)
+
+    def test_default_template_requires_scope_value_when_scoped(self):
+        api.method = lambda: 'POST'
+        api.save(api.CONFIG_FILE, {})
+        api.get_json_obj = lambda: {'reach_scope_type': 'site', 'reach_scope_value': ''}
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_default_template()
+        self.assertEqual(cm.exception.status, 400)
+
 
 class TestApiWiring(unittest.TestCase):
     def test_handlers_exist(self):
@@ -218,7 +286,7 @@ class TestApiWiring(unittest.TestCase):
                   'handle_vpn_tunnel_stats', 'handle_vpn_clients_list',
                   'handle_vpn_client_create', 'handle_vpn_client_update',
                   'handle_vpn_client_delete', 'handle_vpn_client_stats',
-                  'run_vpn_stats_if_due'):
+                  'handle_vpn_client_history', 'run_vpn_stats_if_due'):
             self.assertTrue(hasattr(api, h), h)
 
     def test_store_empty_shape(self):
@@ -321,6 +389,84 @@ class TestApiWiring(unittest.TestCase):
         finally:
             api._wg_run = orig_run
             api._wg_helper_available = orig_avail
+
+
+class TestStatsCadenceHistory(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #87 — run_vpn_stats_if_due
+    appends one history sample per client per poll (capped, rolling window),
+    not just overwriting the current rx/tx snapshot on the client record."""
+
+    def setUp(self):
+        self._orig = {k: getattr(api, k) for k in
+                      ('_wg_helper_available', '_wg_run', 'audit_log', 'fire_webhook')}
+        api.audit_log = lambda *a, **k: None
+        api.fire_webhook = lambda *a, **k: None
+        api._wg_helper_available = lambda: True
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.VPN_STATS_HIST_FILE, {})
+        self.tunnel = {
+            'id': 'wgt_h', 'name': 't', 'iface': 'rp-wg0', 'listen_port': 51820,
+            'pool': '10.97.0.0/24', 'endpoint': '', 'dns': '', 'hub_pubkey': 'hub',
+            'allow_internet': False, 'reach_scope_type': 'none', 'reach_scope_value': '',
+            'enabled': True, 'expires_at': None,
+            'clients': [{'id': 'wgc_h', 'name': 'laptop',
+                        'pubkey': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                        'address': '10.97.0.2', 'enabled': True, 'expires_at': None,
+                        'created_by': 'admin', 'created_at': 0, 'last_handshake': 0,
+                        'rx_bytes': 0, 'tx_bytes': 0, 'endpoint': ''}]}
+        api.save(api.VPN_FILE, {'tunnels': [self.tunnel]})
+
+    def tearDown(self):
+        for k, v in self._orig.items():
+            setattr(api, k, v)
+
+    def _fake_dump(self, rx, tx, handshake=123456):
+        pub = self.tunnel['clients'][0]['pubkey']
+        # wg show <iface> dump: line 0 = interface, then tab-separated peer rows.
+        return ('iface-priv\tiface-pub\t51820\toff\n'
+                f'{pub}\t(none)\t203.0.113.5:51820\t10.97.0.2/32\t{handshake}\t{rx}\t{tx}\t0')
+
+    def test_appends_one_sample_per_poll(self):
+        api._wg_run = lambda argv, **kw: (0, self._fake_dump(100, 50), '') \
+            if argv[0] == 'show' else (0, '{}', '')
+        api.run_vpn_stats_if_due()
+        hist = api.load(api.VPN_STATS_HIST_FILE)
+        self.assertEqual(len(hist.get('wgc_h', [])), 1)
+        self.assertEqual(hist['wgc_h'][0]['rx_bytes'], 100)
+        self.assertEqual(hist['wgc_h'][0]['tx_bytes'], 50)
+        # The client record's live snapshot is also updated, same as before.
+        client = api.load(api.VPN_FILE)['tunnels'][0]['clients'][0]
+        self.assertEqual(client['rx_bytes'], 100)
+
+    def test_second_poll_appends_not_overwrites(self):
+        api._wg_run = lambda argv, **kw: (0, self._fake_dump(100, 50), '') \
+            if argv[0] == 'show' else (0, '{}', '')
+        api.run_vpn_stats_if_due()
+        # Force the cadence gate open again (bypassing the interval).
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['last_vpn_stats_run'] = 0
+        api.save(api.CONFIG_FILE, cfg)
+        api._wg_run = lambda argv, **kw: (0, self._fake_dump(300, 150), '') \
+            if argv[0] == 'show' else (0, '{}', '')
+        api.run_vpn_stats_if_due()
+        hist = api.load(api.VPN_STATS_HIST_FILE)['wgc_h']
+        self.assertEqual(len(hist), 2)
+        self.assertEqual([s['rx_bytes'] for s in hist], [100, 300])
+
+    def test_history_capped_to_max_samples(self):
+        api._wg_run = lambda argv, **kw: (0, self._fake_dump(1, 1), '') \
+            if argv[0] == 'show' else (0, '{}', '')
+        # Seed a full-but-one history directly (avoid N real cadence calls).
+        api.save(api.VPN_STATS_HIST_FILE, {'wgc_h': [
+            {'ts': i, 'rx_bytes': i, 'tx_bytes': i}
+            for i in range(api.VPN_STATS_HIST_MAX_SAMPLES - 1)]})
+        api.run_vpn_stats_if_due()
+        hist = api.load(api.VPN_STATS_HIST_FILE)['wgc_h']
+        self.assertEqual(len(hist), api.VPN_STATS_HIST_MAX_SAMPLES)
+        api.save(api.CONFIG_FILE, {**api.load(api.CONFIG_FILE), 'last_vpn_stats_run': 0})
+        api.run_vpn_stats_if_due()
+        hist2 = api.load(api.VPN_STATS_HIST_FILE)['wgc_h']
+        self.assertEqual(len(hist2), api.VPN_STATS_HIST_MAX_SAMPLES)   # still capped, not growing
 
 
 if __name__ == '__main__':

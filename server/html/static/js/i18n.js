@@ -56,6 +56,7 @@
     'Create campaign':       { fr: 'Créer une campagne', de: 'Kampagne erstellen', zh: '创建行动', hi: 'अभियान बनाएँ', es: 'Crear campaña', ar: 'إنشاء حملة' },
     'Post incident':         { fr: 'Publier un incident', de: 'Vorfall melden', zh: '发布事件', hi: 'घटना पोस्ट करें', es: 'Publicar incidencia', ar: 'نشر حادث' },
     'Save subscribers':      { fr: 'Enregistrer les abonnés', de: 'Abonnenten speichern', zh: '保存订阅者', hi: 'सब्सक्राइबर सहेजें', es: 'Guardar suscriptores', ar: 'حفظ المشتركين' },
+    'Save as default':       { fr: 'Enregistrer par défaut', de: 'Als Standard speichern', zh: '保存为默认', hi: 'डिफ़ॉल्ट के रूप में सहेजें', es: 'Guardar como predeterminado', ar: 'حفظ كافتراضي' },
     'CT watch':              { fr: 'Surveillance CT', de: 'CT-Überwachung', zh: 'CT 证书监视', hi: 'CT निगरानी', es: 'Vigilancia CT', ar: 'مراقبة CT' },
     'Save CT watch':         { fr: 'Enregistrer la surveillance CT', de: 'CT-Überwachung speichern', zh: '保存 CT 监视', hi: 'CT निगरानी सहेजें', es: 'Guardar vigilancia CT', ar: 'حفظ مراقبة CT' },
     'Auto-placement rules':  { fr: 'Règles de placement automatique', de: 'Auto-Zuordnungsregeln', zh: '自动归置规则', hi: 'स्वतः-नियोजन नियम', es: 'Reglas de ubicación automática', ar: 'قواعد التوزيع التلقائي' },

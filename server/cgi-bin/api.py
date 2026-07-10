@@ -876,7 +876,8 @@ for _vp_name in (
         'handle_vpn_tunnels_list', 'handle_vpn_tunnel_create', 'handle_vpn_tunnel_update',
         'handle_vpn_tunnel_delete', 'handle_vpn_tunnel_stats', 'handle_vpn_clients_list',
         'handle_vpn_client_create', 'handle_vpn_client_update', 'handle_vpn_client_delete',
-        'handle_vpn_client_stats', 'run_vpn_stats_if_due',
+        'handle_vpn_client_stats', 'handle_vpn_client_history',
+        'handle_vpn_default_template', 'run_vpn_stats_if_due',
 ):
     globals()[_vp_name] = getattr(vpn_handlers_mod, _vp_name)
 del _vp_name
@@ -4564,16 +4565,30 @@ def log_json(level, msg, **fields):
 def _render_response(status: int, data, headers=None) -> None:
     """Render an HTTP response to stdout. Used by main() — handlers should
     use respond()/HTTPError instead so the response is uniformly handled."""
-    body = json.dumps(data)
+    headers = headers or []
     print(f"Status: {status} {_HTTP_STATUS_REASONS.get(status, '')}")
     print("Content-Type: application/json")
-    print("Cache-Control: no-store")
+    # master-improvement-scoping #10: the default is unconditionally
+    # no-store (correct for a sensitive JSON API surface); a handler opting
+    # into conditional-GET (_respond_with_etag) supplies its own
+    # Cache-Control header instead, since no-store would make an ETag
+    # pointless (nothing to revalidate against). Every existing call site
+    # passes no Cache-Control header, so this is a no-op change for them.
+    if not any(str(_hn).lower() == 'cache-control' for _hn, _hv in headers):
+        print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
     print(f"X-Request-Id: {_request_id()}")   # v5.4.1 (F1): correlation id
-    for _hn, _hv in (headers or []):           # W6-28: extra headers (Set-Cookie)
+    for _hn, _hv in headers:           # W6-28: extra headers (Set-Cookie, ETag, ...)
         # CR/LF stripped defensively — header values are server-built but never
         # let a value inject a second header line.
         print(f"{_hn}: {str(_hv).replace(chr(13), '').replace(chr(10), '')}")
+    # v5.9.0-ish (#10): a 304 Not Modified carries NO body per RFC 9110 —
+    # json.dumps(data) would otherwise print a (small but real, and
+    # spec-incorrect) body even for the empty/None data callers pass here.
+    if status == 304:
+        print()
+        return
+    body = json.dumps(data)
     raw = body.encode('utf-8')
     if _gzip_response_wanted(len(raw)):
         print("Content-Encoding: gzip")
@@ -4585,6 +4600,31 @@ def _render_response(status: int, data, headers=None) -> None:
         return
     print()
     print(body)
+
+
+def _respond_with_etag(data, etag_source):
+    """Conditional-GET (opt-in, per-handler) — master-improvement-scoping #10.
+    `etag_source` is any value that changes exactly when `data` would (a
+    cache-freshness marker like a source mtime, NOT the serialized body
+    itself — computing it must be cheaper than building `data`, or this
+    defeats its own purpose). Sends a weak ETag and, when the caller's
+    If-None-Match matches, short-circuits to a bodyless 304 instead of
+    re-sending the full payload.
+
+    Every other endpoint stays `Cache-Control: no-store` (correct default
+    for a sensitive JSON API) — this explicitly opts into `no-cache`
+    instead, since a conditional-GET is meaningless under no-store (the
+    client has nothing to revalidate). `no-cache` still forces revalidation
+    on every use, so this carries no stale-serving risk; only intended for
+    read-only endpoints the caller has decided are safe to reveal ETag/304
+    timing on (existing auth gates on the handler still apply — this
+    doesn't add or remove any authorization)."""
+    etag = '"' + hashlib.sha256(repr(etag_source).encode()).hexdigest()[:16] + '"'
+    headers = [('ETag', etag), ('Cache-Control', 'no-cache')]
+    inm = str(_env('HTTP_IF_NONE_MATCH', '') or '').strip()
+    if inm and inm == etag:
+        raise HTTPError(304, None, headers=headers)
+    raise HTTPError(200, data, headers=headers)
 
 
 def respond(status, data):
@@ -36952,6 +36992,19 @@ def handle_risk_overview():
     for r in risks:
         counts[r['level']] = counts.get(r['level'], 0) + 1
     avg = round(sum(r['score'] for r in risks) / len(risks)) if risks else 0
+    # master-improvement-scoping #10: conditional GET keyed off the same
+    # cache-freshness marker _fleet_risk_cached() already maintains (mtime of
+    # fleet_risk_cache.json, bumped exactly when the underlying data actually
+    # changed) — a poller re-fetching this dashboard endpoint every N seconds
+    # gets a bodyless 304 on every call where nothing changed.
+    try:
+        etag_source = (backend_mtime(_fleet_risk_cache_file()), scope)
+    except Exception:
+        etag_source = None
+    if etag_source is not None:
+        _respond_with_etag(
+            {'devices': risks, 'counts': counts, 'avg': avg, 'total': len(risks)},
+            etag_source)
     respond(200, {'devices': risks, 'counts': counts, 'avg': avg, 'total': len(risks)})
 
 
@@ -38122,6 +38175,18 @@ def handle_public_status():
                          'items': sorted(mons, key=lambda m: (m['up'], m['label']))},
         'status_page_enabled': False,
     }
+    # master-improvement-scoping #51: RemotePower's OWN observed availability
+    # (distinct from the fleet health/monitors above) on the public page too —
+    # the data already existed (_control_uptime, GET /api/self-test, admin-
+    # only) but had no public-facing surface. Public-safe: just a rolling
+    # percentage + tracking-since timestamp, no operational detail.
+    try:
+        cu = _control_uptime()
+        if cu.get('tracking'):
+            resp['control_plane'] = {'windows': cu.get('windows') or {},
+                                      'since': cu.get('since')}
+    except Exception:
+        pass
     # v5.1.0: merge the public status-page projection (component groups + sanitized
     # incident history) when the operator has enabled it. Existing flat fields stay
     # for back-compat (Uptime Kuma / Homepage / Grafana consumers).
@@ -54239,6 +54304,8 @@ def _scoped_cred_applies(c: dict, dev: dict) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════════
 VPN_FILE   = DATA_DIR / 'vpn.json'
 WG_HELPER  = '/usr/local/sbin/remotepower-wg-apply'
+VPN_STATS_HIST_FILE = DATA_DIR / 'vpn_stats_hist.json'  # master-improvement-scoping #87
+VPN_STATS_HIST_MAX_SAMPLES = 288  # ~24h at the default 120s poll interval, capped regardless of interval
 
 # The WG Access implementation (helper bridge, tunnel/client handlers, and the
 # run_vpn_stats_if_due cadence) lives in the bound module vpn_handlers.py — see
@@ -55346,6 +55413,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/scoped-credentials/', '', 'handle_scoped_credentials_delete', "pi.startswith('/api/scoped-credentials/') and m == 'DELETE'"),
     ('eq', ('GET',), '/api/vpn-tunnels', '', 'handle_vpn_tunnels_list', "pi == '/api/vpn-tunnels' and m == 'GET'"),
     ('eq', ('POST',), '/api/vpn-tunnels', '', 'handle_vpn_tunnel_create', "pi == '/api/vpn-tunnels' and m == 'POST'"),
+    ('eq', ('GET', 'POST'), '/api/vpn-default-template', '', 'handle_vpn_default_template',
+     "pi == '/api/vpn-default-template' and m in ('GET', 'POST')"),
     ('code', None, None, None, '_route_code_245', "pi.startswith('/api/vpn-tunnels/')"),
     ('pat', ('GET',), '/api/cmdb/', '/inherited-credentials', 'handle_device_inherited_credentials', "pi.startswith('/api/cmdb/') and pi.endswith('/inherited-credentials') and m == 'GET'"),
     ('pat', ('GET',), '/api/cmdb/', '/credentials', 'handle_cmdb_credentials_list', "pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'GET'"),
@@ -55610,6 +55679,8 @@ def _route_code_245(pi, m):
             handle_vpn_client_create(_wg_parts[0])
         elif len(_wg_parts) == 4 and _wg_parts[1] == 'clients' and _wg_parts[3] == 'stats' and m == 'GET':
             handle_vpn_client_stats(_wg_parts[0], _wg_parts[2])
+        elif len(_wg_parts) == 4 and _wg_parts[1] == 'clients' and _wg_parts[3] == 'history' and m == 'GET':
+            handle_vpn_client_history(_wg_parts[0], _wg_parts[2])
         elif len(_wg_parts) == 3 and _wg_parts[1] == 'clients' and m == 'PATCH':
             handle_vpn_client_update(_wg_parts[0], _wg_parts[2])
         elif len(_wg_parts) == 3 and _wg_parts[1] == 'clients' and m == 'DELETE':

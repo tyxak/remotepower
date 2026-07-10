@@ -6847,6 +6847,7 @@ function _registerVpnClientsTable() {
       const xfer = `<span class="hint" title="received / sent">${_fmtBytes(c.rx_bytes || 0)} ↓ / ${_fmtBytes(c.tx_bytes || 0)} ↑</span>`;
       const acts =
         `<button class="btn-icon" data-action="editVpnClient" data-arg="${id}" title="Edit client">${_icon('edit', 12)} Edit</button> ` +
+        `<button class="btn-icon" data-action="viewVpnClientHistory" data-arg="${id}" data-arg2="${escAttr(c.name || c.id)}" title="RX/TX history">${_icon('activity', 12)} History</button> ` +
         `<button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteVpnClient" data-arg="${id}" data-arg2="${escAttr(c.name || '')}">${_icon('trash',14)}</button>`;
       return `<tr><td class="fw-600">${escHtml(c.name || c.id)}${dis}</td><td class="ff-mono">${escHtml(c.address || '—')}</td><td>${stCell}</td><td>${epCell}</td><td>${xfer}</td><td>${_vpnExpiryCell(c.expires_at)}</td><td>${acts}</td></tr>`;
     },
@@ -6897,12 +6898,38 @@ function _vpnTunnelModalReset() {
   vpnTtlUnitChanged();
 }
 
-function openVpnTunnelCreate() {
+async function openVpnTunnelCreate() {
   _vpnTunnelEditId = null;
   const t = document.getElementById('vpn-tunnel-modal-title'); if (t) t.textContent = 'Create tunnel';
   const btn = document.getElementById('vpn-tunnel-save-btn'); if (btn) btn.textContent = 'Create';
   _vpnTunnelModalReset();
+  // master-improvement-scoping #88: pre-fill from the saved default template,
+  // if one exists -- still fully editable, and creating the tunnel is still
+  // an explicit action either way (nothing inherits automatically server-side).
+  try {
+    const r = await api('GET', '/vpn-default-template');
+    const tmpl = r && r.template;
+    if (tmpl && (tmpl.reach_scope_type || tmpl.allow_internet || tmpl.dns)) {
+      document.getElementById('vpn-tunnel-allow-internet').checked = !!tmpl.allow_internet;
+      document.getElementById('vpn-tunnel-reach-type').value = tmpl.reach_scope_type || 'none';
+      document.getElementById('vpn-tunnel-reach-value').value = tmpl.reach_scope_value || '';
+      document.getElementById('vpn-tunnel-dns').value = tmpl.dns || '';
+      vpnReachTypeChanged();
+    }
+  } catch (e) { /* no template yet, or fetch failed -- the blank form is a fine fallback */ }
   openModal('vpn-tunnel-modal');
+}
+
+async function vpnSaveTunnelDefaults() {
+  const body = {
+    allow_internet: !!document.getElementById('vpn-tunnel-allow-internet')?.checked,
+    reach_scope_type: document.getElementById('vpn-tunnel-reach-type')?.value || 'none',
+    reach_scope_value: document.getElementById('vpn-tunnel-reach-value')?.value.trim() || '',
+    dns: document.getElementById('vpn-tunnel-dns')?.value.trim() || '',
+  };
+  const r = await api('POST', '/vpn-default-template', body);
+  if (!r || r.error) { toast((r && r.error) || 'Failed to save default', 'error'); return; }
+  toast('Saved as the default for new tunnels.', 'success');
 }
 
 function editVpnTunnel(id) {
@@ -7051,6 +7078,47 @@ async function _vpnRenderReach() {
     txt += ' — no devices in scope have a known IP yet';
   }
   el.textContent = txt;
+}
+
+// master-improvement-scoping #87: per-peer RX/TX history sparkline.
+function _vpnRxTxSparkline(samples) {
+  if (!samples || samples.length < 2) return '';
+  const W = 260, H = 60, n = samples.length;
+  const maxV = Math.max(1, ...samples.map(s => Math.max(s.rx_bytes || 0, s.tx_bytes || 0)));
+  const line = (key) => samples.map((s, i) => {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((s[key] || 0) / maxV) * H;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" width="${W}" height="${H}" aria-hidden="true">`
+    + `<polyline class="c-accent" points="${line('rx_bytes')}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<polyline class="c-muted" points="${line('tx_bytes')}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `</svg>`;
+}
+
+async function viewVpnClientHistory(cid, name) {
+  if (!_vpnSelectedTunnel) return;
+  const nmEl = document.getElementById('vpn-history-client-name');
+  if (nmEl) nmEl.textContent = name || cid;
+  const body = document.getElementById('vpn-history-body');
+  if (body) body.innerHTML = '<div class="hint">Loading…</div>';
+  openModal('vpn-client-history-modal');
+  const data = await api('GET', '/vpn-tunnels/' + encodeURIComponent(_vpnSelectedTunnel.id)
+    + '/clients/' + encodeURIComponent(cid) + '/history');
+  if (!body) return;
+  const samples = (data && data.samples) || [];
+  if (samples.length < 2) {
+    body.innerHTML = '<div class="c-muted">Not enough samples yet — check back after a couple of stats polls.</div>';
+    return;
+  }
+  const last = samples[samples.length - 1];
+  const first = samples[0];
+  body.innerHTML =
+    `<div class="mb-8">${_vpnRxTxSparkline(samples)}</div>`
+    + `<div class="hint"><span class="c-accent">■</span> received &nbsp; <span class="c-muted">■</span> sent</div>`
+    + `<div class="hint mt-6">${escHtml(_fmtBytes(first.rx_bytes || 0))} → ${escHtml(_fmtBytes(last.rx_bytes || 0))} received, `
+    + `${escHtml(_fmtBytes(first.tx_bytes || 0))} → ${escHtml(_fmtBytes(last.tx_bytes || 0))} sent, `
+    + `over ${samples.length} sample(s) (${timeAgo(first.ts)} to ${timeAgo(last.ts)})</div>`;
 }
 
 function openVpnClientCreate() {

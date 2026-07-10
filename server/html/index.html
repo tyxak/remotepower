@@ -113,7 +113,7 @@
              Painted from c.site_health (/nav-counts) in _paintSiteHealth. -->
         <button class="site-health ok" id="site-health" data-action="gotoSiteHealth" title="RemotePower health" aria-label="RemotePower control-plane health"></button>
         <!-- v5.0.0 (T6): fleet vitals readout — populated from /nav-counts -->
-        <div class="vitals" id="header-vitals" aria-label="Fleet vitals"></div>
+        <div class="vitals" id="header-vitals" role="group" aria-label="Fleet vitals"></div>
         <!-- v5.0.0 (T6): compact-density toggle (more rows per screen for big fleets) -->
         <button class="btn-icon density-toggle-btn" id="density-toggle" data-action="toggleDensity" title="Toggle compact density (more rows per screen)" aria-label="Toggle compact density"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="14" x2="21" y2="14"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
         <!-- v2.4.15: PWA install button — hidden until browser fires
@@ -7036,7 +7036,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Expires</label><div class="sb-controls"><input type="number" id="vpn-tunnel-ttl-num" class="form-input mw-160" min="1" max="100000" placeholder="30" aria-label="Expires"><select id="vpn-tunnel-ttl-unit" class="form-input input-auto" data-change="vpnTtlUnitChanged" aria-label="VPN tunnel TTL unit"><option value="never" selected>Never</option><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="years">years</option></select></div><span class="hint">When it expires the tunnel stops accepting clients. "Never" = no expiry.</span></div>
   <div class="hint" id="vpn-tunnel-reach-preview"></div>
   <div id="vpn-tunnel-result" class="hint"></div>
-  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="vpn-tunnel-modal">Cancel</button><button class="btn-primary" data-action="vpnTunnelSave" id="vpn-tunnel-save-btn">Save</button></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="vpnSaveTunnelDefaults" title="Save the internet/reach/DNS fields above as the default that pre-fills new tunnels">Save as default</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="vpn-tunnel-modal">Cancel</button>
+    <button class="btn-primary" data-action="vpnTunnelSave" id="vpn-tunnel-save-btn">Save</button>
+  </div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vpn-client-modal-title" id="vpn-client-modal"><div class="modal">
@@ -7055,6 +7059,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label" for="vpn-conf-text">Configuration</label><textarea id="vpn-conf-text" class="form-input ff-mono" rows="12" readonly data-self-select></textarea></div>
   <div class="toolbar"><button class="btn-primary" data-action="vpnDownloadConf"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-c923885c"/></svg> Download .conf</button><button class="btn-secondary" data-action="vpnCopyConf"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="vpn-client-result-modal">Close</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vpn-client-history-modal-title" id="vpn-client-history-modal"><div class="modal">
+  <div class="modal-title" id="vpn-client-history-modal-title">RX/TX history — <span id="vpn-history-client-name"></span></div>
+  <div class="modal-subtitle">Sampled on the normal stats poll (~every 2 minutes by default); a rolling window, not a permanent log.</div>
+  <div id="vpn-history-body"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="vpn-client-history-modal">Close</button></div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ldap-test-user-modal-title" id="ldap-test-user-modal"><div class="modal">

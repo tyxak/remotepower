@@ -503,6 +503,102 @@ class TestRiskScores(unittest.TestCase):
         self.assertIn('1 degraded', sd['detail'])
 
 
+class TestConditionalGetEtag(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #10 — opt-in ETag/304 on
+    read-heavy GET endpoints. Calls raise HTTPError directly (not via the
+    respond() stub _HandlerBase relies on elsewhere in this file), so these
+    tests catch api.HTTPError themselves rather than reusing that harness."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._saved = {}
+        for a in ('DEVICES_FILE', 'CVE_FINDINGS_FILE', 'SOFTWARE_VIOLATIONS_FILE',
+                  'CMDB_FILE', 'HARDWARE_FILE', 'CONFIG_FILE', 'PACKAGES_FILE',
+                  'CVE_IGNORE_FILE'):
+            self._saved[a] = getattr(api, a)
+            setattr(api, a, self.d / Path(getattr(api, a)).name)
+        self._orig_env = api._env
+        self._if_none_match = ''
+        api._env = lambda k, d=None: (self._if_none_match if k == 'HTTP_IF_NONE_MATCH' else d)
+        self._orig_auth = api.require_auth
+        api.require_auth = lambda require_admin=False: 'jakob'
+        self._orig_scope = api._caller_scope
+        api._caller_scope = lambda: None
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'monitored': True,
+                 'last_seen': int(time.time())}})
+
+    def tearDown(self):
+        for a, v in self._saved.items():
+            setattr(api, a, v)
+        api._env = self._orig_env
+        api.require_auth = self._orig_auth
+        api._caller_scope = self._orig_scope
+
+    # ── pure _respond_with_etag ──────────────────────────────────────────
+    def test_no_if_none_match_sends_200_with_etag(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api._respond_with_etag({'x': 1}, 'source-a')
+        e = cm.exception
+        self.assertEqual(e.status, 200)
+        self.assertEqual(e.body, {'x': 1})
+        names = dict(e.headers)
+        self.assertIn('ETag', names)
+        self.assertEqual(names['Cache-Control'], 'no-cache')
+
+    def test_matching_if_none_match_sends_bodyless_304(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api._respond_with_etag({'x': 1}, 'source-a')
+        etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = etag
+        with self.assertRaises(api.HTTPError) as cm2:
+            api._respond_with_etag({'x': 1}, 'source-a')
+        self.assertEqual(cm2.exception.status, 304)
+        self.assertIsNone(cm2.exception.body)
+
+    def test_different_source_never_matches_stale_etag(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api._respond_with_etag({'x': 1}, 'source-a')
+        stale_etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = stale_etag
+        with self.assertRaises(api.HTTPError) as cm2:
+            api._respond_with_etag({'x': 2}, 'source-b')   # data AND source changed
+        self.assertEqual(cm2.exception.status, 200)
+        self.assertEqual(cm2.exception.body, {'x': 2})
+
+    # ── real handler wiring ──────────────────────────────────────────────
+    def test_risk_overview_first_call_returns_200(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_risk_overview()
+        self.assertEqual(cm.exception.status, 200)
+        self.assertIn('devices', cm.exception.body)
+        self.assertIn('ETag', dict(cm.exception.headers))
+
+    def test_risk_overview_second_call_same_data_returns_304(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_risk_overview()
+        etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = etag
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_risk_overview()
+        self.assertEqual(cm2.exception.status, 304)
+
+    def test_risk_overview_data_change_busts_the_etag(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_risk_overview()
+        stale_etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = stale_etag
+        # A real fleet change (new device) must invalidate the fleet-risk
+        # cache -- and therefore the ETag -- not silently serve a 304.
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'h', 'monitored': True, 'last_seen': int(time.time())},
+            'd2': {'name': 'h2', 'monitored': True, 'last_seen': int(time.time())},
+        })
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_risk_overview()
+        self.assertEqual(cm2.exception.status, 200)
+        self.assertEqual(cm2.exception.body['total'], 2)
+
+
 class TestMountMonitoring(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())

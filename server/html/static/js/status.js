@@ -209,6 +209,16 @@
         (num(mon.up) != null ? mon.up : '?') + ' / ' + mon.total));
       cards.appendChild(mc);
     }
+    // master-improvement-scoping #51: RemotePower's own observed uptime,
+    // distinct from the fleet devices/monitors above.
+    var cp = data.control_plane || {};
+    var cpWin = (cp.windows && cp.windows['30d']) || (cp.windows && cp.windows['7d']);
+    if (cpWin && num(cpWin.percent) != null) {
+      var cc = el('div', 'status-card');
+      cc.appendChild(el('div', 'status-card-k', 'This status page'));
+      cc.appendChild(el('div', 'status-card-v', cpWin.percent + '% uptime'));
+      cards.appendChild(cc);
+    }
     if (cards.childNodes.length) { section.appendChild(cards); }
 
     var items = (mon && Array.isArray(mon.items)) ? mon.items : [];

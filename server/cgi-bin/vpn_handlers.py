@@ -354,6 +354,44 @@ def handle_vpn_tunnels_list() -> None:
                     'tunnels': [A._vpn_tunnel_meta(t, now) for t in store['tunnels']]})
 
 
+def handle_vpn_default_template() -> None:
+    """GET/POST /api/vpn-default-template — master-improvement-scoping #88.
+    A saved default (allow_internet/reach_scope/dns) the tunnel-create form
+    pre-fills from, so an admin creating the Nth tunnel with the same common
+    settings doesn't retype them every time. Same validation as
+    handle_vpn_tunnel_create's equivalent fields (kept in sync deliberately —
+    a template accepting a value the real create endpoint would reject
+    would be worse than no template). Purely a UI convenience: creating a
+    tunnel still requires an explicit request: it inherits nothing
+    automatically server-side."""
+    if A.method() == 'GET':
+        A.require_admin_or_auditor_auth()
+        tmpl = (A.load(A.CONFIG_FILE) or {}).get('vpn_default_template') or {}
+        A.respond(200, {'ok': True, 'template': tmpl})
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    allow_internet = bool(body.get('allow_internet'))
+    rst = str(body.get('reach_scope_type', 'none')).strip().lower() or 'none'
+    if rst not in ('none', 'all', 'site', 'group', 'tag'):
+        A.respond(400, {'error': 'invalid reach_scope_type'})
+    rsv = A._sanitize_str(body.get('reach_scope_value', ''), 128) if rst in ('site', 'group', 'tag') else ''
+    if rst in ('site', 'group', 'tag') and not rsv:
+        A.respond(400, {'error': 'reach_scope_value required'})
+    dns = A._sanitize_str(body.get('dns', ''), 45)
+    if dns and not wg_access.valid_host_ip(dns):
+        A.respond(400, {'error': 'dns must be an IP address'})
+    tmpl = {'allow_internet': allow_internet, 'reach_scope_type': rst,
+            'reach_scope_value': rsv, 'dns': dns}
+    cfg = A.load(A.CONFIG_FILE) or {}
+    cfg['vpn_default_template'] = tmpl
+    A.save(A.CONFIG_FILE, cfg)
+    A.audit_log(actor, 'vpn_default_template_set',
+                detail=f'internet={allow_internet} scope={rst}:{rsv}', source_ip=A._get_client_ip())
+    A.respond(200, {'ok': True, 'template': tmpl})
+
+
 def handle_vpn_tunnel_create() -> None:
     """POST /api/vpn-tunnels — create a tunnel (allocate iface/port/pool, bring
     the interface up, sync). Admin only."""
@@ -654,6 +692,24 @@ def handle_vpn_client_stats(tid, cid) -> None:
     A.respond(200, {'ok': True, 'stats': A._vpn_client_meta(c, now)})
 
 
+def handle_vpn_client_history(tid, cid) -> None:
+    """GET /api/vpn-tunnels/{id}/clients/{cid}/history — per-peer RX/TX
+    time-series (master-improvement-scoping #87). Samples are appended by
+    run_vpn_stats_if_due() on its normal poll cadence, capped to
+    VPN_STATS_HIST_MAX_SAMPLES (~24h at the default 120s interval) — a
+    rolling window, not unbounded growth. Confirms the client actually
+    exists (same 404 shape as /stats) before returning its history, even
+    though the history itself lives in a separate keyed-by-id file, so a
+    stale/foreign cid can't be probed for a tunnel it doesn't belong to."""
+    A.require_admin_or_auditor_auth()
+    t = A._vpn_require_tunnel(A._vpn_load(), tid)
+    c = next((x for x in t.get('clients', []) if x.get('id') == cid), None)
+    if not c:
+        A.respond(404, {'error': 'client not found'})
+    hist = (A.load(A.VPN_STATS_HIST_FILE) or {}).get(cid) or []
+    A.respond(200, {'ok': True, 'samples': hist})
+
+
 # ── Stats cadence + TTL reaper ──────────────────────────────────────────────────
 def run_vpn_stats_if_due():
     """Refresh per-client WireGuard stats, fire connect/disconnect/stale edge
@@ -697,6 +753,7 @@ def run_vpn_stats_if_due():
     pending_events = []     # (event, payload)
     ifaces_down = []        # expired tunnels to tear down
     resync_tids = []        # tunnels whose client set shrank
+    hist_samples = []       # (cid, {ts, rx_bytes, tx_bytes}) -- master-improvement-scoping #87
     with A._LockedUpdate(A.VPN_FILE) as st:
         keep = []
         for t in st.get('tunnels', []):
@@ -728,6 +785,11 @@ def run_vpn_stats_if_due():
                     c['rx_bytes'] = d['rx_bytes']
                     c['tx_bytes'] = d['tx_bytes']
                     c['endpoint'] = d['endpoint']
+                    # #87: one history sample per live-dump match this poll
+                    # (skipped only when the peer isn't in the dump at all --
+                    # not yet synced, or a parse miss -- not merely idle).
+                    hist_samples.append((c.get('id'), {
+                        'ts': now, 'rx_bytes': d['rx_bytes'], 'tx_bytes': d['tx_bytes']}))
                 status = wg_access.client_status(c.get('last_handshake', 0), now)
                 prev = c.get('_status')
                 if prev is None:
@@ -759,3 +821,12 @@ def run_vpn_stats_if_due():
         A.audit_log('system', action, detail=detail)
     for event, payload in pending_events:
         A.fire_webhook(event, payload)
+    # #87: persist this poll's samples under VPN_STATS_HIST_FILE's OWN lock,
+    # never nested inside the VPN_FILE lock above (SQLite/Postgres backend
+    # would nest a second BEGIN IMMEDIATE on a different file and raise).
+    if hist_samples:
+        with A._LockedUpdate(A.VPN_STATS_HIST_FILE) as hist:
+            for cid, sample in hist_samples:
+                bucket = hist.setdefault(cid, [])
+                bucket.append(sample)
+                del bucket[:-A.VPN_STATS_HIST_MAX_SAMPLES]

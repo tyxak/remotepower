@@ -104,7 +104,7 @@ test:
 # pushing. `--dist loadfile` keeps each file's tests on one worker (fewer false
 # failures than the default). Needs: pip install --break-system-packages pytest pytest-xdist
 test-fast:
-	$(PY) -m pytest tests -q -p no:cacheprovider -n auto --dist loadfile --ignore=tests/test_v430_e2e.py
+	$(PY) -m pytest tests -q -p no:cacheprovider -n auto --dist loadfile --ignore=tests/test_v430_e2e.py --ignore=tests/test_a11y_axe.py
 
 # v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)
@@ -127,8 +127,10 @@ tls-renew:
 # playwright (or gunicorn — the app server, a hard dependency since v6.1.0)
 # isn't installed: pip install playwright gunicorn && python -m playwright
 # install chromium. Boots the real stack (static + gunicorn+wsgi.py) headless.
+# v6.1.1 (#63): test_a11y_axe (axe-core accessibility checks) also self-skips
+# without axe-core-python -- pip install axe-core-python to include it.
 e2e:
-	cd tests && $(PY) -m unittest test_v430_e2e -v
+	cd tests && $(PY) -m unittest test_v430_e2e test_a11y_axe -v
 
 # v3.12.0: run the full suite against the SQLite storage backend. The flat-JSON
 # storage-internals tests (flock/.bak/.tmp) are skipped via @skip_under_sqlite;
