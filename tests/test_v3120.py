@@ -1316,5 +1316,38 @@ class TestStepUpAuth(_HandlerBase):
                       api.handle_step_up_verify)
 
 
+class TestThreatModelDoc(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #22 -- a structured STRIDE
+    threat/mitigation matrix, linked from the existing security docs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = (Path(__file__).resolve().parent.parent
+                   / 'docs' / 'threat-model.md').read_text()
+
+    def test_covers_every_stride_category(self):
+        for cat in ('Spoofing', 'Tampering', 'Repudiation',
+                    'Information disclosure', 'Denial of service',
+                    'Elevation of privilege'):
+            self.assertIn(f'## {cat}', self.doc, f'missing STRIDE category: {cat}')
+
+    def test_cites_this_sessions_real_fixes(self):
+        # the doc must reference actual shipped mechanisms, not aspirational
+        # ones -- spot-check a few landed this session.
+        self.assertIn('step-up', self.doc.lower())
+        self.assertIn('litigation_hold', self.doc)
+        self.assertIn('_caller_effective_tenant', self.doc)
+
+    def test_linked_from_security_md(self):
+        security = (Path(__file__).resolve().parent.parent
+                    / 'docs' / 'security.md').read_text()
+        self.assertIn('threat-model.md', security)
+
+    def test_linked_from_docs_readme(self):
+        readme = (Path(__file__).resolve().parent.parent
+                  / 'docs' / 'README.md').read_text()
+        self.assertIn('threat-model.md', readme)
+
+
 if __name__ == '__main__':
     unittest.main()

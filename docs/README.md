@@ -44,7 +44,9 @@ holds long-form docs that don't fit there.
  install path, service control.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
-- **[security.md](security.md)** — Threat model and on-disk data layout.
+- **[security.md](security.md)** — Security controls and on-disk data layout.
+- **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
+ matrix, organized by attacker goal rather than by feature.
 - **[security-review-6.1.0.md](security-review-6.1.0.md)** — Latest review: the
  v6.1.0 "Runt1meMatters" enterprise-productization line (Postgres/gunicorn+Flask/
  scheduler/scanner as the single-node default, CGI/SCGI fully retired) plus the

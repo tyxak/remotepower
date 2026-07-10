@@ -1,5 +1,10 @@
 # Security notes
 
+For a structured threat/mitigation matrix organized by attacker goal
+(spoofing, tampering, repudiation, information disclosure, denial of
+service, elevation of privilege) rather than by feature, see
+[threat-model.md](threat-model.md).
+
 - Use HTTPS for anything internet-facing
 - Session tokens are configurable (default 7-day remember-me / 8-hour standard); API keys default to never-expire — set a per-key expiry, or rotate manually if compromised
 - Enrollment PINs are single-use, expire after 10 minutes
