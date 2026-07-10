@@ -22713,19 +22713,16 @@ _QE_ENTITIES = {
 QUERY_TEMPLATES_FILE = DATA_DIR / 'query_templates.json'   # v6.1.1
 
 
-def handle_query():
-    """POST /api/query — {entity, where?, sort?, sort_desc?, limit?, offset?}.
-    Read-only, whitelisted-field predicate tree. Auth-scoped the same as every
-    other fleet-data read (RBAC device scope, app-layer tenancy) since it
-    rides the same load()+_scope_filter_devices path every other handler
-    uses — never a raw connection outside that."""
-    require_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
+def _query_run_one(body):
+    """Pure: run a single {entity, where?, sort?, sort_desc?, limit?, offset?}
+    query dict against _QE_ENTITIES, returning (status, payload) -- NEVER
+    calls respond() itself, so both the single-query handler and the #46
+    batch endpoint can share this without one query's error aborting a whole
+    batch. Same read-only, whitelisted-field, RBAC/tenancy-scoped contract
+    as before (unchanged for the single-query caller)."""
     entity = str(body.get('entity', '')).strip()
     if entity not in _QE_ENTITIES:
-        respond(400, {'error': f'unknown entity: {entity!r}. Choose from: {sorted(_QE_ENTITIES)}'})
+        return 400, {'error': f'unknown entity: {entity!r}. Choose from: {sorted(_QE_ENTITIES)}'}
     loader, fields = _QE_ENTITIES[entity]
     where = body.get('where')
     rows = loader()
@@ -22733,7 +22730,7 @@ def handle_query():
         try:
             query_engine.validate_predicate(where, fields)
         except query_engine.QueryError as e:
-            respond(400, {'error': str(e)})
+            return 400, {'error': str(e)}
         matched = query_engine.run(rows, where, fields)
     else:
         matched = rows
@@ -22751,8 +22748,50 @@ def handle_query():
         offset = max(int(body.get('offset', 0) or 0), 0)
     except (TypeError, ValueError):
         offset = 0
-    respond(200, {'ok': True, 'entity': entity, 'rows': matched[offset:offset + limit],
-                  'meta': {'total': total, 'limit': limit, 'offset': offset}})
+    return 200, {'ok': True, 'entity': entity, 'rows': matched[offset:offset + limit],
+                 'meta': {'total': total, 'limit': limit, 'offset': offset}}
+
+
+def handle_query():
+    """POST /api/query — {entity, where?, sort?, sort_desc?, limit?, offset?}.
+    Read-only, whitelisted-field predicate tree. Auth-scoped the same as every
+    other fleet-data read (RBAC device scope, app-layer tenancy) since it
+    rides the same load()+_scope_filter_devices path every other handler
+    uses — never a raw connection outside that."""
+    require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    status, payload = _query_run_one(get_json_obj())
+    respond(status, payload)
+
+
+QUERY_BATCH_MAX = 10   # v6.1.1 (#46): cap on queries per POST /api/query/batch call
+
+
+def handle_query_batch():
+    """POST /api/query/batch — {queries: [{entity, where?, ...}, ...]} (max
+    QUERY_BATCH_MAX). Runs each query independently through _query_run_one --
+    one query's error doesn't abort the batch, it just puts an {error} entry
+    at that index (order-preserving, one result per input query). Same
+    read-only/RBAC/tenancy contract as the single-query endpoint; this is a
+    transport-level batching convenience, not a new query capability."""
+    require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    queries = body.get('queries')
+    if not isinstance(queries, list) or not queries:
+        respond(400, {'error': 'queries must be a non-empty list'})
+    if len(queries) > QUERY_BATCH_MAX:
+        respond(400, {'error': f'at most {QUERY_BATCH_MAX} queries per batch (got {len(queries)})'})
+    results = []
+    for q in queries:
+        if not isinstance(q, dict):
+            results.append({'error': 'each query must be an object'})
+            continue
+        _status, payload = _query_run_one(q)
+        results.append(payload)
+    respond(200, {'ok': True, 'results': results})
 
 
 def handle_query_fields():
@@ -54956,6 +54995,7 @@ def _build_exact_routes():
         ('POST', '/api/connectors/reload'): handle_connectors_reload,   # v6.1.1
         # v6.1.1: ad-hoc fleet query engine
         ('POST', '/api/query'): handle_query,
+        ('POST', '/api/query/batch'): handle_query_batch,   # v6.1.1 (#46)
         ('GET', '/api/query/fields'): handle_query_fields,
         ('GET', '/api/query/templates'): handle_query_templates,
         ('POST', '/api/query/templates'): handle_query_template_create,

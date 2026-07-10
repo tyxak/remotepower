@@ -3423,6 +3423,63 @@ class TestQueryEngineHandlers(_HandlerBase):
         self.assertIn("api('GET', '/query/fields'", app)
         self.assertIn("if (name === 'dataexplorer') loadQueryPage()", app)
 
+    def _batch(self, queries):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'queries': queries}
+        return self.call(api.handle_query_batch)
+
+    def test_batch_runs_each_query_independently(self):
+        r = self._batch([
+            {'entity': 'devices', 'where': {'field': 'cpu_pct', 'op': 'gt', 'value': 50}},
+            {'entity': 'devices'},
+        ])
+        self.assertTrue(r['ok'])
+        self.assertEqual(len(r['results']), 2)
+        self.assertEqual([row['name'] for row in r['results'][0]['rows']], ['web-1'])
+        self.assertEqual(r['results'][1]['meta']['total'], 2)
+
+    def test_batch_one_bad_query_doesnt_abort_the_rest(self):
+        r = self._batch([
+            {'entity': 'devices'},
+            {'entity': 'not-a-real-entity'},
+            {'entity': 'devices', 'sort': 'cpu_pct', 'sort_desc': True, 'limit': 1},
+        ])
+        self.assertEqual(self.cap['s'], 200)   # the BATCH call itself always 200s
+        self.assertEqual(len(r['results']), 3)
+        self.assertTrue(r['results'][0]['ok'])
+        self.assertIn('error', r['results'][1])
+        self.assertNotIn('ok', r['results'][1])
+        self.assertEqual(r['results'][2]['rows'][0]['name'], 'web-1')
+
+    def test_batch_non_dict_query_reports_error_at_its_index(self):
+        r = self._batch([{'entity': 'devices'}, 'not-an-object'])
+        self.assertEqual(len(r['results']), 2)
+        self.assertTrue(r['results'][0]['ok'])
+        self.assertIn('error', r['results'][1])
+
+    def test_batch_empty_list_400s(self):
+        self._batch([])
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_batch_non_list_400s(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'queries': 'nope'}
+        self.call(api.handle_query_batch)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_batch_over_cap_400s(self):
+        r = self._batch([{'entity': 'devices'}] * (api.QUERY_BATCH_MAX + 1))
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_batch_at_cap_ok(self):
+        r = self._batch([{'entity': 'devices'}] * api.QUERY_BATCH_MAX)
+        self.assertEqual(self.cap['s'], 200)
+        self.assertEqual(len(r['results']), api.QUERY_BATCH_MAX)
+
+    def test_batch_route_registered(self):
+        self.assertIs(api._build_exact_routes()[('POST', '/api/query/batch')],
+                      api.handle_query_batch)
+
 
 class TestPatchSnapshots(_HandlerBase):
     """v6.1.1 — package-repo snapshot & promotion ledger
