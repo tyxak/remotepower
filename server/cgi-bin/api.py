@@ -782,6 +782,7 @@ _tk_spec.loader.exec_module(tickets_handlers_mod)
 tickets_handlers_mod.bind(globals())   # the live namespace under every exec model
 for _tk_name in (
         '_tickets_enabled', '_ticket_sla_policy', '_ticket_sla', '_ticket_public',
+        '_ticket_auto_route',
         'handle_tickets', 'handle_ticket_get', 'handle_ticket_sla', 'handle_ticket_update',
         'handle_ticket_delete', 'handle_ticket_hours', 'handle_device_tickets', 'handle_ticket_attachment',
         'handle_ticket_autoreply', 'handle_ticket_imap_get', 'handle_ticket_imap_save', 'handle_ticket_imap_test',

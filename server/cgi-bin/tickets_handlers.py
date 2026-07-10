@@ -67,8 +67,13 @@ def _tickets_enabled():
     return True
 
 
-def _ticket_sla_policy():
-    """Per-priority SLA response targets in hours (config override merged on defaults)."""
+def _ticket_sla_policy(ttype=None):
+    """Per-priority SLA response targets in hours (config override merged on
+    defaults). docs/master-improvement-scoping-internal.md #81: an optional
+    ttype ('incident'/'request'/'change') resolves against the
+    ``ticket_sla_by_type`` config override first -- a type's rule need only
+    set the priorities it wants to override; unset priorities fall through to
+    the type-agnostic ``ticket_sla`` policy this always returns."""
     raw = (A.load(A.CONFIG_FILE) or {}).get('ticket_sla') or {}
     out = dict(A.TICKET_SLA_DEFAULT_HOURS)
     for k in (1, 2, 3, 4):
@@ -78,7 +83,34 @@ def _ticket_sla_policy():
                 out[k] = v
         except (TypeError, ValueError):
             pass
+    if ttype and ttype in A.TICKET_TYPES:
+        by_type = (A.load(A.CONFIG_FILE) or {}).get('ticket_sla_by_type') or {}
+        type_raw = by_type.get(ttype) or {}
+        for k in (1, 2, 3, 4):
+            try:
+                v = float(type_raw.get(str(k), type_raw.get(k)))
+                if v > 0:
+                    out[k] = v
+            except (TypeError, ValueError):
+                pass
     return out
+
+
+def _ticket_auto_route(ttype):
+    """docs/master-improvement-scoping-internal.md #81: optional default
+    group/assignee for newly-created tickets of a given type, config key
+    ``ticket_auto_route`` = {ttype: {'group':.., 'assignee':..}}. Returns
+    (group, assignee), either possibly ''. Only applied when the CREATE
+    request didn't already specify its own group/assignee -- an explicit
+    operator choice always wins."""
+    if not ttype or ttype not in A.TICKET_TYPES:
+        return '', ''
+    rules = (A.load(A.CONFIG_FILE) or {}).get('ticket_auto_route') or {}
+    rule = rules.get(ttype) or {}
+    if not isinstance(rule, dict):
+        return '', ''
+    return (A._sanitize_str(str(rule.get('group', '')), 64),
+            A._sanitize_str(str(rule.get('assignee', '')), 64))
 
 
 def _business_hours_cfg():
@@ -132,8 +164,12 @@ def _business_deadline(start_ts, seconds, spec):
 def _ticket_sla(t, policy=None):
     """Return (due_ts, breached) for a ticket from its priority + created_at.
     W2-29: when a business-hours calendar is enabled, the SLA target counts only
-    business time (clock pauses outside hours)."""
-    policy = policy or A._ticket_sla_policy()
+    business time (clock pauses outside hours). #81: an explicit `policy` (a
+    caller opting into a specific what-if priority->hours dict, e.g. tests) is
+    honoured as-is, priority-only, with no type merge; the normal no-`policy`
+    path resolves this ticket's own type-aware policy via
+    `_ticket_sla_policy(t.get('type'))`."""
+    policy = policy or A._ticket_sla_policy(t.get('type'))
     hours = policy.get(A._coerce_priority(t.get('priority', 4)), 72)
     created = int(t.get('created_at') or 0)
     bh = _business_hours_cfg()
@@ -248,6 +284,9 @@ def handle_tickets():
                         if int(x.get('number') or 0) == _pnum), None)
             if _pt:
                 parent_id = _pt['id']
+    # #81: type-based auto-routing default group/assignee -- only fills in
+    # what the operator didn't already specify; an explicit choice always wins.
+    _route_group, _route_assignee = _ticket_auto_route(ttype)
     tid = 'tk_' + secrets.token_hex(5)
     with A._LockedUpdate(A.TICKETS_FILE) as store:
         tickets = store.setdefault('tickets', [])
@@ -263,8 +302,8 @@ def handle_tickets():
             'alert_id': alert_internal, 'alertid': alertid,
             'to_email': A._sanitize_str(str(body.get('to_email', '')), 200),
             'affected_devices': affected, 'parent': parent_id, 'priority': priority,
-            'assignee': A._sanitize_str(str(body.get('assignee') or actor), 64),
-            'group': A._sanitize_str(str(body.get('group', '')), 64),
+            'assignee': A._sanitize_str(str(body.get('assignee') or _route_assignee or actor), 64),
+            'group': A._sanitize_str(str(body.get('group') or _route_group), 64),
             'created_by': actor, 'created_at': now, 'updated_at': now,
             'messages': [],
         })
@@ -288,8 +327,9 @@ def handle_tickets():
     A.audit_log(actor, 'ticket_create', f'#{number} type={ttype} dev={device_id}')
     A.fire_webhook('ticket_opened', {
         'number': number, 'ticket_id': tid, 'subject': subject,
-        'priority': priority, 'type': ttype, 'assignee': body.get('assignee') or actor,
-        'group': str(body.get('group', ''))[:64], 'device_id': device_id,
+        'priority': priority, 'type': ttype,
+        'assignee': body.get('assignee') or _route_assignee or actor,
+        'group': str(body.get('group') or _route_group)[:64], 'device_id': device_id,
         'device_name': dev_name, 'source': 'operator'})
     A.respond(200, {'ok': True, 'id': tid, 'number': number})
 
@@ -332,29 +372,77 @@ def handle_ticket_get(tid):
     A.respond(200, {'ok': True, 'ticket': resp})
 
 
+def _clean_sla_hours(raw, base_for_defaults=None):
+    """Pure: coerce a {'1'..'4': hours} dict to validated floats (6 min..1yr),
+    unset/invalid entries fall back to base_for_defaults (or the global
+    TICKET_SLA_DEFAULT_HOURS)."""
+    base = base_for_defaults or A.TICKET_SLA_DEFAULT_HOURS
+    out = {}
+    for k in (1, 2, 3, 4):
+        try:
+            v = float(raw.get(str(k), raw.get(k)))
+        except (TypeError, ValueError):
+            v = base[k]
+        out[str(k)] = max(0.1, min(8760.0, v))   # 6 min .. 1 year
+    return out
+
+
 def handle_ticket_sla():
-    """GET/POST /api/tickets/sla — per-priority SLA response targets (hours)."""
+    """GET/POST /api/tickets/sla — per-priority SLA response targets (hours).
+
+    docs/master-improvement-scoping-internal.md #81: also carries an OPTIONAL
+    per-type override, `by_type: {'incident'|'request'|'change': {'1'..'4':
+    hours}}`. A type's rule only needs to set the priorities it wants to
+    diverge on -- unset priorities fall through to the flat policy above (see
+    `_ticket_sla_policy`). Config keys: `ticket_sla` (flat, unchanged shape)
+    + `ticket_sla_by_type` (new, additive)."""
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})
     if A.method() == 'GET':
         A.require_auth()
         pol = A._ticket_sla_policy()
-        A.respond(200, {'ok': True, 'sla': {str(k): pol[k] for k in (1, 2, 3, 4)}})
+        by_type_raw = (A._config_ro().get('ticket_sla_by_type') or {})
+        by_type = {}
+        for ttype in A.TICKET_TYPES:
+            rule = by_type_raw.get(ttype)
+            if not isinstance(rule, dict):
+                continue
+            set_hours = {str(k): rule.get(str(k), rule.get(k)) for k in (1, 2, 3, 4)
+                         if str(k) in rule or k in rule}
+            if set_hours:
+                by_type[ttype] = set_hours
+        A.respond(200, {'ok': True, 'sla': {str(k): pol[k] for k in (1, 2, 3, 4)},
+                        'by_type': by_type})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     actor = A.require_admin_auth()
     body = A.get_json_obj()
-    out = {}
-    for k in (1, 2, 3, 4):
-        try:
-            v = float(body.get(str(k), body.get(k)))
-        except (TypeError, ValueError):
-            v = A.TICKET_SLA_DEFAULT_HOURS[k]
-        out[str(k)] = max(0.1, min(8760.0, v))   # 6 min .. 1 year
+    out = _clean_sla_hours(body)
+    by_type_in = body.get('by_type')
+    by_type_out = {}
+    if isinstance(by_type_in, dict):
+        for ttype, rule in by_type_in.items():
+            if ttype not in A.TICKET_TYPES or not isinstance(rule, dict):
+                continue
+            # only PARTIAL overrides are meaningful here -- a priority the
+            # caller didn't send stays unset (falls through to `out` at
+            # resolve time), not silently pinned to the global default.
+            cleaned = {}
+            for k in (1, 2, 3, 4):
+                if str(k) not in rule and k not in rule:
+                    continue
+                try:
+                    v = float(rule.get(str(k), rule.get(k)))
+                    cleaned[str(k)] = max(0.1, min(8760.0, v))
+                except (TypeError, ValueError):
+                    continue
+            if cleaned:
+                by_type_out[ttype] = cleaned
     with A._LockedUpdate(A.CONFIG_FILE) as cfg:
         cfg['ticket_sla'] = out
-    A.audit_log(actor, 'ticket_sla_save', detail=str(out))
-    A.respond(200, {'ok': True, 'sla': out})
+        cfg['ticket_sla_by_type'] = by_type_out
+    A.audit_log(actor, 'ticket_sla_save', detail=f'{out} by_type={by_type_out}')
+    A.respond(200, {'ok': True, 'sla': out, 'by_type': by_type_out})
 
 
 def handle_ticket_templates():
@@ -1354,12 +1442,14 @@ def run_ticket_sla_if_due():
             return
     except (TypeError, ValueError):
         pass
-    policy = A._ticket_sla_policy()
     pending = []
     with A._LockedUpdate(A.TICKETS_FILE) as store:
         store['sla_last_check'] = now
         for t in (store.get('tickets') or []):
-            _due, breached = A._ticket_sla(t, policy)
+            # #81: no shared policy passed -- each ticket resolves its own
+            # type-aware SLA (load() is request-cached, so this isn't a
+            # repeated-I/O concern across the loop).
+            _due, breached = A._ticket_sla(t)
             if breached and not t.get('sla_breach_fired'):
                 t['sla_breach_fired'] = True
                 pending.append({

@@ -1018,5 +1018,154 @@ class TestDevicesListPagination(_HandlerBase):
         self.assertEqual(names, sorted(names))
 
 
+class TestTicketSlaByType(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #81 -- per-ticket-type SLA
+    override. ticket_sla stays the flat priority->hours default; the new
+    ticket_sla_by_type config only needs to set the priorities a type wants
+    to diverge on."""
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._config_file = api.CONFIG_FILE
+        api.CONFIG_FILE = self.d / 'config.json'
+        api.save(api.CONFIG_FILE, {})
+
+    def tearDown(self):
+        api.CONFIG_FILE = self._config_file
+
+    def test_no_override_falls_through_to_flat_policy(self):
+        pol = api._ticket_sla_policy('incident')
+        self.assertEqual(pol, api.TICKET_SLA_DEFAULT_HOURS)
+
+    def test_unknown_type_ignored(self):
+        api.save(api.CONFIG_FILE, {'ticket_sla_by_type': {'incident': {'1': 0.25}}})
+        pol = api._ticket_sla_policy('not-a-real-type')
+        self.assertEqual(pol, api.TICKET_SLA_DEFAULT_HOURS)
+
+    def test_type_override_wins_for_set_priority(self):
+        api.save(api.CONFIG_FILE, {'ticket_sla_by_type': {'incident': {'1': 0.25}}})
+        pol = api._ticket_sla_policy('incident')
+        self.assertEqual(pol[1], 0.25)
+        # priority 2..4 fall through to the (unchanged) default
+        for k in (2, 3, 4):
+            self.assertEqual(pol[k], api.TICKET_SLA_DEFAULT_HOURS[k])
+
+    def test_other_type_unaffected(self):
+        api.save(api.CONFIG_FILE, {'ticket_sla_by_type': {'incident': {'1': 0.25}}})
+        pol = api._ticket_sla_policy('request')
+        self.assertEqual(pol, api.TICKET_SLA_DEFAULT_HOURS)
+
+    def test_ticket_sla_resolves_by_own_type(self):
+        api.save(api.CONFIG_FILE, {'ticket_sla_by_type': {'change': {'2': 1.0}}})
+        now = int(time.time())
+        t = {'priority': 2, 'created_at': now, 'status': 'ongoing', 'type': 'change'}
+        due, _ = api._ticket_sla(t)
+        self.assertEqual(due, now + 3600)   # 1 business/wall hour, no calendar configured
+
+    def test_explicit_policy_bypasses_type_merge(self):
+        # a caller passing a raw policy dict (e.g. a what-if calc) is honoured
+        # as-is -- no implicit type merge grafted on.
+        api.save(api.CONFIG_FILE, {'ticket_sla_by_type': {'incident': {'3': 0.1}}})
+        now = int(time.time())
+        t = {'priority': 3, 'created_at': now, 'status': 'ongoing', 'type': 'incident'}
+        due, _ = api._ticket_sla(t, {3: 2})
+        self.assertEqual(due, now + 2 * 3600)
+
+
+class TestTicketAutoRoute(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #81 -- default group/
+    assignee for newly-created tickets, keyed by type."""
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._config_file = api.CONFIG_FILE
+        api.CONFIG_FILE = self.d / 'config.json'
+        api.save(api.CONFIG_FILE, {})
+
+    def tearDown(self):
+        api.CONFIG_FILE = self._config_file
+
+    def test_no_rule_returns_empty(self):
+        self.assertEqual(api._ticket_auto_route('incident'), ('', ''))
+
+    def test_unknown_type_returns_empty(self):
+        api.save(api.CONFIG_FILE, {'ticket_auto_route': {
+            'incident': {'group': 'noc', 'assignee': 'oncall'}}})
+        self.assertEqual(api._ticket_auto_route('not-a-real-type'), ('', ''))
+
+    def test_matched_rule_returned(self):
+        api.save(api.CONFIG_FILE, {'ticket_auto_route': {
+            'change': {'group': 'change-board', 'assignee': 'cab-lead'}}})
+        self.assertEqual(api._ticket_auto_route('change'), ('change-board', 'cab-lead'))
+
+    def test_partial_rule_ok(self):
+        api.save(api.CONFIG_FILE, {'ticket_auto_route': {'request': {'group': 'helpdesk'}}})
+        self.assertEqual(api._ticket_auto_route('request'), ('helpdesk', ''))
+
+
+class TestTicketCreateAutoRoutes(unittest.TestCase):
+    """End-to-end: handle_tickets() create path applies auto-route only when
+    the operator didn't already specify group/assignee themselves."""
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        for attr in ('CONFIG_FILE', 'TICKETS_FILE', 'DEVICES_FILE', 'ALERTS_FILE'):
+            setattr(self, f'_orig_{attr}', getattr(api, attr))
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        for f in (api.TICKETS_FILE, api.ALERTS_FILE, api.DEVICES_FILE):
+            api.save(f, {})
+        api.save(api.CONFIG_FILE, {'ticket_auto_route': {
+            'incident': {'group': 'noc', 'assignee': 'oncall-bot'}}})
+        self.cap = {}
+        self._respond = api.respond
+        self._auth = api.require_auth
+        self._wrole = api.require_write_role
+        self._fire = api.fire_webhook
+
+        def _resp(s, b=None):
+            self.cap['s'] = s; self.cap['b'] = b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.require_auth = lambda *a, **k: 'tester'
+        api.require_write_role = lambda *a, **k: 'tester'
+        api.fire_webhook = lambda *a, **k: None
+
+    def tearDown(self):
+        api.respond = self._respond
+        api.require_auth = self._auth
+        api.require_write_role = self._wrole
+        api.fire_webhook = self._fire
+        for attr in ('CONFIG_FILE', 'TICKETS_FILE', 'DEVICES_FILE', 'ALERTS_FILE'):
+            setattr(api, attr, getattr(self, f'_orig_{attr}'))
+
+    def _create(self, body):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: body
+        try:
+            api.handle_tickets()
+        except api.HTTPError:
+            pass
+        finally:
+            del api.method
+            del api.get_json_obj
+        return self.cap['b']
+
+    def test_auto_route_fills_unset_fields(self):
+        res = self._create({'subject': 'router down', 'type': 'incident'})
+        t = next(x for x in api.load(api.TICKETS_FILE)['tickets'] if x['id'] == res['id'])
+        self.assertEqual(t['group'], 'noc')
+        self.assertEqual(t['assignee'], 'oncall-bot')
+
+    def test_explicit_assignee_wins_over_auto_route(self):
+        res = self._create({'subject': 'router down', 'type': 'incident',
+                            'assignee': 'jmo', 'group': 'tier2'})
+        t = next(x for x in api.load(api.TICKETS_FILE)['tickets'] if x['id'] == res['id'])
+        self.assertEqual(t['group'], 'tier2')
+        self.assertEqual(t['assignee'], 'jmo')
+
+    def test_type_with_no_rule_falls_back_to_actor(self):
+        res = self._create({'subject': 'new laptop', 'type': 'request'})
+        t = next(x for x in api.load(api.TICKETS_FILE)['tickets'] if x['id'] == res['id'])
+        self.assertEqual(t['group'], '')
+        self.assertEqual(t['assignee'], 'tester')   # falls back to the actor, unchanged behavior
+
+
 if __name__ == '__main__':
     unittest.main()
