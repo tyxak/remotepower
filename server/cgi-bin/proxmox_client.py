@@ -478,6 +478,32 @@ def find_guest_node(pc: dict, vmid: int, guest_type: str = '') -> str:
     return pc['node']
 
 
+def guest_name(pc: dict, guest_type: str, vmid: int) -> str:
+    """Resolve a vmid's current guest name for server-side type-to-confirm
+    checks (e.g. snapshot rollback). Same cluster/resources lookup shape as
+    find_guest_node; falls back to the '<type>-<vmid>' synthetic name
+    _norm_guest already uses when Proxmox reports no name, so a caller
+    comparing against this can't be tricked by an empty/missing name field."""
+    try:
+        vmid = int(vmid)
+    except (ValueError, TypeError):
+        return f'{guest_type}-{vmid}'
+    try:
+        raw = _request(pc, '/cluster/resources?type=vm')
+    except ProxmoxError:
+        return f'{guest_type}-{vmid}'
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or item.get('type') != guest_type:
+            continue
+        try:
+            if int(item.get('vmid')) != vmid:
+                continue
+        except (ValueError, TypeError):
+            continue
+        return str(item.get('name') or f'{guest_type}-{vmid}')
+    return f'{guest_type}-{vmid}'
+
+
 # ── Actions ─────────────────────────────────────────────────────────────
 
 def guest_action(pc: dict, guest_type: str, vmid: int, action: str) -> dict:

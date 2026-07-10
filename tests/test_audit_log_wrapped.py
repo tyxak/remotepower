@@ -234,6 +234,64 @@ class TestHmacKeyRotation(unittest.TestCase):
         checked, broken_at = api._audit_chain_walk(entries)
         self.assertEqual(broken_at, len(entries) - 1)
 
+
+class TestHmacAutoRotation(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #26 — automate the manual
+    rotation above on a configurable interval (default off)."""
+
+    def test_off_by_default_never_rotates(self):
+        api = _load_api("json")
+        api.save(api.CONFIG_FILE, {})   # audit_hmac_auto_rotate_days unset -> 0
+        api.run_audit_hmac_rotation_if_due()
+        self.assertEqual(api._audit_hmac_active_version(), 1)
+
+    def test_due_rotation_fires_via_v1_file_mtime(self):
+        api = _load_api("json")
+        api.save(api.CONFIG_FILE, {'audit_hmac_auto_rotate_days': 30})
+        api._audit_hmac_key(1)   # ensure audit_hmac.key exists
+        kf = api.DATA_DIR / 'audit_hmac.key'
+        old = api.time.time() - 40 * 86400
+        os.utime(kf, (old, old))
+        api.run_audit_hmac_rotation_if_due()
+        self.assertEqual(api._audit_hmac_active_version(), 2)
+        rotations = api.load(api.AUDIT_HMAC_ROTATIONS_FILE)
+        self.assertEqual(rotations['2']['created'] > 0, True)
+
+    def test_not_due_rotation_does_not_fire(self):
+        api = _load_api("json")
+        api.save(api.CONFIG_FILE, {'audit_hmac_auto_rotate_days': 30})
+        api._audit_hmac_key(1)
+        api.run_audit_hmac_rotation_if_due()
+        self.assertEqual(api._audit_hmac_active_version(), 1)
+
+    def test_due_rotation_uses_latest_rotation_timestamp_not_v1(self):
+        api = _load_api("json")
+        api.save(api.CONFIG_FILE, {'audit_hmac_auto_rotate_days': 30})
+        self._rotate(api)   # version 2, created=now -- not due yet
+        api.run_audit_hmac_rotation_if_due()
+        self.assertEqual(api._audit_hmac_active_version(), 2)
+        # Backdate the v2 rotation's own timestamp -- now it's due.
+        with api._LockedUpdate(api.AUDIT_HMAC_ROTATIONS_FILE) as rotations:
+            rotations['2']['created'] = int(api.time.time()) - 40 * 86400
+        api.run_audit_hmac_rotation_if_due()
+        self.assertEqual(api._audit_hmac_active_version(), 3)
+
+    def _rotate(self, api):
+        api.require_admin_auth = lambda **kw: 'admin'
+        api.method = lambda: 'POST'
+        cap = {}
+
+        def _resp(s, b=None):
+            cap['s'] = s
+            cap['b'] = b
+            raise SystemExit(0)
+        api.respond = _resp
+        try:
+            api.handle_audit_hmac_rotate()
+        except SystemExit:
+            pass
+        return cap['b']
+
     def test_unknown_generation_falls_back_to_v1_key(self):
         api = _load_api("json")
         self.assertEqual(api._audit_hmac_key(99), api._audit_hmac_key(1))

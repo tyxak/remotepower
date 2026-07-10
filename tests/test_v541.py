@@ -555,6 +555,132 @@ class TestG1OffsiteBackup(unittest.TestCase):
         self.assertIn("'backup_offsite'", _apisrc_combined())  # posture row
 
 
+class TestRpoRtoTargets(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #56 — declared RPO/RTO
+    targets per backup policy, not just pass/fail."""
+
+    # ── pure _backup_rpo_status ──────────────────────────────────────────
+    def test_off_by_default(self):
+        self.assertEqual(api._backup_rpo_status({}, {}, 1000), {'rpo_hours': 0, 'rto_hours': 0})
+
+    def test_rpo_met(self):
+        now = 1_000_000
+        state = {'last_run': now - 3600}   # 1h ago
+        r = api._backup_rpo_status({'rpo_hours': 24}, state, now)
+        self.assertEqual(r['hours_since_last_backup'], 1.0)
+        self.assertFalse(r['rpo_breached'])
+
+    def test_rpo_breached_when_stale(self):
+        now = 1_000_000
+        state = {'last_run': now - 30 * 3600}   # 30h ago
+        r = api._backup_rpo_status({'rpo_hours': 24}, state, now)
+        self.assertEqual(r['hours_since_last_backup'], 30.0)
+        self.assertTrue(r['rpo_breached'])
+
+    def test_rpo_breached_when_never_run(self):
+        # A target with no measurement to compare against must never
+        # silently read as "fine".
+        r = api._backup_rpo_status({'rpo_hours': 24}, {}, 1_000_000)
+        self.assertTrue(r['rpo_breached'])
+        self.assertNotIn('hours_since_last_backup', r)
+
+    def test_no_rpo_target_no_breach_field(self):
+        r = api._backup_rpo_status({}, {'last_run': 0}, 1_000_000)
+        self.assertNotIn('rpo_breached', r)
+
+    def test_rto_hours_passed_through(self):
+        r = api._backup_rpo_status({'rto_hours': 4}, {}, 1_000_000)
+        self.assertEqual(r['rto_hours'], 4)
+
+    # ── config validation (handle_config_save) ───────────────────────────
+    def test_config_validates_rpo_rto(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = api.CONFIG_FILE
+        try:
+            api.CONFIG_FILE = api.Path(d) / 'config.json'
+            api.save(api.CONFIG_FILE, {})
+            api.require_admin_auth = lambda **kw: 'admin'
+            api.method = lambda: 'POST'
+            api.get_json_body = lambda: {'backup': {'rpo_hours': 24, 'rto_hours': 4}}
+            cap = {}
+
+            def _resp(s, b=None):
+                cap['s'] = s
+                raise api.HTTPError(s, b or {})
+            api.respond = _resp
+            try:
+                api.handle_config_save()
+            except api.HTTPError:
+                pass
+            saved = api.load(api.CONFIG_FILE).get('backup', {})
+            self.assertEqual(saved.get('rpo_hours'), 24)
+            self.assertEqual(saved.get('rto_hours'), 4)
+
+            api.get_json_body = lambda: {'backup': {'rpo_hours': 99999}}
+            try:
+                api.handle_config_save()
+            except api.HTTPError:
+                pass
+            self.assertEqual(cap['s'], 400)
+        finally:
+            api.CONFIG_FILE = orig
+
+    def test_settings_ui_wired(self):
+        html = _html()
+        self.assertIn('id="backup-rpo-hours"', html)
+        self.assertIn('id="backup-rto-hours"', html)
+        js = _appjs()
+        self.assertIn('backup-rpo-hours', js)
+        self.assertIn('rpo_hours', js)
+
+    # ── test-restore timing (the closest real RTO measurement available) ──
+    def test_test_restore_records_timing(self):
+        import io
+        import tarfile
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = (api.DATA_DIR, api.CONFIG_FILE)
+        try:
+            api.DATA_DIR = api.Path(d)
+            bdir = api.Path(d) / 'bk'
+            bdir.mkdir()
+            api.CONFIG_FILE = api.DATA_DIR / 'config.json'
+            api.save(api.CONFIG_FILE, {'backup': {'path': str(bdir)}})
+            arc = bdir / 'remotepower_data_20260101_000000.tar.gz'
+            with tarfile.open(str(arc), 'w:gz') as tar:
+                data = b'{}'
+                info = tarfile.TarInfo(name='remotepower/config.json')
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+            api.require_admin_auth = lambda **kw: 'admin'
+            api.method = lambda: 'POST'
+            cap = {}
+
+            def _resp(s, b=None):
+                # respond() really does sys.exit() in production (a
+                # BaseException, not caught by the handler's own
+                # `except Exception`) — SystemExit here matches that, unlike
+                # HTTPError(Exception) which the handler's broad except
+                # would swallow and misreport as "restore test failed".
+                cap['s'] = s
+                cap['b'] = b
+                raise SystemExit(0)
+            api.respond = _resp
+            try:
+                api.handle_backup_test_restore()
+            except SystemExit:
+                pass
+            self.assertTrue(cap['b']['ok'])
+            self.assertIn('seconds', cap['b'])
+            state = api.load(api.DATA_DIR / 'self_backup_state.json')
+            self.assertTrue(state.get('last_test_restore_ok'))
+            self.assertIsInstance(state.get('last_test_restore_seconds'), (int, float))
+            self.assertGreater(state.get('last_test_restore_at', 0), 0)
+        finally:
+            api.DATA_DIR, api.CONFIG_FILE = orig
+
+
 class TestG2EscalationTargets(unittest.TestCase):
     """v5.4.1 (G2): per-tier escalation target routing."""
 

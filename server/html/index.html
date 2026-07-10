@@ -2097,6 +2097,8 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-pw-breach"> Reject breached passwords (checks HaveIBeenPwned by k-anonymity — only a SHA-1 prefix leaves the server; fails open if unreachable)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-max-devices">Maximum enrolled devices (enroll is refused past this; existing devices unaffected)</label>
               <input type="number" id="cfg-max-devices" class="form-input mw-160" min="1" max="10000000" placeholder="50000"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-hmac-rotate-days">Auto-rotate the audit-chain signing key every N days (0 = off — use "Rotate signing key" on the Audit page to rotate manually instead)</label>
+              <input type="number" id="cfg-audit-hmac-rotate-days" class="form-input mw-160" min="0" max="3650" placeholder="0"></div>
             <div class="settings-row"><label class="form-label" for="cfg-slo-target">Availability SLO target % (monitor availability + error budget, at <code>GET /api/slo</code> and as Prometheus gauges)</label>
               <input type="number" id="cfg-slo-target" class="form-input mw-160" min="50" max="99.999" step="0.01" placeholder="99.9"></div>
             <div class="section-title mt-16">Compliance exports</div>
@@ -2546,6 +2548,14 @@
             <div class="settings-row">
               <label class="form-label" for="backup-offsite-dir">Off-host copy (absolute path — typically an NFS/SMB/sshfs mount to off-host storage)</label>
               <input type="text" id="backup-offsite-dir" class="form-input mw-380" placeholder="/mnt/offsite/remotepower (leave blank for local-host only)">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-rpo-hours">RPO target in hours (0 = off — max acceptable time between successful backups; graded on the Server status page)</label>
+              <input type="number" id="backup-rpo-hours" class="form-input mw-160" min="0" max="8760" placeholder="0">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-rto-hours">RTO target in hours (0 = off — declared restore-time target; "Test restore" below measures a lower bound, not a full restore)</label>
+              <input type="number" id="backup-rto-hours" class="form-input mw-160" min="0" max="8760" placeholder="0">
             </div>
             <div class="row-6 mt-8"><button class="btn-secondary" data-action="testRestore">Test restore (latest backup)</button></div>
             <div id="test-restore-result" class="hint mt-6" role="status" aria-live="polite"></div>

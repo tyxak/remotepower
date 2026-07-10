@@ -38,7 +38,9 @@ class TestStorageAction(unittest.TestCase):
         api.method = lambda: "POST"
         api.audit_log = lambda *a, **k: None
         api._validate_id = lambda x: True
-        api._queue_command = lambda dev_id, cmd, actor: self.queued.append((dev_id, cmd))
+        api._queue_command = (
+            lambda dev_id, cmd, actor, force_approval=False:
+                self.queued.append((dev_id, cmd, force_approval)))
 
         def _resp(status, body=None):
             self.resp = {"status": status, "body": body}
@@ -58,24 +60,34 @@ class TestStorageAction(unittest.TestCase):
 
     def test_zfs_scrub(self):
         self._run({"kind": "zfs", "action": "scrub", "target": "tank"})
-        self.assertEqual(self.queued, [("dev1", "exec:zpool scrub tank")])
+        self.assertEqual(self.queued, [("dev1", "exec:zpool scrub tank", True)])
 
     def test_btrfs_balance(self):
         self._run({"kind": "btrfs", "action": "balance", "target": "/mnt/data"})
         self.assertEqual(self.queued,
-                         [("dev1", "exec:btrfs balance start -dusage=50 /mnt/data")])
+                         [("dev1", "exec:btrfs balance start -dusage=50 /mnt/data", True)])
 
     def test_zfs_snapshot_destroy(self):
         self._run({"kind": "zfs", "action": "destroy", "target": "tank",
                    "snapshot": "tank/data@auto-2026-06-01"})
         self.assertEqual(self.queued,
-                         [("dev1", "exec:zfs destroy tank/data@auto-2026-06-01")])
+                         [("dev1", "exec:zfs destroy tank/data@auto-2026-06-01", True)])
 
     def test_btrfs_snapshot_delete(self):
         self._run({"kind": "btrfs", "action": "delete", "target": "/mnt/data",
                    "snapshot": "/mnt/data/.snapshots/2026-06-01"})
         self.assertEqual(self.queued,
-                         [("dev1", "exec:btrfs subvolume delete /mnt/data/.snapshots/2026-06-01")])
+                         [("dev1", "exec:btrfs subvolume delete /mnt/data/.snapshots/2026-06-01", True)])
+
+    def test_force_approval_wired(self):
+        # docs/master-improvement-scoping-internal.md #78: every action here
+        # (including scrub/balance, which write) must route through
+        # force_approval=True, the same hook guided storage provisioning and
+        # CIS remediation use — not left to the operator separately opting
+        # 'exec' into approval_gated_kinds.
+        self._run({"kind": "zfs", "action": "trim", "target": "tank"})
+        self.assertEqual(len(self.queued), 1)
+        self.assertTrue(self.queued[0][2])
 
     def test_injection_target_rejected(self):
         self._run({"kind": "zfs", "action": "scrub", "target": "tank; rm -rf /"})

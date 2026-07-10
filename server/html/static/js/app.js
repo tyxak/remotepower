@@ -3087,6 +3087,7 @@ async function loadSettings() {
     _setv('cfg-pw-classes', data.password_require_classes);
     _setv('cfg-pw-breach', data.password_breach_check);
     _setv('cfg-max-devices', data.max_devices ?? 50000);
+    _setv('cfg-audit-hmac-rotate-days', data.audit_hmac_auto_rotate_days ?? 0);
   _setv('cfg-slo-target', data.slo_target_percent ?? 99.9);   // v5.4.1 (F3)
     const wbl = document.getElementById('cfg-webhook-block-local');
     if (wbl) wbl.checked = data.webhook_block_local !== false;
@@ -3233,6 +3234,10 @@ async function loadSettings() {
   if (_br) _br.value = _bk.retain_days || '';
   const _bo = document.getElementById('backup-offsite-dir');   // v5.4.1 (G1)
   if (_bo) _bo.value = _bk.offsite_dir || '';
+  const _brpo = document.getElementById('backup-rpo-hours');
+  if (_brpo) _brpo.value = _bk.rpo_hours || '';
+  const _brto = document.getElementById('backup-rto-hours');
+  if (_brto) _brto.value = _bk.rto_hours || '';
 
   // v2.3.0: Proxmox connection. Token secret is masked — the field
   // shows a placeholder when one is set; blank means "keep current".
@@ -3563,6 +3568,8 @@ async function saveSettings(btn) {
       path:        (document.getElementById('backup-path')?.value || '').trim() || undefined,
       offsite_dir: (document.getElementById('backup-offsite-dir')?.value || '').trim(),   // v5.4.1 (G1)
       retain_days: parseInt(document.getElementById('backup-retain-days')?.value || '14', 10),
+      rpo_hours:   parseInt(document.getElementById('backup-rpo-hours')?.value || '0', 10) || 0,
+      rto_hours:   parseInt(document.getElementById('backup-rto-hours')?.value || '0', 10) || 0,
     };
   }
 
@@ -3582,6 +3589,7 @@ async function saveSettings(btn) {
     payload.password_require_classes = !!document.getElementById('cfg-pw-classes')?.checked;
     payload.password_breach_check = !!document.getElementById('cfg-pw-breach')?.checked;
     payload.max_devices = parseInt(document.getElementById('cfg-max-devices')?.value || '50000', 10) || 50000;
+    payload.audit_hmac_auto_rotate_days = parseInt(document.getElementById('cfg-audit-hmac-rotate-days')?.value || '0', 10) || 0;
   payload.slo_target_percent = parseFloat(document.getElementById('cfg-slo-target')?.value || '99.9') || 99.9;   // v5.4.1 (F3)
     payload.webhook_block_local = !!document.getElementById('cfg-webhook-block-local')?.checked;
     payload.notifications_test_mode = !!document.getElementById('cfg-notifications-test-mode')?.checked;   // v5.4.1 (E6)
@@ -16151,6 +16159,7 @@ async function snapshotRollback(name) {
   try {
     await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'rollback', name: name,
+      confirm: typed.trim(),
     });
     toast('Rollback started', 'success');
     setTimeout(loadSnapshots, 1500);
@@ -22821,6 +22830,17 @@ sudo systemctl restart remotepower-api</pre>
           <tr><td class="c-muted-padded">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
           <tr><td class="c-muted-padded">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
         </table>` : '<div class="c-muted-fs13 mt-6">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
+      ${bk.rpo_hours ? `
+        <table class="fs-13 mt-6">
+          <tr><td class="c-muted-padded">RPO target</td><td>${bk.rpo_hours}h — last backup ${bk.hours_since_last_backup != null ? bk.hours_since_last_backup + 'h ago' : 'never'}
+            ${bk.rpo_breached ? ' <span class="patch-badge crit">breached</span>' : ' <span class="patch-badge ok">met</span>'}</td></tr>
+        </table>` : ''}
+      ${bk.rto_hours ? `
+        <table class="fs-13 mt-6">
+          <tr><td class="c-muted-padded">RTO target</td><td>${bk.rto_hours}h${bk.last_test_restore_seconds != null
+            ? ` — last "Test restore" checked in ${bk.last_test_restore_seconds}s ${_selfFmtAgo(bk.last_test_restore_at)} <span class="hint">(decrypt/decompress/structure check only — a lower bound, not a full restore)</span>`
+            : ' — no "Test restore" run yet'}</td></tr>
+        </table>` : ''}
     </div>
 
     ${_cadenceJobsCard(s.cadence_jobs)}

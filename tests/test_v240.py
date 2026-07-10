@@ -190,6 +190,54 @@ class TestSnapshotEndpoints(unittest.TestCase):
         self.assertEqual(cap['status'], 400)
         self.assertIn('not configured', cap['body']['error'].lower())
 
+    def _configure_proxmox(self):
+        self.api.save(self.api.CONFIG_FILE, {'proxmox_enabled': True,
+                       'proxmox_host': 'pve.example.test', 'proxmox_node': 'pve1',
+                       'proxmox_token_id': 'root@pam!rp', 'proxmox_token_secret': 'sekret'})
+
+    def test_rollback_rejects_missing_confirm(self):
+        # docs/master-improvement-scoping-internal.md #77: rollback confirm
+        # was UI-only. A direct API call with no `confirm` field must 400,
+        # not roll back.
+        self._configure_proxmox()
+        self.api.proxmox_client.find_guest_node = lambda pc, vmid, guest_type='': 'pve1'
+        self.api.proxmox_client.guest_name = lambda pc, guest_type, vmid: 'web-01'
+        called = []
+        self.api.proxmox_client.rollback_snapshot = lambda *a, **k: called.append(a)
+        self.api.get_json_body = lambda: {'type': 'qemu', 'vmid': 100,
+                                          'action': 'rollback', 'name': 'snap1'}
+        cap = self._capture(self.api.handle_proxmox_snapshot_action)
+        self.assertEqual(cap['status'], 400)
+        self.assertIn('confirm', cap['body']['error'].lower())
+        self.assertEqual(called, [])
+
+    def test_rollback_rejects_wrong_confirm(self):
+        self._configure_proxmox()
+        self.api.proxmox_client.find_guest_node = lambda pc, vmid, guest_type='': 'pve1'
+        self.api.proxmox_client.guest_name = lambda pc, guest_type, vmid: 'web-01'
+        called = []
+        self.api.proxmox_client.rollback_snapshot = lambda *a, **k: called.append(a)
+        self.api.get_json_body = lambda: {'type': 'qemu', 'vmid': 100,
+                                          'action': 'rollback', 'name': 'snap1',
+                                          'confirm': 'web-02'}
+        cap = self._capture(self.api.handle_proxmox_snapshot_action)
+        self.assertEqual(cap['status'], 400)
+        self.assertEqual(called, [])
+
+    def test_rollback_accepts_correct_confirm(self):
+        self._configure_proxmox()
+        self.api.proxmox_client.find_guest_node = lambda pc, vmid, guest_type='': 'pve1'
+        self.api.proxmox_client.guest_name = lambda pc, guest_type, vmid: 'web-01'
+        called = []
+        self.api.proxmox_client.rollback_snapshot = (
+            lambda *a, **k: called.append(a) or {'ok': True})
+        self.api.get_json_body = lambda: {'type': 'qemu', 'vmid': 100,
+                                          'action': 'rollback', 'name': 'snap1',
+                                          'confirm': 'web-01'}
+        cap = self._capture(self.api.handle_proxmox_snapshot_action)
+        self.assertEqual(cap.get('status', 200), 200)
+        self.assertEqual(len(called), 1)
+
 
 class TestSnapshotAssets(unittest.TestCase):
 

@@ -2253,9 +2253,10 @@ def backend_mtime(path):
 def _sqlite_maintenance_if_due():
     """Cheap-when-not-due upkeep for the SQLite backend (no-op under JSON).
     Truncates the WAL hourly so it can't grow unbounded; weekly it also VACUUMs
-    and runs an integrity_check. A failed integrity_check is logged loudly and
-    recorded in the maint state (surfaced on Server Status) — escalating it to a
-    fleet alert is a deliberate follow-up, not a silent swallow."""
+    and runs an integrity_check. A failed integrity_check is logged loudly,
+    recorded in the maint state (surfaced on Server Status), and fires the
+    `db_integrity_failed` event (EVENT_REGISTRY severity='critical', so it
+    reaches the Alerts inbox — not a silent swallow)."""
     if _storage_backend() != 'sqlite':
         return
     st = load(SQLITE_MAINT_FILE) or {}
@@ -13600,7 +13601,12 @@ def handle_device_storage_action(dev_id):
     btrfs mountpoint) and `snapshot` are strictly validated; the command is built
     server-side from a fixed template. Snapshot removal is a separate destructive
     action (`destroy`/`delete`) that names the exact snapshot. Gated on `command`,
-    audited, quarantine-aware via _queue_command."""
+    audited, quarantine-aware via _queue_command. Routes through
+    force_approval=True (docs/master-improvement-scoping-internal.md #78) — the
+    same hook guided CIS remediation and guided storage provisioning already use,
+    so every action here (including scrub/balance, which write) is subject to
+    4-eyes whenever change-approval is enabled at all, not only when an operator
+    has separately opted 'exec' into the config-tunable approval_gated_kinds."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -13629,7 +13635,7 @@ def handle_device_storage_action(dev_id):
             cmd = f'btrfs subvolume delete {snap}'
         audit_log(actor, 'storage_action',
                   detail=f'device={dev_id} {kind} remove-snapshot {snap}'[:200])
-        _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+        _queue_command(dev_id, f'exec:{cmd}', actor, force_approval=True)   # responds 200 + exits
         return
 
     tmpl = _STORAGE_ACTIONS[kind].get(action)
@@ -13637,7 +13643,7 @@ def handle_device_storage_action(dev_id):
         respond(400, {'error': f'unknown {kind} action'})
     cmd = tmpl.format(t=target)
     audit_log(actor, 'storage_action', detail=f'device={dev_id} {kind} {action} {target}'[:200])
-    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+    _queue_command(dev_id, f'exec:{cmd}', actor, force_approval=True)   # responds 200 + exits
 
 
 # ── v6.1.1: guided storage provisioning (create, not just maintain) ─────────
@@ -15427,6 +15433,11 @@ def handle_heartbeat():
         run_netscan_schedules_if_due()
     except Exception as _ns:
         sys.stderr.write(f'[remotepower] netscan schedule hook error: {_ns}\n')
+    # v6.1.1: opportunistic audit-HMAC-key auto-rotation check (off by default).
+    try:
+        run_audit_hmac_rotation_if_due()
+    except Exception as _ah:
+        sys.stderr.write(f'[remotepower] audit_hmac rotation hook error: {_ah}\n')
     body = get_json_obj()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
@@ -20511,6 +20522,7 @@ def handle_config_get():
     safe.setdefault('sso_only',               False)  # v5.4.1 (D2): mandate IdP auth
     safe.setdefault('idle_timeout_minutes',   0)      # v5.4.1 (D3): 0 = off
     safe.setdefault('max_devices',            MAX_DEVICES)  # v5.4.1 (A7): enroll cap
+    safe.setdefault('audit_hmac_auto_rotate_days', 0)  # master-improvement-scoping #26: 0 = off
     safe.setdefault('slo_target_percent',     99.9)   # v5.4.1 (F3): availability SLO target
     safe.setdefault('fleet_note',             '')     # fleet-wide operator note (dashboard)
     safe.setdefault('cert_expiry_alerts_enabled', True)  # v3.14.0/v6.0.1: cert-expiry alerts on by default (coalesced per host)
@@ -22266,6 +22278,30 @@ def handle_config_save():
                 if any(c in od for c in ('\n', '\r', '\x00', ';', '|', '`', '$', '<', '>')):
                     respond(400, {'error': 'backup.offsite_dir has illegal characters'})
             clean_bk['offsite_dir'] = od
+        # master-improvement-scoping #56: declared RPO/RTO targets so the
+        # backup state is graded against something, not just pass/fail.
+        # RPO is enforceable (compared against hours-since-last-successful-
+        # run, see handle_self_status). RTO is a declared target only — the
+        # closest real measurement is handle_backup_test_restore's timing
+        # (decrypt+decompress+structure-check, a lower bound, NOT a full
+        # service restore), surfaced alongside it rather than silently
+        # implied to be the same thing.
+        if 'rpo_hours' in bk:
+            try:
+                v = int(bk['rpo_hours'])
+                if v and not (1 <= v <= 8760):
+                    respond(400, {'error': 'backup.rpo_hours must be 0 (off) or 1..8760'})
+                clean_bk['rpo_hours'] = max(0, v)
+            except (TypeError, ValueError):
+                respond(400, {'error': 'backup.rpo_hours must be an integer'})
+        if 'rto_hours' in bk:
+            try:
+                v = int(bk['rto_hours'])
+                if v and not (1 <= v <= 8760):
+                    respond(400, {'error': 'backup.rto_hours must be 0 (off) or 1..8760'})
+                clean_bk['rto_hours'] = max(0, v)
+            except (TypeError, ValueError):
+                respond(400, {'error': 'backup.rto_hours must be an integer'})
         cfg['backup'] = clean_bk
 
     # v3.2.0 (B3): OIDC SSO config. Validate URL shape; secret is opt-in
@@ -22379,6 +22415,11 @@ def handle_config_save():
     if 'idle_timeout_minutes' in body:       # D3
         try:
             cfg['idle_timeout_minutes'] = max(0, min(43200, int(body['idle_timeout_minutes'])))
+        except (TypeError, ValueError):
+            pass
+    if 'audit_hmac_auto_rotate_days' in body:   # master-improvement-scoping #26
+        try:
+            cfg['audit_hmac_auto_rotate_days'] = max(0, min(3650, int(body['audit_hmac_auto_rotate_days'])))
         except (TypeError, ValueError):
             pass
     if 'max_devices' in body:                # A7
@@ -24280,6 +24321,29 @@ def handle_agent_install():
     sys.stdout.flush(); sys.stdout.buffer.write(body); sys.stdout.buffer.flush(); sys.exit(0)
 
 
+def _backup_rpo_status(bcfg, backup_state, now):
+    """Pure: grade the backup state against a declared RPO/RTO target
+    (docs/master-improvement-scoping-internal.md #56). RPO is measured
+    (hours since the last successful run vs. the target — a target with no
+    measurement to compare against is treated as breached, not silently
+    "fine"). RTO is declared alongside the closest real measurement
+    available (handle_backup_test_restore's timing, a decrypt+decompress+
+    structure-check lower bound, NOT a full service restore) rather than a
+    computed breach, since no automatic full-restore timing exists. Returns
+    a dict of fields to merge into the 'backup' block of /api/self/status."""
+    rpo_hours = int(bcfg.get('rpo_hours') or 0)
+    rto_hours = int(bcfg.get('rto_hours') or 0)
+    out = {'rpo_hours': rpo_hours, 'rto_hours': rto_hours}
+    last_run = int((backup_state or {}).get('last_run') or 0)
+    if rpo_hours and last_run:
+        hours_since = (now - last_run) / 3600.0
+        out['hours_since_last_backup'] = round(hours_since, 1)
+        out['rpo_breached'] = hours_since > rpo_hours
+    elif rpo_hours:
+        out['rpo_breached'] = True
+    return out
+
+
 def handle_self_status():
     """GET /api/self/status — RemotePower watching itself.
 
@@ -24592,6 +24656,13 @@ def handle_self_status():
                 if not f.name.endswith('.enc'))
             out['backup']['encrypted_archives'] = sum(
                 1 for _ in _bdir.glob('remotepower_data_*.tar.gz.enc'))
+        except Exception:
+            pass
+        # master-improvement-scoping #56: grade the backup state against a
+        # declared RPO/RTO, not just pass/fail.
+        try:
+            _bcfg2 = (load(CONFIG_FILE) or {}).get('backup') or {}
+            out['backup'].update(_backup_rpo_status(_bcfg2, out['backup'], now))
         except Exception:
             pass
     except Exception:
@@ -27887,11 +27958,15 @@ def handle_proxmox_snapshot_action() -> None:
     snapshot.
 
     Body: {"type": "qemu"|"lxc", "vmid": N, "action": "...",
-           "name": "...", "description": "..."}
+           "name": "...", "description": "...", "confirm": "..." (rollback only)}
 
-    `rollback` and `delete` are destructive; the UI gates them behind
-    confirmation dialogs (rollback requires typing the guest name).
-    The action set is validated here regardless.
+    `rollback` and `delete` are destructive. The UI additionally gates
+    rollback behind a type-the-guest-name confirmation dialog; `confirm`
+    is that typed value, and the server itself checks it against the
+    guest's real name (via proxmox_client.guest_name) before rolling back
+    — previously this check was UI-only, so a direct API call could roll
+    back with no confirmation at all (docs/master-improvement-scoping-
+    internal.md #77). The action set is validated here regardless.
     """
     require_admin_auth()
     body = get_json_obj()
@@ -27916,6 +27991,12 @@ def handle_proxmox_snapshot_action() -> None:
         return
     try:
         _pc = {**pc, 'node': proxmox_client.find_guest_node(pc, vmid, guest_type)}
+        if action == 'rollback':
+            confirm = str(body.get('confirm') or '').strip()
+            real_name = proxmox_client.guest_name(_pc, guest_type, vmid)
+            if not confirm or not hmac.compare_digest(confirm, real_name):
+                respond(400, {'error': 'confirm must exactly match the guest name'})
+                return
         if action == 'create':
             result = proxmox_client.create_snapshot(
                 _pc, guest_type, vmid, name, body.get('description', '') or '')
@@ -42783,6 +42864,20 @@ def handle_audit_log_verify():
                   'key_rotations': len(load(AUDIT_HMAC_ROTATIONS_FILE) or {})})
 
 
+def _rotate_audit_hmac_key(actor):
+    """Core audit-chain HMAC-key rotation — mints a new generation. Split out
+    from handle_audit_hmac_rotate so run_audit_hmac_rotation_if_due (a cadence
+    sweep with no request in flight) can call the same logic without going
+    through require_admin_auth()/respond(). Returns the new version int."""
+    with _LockedUpdate(AUDIT_HMAC_ROTATIONS_FILE) as rotations:
+        versions = [int(k) for k in rotations if str(k).isdigit()]
+        new_version = (max(versions) if versions else 1) + 1
+        rotations[str(new_version)] = {'key_hex': os.urandom(32).hex(),
+                                       'created': int(time.time())}
+    audit_log(actor, 'audit_hmac_rotate', detail=f'rotated to generation {new_version}')
+    return new_version
+
+
 def handle_audit_hmac_rotate():
     """POST /api/audit/rotate-hmac-key — mint a new audit-chain HMAC generation.
     v6.1.1, closes part of gap C9/C4 (docs/feature-buildout-scoping-internal.md
@@ -42795,13 +42890,47 @@ def handle_audit_hmac_rotate():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    with _LockedUpdate(AUDIT_HMAC_ROTATIONS_FILE) as rotations:
-        versions = [int(k) for k in rotations if str(k).isdigit()]
-        new_version = (max(versions) if versions else 1) + 1
-        rotations[str(new_version)] = {'key_hex': os.urandom(32).hex(),
-                                       'created': int(time.time())}
-    audit_log(actor, 'audit_hmac_rotate', detail=f'rotated to generation {new_version}')
+    new_version = _rotate_audit_hmac_key(actor)
     respond(200, {'ok': True, 'version': new_version})
+
+
+def run_audit_hmac_rotation_if_due():
+    """Heartbeat cadence hook: automatically rotate the audit-chain HMAC key
+    on a configurable interval (config: audit_hmac_auto_rotate_days, default 0
+    = off, so existing installs are unaffected until an admin opts in).
+    docs/master-improvement-scoping-internal.md #26 — the manual rotation
+    (handle_audit_hmac_rotate, above) already existed; this automates it the
+    same way run_scan_schedules_if_due automates a manual action. Uses the
+    real request-free _rotate_audit_hmac_key core, never the handler."""
+    _ro = _config_ro()   # v5.8.0 (PERF): no-deepcopy not-due gate
+    days = int(_ro.get('audit_hmac_auto_rotate_days', 0) or 0)
+    if days <= 0:
+        return
+    try:
+        rotations = load(AUDIT_HMAC_ROTATIONS_FILE) or {}
+    except Exception:
+        rotations = {}
+    last = 0
+    for v in rotations.values():
+        if isinstance(v, dict):
+            last = max(last, int(v.get('created', 0) or 0))
+    if not last:
+        # No rotation has ever happened — generation 1's real file mtime
+        # (audit_hmac.key is a genuine on-disk file, not a KV storage key,
+        # same exception class as STORAGE_MARKER_FILE / export_sign.key) is
+        # the honest "last rotation" reference point.
+        try:
+            kf = DATA_DIR / 'audit_hmac.key'
+            last = int(kf.stat().st_mtime) if kf.exists() else 0
+        except OSError:
+            last = 0
+    now = int(time.time())
+    if last and (now - last) < days * 86400:
+        return
+    try:
+        _rotate_audit_hmac_key('system:auto-rotate')
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] audit_hmac auto-rotate failed: {e}\n')
 
 
 def handle_audit_log_archive():

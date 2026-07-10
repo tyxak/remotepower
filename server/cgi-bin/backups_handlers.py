@@ -631,6 +631,7 @@ def handle_backup_test_restore():
     import tarfile
     import tempfile as _tf
     scratch = A.Path(_tf.mkdtemp(prefix='rp_restore_test_'))
+    started = time.time()
     try:
         src = latest
         if str(latest).endswith('.enc'):
@@ -651,11 +652,26 @@ def handle_backup_test_restore():
                 if top == 'remotepower':
                     saw_root = True
         ok = saw_root and members > 0
+        # master-improvement-scoping #56: record how long the check itself took
+        # as a REAL, measured lower-bound signal toward the declared RTO target
+        # -- this is decrypt+decompress+structure-check only, not a full
+        # service restore, so it's surfaced as a floor, never implied to BE
+        # the RTO measurement.
+        elapsed = round(time.time() - started, 2)
+        try:
+            with A._LockedUpdate(A.DATA_DIR / 'self_backup_state.json') as state:
+                state['last_test_restore_at'] = int(time.time())
+                state['last_test_restore_seconds'] = elapsed
+                state['last_test_restore_ok'] = ok
+        except Exception:
+            pass
         A.audit_log(actor, 'backup_test_restore', f'file={latest.name} members={members} ok={ok}')
         A.respond(200, {'ok': ok, 'file': latest.name, 'members': members,
                       'encrypted': str(latest).endswith('.enc'),
+                      'seconds': elapsed,
                       'message': ('Backup is restorable (decrypted, decompressed, '
-                                  f'{members} entries, data tree present).' if ok
+                                  f'{members} entries, data tree present, '
+                                  f'checked in {elapsed}s).' if ok
                                   else 'Archive opened but the expected remotepower/ tree was missing.')})
     except Exception as e:
         A.audit_log(actor, 'backup_test_restore', f'file={latest.name} FAILED: {str(e)[:120]}')
