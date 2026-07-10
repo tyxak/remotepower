@@ -140,6 +140,90 @@ class TestNetmapScope(unittest.TestCase):
         self.assertIn("_netmapScopeQuery", APP_NET)
 
 
+# ─── docs/master-improvement-scoping-internal.md #71: discovered hosts ─────────
+class TestNetmapDiscoveredHosts(unittest.TestCase):
+    """Netscan-discovered unmanaged hosts fold into the topology graph as
+    their own node type + a 'discovered' edge from the scanning device --
+    previously invisible here even though DISCOVERY_FILE already persisted
+    them (the actual v1/v1.5 gap this v2 item closes: a real graph read of
+    EXISTING persisted data, not a new poll)."""
+
+    def setUp(self):
+        api.save(api.DEVICES_FILE, {
+            "gw": {"name": "gateway", "group": "net", "site": "s1", "tags": [], "last_seen": 9e9},
+            "other": {"name": "other-scanner", "group": "net", "site": "s2", "tags": [], "last_seen": 9e9},
+        })
+        api.save(api.DISCOVERY_FILE, {
+            "gw": {"hosts": [
+                {"ip": "10.0.0.50", "mac": "AA:BB:CC:00:00:01", "hostname": "printer", "managed": False},
+                {"ip": "10.0.0.51", "mac": "", "hostname": "", "managed": False},
+                {"ip": "10.0.0.5", "mac": "", "hostname": "already-managed", "managed": True},
+            ]},
+        })
+        self._auth, self._scope = api.require_auth, api._scope_filter_devices
+        api.require_auth = lambda *a, **k: "t"
+        api._scope_filter_devices = lambda d, *a, **k: d
+
+    def tearDown(self):
+        api.require_auth, api._scope_filter_devices = self._auth, self._scope
+        os.environ["QUERY_STRING"] = ""
+
+    def _call(self, qs=""):
+        os.environ["QUERY_STRING"] = qs
+        box = _capture()
+        with self.assertRaises(_Stop):
+            api.handle_network_map()
+        return box["body"]
+
+    def test_discovered_hosts_appear_as_unmanaged_nodes(self):
+        out = self._call()
+        unmgd = [n for n in out["nodes"] if n["type"] == "unmanaged"]
+        self.assertEqual({n["ip"] for n in unmgd}, {"10.0.0.50", "10.0.0.51"})
+        printer = next(n for n in unmgd if n["ip"] == "10.0.0.50")
+        self.assertEqual(printer["hostname"], "printer")
+        self.assertEqual(printer["mac"], "AA:BB:CC:00:00:01")
+        self.assertEqual(printer["name"], "printer")
+        self.assertIsNone(printer["online"])
+
+    def test_already_managed_hosts_not_duplicated(self):
+        out = self._call()
+        self.assertFalse(any(n["ip"] == "10.0.0.5" and n["type"] == "unmanaged"
+                             for n in out["nodes"]))
+
+    def test_discovered_edge_from_scanning_device(self):
+        out = self._call()
+        disc_edges = [e for e in out["edges"] if e.get("kind") == "discovered"]
+        self.assertEqual(len(disc_edges), 2)
+        self.assertTrue(all(e["from"] == "gw" for e in disc_edges))
+        self.assertEqual({e["to"] for e in disc_edges}, {"unmgd:10.0.0.50", "unmgd:10.0.0.51"})
+
+    def test_unnamed_host_falls_back_to_ip_as_name(self):
+        out = self._call()
+        blank = next(n for n in out["nodes"] if n["ip"] == "10.0.0.51")
+        self.assertEqual(blank["name"], "10.0.0.51")
+
+    def test_scoped_out_scanner_hides_its_discoveries(self):
+        # gw is in site=s1; scoping to s2 must exclude everything gw discovered.
+        out = self._call("site=s2")
+        self.assertFalse(any(n["type"] == "unmanaged" for n in out["nodes"]))
+
+    def test_seen_by_multiple_scanners_dedupes_but_both_edges_present(self):
+        api.save(api.DISCOVERY_FILE, {
+            "gw":    {"hosts": [{"ip": "10.0.0.60", "mac": "", "hostname": "", "managed": False}]},
+            "other": {"hosts": [{"ip": "10.0.0.60", "mac": "", "hostname": "", "managed": False}]},
+        })
+        out = self._call()
+        unmgd = [n for n in out["nodes"] if n["ip"] == "10.0.0.60"]
+        self.assertEqual(len(unmgd), 1)   # one node, not one per scanner
+        disc_edges = [e for e in out["edges"] if e.get("to") == "unmgd:10.0.0.60"]
+        self.assertEqual({e["from"] for e in disc_edges}, {"gw", "other"})
+
+    def test_frontend_renders_discovered_edges_and_unmanaged_nodes(self):
+        self.assertIn("e.kind === 'discovered'", APP_NET)
+        self.assertIn("isUnmanaged", APP_NET)
+        self.assertIn("n.type !== 'unmanaged'", APP_NET)   # excluded from the bulk-edit table
+
+
 # ───────────────────────── backup encryption migration ─────────────────────────
 @unittest.skipUnless(backup_crypto.available(), "cryptography not installed")
 class TestBackupEncryptMigration(unittest.TestCase):

@@ -30376,6 +30376,43 @@ def handle_network_map() -> None:
         for up in (dev.get('depends_on') or []):
             if up in devices:
                 dep_edges.append({'from': dev_id, 'to': up})
+    # v6.1.1 (#71, "v2 topology/graph persistence"): fold in netscan-
+    # discovered unmanaged hosts as their own node type + a "discovered"
+    # edge to whichever scanning device saw them. Previously the topology
+    # graph only ever showed connected_to (manual) links between ENROLLED
+    # devices -- an unmanaged host was invisible here even though it's
+    # already sitting, persisted, in DISCOVERY_FILE (the v1 scheduled-
+    # netscan store). This is a read of EXISTING persisted data, not a new
+    # poll -- "graph persistence" was the gap, not a new discovery mechanism.
+    # Per the unmonitored-data-visibility principle (CLAUDE.md), an
+    # inventory/topology view should show what's unmonitored, flagged --
+    # not hide it. Deliberately excludes hosts already `managed` (they're
+    # already a real node above) and, like the rest of this handler, only
+    # surfaces discoveries FROM a scanning device already in the filtered
+    # (scope + RBAC) `devices` set.
+    discovered_by_ip = {}
+    for dev_id, rec in (load(DISCOVERY_FILE) or {}).items():
+        if dev_id not in devices or not isinstance(rec, dict):
+            continue
+        for h in rec.get('hosts') or []:
+            if not isinstance(h, dict) or h.get('managed') or not h.get('ip'):
+                continue
+            entry = discovered_by_ip.setdefault(h['ip'], {
+                'ip': h['ip'], 'mac': h.get('mac', ''),
+                'hostname': h.get('hostname', ''), 'seen_by': set()})
+            entry['seen_by'].add(dev_id)
+            if h.get('mac') and not entry['mac']:
+                entry['mac'] = h['mac']
+    for ip, d in discovered_by_ip.items():
+        node_id = 'unmgd:' + ip
+        nodes.append({
+            'id': node_id, 'name': d['hostname'] or ip, 'hostname': d['hostname'],
+            'ip': ip, 'os': '', 'type': 'unmanaged', 'group': '', 'agentless': None,
+            'online': None, 'pos_x': None, 'pos_y': None, 'depends_on': [],
+            'mac': d['mac'],
+        })
+        for scanner_id in sorted(d['seen_by']):
+            edges.append({'from': scanner_id, 'to': node_id, 'kind': 'discovered'})
     nodes.sort(key=lambda n: (n['type'], n['name'].lower()))
 
     # v1.11.1: tunnels (peer relationships, second-class edges)

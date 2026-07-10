@@ -152,6 +152,13 @@ function renderNetmap() {
   const edgeMarkup = (_netmapData.edges || []).map((e, i) => {
     const a = lookup[e.from], b = lookup[e.to];
     if (!a || !b) return '';
+    // v6.1.1 (#71): a "discovered" edge (netscan-seen unmanaged host, not a
+    // manually-set connected_to link) renders dotted + muted -- distinct
+    // from a confirmed physical link, since it's an inferred/unconfirmed
+    // relationship (this device's netscan saw that host on its subnet).
+    if (e.kind === 'discovered') {
+      return `<line data-edge-from="${escHtml(e.from)}" data-edge-to="${escHtml(e.to)}" data-edge-kind="discovered" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="1 3" opacity="0.5"><title>Discovered by netscan: ${escHtml(a.name)}</title></line>`;
+    }
     return `<line data-edge-from="${escHtml(e.from)}" data-edge-to="${escHtml(e.to)}" data-edge-kind="phys" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--border)" stroke-width="1.5" opacity="0.65"/>`;
   }).join('');
   const tunnelMarkup = (_netmapData.tunnels || []).map((t, i) => {
@@ -172,11 +179,17 @@ function renderNetmap() {
   // positioned via `transform="translate(x, y)"`. This way a drag updates
   // a single attribute instead of rewriting the whole subtree.
   const nodeMarkup = _netmapNodes.map(n => {
-    const fill   = n.online ? 'var(--green)' : 'var(--red)';
-    const stroke = n.agentless ? 'var(--amber)' : 'var(--accent)';
+    // v6.1.1 (#71): an unmanaged (netscan-discovered) host has no online/
+    // offline concept -- it's a passive sighting, not a monitored device --
+    // so it gets its own muted, dashed treatment instead of the green/red
+    // health color.
+    const isUnmanaged = n.type === 'unmanaged';
+    const fill   = isUnmanaged ? 'var(--muted)' : (n.online ? 'var(--green)' : 'var(--red)');
+    const stroke = isUnmanaged ? 'var(--muted)' : (n.agentless ? 'var(--amber)' : 'var(--accent)');
+    const dash   = isUnmanaged ? ' stroke-dasharray="3 2"' : '';
     const r = 14;
     return `<g class="netmap-node isl-467" data-node-id="${escHtml(n.id)}" transform="translate(${n.x}, ${n.y})">
-      <circle cx="0" cy="0" r="${r}" fill="${fill}" fill-opacity="0.18" stroke="${stroke}" stroke-width="2"/>
+      <circle cx="0" cy="0" r="${r}" fill="${fill}" fill-opacity="0.18" stroke="${stroke}" stroke-width="2"${dash}/>
       <text x="0" y="4" font-size="10" fill="currentColor" text-anchor="middle" font-weight="600" pointer-events="none">${escHtml((n.type || '?').slice(0,3).toUpperCase())}</text>
       <text x="0" y="${r + 14}" font-size="11" fill="currentColor" text-anchor="middle" pointer-events="none">${escHtml(n.name)}</text>
       <text x="0" y="${r + 28}" font-size="10" fill="currentColor" opacity="0.55" text-anchor="middle" pointer-events="none">${escHtml(n.ip || '')}</text>
@@ -321,6 +334,13 @@ async function netmapFlushPositions() {
 }
 
 function netmapNodeClick(deviceId) {
+  // v6.1.1 (#71): an unmanaged (netscan-discovered) node has no device
+  // record to open -- surface what we do know instead of a failed lookup.
+  const n = _netmapNodes.find(x => x.id === deviceId);
+  if (n && n.type === 'unmanaged') {
+    toast(`Discovered host — ${n.ip || 'unknown IP'}${n.mac ? ' · ' + n.mac : ''}${n.hostname ? ' · ' + n.hostname : ''}. Not enrolled.`, 'info');
+    return;
+  }
   if (typeof openDeviceInfo === 'function') {
     openDeviceInfo(deviceId);
   } else {
@@ -332,7 +352,10 @@ async function netmapEditOpen() {
   // Refresh data first so the editor has the current shape
   await loadNetmap();
   const body = document.getElementById('netmap-edit-body');
-  const nodes = _netmapData.nodes;
+  // v6.1.1 (#71): unmanaged (netscan-discovered) nodes have no device
+  // record, so they're not editable here -- excluded from both the row
+  // list and the "connect to" / "depends on" option lists.
+  const nodes = _netmapData.nodes.filter(n => n.type !== 'unmanaged');
   if (!nodes.length) {
     body.innerHTML = '<div class="empty-state">No devices to link.</div>';
     openModal('netmap-edit-modal');
