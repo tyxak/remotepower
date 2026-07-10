@@ -9067,6 +9067,7 @@ async function loadScans() {
   tableCtl.render('scans', scansData);
   loadScanTargets();
   loadScanSchedules();
+  loadNetscanSchedules();
 }
 
 function _selectedScanTool() {
@@ -9308,6 +9309,50 @@ async function deleteScanSchedule(id) {
   const res = await api('DELETE', '/scan-schedules/' + encodeURIComponent(id));
   if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
   loadScanSchedules();
+}
+
+// ── v6.1.1: scheduled LAN discovery — turns handle_device_netscan's one-shot
+// scan into a living, auto-refreshed unmanaged-host list. Reuses the same
+// device search/pick widget as scheduled scans (#scan-device-search /
+// _scanSelectedDevice), just with a subnet + interval instead of a cron.
+async function loadNetscanSchedules() {
+  const box = document.getElementById('netscan-schedules-list');
+  if (!box) return;
+  const data = await api('GET', '/netscan-schedules');
+  if (!data || data.error) return;
+  const scheds = data.schedules || [];
+  if (!scheds.length) {
+    box.innerHTML = '<div class="empty-state">No scheduled LAN discovery. Pick a device above, enter a subnet, and Add schedule.</div>';
+    return;
+  }
+  box.innerHTML = scheds.map(s => {
+    const last = s.last_run ? new Date(s.last_run * 1000).toLocaleString() : 'never';
+    const paused = s.enabled === false;
+    const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
+    return `<div class="mb-8"><strong>${escHtml(s.device_name || s.device_id)}</strong>${stateBadge} <span class="hint">${escHtml(s.subnet)} · every ${s.interval_minutes}m · last ${escHtml(last)}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deleteNetscanSchedule" data-arg="${escAttr(s.id)}">${_icon('trash',14)}</button></div>`;
+  }).join('');
+}
+
+async function addNetscanSchedule() {
+  if (!_scanSelectedDevice) { toast('Search and pick a device above first.', 'info'); return; }
+  const subnetEl = document.getElementById('netscan-sched-subnet');
+  const subnet = subnetEl && subnetEl.value.trim();
+  if (!subnet) { toast('Enter a subnet, e.g. 192.168.1.0/24.', 'info'); return; }
+  const intervalEl = document.getElementById('netscan-sched-interval');
+  const interval_minutes = parseInt((intervalEl && intervalEl.value) || '60', 10);
+  const res = await api('POST', '/netscan-schedules',
+    { device_id: _scanSelectedDevice.id, subnet, interval_minutes });
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  if (subnetEl) subnetEl.value = '';
+  toast('LAN discovery schedule created.', 'success');
+  loadNetscanSchedules();
+}
+
+async function deleteNetscanSchedule(id) {
+  const res = await api('DELETE', '/netscan-schedules/' + encodeURIComponent(id));
+  if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
+  loadNetscanSchedules();
 }
 
 // v3.14.0 fix: show the KEV/EPSS feed state so "why is there no KEV?" is clear —

@@ -160,6 +160,16 @@ function _renderOpnsenseCard(body, badge, data) {
   if (ov.errors && Object.keys(ov.errors).length) {
     h += `<div class="hint mb-6">Sections unavailable: ${escHtml(Object.keys(ov.errors).join(', '))}</div>`;
   }
+
+  const opnLeases = ov.dhcp_leases || [];
+  if (opnLeases.length) {
+    h += `<h4 class="mt-12">DHCP leases (${opnLeases.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Status</th></tr></thead><tbody>`;
+    for (const l of opnLeases.slice(0, 100)) {
+      h += `<tr><td class="mono-12">${escHtml(l.address || '')}</td><td class="mono-12">${escHtml(l.mac || '')}</td><td>${escHtml(l.hostname || '—')}</td><td class="hint">${escHtml(l.status || '')}${l.dynamic ? '' : ' · static'}</td></tr>`;
+    }
+    h += '</tbody></table></div>';
+  }
+
   h += `<h4 class="mt-12">Firewall &amp; NAT rules</h4>
     <div class="row-6 mb-6">
       <button class="btn-icon" data-action="loadOpnsenseFirewall">${_icon('refresh',14)} Load / refresh rules</button>

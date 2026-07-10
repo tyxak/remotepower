@@ -132,6 +132,46 @@ class TestOpnsenseClient(unittest.TestCase):
         with self.assertRaises(opn.OPNsenseError):
             opn._probe("203.0.113.250:443", timeout=1)
 
+    def test_dhcp_leases_normalises_kea_rows(self):
+        def cap(host, k, s, method, path, body=None, **kw):
+            self.assertEqual((method, path), ("POST", "/kea/leases4/search"))
+            return {"rows": [
+                {"address": "10.0.0.50", "hwaddr": "aa:bb:cc:dd:ee:ff",
+                 "hostname": "laptop", "state_label": "Active"},
+                {"ip-address": "10.0.0.51", "hw-address": "11:22:33:44:55:66",
+                 "hostname": "", "state": 0},
+            ]}
+        with patch.object(opn, "_request", side_effect=cap):
+            leases = opn._dhcp_leases("h", "k", "s")
+        self.assertEqual(len(leases), 2)
+        self.assertEqual(leases[0], {"address": "10.0.0.50", "mac": "aa:bb:cc:dd:ee:ff",
+                                      "hostname": "laptop", "status": "active",
+                                      "dynamic": True})
+        self.assertEqual(leases[1]["address"], "10.0.0.51")
+        self.assertEqual(leases[1]["mac"], "11:22:33:44:55:66")
+        self.assertEqual(leases[1]["hostname"], "")
+
+    def test_dhcp_leases_tolerates_non_list_response(self):
+        with patch.object(opn, "_request", return_value={"rows": "not-a-list"}):
+            self.assertEqual(opn._dhcp_leases("h", "k", "s"), [])
+        with patch.object(opn, "_request", return_value=None):
+            self.assertEqual(opn._dhcp_leases("h", "k", "s"), [])
+
+    def test_overview_includes_dhcp_leases_and_degrades_on_error(self):
+        def cap(host, k, s, method, path, body=None, **kw):
+            if "kea/leases4/search" in path:
+                raise opn.OPNsenseError("kea plugin not installed")
+            if "core/firmware/status" in path:
+                return {"product_version": "26.1.8_5", "product_latest": "26.1.8"}
+            if "searchRule" in path:
+                return {"rows": []}
+            return {}
+        with patch.object(opn, "_request", side_effect=cap), \
+             patch.object(opn, "_probe", return_value=True):
+            ov = opn.overview("h", "k", "s")
+        self.assertEqual(ov["dhcp_leases"], [])
+        self.assertIn("dhcp_leases", ov["errors"])
+
     def test_firewall_parses_and_normalises(self):
         def cap(host, k, s, method, path, body=None, **kw):
             if "filter/searchRule" in path:

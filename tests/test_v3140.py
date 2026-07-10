@@ -62,7 +62,7 @@ class _HandlerBase(unittest.TestCase):
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
                      'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE',
                      'APIKEYS_FILE', 'QUERY_TEMPLATES_FILE', 'DRIFT_STATE_FILE',
-                     'PATCH_SNAPSHOTS_FILE', 'AUDIT_LOG_FILE'):
+                     'PATCH_SNAPSHOTS_FILE', 'AUDIT_LOG_FILE', 'NETSCAN_SCHEDULES_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -3675,6 +3675,142 @@ class TestStorageProvisionHandler(_HandlerBase):
     def test_ui_wired(self):
         app = client_js()
         self.assertIn('/storage-provision', app)
+
+
+class TestNetscanSchedules(_HandlerBase):
+    """v6.1.1 — scheduled LAN discovery (docs/feature-buildout-scoping-internal.md
+    #8, v1): GET/POST /api/netscan-schedules, DELETE /api/netscan-schedules/{id},
+    and the run_netscan_schedules_if_due cadence hook."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.DEVICES_FILE, {'dev1': {'name': 'router1'}})
+
+    def _list(self):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_netscan_schedules)
+
+    def _create(self, body):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: body
+        return self.call(api.handle_netscan_schedules)
+
+    def test_list_empty(self):
+        r = self._list()
+        self.assertEqual(r['schedules'], [])
+
+    def test_create_and_list(self):
+        r = self._create({'device_id': 'dev1', 'subnet': '192.168.1.0/24',
+                          'interval_minutes': 30})
+        self.assertTrue(r['ok'])
+        sid = r['id']
+        listed = self._list()['schedules']
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]['id'], sid)
+        self.assertEqual(listed[0]['device_id'], 'dev1')
+        self.assertEqual(listed[0]['device_name'], 'router1')
+        self.assertEqual(listed[0]['subnet'], '192.168.1.0/24')
+        self.assertEqual(listed[0]['interval_minutes'], 30)
+        self.assertTrue(listed[0]['enabled'])
+
+    def test_create_unknown_device_rejected(self):
+        self._create({'device_id': 'ghost', 'subnet': '192.168.1.0/24'})
+        self.assertEqual(self.cap['s'], 400)
+        self.assertEqual(api.load(api.NETSCAN_SCHEDULES_FILE), {})
+
+    def test_create_invalid_subnet_rejected(self):
+        for bad in ('192.168.1.0', '192.168.1.0/33', 'not-a-subnet', '999.1.1.1/24'):
+            self._create({'device_id': 'dev1', 'subnet': bad})
+            self.assertEqual(self.cap['s'], 400, bad)
+
+    def test_interval_clamped_to_range(self):
+        r = self._create({'device_id': 'dev1', 'subnet': '10.0.0.0/24',
+                          'interval_minutes': 1})
+        sid = r['id']
+        sched = api.load(api.NETSCAN_SCHEDULES_FILE)[sid]
+        self.assertEqual(sched['interval_minutes'], 15)   # floored to the 15m minimum
+        r2 = self._create({'device_id': 'dev1', 'subnet': '10.0.1.0/24',
+                           'interval_minutes': 999999})
+        sched2 = api.load(api.NETSCAN_SCHEDULES_FILE)[r2['id']]
+        self.assertEqual(sched2['interval_minutes'], 10080)   # capped to the 7d maximum
+
+    def test_create_enforces_cap(self):
+        api.save(api.NETSCAN_SCHEDULES_FILE,
+                 {str(i): {'id': str(i), 'device_id': 'dev1', 'subnet': '10.0.0.0/24',
+                           'interval_minutes': 60, 'enabled': True, 'last_run': 0}
+                  for i in range(api.MAX_NETSCAN_SCHEDULES)})
+        self._create({'device_id': 'dev1', 'subnet': '172.16.0.0/24'})
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_delete(self):
+        r = self._create({'device_id': 'dev1', 'subnet': '10.0.0.0/24'})
+        sid = r['id']
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_netscan_schedule_delete, sid)
+        self.assertNotIn(sid, api.load(api.NETSCAN_SCHEDULES_FILE))
+
+    def test_delete_missing_404(self):
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_netscan_schedule_delete, 'ghost')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_due_schedule_fires_netscan_command(self):
+        now = int(api.time.time())
+        api.save(api.NETSCAN_SCHEDULES_FILE, {'s1': {
+            'id': 's1', 'device_id': 'dev1', 'subnet': '10.0.0.0/24',
+            'interval_minutes': 15, 'enabled': True, 'last_run': now - 3600,
+            'created_by': 'jakob', 'created': now - 7200}})
+        try:
+            (api.DATA_DIR / '.netscan_sched_check').unlink()   # bypass the 60s gate
+        except OSError:
+            pass
+        api.run_netscan_schedules_if_due()
+        cmds = api.load(api.CMDS_FILE)
+        self.assertIn('netscan:10.0.0.0/24', cmds.get('dev1', []))
+        self.assertGreater(api.load(api.NETSCAN_SCHEDULES_FILE)['s1']['last_run'], now - 1)
+
+    def test_not_due_schedule_does_not_fire(self):
+        now = int(api.time.time())
+        api.save(api.NETSCAN_SCHEDULES_FILE, {'s1': {
+            'id': 's1', 'device_id': 'dev1', 'subnet': '10.0.0.0/24',
+            'interval_minutes': 60, 'enabled': True, 'last_run': now,
+            'created_by': 'jakob', 'created': now}})
+        try:
+            (api.DATA_DIR / '.netscan_sched_check').unlink()
+        except OSError:
+            pass
+        api.run_netscan_schedules_if_due()
+        self.assertEqual(api.load(api.CMDS_FILE), {})
+
+    def test_disabled_schedule_does_not_fire(self):
+        now = int(api.time.time())
+        api.save(api.NETSCAN_SCHEDULES_FILE, {'s1': {
+            'id': 's1', 'device_id': 'dev1', 'subnet': '10.0.0.0/24',
+            'interval_minutes': 15, 'enabled': False, 'last_run': now - 3600,
+            'created_by': 'jakob', 'created': now - 7200}})
+        try:
+            (api.DATA_DIR / '.netscan_sched_check').unlink()
+        except OSError:
+            pass
+        api.run_netscan_schedules_if_due()
+        self.assertEqual(api.load(api.CMDS_FILE), {})
+
+    def test_method_and_route_wired(self):
+        api.method = lambda: 'PUT'
+        self.call(api.handle_netscan_schedules)
+        self.assertEqual(self.cap['s'], 405)
+        src = (Path(__file__).parent.parent / "server/cgi-bin/api.py").read_text()
+        self.assertIn("'/api/netscan-schedules'", src)
+        self.assertIn("handle_netscan_schedule_delete", src)
+
+    def test_ui_wired(self):
+        app = client_js()
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('/netscan-schedules', app)
+        self.assertIn('function loadNetscanSchedules', app)
+        self.assertIn('function addNetscanSchedule', app)
+        self.assertIn('netscan-schedules-list', html)
+        self.assertIn('data-action="addNetscanSchedule"', html)
 
 
 class TestScim(_HandlerBase):

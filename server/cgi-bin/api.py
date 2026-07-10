@@ -2136,6 +2136,7 @@ SATELLITE_MON_FILE = DATA_DIR / 'satellite_monitors.json'  # W4-14 last satellit
 SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized scan jobs + findings
 SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
 SCAN_SCHEDULES_FILE = DATA_DIR / 'scan_schedules.json'  # v4.2.0 (#4): recurring scan schedules (cron)
+NETSCAN_SCHEDULES_FILE = DATA_DIR / 'netscan_schedules.json'  # v6.1.1: recurring LAN discovery (interval)
 WEBAUTHN_CHALLENGES_FILE = DATA_DIR / 'webauthn_challenges.json'  # v4.2.0 (A1): transient, 5-min TTL
 SAML_REQUESTS_FILE = DATA_DIR / 'saml_requests.json'  # v4.2.0 (B1): outstanding AuthnRequest ids (InResponseTo/replay), 10-min TTL
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
@@ -15421,6 +15422,11 @@ def handle_heartbeat():
         run_scheduled_scans_if_due()
     except Exception as _ss:
         sys.stderr.write(f'[remotepower] scheduled scan hook error: {_ss}\n')
+    # v6.1.1: opportunistic scheduled-netscan check (cheap 60s gate).
+    try:
+        run_netscan_schedules_if_due()
+    except Exception as _ns:
+        sys.stderr.write(f'[remotepower] netscan schedule hook error: {_ns}\n')
     body = get_json_obj()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
@@ -32554,6 +32560,113 @@ def handle_discovery():
     out.sort(key=lambda e: tuple(int(x) for x in e['ip'].split('.'))
              if re.match(r'^\d+\.\d+\.\d+\.\d+$', e['ip']) else (0, 0, 0, 0))
     respond(200, {'hosts': out, 'scanned_by': len(store)})
+
+
+# ── v6.1.1: scheduled LAN discovery (docs/feature-buildout-scoping-internal.md
+# #8, v1) — the one-shot handle_device_netscan above becomes a living,
+# auto-refreshed list instead of a stale one-off snapshot. Reuses the SAME
+# `netscan:<subnet>` command an operator could already queue by hand; no
+# agent changes. Interval-based (not cron) — deliberately simpler than the
+# scan-schedule machinery above, since "rescan this subnet every N minutes"
+# doesn't need a calendar.
+MAX_NETSCAN_SCHEDULES = 100
+_NETSCAN_SUBNET_RE = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})$')
+
+
+def _valid_netscan_subnet(subnet):
+    m = _NETSCAN_SUBNET_RE.match(subnet)
+    return bool(m) and all(int(m.group(i)) <= 255 for i in range(1, 5)) and int(m.group(5)) <= 32
+
+
+def handle_netscan_schedules():
+    """GET /api/netscan-schedules — list. POST — create (admin)."""
+    if method() == 'GET':
+        require_auth()
+        scheds = load(NETSCAN_SCHEDULES_FILE) or {}
+        devices = load(DEVICES_FILE) or {}
+        out = [{'id': sid, 'device_id': s.get('device_id', ''),
+                'device_name': devices.get(s.get('device_id'), {}).get('name', s.get('device_id')),
+                'subnet': s.get('subnet', ''), 'interval_minutes': s.get('interval_minutes', 60),
+                'enabled': bool(s.get('enabled', True)), 'last_run': s.get('last_run', 0),
+                'created_by': s.get('created_by', '')} for sid, s in scheds.items()]
+        out.sort(key=lambda s: (s['device_name'] or '').lower())
+        respond(200, {'ok': True, 'schedules': out})
+        return
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    dev_id = str(body.get('device_id', '')).strip()
+    subnet = str(body.get('subnet', '')).strip()
+    if not _validate_id(dev_id) or dev_id not in (load(DEVICES_FILE) or {}):
+        respond(400, {'error': 'valid device_id required'})
+    if not _valid_netscan_subnet(subnet):
+        respond(400, {'error': 'subnet must be CIDR, e.g. 192.168.1.0/24'})
+    try:
+        interval = max(15, min(10080, int(body.get('interval_minutes', 60))))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'interval_minutes must be an integer (minutes, 15..10080)'})
+    sid = secrets.token_hex(8)
+    with _LockedUpdate(NETSCAN_SCHEDULES_FILE) as scheds:
+        if len(scheds) >= MAX_NETSCAN_SCHEDULES:
+            respond(400, {'error': f'schedule limit reached (max {MAX_NETSCAN_SCHEDULES})'})
+        scheds[sid] = {'id': sid, 'device_id': dev_id, 'subnet': subnet,
+                       'interval_minutes': interval, 'enabled': True,
+                       'last_run': 0, 'created_by': actor, 'created': int(time.time())}
+    audit_log(actor, 'netscan_schedule_create',
+              detail=f'device={dev_id} subnet={subnet} every={interval}m'[:200])
+    respond(201, {'ok': True, 'id': sid})
+
+
+def handle_netscan_schedule_delete(sid):
+    """DELETE /api/netscan-schedules/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    with _LockedUpdate(NETSCAN_SCHEDULES_FILE) as scheds:
+        if sid not in scheds:
+            respond(404, {'error': 'Schedule not found'})
+        del scheds[sid]
+    audit_log(actor, 'netscan_schedule_delete', detail=sid)
+    respond(200, {'ok': True})
+
+
+def run_netscan_schedules_if_due():
+    """Heartbeat hook: fire any due netscan schedule. Cheap 60s check-gate
+    (same pattern as run_scheduled_scans_if_due); each schedule's own
+    interval_minutes is the real throttle. Uses _queue_command_batch, NOT
+    _queue_command — the latter calls respond() on its gate checks, which is
+    only safe inside a real request; this runs from a cadence sweep with none
+    in flight. Best-effort: a device that's gone quarantined/missing since the
+    schedule was created is silently skipped this round, not an error."""
+    try:
+        scheds = load(NETSCAN_SCHEDULES_FILE)
+    except Exception:
+        scheds = {}
+    if not scheds:
+        return
+    now = int(time.time())
+    gate = DATA_DIR / '.netscan_sched_check'
+    try:
+        if gate.exists() and now - int(gate.stat().st_mtime) < 60:
+            return
+        gate.write_text(str(now))
+    except OSError:
+        pass
+    due = []
+    with _LockedUpdate(NETSCAN_SCHEDULES_FILE) as st:
+        for s in st.values():
+            if not isinstance(s, dict) or not s.get('enabled'):
+                continue
+            interval_secs = max(15, int(s.get('interval_minutes') or 60)) * 60
+            if now - (s.get('last_run') or 0) >= interval_secs:
+                due.append(dict(s))
+                s['last_run'] = now
+    for s in due:
+        try:
+            _queue_command_batch([s['device_id']], f'netscan:{s["subnet"]}', f'schedule:{s["id"]}')
+        except Exception as _e:
+            sys.stderr.write(f'[remotepower] netscan schedule {s.get("id")} fire error: {_e}\n')
 
 
 def handle_device_forecast(dev_id):
@@ -54565,6 +54678,7 @@ def _build_exact_routes():
         # v6.1.1: package-repo snapshot & promotion ledger
         (None, '/api/patch-snapshots'): handle_patch_snapshots,   # GET list + POST create
         ('GET', '/api/patch-snapshots/diff'): handle_patch_snapshot_diff,   # exact -- wins over the /{id} pattern below
+        (None, '/api/netscan-schedules'): handle_netscan_schedules,   # v6.1.1: GET list + POST create
         ('POST', '/api/cloud/import'): handle_cloud_import,             # v3.14.0 #32
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,
@@ -54876,6 +54990,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/patch-snapshots/', '/drift', 'handle_patch_snapshot_drift', "pi.startswith('/api/patch-snapshots/') and pi.endswith('/drift') and m == 'GET'"),
     ('pat', ('GET',), '/api/patch-snapshots/', '', 'handle_patch_snapshot_get', "pi.startswith('/api/patch-snapshots/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/patch-snapshots/', '', 'handle_patch_snapshot_delete', "pi.startswith('/api/patch-snapshots/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/netscan-schedules/', '', 'handle_netscan_schedule_delete', "pi.startswith('/api/netscan-schedules/') and m == 'DELETE'"),   # v6.1.1
     ('pat', ('GET',), '/api/patch-report/device/', '', 'handle_patch_report_device', "pi.startswith('/api/patch-report/device/') and m == 'GET'"),
     ('eq', ('DELETE',), '/api/audit-log', '', 'handle_audit_log_clear', "pi == '/api/audit-log' and m == 'DELETE'"),
     ('pat', ('GET',), '/api/users/', '/avatar', 'handle_user_avatar', "pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET'"),

@@ -5367,6 +5367,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div id="scan-schedules-list" class="scroll-cap"></div>
         </div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Scheduled LAN discovery <span class="hint">— recurring subnet netscan from the device selected above, turning unmanaged-host discovery into a living list instead of a one-off snapshot.</span></div>
+          <div class="toolbar-mb24">
+            <input type="text" id="netscan-sched-subnet" class="form-input" placeholder="subnet, e.g. 192.168.1.0/24" title="CIDR subnet to scan from the selected device" aria-label="subnet, e.g. 192.168.1.0/24">
+            <input type="number" id="netscan-sched-interval" class="form-input input-auto" placeholder="60" title="Minutes between scans (15-10080)" aria-label="Minutes between scans" value="60" min="15" max="10080">
+            <button class="btn-icon" data-action="addNetscanSchedule"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-8a2aac00"/></svg> Add schedule</button>
+          </div>
+          <div id="netscan-schedules-list" class="scroll-cap"></div>
+        </div>
       </div>
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->

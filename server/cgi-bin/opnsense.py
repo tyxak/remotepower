@@ -11,7 +11,8 @@ Reference: https://docs.opnsense.org/development/api.html
 
 Two surfaces, mirroring the RouterOS client so the console UI is identical:
   - overview(): read-only visibility — firmware/version + a firewall rule
-    count. Sections degrade independently into `errors`.
+    count + DHCP leases (Kea plugin). Sections degrade independently into
+    `errors`.
   - firewall(): read filter rules (filter/searchRule) + NAT rules
     (source_nat/searchRule) in detail for the console Firewall view.
   - action(): a small allowlist — add / enable / disable / delete a filter
@@ -225,11 +226,44 @@ def _firmware_status(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
     }
 
 
+def _dhcp_leases(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
+    """DHCP leases via the Kea plugin — OPNsense 24.7+'s default DHCPv4
+    backend (ISC dhcpd was removed upstream, so this targets a current
+    install, same posture as `_firmware_status`'s 26.1 target). Same
+    searchXXX grid shape as `_search()`; normalised to the shape RouterOS's
+    `_leases()` uses so one console table renders both (routeros.py:232-241)."""
+    resp = _request(host, key, secret, "POST", "/kea/leases4/search",
+                    body={"current": 1, "rowCount": 1000},
+                    verify=verify, timeout=timeout)
+    rows = resp.get("rows") if isinstance(resp, dict) else resp
+    if not isinstance(rows, list):
+        rows = []
+    out = []
+    for r in rows[:256]:
+        if not isinstance(r, dict):
+            continue
+
+        def g(*names):
+            for n in names:
+                v = r.get(n)
+                if v not in (None, ""):
+                    return v
+            return ""
+        out.append({
+            "address":  g("address", "ip-address", "ip"),
+            "mac":      g("hwaddr", "hw-address", "mac"),
+            "hostname": g("hostname"),
+            "status":   str(g("state_label", "state") or "active").lower(),
+            "dynamic":  True,   # Kea leases are all dynamic; reservations are a separate table
+        })
+    return out
+
+
 def overview(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
-    """Read-only visibility: firmware/version + filter & NAT rule counts.
-    Probes reachability first (fast fail), then each section degrades
-    independently into `errors`."""
-    out = {"firmware": {}, "counts": {}, "errors": {}}
+    """Read-only visibility: firmware/version + filter & NAT rule counts +
+    DHCP leases. Probes reachability first (fast fail), then each section
+    degrades independently into `errors`."""
+    out = {"firmware": {}, "counts": {}, "dhcp_leases": [], "errors": {}}
     _probe(host)   # fast, clear failure if the GUI is unreachable
 
     try:
@@ -244,6 +278,12 @@ def overview(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
             out["counts"][key_name] = len(rows)
         except OPNsenseError as e:
             out["errors"][key_name] = str(e)[:200]
+
+    try:
+        out["dhcp_leases"] = _dhcp_leases(host, key, secret, verify=verify,
+                                          timeout=timeout)
+    except OPNsenseError as e:
+        out["errors"]["dhcp_leases"] = str(e)[:200]
     return out
 
 
