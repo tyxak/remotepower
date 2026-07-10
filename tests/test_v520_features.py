@@ -80,6 +80,38 @@ class TestWgAccessPure(unittest.TestCase):
         self.assertEqual(len(spec['peers']), 1)
         self.assertEqual(spec['peers'][0]['allowed_ips'], '10.97.3.2/32')
 
+    def test_valid_psk(self):
+        # #86: identical format to a pubkey (same regex, distinct name).
+        self.assertTrue(W.valid_psk('A' * 43 + '='))
+        self.assertFalse(W.valid_psk('A' * 43))
+        self.assertFalse(W.valid_psk(None))
+        self.assertFalse(W.valid_psk(''))
+
+    def test_build_sync_spec_includes_valid_psk(self):
+        t = {'iface': 'rp-wg0', 'listen_port': 51820, 'pool': '10.97.3.0/24',
+             'allow_internet': False}
+        psk = 'B' * 43 + '='
+        clients = [{'pubkey': 'A' * 43 + '=', 'address': '10.97.3.2',
+                    'preshared_key': psk}]
+        spec = W.build_sync_spec(t, clients, [])
+        self.assertEqual(spec['peers'][0]['preshared_key'], psk)
+
+    def test_build_sync_spec_drops_malformed_psk_keeps_peer(self):
+        t = {'iface': 'rp-wg0', 'listen_port': 51820, 'pool': '10.97.3.0/24',
+             'allow_internet': False}
+        clients = [{'pubkey': 'A' * 43 + '=', 'address': '10.97.3.2',
+                    'preshared_key': 'not-a-real-psk'}]
+        spec = W.build_sync_spec(t, clients, [])
+        self.assertEqual(len(spec['peers']), 1)   # peer kept, pubkey-only
+        self.assertNotIn('preshared_key', spec['peers'][0])
+
+    def test_build_sync_spec_no_psk_field_when_absent(self):
+        t = {'iface': 'rp-wg0', 'listen_port': 51820, 'pool': '10.97.3.0/24',
+             'allow_internet': False}
+        clients = [{'pubkey': 'A' * 43 + '=', 'address': '10.97.3.2'}]
+        spec = W.build_sync_spec(t, clients, [])
+        self.assertNotIn('preshared_key', spec['peers'][0])
+
     def test_parse_wg_dump(self):
         pub = 'A' * 43 + '='
         dump = ('rp-wg0\tprivhash\t51820\toff\n'
@@ -212,6 +244,73 @@ class TestHandlers(unittest.TestCase):
         with self.assertRaises(_Responded) as cm:
             api.handle_vpn_clients_list('wgt_test')
         self.assertEqual(cm.exception.status, 200)
+
+    # ── #86: preshared key generated + encrypted on client create ──────────
+    def _give_hub_key(self):
+        store = api.load(api.VPN_FILE)
+        store['tunnels'][0]['hub_pubkey'] = 'H' * 43 + '='
+        api.save(api.VPN_FILE, store)
+
+    def test_client_create_generates_and_encrypts_psk(self):
+        self._give_hub_key()
+        old_key = os.environ.get('RP_CONFIG_KEY')
+        try:
+            os.environ['RP_CONFIG_KEY'] = 'test-master-key-for-vpn-psk'
+            api.method = lambda: 'POST'
+            api.get_json_obj = lambda: {'name': 'phone', 'pubkey': 'Q' * 43 + '='}
+            with self.assertRaises(_Responded) as cm:
+                api.handle_vpn_client_create('wgt_test')
+            self.assertEqual(cm.exception.status, 200)
+            self.assertTrue(cm.exception.data['preshared_key'])
+            self.assertTrue(cm.exception.data['psk_encrypted'])
+            new_id = cm.exception.data['id']
+            store = api.load(api.VPN_FILE)
+            new_client = next(c for c in store['tunnels'][0]['clients'] if c['id'] == new_id)
+            self.assertTrue(new_client.get('psk_enc', '').startswith('enc:'))
+            self.assertNotEqual(new_client['psk_enc'], cm.exception.data['preshared_key'])
+            self.assertEqual(api._cfg_dec(new_client['psk_enc']), cm.exception.data['preshared_key'])
+        finally:
+            if old_key is None:
+                os.environ.pop('RP_CONFIG_KEY', None)
+            else:
+                os.environ['RP_CONFIG_KEY'] = old_key
+
+    def test_client_create_flags_unencrypted_when_no_master_key(self):
+        self._give_hub_key()
+        old_key = os.environ.get('RP_CONFIG_KEY')
+        try:
+            os.environ.pop('RP_CONFIG_KEY', None)
+            api.method = lambda: 'POST'
+            api.get_json_obj = lambda: {'name': 'tablet', 'pubkey': 'R' * 43 + '='}
+            with self.assertRaises(_Responded) as cm:
+                api.handle_vpn_client_create('wgt_test')
+            self.assertTrue(cm.exception.data['preshared_key'])   # still generated
+            self.assertFalse(cm.exception.data['psk_encrypted'])  # but flagged plaintext
+        finally:
+            if old_key is not None:
+                os.environ['RP_CONFIG_KEY'] = old_key
+
+    def test_client_create_can_opt_out_of_psk(self):
+        self._give_hub_key()
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'no-psk', 'pubkey': 'S' * 43 + '=', 'psk': False}
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_client_create('wgt_test')
+        self.assertIsNone(cm.exception.data['preshared_key'])
+
+    def test_client_meta_never_leaks_psk(self):
+        self._give_hub_key()
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'watch', 'pubkey': 'T' * 43 + '='}
+        with self.assertRaises(_Responded):
+            api.handle_vpn_client_create('wgt_test')
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_clients_list('wgt_test')
+        for c in cm.exception.data['clients']:
+            self.assertNotIn('psk_enc', c)
+            self.assertNotIn('preshared_key', c)
+        watch = next(c for c in cm.exception.data['clients'] if c['name'] == 'watch')
+        self.assertTrue(watch['psk_configured'])
 
     # ── #87: per-peer RX/TX history ──────────────────────────────────────
     def test_client_history_ok(self):
@@ -386,6 +485,58 @@ class TestApiWiring(unittest.TestCase):
                  'enabled': True, 'reach_scope_type': 'none',
                  'allow_internet': False, 'clients': []})
             self.assertEqual(calls, ['sync'])
+        finally:
+            api._wg_run = orig_run
+            api._wg_helper_available = orig_avail
+
+    # ── #86: preshared key encrypted at rest + wired into the sync spec ─────
+    def test_sync_decrypts_psk_onto_the_spec(self):
+        old_key = os.environ.get('RP_CONFIG_KEY')
+        calls = []
+        orig_run = api._wg_run
+        orig_avail = api._wg_helper_available
+        try:
+            os.environ['RP_CONFIG_KEY'] = 'test-master-key-for-vpn-psk'
+            psk_plain = 'P' * 43 + '='
+            psk_enc = api._cfg_enc(psk_plain)
+            self.assertTrue(psk_enc.startswith('enc:'))   # actually encrypted, not fell-open
+            api._wg_helper_available = lambda: True
+            api._wg_run = lambda argv, **kw: (calls.append(kw.get('stdin')), (0, '{}', ''))[1]
+            tunnel = {'iface': 'rp-wg0', 'pool': '10.97.0.0/24', 'enabled': True,
+                      'reach_scope_type': 'none', 'allow_internet': False,
+                      'clients': [{'pubkey': 'A' * 43 + '=', 'address': '10.97.0.2',
+                                   'enabled': True, 'psk_enc': psk_enc}]}
+            api._vpn_sync_tunnel(tunnel)
+            self.assertEqual(len(calls), 1)
+            import json as _json
+            spec = _json.loads(calls[0])
+            self.assertEqual(spec['peers'][0]['preshared_key'], psk_plain)
+            # the stored client record itself was never mutated with plaintext
+            self.assertEqual(tunnel['clients'][0]['psk_enc'], psk_enc)
+            self.assertNotIn('preshared_key', tunnel['clients'][0])
+        finally:
+            api._wg_run = orig_run
+            api._wg_helper_available = orig_avail
+            if old_key is None:
+                os.environ.pop('RP_CONFIG_KEY', None)
+            else:
+                os.environ['RP_CONFIG_KEY'] = old_key
+
+    def test_sync_skips_psk_field_when_client_has_none(self):
+        calls = []
+        orig_run = api._wg_run
+        orig_avail = api._wg_helper_available
+        try:
+            api._wg_helper_available = lambda: True
+            api._wg_run = lambda argv, **kw: (calls.append(kw.get('stdin')), (0, '{}', ''))[1]
+            tunnel = {'iface': 'rp-wg0', 'pool': '10.97.0.0/24', 'enabled': True,
+                      'reach_scope_type': 'none', 'allow_internet': False,
+                      'clients': [{'pubkey': 'A' * 43 + '=', 'address': '10.97.0.2',
+                                   'enabled': True}]}
+            api._vpn_sync_tunnel(tunnel)
+            import json as _json
+            spec = _json.loads(calls[0])
+            self.assertNotIn('preshared_key', spec['peers'][0])
         finally:
             api._wg_run = orig_run
             api._wg_helper_available = orig_avail

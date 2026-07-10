@@ -6929,7 +6929,9 @@ function _registerVpnClientsTable() {
         `<button class="btn-icon" data-action="editVpnClient" data-arg="${id}" title="Edit client">${_icon('edit', 12)} Edit</button> ` +
         `<button class="btn-icon" data-action="viewVpnClientHistory" data-arg="${id}" data-arg2="${escAttr(c.name || c.id)}" title="RX/TX history">${_icon('activity', 12)} History</button> ` +
         `<button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteVpnClient" data-arg="${id}" data-arg2="${escAttr(c.name || '')}">${_icon('trash',14)}</button>`;
-      return `<tr><td class="fw-600">${escHtml(c.name || c.id)}${dis}</td><td class="ff-mono">${escHtml(c.address || '—')}</td><td>${stCell}</td><td>${epCell}</td><td>${xfer}</td><td>${_vpnExpiryCell(c.expires_at)}</td><td>${acts}</td></tr>`;
+      const pskBadge = c.psk_configured
+        ? ` <span class="hint" title="Preshared key configured (post-quantum-resistant peer)">${_icon('lock', 11)}</span>` : '';
+      return `<tr><td class="fw-600">${escHtml(c.name || c.id)}${dis}${pskBadge}</td><td class="ff-mono">${escHtml(c.address || '—')}</td><td>${stCell}</td><td>${epCell}</td><td>${xfer}</td><td>${_vpnExpiryCell(c.expires_at)}</td><td>${acts}</td></tr>`;
     },
     emptyMsg: 'No clients on this tunnel yet. Create one to get a config + QR.',
   });
@@ -7246,6 +7248,13 @@ async function vpnClientCreate() {
   });
   _vpnLastClient = { name, conf };
   closeModal('vpn-client-modal');
+  // v6.1.1 (#86): the preshared key is stored server-side too (to configure
+  // the hub peer) -- flag when it's sitting in plaintext because the
+  // operator hasn't set RP_CONFIG_KEY, rather than silently leaving them to
+  // discover that later.
+  if (data.preshared_key && data.psk_encrypted === false) {
+    toast('Preshared key generated, but RP_CONFIG_KEY is not set — it is stored in plaintext. Set RP_CONFIG_KEY to encrypt it at rest.', 'error');
+  }
   // Render result panel.
   const ta = document.getElementById('vpn-conf-text');
   if (ta) ta.value = conf;

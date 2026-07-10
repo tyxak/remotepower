@@ -33,6 +33,7 @@ lives in the wg_access sibling module. Client private keys are generated in the
 browser and never reach the server; the per-tunnel hub private key is generated
 + held root-only by the helper.
 """
+import base64
 import ipaddress
 import json
 import os
@@ -254,7 +255,17 @@ def _vpn_sync_tunnel(tunnel) -> bool:
     now = int(time.time())
     clients = [c for c in tunnel.get('clients', [])
                if c.get('enabled', True) and not A._vpn_expired(c, now)]
-    spec = wg_access.build_sync_spec(tunnel, clients, A._vpn_reach_cidrs(tunnel))
+    # #86: decrypt each client's PSK onto a SHALLOW COPY (never mutate the
+    # stored client dict with plaintext) right before handing off to the pure
+    # spec-builder, which expects plaintext and knows nothing about the
+    # encryption-at-rest layer.
+    sync_clients = []
+    for c in clients:
+        if c.get('psk_enc'):
+            c = dict(c)
+            c['preshared_key'] = A._cfg_dec(c['psk_enc'])
+        sync_clients.append(c)
+    spec = wg_access.build_sync_spec(tunnel, sync_clients, A._vpn_reach_cidrs(tunnel))
     rc, _out, _err = A._wg_run(['sync', tunnel['iface']], stdin=json.dumps(spec))
     return rc == 0
 
@@ -310,6 +321,9 @@ def _vpn_client_meta(c, now) -> dict:
         'tx_bytes':       c.get('tx_bytes', 0),
         'endpoint':       c.get('endpoint', ''),
         'status':         wg_access.client_status(c.get('last_handshake', 0), now),
+        # #86: presence only -- the PSK itself is shown once, at creation, and
+        # never again (same "shown once" contract as an API key's secret).
+        'psk_configured': bool(c.get('psk_enc')),
     }
 
 
@@ -617,6 +631,20 @@ def handle_vpn_client_create(tid) -> None:
                   'enabled': True, 'expires_at': expires_at, 'created_by': actor,
                   'created_at': int(time.time()), 'last_handshake': 0,
                   'rx_bytes': 0, 'tx_bytes': 0, 'endpoint': ''}
+        # #86: optional preshared key -- default ON (a real post-quantum-
+        # resistance improvement over pubkey-only WireGuard, at zero UX cost).
+        # Encrypted at rest via the SAME config-secret primitive (_cfg_enc,
+        # keyed by RP_CONFIG_KEY) used for every other server-managed secret
+        # -- deliberately NOT the CMDB vault (that would couple VPN to CMDB
+        # being configured at all) and NOT a new dedicated vault subsystem
+        # (its own setup/unlock flow would be a much bigger lift than this
+        # item's effort). Fails open to plaintext storage if RP_CONFIG_KEY
+        # isn't set, exactly like every other config secret -- psk_configured
+        # in the client-meta response lets the UI flag that state, not hide it.
+        psk_plain = None
+        if body.get('psk', True):
+            psk_plain = base64.b64encode(secrets.token_bytes(32)).decode()
+            client['psk_enc'] = A._cfg_enc(psk_plain)
         clients.append(client)
         tunnel_meta = {'hub_pubkey': t.get('hub_pubkey', ''), 'endpoint': t.get('endpoint', ''),
                        'dns': t.get('dns', ''),
@@ -625,10 +653,17 @@ def handle_vpn_client_create(tid) -> None:
     A.audit_log(actor, 'vpn_client_create', detail=f'client={cid} tunnel={tid} name={name[:40]}',
                 source_ip=A._get_client_ip())
     # Return everything the browser needs to build the .conf + QR (it holds the
-    # private key already; the server never sees it).
+    # private key already; the server never sees it). #86: preshared_key is
+    # returned PLAINTEXT here, ONCE -- same "shown once, never again" contract
+    # as an API key's secret; every subsequent read (list/stats) only ever
+    # sees psk_configured: true. Field name matches what app.js's
+    # vpnClientCreate() -> buildClientConf({presharedKey: data.preshared_key})
+    # already expected -- that wiring shipped ahead of the server support.
     A.respond(200, {'ok': True, 'id': cid, 'address': addr + '/32',
                     'hub_pubkey': tunnel_meta['hub_pubkey'], 'endpoint': tunnel_meta['endpoint'],
-                    'dns': tunnel_meta['dns'], 'allowed_ips': tunnel_meta['allowed_ips']})
+                    'dns': tunnel_meta['dns'], 'allowed_ips': tunnel_meta['allowed_ips'],
+                    'preshared_key': psk_plain,
+                    'psk_encrypted': bool(psk_plain and A._config_master_key())})
 
 
 def handle_vpn_client_update(tid, cid) -> None:

@@ -144,6 +144,20 @@ def v_pubkey(value):
     return value
 
 
+def v_psk(value):
+    """docs/master-improvement-scoping-internal.md #86: an OPTIONAL per-peer
+    preshared key -- same base64 format as a pubkey (identical WG_KEY_RE), so
+    reuse the same regex. Absent/empty is valid (pubkey-only peer); a
+    present-but-malformed value fails closed (fail(), same as a bad pubkey)
+    rather than silently dropping the PSK and syncing a weaker peer than the
+    caller asked for."""
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str) or not WG_KEY_RE.match(value):
+        fail("invalid preshared key: %r" % (value,))
+    return value
+
+
 def _valid_ipv4(addr):
     parts = addr.split(".")
     if len(parts) != 4:
@@ -501,10 +515,14 @@ def _validate_spec(iface, spec):
     for p in peers_in:
         if not isinstance(p, dict):
             fail("each peer must be an object")
-        peers.append({
+        peer = {
             "pubkey": v_pubkey(p.get("pubkey")),
             "allowed_ips": v_cidr(p.get("allowed_ips")),
-        })
+        }
+        psk = v_psk(p.get("preshared_key"))
+        if psk:
+            peer["preshared_key"] = psk
+        peers.append(peer)
     out["peers"] = peers
     return out
 
@@ -518,6 +536,8 @@ def _write_wg_conf(iface, spec, privkey):
     for peer in spec["peers"]:
         lines.append("[Peer]")
         lines.append("PublicKey = %s" % peer["pubkey"])
+        if peer.get("preshared_key"):
+            lines.append("PresharedKey = %s" % peer["preshared_key"])
         lines.append("AllowedIPs = %s" % peer["allowed_ips"])
         lines.append("")
     conf = "\n".join(lines) + "\n"

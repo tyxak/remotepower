@@ -45,6 +45,14 @@ def valid_pubkey(s) -> bool:
     return isinstance(s, str) and bool(_PUBKEY_RE.match(s))
 
 
+def valid_psk(s) -> bool:
+    """docs/master-improvement-scoping-internal.md #86: a WireGuard preshared
+    key is the identical format as a public key (32 random bytes, base64,
+    44 chars incl. padding) -- same regex, distinct name for readability at
+    call sites."""
+    return valid_pubkey(s)
+
+
 def valid_iface(s) -> bool:
     return isinstance(s, str) and bool(_IFACE_RE.match(s))
 
@@ -167,7 +175,13 @@ def needs_forwarding(tunnel, reach_cidrs) -> bool:
 def build_sync_spec(tunnel, clients, reach_cidrs):
     """Structured spec the root helper consumes on `sync` (it re-validates every
     field and BUILDS the wg/nft config itself — no shell interpolation). Only
-    enabled, non-expired clients are included (caller filters)."""
+    enabled, non-expired clients are included (caller filters).
+
+    #86: a client dict MAY carry a plaintext `preshared_key` (the caller is
+    responsible for decrypting it first -- this module is a pure spec-builder,
+    it never touches the encryption-at-rest layer). Invalid/malformed PSKs are
+    dropped silently (the peer still syncs pubkey-only) rather than failing
+    the whole tunnel sync over one bad field."""
     pool = tunnel.get("pool", "")
     peers = []
     for c in clients:
@@ -176,7 +190,10 @@ def build_sync_spec(tunnel, clients, reach_cidrs):
         addr = str(c.get("address", "")).split("/")[0]
         if not valid_host_ip(addr):
             continue
-        peers.append({"pubkey": c["pubkey"], "allowed_ips": addr + "/32"})
+        peer = {"pubkey": c["pubkey"], "allowed_ips": addr + "/32"}
+        if valid_psk(c.get("preshared_key")):
+            peer["preshared_key"] = c["preshared_key"]
+        peers.append(peer)
     return {
         "iface": tunnel.get("iface"),
         "listen_port": int(tunnel.get("listen_port") or 0),
