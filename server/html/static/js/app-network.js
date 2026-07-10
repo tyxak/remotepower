@@ -764,6 +764,23 @@ function tlsDetailOpen(id) {
     </div>`;
   }
 
+  // master-improvement-scoping #99: intermediates + root, when the stdlib
+  // exposed them (Python 3.13+'s get_unverified_chain(); empty on older
+  // Python or a chain-of-one server — both normal, not shown as an error).
+  const chainHtml = (t.chain && t.chain.length)
+    ? `<div class="isl-483">
+        <div class="isl-421">Full chain (${t.chain.length} intermediate${t.chain.length > 1 ? 's' : ''}/root)</div>
+        <div class="scrollable-table-wrap audit-scroll"><table class="isl-480">
+          <thead><tr class="isl-481"><th class="isl-44">Subject</th><th class="isl-44">Issuer</th><th class="isl-44">Expires</th></tr></thead>
+          <tbody>${t.chain.map(c => `<tr>
+            <td class="isl-482">${escHtml(c.subject || '—')}</td>
+            <td class="isl-482">${escHtml(c.issuer || '—')}</td>
+            <td class="isl-44">${c.expires_at ? new Date(c.expires_at * 1000).toLocaleDateString() : '—'}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`
+    : '';
+
   const body = document.getElementById('tls-detail-body');
   body.innerHTML = `
     <div class="isl-486">
@@ -782,6 +799,7 @@ function tlsDetailOpen(id) {
       <div class="c-muted">Warn / Critical</div><div>${t.warn_days}d / ${t.crit_days}d</div>
     </div>
     ${errs}
+    ${chainHtml}
     ${daneHtml}
   `;
   openModal('tls-detail-modal');

@@ -284,5 +284,36 @@ class TestSTARTTLSEndToEnd(unittest.TestCase):
         self.assertTrue(result["tls_error"])  # Some error, just not crashed
 
 
+@unittest.skipIf(_TEST_CERT is None, "cryptography not available")
+class TestFullChainField(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #99 — get_unverified_chain()
+    is a real, direct end-to-end handshake against a local server here (not
+    mocked), since its exact return shape (list[bytes], not wrapper objects
+    with .public_bytes()) turned out to differ from what a first read of the
+    stdlib docs suggested -- this test would have caught that."""
+
+    def test_direct_tls_never_crashes_and_chain_is_a_list(self):
+        def handler(sock):
+            try:
+                _wrap_tls(sock).recv(1)
+            except Exception:
+                pass
+
+        port, _ = _start_server(handler)
+        result = tls_monitor._probe_tls("localhost", port, starttls="none")
+        self.assertEqual(result["tls_error"], "")
+        self.assertGreater(result["expires_at"], 0)
+        self.assertIsInstance(result["chain"], list)
+        # This test server presents a single self-signed cert (chain of one)
+        # -- the leaf is already in subject/issuer/expires_at, so the
+        # remaining chain (intermediates + root) is correctly empty here.
+        self.assertEqual(result["chain"], [])
+
+    def test_dns_failure_result_still_has_chain_key(self):
+        # Every early-return path shares the same result dict shape.
+        result = tls_monitor._probe_tls("this-host-does-not-resolve.invalid", 443)
+        self.assertEqual(result["chain"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

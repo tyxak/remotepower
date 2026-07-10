@@ -189,6 +189,105 @@ class TestWildcardRuleMatching(unittest.TestCase):
         self.assertEqual(len(fired_keys), 2)
 
 
+class TestLogSubmitIgnorePatternsRealHandler(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #9 — log_ignore_patterns
+    used to be loaded from config and recompiled INSIDE the per-unit loop
+    (once per unit, not once per submission, despite the old comment). Calls
+    the REAL handle_log_submit() end-to-end (not a hand-simulated buffer
+    build) so a regression in the hoisted-out-of-the-loop version would
+    actually be caught here."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self._orig = {
+            attr: getattr(api_module, attr) for attr in
+            ('LOG_WATCH_FILE', 'DEVICES_FILE', 'LOG_RULES_GLOBAL_FILE', 'CONFIG_FILE')
+        }
+        for attr in self._orig:
+            setattr(api_module, attr, self.tmp / f'{attr.lower()}.json')
+        api_module.save(api_module.DEVICES_FILE, {
+            'dev-bbbbbbbbbbbbbb': {'name': 'web-2', 'group': '', 'token': 'tok456', 'log_watch': []},
+        })
+        api_module.save(api_module.LOG_RULES_GLOBAL_FILE, {'rules': []})
+        api_module.save(api_module.CONFIG_FILE, {'log_ignore_patterns': ['^noise:', 'heartbeat ok']})
+        self._orig_fns = {n: getattr(api_module, n) for n in
+                          ('method', 'get_json_body', 'respond', 'audit_log', 'fire_webhook')}
+        api_module.method = lambda: 'POST'
+        api_module.audit_log = lambda *a, **k: None
+        api_module.fire_webhook = lambda *a, **k: None
+        self.cap = {}
+
+        def _resp(s, b=None):
+            self.cap['s'] = s
+            self.cap['b'] = b
+            raise SystemExit(0)
+        api_module.respond = _resp
+
+    def tearDown(self):
+        for attr, orig in self._orig.items():
+            setattr(api_module, attr, orig)
+        for n, v in self._orig_fns.items():
+            setattr(api_module, n, v)
+
+    def _submit(self, units):
+        api_module.get_json_body = lambda: {
+            'device_id': 'dev-bbbbbbbbbbbbbb', 'token': 'tok456', 'units': units}
+        try:
+            api_module.handle_log_submit()
+        except SystemExit:
+            pass
+
+    def test_ignore_patterns_filter_across_multiple_units(self):
+        # Three units in ONE submission -- the loop-hoist bug would have
+        # only applied ignore patterns correctly to whichever unit happened
+        # to see a freshly-reloaded config, if it were done wrong.
+        self._submit({
+            'a.service': ['noise: nothing to see', 'real error A'],
+            'b.service': ['heartbeat ok', 'real error B'],
+            'c.service': ['real error C'],
+        })
+        self.assertTrue(self.cap['b']['ok'])
+        store = api_module.load(api_module.LOG_WATCH_FILE)
+        units = store['dev-bbbbbbbbbbbbbb']['units']
+        self.assertEqual([e['line'] for e in units['a.service']], ['real error A'])
+        self.assertEqual([e['line'] for e in units['b.service']], ['real error B'])
+        self.assertEqual([e['line'] for e in units['c.service']], ['real error C'])
+
+    def test_no_ignore_patterns_configured_keeps_everything(self):
+        api_module.save(api_module.CONFIG_FILE, {})
+        self._submit({'a.service': ['noise: would have matched if patterns were set']})
+        units = api_module.load(api_module.LOG_WATCH_FILE)['dev-bbbbbbbbbbbbbb']['units']
+        self.assertEqual(len(units['a.service']), 1)
+
+
+class TestCompiledPatternsCached(unittest.TestCase):
+    """Pure unit tests for the memoization helper itself."""
+
+    def test_compiles_and_matches(self):
+        rxs = api_module._compiled_patterns_cached(('foo', 'bar'))
+        self.assertEqual(len(rxs), 2)
+        self.assertTrue(rxs[0].search('a foo b'))
+        self.assertTrue(rxs[1].search('a bar b'))
+
+    def test_invalid_pattern_dropped_not_raised(self):
+        rxs = api_module._compiled_patterns_cached(('good', '[unclosed'))
+        self.assertEqual(len(rxs), 1)
+
+    def test_empty_tuple_returns_empty_list(self):
+        self.assertEqual(api_module._compiled_patterns_cached(()), [])
+
+    def test_same_key_returns_cached_result(self):
+        a = api_module._compiled_patterns_cached(('x', 'y'), 0)
+        b = api_module._compiled_patterns_cached(('x', 'y'), 0)
+        self.assertIs(a, b)   # lru_cache returns the identical cached object
+
+    def test_flags_are_part_of_the_cache_key(self):
+        a = api_module._compiled_patterns_cached(('X',), 0)
+        b = api_module._compiled_patterns_cached(('X',), api_module.re.IGNORECASE)
+        self.assertFalse(a[0].match('x'))
+        self.assertTrue(b[0].match('x'))
+
+
 class TestRoutesRegistered(unittest.TestCase):
 
     def test_version(self):

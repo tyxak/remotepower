@@ -160,6 +160,42 @@ async function loadTickets() {
   // mutation (loadTickets() is the common tail of create/assign/resolve/delete)
   // instead of waiting for the next 60s nav-counts poll.
   try { if (typeof refreshNavCounts === 'function') refreshNavCounts(); } catch (_) {}
+  loadPortalTicketQueue();
+}
+
+// ── docs/master-improvement-scoping-internal.md #84: portal-ticket approval
+// queue. Admin-only endpoint; a non-admin GET just 403s silently here (the
+// card stays hidden), same "don't render a control the caller can't use"
+// posture as other admin-only cards on this page.
+async function loadPortalTicketQueue() {
+  const card = document.getElementById('tk-portal-queue-card');
+  if (!card) return;
+  let data;
+  try { data = await api('GET', '/portal/ticket-queue'); } catch (e) { data = null; }
+  const pending = (data && data.pending) || [];
+  const cnt = document.getElementById('tk-portal-queue-count');
+  if (cnt) cnt.textContent = pending.length ? `(${pending.length})` : '';
+  if (!pending.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const list = document.getElementById('tk-portal-queue-list');
+  if (list) {
+    list.innerHTML = pending.map(p => `<div class="mb-8">
+      <strong>${escHtml(p.subject || '(no subject)')}</strong>
+      <span class="hint">from ${escHtml(p.contact_name || p.contact_email || 'a portal contact')} · site ${escHtml(p.site || '—')} · ${timeAgo(p.created_at)}</span>
+      ${p.message ? `<div class="fs-12 c-muted mt-4">${escHtml(p.message).slice(0, 300)}</div>` : ''}
+      <div class="row-6 mt-6">
+        <button class="btn-icon cell-sm" data-action="decidePortalTicket" data-arg="${escAttr(p.id)}" data-arg2="approve">Approve</button>
+        <button class="btn-icon cell-sm c-danger-outline" data-action="decidePortalTicket" data-arg="${escAttr(p.id)}" data-arg2="reject">Reject</button>
+      </div></div>`).join('');
+  }
+}
+
+async function decidePortalTicket(id, decision) {
+  const r = await api('POST', `/portal/ticket-queue/${encodeURIComponent(id)}`, { decision });
+  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  toast(decision === 'approve' ? `Ticket #${r.number} created.` : 'Submission rejected.', 'success');
+  loadPortalTicketQueue();
+  if (decision === 'approve') loadTickets();
 }
 
 let _tkNewDevs = [];

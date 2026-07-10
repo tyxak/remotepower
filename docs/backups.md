@@ -53,6 +53,45 @@ the server after a loss:
 - An optional **WORM audit sink** (`audit_worm_path`) appends the hash-chained
   audit log to a tamper-resistant location (an append-only mount or S3 Object
   Lock), so the audit trail survives even a full compromise.
+- Optional **off-host mirroring** (`backup.offsite_dir`) copies each finished
+  archive to a second, typically off-host, location (an NFS/SMB/sshfs mount)
+  so a host loss doesn't take the backups with it — best-effort; a copy
+  failure never fails the backup itself, and the result is graded on the
+  Security posture page.
+- Optional **RPO/RTO targets** (`backup.rpo_hours`, `backup.rto_hours`,
+  Settings → Maintenance): RPO is graded automatically on
+  `GET /api/self/status` against hours-since-last-successful-run (a target
+  with no successful run to compare against reads as breached, not silently
+  "fine"). RTO is a declared target only — `POST /api/backup/test-restore`
+  surfaces the closest real signal available (its own decrypt+decompress+
+  structure-check timing), labelled explicitly as a lower bound, not a full
+  service-restore measurement.
+
+### Key escrow / break-glass
+
+`RP_BACKUP_PASSPHRASE` is deliberately **never persisted anywhere RemotePower
+controls** — it lives only in the process environment of whatever runs the
+server (systemd unit, Docker Compose, etc.). That's the right posture for the
+passphrase itself, but it means **RemotePower cannot help you if you lose it**:
+a lost or forgotten passphrase makes every existing encrypted archive
+permanently unrecoverable, with no reset/recovery path. Treat it like a
+root disk-encryption key, not an application password:
+
+- Store it in your organisation's actual secret-escrow system (a password
+  manager's shared vault, HashiCorp Vault, a sealed physical envelope in a
+  safe — whatever your org already uses for "if this person is unreachable,
+  can someone else still get in") **before** you rely on encrypted backups in
+  production, not after the first incident.
+- Write down (outside RemotePower) *where* it's escrowed and *who* can reach
+  it — the passphrase being safe is only half the plan; someone needs to be
+  able to find it during an actual incident, possibly without the person who
+  originally set it.
+- Rotating the passphrase does **not** re-encrypt existing archives — plan
+  for a rotation to mean "new archives use the new passphrase; keep the old
+  one escrowed too, for as long as you keep archives it encrypted."
+- If backup encryption is off (no `RP_BACKUP_PASSPHRASE` set), none of the
+  above applies — archives are plaintext and there is nothing to escrow, but
+  see the Security posture page for that trade-off.
 
 ## Permissions
 

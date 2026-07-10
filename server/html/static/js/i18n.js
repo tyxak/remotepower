@@ -213,6 +213,7 @@
     'System': { fr: 'Système', de: 'System', zh: '系统', hi: 'सिस्टम', es: 'Sistema', ar: 'النظام' },
     'Break-glass requests': { fr: 'Demandes d\'accès d\'urgence', de: 'Notfallzugriff-Anfragen', zh: '紧急访问请求', hi: 'आपातकालीन पहुँच अनुरोध', es: 'Solicitudes de acceso de emergencia', ar: 'طلبات الوصول الطارئ' },
     'Scoped credentials': { fr: 'Identifiants à portée limitée', de: 'Bereichsbezogene Anmeldedaten', zh: '范围凭据', hi: 'स्कोप्ड क्रेडेंशियल', es: 'Credenciales por ámbito', ar: 'بيانات اعتماد محددة النطاق' },
+    'Portal submissions awaiting approval': { fr: 'Soumissions du portail en attente d\'approbation', de: 'Portal-Einreichungen, die auf Genehmigung warten', zh: '待审批的门户提交', hi: 'अनुमोदन की प्रतीक्षा में पोर्टल सबमिशन', es: 'Envíos del portal pendientes de aprobación', ar: 'طلبات البوابة بانتظار الموافقة' },
     'New tickets': { fr: 'Nouveaux tickets', de: 'Neue Tickets', zh: '新工单', hi: 'नए टिकट', es: 'Tickets nuevos', ar: 'تذاكر جديدة' },
     'My open tickets': { fr: 'Mes tickets ouverts', de: 'Meine offenen Tickets', zh: '我的未结工单', hi: 'मेरे खुले टिकट', es: 'Mis tickets abiertos', ar: 'تذاكري المفتوحة' },
     "My team's open tickets": { "fr": "Tickets ouverts de mon équipe", "de": "Offene Tickets meines Teams", zh: '我团队的未结工单', hi: 'मेरी टीम के खुले टिकट', es: 'Tickets abiertos de mi equipo', ar: 'تذاكر فريقي المفتوحة' },

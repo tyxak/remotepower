@@ -444,6 +444,7 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
         "issuer": "",
         "subject": "",
         "san": [],
+        "chain": [],   # intermediates + root, when the stdlib exposes them (#99)
         # v1.11.2: hostname-vs-cert match is now reported separately from
         # full chain verification because users probing by IP routinely
         # have a working cert that just doesn't match the connect target.
@@ -493,8 +494,24 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
             except (RuntimeError, OSError) as e:
                 result["tls_error"] = f"{starttls.upper()} STARTTLS failed: {e}"
                 return result
+        chain_ders = []
         with ctx.wrap_socket(sock, server_hostname=host) as tls:
             der = tls.getpeercert(binary_form=True) or b""
+            # master-improvement-scoping #99: full-chain view where the stdlib
+            # exposes it (get_unverified_chain(), a provisional API added in
+            # Python 3.13 -- absent/erroring on older Python or an odd TLS
+            # stack is expected and must never break the primary leaf-cert
+            # probe, hence the broad, isolated except here).
+            try:
+                # get_unverified_chain() returns a list of DER-encoded bytes
+                # directly (not wrapper objects) -- verified against the
+                # actual stdlib docstring, not assumed, since this API's
+                # shape has moved between Python versions.
+                full_chain = tls.get_unverified_chain()
+                if full_chain:
+                    chain_ders.extend(full_chain[1:])   # [0] is the leaf, parsed below
+            except Exception:  # noqa: BLE001
+                pass
     except (socket.timeout, TimeoutError):
         result["tls_error"] = "connect/handshake timed out"
         return result
@@ -519,6 +536,19 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
     result["issuer"] = parsed.get("issuer", "")
     result["subject"] = parsed.get("subject", "")
     result["san"] = parsed.get("san", [])
+    # master-improvement-scoping #99: intermediates + root, when the stdlib
+    # exposed them above. Leaf is NOT repeated here (already the top-level
+    # subject/issuer/expires_at) -- an empty list just means either the
+    # server sent chain-of-one, or get_unverified_chain() isn't available on
+    # this Python; both are normal, not an error.
+    chain = []
+    for _cd in chain_ders:
+        _cp = _parse_cert_der(_cd)
+        if _cp:
+            chain.append({"subject": _cp.get("subject", ""),
+                          "issuer": _cp.get("issuer", ""),
+                          "expires_at": _cp.get("expires_at", 0)})
+    result["chain"] = chain
 
     # v1.11.2: hostname match is its own check. Useful when probing by IP —
     # the cert may be perfectly valid, just bound to a different name.

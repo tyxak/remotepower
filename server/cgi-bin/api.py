@@ -13,6 +13,7 @@ import time
 import hashlib
 import hmac
 import secrets
+import functools
 import socket
 import threading
 import subprocess
@@ -187,6 +188,8 @@ ATTACH_INLINE_TYPES = frozenset({
 })
 CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
 PORTAL_STATE_FILE = DATA_DIR / 'portal_state.json'  # W6-28 magic-link nonces + portal sessions
+PORTAL_TICKET_QUEUE_FILE = DATA_DIR / 'portal_ticket_queue.json'  # master-improvement-scoping #84
+MAX_PORTAL_TICKET_QUEUE = 500
 MAX_CONTACTS = 2000
 
 # ── v5.6.0: Knowledge base — structured IT documentation (opt-in) ───────────
@@ -7330,28 +7333,10 @@ def handle_portal_logout():
     raise HTTPError(200, {'ok': True}, headers=[('Set-Cookie', cookie)])
 
 
-def handle_portal_tickets():
-    """GET /api/portal/tickets — the caller's OWN site's portal tickets; POST —
-    open a new one for that site."""
-    _portal_gate()
-    contact, site = _portal_session()
-    if method() == 'GET':
-        tickets = (load(TICKETS_FILE) or {}).get('tickets') or []
-        out = [_portal_ticket_view(t) for t in tickets
-               if str(t.get('site', '')) == site and site]
-        out.sort(key=lambda t: t.get('updated_at') or 0, reverse=True)
-        respond(200, {'ok': True, 'tickets': out, 'site': site})
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    if not site:
-        respond(400, {'error': 'Your contact is not linked to a site.'})
-    body = get_json_obj()
-    subject = _sanitize_str(str(body.get('subject', '')), 200).strip()
-    message = _sanitize_str(str(body.get('message', '')), 8000).strip()
-    if not subject:
-        respond(400, {'error': 'subject required'})
-    if not _ip_ratelimit('portal_create', _get_client_ip(), max_per_window=10, window=3600):
-        respond(429, {'error': 'Too many tickets — please try again later.'})
+def _create_portal_ticket(contact, site, subject, message):
+    """Actually create the ticket in TICKETS_FILE. Shared by the direct
+    (approval not required) path and the queue-approval path below so both
+    produce byte-identical tickets. Returns (tid, number)."""
     now = int(time.time())
     tid = 'tk_' + secrets.token_hex(5)
     with _LockedUpdate(TICKETS_FILE) as store:
@@ -7376,7 +7361,94 @@ def handle_portal_tickets():
                                    'priority': 4, 'type': 'request', 'source': 'portal',
                                    'requester': contact.get('name') or contact.get('email') or 'portal contact',
                                    'site': site, 'site_name': _site_nm})
+    return tid, number
+
+
+def handle_portal_tickets():
+    """GET /api/portal/tickets — the caller's OWN site's portal tickets; POST —
+    open a new one for that site.
+
+    master-improvement-scoping #84: when `portal_ticket_approval_required` is
+    on, POST doesn't create a real ticket at all — it queues the submission
+    in PORTAL_TICKET_QUEUE_FILE for an operator to approve/reject
+    (handle_portal_ticket_queue*, admin-only). Approving calls the exact same
+    _create_portal_ticket() the direct path uses, so an approved ticket is
+    indistinguishable from one created with the gate off."""
+    _portal_gate()
+    contact, site = _portal_session()
+    if method() == 'GET':
+        tickets = (load(TICKETS_FILE) or {}).get('tickets') or []
+        out = [_portal_ticket_view(t) for t in tickets
+               if str(t.get('site', '')) == site and site]
+        out.sort(key=lambda t: t.get('updated_at') or 0, reverse=True)
+        respond(200, {'ok': True, 'tickets': out, 'site': site})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not site:
+        respond(400, {'error': 'Your contact is not linked to a site.'})
+    body = get_json_obj()
+    subject = _sanitize_str(str(body.get('subject', '')), 200).strip()
+    message = _sanitize_str(str(body.get('message', '')), 8000).strip()
+    if not subject:
+        respond(400, {'error': 'subject required'})
+    if not _ip_ratelimit('portal_create', _get_client_ip(), max_per_window=10, window=3600):
+        respond(429, {'error': 'Too many tickets — please try again later.'})
+
+    if _config_ro().get('portal_ticket_approval_required'):
+        qid = 'ptq_' + secrets.token_hex(5)
+        now = int(time.time())
+        with _LockedUpdate(PORTAL_TICKET_QUEUE_FILE) as q:
+            pending = q.setdefault('pending', [])
+            if len(pending) >= MAX_PORTAL_TICKET_QUEUE:
+                respond(400, {'error': 'approval queue is full — an operator needs to clear it first'})
+            pending.append({'id': qid, 'subject': subject, 'message': message,
+                            'site': site, 'contact_id': contact['id'],
+                            'contact_name': contact.get('name') or '',
+                            'contact_email': contact.get('email') or '',
+                            'created_at': now})
+        audit_log(f'portal:{contact["id"]}', 'portal_ticket_queued', f'site={site} subject={subject[:80]}')
+        respond(200, {'ok': True, 'pending_approval': True,
+                      'message': 'Your request has been received and is awaiting review.'})
+
+    tid, number = _create_portal_ticket(contact, site, subject, message)
     respond(200, {'ok': True, 'number': number})
+
+
+def handle_portal_ticket_queue():
+    """GET /api/portal/ticket-queue — admin: list submissions awaiting
+    approval. master-improvement-scoping #84."""
+    require_admin_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    pending = (load(PORTAL_TICKET_QUEUE_FILE) or {}).get('pending') or []
+    respond(200, {'ok': True, 'pending': sorted(pending, key=lambda p: p.get('created_at') or 0)})
+
+
+def handle_portal_ticket_queue_decide(qid):
+    """POST /api/portal/ticket-queue/{id}/approve|reject — admin.
+    master-improvement-scoping #84."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    decision = str(body.get('decision', '')).strip().lower()
+    if decision not in ('approve', 'reject'):
+        respond(400, {'error': "decision must be 'approve' or 'reject'"})
+    with _LockedUpdate(PORTAL_TICKET_QUEUE_FILE) as q:
+        pending = q.setdefault('pending', [])
+        idx = next((i for i, p in enumerate(pending) if p.get('id') == qid), None)
+        if idx is None:
+            respond(404, {'error': 'queued submission not found'})
+        item = pending.pop(idx)
+    if decision == 'reject':
+        audit_log(actor, 'portal_ticket_rejected', f'id={qid} subject={item.get("subject", "")[:80]}')
+        respond(200, {'ok': True, 'decision': 'reject'})
+    contact = {'id': item.get('contact_id', ''), 'name': item.get('contact_name', ''),
+               'email': item.get('contact_email', '')}
+    tid, number = _create_portal_ticket(contact, item.get('site', ''),
+                                        item.get('subject', ''), item.get('message', ''))
+    audit_log(actor, 'portal_ticket_approved', f'id={qid} -> #{number}')
+    respond(200, {'ok': True, 'decision': 'approve', 'number': number})
 
 
 def handle_portal_ticket(number):
@@ -20469,6 +20541,7 @@ def handle_config_get():
     safe.setdefault('image_scan_enabled', False)   # W6-34
     safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
+    safe.setdefault('portal_ticket_approval_required', False)   # master-improvement-scoping #84
     safe.setdefault('portal_base_url', '')          # W6-28 canonical portal URL (magic-link)
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
@@ -21452,6 +21525,8 @@ def handle_config_save():
         cfg['rdp_enabled'] = bool(body['rdp_enabled'])
     if 'portal_enabled' in body:          # W6-28: opt-in customer portal
         cfg['portal_enabled'] = bool(body['portal_enabled'])
+    if 'portal_ticket_approval_required' in body:   # master-improvement-scoping #84
+        cfg['portal_ticket_approval_required'] = bool(body['portal_ticket_approval_required'])
     if 'portal_base_url' in body:         # W6-28: canonical portal URL for the
         # magic-link email (defends against Host-header injection → portal ATO).
         # Store only a well-formed http(s) origin; anything else clears it (→ the
@@ -52800,6 +52875,23 @@ def handle_services_config(dev_id):
 
 # ─── v1.8.0: Log tail — called by agent with captured unit logs ───────────────
 
+@functools.lru_cache(maxsize=32)
+def _compiled_patterns_cached(patterns, flags=0):
+    """Compile a tuple of operator-authored regex patterns once, memoized by
+    the exact (patterns, flags) key — a config change is its own cache
+    invalidation (new tuple → new key), so this needs no explicit busting.
+    Invalid patterns are silently dropped, matching every existing inline
+    try/except re.error call site this replaces. `patterns` MUST be a tuple
+    (hashable) for lru_cache, not a list. master-improvement-scoping #9."""
+    out = []
+    for pat in patterns:
+        try:
+            out.append(re.compile(pat, flags))
+        except re.error:
+            pass
+    return out
+
+
 def handle_log_submit():
     """
     POST /api/logs — agent submits per-unit log lines (device-authenticated).
@@ -52852,6 +52944,17 @@ def handle_log_submit():
     # should produce one alert, not two.
     fired_keys = set()
 
+    # master-improvement-scoping #9: this used to load config + recompile
+    # every ignore pattern INSIDE the per-unit loop below despite the old
+    # comment claiming "once per submission" — a device reporting N units
+    # recompiled the whole ignore-pattern list N times per heartbeat. Hoisted
+    # out to genuinely run once per submission; _compiled_patterns_cached
+    # additionally memoizes across calls (keyed by the pattern tuple, so a
+    # config change is its own cache-invalidation — no explicit bust needed).
+    _cfg_ignore = load(CONFIG_FILE) or {}
+    _ignore_pats = tuple(_cfg_ignore.get('log_ignore_patterns') or [])
+    _ignore_res = _compiled_patterns_cached(_ignore_pats, re.IGNORECASE)
+
     for unit_raw, lines in units_in.items():
         unit = _sanitize_unit_name(unit_raw)
         if not isinstance(unit, str) or unit is None:
@@ -52860,16 +52963,6 @@ def handle_log_submit():
             continue
 
         clean_lines = []
-        # v2.9.1: load ignore patterns once per submission (from config)
-        _cfg_ignore = load(CONFIG_FILE) or {}
-        _ignore_pats = _cfg_ignore.get('log_ignore_patterns') or []
-        _ignore_res  = []
-        for _pat in _ignore_pats:
-            try:
-                _ignore_res.append(re.compile(_pat, re.IGNORECASE))
-            except re.error:
-                pass
-
         # v3.0.1: build a signature set of lines already in the buffer for
         # this unit. New lines whose signature matches are skipped, fixing
         # the apt.history re-submission bloat.
@@ -54552,6 +54645,8 @@ def _build_exact_routes():
         ('GET', '/api/portal/tickets'): handle_portal_tickets,
         ('POST', '/api/portal/tickets'): handle_portal_tickets,
         ('POST', '/api/portal/csp-report'): handle_portal_csp_report,
+        # master-improvement-scoping #84: portal-ticket approval queue (admin-only)
+        ('GET', '/api/portal/ticket-queue'): handle_portal_ticket_queue,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
@@ -55131,6 +55226,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/portal/tickets/', '/reply', 'handle_portal_ticket', "pi.startswith('/api/portal/tickets/') and pi.endswith('/reply') and m == 'POST'"),
     ('pat', ('GET',), '/api/portal/tickets/', '', 'handle_portal_ticket', "pi.startswith('/api/portal/tickets/') and m == 'GET'"),
+    ('pat', ('POST',), '/api/portal/ticket-queue/', '', 'handle_portal_ticket_queue_decide', "pi.startswith('/api/portal/ticket-queue/') and m == 'POST'"),
     ('pat', ('POST',), '/api/device-profiles/', '/apply', 'handle_device_profile_apply', "pi.startswith('/api/device-profiles/') and pi.endswith('/apply') and m == 'POST'"),
     ('pat', ('GET',), '/api/ipam/subnets/', '/occupancy', 'handle_ipam_occupancy', "pi.startswith('/api/ipam/subnets/') and pi.endswith('/occupancy') and m == 'GET'"),
     ('pat', ('PATCH',), '/api/ipam/subnets/', '', 'handle_ipam_subnet', "pi.startswith('/api/ipam/subnets/') and m == 'PATCH'"),

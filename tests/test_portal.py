@@ -22,6 +22,7 @@ class _Base(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for a in ('CONFIG_FILE', 'CONTACTS_FILE', 'TICKETS_FILE', 'PORTAL_STATE_FILE',
+                  'PORTAL_TICKET_QUEUE_FILE',
                   'RATELIMIT_FILE' if hasattr(api, 'RATELIMIT_FILE') else 'CONFIG_FILE'):
             self._files[a] = getattr(api, a)
             setattr(api, a, self.d / Path(getattr(api, a)).name)
@@ -30,7 +31,7 @@ class _Base(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('respond', 'method', 'get_json_obj', '_env', 'audit_log',
                        'fire_webhook', '_ip_ratelimit', '_get_client_ip', 'smtp_notifier',
-                       '_run_detached')}
+                       '_run_detached', 'require_admin_auth')}
         # Run the "detached" magic-link email send INLINE — never fork the test
         # process (the real _run_detached double-forks).
         api._run_detached = lambda fn: fn()
@@ -339,6 +340,96 @@ class TestPortalEnableGuard(_Base):
         api._invalidate_load_cache(api.CONFIG_FILE)
         self._save({'portal_enabled': False})
         self.assertFalse(self._rejected_400())
+
+
+class TestPortalTicketApproval(_Base):
+    """docs/master-improvement-scoping-internal.md #84 — optional operator
+    approval gate before a portal-created ticket enters the real queue."""
+
+    def _enable_gate(self):
+        cfg = api.load(api.CONFIG_FILE) or {}
+        cfg['portal_ticket_approval_required'] = True
+        api.save(api.CONFIG_FILE, cfg)
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def test_off_by_default_creates_real_ticket(self):
+        self._contact('ct_a', 'a@x.io', 's1')
+        self._session('ct_a', 's1')
+        api.save(api.TICKETS_FILE, {})
+        api._invalidate_load_cache(api.TICKETS_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'subject': 'help', 'message': 'hi'}
+        out = self.call(api.handle_portal_tickets)
+        self.assertTrue(out['ok'])
+        self.assertNotIn('pending_approval', out)
+        self.assertEqual(len((api.load(api.TICKETS_FILE) or {}).get('tickets', [])), 1)
+
+    def test_gate_on_queues_instead_of_creating(self):
+        self._contact('ct_a', 'a@x.io', 's1')
+        self._session('ct_a', 's1')
+        self._enable_gate()
+        api.save(api.TICKETS_FILE, {})
+        api._invalidate_load_cache(api.TICKETS_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'subject': 'help', 'message': 'hi'}
+        out = self.call(api.handle_portal_tickets)
+        self.assertTrue(out['ok'])
+        self.assertTrue(out['pending_approval'])
+        self.assertEqual((api.load(api.TICKETS_FILE) or {}).get('tickets', []), [])
+        pending = (api.load(api.PORTAL_TICKET_QUEUE_FILE) or {}).get('pending', [])
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]['site'], 's1')
+        self.assertEqual(pending[0]['contact_id'], 'ct_a')
+
+    def test_approve_creates_the_real_ticket(self):
+        self._contact('ct_a', 'a@x.io', 's1')
+        self._session('ct_a', 's1')
+        self._enable_gate()
+        api.save(api.TICKETS_FILE, {})
+        api._invalidate_load_cache(api.TICKETS_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'subject': 'help', 'message': 'hi'}
+        self.call(api.handle_portal_tickets)
+        qid = (api.load(api.PORTAL_TICKET_QUEUE_FILE) or {})['pending'][0]['id']
+
+        api.require_admin_auth = lambda **kw: 'admin'
+        api.get_json_obj = lambda: {'decision': 'approve'}
+        out = self.call(api.handle_portal_ticket_queue_decide, qid)
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['decision'], 'approve')
+        tickets = (api.load(api.TICKETS_FILE) or {}).get('tickets', [])
+        self.assertEqual(len(tickets), 1)
+        self.assertEqual(tickets[0]['site'], 's1')
+        self.assertEqual((api.load(api.PORTAL_TICKET_QUEUE_FILE) or {}).get('pending', []), [])
+
+    def test_reject_never_creates_a_ticket(self):
+        self._contact('ct_a', 'a@x.io', 's1')
+        self._session('ct_a', 's1')
+        self._enable_gate()
+        api.save(api.TICKETS_FILE, {})
+        api._invalidate_load_cache(api.TICKETS_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'subject': 'help', 'message': 'hi'}
+        self.call(api.handle_portal_tickets)
+        qid = (api.load(api.PORTAL_TICKET_QUEUE_FILE) or {})['pending'][0]['id']
+
+        api.require_admin_auth = lambda **kw: 'admin'
+        api.get_json_obj = lambda: {'decision': 'reject'}
+        out = self.call(api.handle_portal_ticket_queue_decide, qid)
+        self.assertEqual(out['decision'], 'reject')
+        self.assertEqual((api.load(api.TICKETS_FILE) or {}).get('tickets', []), [])
+        self.assertEqual((api.load(api.PORTAL_TICKET_QUEUE_FILE) or {}).get('pending', []), [])
+
+    def test_queue_list_is_admin_only(self):
+        api.require_admin_auth = lambda **kw: (_ for _ in ()).throw(api.HTTPError(403, {'error': 'nope'}))
+        api.method = lambda: 'GET'
+        with self.assertRaises(api.HTTPError):
+            api.handle_portal_ticket_queue()
+
+    def test_route_wired(self):
+        src = (ROOT / "server/cgi-bin/api.py").read_text()
+        self.assertIn("'/api/portal/ticket-queue'", src)
+        self.assertIn("handle_portal_ticket_queue_decide", src)
 
 
 class TestPortalNginxRouting(unittest.TestCase):

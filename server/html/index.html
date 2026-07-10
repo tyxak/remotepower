@@ -2491,6 +2491,8 @@
             <div class="settings-row"><label class="form-label" for="cfg-portal-base-url">Portal public URL <span class="meta-sm">(recommended when the portal is enabled)</span></label>
               <input type="url" id="cfg-portal-base-url" class="form-input" placeholder="https://portal.example.com" maxlength="300">
               <div class="hint">The canonical <code>https://host</code> the sign-in email links to. Set this so the magic link can't be pointed at another origin via a forged <code>Host</code> header. Blank = use the request host.</div></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-portal-ticket-approval"> Require operator approval before a portal-submitted ticket enters the queue</label>
+              <div class="hint">Off = a portal submission becomes a real ticket immediately, as before. On = it's held in an approval queue (Tickets page) until an operator approves or rejects it — useful if the portal is public-facing and you want a triage step before a submission notifies the team.</div></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">
@@ -6725,6 +6727,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <option value="change">Change</option>
           </select>
           <button class="enroll-btn" data-action="openTicketCreate">New ticket</button>
+        </div>
+        <div class="dash-card mb-16 hidden" id="tk-portal-queue-card">
+          <div class="section-title">Portal submissions awaiting approval <span class="fs-12 c-muted" id="tk-portal-queue-count"></span></div>
+          <div id="tk-portal-queue-list" class="scroll-cap"></div>
         </div>
         <div class="dash-card mb-16">
           <div class="section-title">New tickets <span class="fs-12 c-muted" id="tk-count-new"></span></div>

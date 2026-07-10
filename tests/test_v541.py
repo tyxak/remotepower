@@ -520,6 +520,63 @@ class TestE1OpenApiCoverage(unittest.TestCase):
         src = _apisrc_combined()
         self.assertIn("list(_build_exact_routes().keys()) + _dispatcher_routes()", src)
 
+    # ── docs/master-improvement-scoping-internal.md #94: contract tests so a
+    # route/schema drift fails CI, not just exact routes (the test above only
+    # covers _build_exact_routes(); pattern/templated routes parsed from
+    # _PATTERN_ROUTE_DEFS had no coverage guard at all until these). ──────────
+    def test_every_explicit_method_pattern_route_is_parsed(self):
+        # CLAUDE.md's own OpenAPI section warns: "an any-method branch (no
+        # m ==) is skipped — give it a method or a hand-written path." This
+        # verifies the CONVERSE holds for every route that DOES have one: no
+        # explicit-method pattern route is silently dropped by
+        # _dispatcher_routes()'s regex parse of its own condition text.
+        dispatcher_paths = {p for _, p in api._dispatcher_routes()}
+        skipped = []
+        for row in api._PATTERN_ROUTE_DEFS:
+            methods, prefix, cond = row[1], row[2], str(row[5])
+            if not methods:   # a genuine any-method route -- documented exception
+                continue
+            has_explicit_method = ("m == '" in cond) or ("m in (" in cond)
+            if not has_explicit_method:
+                continue
+            # Every parsed dispatcher path for this route's prefix must exist
+            # under SOME templated/prefixed form (device sub-resource or the
+            # generic '/{id}' fallback) -- mirrors _dispatcher_routes()'s own
+            # two shapes so this doesn't hard-code a third guess.
+            candidates = (
+                [p for p in dispatcher_paths if p.startswith(prefix.rstrip('/'))])
+            if not candidates:
+                skipped.append((prefix, cond[:80]))
+        self.assertEqual(skipped, [],
+                         f"pattern routes with an explicit method but no "
+                         f"dispatcher-parsed path (OpenAPI coverage gap): {skipped[:10]}")
+
+    def test_live_handler_end_to_end_covers_whole_surface(self):
+        # Calls the REAL handle_openapi_spec(), not build_spec() directly --
+        # catches a regression in the handler's own route-list wiring that a
+        # unit test calling build_spec() in isolation would miss.
+        orig_respond = api.respond
+        orig_auth = api.require_auth
+        cap = {}
+
+        def _resp(s, b=None):
+            cap['s'] = s
+            cap['b'] = b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.require_auth = lambda **kw: 'admin'
+        try:
+            try:
+                api.handle_openapi_spec()
+            except api.HTTPError:
+                pass
+        finally:
+            api.respond = orig_respond
+            api.require_auth = orig_auth
+        self.assertEqual(cap['s'], 200)
+        self.assertGreater(len(cap['b']['paths']), 200)
+        self.assertIn('/portal/ticket-queue', cap['b']['paths'])
+
 
 class TestG1OffsiteBackup(unittest.TestCase):
     """v5.4.1 (G1): off-host backup mirror + restore-verify."""

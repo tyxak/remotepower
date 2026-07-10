@@ -3159,6 +3159,8 @@ async function loadSettings() {
   if (_portEn) _portEn.checked = !!data.portal_enabled;
   const _portUrl = document.getElementById('cfg-portal-base-url');    // W6-28
   if (_portUrl) _portUrl.value = data.portal_base_url || '';
+  const _portAppr = document.getElementById('cfg-portal-ticket-approval');
+  if (_portAppr) _portAppr.checked = !!data.portal_ticket_approval_required;
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
     _secEn.checked = !!data.secrets_scan_enabled;
@@ -3655,6 +3657,8 @@ async function saveSettings(btn) {
   if (_portSaveEn) payload.portal_enabled = _portSaveEn.checked;
   const _portSaveUrl = document.getElementById('cfg-portal-base-url');
   if (_portSaveUrl) payload.portal_base_url = _portSaveUrl.value.trim();
+  const _portSaveAppr = document.getElementById('cfg-portal-ticket-approval');
+  if (_portSaveAppr) payload.portal_ticket_approval_required = _portSaveAppr.checked;
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {

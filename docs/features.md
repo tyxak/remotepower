@@ -323,7 +323,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for every secret-bearing config value at any depth (SMTP/OIDC/LDAP/SIEM, ACME DNS credentials, webhook tokens/URL, AI api_key, integration secrets) *(v5.6.x: full-tree coverage)*; transparent at load/save, fail-graceful *(v5.5.0)* |
 | External key sourcing | `RP_CONFIG_KEY` / `RP_BACKUP_PASSPHRASE` can be fetched from an external command (`<NAME>_CMD`, e.g. Vault/KMS/`pass`) instead of the process environment; cached per worker *(v5.5.0)* |
 | WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.5.0)* |
-| Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.5.0)* |
+| Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.5.0)*. Optional declared RPO/RTO targets (`backup.rpo_hours`/`rto_hours`), graded on `GET /api/self/status` |
 | Backup export | One-click redacted ZIP of all data JSON |
 | Config as code | One versioned, secret-redacted JSON document of all operator-authored config (monitors, checks, rules, integrations, webhooks, windows, targets, …) — git-safe, for review / diffing / off-box backup; `GET/POST /api/config/declarative` (import is dry-run-first, secret-rehydrating) *(v6.0.0)* |
 
