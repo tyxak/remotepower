@@ -3483,10 +3483,12 @@ class TestQueryEngineHandlers(_HandlerBase):
 
 class TestPatchSnapshots(_HandlerBase):
     """v6.1.1 — package-repo snapshot & promotion ledger
-    (docs/feature-buildout-scoping-internal.md #4). Scoped to snapshot +
-    diff + promote + drift-reporting; deliberately does NOT claim to
-    constrain what auto-patch actually installs (see the module docstring
-    in api.py for why that's a separate, larger follow-up)."""
+    (docs/feature-buildout-scoping-internal.md #4). Snapshot + diff + promote
+    + drift-reporting, plus (docs/master-improvement-scoping-internal.md #80,
+    this session) a real but coarse enforcement half: a promoted (pinned) tag
+    is excluded from auto-patch dispatch entirely (see the module docstring
+    in api.py for exactly what this does and doesn't cover -- true
+    version-pinned installs still need a new agent capability)."""
 
     def setUp(self):
         super().setUp()
@@ -3634,6 +3636,51 @@ class TestPatchSnapshots(_HandlerBase):
         self.assertIn("api('GET', `/patch-snapshots/diff", app)   # template literal, not a plain string
         self.assertIn('async function psDrift', app)
         self.assertIn('async function psPromote', app)
+
+    def test_unpinned_tag_unaffected(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'staging')   # a DIFFERENT tag than d1/d2's 'prod'
+        targets = api._autopatch_target_devices({'type': 'all'})
+        self.assertEqual(set(targets), {'d1', 'd2', 'd3'})
+
+    def test_pinned_tag_excluded_from_all_target(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')   # pins d1 + d2
+        targets = api._autopatch_target_devices({'type': 'all'})
+        self.assertEqual(set(targets), {'d3'})
+
+    def test_pinned_tag_excluded_even_when_targeted_directly_by_tag(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        targets = api._autopatch_target_devices({'type': 'tag', 'value': 'prod'})
+        self.assertEqual(targets, [])
+
+    def test_pinned_tag_excludes_a_directly_named_device_too(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        targets = api._autopatch_target_devices({'type': 'device', 'value': 'd1'})
+        self.assertEqual(targets, [])
+
+    def test_clearing_the_pin_restores_dispatch(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        self._promote(sid, None)   # demote
+        targets = api._autopatch_target_devices({'type': 'all'})
+        self.assertEqual(set(targets), {'d1', 'd2', 'd3'})
+
+    def test_drift_report_still_works_while_pinned(self):
+        # #80's module docstring: the drift REPORT still runs regardless of
+        # the dispatch-side pin -- pinning doesn't blind the operator to drift.
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.99'}]},   # drifted
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.22'}]},
+            'd3': {'packages': [{'name': 'nginx', 'version': '1.18'}]},
+        })
+        r = self._drift(sid)
+        self.assertEqual(r['tag'], 'prod')
+        self.assertEqual(r['devices_drifted'], 1)
 
 
 class TestInvoicePdfUiWired(unittest.TestCase):

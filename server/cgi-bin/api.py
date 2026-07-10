@@ -13965,14 +13965,38 @@ def _autopatch_load():
     return data
 
 
+def _pinned_patch_tags():
+    """docs/master-improvement-scoping-internal.md #80: tags currently
+    carrying an ACTIVE promoted patch-snapshot -- the actual "pin" enforcement
+    point. A promoted snapshot means "hold this tag's package versions"; the
+    blanket upgrade command auto-patch dispatch fires would directly violate
+    that, so _autopatch_target_devices excludes pinned-tag members below."""
+    snaps = load(PATCH_SNAPSHOTS_FILE) or {}
+    return {s.get('promoted_tag') for s in snaps.values() if s.get('promoted_tag')}
+
+
 def _autopatch_target_devices(target):
-    """Resolve a policy target {type,value} to a list of device ids."""
+    """Resolve a policy target {type,value} to a list of device ids.
+
+    #80: devices carrying a tag with an ACTIVE promoted patch-snapshot are
+    excluded from every target type (even type='device' naming one directly,
+    and type='tag' naming the pinned tag itself) -- a pin means auto-patch
+    doesn't touch that tag's members until it's cleared via
+    handle_patch_snapshot_promote(tag=None). The drift REPORT
+    (handle_patch_snapshot_drift) still runs regardless, so a pinned tag's
+    drift is visible even while dispatch is held back. Scope note: this
+    covers the flat (non-ringed) policy path only -- staged/ringed rollouts
+    resolve targets via _rollout_resolve_ring's own selector, a separate
+    mechanism this doesn't touch (a real remaining gap, not silently ignored)."""
     devices = load(DEVICES_FILE)
+    pinned = _pinned_patch_tags()
     t = (target or {}).get('type', 'all')
     v = (target or {}).get('value', '')
     out = []
     for did, dev in devices.items():
         if dev.get('quarantined'):
+            continue
+        if pinned and pinned.intersection(dev.get('tags') or ()):
             continue
         if t == 'all':
             out.append(did)
@@ -42266,10 +42290,19 @@ def handle_patch_report_xml():
 # snapshot (reusing PACKAGES_FILE, the same data patch-report already reads);
 # diff two snapshots; "promote" one to a tag as a REFERENCE point; and report
 # DRIFT of that tag's devices away from the promoted snapshot. This is
-# real-and-honest reproducibility/audit tooling on its own — enforcement
-# (actually constraining what auto-patch installs) is a separate, larger
-# follow-up flagged in docs/feature-buildout-scoping-internal.md #4, not
-# claimed here.
+# real-and-honest reproducibility/audit tooling on its own — TRUE version-
+# pinned enforcement (installing exactly the snapshot's versions) still needs
+# that new agent-side capability and remains a separate, larger follow-up
+# (docs/feature-buildout-scoping-internal.md #4). What DOES ship
+# (docs/master-improvement-scoping-internal.md #80, this session): a coarser
+# but real and honest form of enforcement achievable with the EXISTING agent
+# protocol — a promoted (pinned) tag is excluded from auto-patch dispatch
+# entirely (_autopatch_target_devices/_pinned_patch_tags), for the flat
+# (non-ringed) policy path. "Pin" means "hold this tag's versions by pausing
+# auto-patch for it", not "force-install the snapshot's exact versions" —
+# an honest middle ground, not the full pin semantics the item name implies.
+# Staged/ringed rollouts (a separate target-resolution path,
+# _rollout_resolve_ring) are NOT covered — a real remaining gap.
 MAX_PATCH_SNAPSHOTS = 200
 
 
