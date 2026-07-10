@@ -7,7 +7,7 @@ English. The gap was process, not strategy — nothing failed when a new page
 shipped with untranslated chrome, so coverage silently decayed with every
 release. This gate makes the curated set self-enforcing: every sidebar nav
 label and every page title in index.html must have a DICT entry carrying all
-four non-English languages.
+five non-English languages.
 """
 import html as _html
 import re
@@ -18,7 +18,7 @@ _ROOT = Path(__file__).parent.parent
 INDEX = (_ROOT / "server" / "html" / "index.html").read_text()
 I18N = (_ROOT / "server" / "html" / "static" / "js" / "i18n.js").read_text()
 
-LANGS = ('zh', 'hi', 'es', 'ar')
+LANGS = ('zh', 'hi', 'es', 'ar', 'de')
 
 
 def _dict_entries():
@@ -174,7 +174,7 @@ class TestChromeTranslationCoverage(unittest.TestCase):
 
 class TestSubtitleTranslationCoverage(unittest.TestCase):
     """Every `.page-subtitle` must have a translation entry in DICT or
-    HTMLDICT carrying all four non-English languages, or it renders
+    HTMLDICT carrying all five non-English languages, or it renders
     English-only in zh/hi/es/ar. The original v4.3.0 gate only checked
     page-*titles*; leaf-page subtitles slipped through (the gap this closes)."""
 
@@ -207,7 +207,7 @@ class TestSubtitleTranslationCoverage(unittest.TestCase):
 
 class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
     """Static `.section-title` headings and static `<button>` labels must
-    carry a DICT entry in all four non-English languages, or they render
+    carry a DICT entry in all five non-English languages, or they render
     English-only in zh/hi/es/ar. This closed a coverage gap an audit found:
     leaf-page section titles and clear-verb buttons had decayed to English."""
 
