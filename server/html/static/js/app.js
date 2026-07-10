@@ -2803,7 +2803,7 @@ async function openUserAdd() {
   }
   openModal('user-add-modal');
 }
-async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await api('POST', '/users', {username, password, role}); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
+async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!await uiConfirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: flip a user between admin and viewer without delete+recreate.
@@ -2814,12 +2814,52 @@ async function editUserRole(username, currentRole) {
     ? `Demote "${username}" from admin to viewer?\n\nViewers can read everything but cannot mutate.`
     : `Promote "${username}" from viewer to admin?\n\nAdmins can run commands, delete devices, and change settings.`;
   if (!await uiConfirm(msg)) return;
-  const data = await api('PATCH', '/users/' + username, { role: newRole });
+  const data = await withStepUp(() => api('PATCH', '/users/' + username, { role: newRole }));
   if (data?.ok) { toast(`${username} is now ${newRole}`, 'success'); loadUsers(); }
-  else toast(data?.error || 'Failed', 'error');
+  else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error');
 }
 function openPasswd(username) { document.getElementById('passwd-username').value = username; document.getElementById('passwd-old').value = ''; document.getElementById('passwd-new').value = ''; document.getElementById('passwd-old-wrap').style.display = 'block'; openModal('passwd-modal'); }
 async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error'); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
+
+// v6.1.1 (#33): step-up re-auth. A handful of sensitive actions (minting or
+// promoting an admin account) 403 with {code:'step_up_required'} unless the
+// session has a fresh POST /api/auth/step-up stamp. withStepUp() wraps the
+// call: on that specific rejection it prompts for password/2FA, verifies,
+// then retries the original call ONCE. Any other outcome (success, or a
+// different error) passes straight through untouched.
+let _stepUpResolve = null;
+function _openStepUpModal() {
+  document.getElementById('step-up-password').value = '';
+  document.getElementById('step-up-totp').value = '';
+  openModal('step-up-modal');
+  return new Promise(resolve => { _stepUpResolve = resolve; });
+}
+async function stepUpSubmit() {
+  const password = document.getElementById('step-up-password').value;
+  const totp_code = document.getElementById('step-up-totp').value.trim();
+  if (!password && !totp_code) { toast('Enter your password or a 2FA code', 'error'); return; }
+  const data = await api('POST', '/auth/step-up', {password, totp_code});
+  if (data?.ok) {
+    closeModal('step-up-modal');
+    if (_stepUpResolve) { _stepUpResolve(true); _stepUpResolve = null; }
+  } else {
+    toast(data?.error || 'Verification failed', 'error');
+  }
+}
+function stepUpCancel() {
+  closeModal('step-up-modal');
+  if (_stepUpResolve) { _stepUpResolve(false); _stepUpResolve = null; }
+}
+async function withStepUp(callFn) {
+  let data = await callFn();
+  if (data && data.code === 'step_up_required') {
+    const verified = await _openStepUpModal();
+    if (!verified) return data;
+    data = await callFn();
+  }
+  return data;
+}
+
 // ─── v1.8.4: Settings tabs + new fields ─────────────────────────────────────
 function switchSettingsTab(tab) {
   document.querySelectorAll('.settings-tab').forEach(b =>
@@ -22235,7 +22275,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Their type="submit" button's data-action click handler runs the
   // actual API call; we just need to stop the form from doing its
   // default navigation.
-  ['passwd-form', 'user-add-form'].forEach(id => {
+  ['passwd-form', 'user-add-form', 'step-up-form'].forEach(id => {
     document.getElementById(id)?.addEventListener('submit', e => e.preventDefault());
   });
 

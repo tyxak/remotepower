@@ -3481,6 +3481,56 @@ class TestQueryEngineHandlers(_HandlerBase):
                       api.handle_query_batch)
 
 
+class TestStepUpUiWired(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #33 -- the step-up modal
+    and its wiring into the two sensitive user-management actions that
+    server-side now 403 with code:'step_up_required' unless the session is
+    freshly re-verified."""
+
+    def test_modal_markup_present(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="step-up-modal"', html)
+        self.assertIn('id="step-up-password"', html)
+        self.assertIn('id="step-up-totp"', html)
+        self.assertIn('data-action="stepUpSubmit"', html)
+        self.assertIn('data-action="stepUpCancel"', html)
+
+    def test_modal_is_body_level_not_inside_container(self):
+        # CLAUDE.md: a full-viewport overlay nested inside .container is a
+        # stacking-context trap (the sidebar paints through it). Every
+        # .modal-overlay lives at body level, after </div><!-- /app -->.
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        app_close = html.index('<!-- /app -->')
+        modal_pos = html.index('id="step-up-modal"')
+        self.assertGreater(modal_pos, app_close,
+                           'step-up-modal must be a body-level sibling of #app, not nested inside .container')
+
+    def test_no_inline_style_or_handler(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        start = html.index('id="step-up-modal"')
+        end = html.index('</div>', html.index('</form>', start)) + len('</div>')
+        snippet = html[start:end]
+        self.assertNotIn('style="', snippet, 'CSP: no inline style attributes')
+        self.assertNotRegex(snippet, r'\son\w+=', 'CSP: no inline event-handler attributes')
+
+    def test_form_submit_prevented(self):
+        app = client_js()
+        self.assertIn("'step-up-form'", app)
+
+    def test_create_user_and_edit_role_wrapped_in_with_step_up(self):
+        app = client_js()
+        create_fn = re.search(r'async function createUser\(\)[^\n]*', app).group(0)
+        self.assertIn('withStepUp(', create_fn)
+        edit_fn_start = app.index('async function editUserRole(')
+        edit_fn = app[edit_fn_start:app.index('\n}', edit_fn_start)]
+        self.assertIn('withStepUp(', edit_fn)
+
+    def test_with_step_up_helper_defined(self):
+        app = client_js()
+        self.assertIn('async function withStepUp(callFn)', app)
+        self.assertIn("data.code === 'step_up_required'", app)
+
+
 class TestPatchSnapshots(_HandlerBase):
     """v6.1.1 — package-repo snapshot & promotion ledger
     (docs/feature-buildout-scoping-internal.md #4). Snapshot + diff + promote

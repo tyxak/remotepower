@@ -119,10 +119,23 @@ class TestUserCreateRejectsMcpRole(_ApiTestBase):
             sys.stdin = old_stdin
 
     def test_admin_role_accepted(self):
+        # v6.1.1 (#33): creating an ADMIN account requires a fresh step-up
+        # stamp on the session -- stamp it, matching a real POST /api/auth/step-up.
+        token = os.environ['HTTP_X_TOKEN']
+        tokens = self.api.load(self.api.TOKENS_FILE)
+        tokens[token]['step_up_at'] = int(time.time())
+        self.api.save(self.api.TOKENS_FILE, tokens)
         try:
             self._post({'username': 'alice', 'password': 'pw', 'role': 'admin'})
         except self.api.HTTPError as e:
             self.assertEqual(e.status, 201, f'expected 201, got {e.body}')
+
+    def test_admin_role_rejected_without_step_up(self):
+        try:
+            self._post({'username': 'alice2', 'password': 'pw', 'role': 'admin'})
+        except self.api.HTTPError as e:
+            self.assertEqual(e.status, 403)
+            self.assertEqual(e.body.get('code'), 'step_up_required')
 
     def test_viewer_role_accepted(self):
         try:

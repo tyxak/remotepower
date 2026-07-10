@@ -4712,6 +4712,95 @@ def require_write_role(what='modify this'):
     return username
 
 
+# ── docs/master-improvement-scoping-internal.md #33: step-up re-auth ────────
+# Ad-hoc per-action password confirmation already existed in a couple of
+# places (handle_totp_disable inlines its own verify_password call; the CMDB
+# vault key requirement on every credential reveal is an equivalent control
+# for that one subsystem) but there was no SHARED, reusable "prove you're
+# still you" primitive a handler could opt into. This is that primitive:
+# POST /api/auth/step-up re-verifies the caller's own password or TOTP code
+# and stamps the CURRENT session token with a short-lived step_up_at;
+# require_step_up() gates on that stamp being fresh. Session-token-only (an
+# API key has no human present to re-auth, so it can never step up).
+STEP_UP_WINDOW_SECONDS = 600   # 10 minutes
+
+
+def _step_up_token_entry():
+    """(tkey, entry, tokens) for the CURRENT request's session token, or
+    (None, None, None) if this isn't a session-token caller (e.g. an API
+    key) or the token doesn't resolve. Never raises."""
+    token = get_token_from_request()
+    if not token:
+        return None, None, None
+    tokens = load(TOKENS_FILE)
+    tkey = _resolve_token_key(token, tokens)
+    if not tkey:
+        return None, None, None
+    return tkey, tokens.get(tkey), tokens
+
+
+def handle_step_up_verify():
+    """POST /api/auth/step-up {password?, totp_code?} — re-verify the caller's
+    OWN password or TOTP code (whichever the account has configured; either
+    one is accepted) and stamp the current session with a fresh step_up_at.
+    A user with neither a local password nor TOTP configured (pure-SSO, no
+    2FA) has nothing to re-verify locally -- see require_step_up() for how
+    that's handled without permanently locking such an account out."""
+    username = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    users = load(USERS_FILE)
+    user = users.get(username)
+    if not user:
+        respond(404, {'error': 'User not found'})
+    verified = False
+    pw_hash = user.get('password_hash')
+    if pw_hash and body.get('password'):
+        verified = verify_password(str(body.get('password', '')), pw_hash)
+    if not verified:
+        totp_secret = user.get('totp_secret')
+        code = str(body.get('totp_code', '')).strip()
+        if totp_secret and code:
+            verified = code in _totp(totp_secret)
+    if not verified:
+        respond(401, {'error': 'password or TOTP code did not verify'})
+    tkey, entry, tokens = _step_up_token_entry()
+    if not tkey:
+        respond(400, {'error': 'no active session to stamp (API keys cannot step up)'})
+    entry['step_up_at'] = int(time.time())
+    save(TOKENS_FILE, tokens)
+    audit_log(username, 'step_up_verified', 'session re-authenticated')
+    respond(200, {'ok': True, 'expires_in': STEP_UP_WINDOW_SECONDS})
+
+
+def require_step_up():
+    """Gate for an action sensitive enough that a merely-valid session isn't
+    enough -- the caller must have re-verified their password/TOTP within the
+    last STEP_UP_WINDOW_SECONDS via POST /api/auth/step-up. Implies admin
+    (calls require_admin_auth() first).
+
+    Degrades gracefully for an account with NEITHER a local password NOR TOTP
+    configured (pure-SSO, no 2FA): there's nothing for it to re-verify, and
+    permanently locking such an admin out of every step-up-gated action would
+    be worse than the risk this gate defends against (mirrors the existing
+    _sso_only_blocks 'never lock everyone out' carve-out). Any account with
+    at least one local credential IS held to the fresh-verification bar."""
+    username = require_admin_auth()
+    tkey, entry, _tokens = _step_up_token_entry()
+    if not tkey or not entry:
+        respond(403, {'error': 'step-up re-authentication required',
+                      'code': 'step_up_required'})
+    step_up_at = int(entry.get('step_up_at') or 0)
+    if int(time.time()) - step_up_at <= STEP_UP_WINDOW_SECONDS:
+        return username
+    user = load(USERS_FILE).get(username) or {}
+    if not user.get('password_hash') and not user.get('totp_secret'):
+        return username   # nothing locally to step up with -- see docstring
+    respond(403, {'error': 'step-up re-authentication required',
+                  'code': 'step_up_required'})
+
+
 def require_mcp_action(action_name):
     """Gate for MCP write tools (Stage 4).
 
@@ -23316,6 +23405,8 @@ def handle_user_create():
     if not _assignable_role(role):
         respond(400, {'error': "role must be 'admin', 'viewer', or a defined custom role "
                                "(the 'mcp' role is reserved for API keys)"})
+    if role == 'admin':
+        require_step_up()   # v6.1.1 (#33): minting a new ADMIN account is the classic privilege-escalation step-up target
     if not username or not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(400, {'error': 'Invalid username (2-32 chars, alphanumeric/_/-)'})
     if not isinstance(password, str) or not password or len(password) > 1024:
@@ -23361,6 +23452,8 @@ def handle_user_update(username):
     new_role = (body.get('role') or '').strip().lower()
     if not _assignable_role(new_role):
         respond(400, {'error': 'role must be admin, viewer, or a defined custom role'})
+    if new_role == 'admin':
+        require_step_up()   # v6.1.1 (#33): promoting a user to admin is the classic privilege-escalation step-up target
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users:
             respond(404, {'error': 'User not found'})
@@ -55141,6 +55234,7 @@ def _build_exact_routes():
         ('POST', '/api/totp/setup'): handle_totp_setup,
         ('GET', '/api/totp/status'): handle_totp_status,
         ('POST', '/api/totp/recovery-codes'): handle_totp_regenerate_codes,
+        ('POST', '/api/auth/step-up'): handle_step_up_verify,   # v6.1.1 (#33)
         ('DELETE', '/api/ui-prefs'): handle_ui_prefs_clear,
         ('GET', '/api/ui-prefs'): handle_ui_prefs_get,
         ('POST', '/api/ui-prefs'): handle_ui_prefs_set,

@@ -181,9 +181,10 @@ class _HandlerBase(unittest.TestCase):
             setattr(api, attr, self.d / base)
         self.cap = {}
         self._orig = {n: getattr(api, n) for n in
-                      ('require_auth', 'verify_token', 'get_token_from_request',
-                       'audit_log', 'respond', 'method', 'get_json_body',
-                       'get_body', '_check_alert_mutation_perm', '_caller_scope')}
+                      ('require_auth', 'require_admin_auth', 'verify_token',
+                       'get_token_from_request', 'audit_log', 'respond', 'method',
+                       'get_json_body', 'get_body', '_check_alert_mutation_perm',
+                       '_caller_scope')}
         api.require_auth = lambda require_admin=False: 'jakob'
         api.verify_token = lambda t: ('jakob', 'admin')
         api.get_token_from_request = lambda: 't'
@@ -1165,6 +1166,94 @@ class TestTicketCreateAutoRoutes(unittest.TestCase):
         t = next(x for x in api.load(api.TICKETS_FILE)['tickets'] if x['id'] == res['id'])
         self.assertEqual(t['group'], '')
         self.assertEqual(t['assignee'], 'tester')   # falls back to the actor, unchanged behavior
+
+
+class TestStepUpAuth(_HandlerBase):
+    """docs/master-improvement-scoping-internal.md #33 -- a shared, reusable
+    step-up (fresh re-auth) primitive. require_auth/get_token_from_request
+    are stubbed by _HandlerBase (raw token 't', user 'jakob'); this class adds
+    TOKENS_FILE isolation and seeds a real session entry so
+    _step_up_token_entry()'s real _resolve_token_key lookup has something to
+    find (only require_auth/verify_token/get_token_from_request are faked --
+    the token-resolution and stamping logic under test is the real code)."""
+    def setUp(self):
+        super().setUp()
+        self._files['TOKENS_FILE'] = api.TOKENS_FILE
+        api.TOKENS_FILE = self.d / 'tokens.json'
+        self.tkey = api._token_hash('t')
+        api.save(api.TOKENS_FILE, {self.tkey: {'user': 'jakob', 'created': int(time.time())}})
+        api.save(api.USERS_FILE, {'jakob': {
+            'password_hash': api.hash_password('correct horse'), 'role': 'admin'}})
+
+    def _stamp_step_up(self, ago_seconds=0):
+        tokens = api.load(api.TOKENS_FILE)
+        tokens[self.tkey]['step_up_at'] = int(time.time()) - ago_seconds
+        api.save(api.TOKENS_FILE, tokens)
+
+    def test_require_step_up_blocks_without_a_stamp(self):
+        with self.assertRaises(api.HTTPError) as cm:
+            api.require_step_up()
+        self.assertEqual(cm.exception.status, 403)
+        self.assertEqual(cm.exception.body.get('code'), 'step_up_required')
+
+    def test_require_step_up_passes_with_a_fresh_stamp(self):
+        self._stamp_step_up(ago_seconds=30)
+        self.assertEqual(api.require_step_up(), 'jakob')
+
+    def test_require_step_up_blocks_a_stale_stamp(self):
+        self._stamp_step_up(ago_seconds=api.STEP_UP_WINDOW_SECONDS + 60)
+        with self.assertRaises(api.HTTPError) as cm:
+            api.require_step_up()
+        self.assertEqual(cm.exception.status, 403)
+
+    def test_require_step_up_degrades_gracefully_for_no_local_credential(self):
+        # a pure-SSO admin with no local password and no TOTP has nothing to
+        # step up with -- never permanently locked out (see the docstring).
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin'}})
+        self.assertEqual(api.require_step_up(), 'jakob')
+
+    def test_verify_correct_password_stamps_session(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'password': 'correct horse'}
+        try:
+            res = self.call(api.handle_step_up_verify)
+        finally:
+            del api.method
+            del api.get_json_obj
+        self.assertTrue(res['ok'])
+        tokens = api.load(api.TOKENS_FILE)
+        self.assertGreater(tokens[self.tkey].get('step_up_at', 0), 0)
+
+    def test_verify_wrong_password_401s_and_does_not_stamp(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'password': 'wrong'}
+        try:
+            self.call(api.handle_step_up_verify)
+        finally:
+            del api.method
+            del api.get_json_obj
+        self.assertEqual(self.cap['s'], 401)
+        tokens = api.load(api.TOKENS_FILE)
+        self.assertNotIn('step_up_at', tokens[self.tkey])
+
+    def test_verify_correct_totp_stamps_session(self):
+        secret = api._generate_totp_secret()
+        api.save(api.USERS_FILE, {'jakob': {
+            'password_hash': api.hash_password('correct horse'),
+            'role': 'admin', 'totp_secret': secret}})
+        code = api._totp(secret)[1]   # current code (window offset 0)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'totp_code': code}
+        try:
+            res = self.call(api.handle_step_up_verify)
+        finally:
+            del api.method
+            del api.get_json_obj
+        self.assertTrue(res['ok'])
+
+    def test_route_registered(self):
+        self.assertIs(api._build_exact_routes()[('POST', '/api/auth/step-up')],
+                      api.handle_step_up_verify)
 
 
 if __name__ == '__main__':

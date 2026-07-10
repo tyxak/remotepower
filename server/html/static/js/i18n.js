@@ -309,6 +309,7 @@
     // ── a few common actions ──
     'Save':        { fr: 'Enregistrer', de: 'Speichern', zh: '保存', hi: 'सहेजें', es: 'Guardar', ar: 'حفظ' },
     'Cancel':      { fr: 'Annuler', de: 'Abbrechen', zh: '取消', hi: 'रद्द करें', es: 'Cancelar', ar: 'إلغاء' },
+    'Verify':      { fr: 'Vérifier', de: 'Verifizieren', zh: '验证', hi: 'सत्यापित करें', es: 'Verificar', ar: 'التحقق' },
     'Refresh':     { fr: 'Actualiser', de: 'Aktualisieren', zh: '刷新', hi: 'ताज़ा करें', es: 'Actualizar', ar: 'تحديث' },
     'AI review':   { fr: 'Revue IA', de: 'KI-Überprüfung', zh: 'AI 审查', hi: 'AI समीक्षा', es: 'Revisión IA', ar: 'مراجعة الذكاء الاصطناعي' },
     'AI triage':   { fr: 'Tri IA', de: 'KI-Triage', zh: 'AI 分诊', hi: 'AI ट्राइएज', es: 'Triaje IA', ar: 'فرز الذكاء الاصطناعي' },
