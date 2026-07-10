@@ -895,6 +895,190 @@ class TestAlertEvents(_HandlerBase):
         self.assertIn('disk_predict_fail', fired)
 
 
+class TestUpsCriticalShutdown(_HandlerBase):
+    """v6.1.1 (#76): threshold-based ups_critical alert + opt-in auto-shutdown
+    of devices that depend on the UPS that went critical."""
+
+    def _ingest(self, dev_id, name, body, ts=1_000_000):
+        fired = []
+        orig = api.fire_webhook
+        api.fire_webhook = lambda ev, pl: fired.append((ev, pl))
+        try:
+            api._ingest_hardware(dev_id, name, body, ts)
+        finally:
+            api.fire_webhook = orig
+        return [e for e, _ in fired]
+
+    def test_registry_entry_and_resolves(self):
+        self.assertIn('ups_critical', api.WEBHOOK_EVENT_NAMES)
+        self.assertIn('ups_critical', api.EVENT_KIND_MAP)
+        self.assertIn('ups_critical', api._ALERT_RULES)
+        # ups_on_line's compound resolves must list ups_critical as a whitelisted
+        # sub_match-free (device-id-only) recover target, or it never resolves
+        # (CLAUDE.md "recover events — the match key must be in the whitelist").
+        self.assertIn('ups_critical', api._ALERT_RECOVER_EXTRA.get('ups_on_line', ()))
+
+    def test_battery_pct_below_threshold_fires_critical(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {})   # default threshold 20%
+        fired = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 15}]})
+        self.assertIn('ups_critical', fired)
+
+    def test_battery_pct_above_threshold_does_not_fire(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {})
+        fired = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 60}]})
+        self.assertNotIn('ups_critical', fired)
+
+    def test_runtime_s_below_threshold_fires_critical(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {})   # default runtime threshold 180s
+        fired = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 90, 'runtime_s': 60}]})
+        self.assertIn('ups_critical', fired)
+
+    def test_on_line_status_never_fires_critical_even_below_threshold(self):
+        # a low reported battery_pct while genuinely on line power (e.g. a
+        # miscalibrated UPS) must not trip the shutdown path.
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {})
+        fired = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OL', 'battery_pct': 5}]})
+        self.assertNotIn('ups_critical', fired)
+
+    def test_custom_threshold_from_config(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {'ups_critical_battery_pct': 50})
+        fired = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 45}]})
+        self.assertIn('ups_critical', fired)
+
+    def test_edge_triggered_no_refire_then_resolves_on_line(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {})
+        first = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 10}]})
+        self.assertIn('ups_critical', first)
+        again = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 8}]})
+        self.assertNotIn('ups_critical', again)   # still critical, no re-fire
+        back = self._ingest('d1', 'web', {'ups': [
+            {'name': 'apc', 'status': 'OL', 'battery_pct': 100}]})
+        self.assertIn('ups_on_line', back)
+
+    # ── dependency handler ──────────────────────────────────────────
+    def test_dependency_get_defaults_empty(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}, 'd2': {'name': 'b'}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_device_ups_dependency, 'd2')
+        self.assertEqual(r['ups_dependency'], {})
+
+    def test_dependency_patch_roundtrip(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}, 'd2': {'name': 'b'}})
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'source_device_id': 'd1', 'ups_name': 'apc'}
+        r = self.call(api.handle_device_ups_dependency, 'd2')
+        self.assertTrue(r['ok'])
+        dev = api.load(api.DEVICES_FILE)['d2']
+        self.assertEqual(dev['ups_dependency'], {'source_device_id': 'd1', 'ups_name': 'apc'})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_device_ups_dependency, 'd2')
+        self.assertEqual(r['ups_dependency'], {'source_device_id': 'd1', 'ups_name': 'apc'})
+
+    def test_dependency_patch_clears_with_blank_source(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'},
+                 'd2': {'name': 'b', 'ups_dependency': {'source_device_id': 'd1', 'ups_name': 'apc'}}})
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'source_device_id': '', 'ups_name': ''}
+        self.call(api.handle_device_ups_dependency, 'd2')
+        self.assertNotIn('ups_dependency', api.load(api.DEVICES_FILE)['d2'])
+
+    def test_dependency_rejects_unknown_source(self):
+        api.save(api.DEVICES_FILE, {'d2': {'name': 'b'}})
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'source_device_id': 'ghost', 'ups_name': ''}
+        self.call(api.handle_device_ups_dependency, 'd2')
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_dependency_rejects_self_reference(self):
+        api.save(api.DEVICES_FILE, {'d2': {'name': 'b'}})
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'source_device_id': 'd2', 'ups_name': ''}
+        self.call(api.handle_device_ups_dependency, 'd2')
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_dependency_route_registered(self):
+        names = [row[4] for row in api._PATTERN_ROUTE_DEFS if row[0] == 'pat']
+        self.assertIn('handle_device_ups_dependency', names)
+
+    # ── auto-shutdown queuing ────────────────────────────────────────
+    def _seed_pair(self, extra_nas=None, extra_hv=None):
+        nas = {'name': 'nas'}
+        hv = {'name': 'hv', 'ups_dependency': {'source_device_id': 'nas', 'ups_name': 'apc'}}
+        if extra_nas: nas.update(extra_nas)
+        if extra_hv: hv.update(extra_hv)
+        api.save(api.DEVICES_FILE, {'nas': nas, 'hv': hv})
+
+    def test_disabled_by_default_queues_nothing(self):
+        self._seed_pair()
+        api.save(api.CONFIG_FILE, {})   # ups_auto_shutdown_enabled unset → off
+        n = api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual(n, 0)
+        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('hv', []), [])
+
+    def test_enabled_queues_shutdown_for_dependent(self):
+        self._seed_pair()
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True})
+        n = api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual(n, 1)
+        self.assertIn('shutdown', (api.load(api.CMDS_FILE) or {}).get('hv', []))
+
+    def test_unrelated_device_not_queued(self):
+        api.save(api.DEVICES_FILE, {'nas': {'name': 'nas'}, 'other': {'name': 'other'}})
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True})
+        api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('other', []), [])
+
+    def test_quarantined_dependent_skipped(self):
+        self._seed_pair(extra_hv={'quarantined': True})
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True})
+        n = api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual(n, 0)
+
+    def test_audit_mode_dependent_skipped(self):
+        self._seed_pair(extra_hv={'sysinfo': {'audit_mode': True}})
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True})
+        n = api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual(n, 0)
+
+    def test_bypasses_change_approval_gate(self):
+        # deliberate: this is an unattended safety action, not an
+        # operator-initiated change — it must not get parked for a second
+        # admin the way a manual POST /api/shutdown would.
+        self._seed_pair()
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True,
+                 'change_approval_enabled': True, 'approval_gated_kinds': ['shutdown']})
+        n = api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual(n, 1)
+        self.assertIn('shutdown', (api.load(api.CMDS_FILE) or {}).get('hv', []))
+        self.assertEqual(api.load(api.CONFIRMATIONS_FILE) or {}, {})   # nothing parked
+
+    def test_end_to_end_heartbeat_triggers_auto_shutdown(self):
+        self._seed_pair()
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True})
+        self._ingest('nas', 'nas', {'ups': [
+            {'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 5}]})
+        self.assertIn('shutdown', (api.load(api.CMDS_FILE) or {}).get('hv', []))
+
+    def test_no_dependents_configured_is_a_no_op(self):
+        api.save(api.DEVICES_FILE, {'nas': {'name': 'nas'}})
+        api.save(api.CONFIG_FILE, {'ups_auto_shutdown_enabled': True})
+        n = api._ups_shutdown_dependents('nas', 'apc', 'nas')
+        self.assertEqual(n, 0)
+
+
 class TestApprovalGates(_HandlerBase):
     """v3.14.0 #29 — 4-eyes change-approval gates on risky actions."""
 
@@ -3784,6 +3968,63 @@ class TestLitigationHoldUiWired(unittest.TestCase):
         self.assertIn("api('GET', '/litigation-hold')", app)
         self.assertIn("api('POST', '/litigation-hold'", app)
         self.assertIn('loadLitigationHold();', app)   # called from the settings loader
+
+
+class TestUpsDependencyUiWired(unittest.TestCase):
+    """docs/master-improvement-scoping-internal.md #76."""
+
+    def test_modal_markup_present(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="ups-dep-modal"', html)
+        self.assertIn('id="ups-dep-source"', html)
+        self.assertIn('id="ups-dep-name"', html)
+        self.assertIn('data-action="saveUpsDependency"', html)
+
+    def test_modal_is_body_level_not_inside_container(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        app_close = html.index('<!-- /app -->')
+        modal_pos = html.index('id="ups-dep-modal"')
+        self.assertGreater(modal_pos, app_close)
+
+    def test_modal_no_inline_style_or_handler(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        start = html.index('id="ups-dep-modal"')
+        end = html.index('</div></div>', start) + len('</div></div>')
+        snippet = html[start:end]
+        self.assertNotIn('style="', snippet)
+        self.assertNotRegex(snippet, r'\son\w+=')
+
+    def test_settings_section_markup_present(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        self.assertIn('id="cfg-ups-auto-shutdown-enabled"', html)
+        self.assertIn('id="cfg-ups-critical-battery-pct"', html)
+        self.assertIn('id="cfg-ups-critical-runtime-s"', html)
+
+    def test_settings_section_no_inline_style_or_handler(self):
+        html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
+        start = html.index('UPS auto-shutdown</div>')
+        end = html.index('</div>\n          </div>', start)
+        snippet = html[start:end]
+        self.assertNotIn('style="', snippet)
+        self.assertNotRegex(snippet, r'\son\w+=')
+
+    def test_drawer_action_wired(self):
+        app = client_js()
+        self.assertIn('openUpsDependencyModal(id, name)', app)
+
+    def test_modal_open_save_functions_defined(self):
+        app = client_js()
+        self.assertIn('async function openUpsDependencyModal(devId, devName)', app)
+        self.assertIn('async function saveUpsDependency()', app)
+        self.assertIn("api('GET', `/devices/${devId}/ups-dependency`)", app)
+        self.assertIn("api('PATCH', `/devices/${devId}/ups-dependency`, body)", app)
+
+    def test_config_load_and_save_wired(self):
+        app = client_js()
+        self.assertIn("cfg-ups-auto-shutdown-enabled", app)
+        self.assertIn('ups_auto_shutdown_enabled', app)
+        self.assertIn('ups_critical_battery_pct', app)
+        self.assertIn('ups_critical_runtime_s', app)
 
 
 class TestPatchSnapshots(_HandlerBase):

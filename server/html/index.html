@@ -2027,6 +2027,15 @@
             </div>
           </div>
 
+          <!-- v6.1.1 (#76): UPS-critical auto-shutdown -->
+          <div class="settings-section">
+            <div class="section-title">UPS auto-shutdown</div>
+            <p class="hint">When a device's monitored UPS crosses the critical-battery threshold below, any OTHER device marked as powered by that UPS (device drawer → UPS dependency) is automatically queued a graceful shutdown — bypassing change-approval above, since this is an unattended safety action, not an operator-initiated one. <strong>Off by default</strong> — a device still needs its own UPS dependency mapping for anything to happen.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ups-auto-shutdown-enabled"> Auto-shutdown devices dependent on a UPS that goes critical</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-ups-critical-battery-pct">Critical battery threshold (%)</label><input type="number" id="cfg-ups-critical-battery-pct" class="form-input mw-160" min="1" max="99" value="20"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-ups-critical-runtime-s">Critical runtime threshold (seconds, 0 to disable)</label><input type="number" id="cfg-ups-critical-runtime-s" class="form-input mw-160" min="0" max="3600" value="180"></div>
+          </div>
+
           <!-- v3.12.0: host-audit toggle (listening ports + firewall drift) -->
           <div class="settings-section">
             <div class="section-title">Listening-port &amp; firewall audit</div>
@@ -7706,6 +7715,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-secondary" data-action="pduControl" data-arg="cycle">Power Cycle</button>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="pdu-modal">Close</button><button class="btn-primary" data-action="savePduConfig">Save mapping</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ups-dep-modal-title" id="ups-dep-modal"><div class="modal">
+  <div class="modal-title" id="ups-dep-modal-title">UPS dependency</div>
+  <p class="hint">Mark this host as powered by another host's monitored UPS. When that UPS's battery crosses the critical threshold (Settings → Power), and fleet-wide UPS auto-shutdown is enabled, this host is queued a graceful shutdown automatically.</p>
+  <input type="hidden" id="ups-dep-dev-id">
+  <div class="form-group"><label class="form-label" for="ups-dep-source">Powered by (device reporting the UPS)</label>
+    <select id="ups-dep-source" class="form-input"><option value="">(none — disable)</option></select></div>
+  <div class="form-group"><label class="form-label" for="ups-dep-name">UPS name (optional)</label><input type="text" id="ups-dep-name" class="form-input ff-mono" placeholder="ups1" maxlength="64"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ups-dep-modal">Cancel</button><button class="btn-primary" data-action="saveUpsDependency">Save</button></div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdlib-add-modal-title" id="cmdlib-add-modal"><div class="modal"><div class="modal-title" id="cmdlib-add-modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache" aria-label="Name"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input ff-mono" placeholder="apt-get clean" aria-label="Command"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache" aria-label="Description (optional)"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>

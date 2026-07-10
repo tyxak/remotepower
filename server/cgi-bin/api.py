@@ -1357,9 +1357,16 @@ EVENT_REGISTRY = {
     'ups_on_battery': dict(
         label='UPS switched to battery power', kind='ups', title='UPS On Battery',
         severity='critical', tags='rotating_light,battery'),
+    # v6.1.1: threshold-crossing critical-battery alert, distinct from the plain
+    # on-battery edge above — see _ups_shutdown_dependents for the (opt-in)
+    # auto-shutdown this can trigger for dependent devices.
+    'ups_critical': dict(
+        label='UPS battery critically low (below the configured shutdown threshold)',
+        kind='ups', title='UPS Battery Critical', severity='critical', priority=5,
+        tags='rotating_light,battery'),
     'ups_on_line': dict(
         label='UPS returned to line power', kind='ups', title='UPS Back On Line Power',
-        resolves=('ups_on_battery',), tags='green_circle,electric_plug'),
+        resolves=('ups_on_battery', 'ups_critical'), tags='green_circle,electric_plug'),
     'temp_high': dict(
         label='A hardware sensor exceeded its temperature threshold', kind='thermal',
         title='High Temperature', severity='high', tags='fire,thermometer'),
@@ -18395,6 +18402,90 @@ def _queue_command_batch(dev_ids, command, actor):
     return results
 
 
+def handle_device_ups_dependency(dev_id):
+    """GET/PATCH /api/devices/{id}/ups-dependency — marks this device as
+    powered by another (UPS-reporting) device's UPS, so it can be
+    auto-shut-down when that UPS goes critical (see _ups_shutdown_dependents).
+    PATCH is admin-only + audited. Presence of the stored object is what
+    "enables" it for this device, matching handle_device_pdu's convention."""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    m = method()
+    if m == 'GET':
+        require_auth()
+        devs = load(DEVICES_FILE)
+        if dev_id not in devs:
+            respond(404, {'error': 'Device not found'})
+        respond(200, {'ups_dependency': devs[dev_id].get('ups_dependency') or {}})
+    if m != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    source_id = str(body.get('source_device_id', '')).strip()
+    ups_name = _sanitize_str(str(body.get('ups_name', '')), 64)
+    if source_id and not _validate_id(source_id):
+        respond(400, {'error': 'invalid source_device_id'})
+    if source_id == dev_id:
+        respond(400, {'error': 'a device cannot depend on its own UPS'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        if source_id:
+            if source_id not in devices:
+                respond(400, {'error': 'source device not found'})
+            devices[dev_id]['ups_dependency'] = {'source_device_id': source_id, 'ups_name': ups_name}
+        else:
+            devices[dev_id].pop('ups_dependency', None)
+    audit_log(actor, 'device_ups_dependency', f'device={dev_id} source={source_id} ups={ups_name}')
+    respond(200, {'ok': True})
+
+
+def _ups_shutdown_dependents(source_dev_id, ups_name, source_dev_name):
+    """Called (outside any lock) right after a heartbeat's UPS reading crosses
+    into 'critical' for source_dev_id. Opt-in on TWO axes — the global
+    ups_auto_shutdown_enabled config flag AND each dependent device's own
+    ups_dependency mapping — before anything is queued, so a stray per-device
+    mapping does nothing unless the feature is deliberately turned on fleet-
+    wide. Queues the SAME 'shutdown' command handle_shutdown() uses, but
+    deliberately bypasses the four-eyes approval gate: this is an unattended
+    safety action (the UPS is dying right now), not an operator-initiated
+    change, so parking it for a second admin to approve would defeat the
+    point. Still respects quarantine/audit-mode/maintenance like every other
+    queue path. Returns the count queued."""
+    cfg = _config_ro()
+    if not cfg.get('ups_auto_shutdown_enabled'):
+        return 0
+    devices = load(DEVICES_FILE)
+    targets = [d for d, dev in devices.items()
+               if isinstance(dev.get('ups_dependency'), dict)
+               and dev['ups_dependency'].get('source_device_id') == source_dev_id]
+    if not targets:
+        return 0
+    if _maintenance_active()[0]:
+        return 0
+    actor = f'ups_auto_shutdown({ups_name or source_dev_name})'
+    queued = []
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        for dev_id in targets:
+            dev = devices[dev_id]
+            if _device_quarantined(dev) or (dev.get('sysinfo') or {}).get('audit_mode'):
+                continue
+            if dev_id not in cmds:
+                cmds[dev_id] = []
+            if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
+                continue
+            if 'shutdown' not in cmds[dev_id]:
+                cmds[dev_id].append('shutdown')
+            queued.append((dev_id, dev.get('name', dev_id)))
+    for dev_id, name in queued:
+        log_command(actor, dev_id, name, 'shutdown')
+        audit_log(actor, 'ups_auto_shutdown', f'device={dev_id} source={source_dev_id} ups={ups_name}')
+        fire_webhook('command_queued', {
+            'device_id': dev_id, 'name': name, 'command': 'shutdown', 'actor': actor,
+        })
+    return len(queued)
+
+
 def _humanize_queued_command(cmd):
     """Turn a raw queued command string into a short {kind, summary} for the
     queue viewer. The agent receives these verbatim; this is display-only."""
@@ -20848,6 +20939,9 @@ def handle_config_get():
             for a in safe['cloud_accounts'] if isinstance(a, dict)]
     else:
         safe.setdefault('cloud_accounts', [])
+    safe.setdefault('ups_auto_shutdown_enabled', False)  # v6.1.1: opt-in UPS-critical auto-shutdown
+    safe.setdefault('ups_critical_battery_pct', 20)
+    safe.setdefault('ups_critical_runtime_s', 180)
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     # v5.8.0 (B3.4): surface the gated-kinds list (+ the full offerable set) so
@@ -22298,6 +22392,23 @@ def handle_config_save():
         else:
             cfg.pop('otlp_token', None)
 
+    # v6.1.1: UPS-critical auto-shutdown — opt-in, off by default (see
+    # _ups_shutdown_dependents; also needs each dependent device's own
+    # ups_dependency mapping via PATCH /api/devices/{id}/ups-dependency).
+    if 'ups_auto_shutdown_enabled' in body:
+        cfg['ups_auto_shutdown_enabled'] = bool(body['ups_auto_shutdown_enabled'])
+    if 'ups_critical_battery_pct' in body:
+        try:
+            pct = int(body['ups_critical_battery_pct'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'ups_critical_battery_pct must be an integer'})
+        cfg['ups_critical_battery_pct'] = max(1, min(99, pct))
+    if 'ups_critical_runtime_s' in body:
+        try:
+            rt = int(body['ups_critical_runtime_s'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'ups_critical_runtime_s must be an integer'})
+        cfg['ups_critical_runtime_s'] = max(0, min(3600, rt))
     # v3.7.0: change approval (maker-checker)
     if 'change_approval_enabled' in body:
         cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
@@ -34669,6 +34780,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
         rec['_uid0_alerted'] = sorted(rogue)
 
     # ── v3.14.0: UPS / power ─────────────────────────────────────
+    ups_critical_source = None   # (dev_id, ups_name, dev_name) if this heartbeat trips critical
     if isinstance(body.get('ups'), list):
         upses = []
         for u in body['ups'][:MAX_UPS]:
@@ -34698,6 +34810,30 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                 'ups': (upses[0].get('name') if upses else '')}))
         rec['_ups_on_battery'] = on_batt
 
+        # v6.1.1: edge-triggered "critical" battery — a THRESHOLD on top of the
+        # plain on-battery alert above (battery_pct/runtime_s were always
+        # collected but nothing read them for a severity decision). Crossing
+        # into critical is what _ups_shutdown_dependents keys off of.
+        _ups_cfg = _config_ro()
+        batt_thr = int(_ups_cfg.get('ups_critical_battery_pct', 20) or 20)
+        runtime_thr = int(_ups_cfg.get('ups_critical_runtime_s', 180) or 180)
+
+        def _crit(u):
+            if not _ob(u):
+                return False
+            bp, rt = u.get('battery_pct'), u.get('runtime_s')
+            return ((isinstance(bp, (int, float)) and bp <= batt_thr) or
+                    (isinstance(rt, (int, float)) and rt <= runtime_thr))
+        is_crit = any(_crit(u) for u in upses)
+        was_crit = bool(rec.get('_ups_critical'))
+        if is_crit and not was_crit:
+            uc = next((u for u in upses if _crit(u)), {})
+            events.append(('ups_critical', {'device_id': dev_id, 'name': dev_name,
+                'ups': uc.get('name', ''), 'battery_pct': uc.get('battery_pct'),
+                'runtime_s': uc.get('runtime_s')}))
+            ups_critical_source = (dev_id, uc.get('name', ''), dev_name)
+        rec['_ups_critical'] = is_crit
+
     rec['ts'] = now
 
     _entity_write_one(HARDWARE_FILE, dev_id, rec)
@@ -34717,6 +34853,12 @@ def _ingest_hardware(dev_id, dev_name, body, now):
     for event, payload in events:
         try:
             fire_webhook(event, payload)
+        except Exception:
+            pass
+
+    if ups_critical_source is not None:
+        try:
+            _ups_shutdown_dependents(*ups_critical_source)
         except Exception:
             pass
 
@@ -55512,6 +55654,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/service-action', 'handle_service_action', "pi.startswith('/api/devices/') and pi.endswith('/service-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/power-control', 'handle_device_power_control', "pi.startswith('/api/devices/') and pi.endswith('/power-control') and m == 'POST'"),
     ('pat', ('GET', 'PATCH'), '/api/devices/', '/pdu', 'handle_device_pdu', "pi.startswith('/api/devices/') and pi.endswith('/pdu') and m in ('GET', 'PATCH')"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/ups-dependency', 'handle_device_ups_dependency', "pi.startswith('/api/devices/') and pi.endswith('/ups-dependency') and m in ('GET', 'PATCH')"),
     ('pat', ('POST',), '/api/devices/', '/kill', 'handle_process_kill', "pi.startswith('/api/devices/') and pi.endswith('/kill') and m == 'POST'"),
     ('pat', ('GET', 'POST'), '/api/devices/', '/files', 'handle_device_files', "pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST')"),
     # v6.1.1: folder-as-tar streaming archive (separate chunked-upload channel)

@@ -3225,6 +3225,13 @@ async function loadSettings() {
       ).join('');
     }
   }
+  // v6.1.1 (#76): UPS-critical auto-shutdown, default off.
+  const _upsAse = document.getElementById('cfg-ups-auto-shutdown-enabled');
+  if (_upsAse) {
+    _upsAse.checked = !!data.ups_auto_shutdown_enabled;
+    const bp = document.getElementById('cfg-ups-critical-battery-pct'); if (bp) bp.value = data.ups_critical_battery_pct ?? 20;
+    const rt = document.getElementById('cfg-ups-critical-runtime-s'); if (rt) rt.value = data.ups_critical_runtime_s ?? 180;
+  }
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
   if (_pae) _pae.checked = !!data.port_audit_enabled;
@@ -3715,6 +3722,13 @@ async function saveSettings(btn) {
     // default set if the list ends up empty).
     const kinds = Array.from(document.querySelectorAll('.cfg-approval-kind:checked')).map(el => el.value);
     payload.approval_gated_kinds = kinds;
+  }
+  // v6.1.1 (#76): UPS-critical auto-shutdown.
+  const _upsAseEn = document.getElementById('cfg-ups-auto-shutdown-enabled');
+  if (_upsAseEn) {
+    payload.ups_auto_shutdown_enabled = _upsAseEn.checked;
+    payload.ups_critical_battery_pct = parseInt(document.getElementById('cfg-ups-critical-battery-pct')?.value, 10) || 20;
+    payload.ups_critical_runtime_s = parseInt(document.getElementById('cfg-ups-critical-runtime-s')?.value, 10) || 0;
   }
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');
@@ -15393,7 +15407,7 @@ function _renderHomeActivity(fleetEvents) {
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
     // v6.0.1: read-only remount (silent data-loss) + mail-queue backlog
     'readonly_fs', 'readonly_fs_cleared', 'mailq_high', 'mailq_normal',
-    'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'temp_high', 'temp_normal',
+    'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
@@ -15614,7 +15628,7 @@ function _homeActivityAttrs(event, p) {
     case 'mailq_high': case 'mailq_normal':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
-    case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':
+    case 'disk_predict_fail': case 'ups_on_battery': case 'ups_critical': case 'ups_on_line':
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
@@ -17819,6 +17833,7 @@ function _renderDrawerActions() {
     ['power',     'Shut down',       () => { shutdownTarget = id; closeDeviceDrawer(); openModal('shutdown-modal'); document.getElementById('shutdown-name').textContent = name; }, false, agentless],
     ['radio',     'Wake on LAN',     () => _wolWithMacCheck(id, name),                                                                                                            false, false],
     ['power',     'Power (PDU)',     () => { closeDeviceDrawer(); openPduModal(id, name); },                                                                                      false, false],
+    ['zap',       'UPS dependency',  () => { closeDeviceDrawer(); openUpsDependencyModal(id, name); },                                                                             false, false],
     ['copy',      'Copy summary',    () => _copyDeviceSummary(d),                                                                                                                  false, false],
     ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
@@ -20924,6 +20939,33 @@ async function pduControl(action) {
   const errs = (r.results || []).filter(x => x.error);
   if (errs.length) toast(`PDU ${action}: ${errs.map(e => e.error).join('; ')}`, 'error');
   else toast(`PDU ${action} sent`, 'success');
+}
+
+// UPS dependency — mark this host as powered by another host's monitored UPS,
+// so it can be auto-shut-down when that UPS goes critical (Settings → Power).
+async function openUpsDependencyModal(devId, devName) {
+  document.getElementById('ups-dep-dev-id').value = devId;
+  document.getElementById('ups-dep-modal-title').textContent = `UPS dependency — ${devName || devId}`;
+  const sel = document.getElementById('ups-dep-source');
+  sel.innerHTML = '<option value="">(none — disable)</option>' +
+    devices.filter(d => d.id !== devId)
+      .map(d => `<option value="${escHtml(d.id)}">${escHtml(d.name)}</option>`).join('');
+  document.getElementById('ups-dep-name').value = '';
+  openModal('ups-dep-modal');
+  const r = await api('GET', `/devices/${devId}/ups-dependency`);
+  const dep = (r && r.ups_dependency) || {};
+  if (dep.source_device_id) sel.value = dep.source_device_id;
+  document.getElementById('ups-dep-name').value = dep.ups_name || '';
+}
+async function saveUpsDependency() {
+  const devId = document.getElementById('ups-dep-dev-id').value;
+  const body = {
+    source_device_id: document.getElementById('ups-dep-source').value,
+    ups_name: document.getElementById('ups-dep-name').value.trim(),
+  };
+  const r = await api('PATCH', `/devices/${devId}/ups-dependency`, body);
+  if (r?.ok) toast(body.source_device_id ? 'UPS dependency saved' : 'UPS dependency cleared', 'success');
+  else toast(r?.error || 'Failed', 'error');
 }
 
 // SBOM diff — snapshot the current package set, then compare a later state to it.

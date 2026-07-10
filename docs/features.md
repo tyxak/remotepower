@@ -303,7 +303,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | One-click maintenance | Per-pool scrub/trim/error-clear/balance/status/snapshot from a fixed server-side template; audited *(v5.0.0)* |
 | GPU monitoring | **Monitoring → GPUs** NVIDIA + AMD — util/VRAM/temp/power/fan, trend sparklines, fleet summary; amdgpu sysfs fallback; thermal alerting reuses temp_high *(v4.7.0)* |
 | Thermal | Hottest hosts, per-sensor expand, ~24h trend sparkline, per-host warning/critical thresholds *(v4.0.0)* |
-| Power / UPS | NUT (`upsc`) / apcupsd (`apcaccess`) — status, battery %, load %, runtime, input V, watts; Power page + energy cost; `ups_on_battery`/`ups_on_line` *(v4.0.0)* |
+| Power / UPS | NUT (`upsc`) / apcupsd (`apcaccess`) — status, battery %, load %, runtime, input V, watts; Power page + energy cost; `ups_on_battery`/`ups_on_line` *(v4.0.0)*; threshold-based `ups_critical` + opt-in auto-shutdown of dependent devices (device drawer → UPS dependency, Settings → Security) *(v6.1.1)* |
 | Disk endurance + predictive health | SSD/NVMe endurance + predictive disk health *(v4.0.0)* |
 | Certificate-file + account audit | Local certificate-file inventory + local-account audit; an expiring local service cert raises a coalesced one-per-host `cert_file_expiring` alert by default *(v4.0.0, alert on by default v6.0.1)* |
 | Read-only remount alert | A local filesystem the kernel flips read-only (a silent I/O-error / data-loss outage) raises a coalesced `readonly_fs` alert + webhook; `readonly_fs_cleared` on recovery *(v6.0.1)* |

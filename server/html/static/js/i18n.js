@@ -1906,6 +1906,7 @@
     'Top bandwidth':          { fr: 'Bande passante la plus élevée', de: 'Höchste Bandbreite', zh: '带宽占用最高', hi: 'शीर्ष बैंडविड्थ', es: 'Mayor ancho de banda', ar: 'أعلى استهلاك للنطاق الترددي' },
     'Top tags':               { fr: 'Principales étiquettes', de: 'Top-Tags', zh: '主要标签', hi: 'शीर्ष टैग', es: 'Principales etiquetas', ar: 'أبرز الوسوم' },
     'UPS on battery':         { fr: 'Onduleur sur batterie', de: 'USV im Batteriebetrieb', zh: 'UPS 正使用电池供电', hi: 'UPS बैटरी पर', es: 'UPS con batería', ar: 'UPS يعمل بالبطارية' },
+    'UPS auto-shutdown':      { fr: 'Arrêt automatique sur onduleur', de: 'USV-Auto-Abschaltung', zh: 'UPS 自动关机', hi: 'UPS ऑटो-शटडाउन', es: 'Apagado automático por UPS', ar: 'إيقاف تلقائي عند نفاد UPS' },
     'Ungrouped devices':      { fr: 'Appareils non groupés', de: 'Nicht gruppierte Geräte', zh: '未分组设备', hi: 'असमूहीकृत डिवाइस', es: 'Dispositivos sin grupo', ar: 'أجهزة غير مجمّعة' },
     'Upcoming':               { fr: 'À venir', de: 'Bevorstehend', zh: '即将到来', hi: 'आगामी', es: 'Próximos', ar: 'القادمة' },
     'Updates pending':        { fr: 'Mises à jour en attente', de: 'Updates ausstehend', zh: '更新待处理', hi: 'अपडेट लंबित', es: 'Actualizaciones pendientes', ar: 'تحديثات معلّقة' },
