@@ -2130,6 +2130,116 @@ class TestTenancyP2(_HandlerBase):
         self.assertTrue(self.call(api.handle_config_get)['tenancy_enforced'])
 
 
+class TestApiKeyTenantIsolation(_HandlerBase):
+    """docs/master-improvement-scoping-internal.md #16 -- a REAL cross-tenant
+    isolation bypass found and fixed this session: an admin-role API key's
+    tenant used to be resolved via the free-text `user` display field
+    (handle_apikeys_create defaults it to the literal string 'api', which
+    matches no real USERS_FILE account), so _user_tenant('api') fell through
+    to DEFAULT_TENANT -- making _caller_is_superadmin() true for ANY
+    admin-role key, from ANY tenant, that used the default field. Fixed by
+    stamping the key's OWN tenant_id at creation (from the creating admin's
+    real tenant) and resolving through that, not the display field."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active'}})
+        api.save(api.USERS_FILE, {
+            'super':     {'role': 'admin', 'tenant_id': 'default'},
+            'acmeadmin': {'role': 'admin', 'tenant_id': 'acme'},
+        })
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True})
+
+    def _seed_key(self, kid, raw_key, **fields):
+        keys = api.load(api.APIKEYS_FILE)
+        keys[kid] = {'name': kid, 'key_hash': api._apikey_hash(raw_key),
+                     'role': 'admin', 'created': 1, 'active': True,
+                     'rate_limit': 0, 'expires_at': None, **fields}
+        api.save(api.APIKEYS_FILE, keys)
+
+    def _as_real_apikey(self, raw_key):
+        """Un-stub verify_token/get_token_from_request so the REAL API-key
+        resolution path (and its tenant_id handling) actually runs."""
+        api.verify_token = self._orig['verify_token']
+        api.get_token_from_request = lambda: raw_key
+
+    def test_create_stamps_creating_admins_tenant(self):
+        api.require_admin_auth = lambda: 'acmeadmin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'ci-key', 'user': 'api'}
+        res = self.call(api.handle_apikeys_create)
+        kid = res['id']
+        self.assertEqual(api.load(api.APIKEYS_FILE)[kid]['tenant_id'], 'acme')
+
+    def test_fixed_key_does_not_resolve_as_superadmin(self):
+        self._seed_key('k1', 'rawkey1', user='api', tenant_id='acme')
+        self._as_real_apikey('rawkey1')
+        self.assertFalse(api._caller_is_superadmin())
+        self.assertEqual(api._caller_tenant(), 'acme')
+
+    def test_fixed_default_tenant_key_is_a_real_superadmin(self):
+        self._seed_key('k2', 'rawkey2', user='api', tenant_id='default')
+        self._as_real_apikey('rawkey2')
+        self.assertTrue(api._caller_is_superadmin())
+        self.assertEqual(api._caller_tenant(), 'default')
+
+    def test_legacy_key_with_no_tenant_id_documents_the_migration_gap(self):
+        # A key minted BEFORE this fix has no stored tenant_id and still
+        # falls through to the old (vulnerable) user-field resolution --
+        # this is the documented migration caveat, not a regression: such a
+        # key must be rotated (or deleted+recreated) to pick up the fix.
+        self._seed_key('k3', 'rawkey3', user='api')   # no tenant_id -- pre-fix shape
+        self._as_real_apikey('rawkey3')
+        self.assertTrue(api._caller_is_superadmin(),
+                        'documents the known pre-fix-key migration gap -- rotate to fix')
+
+    def test_rotate_preserves_original_tenant(self):
+        self._seed_key('k4', 'rawkey4', user='api', tenant_id='acme')
+        api.require_admin_auth = lambda: 'super'   # a SUPERADMIN rotates it on the tenant's behalf
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        res = self.call(api.handle_apikeys_rotate, 'k4')
+        new_kid = res['id']
+        # must stay 'acme' -- NOT shift to the rotating superadmin's 'default' tenant
+        self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
+
+    def test_rotate_backfills_a_legacy_key_from_the_rotating_actor(self):
+        self._seed_key('k5', 'rawkey5', user='api')   # no tenant_id
+        api.require_admin_auth = lambda: 'acmeadmin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        res = self.call(api.handle_apikeys_rotate, 'k5')
+        new_kid = res['id']
+        self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
+
+    def test_list_is_tenant_scoped_when_enforced(self):
+        api.save(api.APIKEYS_FILE, {
+            'kd': {'name': 'default-key', 'tenant_id': 'default', 'role': 'admin',
+                   'key_hash': 'x', 'created': 1, 'active': True, 'rate_limit': 0},
+            'ka': {'name': 'acme-key', 'tenant_id': 'acme', 'role': 'admin',
+                   'key_hash': 'y', 'created': 1, 'active': True, 'rate_limit': 0},
+        })
+        api.require_admin_auth = lambda: 'acmeadmin'
+        api.verify_token = lambda t: ('acmeadmin', 'admin')
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_apikeys_list)
+        self.assertEqual([k['id'] for k in out], ['ka'])
+
+    def test_list_shows_all_for_superadmin(self):
+        api.save(api.APIKEYS_FILE, {
+            'kd': {'name': 'default-key', 'tenant_id': 'default', 'role': 'admin',
+                   'key_hash': 'x', 'created': 1, 'active': True, 'rate_limit': 0},
+            'ka': {'name': 'acme-key', 'tenant_id': 'acme', 'role': 'admin',
+                   'key_hash': 'y', 'created': 1, 'active': True, 'rate_limit': 0},
+        })
+        api.require_admin_auth = lambda: 'super'
+        api.verify_token = lambda t: ('super', 'admin')
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_apikeys_list)
+        self.assertEqual({k['id'] for k in out}, {'kd', 'ka'})
+
+
 class TestProxmoxLifecycle(_HandlerBase):
     """v3.14.0 #33 — Proxmox VM/CT lifecycle (destructive, gated)."""
 

@@ -82,7 +82,9 @@ class TestApiKeyRateLimit(unittest.TestCase):
         self.assertIn("'rate_limit': rate_limit", block)
         # list endpoint returns it
         j = API_SRC.index("def handle_apikeys_list(")
-        self.assertIn("'rate_limit'", API_SRC[j:j + 600])
+        # v6.1.1 (#16): widened 600->1000, tenant-scoping the roster (a real
+        # comment+filter block) pushed 'rate_limit' further down.
+        self.assertIn("'rate_limit'", API_SRC[j:j + 1000])
 
     def test_verify_token_enforces(self):
         i = API_SRC.index("# API keys — full constant-time scan")

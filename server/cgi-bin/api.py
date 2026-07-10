@@ -3832,6 +3832,7 @@ def verify_token(token):
     is still accepted and transparently migrated to `key_hash` on first use.
     """
     _RCTX.key_scope = None   # v5.4.1 (D6): cleared each call; set only on an API-key match
+    _RCTX.apikey_tenant = None   # v6.1.1 (#16): ditto, for the key's own stored tenant_id
     if not token:
         return None, None
 
@@ -3964,6 +3965,18 @@ def verify_token(token):
         _ks = matched_kdata.get('scope') if isinstance(matched_kdata, dict) else None
         if isinstance(_ks, dict) and _ks.get('type') and _ks.get('type') != 'all':
             _RCTX.key_scope = _ks
+        # v6.1.1 (#16): an API key's tenant is the key's OWN stored tenant_id
+        # (set at creation from the CREATING admin's real tenant) when present
+        # -- NOT resolved via the free-text `user` display field, which has no
+        # relationship to any real account (handle_apikeys_create defaults it
+        # to the literal string 'api'). Without this, an admin-role key created
+        # by ANY tenant's admin resolved _user_tenant('api') -> no such user ->
+        # DEFAULT_TENANT, which made _caller_is_superadmin() true for that key
+        # -- a real cross-tenant isolation bypass. Keys minted before this fix
+        # have no stored tenant_id and fall through to the old (vulnerable)
+        # resolution path until rotated/recreated -- see the #16 tracker note.
+        if isinstance(matched_kdata, dict) and matched_kdata.get('tenant_id'):
+            _RCTX.apikey_tenant = matched_kdata['tenant_id']
         _rls_narrow(matched_user, matched_role)   # v6.1.0 (Phase 6): DB-RLS tenant GUC
         return matched_user, matched_role
 
@@ -4525,6 +4538,7 @@ def _begin_request():
     _RCTX.request_id = None    # mint a fresh correlation id for this request
     _RCTX.trace_id = None      # v5.4.1 (F2): re-read traceparent per request
     _RCTX.key_scope = None     # v5.4.1 (D6): re-resolve the auth key's scope per request
+    _RCTX.apikey_tenant = None   # v6.1.1 (#16): ditto
     # v6.1.0 (Phase 6, opt-in DB-RLS): default this request's tenant GUC to bypass so
     # every path works (agent/system/unauth); verify_token narrows it for an
     # authenticated tenant user. No-op unless opt-in RLS is active.
@@ -12785,9 +12799,26 @@ def _user_tenant(username):
     return tid if tid in _load_tenants() else DEFAULT_TENANT
 
 
+def _caller_effective_tenant(username):
+    """v6.1.1 (#16): the CURRENT caller's tenant -- prefers an API key's own
+    stored tenant_id (_RCTX.apikey_tenant, set by verify_token from the key
+    record) over resolving through the key's free-text `user` display field,
+    which has no real relationship to a USERS_FILE account. See the
+    verify_token comment where _RCTX.apikey_tenant is set for why this
+    matters: without it, an admin-role API key created by ANY tenant's admin
+    silently resolved to DEFAULT_TENANT (superadmin) via the unset/unknown
+    fallback in _user_tenant -- a real cross-tenant isolation bypass. Falls
+    back to _user_tenant(username) for session-token callers and for API
+    keys minted before this fix (no stored tenant_id yet)."""
+    apikey_tenant = getattr(_RCTX, 'apikey_tenant', None)
+    if apikey_tenant:
+        return apikey_tenant
+    return _user_tenant(username)
+
+
 def _caller_tenant():
     user, _ = verify_token(get_token_from_request())
-    return _user_tenant(user) if user else DEFAULT_TENANT
+    return _caller_effective_tenant(user) if user else DEFAULT_TENANT
 
 
 # ── v3.14.0 (#24 P2): tenant isolation enforcement ───────────────────────────
@@ -12826,7 +12857,7 @@ def _rls_narrow(username, role):
         return
     try:
         storage_pg.RLS_ACTIVE = True
-        t = _user_tenant(username) if username else DEFAULT_TENANT
+        t = _caller_effective_tenant(username) if username else DEFAULT_TENANT
         storage_pg.set_request_tenant('*' if (role == 'admin' and t == DEFAULT_TENANT) else t)
     except Exception:
         pass
@@ -12842,7 +12873,7 @@ def _caller_is_superadmin():
     user, role = verify_token(get_token_from_request())
     if not user:
         return False
-    return role == 'admin' and _user_tenant(user) == DEFAULT_TENANT
+    return role == 'admin' and _caller_effective_tenant(user) == DEFAULT_TENANT
 
 
 def require_superadmin_auth(what='manage tenants'):
@@ -40549,6 +40580,15 @@ def handle_client_error():
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
+    # v6.1.1 (#16): tenant-scope the roster the same way device listings are --
+    # a tenant admin sees only their own tenant's keys; a superadmin (or
+    # tenancy off) sees everything. A pre-fix key with no stored tenant_id
+    # (never rotated since) is treated as DEFAULT_TENANT, matching how
+    # _user_tenant's own unset/unknown fallback already behaves.
+    gate = _tenant_gate()
+    if gate is not None:
+        apikeys = {kid: v for kid, v in apikeys.items()
+                   if (v.get('tenant_id') or DEFAULT_TENANT) == gate}
     respond(200, _paginate_list([{'id': kid, 'name': v.get('name', ''), 'user': v.get('user', ''),
                    'role': v.get('role', 'admin'), 'created': v.get('created', 0),
                    'active': v.get('active', True),
@@ -40558,12 +40598,13 @@ def handle_apikeys_list():
                    'expires_at': v.get('expires_at'),
                    'rotate_after_days': v.get('rotate_after_days'),   # v6.1.1
                    'rotated_from': v.get('rotated_from'),             # v6.1.1
-                   'rotated_to': v.get('rotated_to')}                 # v6.1.1
+                   'rotated_to': v.get('rotated_to'),                 # v6.1.1
+                   'tenant_id': v.get('tenant_id')}                   # v6.1.1 (#16)
                   for kid, v in apikeys.items()]))   # v5.4.1 (E3): list convention
 
 
 def handle_apikeys_create():
-    require_admin_auth()
+    actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 64)
@@ -40622,7 +40663,12 @@ def handle_apikeys_create():
                     'user': user, 'role': role,
                     'created': int(time.time()), 'active': True,
                     'rate_limit': rate_limit,
-                    'expires_at': expires_at}
+                    'expires_at': expires_at,
+                    # v6.1.1 (#16): the key's REAL tenant is the creating admin's own
+                    # tenant -- not derived from the free-text `user` display field
+                    # above, which doesn't have to correspond to any real account.
+                    # See _caller_effective_tenant's docstring for why this matters.
+                    'tenant_id': _user_tenant(actor)}
     if key_scope:                                        # v5.4.1 (D6)
         apikeys[kid]['scope'] = key_scope
     if key_ipallow:                                      # v5.4.1 (D7)
@@ -40739,7 +40785,13 @@ def handle_apikeys_rotate(kid):
                    'user': old.get('user', 'api'), 'role': old.get('role', 'admin'),
                    'created': int(time.time()), 'active': True,
                    'rate_limit': int(old.get('rate_limit') or 0),
-                   'expires_at': old.get('expires_at'), 'rotated_from': kid}
+                   'expires_at': old.get('expires_at'), 'rotated_from': kid,
+                   # v6.1.1 (#16): preserve the ORIGINAL tenant on rotation (a
+                   # superadmin rotating a tenant's key on their behalf must not
+                   # shift it to the superadmin's own tenant). A pre-fix key with
+                   # no stored tenant_id backfills from the rotating actor here --
+                   # rotation is a natural, safe point to pick up the fix.
+                   'tenant_id': old.get('tenant_id') or _user_tenant(actor)}
         if old.get('scope'):
             new_rec['scope'] = old['scope']
         if old.get('ip_allow'):
