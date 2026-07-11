@@ -185,5 +185,117 @@ class TestBillingPaymentWebhookRequestModel(unittest.TestCase):
         self.assertTrue(ok, err)
 
 
+@unittest.skipUnless(rm.available(), "pydantic not installed in this environment")
+class TestLitigationHoldSetRequestModel(unittest.TestCase):
+    def test_valid_body_passes(self):
+        ok, err = rm.validate(rm.LitigationHoldSetRequest,
+                              {'enabled': True, 'reason': 'audit'})
+        self.assertTrue(ok, err)
+
+    def test_defaults_apply_to_missing_fields(self):
+        ok, err = rm.validate(rm.LitigationHoldSetRequest, {})
+        self.assertTrue(ok, err)
+
+    def test_string_true_coerces_to_bool(self):
+        # Matches bare bool(body.get('enabled')) -- pydantic's own strict
+        # bool parsing would need a whitelisted string; Python truthiness
+        # doesn't care, so a non-empty string is truthy regardless of content.
+        ok, err = rm.validate(rm.LitigationHoldSetRequest, {'enabled': 'no'})
+        self.assertTrue(ok, err)
+
+    def test_list_enabled_coerces_via_python_truthiness(self):
+        # A non-empty list is truthy under bool() even though pydantic's own
+        # bool coercion would reject it outright -- the old code's bare
+        # bool(x) never rejects any JSON-decodable value.
+        ok, err = rm.validate(rm.LitigationHoldSetRequest, {'enabled': [1, 2]})
+        self.assertTrue(ok, err)
+
+    def test_empty_list_enabled_coerces_to_false(self):
+        ok, err = rm.validate(rm.LitigationHoldSetRequest, {'enabled': []})
+        self.assertTrue(ok, err)
+
+    def test_numeric_reason_coerced_not_rejected(self):
+        ok, err = rm.validate(rm.LitigationHoldSetRequest, {'reason': 12345})
+        self.assertTrue(ok, err)
+
+
+@unittest.skipUnless(rm.available(), "pydantic not installed in this environment")
+class TestEnrollTokenCreateRequestModel(unittest.TestCase):
+    def test_valid_body_passes(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest,
+                              {'expires_in': 3600, 'default_group': 'dc1/prod',
+                               'default_tags': ['edge', 'prod'], 'label': 'ci key'})
+        self.assertTrue(ok, err)
+
+    def test_defaults_apply_to_missing_fields(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {})
+        self.assertTrue(ok, err)
+
+    def test_null_expires_in_rejected(self):
+        # Matches int(body.get('expires_in', DEFAULT)) -- a key present with
+        # an explicit null still calls int(None), which raises, same as a
+        # non-numeric string. Only an ABSENT key gets the default.
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'expires_in': None})
+        self.assertFalse(ok)
+
+    def test_non_numeric_string_expires_in_rejected(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'expires_in': 'a while'})
+        self.assertFalse(ok)
+
+    def test_fractional_float_expires_in_truncates_not_rejects(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'expires_in': 3600.9})
+        self.assertTrue(ok, err)
+
+    def test_numeric_string_expires_in_coerces(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'expires_in': '3600'})
+        self.assertTrue(ok, err)
+
+    def test_falsy_default_group_coerces_to_empty_not_rejected(self):
+        # Matches `body.get('default_group') if body.get('default_group')
+        # else ''` -- a falsy non-None value (0, here) becomes '' just like
+        # None does, not str(0) == '0'.
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'default_group': 0})
+        self.assertTrue(ok, err)
+
+    def test_default_tags_must_be_a_list(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'default_tags': 'not-a-list'})
+        self.assertFalse(ok)
+
+    def test_falsy_default_tags_coerces_to_empty_list(self):
+        # Matches `body.get('default_tags', []) or []` -- a falsy non-list
+        # value (0 here) becomes [], not a 400.
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'default_tags': 0})
+        self.assertTrue(ok, err)
+
+    def test_non_string_tag_items_coerced_not_rejected(self):
+        # Matches the handler's own per-item str(t) coercion -- an int tag
+        # is stringified, not rejected, same as the old code.
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'default_tags': [1, 2, 'edge']})
+        self.assertTrue(ok, err)
+
+    def test_numeric_label_coerced_not_rejected(self):
+        ok, err = rm.validate(rm.EnrollTokenCreateRequest, {'label': 12345})
+        self.assertTrue(ok, err)
+
+
+@unittest.skipUnless(rm.available(), "pydantic not installed in this environment")
+class TestTenantCreateRequestModel(unittest.TestCase):
+    def test_valid_body_passes(self):
+        ok, err = rm.validate(rm.TenantCreateRequest, {'name': 'Acme'})
+        self.assertTrue(ok, err)
+
+    def test_defaults_apply_to_missing_fields(self):
+        ok, err = rm.validate(rm.TenantCreateRequest, {})
+        self.assertTrue(ok, err)
+
+    def test_numeric_name_coerced_not_rejected(self):
+        ok, err = rm.validate(rm.TenantCreateRequest, {'name': 12345})
+        self.assertTrue(ok, err)
+
+    def test_extra_field_tolerated_not_rejected(self):
+        ok, err = rm.validate(rm.TenantCreateRequest, {'name': 'Acme', 'status': 'active'})
+        self.assertTrue(ok, err)
+
+
 if __name__ == "__main__":
     unittest.main()

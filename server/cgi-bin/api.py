@@ -2522,6 +2522,8 @@ def handle_litigation_hold_set():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.LitigationHoldSetRequest, body)
+    if not _rm_ok: respond(400, {'error': _rm_err})
     enabled = bool(body.get('enabled'))
     reason = _sanitize_str(body.get('reason', ''), 500, allow_empty=True) or ''
     if enabled and not reason.strip():
@@ -13354,7 +13356,10 @@ def handle_tenant_create():
     actor = require_superadmin_auth('create tenants')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    name = _sanitize_str((get_json_obj()).get('name', ''), 64).strip()
+    _rm_body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.TenantCreateRequest, _rm_body)
+    if not _rm_ok: respond(400, {'error': _rm_err})
+    name = _sanitize_str(_rm_body.get('name', ''), 64).strip()
     if not name:
         respond(400, {'error': 'name required'})
     with _LockedUpdate(TENANTS_FILE) as tenants:
@@ -15501,6 +15506,8 @@ def handle_enroll_token_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.EnrollTokenCreateRequest, body)
+    if not _rm_ok: respond(400, {'error': _rm_err})
 
     # Validate expires_in
     try:
