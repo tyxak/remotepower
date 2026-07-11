@@ -218,8 +218,22 @@ PYEOF
     then
         echo "[+] Bootstrap data migrated into Postgres"
     else
-        echo "[!] Postgres migration failed — admin user / scanner token may not be visible" >&2
-        echo "[!] Retry via Settings -> Advanced -> Storage backend, or restart the container." >&2
+        # v6.1.1: this migrates EVERY file in DATA_DIR (devices, alerts, CVE
+        # cache, config, everything), not just bootstrap accounts -- and the
+        # Settings UI migration is NOT a usable retry here: it 409s as long
+        # as RP_STORAGE_BACKEND stays set (which it does, above), and there's
+        # no admin session to reach it with anyway when Postgres has no users
+        # yet. The real retry is `docker compose up -d` again -- this block
+        # re-runs on every boot until PG_HAS_USERS sees real data. Starting
+        # the app now regardless (rather than exiting) is deliberate: it lets
+        # you reach the container's logs/exec to diagnose Postgres without a
+        # crash-loop, at the cost of serving an empty/partial DB until fixed.
+        echo "[!] Postgres migration failed -- the server is about to start" >&2
+        echo "[!] serving an EMPTY OR PARTIAL Postgres database. Your real data is" >&2
+        echo "[!] untouched on the volume, in the original JSON files. Fix whatever" >&2
+        echo "[!] Postgres error is above, then: docker compose up -d (again) -- this" >&2
+        echo "[!] retries automatically on every boot. The Settings UI migration will" >&2
+        echo "[!] refuse (409) as long as RP_STORAGE_BACKEND=postgres is set." >&2
     fi
 fi
 

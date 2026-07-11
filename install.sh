@@ -142,7 +142,13 @@ disk_free_mb() { # $1 = path -> free MB on that filesystem, or empty if df unava
 }
 transport_state() { # prints one of: none | cgi | wsgi
   [ -d /var/www/remotepower ] || { echo none; return; }
-  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet remotepower-wsgi 2>/dev/null; then
+  # A service NAMED remotepower-wsgi being active isn't sufficient on its
+  # own: a pre-v6.1.0 "experimental" opt-in WSGI bridge used the same unit
+  # name without needing Flask -- same check as the update command's own
+  # (see wsgi_active() in convert-to-wsgi.sh); keep both in lockstep or
+  # doctor's preview diverges from what an update actually does here.
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet remotepower-wsgi 2>/dev/null \
+     && python3 -c 'import flask' 2>/dev/null; then
     echo wsgi
   else
     echo cgi

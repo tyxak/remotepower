@@ -1,28 +1,28 @@
-# RemotePower persistent WSGI app tier (v5.5.0 keystone, EXPERIMENTAL — opt-in).
-#
-# Runs the SAME api.py under gunicorn (persistent workers) instead of the
-# fork-per-request CGI / SCGI models. Validated correct under load on both the
-# SQLite and Postgres backends (per-request isolation holds: no load-cache /
-# correlation-id / response-body bleed). The default + fully supported deployment
-# is still CGI (api_cgi.py) or the SCGI worker (remotepower-api.service); use this
-# only for large fleets that want a pre-warmed persistent tier, and keep CGI as the
-# fallback until you've validated it under your own load. See docs/wsgi.md.
+# RemotePower app server (v6.1.0+): gunicorn + Flask (wsgi.py), the ONLY
+# server since CGI (api_cgi.py) and the SCGI worker (remotepower-api.service)
+# were fully retired. install-server.sh / install.sh install and enable this
+# unit unconditionally for every fresh install; convert-to-wsgi.sh converts
+# an existing pre-6.1.0 CGI/SCGI install onto it. Validated correct under
+# load on both the SQLite and Postgres backends (per-request isolation
+# holds: no load-cache / correlation-id / response-body bleed). See
+# docs/wsgi.md.
 #
 # Process model: request state (context, output buffer, DB connections) is
 # thread-local, so the worker serves requests CONCURRENTLY on threads — gthread is
 # supported. Tune --workers (processes) x --threads to your CPU + DB-pool budget.
 #
-# Prereqs: pip install gunicorn  (gunicorn is NOT a RemotePower dependency).
-# Install:
+# Manual install (normally install-server.sh/convert-to-wsgi.sh do this for you):
 #   cp server/conf/remotepower-wsgi.service /etc/systemd/system/
 #   systemctl daemon-reload && systemctl enable --now remotepower-wsgi
 # then point nginx /api/ at http://127.0.0.1:8090 (proxy_pass; see docs/wsgi.md)
 # and reload nginx. Pair with remotepower-scheduler.service + RP_EXTERNAL_SCHEDULER=1
 # (in api.env) so the cadence runs out-of-band (measured ~25x lower request latency
-# on a networked DB). Roll back by repointing nginx at fcgiwrap/SCGI.
+# on a networked DB). There is no CGI/SCGI fallback to roll back to — those entry
+# points are deleted; deploy-server.sh --rollback restores a prior code snapshot
+# of this same WSGI tier instead.
 
 [Unit]
-Description=RemotePower WSGI app tier (gunicorn, experimental)
+Description=RemotePower app server (gunicorn/Flask)
 Documentation=file:///var/www/remotepower/cgi-bin/wsgi.py
 After=network.target
 
@@ -32,10 +32,9 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/remotepower/cgi-bin
 # NB: deliberately NO `RuntimeDirectory=remotepower`. gunicorn binds TCP
-# (127.0.0.1:8090) and needs nothing in /run. If this unit declared the shared
-# `remotepower` RuntimeDirectory, systemd would DELETE /run/remotepower when this
-# unit stops/restarts — which would nuke the SCGI worker's /run/remotepower/api.sock
-# out from under a co-resident remotepower-api during a CGI⇄WSGI cutover.
+# (127.0.0.1:8090) and needs nothing in /run; declaring the shared
+# `remotepower` RuntimeDirectory here would make systemd delete /run/remotepower
+# on every stop/restart of this unit, which other components also use.
 Environment=RP_DATA_DIR=/var/lib/remotepower
 EnvironmentFile=-/etc/remotepower/api.env
 # Threaded workers (request state is thread-local). Bind to localhost for nginx.

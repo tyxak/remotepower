@@ -45,6 +45,21 @@ post_install() {
 post_upgrade() {
   systemd-tmpfiles --create remotepower.conf >/dev/null 2>&1 || true
   _compile_backend
-  echo '==> RemotePower server upgraded. Reload services if running:'
-  echo '      systemctl reload nginx   (and restart remotepower-wsgi / remotepower-scheduler if you use them)'
+  # v6.1.1: WSGI (gunicorn + Flask) is now the ONLY server -- CGI/fcgiwrap
+  # are gone. A box coming from a pre-6.1.0 AUR install never had
+  # remotepower-wsgi enabled at all (that was the CGI era's optional/
+  # experimental tier), so "restart it if you use them" is meaningless --
+  # there is no CGI fallback left to fall back to. Detect that case and
+  # give it the SAME one-time finish-setup instructions a fresh install
+  # gets, since from this box's perspective that's exactly what it is.
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet remotepower-wsgi 2>/dev/null; then
+    echo '==> RemotePower server upgraded.'
+    echo '      systemctl reload nginx'
+    echo '      systemctl restart remotepower-wsgi remotepower-scheduler   (to load the new code)'
+  else
+    echo '==> RemotePower server upgraded, but remotepower-wsgi is not running yet.'
+    echo '    If this box was still on the pre-6.1.0 CGI/fcgiwrap transport, that transport'
+    echo '    is now gone -- WSGI (gunicorn + Flask) is the only server. Finish setup:'
+    _setup_msg
+  fi
 }

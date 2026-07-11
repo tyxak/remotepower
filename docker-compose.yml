@@ -64,11 +64,16 @@ services:
       start_period: 15s
       retries: 3
 
-  # PostgreSQL backend — for large fleets / multiple app nodes the default
-  # single-file SQLite/JSON store also works fine; drop this service and the
-  # RP_STORAGE_BACKEND/RP_PG_DSN env above to opt back down to it (existing
-  # Postgres data then needs tools/migrate_storage.py run the other way, or
-  # start fresh on the file backend).
+  # PostgreSQL backend — the default; the single-file SQLite/JSON store also
+  # works fine for a smaller install (--no-postgres on a bare-metal install,
+  # or just never adding this service on Docker). To move an EXISTING
+  # Postgres-backed install back to the file backend without losing data:
+  # first remove RP_STORAGE_BACKEND from the `remotepower` service's
+  # environment below and restart it (that env var otherwise PINS the
+  # backend and blocks the next step with a 409) -- ONLY THEN run the real
+  # migration from Settings -> Advanced -> Storage backend in the UI while
+  # Postgres is still up and reachable. tools/migrate_storage.py does NOT
+  # support Postgres (json<->sqlite only) -- it is not a path back from this.
   postgres:
     image: postgres:16-alpine
     container_name: remotepower-db

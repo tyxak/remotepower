@@ -579,6 +579,22 @@ class TestInstallShUpdateCommand(unittest.TestCase):
         body = self.SRC[i : i + 400]
         self.assertIn("remotepower-wsgi", body)
 
+    def test_transport_state_also_verifies_flask_importable(self):
+        # v6.1.1 follow-up: transport_state() backs BOTH `doctor`'s preview
+        # AND preflight()'s pre-install/update summary, but it originally
+        # only checked whether the remotepower-wsgi unit was active -- not
+        # whether Flask was importable, unlike cmd_update()'s own check
+        # (see test_cheap_deploy_path_also_verifies_flask_importable above).
+        # That let `doctor` confidently report "already on gunicorn/Flask"
+        # for a box `update` itself would treat as needing full conversion
+        # -- the exact real-world pre-v6.1.0-bridge edge case the other
+        # check exists for, just never back-ported here.
+        i = self.SRC.index("transport_state()")
+        body = self.SRC[i : i + 1200]
+        i_check = body.index("systemctl is-active --quiet remotepower-wsgi")
+        cond = body[i_check : i_check + 200]
+        self.assertIn("import flask", cond)
+
     def test_doctor_checks_disk_space(self):
         self.assertIn("disk_free_mb", self.SRC)
 

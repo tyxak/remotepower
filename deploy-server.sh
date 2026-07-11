@@ -335,7 +335,8 @@ INDEX.write_text(html)
 print(f"  Rewrote {edits} ?v= reference(s) in deployed index.html to content hashes")
 PYEOF
 
-success "Done. Changes are live immediately (CGI — no restart needed)."
+success "Done. gunicorn (remotepower-wsgi) and the scheduler, if active, were"
+echo "  already restarted above to pick up the new code."
 echo ""
 echo "  Enrolled agents will self-update within ~1 hour."
 echo "  To trigger immediately on a client: remotepower-agent update"
@@ -344,7 +345,7 @@ echo "  TLS / DNS expiry probes are scheduled by the server itself (~6h per"
 echo "  target) — no cron needed. The optional standalone runner remains at:"
 echo "    /var/www/remotepower/cgi-bin/remotepower-tls-check"
 echo ""
-echo "  If you run the optional WSGI tier or out-of-band scheduler, the deploy"
-echo "  restarted them automatically; otherwise restart manually to load new code:"
-echo "    systemctl restart remotepower-wsgi remotepower-scheduler"
+echo "  If remotepower-wsgi/remotepower-scheduler weren't active (not yet"
+echo "  installed as systemd units), start them once via:"
+echo "    sudo bash install-server.sh   (or: sudo bash install.sh update)"
 echo ""

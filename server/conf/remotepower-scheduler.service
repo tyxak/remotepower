@@ -1,26 +1,29 @@
-# RemotePower out-of-band maintenance scheduler (v5.5.0 keystone Stage D).
+# RemotePower out-of-band maintenance scheduler. Part of the v6.1.0+ default
+# single-node stack — install-server.sh / install.sh install + enable this
+# unit AND set RP_EXTERNAL_SCHEDULER=1 in /etc/remotepower/api.env
+# automatically for every fresh install (opt out with --no-scheduler).
 #
 # Runs the ~33 run_*_if_due maintenance sweeps from a DEDICATED process instead of
 # piggy-backing them on request traffic. Two wins, both validated against a real
-# Postgres backend (2026-06-29):
+# Postgres backend:
 #   * maintenance runs even with zero UI/agent traffic, and
 #   * request latency drops sharply — measured ~0.68s -> ~0.027s per request (25x)
 #     on a networked Postgres backend, because the request path no longer makes
 #     ~33 "is it due?" DB round-trips per request.
 #
-# PAIR IT WITH THE WORKER: set RP_EXTERNAL_SCHEDULER=1 on the API worker
-# (/etc/remotepower/api.env) so the request path STOPS running the cadence, then
-# enable this unit so exactly one process runs it. A host file-lock + (on the
-# Postgres backend) a pg_advisory_lock make it safe to run one per node for HA —
-# only the elected leader executes the sweeps.
+# PAIR IT WITH THE APP SERVER: RP_EXTERNAL_SCHEDULER=1 in /etc/remotepower/api.env
+# (the file remotepower-wsgi.service also reads) tells the request path to STOP
+# running the cadence, so exactly one process — this one — runs it. A host
+# file-lock + (on the Postgres backend) a pg_advisory_lock make it safe to run
+# one per node for HA — only the elected leader executes the sweeps.
 #
-# Install:
+# Manual install (normally install-server.sh does this for you):
 #   cp server/conf/remotepower-scheduler.service /etc/systemd/system/
-#   printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env   # on the WORKER
+#   printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env
 #   systemctl daemon-reload && systemctl enable --now remotepower-scheduler
-#   systemctl restart remotepower-api
+#   systemctl restart remotepower-wsgi
 # Roll back: disable this unit + remove RP_EXTERNAL_SCHEDULER from api.env +
-# restart the worker — the request path resumes running the cadence as before.
+# restart remotepower-wsgi — the request path resumes running the cadence as before.
 
 [Unit]
 Description=RemotePower out-of-band maintenance scheduler
@@ -33,8 +36,8 @@ User=www-data
 Group=www-data
 # NB: deliberately NO `RuntimeDirectory=remotepower` — the scheduler uses RP_DATA_DIR,
 # nothing in /run. Declaring the shared `remotepower` runtime dir would make systemd
-# delete /run/remotepower (and the SCGI worker's api.sock in it) when this unit
-# stops/restarts. See remotepower-wsgi.service.
+# delete /run/remotepower when this unit stops/restarts, which other components
+# also use. See remotepower-wsgi.service.
 Environment=RP_DATA_DIR=/var/lib/remotepower
 # This process OWNS the cadence; the flag also keeps semantics consistent if the
 # scheduler ever imports a code path that checks it.

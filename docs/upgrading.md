@@ -44,8 +44,41 @@ anything, if you want to see the plan first.
   container can't update itself from the inside; recreate it from the new
   image/checkout instead. `install.sh update` refuses to run inside a
   container and tells you this.
-- **Arch (AUR):** `yay -S remotepower-server` — the package's `.install`
-  hooks already handle the gunicorn/Flask transport; nothing extra to run.
+
+  **This only picks up new code.** It does NOT rewrite your
+  `docker-compose.yml` — an existing pre-6.1.0 compose file (no `postgres`/
+  `scanner` services, no `RP_STORAGE_BACKEND`) stays on that same topology
+  forever; nothing breaks, but you also don't get Postgres/the scheduler/the
+  scanner satellite just by pulling. To actually move onto the new default
+  topology, adopt the repo's current `docker-compose.yml` by hand (diff it
+  against your own first) — and **back up your data volume before you do**,
+  since that switches your `remotepower` service onto `RP_STORAGE_BACKEND:
+  postgres`, which triggers a one-time automatic migration of every file in
+  `/var/lib/remotepower` into the new `postgres` service on first boot. If
+  that migration fails partway (a container log line will say so), the app
+  still starts — but now serving an empty/partial Postgres DB while your
+  real data sits untouched on the volume. Recovery in that case is: stop the
+  stack, fix whatever the log says was wrong with Postgres (usually just "it
+  wasn't ready yet" — Docker's own health-check startup ordering handles the
+  common case, but a slow first boot on constrained hardware can still race
+  it), and `docker compose up -d` again — the migration retries from
+  scratch on every boot until `PG_HAS_USERS` sees real data. It will NOT
+  retry from the UI (Settings → Advanced → Storage backend refuses with 409
+  as long as `RP_STORAGE_BACKEND` is set in the compose file, which it is by
+  default) — only a container restart re-runs it.
+- **Arch (AUR):** `yay -S remotepower-server` upgrades the package files and
+  Python deps. The package deliberately isn't fully turnkey (you already
+  wired your own nginx vhost and admin account) — its `post_upgrade` hook
+  detects whether `remotepower-wsgi.service` is already active and, if not
+  (the case for anyone still on a pre-6.1.0 CGI/fcgiwrap AUR install — that
+  transport is fully gone, there's nothing left to "restart" instead), it
+  prints the same one-time finish-setup block a fresh install gets: enable
+  `remotepower-wsgi` (the unit ships staged at
+  `/usr/share/doc/remotepower-server/remotepower-wsgi.service`, copy +
+  `systemctl enable --now` it per the printed command), reload nginx (the
+  already-installed `remotepower-locations.conf` snippet is proxy_pass-
+  shaped from the package alone, nothing to convert there), done. If WSGI
+  was already active, it just prints the restart reminder for the new code.
 
 Before any upgrade you can flip **Settings → Advanced → Maintenance mode** to
 pause new command dispatch (heartbeats and browsing keep working, so devices
@@ -74,8 +107,11 @@ its header has the setup commands (drop it in `/usr/local/sbin/` and add a
 one-line sudoers entry for the API user). Then set the path to
 `/usr/local/sbin/remotepower-server-update`.
 
-The storage layout migrates itself transparently on first start after an
-upgrade, so there's nothing to run by hand for that part.
+On bare metal, the storage layout migrates itself transparently on first
+start after an upgrade — nothing to run by hand for that part. On Docker,
+first-boot Postgres migration is a real one-shot step with a real failure
+mode; see the Docker section above for what a failed migration looks like
+and how to recover.
 
 ## Agents
 
