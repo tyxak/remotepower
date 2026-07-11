@@ -2241,11 +2241,13 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only)</label></div>
           </div>
 
-          <!-- v6.1.1 (#1): experimental agent push channel — see docs/push.md -->
+          <!-- v6.1.1 (#1): agent push channel — see docs/push.md -->
           <div class="settings-section">
-            <div class="section-title">Agent push channel (experimental)</div>
-            <p class="hint">Send connected agents a "poll now" nudge over a companion WebSocket daemon instead of always waiting for the next scheduled poll — cuts worst-case command-dispatch latency, but never carries commands itself; the agent's normal poll cycle stays authoritative. Requires <code>server/push/remotepower-push.py</code> installed + running separately. Off by default and unverified under real multi-agent concurrent-connection load — the feature is invisible unless both this is on and the daemon is actually reachable. <a href="docs/push.md" class="c-accent">Documentation</a></p>
+            <div class="section-title">Agent push channel</div>
+            <p class="hint">Send connected agents a "poll now" nudge over a companion WebSocket daemon instead of always waiting for the next scheduled poll — cuts worst-case command-dispatch latency, but never carries commands itself; the agent's normal poll cycle stays authoritative. Requires <code>server/push/remotepower-push.py</code> installed + running separately. Off by default — the feature is invisible unless both this is on and the daemon is actually reachable. <a href="docs/push.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-push-enabled"> Enable the agent push channel</label></div>
+            <div class="row-6"><button class="btn-secondary" data-action="testPushChannel" type="button">Test daemon connection</button></div>
+            <div id="push-channel-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
 
           <!-- v4.2.0 follow-up: the account-guardrail keys the posture self-check

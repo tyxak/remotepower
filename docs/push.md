@@ -1,12 +1,13 @@
-# Agent push channel — near-instant command dispatch (experimental)
+# Agent push channel — near-instant command dispatch
 
-**Status: opt-in, off by default, unverified under real multi-agent
-concurrent-connection load.** This is a genuine, working implementation —
-not a stub — but it has not been load-tested against a real fleet with
+**Status: opt-in, off by default.** This is a genuine, working
+implementation, but it has not been load-tested against a real fleet with
 hundreds of concurrently-connected agents (docs/master-improvement-scoping-
 internal.md #1 records why: no environment to spin that up in). Turn it on
 for a small/medium fleet you can watch, and report back before relying on
-it at real scale.
+it at real scale. Use the **Test daemon connection** button next to the
+toggle (Settings → Security) for a quick reachability check, and see
+"Verifying it's actually working" below for the full end-to-end procedure.
 
 ## What it does, and deliberately does NOT do
 
@@ -35,7 +36,7 @@ makes it run sooner. Two consequences:
 
 ## Enable it
 
-1. **Settings → Security → Agent push channel (experimental).** Off by default. Turning it on
+1. **Settings → Security → Agent push channel.** Off by default. Turning it on
    makes the heartbeat response advertise `push_enabled: true` to agents,
    which is what makes an agent start its listener thread — nothing
    happens fleet-wide until you flip this.
@@ -66,6 +67,30 @@ makes it run sooner. Two consequences:
    distro's `python3-websockets` package. An agent without it simply never
    starts the listener thread and polls normally, forever — no error, no
    degraded behavior beyond "no latency benefit."
+
+## Verifying it's actually working
+
+1. Confirm the daemon and its nginx proxy are up: `systemctl status
+   remotepower-push`, and `sudo journalctl -u remotepower-push -f` — keep
+   this open, it logs every connect/disconnect.
+2. Enable the toggle (above) and save. Click **Test daemon connection**
+   right next to it — this is a TCP-reachability check from the server to
+   the daemon's own port (8766 by default). It confirms the daemon is
+   running and its port is up; it does **not** prove nginx is proxying
+   `/api/push/connect` correctly or that a real device can authenticate.
+3. An agent only picks up `push_enabled: true` on its *next* heartbeat (up
+   to `poll_interval`, default 60s). Once it does, the daemon's journal
+   logs `push: <device_id> connected (N total)`. If nothing shows up after
+   ~2× the poll interval, check the nginx proxy config and that the agent
+   host actually has `websockets` installed (it degrades silently, no
+   error, if the package is missing).
+4. The real functional test is **latency, not just connectivity**: queue a
+   command against a connected device. With push working it runs in well
+   under a second; without it (or with the toggle off), it waits up to
+   `poll_interval` seconds for the agent's next scheduled poll. Comparing
+   that latency on vs. off is what actually proves the nudge is doing its
+   job — a successful connection alone only proves the WebSocket path
+   works.
 
 ## Auth model
 

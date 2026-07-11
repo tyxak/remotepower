@@ -3900,6 +3900,19 @@ async function testPostureDigest() {
   }
 }
 
+// v6.1.1 (#1): agent push channel -- TCP-reachability smoke test against
+// the companion daemon (server/push/remotepower-push.py). Distinct from
+// testWebPush-style browser push; see docs/push.md for the full
+// end-to-end check (connect + latency).
+async function testPushChannel() {
+  const resultEl = document.getElementById('push-channel-test-result');
+  if (resultEl) { resultEl.style.display = 'none'; }
+  const data = await api('POST', '/push-daemon/test', {});
+  if (!data || !resultEl) return;
+  resultEl.style.display = 'block';
+  resultEl.textContent = data.detail || (data.reachable ? 'Daemon reachable.' : 'Daemon unreachable.');
+  resultEl.style.color = data.reachable ? 'var(--green)' : 'var(--red)';
+}
 async function testLdap() {
   const resultEl = document.getElementById('cfg-ldap-test-result');
   resultEl.style.display = 'none';

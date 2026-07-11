@@ -140,6 +140,72 @@ class TestPushEnabledConfigRoundTrip(_ConfigHandlerBase):
         self.assertFalse(out.get('push_enabled'))
 
 
+class TestPushChannelTestEndpoint(_ConfigHandlerBase):
+    """POST /api/push-daemon/test -- a TCP-reachability smoke test against
+    the companion daemon's bind port, surfaced as the "Test daemon
+    connection" button next to the Settings toggle."""
+
+    def test_route_registered(self):
+        api = self.api
+        routes = api._build_exact_routes()
+        self.assertIn(('POST', '/api/push-daemon/test'), routes)
+        self.assertIs(routes[('POST', '/api/push-daemon/test')], api.handle_push_channel_test)
+
+    def test_reports_reachable_when_port_is_open(self):
+        import socket as _socket
+        srv = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        srv.bind(('127.0.0.1', 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        api = self.api
+        api.method = lambda: 'POST'
+        old_env = os.environ.get('RP_PUSH_PORT')
+        os.environ['RP_PUSH_PORT'] = str(port)
+        try:
+            out = self.call(api.handle_push_channel_test)
+        finally:
+            srv.close()
+            if old_env is None:
+                os.environ.pop('RP_PUSH_PORT', None)
+            else:
+                os.environ['RP_PUSH_PORT'] = old_env
+        self.assertTrue(out.get('ok'))
+        self.assertTrue(out.get('reachable'))
+
+    def test_reports_unreachable_when_port_is_closed(self):
+        import socket as _socket
+        # Find a free port and immediately release it -- nothing listens there.
+        probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        probe.bind(('127.0.0.1', 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        api = self.api
+        api.method = lambda: 'POST'
+        old_env = os.environ.get('RP_PUSH_PORT')
+        os.environ['RP_PUSH_PORT'] = str(port)
+        try:
+            out = self.call(api.handle_push_channel_test)
+        finally:
+            if old_env is None:
+                os.environ.pop('RP_PUSH_PORT', None)
+            else:
+                os.environ['RP_PUSH_PORT'] = old_env
+        self.assertTrue(out.get('ok'))
+        self.assertFalse(out.get('reachable'))
+
+    def test_requires_admin(self):
+        api = self.api
+        def _deny():
+            raise api.HTTPError(403, {'error': 'forbidden'})
+        api.require_admin_auth = _deny
+        api.method = lambda: 'POST'
+        try:
+            api.handle_push_channel_test()
+            self.fail('expected HTTPError')
+        except api.HTTPError as e:
+            self.assertEqual(e.status, 403)
+
+
 class TestPushDaemonPackaging(unittest.TestCase):
     """v6.1.1 follow-up: a live deploy hit both of these -- the unit ran as
     root because User= was never set (the useradd/usermod dance in

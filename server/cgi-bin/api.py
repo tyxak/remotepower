@@ -6402,6 +6402,31 @@ def handle_push_unsubscribe():
     respond(200, {'ok': True})
 
 
+def handle_push_channel_test():
+    """POST /api/push-daemon/test — best-effort reachability check for the
+    agent push (wake-nudge) channel's companion daemon
+    (server/push/remotepower-push.py), which runs as a separate co-located
+    process on this box and is otherwise invisible to api.py (it shares
+    only the on-disk data directory, not a process or network API). This
+    is a TCP-connect smoke test only: it confirms the daemon is running
+    and accepting connections on its bind port, not that nginx is proxying
+    /api/push/connect correctly or that a real device can authenticate —
+    see docs/push.md for the full end-to-end verification procedure."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    port = int(os.environ.get('RP_PUSH_PORT', 8766))
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=2):
+            pass
+        respond(200, {'ok': True, 'reachable': True,
+                       'detail': f'push daemon is accepting connections on port {port}'})
+    except OSError as e:
+        respond(200, {'ok': True, 'reachable': False,
+                       'detail': f'could not reach the push daemon on port {port}: {e}. '
+                                 'Check `systemctl status remotepower-push` — see docs/push.md.'})
+
+
 def handle_push_test():
     """POST /api/push/test — send a test notification to the caller's own
     subscriptions only (not the whole fleet)."""
@@ -56275,6 +56300,7 @@ def _build_exact_routes():
         ('POST', '/api/push/subscribe'): handle_push_subscribe,
         ('POST', '/api/push/unsubscribe'): handle_push_unsubscribe,
         ('POST', '/api/push/test'): handle_push_test,
+        ('POST', '/api/push-daemon/test'): handle_push_channel_test,   # v6.1.1 #1: agent push channel, not browser push
         ('GET', '/api/auth/oidc/callback'): handle_oidc_callback,
         ('GET', '/api/auth/oidc/start'): handle_oidc_start,
         ('POST', '/api/auth/oidc/test'): handle_oidc_test,
