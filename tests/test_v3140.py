@@ -4370,11 +4370,14 @@ class TestUpsDependencyUiWired(unittest.TestCase):
 class TestPatchSnapshots(_HandlerBase):
     """v6.1.1 — package-repo snapshot & promotion ledger
     (docs/feature-buildout-scoping-internal.md #4). Snapshot + diff + promote
-    + drift-reporting, plus (docs/master-improvement-scoping-internal.md #80,
-    this session) a real but coarse enforcement half: a promoted (pinned) tag
-    is excluded from auto-patch dispatch entirely (see the module docstring
-    in api.py for exactly what this does and doesn't cover -- true
-    version-pinned installs still need a new agent capability)."""
+    + drift-reporting, plus two enforcement halves (docs/master-improvement-
+    scoping-internal.md #80): a promoted (pinned) tag is excluded from
+    auto-patch dispatch entirely, AND (this session) a real per-package
+    pinned-install action (handle_patch_snapshot_enforce, tested below and in
+    TestPinnedInstallCmd) that queues an exact apt/dnf/yum install/downgrade
+    command over the agent's existing generic exec: channel — pacman is the
+    one real gap (no version-pinned install against sync repos), refused with
+    a clear error rather than silently attempted."""
 
     def setUp(self):
         super().setUp()
@@ -4567,6 +4570,141 @@ class TestPatchSnapshots(_HandlerBase):
         r = self._drift(sid)
         self.assertEqual(r['tag'], 'prod')
         self.assertEqual(r['devices_drifted'], 1)
+
+    # ── v6.1.1 (#80, second pass): real per-package pinned-install enforcement ──
+    def _enforce(self, sid, device_id=None):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: ({'device_id': device_id} if device_id else {})
+        return self.call(api.handle_patch_snapshot_enforce, sid)
+
+    def test_enforce_requires_promotion(self):
+        sid = self._create('baseline')['id']   # never promoted
+        self._enforce(sid)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_enforce_queues_apt_pinned_install_for_drifted_device(self):
+        sid = self._create('baseline')['id']   # pins nginx=1.22
+        self._promote(sid, 'prod')
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.19'}]},   # drifted (upgrade)
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.22'}]},   # matches
+            'd3': {'packages': [{'name': 'nginx', 'version': '1.18'}]},
+        })
+        r = self._enforce(sid)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['devices_queued'], 1)
+        self.assertTrue(r['results']['d1']['queued'])
+        self.assertFalse(r['results']['d2']['queued'])
+        self.assertEqual(r['results']['d2']['reason'], 'no drift')
+        self.assertNotIn('d3', r['results'])   # not in the promoted tag at all
+        queued_cmds = api.load(api.CMDS_FILE)['d1']
+        self.assertEqual(len(queued_cmds), 1)
+        self.assertIn('nginx=1.22', queued_cmds[0])
+        self.assertIn('apt-get install -y --allow-downgrades', queued_cmds[0])
+        self.assertTrue(queued_cmds[0].startswith('exec:'))
+
+    def test_enforce_scoped_to_one_device(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.19'}]},
+            'd2': {'packages': [{'name': 'nginx', 'version': '1.05'}]},
+        })
+        r = self._enforce(sid, device_id='d2')
+        self.assertEqual(r['devices_checked'], 1)
+        self.assertNotIn('d1', r['results'])
+        self.assertTrue(r['results']['d2']['queued'])
+
+    def test_enforce_unknown_device_404s(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        self._enforce(sid, device_id='ghost')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_enforce_device_outside_tag_404s(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')   # d1/d2 only -- d3 has no tags
+        self._enforce(sid, device_id='d3')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_enforce_respects_change_approval_gate(self):
+        # deliberately NOT an unattended-safety bypass (unlike UPS auto-
+        # shutdown) -- this is operator-initiated with real blast radius
+        # (an actual apt/dnf downgrade), so it goes through the SAME 4-eyes
+        # gate any other exec: command does.
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.19'}]},
+        })
+        api.save(api.CONFIG_FILE, {'change_approval_enabled': True,
+                                   'approval_gated_kinds': ['exec']})
+        r = self._enforce(sid)
+        self.assertTrue(r['results']['d1'].get('approval_required'))
+        self.assertEqual(api.load(api.CMDS_FILE).get('d1', []), [])   # not queued yet
+        self.assertTrue(api.load(api.CONFIRMATIONS_FILE).get('confirmations'))
+
+    def test_enforce_audit_logged(self):
+        sid = self._create('baseline')['id']
+        self._promote(sid, 'prod')
+        api.save(api.PACKAGES_FILE, {
+            'd1': {'packages': [{'name': 'nginx', 'version': '1.19'}]},
+        })
+        logged = []
+        api.audit_log = lambda *a, **k: logged.append(a)
+        self._enforce(sid)
+        self.assertTrue(any(a[1] == 'patch_snapshot_enforce' for a in logged))
+
+
+class TestPinnedInstallCmd(unittest.TestCase):
+    """v6.1.1 (#80, second pass): the pure command-generation half. A prior
+    pass this session claimed real version-pinned installs needed "a new
+    agent-side per-package version-pinned-install capability the agent
+    doesn't have yet" -- that was wrong, confirmed by reading the agent's
+    actual exec: handler (client/remotepower-agent.py): fully generic
+    `subprocess.run(cmd, shell=True, ...)`, no whitelist. A pinned-install
+    command is just another exec: payload through the SAME channel every
+    other command already uses. pacman IS a real gap (no version-pinned
+    install against sync repos) -- refused with a clear error, not silently
+    attempted."""
+
+    def test_no_drift_returns_none(self):
+        self.assertIsNone(api._pinned_install_cmd_for({}, {}))
+
+    def test_apt_specs_include_both_upgrade_and_downgrade_in_one_install(self):
+        cmd = api._pinned_install_cmd_for(
+            {'nginx': '1.20.0', 'curl': '7.68.0'},
+            {'nginx': '1.18.0', 'curl': '7.70.0'})
+        self.assertIn('apt-get install -y --allow-downgrades', cmd)
+        self.assertIn('nginx=1.20.0', cmd)
+        self.assertIn('curl=7.68.0', cmd)
+
+    def test_dnf_splits_install_vs_downgrade_verbs(self):
+        cmd = api._pinned_install_cmd_for(
+            {'nginx': '1.20.0', 'curl': '7.68.0'},
+            {'nginx': '1.18.0', 'curl': '7.70.0'})
+        self.assertIn('dnf install -y nginx-1.20.0', cmd)   # upgrade
+        self.assertIn('dnf downgrade -y curl-7.68.0', cmd)   # downgrade
+
+    def test_yum_probe_excludes_hosts_that_actually_have_dnf(self):
+        # modern RHEL/Fedora-family hosts often have BOTH yum (a dnf shim)
+        # and dnf -- the self-detecting probe must prefer dnf so the real
+        # (non-shim) verbs run, mirroring _UPGRADE_CMD's own elif ordering.
+        cmd = api._pinned_install_cmd_for({'nginx': '1.20.0'}, {'nginx': '1.18.0'})
+        self.assertIn('! command -v dnf', cmd)
+
+    def test_pacman_refused_with_clear_error(self):
+        cmd = api._pinned_install_cmd_for({'nginx': '1.20.0'}, {'nginx': '1.18.0'})
+        self.assertIn('pin enforcement is not supported', cmd)
+        self.assertIn('pacman has no version-pinned install', cmd)
+        self.assertIn('exit 3', cmd)
+
+    def test_only_drifted_packages_included_not_the_whole_pin(self):
+        cmd = api._pinned_install_cmd_for(
+            {'nginx': '1.22.0'},   # only this one is passed in as drifted
+            {'nginx': '1.18.0'})
+        self.assertIn('nginx=1.22.0', cmd)
+        self.assertNotIn('curl', cmd)
 
 
 class TestInvoicePdfUiWired(unittest.TestCase):

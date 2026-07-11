@@ -18631,6 +18631,54 @@ def _queue_command_batch(dev_ids, command, actor):
     return results
 
 
+def _queue_command_map(dev_cmds, actor):
+    """Like _queue_command_batch but each device gets its OWN command
+    (dev_cmds: {dev_id: command}) instead of one shared command -- used
+    where per-device drift means the payload genuinely differs (see
+    handle_patch_snapshot_enforce, #80). Mirrors _queue_command_batch's
+    safety checks (quarantine/audit-mode/queue-full/4-eyes approval)
+    exactly; _command_kind is the same ('exec') for every command here
+    regardless of its specific payload, so gating on the first is correct."""
+    if not dev_cmds:
+        return {}
+    devices = load(DEVICES_FILE); results = {}
+    _kind = _command_kind(next(iter(dev_cmds.values())))
+    if _needs_approval(_kind):
+        for dev_id, command in dev_cmds.items():
+            if not _validate_id(dev_id) or dev_id not in devices:
+                results[dev_id] = {'ok': False, 'error': 'Device not found'}
+                continue
+            cid = _park_for_approval(dev_id, command, actor, _kind)
+            results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}
+        return results
+    notify = []
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        for dev_id, command in dev_cmds.items():
+            if not _validate_id(dev_id):
+                results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+            if dev_id not in devices:
+                results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+            if _device_quarantined(devices[dev_id]):
+                results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
+            if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
+                results[dev_id] = {'ok': False, 'error': 'Device is in audit (read-only) mode'}; continue
+            if dev_id not in cmds:
+                cmds[dev_id] = []
+            if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
+                results[dev_id] = {'ok': False, 'error':
+                    f'Queue full ({MAX_QUEUED_PER_DEVICE}) — host may be offline; clear its queue first'}; continue
+            if command not in cmds[dev_id]:
+                cmds[dev_id].append(command)
+            notify.append((dev_id, devices[dev_id].get('name', dev_id), command))
+            results[dev_id] = {'ok': True}
+    for dev_id, name, command in notify:
+        log_command(actor, dev_id, name, command)
+        fire_webhook('command_queued', {
+            'device_id': dev_id, 'name': name, 'command': command, 'actor': actor,
+        })
+    return results
+
+
 def handle_device_ups_dependency(dev_id):
     """GET/PATCH /api/devices/{id}/ups-dependency — marks this device as
     powered by another (UPS-reporting) device's UPS, so it can be
@@ -43000,28 +43048,29 @@ def handle_patch_report_xml():
 
 
 # ── v6.1.1: package-repo snapshot & promotion ledger ─────────────────────────
-# Scoped down from "mirror an APT/YUM/Chocolatey repo" to what's actually
-# buildable without a new agent-side per-package version-pinned-install
-# capability (the agent's auto-patch dispatch is one fixed `upgrade` command
-# per package manager today — see _autopatch_queue/_SCHED_UPGRADE_CMD — it
-# has no protocol for "install pkg=EXACT_VERSION" yet). What ships instead:
-# freeze the fleet's current installed-package state into a named, immutable
-# snapshot (reusing PACKAGES_FILE, the same data patch-report already reads);
-# diff two snapshots; "promote" one to a tag as a REFERENCE point; and report
-# DRIFT of that tag's devices away from the promoted snapshot. This is
-# real-and-honest reproducibility/audit tooling on its own — TRUE version-
-# pinned enforcement (installing exactly the snapshot's versions) still needs
-# that new agent-side capability and remains a separate, larger follow-up
-# (docs/feature-buildout-scoping-internal.md #4). What DOES ship
-# (docs/master-improvement-scoping-internal.md #80, this session): a coarser
-# but real and honest form of enforcement achievable with the EXISTING agent
-# protocol — a promoted (pinned) tag is excluded from auto-patch dispatch
-# entirely (_autopatch_target_devices/_pinned_patch_tags), for the flat
-# (non-ringed) policy path. "Pin" means "hold this tag's versions by pausing
-# auto-patch for it", not "force-install the snapshot's exact versions" —
-# an honest middle ground, not the full pin semantics the item name implies.
+# Scoped down from "mirror an APT/YUM/Chocolatey repo" to: freeze the fleet's
+# current installed-package state into a named, immutable snapshot (reusing
+# PACKAGES_FILE, the same data patch-report already reads); diff two
+# snapshots; "promote" one to a tag as a REFERENCE point; report DRIFT of that
+# tag's devices away from the promoted snapshot; and (this session, second
+# pass) actually ENFORCE it — queue a per-package pinned-install command for
+# whichever devices have drifted (handle_patch_snapshot_enforce, apt/dnf/yum).
+#
+# An EARLIER pass this same session claimed real version-pinned enforcement
+# "needs a new agent-side per-package version-pinned-install capability the
+# agent doesn't have yet" and shipped only the coarser half (excluding a
+# pinned tag from auto-patch DISPATCH — _autopatch_target_devices/
+# _pinned_patch_tags, still true and still in place below). That claim was
+# WRONG: the agent's exec: channel (client/remotepower-agent.py) is fully
+# generic `subprocess.run(cmd, shell=True, ...)` with no whitelist — a
+# pinned-install command is just another exec: payload, no new agent
+# capability needed for apt/dnf/yum. pacman IS a genuine gap (no version-
+# pinned install against sync repos, only from a cached local package file
+# the agent doesn't fetch) — handle_patch_snapshot_enforce refuses it with a
+# clear error rather than attempting something broken.
 # Staged/ringed rollouts (a separate target-resolution path,
-# _rollout_resolve_ring) are NOT covered — a real remaining gap.
+# _rollout_resolve_ring) are still NOT covered by the dispatch-exclusion half
+# — a real remaining gap, unchanged by this session's enforcement work.
 MAX_PATCH_SNAPSHOTS = 200
 
 
@@ -43178,8 +43227,8 @@ def handle_patch_snapshot_drift(sid):
     """GET /api/patch-snapshots/{id}/drift — for devices carrying the
     snapshot's promoted tag (all scope-visible devices if it isn't promoted
     to one), report which installed packages differ from what was pinned.
-    Read-only reporting — does not touch auto-patch dispatch (see the module
-    docstring above for why enforcement is out of scope for this feature)."""
+    Read-only reporting — queuing an actual fix is a separate, explicit
+    action (see handle_patch_snapshot_enforce below)."""
     require_auth()
     if not _validate_id(sid):
         respond(404, {'error': 'Snapshot not found'})
@@ -43206,6 +43255,118 @@ def handle_patch_snapshot_drift(sid):
                         'mismatches': mismatches})
     respond(200, {'ok': True, 'snapshot_id': sid, 'tag': tag,
                   'devices_checked': len(devices), 'devices_drifted': len(out), 'drift': out})
+
+
+# v6.1.1: real per-package version-pinned enforcement for 3 of the 4 package
+# managers. The module docstring above (written earlier this session) claimed
+# this needed "a new agent-side per-package version-pinned-install capability
+# the agent doesn't have yet" — that was wrong, confirmed by reading the
+# agent's actual exec: handler (client/remotepower-agent.py): it's fully
+# generic `subprocess.run(cmd, shell=True, ...)` with NO whitelist ("shell=True
+# is intentional — operators paste shell"), so a pinned-install command is just
+# another exec: payload through the SAME channel every other command already
+# uses — no new agent capability at all for apt/dnf/yum. pacman IS a genuine
+# capability gap (no version-pinned install against sync repos, only from a
+# cached local package file the agent doesn't fetch) — refused with a clear
+# error, not silently attempted.
+_PKG_MANAGER_PROBE = {
+    'apt':  'command -v apt-get >/dev/null 2>&1',
+    'dnf':  'command -v dnf >/dev/null 2>&1',
+    'yum':  'command -v yum >/dev/null 2>&1 && ! command -v dnf >/dev/null 2>&1',
+}
+
+
+def _pinned_install_cmd_for(drifted, installed):
+    """Real entry point: drifted={pkg: pinned_version}, installed={pkg:
+    current_version} (same shape handle_patch_snapshot_drift already builds).
+    Splits drifted into up/down sets by comparing against `installed` so
+    dnf/yum get the right verb (install vs downgrade) deterministically."""
+    if not drifted:
+        return None
+    apt_specs = ' '.join(f'{pkg}={ver}' for pkg, ver in sorted(drifted.items()))
+    up, down = [], []
+    for pkg, ver in sorted(drifted.items()):
+        cur = installed.get(pkg, '')
+        (down if cur and _pkg_version_key(cur) > _pkg_version_key(ver) else up).append(f'{pkg}-{ver}')
+    def _rpm_block(manager, up, down):
+        parts = []
+        if up:
+            parts.append(f'{manager} install -y ' + ' '.join(up))
+        if down:
+            parts.append(f'{manager} downgrade -y ' + ' '.join(down))
+        return (' && '.join(parts) if parts else 'true') + '; '
+    return (
+        'set -e; '
+        f'if {_PKG_MANAGER_PROBE["apt"]}; then '
+        f'  apt-get update && apt-get install -y --allow-downgrades {apt_specs}; '
+        f'elif {_PKG_MANAGER_PROBE["dnf"]}; then '
+        f'  {_rpm_block("dnf", up, down)}'
+        f'elif {_PKG_MANAGER_PROBE["yum"]}; then '
+        f'  {_rpm_block("yum", up, down)}'
+        'else '
+        '  echo "pin enforcement is not supported on this package manager -- '
+        'only apt/dnf/yum can install an exact pinned version; pacman has no '
+        'version-pinned install against its sync repos" >&2; exit 3; '
+        'fi'
+    )
+
+
+def handle_patch_snapshot_enforce(sid):
+    """POST /api/patch-snapshots/{id}/enforce {device_id?} — queue a
+    per-device pinned-install command (exec:, same channel/gating as every
+    other command) for every drifted device the snapshot's promoted tag
+    covers, or just `device_id` if given. Admin-only, explicit and audited —
+    deliberately NOT automatic: unlike UPS auto-shutdown (an unattended
+    safety response), enforcing a version pin is an operator-initiated
+    change with real blast radius (a real apt/dnf downgrade), so it goes
+    through the SAME 4-eyes approval gate any other exec: command does, not
+    a bypass."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(sid):
+        respond(404, {'error': 'Snapshot not found'})
+    snaps = load(PATCH_SNAPSHOTS_FILE) or {}
+    s = snaps.get(sid)
+    if not s:
+        respond(404, {'error': 'Snapshot not found'})
+    pinned = s.get('entries') or {}
+    tag = s.get('promoted_tag')
+    if not tag:
+        respond(400, {'error': 'this snapshot is not promoted to a tag — '
+                               'promote it first so enforcement has a target scope'})
+    body = get_json_obj()
+    only_device = str(body.get('device_id') or '').strip()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = {k: v for k, v in devices.items() if tag in (v.get('tags') or [])}
+    if only_device:
+        devices = {k: v for k, v in devices.items() if k == only_device}
+        if not devices:
+            respond(404, {'error': 'device not found, or not covered by this snapshot\'s tag'})
+    pkg_store = load(PACKAGES_FILE) or {}
+    dev_cmds = {}
+    results = {}
+    for dev_id, dev in devices.items():
+        installed = {p.get('name'): p.get('version')
+                    for p in (pkg_store.get(dev_id, {}).get('packages') or [])
+                    if p.get('name') and p.get('version')}
+        drifted = {pkg: pinver for pkg, pinver in pinned.items()
+                  if pkg in installed and installed[pkg] != pinver}
+        if not drifted:
+            results[dev_id] = {'ok': True, 'queued': False, 'reason': 'no drift'}
+            continue
+        cmd = _pinned_install_cmd_for(drifted, installed)
+        dev_cmds[dev_id] = f'exec:{cmd}'
+        results[dev_id] = {'ok': True, 'queued': True, 'packages': len(drifted)}
+    queue_results = _queue_command_map(dev_cmds, actor)
+    for dev_id, r in queue_results.items():
+        results[dev_id].update(r)
+    queued_n = sum(1 for r in results.values() if r.get('queued'))
+    audit_log(actor, 'patch_snapshot_enforce',
+             detail=f'{sid} tag={tag} devices={len(devices)} queued={queued_n}')
+    respond(200, {'ok': True, 'snapshot_id': sid, 'tag': tag,
+                  'devices_checked': len(devices), 'devices_queued': queued_n,
+                  'results': results})
 
 
 # ── v3.4.1: fleet posture report ───────────────────────────────────────────────
@@ -56238,6 +56399,7 @@ _PATTERN_ROUTE_DEFS = (
     # empty suffix would otherwise swallow them with a bad id).
     ('pat', ('POST',), '/api/patch-snapshots/', '/promote', 'handle_patch_snapshot_promote', "pi.startswith('/api/patch-snapshots/') and pi.endswith('/promote') and m == 'POST'"),
     ('pat', ('GET',), '/api/patch-snapshots/', '/drift', 'handle_patch_snapshot_drift', "pi.startswith('/api/patch-snapshots/') and pi.endswith('/drift') and m == 'GET'"),
+    ('pat', ('POST',), '/api/patch-snapshots/', '/enforce', 'handle_patch_snapshot_enforce', "pi.startswith('/api/patch-snapshots/') and pi.endswith('/enforce') and m == 'POST'"),
     ('pat', ('GET',), '/api/patch-snapshots/', '', 'handle_patch_snapshot_get', "pi.startswith('/api/patch-snapshots/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/patch-snapshots/', '', 'handle_patch_snapshot_delete', "pi.startswith('/api/patch-snapshots/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/netscan-schedules/', '', 'handle_netscan_schedule_delete', "pi.startswith('/api/netscan-schedules/') and m == 'DELETE'"),   # v6.1.1
