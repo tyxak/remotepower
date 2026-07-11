@@ -16,13 +16,19 @@ satellite (nmap/nikto/nuclei/lynis, etc.).
 | Tier | vCPU | RAM | Disk | Backend | Fits |
 |---|---|---|---|---|---|
 | **Minimum** (small homelab) | 1–2 | 2 GB | 10 GB | SQLite or flat JSON (`--no-postgres`) | a handful of devices |
-| **Recommended** (default) | 2–4 | 4 GB | 20–40 GB | PostgreSQL (default) | up to ~200 devices — [scaling.md](scaling.md)'s own capacity table |
-| **Heavy fleet** (1,000+) | see below | see below | single-digit GB+ with retention tuned | PostgreSQL (+ HA) | see [scaling.md](scaling.md) |
+| **Recommended** (default) | 2–4 | 4 GB | 20–40 GB | PostgreSQL (default) | ≤200 devices out of the box, no tuning needed |
+| **Recommended, tuned** (same box) | 2–4 | 4 GB | 20–40 GB | PostgreSQL | 200–1,000 devices — raise the poll interval + gunicorn worker/thread count, no new hardware ([scaling.md](scaling.md) Steps 1–3) |
+| **Heavy fleet** (1,000+) | see below | see below | single-digit GB+ with retention tuned | PostgreSQL (+ HA) | still single-box-capable up to ~5,000 on strong-enough hardware; see [scaling.md](scaling.md) |
 
-For 1,000+ agents, HA, and multi-node setups, use
-**[scaling.md](scaling.md)'s capacity table** instead of this page — it
-covers the point where the defaults start to strain and what to tune first
-(Postgres → poll interval → gunicorn workers/threads → horizontal).
+This is a genuinely capable default, not a toy: [scaling.md](scaling.md)'s
+own words are "[Postgres + poll interval] alone carries most fleets to
+several thousand agents on a single node" — the same one box in the
+**Recommended** row above, just with the interval and worker/thread knobs
+turned. Going multi-node/HA is a later-stage optimization for real scale
+(5,000+, or specific latency/availability requirements), not something a
+"few hundred devices" homelab or SMB fleet needs to reach for. Use
+**[scaling.md](scaling.md)'s capacity table** for the exact fleet-size →
+tuning-step mapping once you're past a few hundred devices.
 
 ### Where that comes from, per component
 

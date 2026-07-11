@@ -83,9 +83,11 @@ server, plain vanilla JS in the browser — no React/Vue, no build step, no
 Node.js, no Redis, no Kubernetes. `install-server.sh` or `docker compose up`
 provisions the full stack — PostgreSQL, the app server, a maintenance
 scheduler, a scanner satellite — with no flags required. A single small box
-handles a fleet up to a couple hundred devices out of the box, and further
-with tuning, load-balanced app nodes, read replicas and relay satellites —
-see **[docs/scaling.md](docs/scaling.md)** for the capacity table and
+handles a couple hundred devices out of the box, no tuning needed — and the
+*same* box carries several thousand agents with just the poll-interval and
+worker-count knobs turned, before you'd ever reach for load-balanced app
+nodes, read replicas or relay satellites. See
+**[docs/scaling.md](docs/scaling.md)** for the capacity table and
 **[docs/requirements.md](docs/requirements.md)** for hardware sizing.
 
 ## Quick start
