@@ -89,9 +89,7 @@ def _device_command_responses() -> dict[str, Any]:
     return {
         "200": {
             "description": "Queued.",
-            "content": {
-                "application/json": {"schema": {"$ref": "#/components/schemas/Ok"}}
-            },
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Ok"}}},
         },
         "400": {"$ref": "#/components/responses/BadRequest"},
         "401": {"$ref": "#/components/responses/Unauthorized"},

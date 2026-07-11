@@ -51,7 +51,14 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.1.0.md](security-review-6.1.0.md)** — Latest review: the
+- **[security-review-6.1.1.md](security-review-6.1.1.md)** — Latest review: the
+ v6.1.1 "HardenMatters" finalize sweep — full SAST stack (CodeQL 0, Bandit/
+ gitleaks clean) plus a six-threat-class independently-verified review and a
+ live read-only probe of a running instance; no Critical/High/Medium ships. A
+ High cross-tenant alerts-isolation gap and two Mediums (a per-tenant badge-count
+ cache collision, an integration credential in the diagnostics bundle) were
+ closed, plus Low/defense-in-depth hardening.
+- **[security-review-6.1.0.md](security-review-6.1.0.md)** — the
  v6.1.0 "Runt1meMatters" enterprise-productization line (Postgres/gunicorn+Flask/
  scheduler/scanner as the single-node default, CGI/SCGI fully retired) plus the
  full SAST stack (CodeQL, Bandit, gitleaks, Semgrep — all clean) and a structured,
@@ -67,13 +74,6 @@ holds long-form docs that don't fit there.
  High/Medium ships; two Medium alert-resolution correctness fixes and Low
  defense-in-depth hardening (no-redirect vuln-DB lookups, mandatory SSRF-safe
  image-registry opener, a read-only-role ticket-badge write gate).
-- **[security-review-6.0.0.md](security-review-6.0.0.md)** — the v6.0.0
- "ClarityMatters" line (the v6 UI overhaul) plus a whole-project manual audit, the
- full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live authenticated review
- — no Critical/High/Medium ships; three Medium fixes (read-only-role write gates
- on the shared Calendar/Tasks boards, two agent-data XSS paths) plus Low/
- defense-in-depth (integration SSRF passthrough, DNS id quoting, a config-file
- lock).
 
 ## Release notes
 
@@ -223,7 +223,10 @@ Older release notes (v5.6.0 and earlier) live in
  Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more for
  health → Alerts (read-only, SSRF-guarded).
 - **[self-monitoring.md](self-monitoring.md)** — The server watching
- itself: status page, DB maintenance, CSP reports.
+ itself: status page, distributed-subsystem health, DB maintenance, CSP reports.
+- **[settings.md](settings.md)** — The complete Settings guide: every tab
+ (Setup / Monitoring / Connections / System), the key knobs, and links to the
+ deeper per-topic docs.
 - **[sla.md](sla.md)** — Uptime SLA targets and reporting.
 - **[terraform-api.md](terraform-api.md)** — Using the REST API from
  Terraform / IaC pipelines.

@@ -183,8 +183,8 @@ class _HandlerBase(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('require_auth', 'require_admin_auth', 'verify_token',
                        'get_token_from_request', 'audit_log', 'respond', 'method',
-                       'get_json_body', 'get_body', '_check_alert_mutation_perm',
-                       '_caller_scope')}
+                       'get_json_body', 'get_json_obj', 'get_body',
+                       '_check_alert_mutation_perm', '_caller_scope')}
         api.require_auth = lambda require_admin=False: 'jakob'
         api.verify_token = lambda t: ('jakob', 'admin')
         api.get_token_from_request = lambda: 't'
@@ -1279,6 +1279,7 @@ class TestTicketCreateAutoRoutes(unittest.TestCase):
             setattr(api, attr, getattr(self, f'_orig_{attr}'))
 
     def _create(self, body):
+        _orig_method, _orig_json = api.method, api.get_json_obj
         api.method = lambda: 'POST'
         api.get_json_obj = lambda: body
         try:
@@ -1286,8 +1287,8 @@ class TestTicketCreateAutoRoutes(unittest.TestCase):
         except api.HTTPError:
             pass
         finally:
-            del api.method
-            del api.get_json_obj
+            api.method = _orig_method
+            api.get_json_obj = _orig_json
         return self.cap['b']
 
     def test_auto_route_fills_unset_fields(self):

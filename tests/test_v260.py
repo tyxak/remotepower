@@ -273,6 +273,16 @@ class TestAgent(unittest.TestCase):
         block = self.agent[idx: idx + 4000]
         self.assertIn('/etc/hosts', block)
 
+    def test_collect_repos_reads_sources_list_d(self):
+        # v6.1.1: on modern Debian/Ubuntu the monolithic /etc/apt/sources.list
+        # is empty/absent — the real repos live in sources.list.d/ (classic
+        # .list + deb822 .sources). Reading only sources.list returned nothing
+        # ("Fetch current" came back empty). Must read the drop-in dir too.
+        idx = self.agent.find('def collect_host_config(')
+        block = self.agent[idx: idx + 4000]
+        self.assertIn('sources.list.d', block)
+        self.assertIn("glob('*.sources')", block)
+
     def test_collect_reads_enabled_services(self):
         idx = self.agent.find('def collect_host_config(')
         block = self.agent[idx: idx + 5000]

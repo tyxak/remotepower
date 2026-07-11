@@ -41,6 +41,25 @@ API changes. Full write-up: `docs/v6.1.1.md`.
   their owner's tenant at creation and are gated the same way the device
   roster already is; a cross-tenant delete 404s instead of leaking the
   id's existence.
+- **Fixed (finalize sweep):** the **Alerts** subsystem — the device-keyed
+  sibling of confirmations — was missed by the tenant sweep above. With
+  tenancy enforced, a tenant-scoped admin could list another tenant's alerts
+  and acknowledge/resolve/mute them. The alerts list and sidebar counts are
+  now tenant-filtered, and every mutation (ack/unack/resolve, bulk, mute)
+  is tenant-gated (a cross-tenant alert id 404s). Fleet-level alerts stay
+  visible, unchanged.
+- **Fixed (finalize sweep):** the sidebar "needs attention" badge counts were
+  cached per role-scope but not per tenant, so two tenant admins shared one
+  cache entry, and the alerts/pending-confirmation/pending-command counts
+  weren't tenant-filtered. The cache key now includes the tenant and each
+  count is restricted to the caller's own devices.
+- **Fixed (finalize sweep):** the downloadable diagnostics support bundle
+  didn't strip integration instance URLs, which can embed HTTP basic-auth
+  credentials (`https://user:pass@host`) — the live config view already
+  redacted them. The bundle now strips them too.
+- **Hardened:** the AI-mitigation endpoint required only a valid login, so a
+  strictly read-only role could trigger a paid AI-provider call; it now
+  requires a write role.
 - **Fixed:** litigation hold didn't cover metric-rollup pruning — the
   hourly/daily rollup cadence sweep was an independent aging path that
   never checked the hold. Now gated the same way `_purge_old_data()` is.
@@ -156,6 +175,32 @@ API changes. Full write-up: `docs/v6.1.1.md`.
 - An online catch-up pass for the Postgres migration path, mirroring the
   one the JSON↔SQLite path has had since v3.12.0.
 - Compile-once hot-path regexes for log-ingest pattern matching.
+- **Host Config → Repos "Fetch current" now works on modern Debian/Ubuntu.**
+  The agent only read the monolithic `/etc/apt/sources.list`, which is empty
+  or absent on releases that moved sources into `/etc/apt/sources.list.d/`
+  (classic `.list` fragments and deb822 `.sources`) — so the fetch came back
+  empty. It now reads the drop-in directory too.
+- **Agent push (wake-nudge) daemon is backend-aware.** It read device
+  credentials from the on-disk `devices.json`, which doesn't exist under the
+  default Postgres/SQLite backend, so every push connection was rejected and
+  the opt-in channel was silently inert. It now reads through the same
+  storage backend the app uses.
+- **Server status → "Distributed subsystems" card** surfaces relay/scan-worker
+  satellite health and the push-daemon status alongside the existing storage/
+  request-tier/scheduler runtime block.
+- **"Clear" on the dashboard activity feed is now per-user, server-side** — it
+  clears the feed for your account on every browser/device, not just the local
+  one (it was a per-browser `localStorage` watermark).
+- Connector-plugin catalog rows align the label and metadata on a shared
+  baseline (they used the form-row layout, which bottom-aligned the two).
+- **Performance:** ~16 read-only config getters and per-request cadence gates
+  (online-TTL, webhook-event checks, session/poll/CVE settings, the offline /
+  health / healthchecks / posture-digest / container sweeps) now read through
+  the zero-copy config view instead of deep-copying the whole config dict —
+  several were doing that copy inside per-device loops on every request.
+- **Consistency:** a typography pass folded the stray 14px body/heading/button
+  sizes onto the canonical scale (13.5px body, 13px headings/labels/buttons/
+  cells), and French UI-label coverage was extended.
 
 ### Fixed live during v6.1.0 production upgrades
 - Postgres port/password drift on multi-instance boxes: the install/setup

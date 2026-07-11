@@ -94,6 +94,43 @@ class TestApiKeyTenantIsolationFix(unittest.TestCase):
         self.assertIn("tenant", body.lower())
 
 
+class TestAlertsTenantIsolationFix(unittest.TestCase):
+    """v6.1.1 finalize: the alerts subsystem was the device-keyed sibling of
+    confirmations but was MISSED by the v6.1.1 tenant sweep — a tenant admin
+    could read and resolve another tenant's alerts (cross-tenant IDOR). The
+    list/summary must tenant-filter and every mutation must tenant-gate."""
+
+    SRC = (_CGI / "api.py").read_text()
+
+    def test_shared_tenant_filter_helpers_exist(self):
+        self.assertIn("def _alert_tenant_visible", self.SRC)
+        self.assertIn("def _filter_alerts_for_caller", self.SRC)
+
+    def test_alerts_list_and_summary_are_filtered(self):
+        for fn in ("def handle_alerts_list", "def handle_alerts_summary"):
+            i = self.SRC.index(fn)
+            body = self.SRC[i : self.SRC.index("\ndef ", i + 10)]
+            self.assertIn("_filter_alerts_for_caller", body, fn)
+
+    def test_alert_mutations_are_tenant_gated(self):
+        for fn in ("def handle_alert_ack", "def handle_alert_unack",
+                   "def handle_alert_resolve", "def handle_alerts_bulk_resolve",
+                   "def handle_alerts_bulk_ack"):
+            i = self.SRC.index(fn)
+            body = self.SRC[i : self.SRC.index("\ndef ", i + 10)]
+            self.assertIn("_alert_tenant_visible", body, fn)
+
+    def test_alert_mutes_gate_and_diagnostics_bundle_url_pop(self):
+        i = self.SRC.index("def handle_alert_mutes")
+        body = self.SRC[i : self.SRC.index("\ndef ", i + 10)]
+        self.assertIn("_tenant", body)
+        # diagnostics bundle must strip integration URLs (basic-auth userinfo)
+        i2 = self.SRC.index("def handle_diagnostics_bundle")
+        b2 = self.SRC[i2 : self.SRC.index("\ndef ", i2 + 10)]
+        self.assertIn("integrations", b2)
+        self.assertIn("_ig.pop('url'", b2)
+
+
 class TestSsoGroupRolesSuperadminGate(unittest.TestCase):
     """The instance-wide sso_group_roles map was gated only on
     require_admin_auth() -- any tenant admin could overwrite it for every

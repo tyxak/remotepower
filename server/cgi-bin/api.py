@@ -1527,7 +1527,7 @@ def _config():
 def get_online_ttl():
     """Effective online TTL value, clamped to MIN_ONLINE_TTL."""
     try:
-        v = int(_config().get('online_ttl', DEFAULT_ONLINE_TTL))
+        v = int(_config_ro().get('online_ttl', DEFAULT_ONLINE_TTL))
     except (TypeError, ValueError):
         v = DEFAULT_ONLINE_TTL
     return max(MIN_ONLINE_TTL, v)
@@ -1832,7 +1832,7 @@ def _offline_thresholds(dev, ttl):
 def get_default_poll_interval():
     """Default poll interval used when enrolling new agents."""
     try:
-        v = int(_config().get('default_poll_interval', DEFAULT_POLL_INTERVAL))
+        v = int(_config_ro().get('default_poll_interval', DEFAULT_POLL_INTERVAL))
     except (TypeError, ValueError):
         v = DEFAULT_POLL_INTERVAL
     return max(10, min(3600, v))
@@ -1840,7 +1840,7 @@ def get_default_poll_interval():
 
 def get_session_ttl(remember_me=False):
     """Session lifetime in seconds — short by default, long with 'remember me'."""
-    cfg = _config()
+    cfg = _config_ro()
     if remember_me:
         try:
             return int(cfg.get('session_ttl_long', DEFAULT_TOKEN_TTL_LONG))
@@ -1854,13 +1854,13 @@ def get_session_ttl(remember_me=False):
 
 def get_remember_me_default():
     """Whether the 'remember me' checkbox should be pre-ticked on the login page."""
-    return bool(_config().get('remember_me_default', False))
+    return bool(_config_ro().get('remember_me_default', False))
 
 
 def get_cve_cache_seconds():
     """How long to cache OSV vulnerability details before re-fetching."""
     try:
-        days = int(_config().get('cve_cache_days', DEFAULT_CVE_CACHE_DAYS))
+        days = int(_config_ro().get('cve_cache_days', DEFAULT_CVE_CACHE_DAYS))
     except (TypeError, ValueError):
         days = DEFAULT_CVE_CACHE_DAYS
     return max(1, min(90, days)) * 86400
@@ -1868,7 +1868,7 @@ def get_cve_cache_seconds():
 
 def is_webhook_event_enabled(event):
     """Check the per-event webhook toggle. Backward compatible with legacy keys."""
-    cfg = _config()
+    cfg = _config_ro()
 
     # New (v1.8.4): explicit per-event dict
     events = cfg.get('webhook_events') or {}
@@ -1891,7 +1891,7 @@ def is_webhook_event_enabled(event):
 
 def get_cve_severity_filter():
     """Severity levels that fire cve_found webhooks."""
-    cfg = _config()
+    cfg = _config_ro()
     raw = cfg.get('cve_severity_filter')
     if isinstance(raw, list) and raw:
         clean = tuple(s for s in raw if s in CVE_SEVERITIES_ALL)
@@ -1902,7 +1902,7 @@ def get_cve_severity_filter():
 
 def get_server_name():
     """Display name for this server — webhook payloads, page title, etc."""
-    name = _config().get('server_name', '').strip()
+    name = _config_ro().get('server_name', '').strip()
     return name or 'RemotePower'
 
 # ── Login brute-force protection ───────────────────────────────────────────────
@@ -9854,7 +9854,7 @@ def check_offline_webhooks(skip_dev_id=None):
     # snapshot whether any state could change; only then take the lock (which
     # re-derives everything race-safely). A stale snapshot at worst delays the
     # locked pass to the next request.
-    if not _offline_sweep_has_work(load(CONFIG_FILE) or {}, devices, now, ttl,
+    if not _offline_sweep_has_work(_config_ro(), devices, now, ttl,
                                    skip_dev_id):
         return
 
@@ -20190,7 +20190,7 @@ def ping_healthchecks_if_due():
     The HTTP call has a 5 s timeout and never raises — a hc.io
     outage must not break RemotePower's request pipeline.
     """
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro()
     url = (cfg.get('healthchecks_url') or '').strip()
     if not url:
         return
@@ -24546,6 +24546,25 @@ def handle_ui_prefs_set():
     respond(200, {'ok': True, 'prefs': clean})
 
 
+def handle_activity_clear():
+    """POST /api/activity/clear — stamp a per-USER "hide activity up to now"
+    watermark on the caller's own account. The dashboard Recent-activity feed
+    then hides everything older than the stamp for THIS user across all their
+    browsers/devices (previously the watermark lived in browser localStorage,
+    so clearing on one machine left the feed full everywhere else). Newer
+    events still appear; idempotent. A personal UI preference, so any signed-in
+    role may clear its own feed (mirrors /api/ui-prefs)."""
+    user = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    now = int(time.time())
+    with _LockedUpdate(USERS_FILE) as users:
+        if user not in users:
+            respond(404, {'error': 'User not found'})
+        users[user]['activity_cleared_at'] = now
+    respond(200, {'ok': True, 'activity_cleared_at': now})
+
+
 # v3.14.0: per-account sidebar favorites. Keys come from the client's _favKey()
 # — 'p:<page>' (a data-page), 'a:<action>:<arg>' (a section-jump button), or
 # 'h:<href>' (an external link). We store them on the user record so they sync
@@ -25342,6 +25361,48 @@ def _backup_rpo_status(bcfg, backup_state, now):
     return out
 
 
+def _subsystems_status(now):
+    """Read-only health of the co-located distributed subsystems for the
+    Server-status page: relay & scanner satellites, and the agent-push
+    (wake-nudge) daemon. The out-of-band scheduler lives in
+    _runtime_serving_info(). No secrets; never raises. See docs/scaling.md
+    (satellites) and docs/push.md (push daemon)."""
+    out = {}
+    # Relay & scanner satellites — a satellite is "online" if it relayed or
+    # heartbeat within ~5 min (last_seen is stamped on every relayed request).
+    try:
+        sats = load(SATELLITES_FILE) or {}
+        relays = {'total': 0, 'online': 0}
+        scanners = {'total': 0, 'online': 0}
+        for s in sats.values():
+            ls = s.get('last_seen')
+            online = bool(ls) and (now - int(ls)) < 300
+            bucket = scanners if s.get('scanner') else relays
+            bucket['total'] += 1
+            bucket['online'] += 1 if online else 0
+        out['satellites'] = {'relays': relays, 'scanners': scanners}
+    except Exception:
+        pass
+    # Agent-push (wake-nudge) daemon — only probed when the operator opted in
+    # (push_enabled). A TCP-connect smoke test to the daemon's bind port; the
+    # daemon is a separate co-located process invisible to api.py otherwise.
+    try:
+        if (load(CONFIG_FILE) or {}).get('push_enabled'):
+            port = int(os.environ.get('RP_PUSH_PORT', 8766))
+            reachable = False
+            try:
+                with socket.create_connection(('127.0.0.1', port), timeout=1):
+                    reachable = True
+            except OSError:
+                reachable = False
+            out['push'] = {'enabled': True, 'port': port, 'reachable': reachable}
+        else:
+            out['push'] = {'enabled': False}
+    except Exception:
+        pass
+    return out
+
+
 def handle_self_status():
     """GET /api/self/status — RemotePower watching itself.
 
@@ -25360,6 +25421,12 @@ def handle_self_status():
     # v5.6.x: how the server is actually being served (storage backend, request
     # tier, scheduler) — rendered as the "Serving / Runtime" table on the page.
     out['runtime'] = _runtime_serving_info()
+    # OTHER-2: co-located distributed subsystems (relay/scanner satellites,
+    # push daemon) — rendered as the "Distributed subsystems" card.
+    try:
+        out['subsystems'] = _subsystems_status(now)
+    except Exception as e:
+        out['subsystems'] = {'error': str(e)[:200]}
     # DATA_DIR disk usage
     try:
         total_bytes = 0
@@ -25917,6 +25984,12 @@ def handle_diagnostics_bundle():
         if isinstance(_wh, dict):
             _wh.pop('url', None)                       # Slack/Discord/Teams token-in-path
             _wh.pop('pushover_user', None)             # Pushover user key
+    # v6.1.1 (SECURITY): an integration instance URL can embed basic-auth
+    # userinfo (https://user:pass@host) — the /api/config GET view redacts it;
+    # mirror that here so the off-box support bundle can't leak it.
+    for _ig in (scrubbed.get('integrations') or []):
+        if isinstance(_ig, dict):
+            _ig.pop('url', None)
     # Drop the noisy per-device bookkeeping maps — not useful for support and
     # they bloat the bundle.
     for noisy in ('offline_notified', 'offline_pending', 'patch_alerted',
@@ -38197,7 +38270,7 @@ def _check_health_webhooks():
     the threshold and `health_recovered` when it climbs back — tracked in a
     per-device state file so each transition fires exactly once, not on every
     heartbeat. Only monitored devices are scored (via _fleet_health)."""
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro()
     try:
         threshold = int(cfg.get('health_alert_threshold') or 0)
     except (TypeError, ValueError):
@@ -38622,7 +38695,7 @@ def handle_home():
     everything into one process and trims devices to the slim shape
     Home actually renders.
     """
-    require_auth()
+    _home_user = require_auth()
     # Slim devices: omit sysinfo + listening_ports + brute_force_active
     # + snmp_status. Home only renders id/name/online/group/icon.
     # Inline the slim flag the same way ?slim=1 does in handle_devices_list,
@@ -38770,6 +38843,10 @@ def handle_home():
         'drift':        drift,
         'cves':         cves,
         'fleet_events': fleet_events,
+        # OTHER-5: per-USER "hide activity up to now" watermark (server-side, so
+        # clearing on one browser clears it for this user everywhere).
+        'activity_cleared_at':
+            int(((load(USERS_FILE).get(_home_user) or {}).get('activity_cleared_at')) or 0),
         'mailwatch':    mailwatch,
         'links':        links,
         'server_tz':    _server_tz_label(),
@@ -39434,7 +39511,7 @@ def get_watched_files_for(dev_id, devices=None):
     from the device drawer) wins; else an assigned drift profile (v3.13.0); else
     the global default (``drift.default_watched_files`` / DEFAULT_WATCHED_FILES).
     """
-    cfg = _config()
+    cfg = _config_ro()
     drift_cfg = cfg.get('drift') or {}
     if not drift_cfg.get('enabled', True):
         return []
@@ -39592,7 +39669,7 @@ def _drift_effective(dev_id, dev, drift_cfg=None):
     """Explain how a device's watched-file list is resolved (for the Drift UI):
     {files, source, profile}. source ∈ device-override | profile:device |
     profile:tag | profile:group | default | disabled."""
-    dc = drift_cfg if drift_cfg is not None else ((_config().get('drift')) or {})
+    dc = drift_cfg if drift_cfg is not None else ((_config_ro().get('drift')) or {})
     if not dc.get('enabled', True):
         return {'files': [], 'source': 'disabled', 'profile': None}
     if isinstance(dev.get('watched_files'), list):
@@ -45305,12 +45382,11 @@ def handle_alerts_list():
     all_alerts = al.get('alerts', [])
     # v3.5.0 RBAC v2: a scoped role only sees alerts for its in-scope devices
     # (alerts with no device_id — fleet-level — stay visible).
-    _scope = _caller_scope()
-    if _scope is not None:
-        _devs = load(DEVICES_FILE) or {}
-        all_alerts = [a for a in all_alerts
-                      if not a.get('device_id')
-                      or _device_in_scope(_scope, _devs.get(a.get('device_id'), {}))]
+    # v6.1.1: ALSO tenant-gate — an alert for another tenant's device must not
+    # be readable by a tenant-scoped admin (the confirmations sibling was gated
+    # in the v6.1.1 sweep; alerts were missed). Fleet-level (device-less) alerts
+    # stay visible, matching the scope convention above.
+    all_alerts = _filter_alerts_for_caller(all_alerts)
     if status == 'all':
         filtered = list(all_alerts)
     elif status == 'ack':
@@ -45353,6 +45429,47 @@ def _check_alert_mutation_perm():
     if cfg.get('viewers_can_ack_alerts', True):
         return require_auth()
     return require_admin_auth()
+
+
+def _alert_tenant_visible(alert):
+    """v6.1.1: an alert is readable/mutable by the caller only if its device is
+    in the caller's tenant — mirrors the confirmations sibling. Fleet-level
+    (device-less) alerts stay visible; when tenancy isn't enforced for the
+    caller (off, or superadmin) everything is visible. Mutation handlers use
+    this to 404 (not 403) a cross-tenant alert id so its existence isn't
+    revealed."""
+    gate = _tenant_gate()
+    if gate is None:
+        return True
+    did = alert.get('device_id')
+    if not did:
+        return True
+    dev = (load(DEVICES_FILE) or {}).get(did, {})
+    return _device_tenant(dev) == gate
+
+
+def _filter_alerts_for_caller(all_alerts):
+    """Restrict a raw alert list to what the caller may see: RBAC scope AND the
+    v6.1.1 tenant gate. Device-less (fleet-level) alerts stay visible. Shared by
+    the alerts list + summary so both apply identical visibility."""
+    scope = _caller_scope()
+    gate = _tenant_gate()
+    if scope is None and gate is None:
+        return list(all_alerts)
+    devs = load(DEVICES_FILE) or {}
+    out = []
+    for a in all_alerts:
+        did = a.get('device_id')
+        if not did:
+            out.append(a)
+            continue
+        d = devs.get(did, {})
+        if scope is not None and not _device_in_scope(scope, d):
+            continue
+        if gate is not None and _device_tenant(d) != gate:
+            continue
+        out.append(a)
+    return out
 
 
 def _may_touch_alert_state():
@@ -45667,6 +45784,8 @@ def handle_alert_ack(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
+                    if not _alert_tenant_visible(a):
+                        respond(404, {'error': 'alert not found'})
                     if a.get('resolved_at'):
                         respond(409, {'error': 'alert already resolved'})
                     a['acknowledged_by'] = user
@@ -45695,6 +45814,8 @@ def handle_alert_unack(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
+                    if not _alert_tenant_visible(a):
+                        respond(404, {'error': 'alert not found'})
                     if a.get('resolved_at'):
                         respond(409, {'error': 'alert already resolved'})
                     a['acknowledged_by'] = None
@@ -45881,6 +46002,8 @@ def handle_alert_resolve(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
+                    if not _alert_tenant_visible(a):
+                        respond(404, {'error': 'alert not found'})
                     if a.get('resolved_at'):
                         respond(409, {'error': 'alert already resolved'})
                     now = int(time.time())
@@ -45915,7 +46038,15 @@ def handle_alert_mutes():
     an alert row derives device+event from the alert)."""
     if method() == 'GET':
         require_auth()
-        respond(200, {'ok': True, 'mutes': _alert_mutes_load()['mutes']})
+        _mutes = _alert_mutes_load()['mutes']
+        # v6.1.1: tenant-gate — don't leak another tenant's muted (device,event)
+        # pairs (device names) to a tenant-scoped admin.
+        _mgate = _tenant_gate()
+        if _mgate is not None:
+            _mdevs = load(DEVICES_FILE) or {}
+            _mutes = [m for m in _mutes
+                      if _device_tenant(_mdevs.get(m.get('device_id'), {})) == _mgate]
+        respond(200, {'ok': True, 'mutes': _mutes})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
@@ -45934,6 +46065,11 @@ def handle_alert_mutes():
         device_name = device_name or (a.get('device_name') or '')
     if not device_id or not event:
         respond(400, {'error': 'device_id and event are required (or a resolvable alert_id)'})
+    # v6.1.1: a tenant-scoped admin may only mute alerts for its own devices —
+    # otherwise it could silence another tenant's signal. 404 (not 403) so a
+    # cross-tenant device_id / alert_id isn't confirmed to exist.
+    if not _tenant_visible((load(DEVICES_FILE) or {}).get(device_id, {})):
+        respond(404, {'error': 'device not found'})
     data = _alert_mutes_load()
     existing = next((m for m in data['mutes']
                      if m.get('device_id') == device_id and m.get('event') == event), None)
@@ -46053,7 +46189,8 @@ def handle_alerts_bulk_resolve():
         with _LockedUpdate(ALERTS_FILE) as store:
             now = int(time.time())
             for a in store.get('alerts', []):
-                if a.get('id') in ids_set and not a.get('resolved_at'):
+                if (a.get('id') in ids_set and not a.get('resolved_at')
+                        and _alert_tenant_visible(a)):
                     a['resolved_by'] = user
                     a['resolved_at'] = now
                     if not a.get('acknowledged_at'):
@@ -46092,7 +46229,8 @@ def handle_alerts_bulk_ack():
                 # Only ack rows that are open (not resolved, not already acked),
                 # so re-running over a mixed selection is idempotent.
                 if (a.get('id') in ids_set and not a.get('resolved_at')
-                        and not a.get('acknowledged_at')):
+                        and not a.get('acknowledged_at')
+                        and _alert_tenant_visible(a)):
                     a['acknowledged_by'] = user
                     a['acknowledged_at'] = now
                     if note:
@@ -46112,7 +46250,8 @@ def handle_alerts_summary():
     """GET /api/alerts/summary — small counts payload for sidebar badge."""
     require_auth()
     al = load(ALERTS_FILE)
-    respond(200, _alerts_summary(al.get('alerts', [])))
+    # v6.1.1: scope + tenant filter so the badge count matches the visible list.
+    respond(200, _alerts_summary(_filter_alerts_for_caller(al.get('alerts', []))))
 
 
 def handle_board():
@@ -46300,6 +46439,14 @@ def handle_nav_counts():
     except Exception:
         _nc_skey = 'x'
     _nc_skey += '_a' if _nc_admin else '_n'
+    # v6.1.1: also key on the caller's tenant gate — two different tenant admins
+    # both resolve to scope 'all' and would otherwise SHARE one cache file (and
+    # each other's counts) for the TTL. None (superadmin / tenancy off) → 't0'.
+    try:
+        _nc_tgate = _tenant_gate()
+        _nc_skey += '_t' + (re.sub(r'[^A-Za-z0-9]', '', str(_nc_tgate))[:16] if _nc_tgate else '0')
+    except Exception:
+        _nc_skey += '_t0'
     _nc_cache = DATA_DIR / f'nav_counts_cache_{_nc_skey}.json'
     try:
         if backend_exists(_nc_cache):
@@ -46391,7 +46538,9 @@ def handle_nav_counts():
     except Exception:
         pass
     try:
-        out['alerts'] = _alerts_summary((load(ALERTS_FILE) or {}).get('alerts', []))
+        # v6.1.1: scope + tenant filter so the badge matches the Alerts page.
+        out['alerts'] = _alerts_summary(
+            _filter_alerts_for_caller((load(ALERTS_FILE) or {}).get('alerts', [])))
     except Exception:
         pass
     # v5.5.0: carry the open-ticket count so the sidebar Tickets badge stays live
@@ -46411,20 +46560,27 @@ def handle_nav_counts():
         # own loader keeps doing the locked prune + expiry events).
         # v4.6.0 (SECURITY): resolved-role gate, not a string denylist (a custom
         # role is neither 'viewer' nor 'mcp' → must not see admin-only counts).
+        # v6.1.1: `devices` is already scope+tenant filtered, so gating the
+        # per-device stores by its id set keeps these admin badges tenant-safe.
+        _nc_dev_ids = set(devices)
+        _nc_tgate2 = _tenant_gate()
         try:
             arr = (load(CONFIRMATIONS_FILE) or {}).get('confirmations', [])
             out['confirmations_pending'] = sum(
                 1 for c in arr
                 if isinstance(c, dict) and c.get('status') == 'pending'
-                and now - (c.get('requested_at') or 0) <= CONFIRMATION_TTL_SEC)
+                and now - (c.get('requested_at') or 0) <= CONFIRMATION_TTL_SEC
+                and (_nc_tgate2 is None or c.get('device_id') in _nc_dev_ids))
         except Exception:
             pass
         # v5.0.0 (#U4): total commands waiting to be delivered to agents, so the
         # Command Queue nav item can show a live "N pending" badge.
         try:
             cmds = load(CMDS_FILE) or {}
-            out['commands_pending'] = sum(len(v) for v in cmds.values()
-                                          if isinstance(v, list))
+            out['commands_pending'] = sum(
+                len(v) for k, v in cmds.items()
+                if isinstance(v, list)
+                and (_nc_tgate2 is None or k in _nc_dev_ids))
         except Exception:
             pass
     try:
@@ -51310,7 +51466,7 @@ def _send_posture_digest(cfg, reason='scheduled'):
 
 def _run_posture_digest_if_due():
     """Opportunistic cadence check, mirroring ping_healthchecks_if_due."""
-    cfg = _config()
+    cfg = _config_ro()
     if not cfg.get('posture_digest_enabled'):
         return
     cadence = cfg.get('posture_digest_cadence', 'weekly')
@@ -54238,7 +54394,7 @@ def get_container_stale_ttl():
     every brief network hiccup, so we floor at that.
     """
     try:
-        v = int(_config().get('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL))
+        v = int(_config_ro().get('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL))
     except (TypeError, ValueError):
         v = containers_mod.DEFAULT_STALE_TTL
     return max(300, v)
@@ -54264,10 +54420,12 @@ def check_container_webhooks():
     if not isinstance(store, dict) or not store:
         return
     devices = load(DEVICES_FILE)
-    cfg = load(CONFIG_FILE)
-    notified = cfg.get('containers_stale_notified') or {}
-    if not isinstance(notified, dict):
-        notified = {}
+    # v6.1.1 perf: read the notified map through the no-copy config view (this
+    # sweep runs every request when container tracking is on); COPY it so the
+    # loop never mutates the shared cache, and take a real config load only if
+    # something actually changes (below) instead of deep-copying every request.
+    _stored = _config_ro().get('containers_stale_notified')
+    notified = dict(_stored) if isinstance(_stored, dict) else {}
     ttl = get_container_stale_ttl()
     now = int(time.time())
     changed = False
@@ -54319,6 +54477,7 @@ def check_container_webhooks():
             changed = True
 
     if changed:
+        cfg = load(CONFIG_FILE)
         cfg['containers_stale_notified'] = notified
         save(CONFIG_FILE, cfg)
 
@@ -56623,6 +56782,7 @@ def _build_exact_routes():
         ('DELETE', '/api/ui-prefs'): handle_ui_prefs_clear,
         ('GET', '/api/ui-prefs'): handle_ui_prefs_get,
         ('POST', '/api/ui-prefs'): handle_ui_prefs_set,
+        ('POST', '/api/activity/clear'): handle_activity_clear,
         (None, '/api/update-device'): handle_update_device,
         (None, '/api/upgrade-device'): handle_upgrade_device,
         ('POST', '/api/install'): handle_install_packages,
@@ -60601,7 +60761,10 @@ def handle_mitigate_ai(dev_id, action_id):
 
     Body (all optional): {kind, target} — defaults pulled from meta.json.
     """
-    require_auth()
+    # v6.1.1: was bare require_auth() → a pure read-only role (viewer/mcp/
+    # auditor/finance) could trigger an AI-provider call (cost) + a meta.json
+    # cache write. Gate on the write role like other editorial writes.
+    require_write_role('run AI mitigation analysis')
     _scope_block_device(dev_id)   # v4.4.0: scope-guard a non-/api/devices/ route
                                   # (sends another scope's diagnostic output to AI).
     if not _validate_id(dev_id):

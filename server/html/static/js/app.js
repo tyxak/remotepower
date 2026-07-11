@@ -9776,7 +9776,7 @@ async function openServiceDetail(devId, devName) {
           <div class="isl-408"><span class="isl-409" data-color="${color}">●</span> <code class="isl-410">${escHtml(s.unit)}</code> <span class="isl-411">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}${svcBtns}</div>
           <div class="meta-sm-nm">since: ${sinceText}</div>
         </div>
-        <details${histItems.length ? ' open' : ''} class="mb-6"><summary class="isl-412">${histLabel}</summary><div class="isl-413">${histBody}</div></details>
+        <details${histItems.length ? ' open' : ''} class="mb-6"><summary class="isl-412">${histLabel}</summary><div class="isl-413 scroll-cap-sm">${histBody}</div></details>
         <details${logItems.length ? ' open' : ''}><summary class="isl-412">${logLabel}</summary><div class="journal-wrap isl-414">${logBody}</div></details>
       </div>`;
     }).join('');
@@ -10938,8 +10938,8 @@ function renderConnectorPlugins() {
   if (!list) return;
   list.innerHTML = _integrationCatalog.map(c => {
     const meta = [c.plugin ? 'plugin' : 'built-in', c.version, c.author].filter(Boolean).join(' · ');
-    return `<div class="settings-row"><strong>${escHtml(c.label)}</strong> ` +
-           `<span class="hint">(${escHtml(c.category)}${meta ? ' — ' + escHtml(meta) : ''})</span></div>`;
+    return `<div class="connector-row"><strong>${escHtml(c.label)}</strong>` +
+           `<span class="hint">${escHtml(c.category)}${meta ? ' — ' + escHtml(meta) : ''}</span></div>`;
   }).join('') || '<div class="empty-state">No connectors registered.</div>';
 }
 
@@ -14320,6 +14320,12 @@ async function loadHome() {
   const drift       = home.drift        || {};
   const cves        = home.cves         || {};
   const fleetEvents = home.fleet_events || [];
+  // OTHER-5: adopt the per-user server watermark (max with the local fallback)
+  // so the feed stays cleared for this account on every browser/device.
+  if (home.activity_cleared_at) {
+    _activityClearedAt = Math.max(_activityClearedAt || 0, home.activity_cleared_at);
+    localStorage.setItem('rp_activity_cleared', String(_activityClearedAt));
+  }
   const mailwatch   = home.mailwatch    || {};
   const linksResp   = {links: home.links || []};
   if (home.server_tz) { window._serverTz = home.server_tz; _applyServerTzNotes(); }
@@ -15435,6 +15441,10 @@ function clearHomeActivity() {
   // items reappeared on the next refresh tick / browser restart). Only events
   // newer than this watermark show; genuinely new activity still appears.
   localStorage.setItem('rp_activity_cleared', String(_activityClearedAt));
+  // v6.1.1 (OTHER-5): also persist PER-USER on the server so the feed clears
+  // for this account across every browser/device, not just this one. The local
+  // watermark above is kept as an instant/offline fallback.
+  api('POST', '/activity/clear').catch(() => {});
   const target = document.getElementById('home-activity');
   if (target) target.innerHTML = `<div class="empty-state isl-553">
     <div class="empty-state-icon">○</div>
@@ -23002,7 +23012,46 @@ async function loadSelfStatus() {
       </table>
       <div class="hint mt-8">This is what's actually serving right now. To change it (persistent WSGI/SCGI app tier, PostgreSQL, out-of-band scheduler) see <a href="docs/scaling.md" class="c-accent">scaling.md</a> — env vars go in <code>/etc/remotepower/api.env</code>.</div>
     </div>`;
-  body.innerHTML = runtimeCard + `
+  // OTHER-2: co-located distributed subsystems (relay/scanner satellites, push
+  // daemon). The scheduler is in the runtime card above.
+  const sub = s.subsystems || {};
+  const _fleetRow = (label, b, offlineNote) => {
+    if (!b || !b.total) return _rtRow(label, 'None configured', '', 'muted');
+    const state = b.online >= b.total ? 'ok' : (b.online > 0 ? 'warn' : 'bad');
+    return _rtRow(label, `${b.online} online / ${b.total} total`,
+                  b.online < b.total ? offlineNote : '', state);
+  };
+  const push = sub.push || {};
+  const pushRow = !push.enabled
+    ? _rtRow('Agent push daemon', 'Off', 'the opt-in wake-nudge channel is disabled', 'muted')
+    : (push.reachable
+      ? _rtRow('Agent push daemon', 'Running', `accepting connections on port ${push.port}`, 'ok')
+      : _rtRow('Agent push daemon', 'Enabled — unreachable', `nothing listening on port ${push.port} — check systemctl status remotepower-push`, 'bad'));
+  const subsystemsCard = `
+    <div class="dash-card">
+      <div class="section-title">Distributed subsystems</div>
+      <table class="fs-13">
+        ${_fleetRow('Relay satellites', sub.satellites && sub.satellites.relays, 'some relayed >5 min ago')}
+        ${_fleetRow('Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago')}
+        ${pushRow}
+      </table>
+      <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand. See <a href="docs/scaling.md" class="c-accent">scaling.md</a> and <a href="docs/push.md" class="c-accent">push.md</a>.</div>
+    </div>`;
+  // OTHER-3: restart-the-stack runbook. RemotePower runs as an unprivileged
+  // service so a live restart needs root on the host; surface the exact,
+  // copy-pasteable systemctl command (scoped to the subsystems that are
+  // actually running) rather than a privileged in-app endpoint.
+  const _scannerSvc = (sub.satellites && sub.satellites.scanners && sub.satellites.scanners.total) ? ' remotepower-scanner' : '';
+  const _pushSvc = (sub.push && sub.push.enabled) ? ' remotepower-push' : '';
+  const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}`;
+  const restartCard = `
+    <div class="dash-card">
+      <div class="section-title">Restart the stack</div>
+      <div class="hint mb-8">RemotePower runs as an unprivileged service, so restarting it is a host action (needs root on the server). This cleanly restarts the app workers and the out-of-band scheduler${_scannerSvc ? ', the scan worker' : ''}${_pushSvc ? ', the push daemon' : ''} — workers cycle with no dropped requests behind nginx and agents reconnect on their own:</div>
+      <div class="row-8-mb8"><code class="self-restart-cmd">${escHtml(_restartCmd)}</code><button class="btn-icon" data-action="copyText" data-arg="${escAttr(_restartCmd)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>
+      <div class="hint">See <a href="docs/self-monitoring.md" class="c-accent">self-monitoring.md</a> and <a href="docs/scaling.md" class="c-accent">scaling.md</a>.</div>
+    </div>`;
+  body.innerHTML = runtimeCard + subsystemsCard + restartCard + `
     <div class="dash-card">
       <div class="section-title">Site health ${healthPill}</div>
       <table class="fs-13">

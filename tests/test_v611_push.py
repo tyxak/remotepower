@@ -111,24 +111,28 @@ class TestDeviceStore(unittest.TestCase):
         self.f = self.d / 'devices.json'
         self.token_hash = push._hash_device_token('tok1')
         self.f.write_text(json.dumps({'dev1': {'token_hash': self.token_hash}}))
+        # v6.1.1: DeviceStore now reads through a backend-aware StoreReader; the
+        # temp dir has no storage marker → JSON backend → flat-file + mtime path,
+        # so all the mtime-keyed cache semantics below are unchanged.
+        self.reader = push.StoreReader(self.d)
 
     def test_valid_token_accepted(self):
-        store = push.DeviceStore(self.f)
+        store = push.DeviceStore(self.reader)
         self.assertTrue(store.check_token('dev1', 'tok1'))
 
     def test_invalid_token_rejected(self):
-        store = push.DeviceStore(self.f)
+        store = push.DeviceStore(self.reader)
         self.assertFalse(store.check_token('dev1', 'wrong'))
 
     def test_unknown_device_rejected(self):
-        store = push.DeviceStore(self.f)
+        store = push.DeviceStore(self.reader)
         self.assertFalse(store.check_token('ghost', 'tok1'))
 
     def test_unchanged_file_is_not_reparsed(self):
         # mtime-keyed, not time-keyed -- an unchanged file must not trigger
         # a re-parse on every single check_token call (auth is on the hot
         # connection-attempt path).
-        store = push.DeviceStore(self.f)
+        store = push.DeviceStore(self.reader)
         store.check_token('dev1', 'tok1')
         orig_load_json = push._load_json
         calls = []
@@ -145,7 +149,7 @@ class TestDeviceStore(unittest.TestCase):
         # stop authenticating (and the new one must start) on the very next
         # check, not after some cache TTL elapses -- this is the correctness
         # property a plain time-based TTL would have silently violated.
-        store = push.DeviceStore(self.f)
+        store = push.DeviceStore(self.reader)
         self.assertTrue(store.check_token('dev1', 'tok1'))
         new_hash = push._hash_device_token('tok2')
         self.f.write_text(json.dumps({'dev1': {'token_hash': new_hash}}))
@@ -154,12 +158,37 @@ class TestDeviceStore(unittest.TestCase):
         self.assertTrue(store.check_token('dev1', 'tok2'))
 
     def test_newly_enrolled_device_recognized_immediately(self):
-        store = push.DeviceStore(self.f)
+        store = push.DeviceStore(self.reader)
         self.assertFalse(store.check_token('dev2', 'tok9'))   # doesn't exist yet
         devs = json.loads(self.f.read_text())
         devs['dev2'] = {'token_hash': push._hash_device_token('tok9')}
         self.f.write_text(json.dumps(devs))
         self.assertTrue(store.check_token('dev2', 'tok9'))
+
+
+class TestStoreReaderBackend(unittest.TestCase):
+    """v6.1.1 fix: the daemon must read devices/commands through the SAME
+    storage backend the app uses. Under Postgres/SQLite the flat *.json files
+    don't exist, so a direct file read rejected every device (fails closed →
+    push silently dead). StoreReader picks the backend from the storage marker."""
+
+    def test_no_marker_is_json_backend_flat_file(self):
+        d = Path(tempfile.mkdtemp())
+        (d / 'devices.json').write_text(json.dumps({'dev1': {'token_hash': 'h'}}))
+        r = push.StoreReader(d)
+        self.assertEqual(r.backend, 'json')
+        self.assertIsNone(r._mod)                       # flat-file path
+        self.assertEqual(r.load('devices.json'), {'dev1': {'token_hash': 'h'}})
+        self.assertIsNotNone(r.mtime('devices.json'))   # real file → real mtime
+
+    def test_sqlite_marker_selects_storage_backend(self):
+        d = Path(tempfile.mkdtemp())
+        # Mirror the on-disk storage marker the app writes.
+        (d / 'storage_backend.json').write_text(json.dumps({'backend': 'sqlite'}))
+        r = push.StoreReader(d)
+        self.assertEqual(r.backend, 'sqlite')
+        self.assertIsNotNone(r._mod)                    # delegates to storage
+        self.assertIsNone(r.mtime('devices.json'))      # DB → no file mtime → TTL
 
 
 class TestPendingContentKey(unittest.TestCase):

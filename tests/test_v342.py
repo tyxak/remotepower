@@ -629,7 +629,10 @@ class TestV342RBACv2(unittest.TestCase):
             i = self.API.find('def ' + fn + '(')
             nxt = self.API.find('\ndef ', i + 1)
             body = self.API[i:nxt if nxt > 0 else i + 2500]
-            self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body, fn)
+            # v6.1.1: handle_alerts_list delegates scope+tenant filtering to the
+            # shared _filter_alerts_for_caller() helper (which calls _caller_scope).
+            self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body
+                            or '_filter_alerts_for_caller' in body, fn)
 
 
 class TestV342SettingsActions(unittest.TestCase):

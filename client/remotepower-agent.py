@@ -7484,8 +7484,28 @@ def collect_host_config():
     current = {}
 
     # ── repos ────────────────────────────────────────────────────────────────
-    if Path(host_path('/etc/apt/sources.list')).exists():
-        current['repos'] = _read('/etc/apt/sources.list')
+    # Debian/Ubuntu: the monolithic /etc/apt/sources.list is often EMPTY or
+    # absent on modern releases — the real repos live in
+    # /etc/apt/sources.list.d/ as classic *.list fragments and, on Ubuntu
+    # 24.04+/Debian 12+, deb822 *.sources files. Reading only sources.list
+    # therefore reported nothing on those hosts ("Fetch current" came back
+    # empty). Read the main file AND the drop-in directory so the reported
+    # repos match what apt actually uses. RHEL/Fedora: concatenate *.repo.
+    _apt_main = Path(host_path('/etc/apt/sources.list'))
+    _apt_dir = Path(host_path('/etc/apt/sources.list.d'))
+    if _apt_main.exists() or _apt_dir.is_dir():
+        parts = []
+        if _apt_main.exists():
+            _m = _read('/etc/apt/sources.list').strip()
+            if _m:
+                parts.append('# /etc/apt/sources.list\n' + _m)
+        if _apt_dir.is_dir():
+            for f in (sorted(_apt_dir.glob('*.list'))
+                      + sorted(_apt_dir.glob('*.sources'))):
+                _c = _read(str(f)).strip()
+                if _c:
+                    parts.append(f'# {f.name}\n' + _c)
+        current['repos'] = '\n\n'.join(parts)
     elif Path(host_path('/etc/yum.repos.d')).is_dir():
         # Concatenate all .repo files
         parts = []

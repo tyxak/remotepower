@@ -3868,7 +3868,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Open the editor:</strong> Devices page → device dropdown → <em>Host Config</em>. A modal opens with one tab per section.</p>
               <p><strong>Sections managed:</strong></p>
               <ul class="isl-104">
-                <li><strong>Repos</strong> — full content of <code>/etc/apt/sources.list</code> or <code>/etc/yum.repos.d/remotepower.repo</code></li>
+                <li><strong>Repos</strong> — full content of <code>/etc/apt/sources.list</code> and <code>sources.list.d/</code> (classic <code>.list</code> + deb822 <code>.sources</code>), or <code>/etc/yum.repos.d/*.repo</code></li>
                 <li><strong>Netplan</strong> — written to <code>/etc/netplan/01-remotepower.yaml</code>, then <code>netplan apply</code></li>
                 <li><strong>nmcli</strong> — connection file at <code>/etc/NetworkManager/system-connections/remotepower-managed.nmconnection</code></li>
                 <li><strong>resolv.conf</strong> — DNS resolver config; resolves symlinks on systemd-resolved hosts</li>
@@ -9258,7 +9258,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
     <!-- Text sections (repos, netplan, nmcli, resolv_conf, hosts, sudoers, motd) -->
     <div class="hc-panel" id="hc-panel-repos">
-      <div class="hint-mb">Full content of <code>/etc/apt/sources.list</code> or <code>/etc/yum.repos.d/remotepower.repo</code></div>
+      <div class="hint-mb">Full content of <code>/etc/apt/sources.list</code> + <code>sources.list.d/</code> (incl. deb822 <code>.sources</code>), or <code>/etc/yum.repos.d/*.repo</code></div>
       <div class="row-8-mb8"><button class="btn-icon" data-action="hcFetchCurrent" data-arg="repos" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-c923885c"/></svg>Fetch current</button><div id="hc-drift-repos" class="meta-amber"></div></div>
       <textarea id="hc-text-repos" class="form-textarea isl-298" placeholder="deb http://deb.debian.org/debian bookworm main contrib non-free" aria-label="deb http://deb.debian.org/debian bookworm main contrib non-free"></textarea>
     </div>

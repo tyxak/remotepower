@@ -90,19 +90,25 @@ class TestWsgiEntrypoint(unittest.TestCase):
 
         posts = []
         wsgi.api._siem_post = lambda url, data, headers, cfg: posts.append((url, data, headers))
-        wsgi.api.save(wsgi.api.CONFIG_FILE, {
-            'otlp_enabled': True, 'otlp_traces_enabled': True,
-            'otlp_endpoint': 'http://collector:4318', 'otlp_traces_interval': 15,
-        })
+        wsgi.api.save(
+            wsgi.api.CONFIG_FILE,
+            {
+                "otlp_enabled": True,
+                "otlp_traces_enabled": True,
+                "otlp_endpoint": "http://collector:4318",
+                "otlp_traces_interval": 15,
+            },
+        )
         client = wsgi.application.test_client()
         resp = client.get("/api/devices")
-        self.assertEqual(resp.status_code, 401)   # unauthenticated — span still recorded
+        self.assertEqual(resp.status_code, 401)  # unauthenticated — span still recorded
         self.assertEqual(len(posts), 1)
-        self.assertEqual(posts[0][0], 'http://collector:4318/v1/traces')
+        self.assertEqual(posts[0][0], "http://collector:4318/v1/traces")
         import json as _json
-        span = _json.loads(posts[0][1])['resourceSpans'][0]['scopeSpans'][0]['spans'][0]
-        self.assertEqual(span['name'], 'GET /api/devices')
-        self.assertEqual(span['attributes'][2]['value']['intValue'], '401')
+
+        span = _json.loads(posts[0][1])["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        self.assertEqual(span["name"], "GET /api/devices")
+        self.assertEqual(span["attributes"][2]["value"]["intValue"], "401")
 
     def test_api_py_still_directly_executable(self):
         # api.py must keep its __main__ entry block and stay importable — the

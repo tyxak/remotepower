@@ -146,6 +146,65 @@ def _load_json(path):
         return {}
 
 
+# v6.1.1: how long a DB-backend device/command read is cached (no file mtime to
+# invalidate on, so bound staleness by time instead — same intent as the
+# mtime-keyed DeviceStore, just time-bounded).
+DB_STORE_TTL_S = 5
+
+
+class StoreReader:
+    """Backend-aware reader for the shared state the main API owns.
+
+    v6.1.1 fix: under the default Postgres/SQLite backend (v6.1.0+) the shared
+    ``*.json`` files do NOT exist on disk — they live in the DB. The daemon used
+    to ``Path(...).read_text()`` them directly, so every read returned ``{}`` and
+    EVERY device was rejected (4401): auth failed closed and the push channel was
+    silently dead on the default backend. This delegates to the SAME storage
+    layer the app uses (``storage``/``storage_pg``), chosen from the on-disk
+    storage marker, and falls back to flat-file reads for the JSON backend (or if
+    the storage modules can't be located next to the daemon)."""
+
+    def __init__(self, data_dir):
+        self.data_dir = Path(data_dir)
+        self.backend = 'json'
+        self._mod = None
+        try:
+            cgi = Path(__file__).resolve().parent.parent / 'cgi-bin'
+            if cgi.is_dir() and str(cgi) not in sys.path:
+                sys.path.insert(0, str(cgi))
+            import storage as _st
+            marker = _st.read_marker(self.data_dir) or {}
+            self.backend = (marker.get('backend') or 'json').lower()
+            if self.backend == 'sqlite':
+                self._mod = _st
+            elif self.backend == 'postgres':
+                import storage_pg as _pg
+                self._mod = _pg
+        except Exception as e:
+            log.warning("push: storage backend detection failed (%s) — "
+                        "falling back to flat-file reads", e)
+            self.backend, self._mod = 'json', None
+
+    def load(self, name):
+        if self._mod is not None:
+            try:
+                return self._mod.load(self.data_dir / name) or {}
+            except Exception as e:
+                log.debug("push: storage.load(%s) failed: %s", name, e)
+                return {}
+        return _load_json(self.data_dir / name)
+
+    def mtime(self, name):
+        """File mtime for the JSON backend (drives DeviceStore cache busting);
+        None under a DB backend (no file) so the store uses a short TTL reload."""
+        if self._mod is not None:
+            return None
+        try:
+            return (self.data_dir / name).stat().st_mtime
+        except OSError:
+            return None
+
+
 class DeviceStore:
     """Cached read access to DEVICES_FILE, keyed on the file's own mtime --
     NOT a time-based TTL. Auth happens on every connection attempt, so this
@@ -159,18 +218,24 @@ class DeviceStore:
     "how fast the filesystem's mtime granularity is," not an arbitrary
     seconds-wide window."""
 
-    def __init__(self, path):
-        self.path = Path(path)
+    def __init__(self, reader, name='devices.json'):
+        self.reader = reader
+        self.name = name
         self._devices = {}
         self._loaded_mtime = None
+        self._loaded_at = 0.0
 
     def _refresh(self):
-        try:
-            mtime = self.path.stat().st_mtime
-        except OSError:
-            mtime = None
+        mtime = self.reader.mtime(self.name)
+        if mtime is None:
+            # DB backend (no file mtime): reload on a short TTL. Bounded
+            # staleness, same intent as the mtime path below.
+            if time.monotonic() - self._loaded_at >= DB_STORE_TTL_S:
+                self._devices = self.reader.load(self.name)
+                self._loaded_at = time.monotonic()
+            return
         if mtime != self._loaded_mtime:
-            self._devices = _load_json(self.path)
+            self._devices = self.reader.load(self.name)
             self._loaded_mtime = mtime
 
     def check_token(self, dev_id, presented):
@@ -206,9 +271,9 @@ def _should_nudge(pending, last_nudge, now, cooldown_s=NUDGE_COOLDOWN_S):
 
 
 class PushServer:
-    def __init__(self, devices_file, cmds_file):
-        self.devices = DeviceStore(devices_file)
-        self.cmds_file = cmds_file
+    def __init__(self, reader):
+        self.reader = reader
+        self.devices = DeviceStore(reader, 'devices.json')
         self.connections = {}     # dev_id -> websocket
         self._last_nudge = {}     # dev_id -> (content_key, monotonic_ts)
 
@@ -263,7 +328,7 @@ class PushServer:
             await asyncio.sleep(POLL_INTERVAL_S)
             if not self.connections:
                 continue
-            cmds = _load_json(self.cmds_file)
+            cmds = self.reader.load('commands.json')
             now = time.monotonic()
             for dev_id, ws in list(self.connections.items()):
                 decision = _should_nudge(cmds.get(dev_id) or [],
@@ -278,10 +343,10 @@ class PushServer:
 
 
 async def main_async(args):
-    server = PushServer(Path(args.data_dir) / 'devices.json',
-                        Path(args.data_dir) / 'commands.json')
-    log.info("remotepower-push v%s listening on %s:%d (data_dir=%s)",
-             VERSION, args.host, args.port, args.data_dir)
+    reader = StoreReader(args.data_dir)
+    server = PushServer(reader)
+    log.info("remotepower-push v%s listening on %s:%d (data_dir=%s, backend=%s)",
+             VERSION, args.host, args.port, args.data_dir, reader.backend)
 
     poll_task = asyncio.create_task(server.poll_and_nudge())
     try:
