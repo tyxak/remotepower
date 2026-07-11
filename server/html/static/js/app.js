@@ -6625,11 +6625,13 @@ function _qeRenderResults(r) {
 async function qeSaveTemplate() {
   const name = (document.getElementById('qe-template-name')?.value || '').trim();
   if (!name) { toast('Name the template first', 'error'); return; }
-  const body = { name, ..._qeBody() };
+  const shared = !!document.getElementById('qe-template-shared')?.checked;
+  const body = { name, shared, ..._qeBody() };
   const r = await api('POST', '/query/templates', body).catch(e => ({ error: String(e) }));
   if (r?.ok) {
     toast('Template saved', 'success');
     document.getElementById('qe-template-name').value = '';
+    document.getElementById('qe-template-shared').checked = false;
     await qeLoadTemplates();
   } else toast(r?.error || 'Save failed', 'error');
 }
@@ -6639,11 +6641,17 @@ async function qeLoadTemplates() {
   const wrap = document.getElementById('qe-templates');
   if (!wrap) return;
   const templates = (r && r.templates) || [];
-  wrap.innerHTML = templates.length ? templates.map(t =>
-    `<div class="settings-row"><strong>${escHtml(t.name)}</strong> <span class="hint">(${escHtml(t.entity)})</span> ` +
-    `<button class="btn-icon" data-action="qeRunTemplate" data-arg="${escAttr(t.id)}">Run</button> ` +
-    `<button class="btn-icon c-danger-outline" data-action="qeDeleteTemplate" data-arg="${escAttr(t.id)}">Delete</button></div>`
-  ).join('') : '<div class="empty-state">No saved queries yet.</div>';
+  const isAdmin = !!(_meCache && _meCache.admin);
+  const me = _meCache && _meCache.username;
+  wrap.innerHTML = templates.length ? templates.map(t => {
+    const mine = t.owner === me || isAdmin;
+    const badge = t.visibility === 'shared'
+      ? '<span class="hint">shared</span>' : '<span class="hint">private</span>';
+    return `<div class="settings-row"><strong>${escHtml(t.name)}</strong> <span class="hint">(${escHtml(t.entity)})</span> ${badge} ` +
+      `<button class="btn-icon" data-action="qeRunTemplate" data-arg="${escAttr(t.id)}">Run</button> ` +
+      (mine ? `<button class="btn-icon c-danger-outline" data-action="qeDeleteTemplate" data-arg="${escAttr(t.id)}">Delete</button>` : '') +
+      `</div>`;
+  }).join('') : '<div class="empty-state">No saved queries yet.</div>';
 }
 
 async function qeRunTemplate(id) {

@@ -23489,15 +23489,28 @@ def handle_query_fields():
 def handle_query_templates():
     """GET /api/query/templates — saved queries (name/entity/where/sort). Any
     authenticated user can save/run one; write is confined to the owner or an
-    admin (mirrors the pattern for other per-user saved-item stores)."""
-    require_auth()
+    admin (mirrors the pattern for other per-user saved-item stores).
+
+    v6.1.1 (#38): READ is now visibility-filtered too -- a saved query's
+    `where` clause can encode business-sensitive filters (a specific site,
+    customer, or CVE), and this endpoint used to return every user's
+    templates to any authenticated caller regardless of role/scope, even
+    though `owner` was already being stamped and enforced on delete. Missing
+    `visibility` (every template saved before this fix) defaults to 'shared'
+    -- nothing already-visible silently disappears -- but new templates
+    default to 'private' unless the caller explicitly opts into 'shared'."""
+    actor = require_auth()
+    _, role = verify_token(get_token_from_request())
+    is_admin = _resolve_role(role).get('admin')
     templates = load(QUERY_TEMPLATES_FILE) or {}
-    respond(200, {'ok': True, 'templates': sorted(templates.values(),
-                  key=lambda t: t.get('name', '').lower())})
+    visible = [t for t in templates.values()
+              if is_admin or t.get('owner') == actor
+              or t.get('visibility', 'shared') == 'shared']
+    respond(200, {'ok': True, 'templates': sorted(visible, key=lambda t: t.get('name', '').lower())})
 
 
 def handle_query_template_create():
-    """POST /api/query/templates {name, entity, where?, sort?, sort_desc?}."""
+    """POST /api/query/templates {name, entity, where?, sort?, sort_desc?, shared?}."""
     actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -23522,6 +23535,10 @@ def handle_query_template_create():
         templates[tid] = {'id': tid, 'name': name, 'entity': entity, 'where': where,
                           'sort': str(body.get('sort', '')).strip() or None,
                           'sort_desc': bool(body.get('sort_desc')),
+                          # v6.1.1 (#38): private by default -- a saved
+                          # query's filters can be business-sensitive; the
+                          # caller opts INTO sharing it, not out of privacy.
+                          'visibility': 'shared' if body.get('shared') else 'private',
                           'owner': actor, 'created': int(time.time())}
     respond(201, {'ok': True, 'id': tid})
 

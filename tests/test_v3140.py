@@ -71,7 +71,7 @@ class _HandlerBase(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('require_auth', 'require_admin_auth', 'verify_token',
                        'get_token_from_request', 'audit_log', 'respond',
-                       'method', 'get_json_body')}
+                       'method', 'get_json_body', '_resolve_role')}
         api.require_auth = lambda require_admin=False: 'jakob'
         api.require_admin_auth = lambda: 'jakob'
         api.verify_token = lambda t: ('jakob', 'admin')
@@ -4172,6 +4172,80 @@ class TestQueryEngineHandlers(_HandlerBase):
         html = (Path(__file__).parent.parent / "server/html/index.html").read_text()
         self.assertIn('id="page-dataexplorer"', html)
         self.assertIn('data-page="dataexplorer"', html)
+
+    # ── v6.1.1 (#38): template read-path visibility enforcement ──────────────
+    # `owner` was already stamped and enforced on DELETE, but GET returned
+    # every user's templates to any authenticated caller -- a saved query's
+    # `where` clause can encode business-sensitive filters.
+    def _as_other_user(self):
+        """Swap the stubbed caller identity to a distinct, non-admin user,
+        matching the pattern test_template_delete_forbidden_for_non_owner_non_admin
+        already established."""
+        api.require_auth = lambda **kw: 'someone-else'
+        api.verify_token = lambda t: ('someone-else', 'viewer')
+        api._resolve_role = lambda role: {'admin': False}
+
+    def test_private_template_hidden_from_other_users(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Mine', 'entity': 'devices'}
+        self.call(api.handle_query_template_create)
+
+        self._as_other_user()
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual(listed['templates'], [])
+
+    def test_private_template_visible_to_owner(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Mine', 'entity': 'devices'}
+        self.call(api.handle_query_template_create)
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual([t['name'] for t in listed['templates']], ['Mine'])
+        self.assertEqual(listed['templates'][0]['visibility'], 'private')
+
+    def test_shared_template_visible_to_other_users(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Team query', 'entity': 'devices', 'shared': True}
+        self.call(api.handle_query_template_create)
+
+        self._as_other_user()
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual([t['name'] for t in listed['templates']], ['Team query'])
+
+    def test_admin_sees_everyones_private_templates(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Mine', 'entity': 'devices'}
+        self.call(api.handle_query_template_create)
+
+        api.require_auth = lambda **kw: 'root-admin'
+        api.verify_token = lambda t: ('root-admin', 'admin')
+        api._resolve_role = lambda role: {'admin': True}
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual([t['name'] for t in listed['templates']], ['Mine'])
+
+    def test_legacy_template_with_no_visibility_field_defaults_shared(self):
+        # A template saved before this fix has no 'visibility' key at all --
+        # it must NOT retroactively vanish from other users (the fix is about
+        # closing the gap for new templates, not silently hiding old ones).
+        api.save(api.QUERY_TEMPLATES_FILE, {'legacy1': {
+            'id': 'legacy1', 'name': 'Old shared query', 'entity': 'devices',
+            'where': None, 'sort': None, 'sort_desc': False,
+            'owner': 'jakob', 'created': 1},
+        })
+        self._as_other_user()
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual([t['name'] for t in listed['templates']], ['Old shared query'])
+
+    def test_default_creation_is_private_not_shared(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Default', 'entity': 'devices'}
+        r = self.call(api.handle_query_template_create)
+        stored = api.load(api.QUERY_TEMPLATES_FILE)[r['id']]
+        self.assertEqual(stored['visibility'], 'private')
         app = client_js()
         self.assertIn("api('POST', '/query'", app)
         self.assertIn("api('GET', '/query/fields'", app)
