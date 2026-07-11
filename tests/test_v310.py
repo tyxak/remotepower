@@ -158,6 +158,17 @@ class TestUserCreateRejectsMcpRole(_ApiTestBase):
         except self.api.HTTPError as e:
             self.assertEqual(e.status, 400)
 
+    def test_non_string_username_rejected(self):
+        # v6.1.1 (#5): the OPTIONAL pydantic pilot (request_models.py) catches
+        # a wrong-typed field ahead of the existing hand-rolled checks. When
+        # pydantic isn't installed, _sanitize_str(123, 32) still coerces to a
+        # string that then fails the username regex -- either way this must
+        # stay a clean 400, never a 500.
+        try:
+            self._post({'username': 123, 'password': 'pw', 'role': 'viewer'})
+        except self.api.HTTPError as e:
+            self.assertEqual(e.status, 400)
+
 
 class TestApiKeyCreateAcceptsMcpRole(_ApiTestBase):
     def setUp(self):
@@ -191,6 +202,15 @@ class TestApiKeyCreateAcceptsMcpRole(_ApiTestBase):
             apikeys = self.api.load(self.api.APIKEYS_FILE)
             roles = {k['role'] for k in apikeys.values()}
             self.assertIn('mcp', roles)
+
+    def test_non_coercible_rate_limit_rejected(self):
+        # v6.1.1 (#5): the OPTIONAL pydantic pilot (request_models.py) catches
+        # this ahead of the existing hand-rolled int() parse; without pydantic
+        # installed, int('not-a-number') already raises the same clean 400.
+        try:
+            self._post({'name': 'bad-rate', 'rate_limit': 'not-a-number'})
+        except self.api.HTTPError as e:
+            self.assertEqual(e.status, 400)
 
 
 # ─── require_auth + require_mcp_action behaviour ────────────────────────────

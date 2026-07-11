@@ -75,6 +75,7 @@ CADENCE = (
     'process_schedule',
     'process_backup_jobs',
     'process_autopatch',
+    'run_jobs_if_due',                   # v6.1.1 (#2) durable job queue drain
     '_maybe_send_scheduled_report',
     '_maybe_send_report_definitions',
     '_maybe_sample_health',

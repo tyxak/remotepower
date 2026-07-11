@@ -62,7 +62,8 @@ class _HandlerBase(unittest.TestCase):
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
                      'CONFIRMATIONS_FILE', 'TENANTS_FILE', 'FILE_ARCHIVE_JOBS_FILE',
                      'APIKEYS_FILE', 'QUERY_TEMPLATES_FILE', 'DRIFT_STATE_FILE',
-                     'PATCH_SNAPSHOTS_FILE', 'AUDIT_LOG_FILE', 'NETSCAN_SCHEDULES_FILE'):
+                     'PATCH_SNAPSHOTS_FILE', 'AUDIT_LOG_FILE', 'NETSCAN_SCHEDULES_FILE',
+                     'JOBS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -5312,6 +5313,166 @@ class TestGitOps(_HandlerBase):
     def test_periodic_registered(self):
         api_src = (_ROOT / "server/cgi-bin/api.py").read_text()
         self.assertIn("_safe(_maybe_gitops_sync", api_src)
+
+
+class TestJobQueue(_HandlerBase):
+    """v6.1.1 (#2) — durable job queue: enqueue/claim/complete/fail-with-
+    backoff/dead-letter, drained by run_jobs_if_due(). See the module
+    docstring above enqueue_job() in api.py for the full design note and
+    why this is a scoped-down subset of the original tracker ask."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_handlers = dict(api.JOB_HANDLERS)
+        # smtp_notifier is a shared module (imported once, same object across
+        # every test file in this process) -- several tests below stub
+        # api.smtp_notifier.send_email directly, so it MUST be restored here
+        # or the stub leaks into unrelated later test files (bit once: the
+        # leaked _raise() stub broke test_v541_testmode.TestEmailSandbox,
+        # which runs alphabetically after this file).
+        self._orig_send_email = api.smtp_notifier.send_email
+
+    def tearDown(self):
+        api.JOB_HANDLERS.clear()
+        api.JOB_HANDLERS.update(self._orig_handlers)
+        api.smtp_notifier.send_email = self._orig_send_email
+        super().tearDown()
+
+    def test_enqueue_creates_queued_job(self):
+        jid = api.enqueue_job('noop', {'x': 1})
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]['id'], jid)
+        self.assertEqual(jobs[0]['status'], 'queued')
+        self.assertEqual(jobs[0]['attempts'], 0)
+        self.assertEqual(jobs[0]['payload'], {'x': 1})
+
+    def test_delay_defers_next_run(self):
+        api.enqueue_job('noop', {}, delay_s=3600)
+        claimed = api._claim_due_jobs()
+        self.assertEqual(claimed, [])   # not due yet
+
+    def test_claim_marks_running_and_is_atomic_per_call(self):
+        api.enqueue_job('noop', {})
+        first = api._claim_due_jobs()
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]['status'], 'running')
+        second = api._claim_due_jobs()   # already claimed -- nothing left due
+        self.assertEqual(second, [])
+
+    def test_claim_respects_limit(self):
+        for _ in range(5):
+            api.enqueue_job('noop', {})
+        claimed = api._claim_due_jobs(limit=2)
+        self.assertEqual(len(claimed), 2)
+
+    def test_complete_marks_done(self):
+        jid = api.enqueue_job('noop', {})
+        api._claim_due_jobs()
+        api._complete_job(jid)
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'done')
+
+    def test_fail_requeues_with_backoff_before_max_attempts(self):
+        jid = api.enqueue_job('noop', {}, max_attempts=3)
+        api._claim_due_jobs()
+        api._fail_job(jid, 'boom')
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        j = jobs[0]
+        self.assertEqual(j['status'], 'queued')
+        self.assertEqual(j['attempts'], 1)
+        self.assertEqual(j['last_error'], 'boom')
+        self.assertGreater(j['next_run'], int(__import__('time').time()))
+
+    def test_fail_dead_letters_after_max_attempts(self):
+        jid = api.enqueue_job('noop', {}, max_attempts=2)
+        api._fail_job(jid, 'e1')
+        api._fail_job(jid, 'e2')
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'dead')
+        self.assertEqual(jobs[0]['attempts'], 2)
+
+    def test_run_jobs_if_due_executes_registered_handler(self):
+        calls = []
+        api.register_job_handler('record', lambda payload: calls.append(payload))
+        api.enqueue_job('record', {'v': 42})
+        api.run_jobs_if_due()
+        self.assertEqual(calls, [{'v': 42}])
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'done')
+
+    def test_run_jobs_if_due_backs_off_on_handler_exception(self):
+        def _boom(payload):
+            raise ValueError('nope')
+        api.register_job_handler('boom_kind', _boom)
+        api.enqueue_job('boom_kind', {}, max_attempts=5)
+        api.run_jobs_if_due()
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'queued')
+        self.assertEqual(jobs[0]['attempts'], 1)
+        self.assertIn('nope', jobs[0]['last_error'])
+
+    def test_run_jobs_if_due_dead_letters_unknown_kind(self):
+        api.JOB_HANDLERS.clear()   # no handlers registered at all
+        api.enqueue_job('nothing_handles_this', {}, max_attempts=1)
+        api.run_jobs_if_due()
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'dead')
+        self.assertIn('no handler', jobs[0]['last_error'])
+
+    def test_max_jobs_cap_enforced(self):
+        old_max = api.MAX_JOBS
+        api.MAX_JOBS = 3
+        try:
+            for i in range(5):
+                api.enqueue_job('noop', {'i': i})
+            jobs = api.load(api.JOBS_FILE)['jobs']
+            self.assertEqual(len(jobs), 3)
+            self.assertEqual([j['payload']['i'] for j in jobs], [2, 3, 4])
+        finally:
+            api.MAX_JOBS = old_max
+
+    def test_scheduled_report_send_failure_enqueues_retry_job(self):
+        # First real consumer: a transient SMTP failure on the synchronous
+        # scheduled-report send must enqueue a retry, not just log-and-wait
+        # for the next cron fire.
+        api.save(api.CONFIG_FILE, {
+            'report_schedule': {'enabled': True, 'cron': '* * * * *',
+                                'recipients': ['ops@example.com']},
+            'smtp_host': 'smtp.example.com',
+        })
+        api._build_fleet_report = lambda: {'devices': {}, 'compliance': {}}
+        api._render_report_email = lambda report: ('Subject', 'Body text')
+
+        def _raise(*a, **k):
+            raise api.smtp_notifier.SmtpError('connection refused')
+        api.smtp_notifier.send_email = _raise
+        api._maybe_send_scheduled_report()
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]['kind'], 'send_report_email')
+        self.assertEqual(jobs[0]['payload']['recipients'], ['ops@example.com'])
+
+    def test_job_send_report_email_handler_calls_smtp(self):
+        sent = []
+        api.smtp_notifier.send_email = lambda cfg, recips, subj, body, html_body=None: sent.append(
+            (recips, subj, body))
+        api._job_send_report_email(
+            {'recipients': ['a@b.com'], 'subject': 'S', 'body': 'B'})
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0], ['a@b.com'])
+
+    def test_job_send_report_email_noop_on_empty_recipients(self):
+        sent = []
+        api.smtp_notifier.send_email = lambda *a, **k: sent.append(1)
+        api._job_send_report_email({'recipients': [], 'subject': 'S', 'body': 'B'})
+        self.assertEqual(sent, [])
+
+    def test_cadence_registered_in_main_and_scheduler(self):
+        api_src = (_ROOT / "server/cgi-bin/api.py").read_text()
+        self.assertIn("_safe(run_jobs_if_due", api_src)
+        import scheduler as scheduler_mod
+        self.assertIn('run_jobs_if_due', scheduler_mod.CADENCE)
 
 
 if __name__ == "__main__":

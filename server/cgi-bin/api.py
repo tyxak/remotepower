@@ -143,6 +143,12 @@ INBOUND_WEBHOOKS_FILE = DATA_DIR / 'inbound_webhooks.json'
 # dashboard before the action runs.
 CONFIRMATIONS_FILE = DATA_DIR / 'pending_confirmations.json'
 
+# v6.1.1 (#2): durable job queue for bursty/transient-failure-prone background
+# work -- see the run_jobs_if_due()/enqueue_job() block below (near
+# _maybe_send_scheduled_report) for the full design note. NOT a general
+# task-queue product feature; there is no public "submit a custom job" API.
+JOBS_FILE = DATA_DIR / 'jobs.json'
+
 # v3.2.0 (B3): OIDC SSO — short-lived state/nonce store for in-flight
 # authorize-code-flow logins. Entries are added by /api/auth/oidc/start
 # and consumed by /api/auth/oidc/callback. TTL is short (10 minutes).
@@ -933,6 +939,9 @@ import ai_context
 import rag_index
 # v5.4.0 "RackMatters": pure time-tracking / billing math (hours, rates, totals).
 import billing as billing_mod
+# v6.1.1 (#5): OPTIONAL pydantic v2 request-body validation pilot -- see the
+# module docstring for why it's a pilot (3 handlers), not a sweep.
+import request_models
 # v3.4.0: resource forecasting / "what changed", control-mapped compliance,
 # and on-demand AI insight prompt builders (anomaly, cron, runbook, doc draft).
 import forecast
@@ -12581,6 +12590,8 @@ def handle_billing_payment_webhook():
     if not expected or not provided or not hmac.compare_digest(expected, provided):
         respond(403, {'error': 'Billing webhook secret mismatch'})
     body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.BillingPaymentWebhookRequest, body)
+    if not _rm_ok: respond(400, {'error': _rm_err})
     iid = str(body.get('invoice_id') or '').strip()
     try:
         amount = float(body.get('amount'))
@@ -23956,6 +23967,8 @@ def handle_user_create():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.UserCreateRequest, body)
+    if not _rm_ok: respond(400, {'error': _rm_err})
     username = _sanitize_str(body.get('username', ''), 32)
     password = body.get('password', '')
     role     = body.get('role', 'admin')
@@ -41229,6 +41242,8 @@ def handle_apikeys_create():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.ApiKeyCreateRequest, body)
+    if not _rm_ok: respond(400, {'error': _rm_err})
     name = _sanitize_str(body.get('name', ''), 64)
     role = body.get('role', 'admin')
     user = _sanitize_str(body.get('user', 'api'), 32)
@@ -43714,6 +43729,139 @@ def _render_report_email(report):
     return subject, "\n".join(lines)
 
 
+# v6.1.1 (#2): durable job queue for bursty/transient-failure-prone SERVER-side
+# background work — a real subset of the tracker's original "durable job
+# queue for heavy async work" ask, deliberately scoped down. What already
+# existed: periodic sweeps (run_*_if_due, correct for light recurring work),
+# a hand-rolled webhook dead-letter queue (WEBHOOK_DLQ_FILE — permanent
+# failures sit until an OPERATOR manually retries), and a per-feature ad-hoc
+# job store for the file-manager tar-archive flow (FILE_ARCHIVE_JOBS_FILE).
+# None of those give a general "retry this unit of work automatically, with
+# backoff, N times, then give up cleanly" primitive. This is that primitive:
+# a JOBS_FILE-backed queue, drained by the standard run_*_if_due cadence
+# (this file's main() AND scheduler.py's CADENCE — test_v600_scheduler
+# enforces the two stay in lockstep), each job kind resolved through
+# JOB_HANDLERS. First real consumer: _maybe_send_scheduled_report's failure
+# path (below) — today a transient SMTP hiccup means the report doesn't
+# retry until the NEXT cron fire, which can be days away for a weekly/
+# monthly schedule; this makes that failure path retry with backoff instead.
+# Explicitly NOT a general task-queue product feature — no public "submit a
+# custom job" API, and existing systems (webhook DLQ, file-archive jobs)
+# are NOT migrated onto this in this pass; that's real, separate follow-up
+# work once this primitive has a production track record.
+MAX_JOBS = 2000
+JOB_BACKOFF_BASE_S = 30
+JOB_BACKOFF_CAP_S = 3600
+JOBS_PER_RUN = 20   # bounded per cadence tick, mirrors run_image_scan_if_due's own cap
+
+JOB_HANDLERS = {}   # {kind: fn(payload) -> None; raises on failure}
+
+
+def register_job_handler(kind, fn):
+    JOB_HANDLERS[str(kind)] = fn
+
+
+def enqueue_job(kind, payload, max_attempts=3, delay_s=0):
+    """Queue a unit of background work for automatic retry-with-backoff
+    execution. Returns the new job's id."""
+    now = int(time.time())
+    entry = {
+        'id': 'job_' + secrets.token_hex(8), 'kind': str(kind), 'payload': payload or {},
+        'status': 'queued', 'attempts': 0, 'max_attempts': max(1, int(max_attempts)),
+        'next_run': now + max(0, int(delay_s)),
+        'created_at': now, 'updated_at': now, 'last_error': '',
+    }
+    with _LockedUpdate(JOBS_FILE) as store:
+        jobs = store.setdefault('jobs', [])
+        jobs.append(entry)
+        store['jobs'] = jobs[-MAX_JOBS:]
+    return entry['id']
+
+
+def _claim_due_jobs(limit=JOBS_PER_RUN):
+    """Atomically claim up to `limit` due, queued jobs (status -> 'running',
+    under the same lock so two concurrent cadence ticks can't double-claim).
+    Returns copies of the claimed job dicts."""
+    now = int(time.time())
+    claimed = []
+    with _LockedUpdate(JOBS_FILE) as store:
+        jobs = store.get('jobs', [])
+        for j in jobs:
+            if len(claimed) >= limit:
+                break
+            if j.get('status') == 'queued' and int(j.get('next_run', 0)) <= now:
+                j['status'] = 'running'
+                j['updated_at'] = now
+                claimed.append(dict(j))
+        store['jobs'] = jobs
+    return claimed
+
+
+def _complete_job(job_id):
+    with _LockedUpdate(JOBS_FILE) as store:
+        jobs = store.get('jobs', [])
+        for j in jobs:
+            if j.get('id') == job_id:
+                j['status'] = 'done'
+                j['updated_at'] = int(time.time())
+                break
+        store['jobs'] = jobs
+
+
+def _fail_job(job_id, error):
+    """Increment attempts; requeue with exponential backoff, or mark 'dead'
+    (dead-letter, no further automatic retry) once max_attempts is spent."""
+    with _LockedUpdate(JOBS_FILE) as store:
+        jobs = store.get('jobs', [])
+        for j in jobs:
+            if j.get('id') == job_id:
+                attempts = int(j.get('attempts', 0)) + 1
+                j['attempts'] = attempts
+                j['last_error'] = str(error)[:500]
+                j['updated_at'] = int(time.time())
+                if attempts >= int(j.get('max_attempts', 3)):
+                    j['status'] = 'dead'
+                else:
+                    backoff = min(JOB_BACKOFF_CAP_S, JOB_BACKOFF_BASE_S * (2 ** (attempts - 1)))
+                    j['status'] = 'queued'
+                    j['next_run'] = int(time.time()) + backoff
+                break
+        store['jobs'] = jobs
+
+
+def run_jobs_if_due():
+    """Cadence hook (main()'s _safe-wrapped list + scheduler.py's CADENCE):
+    execute due jobs, bounded per tick. Cheap when the queue is empty (one
+    JOBS_FILE read)."""
+    for job in _claim_due_jobs():
+        handler = JOB_HANDLERS.get(job['kind'])
+        if handler is None:
+            _fail_job(job['id'], f"no handler registered for kind={job['kind']!r}")
+            continue
+        try:
+            handler(job['payload'])
+            _complete_job(job['id'])
+        except Exception as exc:
+            _fail_job(job['id'], f'{exc.__class__.__name__}: {exc}')
+
+
+def _job_send_report_email(payload):
+    """First real job-queue consumer: retry a scheduled fleet-report email
+    that failed on its first (synchronous, in-cadence) attempt."""
+    recipients = payload.get('recipients') or []
+    if not recipients:
+        return
+    cfg = load(CONFIG_FILE) or {}
+    subject = payload.get('subject', '')
+    body = payload.get('body', '')
+    smtp_notifier.send_email(cfg, recipients, subject, body,
+                             html_body=smtp_notifier.brand_html(cfg, subject, body))
+    _log_email('fleet_report', recipients, 'ok', '(retried via job queue)')
+
+
+register_job_handler('send_report_email', _job_send_report_email)
+
+
 def _maybe_send_scheduled_report():
     """Heartbeat hook: send the fleet report on its configured cron schedule.
 
@@ -43745,13 +43893,27 @@ def _maybe_send_scheduled_report():
     try:
         report = _build_fleet_report()
         subject, body = _render_report_email(report)
+    except Exception as e:
+        # A build failure is a real bug (bad data/template), not a transient
+        # one -- retrying with backoff wouldn't help; it'll fail identically
+        # at the next cron fire same as before this job-queue integration.
+        sys.stderr.write(f'[remotepower] scheduled report build failed: {e}\n')
+        return
+    try:
         smtp_notifier.send_email(cfg, recipients, subject, body,
                                  html_body=smtp_notifier.brand_html(cfg, subject, body))
         _log_email('fleet_report', recipients, 'ok', '')
     except smtp_notifier.SmtpError as e:
         _log_email('fleet_report', recipients, 'error', str(e))
+        # v6.1.1 (#2): genuinely transient (SMTP hiccup) -- retry with
+        # backoff instead of waiting for the next cron fire, which can be
+        # days away for a weekly/monthly schedule.
+        enqueue_job('send_report_email',
+                   {'recipients': recipients, 'subject': subject, 'body': body})
     except Exception as e:
         sys.stderr.write(f'[remotepower] scheduled report failed: {e}\n')
+        enqueue_job('send_report_email',
+                   {'recipients': recipients, 'subject': subject, 'body': body})
 
 
 def handle_report_schedule_get():
@@ -57026,6 +57188,8 @@ def main():
     # v3.6.0: cron-driven backup jobs + auto-patch policies
     _safe(process_backup_jobs, 'process_backup_jobs')
     _safe(process_autopatch,   'process_autopatch')
+    # v6.1.1 (#2): drain the durable job queue (retry-with-backoff background work).
+    _safe(run_jobs_if_due, 'run_jobs_if_due')
     # v3.4.1: send the scheduled fleet posture report when its cron is due.
     _safe(_maybe_send_scheduled_report, '_maybe_send_scheduled_report')
     # v3.14.0: custom report definitions, each on its own cron.

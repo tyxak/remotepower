@@ -351,6 +351,26 @@ class TestBillingPaymentWebhook(TestBillingHandlers):
         self.assertIs(api._build_exact_routes()[('POST', '/api/billing/payment-webhook')],
                       api.handle_billing_payment_webhook)
 
+    def test_non_numeric_amount_rejected_by_pydantic_pilot_when_available(self):
+        # v6.1.1 (#5): the OPTIONAL pydantic pilot (request_models.py) validates
+        # this handler's body ahead of the existing hand-rolled float() parse.
+        # When pydantic isn't installed the old parse still catches this the
+        # same way (see test_invalid_kind_rejected's sibling coverage) -- this
+        # test only asserts the SHAPE of the contract (400 + 'error' key)
+        # stays identical either way, not which layer caught it.
+        self._set_secret()
+        iid, _total = self._issue_invoice()
+        r = self._webhook({'invoice_id': iid, 'amount': 'not-a-number'})
+        self.assertEqual(r.code, 400)
+        self.assertIn('error', r.body)
+
+    def test_missing_amount_rejected(self):
+        self._set_secret()
+        iid, _total = self._issue_invoice()
+        r = self._webhook({'invoice_id': iid})
+        self.assertEqual(r.code, 400)
+        self.assertIn('error', r.body)
+
 
 class TestInvoicePdf(TestBillingHandlers):
     """v6.1.1 — real generated invoice PDFs (reportlab), replacing depending
