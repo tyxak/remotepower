@@ -28,6 +28,26 @@ API changes. Full write-up: `docs/v6.1.1.md`.
   `require_admin_auth()`, so any tenant's own admin could silently overwrite
   SSO role mapping for every other tenant's users. Now gated on
   `_caller_is_superadmin()`.
+- **Fixed:** the API-key tenant fix above was reopened one hop removed —
+  key create/rotate and `GET /api/me` resolved the caller's tenant via the
+  older `_user_tenant()` lookup instead of `_caller_effective_tenant()`, so
+  an API-key caller (not a session user) could hit the same free-text-field
+  fallback the original bypass exploited. All three now use
+  `_caller_effective_tenant()`.
+- **Fixed:** saved query templates (`GET /api/query/templates`) checked a
+  bare admin-role flag and an unscoped `'shared'` visibility flag — any
+  tenant's own admin could see or fully enumerate every other tenant's
+  saved query filters (site/customer/CVE-specific). Templates now stamp
+  their owner's tenant at creation and are gated the same way the device
+  roster already is; a cross-tenant delete 404s instead of leaking the
+  id's existence.
+- **Fixed:** litigation hold didn't cover metric-rollup pruning — the
+  hourly/daily rollup cadence sweep was an independent aging path that
+  never checked the hold. Now gated the same way `_purge_old_data()` is.
+- **Fixed:** a job reclaimed after exceeding its running lease could have
+  its outcome silently clobbered by the original, still-alive attempt
+  finishing late. Claims now carry a token; a stale attempt's completion/
+  failure call is a no-op once its job has been reclaimed by a newer one.
 - **Litigation hold** (Settings → Maintenance): suspends the one function
   that age-based-deletes command history, fleet events, webhook logs,
   monitor history, resolved alerts, and metric samples, fleet-wide. A reason

@@ -10,7 +10,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | OS icons | Auto-detected SVG glyphs — Linux, Windows, macOS *(v4.0.0)*, fallback |
 | Uptime tracking | Online/offline state changes stored per device |
 | Container awareness | Auto-detected Docker / Podman / Kubernetes pods — image, status, restart count, ports, namespace; read-only |
-| Network map | Manual topology from per-device `connected_to`; agentless switches/APs; site/group/tag scope picker *(v5.0.0)* |
+| Network map | Manual topology from per-device `connected_to`; agentless switches/APs; site/group/tag scope picker *(v5.0.0)*; **scheduled LAN netscan** — the one-shot netscan is now a living, auto-refreshed unmanaged-host feed that folds discovered hosts into the graph as dashed, muted nodes/edges *(v6.1.1)* |
 | Network metrics page | Per-device RX/TX from interface samples; fleet/group/tag/site scope, top-talkers, roll-ups *(v5.0.0)* |
 | Pending-reboot indicator | Amber ⟳ **Pending Reboot** badge on Patches when `/run/reboot-required` exists *(v2.4.14)* |
 | Timeline (fleet or device) | Merged fleet events + command runs, newest-first, filterable, scoped *(v3.4.1)* |
@@ -23,7 +23,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Software inventory search | "Which hosts run openssl < X" over collected inventory *(v3.4.1)* |
 | Software center | Every installed package across the fleet, versions + host counts *(v3.13.0)* |
 | End-of-life OS detection | Vendor-EOL table flags out-of-support hosts *(v3.4.1)* |
-| Ad-hoc fleet query | Filter by group/tag/OS/online/pending/CVE/integrity/version/pkg-manager/has-package/failed-units/disk-mem%/offline-days; saved queries *(v3.4.2)* |
+| Ad-hoc fleet query | Filter by group/tag/OS/online/pending/CVE/integrity/version/pkg-manager/has-package/failed-units/disk-mem%/offline-days; saved queries *(v3.4.2)*; **Data Explorer** page — a whitelisted predicate-tree query engine over devices/CVEs/drift (deliberately not raw SQL), plus a batch endpoint for up to 10 queries in one call; saved query templates are private by default (owner-only), opt-in shared within your own tenant, tenant-scoped when isolation is enforced. `POST /api/query`, `/api/query/batch`, `GET/POST/DELETE /api/query/templates` *(v6.1.1)* |
 | Boot reason | Why a host last restarted, stored + shown *(v3.8.0)* |
 | Failed systemd units + logged-in users | Persisted, shown in System Info tab *(v3.8.0)* |
 | Unmonitored devices | Shown in telemetry/inventory views (thermal/power/storage/exposure/SMART/patches/ports/processes/GPU), flagged; only alerting suppressed *(v4.7.0)* |
@@ -135,7 +135,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Patch-compliance SLA | Per group/tag/fleet max-age (days) for security and/or all pending updates; first-seen aging → `patch_sla_violation`/`patch_sla_ok`, a breach list on the Patches page and a count in the posture report. `GET /api/patch-sla` *(v6.0.0)* |
 | Admin-only alert mutation | Optionally require admin role to ack / unack / resolve (`viewers_can_ack_alerts`) *(v3.3.0)* |
 | One-click ack from email | Opt-in signed **Acknowledge / Resolve** links in alert emails (`alert_email_ack_links`) — HMAC-signed, no login, IP-allowlist-exempt; acts on the alert straight from your inbox. `GET /api/alerts/act` *(v6.0.0)* |
-| Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); per-priority SLA response-time targets (`ticket_sla`) with breach events; **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
+| Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); per-priority SLA response-time targets (`ticket_sla`) with breach events, plus per-**type** overrides and type-based auto-routing *(v6.1.1)*; **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
 | Ticket attachments | Inbound email attachments stored + downloadable/previewable; attach files to an outbound reply (≤15 MB each, ≤10/msg); access bound to the ticket, served `nosniff`. `GET …/tickets/{id}/attachments/{aid}[?inline=1]` *(v5.5.0)* |
 | Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.5.0)* |
 | Canned ticket replies | Reusable reply snippets with insert-time `{ticket_id}`/`{customer}`/`{assignee}` placeholders — admin-managed, one-click insert in the composer. `GET/POST /api/tickets/templates` *(v6.0.0)* |
@@ -196,7 +196,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Web terminal | Real xterm.js SSH in the browser via a hardened daemon; asciinema v2 recordings (output-only default, opt-in keystroke) *(v1.11.11)* |
 | Graphical remote desktop | noVNC over the web-terminal daemon's SSH tunnel to loopback VNC; never network-exposed; Linux only *(v3.5.0)* |
 | RDP tunnel (Windows) | Opt-in (`rdp_enabled`): the drawer's RDP action mints an admin-reauth'd session that tunnels the host's loopback 3389 over the same SSH plumbing; an operator-side bridge exposes it as `localhost:PORT` for mstsc/Remmina (no in-browser RDP client — deliberate). RDP port stays loopback-only on the host *(v6.0.0)* |
-| Remote file manager | Browse/view/edit files through the agent — no SSH/SFTP; allowlisted roots, exec-gated, audited; reads survive quarantine; opt-in per server *(v3.6.0)*; **binary-safe download + upload** (base64, ≤8 MB, no-overwrite unless forced) *(v6.0.0)* |
+| Remote file manager | Browse/view/edit files through the agent — no SSH/SFTP; allowlisted roots, exec-gated, audited; reads survive quarantine; opt-in per server *(v3.6.0)*; **binary-safe download + upload** (base64, ≤8 MB, no-overwrite unless forced) *(v6.0.0)*; **folder-as-tar streaming download** for directories too large for the base64-blob channel *(v6.1.1)* |
 | Host user/key/firewall mgmt | Add/lock/unlock/delete users, add/revoke SSH keys, allow/deny ufw/firewalld ports from the drawer; exec-gated *(v3.6.0)* |
 | SSH links | Per-credential `ssh://user@host:port` + copy button; default SSH username *(v2.4.2)* |
 
@@ -206,6 +206,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Install software | Install repo packages on a host or tag/group (apt/dnf/yum/zypper/pacman/apk) *(v3.4.2)* |
 | Hold / unhold packages | Pin packages at current version (`apt-mark hold`, dnf/yum `versionlock`, `zypper addlock`); names only, no shell *(v4.0.0)* |
+| Package Snapshots | Freeze the fleet's current installed-package state into a named, immutable snapshot; diff two snapshots (added/removed/changed); promote a snapshot to a device tag as a pin reference — a promoted tag pauses auto-patch dispatch for every device it covers (drift reporting keeps running). **Real per-package pinned-install enforcement**: `POST /api/patch-snapshots/{id}/enforce` diffs pinned versions against each covered device's installed packages and queues an exact apt/dnf/yum install-or-downgrade over the agent's existing `exec:` channel (self-detecting the package manager; `pacman` refused with a clear error); goes through the same 4-eyes approval gate as any other `exec:` command *(v6.1.1)* |
 | Patch catalog | Pending updates aggregated by package across hosts; third-party (flatpak/snap/pip/npm) *(v3.4.2)* |
 | Post-deploy verification | Confirm the pending count actually dropped (ok/stalled/pending) *(v3.4.2)* |
 | Auto-patch | Cron-scheduled updates across a single device / group / tag / site / whole fleet, respecting maintenance windows; optional staged rings *(v3.6.0, single-device v6.0.1)* |
@@ -276,7 +277,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Image updates | Pulled-digest vs registry digest → stale flag on Image Updates page; one-click compose pull + up -d *(v3.3.4 / v3.9.0)*; **standalone-container Update** (pull image + recreate with the same config; compose-managed refused) *(v6.0.0)* |
 | Patch rings | An auto-patch policy can patch in **staged rings** (canary → wave → rest) — spawns a health-gated rollout that verifies each ring before the next and auto-halts on a health drop; optional per-ring reboot *(v6.0.0)* |
 | Proxmox VE | Connect one node (scoped API token); QEMU VM + LXC start/shutdown, server-to-API *(v2.3.0)* |
-| Proxmox snapshots | Create/list/roll-back/delete per guest; type-to-confirm rollback *(v2.4.0)* |
+| Proxmox snapshots | Create/list/roll-back/delete per guest; type-to-confirm rollback *(v2.4.0)*; typed confirmation checked server-side, not just in the UI *(v6.1.1)* |
 | Proxmox create / delete | LXC create wizard + delete *(v3.5.0)*; QEMU VM create wizard *(v3.7.0)* |
 | Proxmox backup recency | Per-guest vzdump staleness check *(v3.6.0)* |
 | VMware / OpenShift lifecycle | vSphere/vCenter, Cloud Director and OpenShift Virtualization (KubeVirt) get Proxmox-level control on the Virtualization page — list guests, power on/off/reboot/suspend, and create/revert/delete snapshots; configured under Settings → Virtualization, driven through the SSRF-guarded integrations client. `GET /api/virt/{id}/vms`, `POST /api/virt/{id}/power`, `GET|POST /api/virt/{id}/snapshot(s)` *(v5.6.0)* |
@@ -290,7 +291,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Live resolve / dig + propagation | Authoritative-NS vs public-resolver answers; per-record propagation check *(v4.9.0)* |
 | Central ACME DNS-01 creds | Server-stored provider tokens injected into `acme.sh --issue`; redacted in audit/UI *(v3.3.0)* |
 | RouterOS integration | MikroTik via REST (SSRF-guarded) — DHCP lease table, firewall filter/NAT counts, routes, interfaces, wireless clients; read-only *(v4.7.0)* |
-| OPNsense integration | View / add / enable-disable / delete filter + outbound-NAT rules over the OPNsense REST API from an agentless device's drawer; API secret write-only; full guide [opnsense.md](opnsense.md) *(v3.4.0)* |
+| OPNsense integration | View / add / enable-disable / delete filter + outbound-NAT rules over the OPNsense REST API from an agentless device's drawer; API secret write-only; full guide [opnsense.md](opnsense.md) *(v3.4.0)*; DHCP-lease reading via the Kea plugin reaches parity with the RouterOS integration *(v6.1.1)* |
 | IP reputation (DNSBL) | Mail-sending IPs vs Spamhaus/SpamCop/Barracuda/SORBS/UCEPROTECT/PSBL; `ip_blacklisted`/`ip_blacklist_cleared`; partial state on unreachable *(v4.8.0)* |
 | DMARC / SPF / DKIM | Published-record grading + aggregate (RUA) report ingestion over IMAP; per-source pass/fail tallies + mailbox health *(v4.8.0)* |
 
@@ -300,7 +301,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | SMART / inventory | smartctl health + pre-fail attributes → `smart_failure`; DIMMs, serials, temperatures, RAID state *(v3.4.0)* |
 | Storage / RAID page | ZFS/mdadm/btrfs pool state, capacity, last-scrub; `storage_degraded`/`storage_recovered`, `scrub_overdue` *(v3.11.0)* |
-| One-click maintenance | Per-pool scrub/trim/error-clear/balance/status/snapshot from a fixed server-side template; audited *(v5.0.0)* |
+| One-click maintenance | Per-pool scrub/trim/error-clear/balance/status/snapshot from a fixed server-side template; audited *(v5.0.0)*; destructive actions (scrub/balance/destroy/delete) go through the same 4-eyes maker-checker approval hook other destructive actions use *(v6.1.1)* |
+| Guided storage provisioning | RAID/LVM/mkfs, whole-disk only, five recipes; every interpolated parameter validated server-side against a strict allowlist before it reaches a shell command *(v6.1.1)* |
 | GPU monitoring | **Monitoring → GPUs** NVIDIA + AMD — util/VRAM/temp/power/fan, trend sparklines, fleet summary; amdgpu sysfs fallback; thermal alerting reuses temp_high *(v4.7.0)* |
 | Thermal | Hottest hosts, per-sensor expand, ~24h trend sparkline, per-host warning/critical thresholds *(v4.0.0)* |
 | Power / UPS | NUT (`upsc`) / apcupsd (`apcaccess`) — status, battery %, load %, runtime, input V, watts; Power page + energy cost; `ups_on_battery`/`ups_on_line` *(v4.0.0)*; threshold-based `ups_critical` + opt-in auto-shutdown of dependent devices (device drawer → UPS dependency, Settings → Security) *(v6.1.1)* |
@@ -360,7 +362,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | SSO group→role matrix | `sso_group_roles` maps an OIDC/SAML group to any builtin/custom role (not just admin-or-viewer); admin wins, legacy admin-group still works, viewer promoted on login, never auto-demotes *(v5.5.0)* |
 | Roles | Admin, Viewer, Auditor (read-only + audit/compliance, reveals nothing) *(v4.10.0)*, plus custom scoped roles *(v3.4.2)* |
 | Granular RBAC | Custom roles granting exec/reboot/upgrade scoped to groups/tags; roster filtered to scope *(v3.4.2)* |
-| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.5.0)*; optional **per-key device scope** (scoped service account — confines visibility+actions to groups/tags/sites, binds even an admin key) + **source-IP allowlist** (`ip_allow` CIDRs — key rejected from any other IP) *(v5.5.0)* |
+| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.5.0)*; optional **per-key device scope** (scoped service account — confines visibility+actions to groups/tags/sites, binds even an admin key) + **source-IP allowlist** (`ip_allow` CIDRs — key rejected from any other IP) *(v5.5.0)*; each key carries its own tenant, stamped at creation from the creating admin's real tenant; **guided rotation** (`POST /api/apikeys/{kid}/rotate`) mints a replacement carrying the same name/role/scope/rate-limit/IP-allowlist and deactivates the old one *(v6.1.1)* |
+| Step-up re-auth | `POST /api/auth/step-up` re-verifies the caller's own password or TOTP and stamps a short-lived freshness window; required before creating a new admin or promoting an existing user to admin, so a hijacked session token alone can't mint a backdoor admin *(v6.1.1)* |
 | Device tokens hashed | Agent auth tokens stored as SHA-256 `token_hash` (not plaintext); agent unchanged; legacy tokens migrate on next heartbeat *(v5.5.0)* |
 | Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)*; **hashed at rest** (keyed by SHA-256, display prefix kept) *(v5.5.0)* |
 | Enrolment auto-placement | Rules (Settings → Sites & teams) stamp group / site / tags on a **new** device by hostname regex or source-IP CIDR — first match wins, token defaults still win over a rule; never touches already-enrolled devices *(v6.0.0)* |
@@ -379,8 +382,9 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Audit log | Every admin action with actor, IP, timestamp |
-| Tamper-evident audit log | Hash-chained entries; *Verify integrity*; clear requires re-prompt + immutable pre-wipe archive *(v4.2.0)* |
+| Tamper-evident audit log | Hash-chained entries; *Verify integrity*; clear requires re-prompt + immutable pre-wipe archive *(v4.2.0)*; **versioned HMAC key rotation** (`POST /api/audit/rotate-hmac-key`) rotates the signing key without invalidating any prior entry's verifiability — each entry records which key generation signed it, so a chain spanning a rotation still verifies end-to-end *(v6.1.1)* |
 | Archived audit download | Gzipped archive of evicted entries *(v4.3.0)* |
+| Litigation hold | Settings → Maintenance switch suspends the one function that age-based-deletes command history, fleet events, webhook logs, monitor history, resolved alerts and metric samples, fleet-wide; a reason is required to enable, both directions are audit-logged. `GET/POST /api/litigation-hold` *(v6.1.1)* |
 | Security-posture self-check | Graded hardening checklist, each warning links to its fix *(v4.2.0)* |
 | Maintenance mode | Runtime switch pauses command dispatch during upgrades without taking the dashboard offline *(v5.0.0)* |
 | Disk-space watchdog | Server monitors its own free space → `server_disk_low`/`server_disk_ok` *(v5.0.0)* |
@@ -409,7 +413,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Built-in road-warrior VPN | **Admin → WG Access** — userspace wireguard-go on the server host; no kernel module |
 | Tunnel | Reach scope (dashboard-only / fleet / site / group / tag, RBAC-enforced via nftables), allow-internet toggle, optional pushed DNS, optional expiry; disabled = torn down |
-| Client | Browser-generated keypair (private key never sent), `.conf` + QR once; live endpoint / last-handshake / transfer; tunnel pool + throughput rollups |
+| Client | Browser-generated keypair (private key never sent), `.conf` + QR once; live endpoint / last-handshake / transfer; tunnel pool + throughput rollups; optional **preshared key** (AES-GCM encrypted at rest, generated by default), per-peer RX/TX history sparkline, and a saveable default tunnel template pre-filled on create *(preshared key/sparkline/template v6.1.1)* |
 | Events + AI | `vpn_client_connected` / `vpn_client_disconnected` / `vpn_handshake_stale`; feeds RAG + a Remote-access-review AI advisor |
 
 ## Time-tracking & billing *(v5.4.0)*
@@ -425,7 +429,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Invoice email + reminders | Email an invoice to the customer's billing contact over existing SMTP (branded HTML + plain text; draft→sent); opt-in overdue-reminder sweep sends one reminder after N days unpaid. `POST /api/invoices/{id}/send` *(v6.0.0)* |
 | Rates & fees | Named rate card + global default rate / currency / VAT / invoice prefix; per-customer rate / VAT / billing address / recurring license-operation-service fees. `GET/POST /api/billing/config` |
 | Finance role | Read-only role that views/exports billing without admin; issuing/voiding + rate edits stay admin-only; everyone logs their own hours |
-| Export | CSV (`?format=csv`) on ledger / worksheet / invoice, JSON API on every list, browser-print PDF for invoices |
+| Export | CSV (`?format=csv`) on ledger / worksheet / invoice, JSON API on every list; **real generated invoice PDFs** (`GET /api/invoices/{id}?format=pdf`, tamper-evidenced the same way the audit-archive download is) replacing the earlier browser-print flow *(v6.1.1)* |
+| Payment-webhook reconciliation | `POST /api/billing/payment-webhook` — a provider-agnostic, shared-secret authenticated sink any processor's own webhook (or a thin relay) can post into; idempotent on `external_ref`, records payments/refunds, derives a `partially_paid` invoice status *(v6.1.1)* |
 | Timesheet watchers | Let specific non-finance users view another user's timesheet (read-only, hours only, never rates) by user or whole team; "Watch for" omnisearch on the Timesheet page. `GET/POST /api/timesheet/watchers`, `GET /api/timesheet/watchable` *(v5.6.0)* |
 
 ## AI assistant & RAG *(v2.1.3)*
@@ -458,7 +463,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Integration subsystem | Read-only server-side polling, folded into Alerts + dashboard; `integration_down` (auto-resolved); SSRF-guarded; admin-only URLs; **Show Homelab software** kill switch |
 | 40 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues, Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, RemotePower (peer instance) *(all v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
 | Custom HTTP probe plugin | Declarative — turn an endpoint's status/body/JSON field into a health signal; SSRF-guarded *(v5.1.0)* |
-| Connector plugins | Drop a `*.py` in `connectors.d/` to add your own integration connector via the same `@_register` decorator — root-owned, filesystem-only, load-fail-safe; full guide in [writing-a-connector.md](writing-a-connector.md) *(v6.0.0)* |
+| Connector plugins | Drop a `*.py` in `connectors.d/` to add your own integration connector via the same `@_register` decorator — root-owned, filesystem-only, load-fail-safe; full guide in [writing-a-connector.md](writing-a-connector.md) *(v6.0.0)*; Settings gains a repository panel showing loaded plugins' metadata with a reload-without-restart action *(v6.1.1)* |
 | GitHub issue monitor | Watch repos (`owner/repo`, multiple per instance) for newly opened issues → `github_new_issue` alert in the Alerts inbox (PRs ignored, first poll baselines; webhook/paging off by default) *(v6.0.0)* |
 
 ## Agents
@@ -485,7 +490,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Architecture | nginx + gunicorn/Flask (the only app server) + stdlib Python; one HTML + CSS + vanilla-JS modules; no build step *(v6.1.0)* |
 | SQLite backend | Optional, WAL, stdlib; row-per-entity hot data; reversible migration *(v3.12.0)* |
-| PostgreSQL backend | Default single-node backend via `install-server.sh`/`docker-compose.yml`; automatic failover + read replicas *(v4.0.0; default since v6.1.0)* |
+| PostgreSQL backend | Default single-node backend via `install-server.sh`/`docker-compose.yml`; automatic failover + read replicas *(v4.0.0; default since v6.1.0)*; online catch-up migration pass, mirroring the one the JSON↔SQLite path has had since v3.12.0 *(v6.1.1)* |
 | Persistent app server | gunicorn/Flask (`remotepower-wsgi.service`) — pre-warmed threaded workers with thread-local request isolation, the only server; installed and enabled by default *(v5.5.0; only server since v6.1.0)* |
 | Out-of-band scheduler | Default dedicated maintenance process (`remotepower-scheduler.service`, `RP_EXTERNAL_SCHEDULER=1`) — leader-elected (host file-lock + Postgres `pg_advisory_lock`) so one node runs the cadence; runs sweeps without request traffic and cuts per-request latency *(v5.5.0; default since v6.1.0)* |
 | Serving & runtime panel | Server-status page shows what's ACTUALLY serving — storage backend (JSON/SQLite/PostgreSQL), request tier (`WSGI · gunicorn`) and out-of-band scheduler state (running + heartbeat age, configured-but-dead, or off) with a per-request-cadence indicator; verify tiers at a glance, links to `scaling.md` *(v5.6.x)* |
@@ -503,7 +508,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.5.0)* |
 | Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.5.0)*; real OTLP span export (one span per request, `POST <collector>/v1/traces`, separate opt-in from OTLP metrics, Settings → Security) *(v6.1.1)* |
 | Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.5.0)* |
-| List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.5.0)* |
+| List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.5.0)*; `GET /api/devices?meta=1` now returns a real total-count envelope (`{items,total,limit,offset,next}`), closing the one list endpoint that lacked it *(v6.1.1)* |
 | Signed exports | Evidence pack carries an HMAC-SHA256 `signature`; audit-archive download emits `X-RP-Signature` (per-install `export_sign.key`) *(v5.5.0)* |
 | Export-key rotation | Admin can rotate the export-signing key (Settings → Security); posture page grades password-policy / idle-timeout / SSO-only / signed-exports *(v5.5.0)* |
 | Turnkey install | Unified `install.sh` wizard; one-command Docker (HTTPS, no default password); served `/install` quick-install agent; `install.sh agent push` SSH bootstrap; `install.sh uninstall` *(v4.8.0)* |
@@ -533,8 +538,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | My Account | Account menu + page — avatar, role/permissions, 2FA, default SSH user, acknowledged alerts *(v3.12.0)* |
 | Box-overflow caps | Every variable panel caps ~15 rows and scrolls internally *(v3.13.0)* |
 | Branding | Favicon + header logo, full-size logo on login *(v2.0)* |
-| Interface language | 7 languages (en/zh/hi/es/ar/de/fr); German + French added *(v6.0.0)*; Arabic right-to-left layout *(v4.0.0 / v5.1.0)* |
-| Accessibility | Modal accessible names, styled accessible confirm/prompt *(v4.8.0)*; `scope="col"` headers, icon-button `aria-label` *(v5.0.0)*; **every form control has an accessible name** (label / wrapping label / `aria-label`), ratchet-tested *(v6.0.0)* |
+| Interface language | 7 languages (en/zh/hi/es/ar/de/fr); German + French added *(v6.0.0)*, German translation coverage completed *(v6.1.1)*; Arabic right-to-left layout *(v4.0.0 / v5.1.0)* |
+| Accessibility | Modal accessible names, styled accessible confirm/prompt *(v4.8.0)*; `scope="col"` headers, icon-button `aria-label` *(v5.0.0)*; **every form control has an accessible name** (label / wrapping label / `aria-label`), ratchet-tested *(v6.0.0)*; full **WCAG AA** color-contrast pass (accent/muted text, avatar chips, across all thirteen themes) + the last nested-interactive structural fix (sidebar favorite-star) — the axe-core gate now runs with zero exemptions *(v6.1.1)* |
 | Mobile UX | ≤720/≤480px touch targets, full-viewport modals, scrollable tables |
 
 ---
