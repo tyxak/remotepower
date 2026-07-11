@@ -1298,6 +1298,53 @@ class TestF2TraceContext(unittest.TestCase):
         self.assertIn("headers.setdefault('traceparent', _traceparent_out())", src)
 
 
+class TestStructuredLoggingConversion(unittest.TestCase):
+    """v6.1.1 (#47) -- 5 request-scoped failure-log call sites converted from
+    raw sys.stderr.write(f'[remotepower] ...') to log_json(), so their trace_id
+    joins the rest of that request's correlation trail. Deliberately NOT a
+    blind sweep of the other ~140+ sites: these 5 were the only ones confirmed
+    (a) uniform shape (one exception var, single-line f-string) AND
+    (b) unambiguously request-scoped (mapped against the route table, no
+    background/cadence caller) -- the rest are mostly cadence-sweep failures
+    or shared helpers (_do_snmp_poll, audit_log, fire_webhook) with mixed
+    background/request callers, where trace_id correlation isn't clearly
+    valuable and still needs per-site judgment."""
+
+    CONVERTED_LABELS = (
+        'config_changed audit failed',
+        'pre-wipe audit archive failed',
+        'syslog rule eval failed',
+        'OIDC discovery failed',
+        'metrics scrape failed',
+    )
+
+    def test_old_raw_stderr_write_sites_are_gone(self):
+        src = _apisrc_combined()
+        for label in self.CONVERTED_LABELS:
+            self.assertNotIn(f"sys.stderr.write(f'[remotepower] {label}: ", src,
+                             f'{label!r} should be converted to log_json(), not left as a raw write')
+
+    def test_converted_sites_use_log_json_with_matching_label(self):
+        src = _apisrc_combined()
+        for label in self.CONVERTED_LABELS:
+            self.assertIn(f"log_json('error', '{label}'", src,
+                          f'{label!r} not found as a log_json(...) call')
+
+    def test_log_json_output_shape_for_a_converted_site(self):
+        import io
+        import json
+        from contextlib import redirect_stderr
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            api.log_json('error', 'OIDC discovery failed', error='boom')
+        rec = json.loads(buf.getvalue().strip().splitlines()[-1])
+        self.assertEqual(rec['msg'], 'OIDC discovery failed')
+        self.assertEqual(rec['error'], 'boom')
+        self.assertEqual(rec['level'], 'error')
+        self.assertIn('trace_id', rec)
+        self.assertIn('rid', rec)
+
+
 class TestD5GroupRoleMatrix(unittest.TestCase):
     """v5.4.1 (D5): SSO/IdP group→role MATRIX (sso_group_roles) so a group maps to
     ANY builtin/custom role, not just admin-or-viewer; legacy admin_group still works;

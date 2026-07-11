@@ -23186,7 +23186,7 @@ def handle_config_save():
             audit_log(_cfg_actor, 'config_changed',
                       f'keys={",".join(_changed)[:480]}')
     except Exception as _ce:
-        sys.stderr.write(f'[remotepower] config_changed audit failed: {_ce}\n')
+        log_json('error', 'config_changed audit failed', error=str(_ce))
     # v3.14.0 (#30): if we just minted a SCIM token, return it once so the
     # operator can copy it into the IdP (it's masked on every subsequent GET).
     _resp = {'ok': True}
@@ -44440,7 +44440,7 @@ def handle_audit_log_clear():
             for e in cur.get('entries', []):
                 f.write(json.dumps(e) + '\n')
     except Exception as _aw:
-        sys.stderr.write(f'[remotepower] pre-wipe audit archive failed: {_aw}\n')
+        log_json('error', 'pre-wipe audit archive failed', error=str(_aw))
     save(AUDIT_LOG_FILE, {'entries': []})
     # Log the clear itself as the first new (chained) entry
     audit_log(actor, 'clear_audit_log', 'audit log cleared (pre-wipe archived)')
@@ -46639,7 +46639,7 @@ def handle_syslog_in(token_str):
     try:
         _eval_syslog_rules(dev_id, dev, new_msgs)
     except Exception as e:
-        sys.stderr.write(f'[remotepower] syslog rule eval failed: {e}\n')
+        log_json('error', 'syslog rule eval failed', error=str(e))
 
     # Bump token stats
     try:
@@ -47313,7 +47313,7 @@ def handle_oidc_start():
     try:
         meta = _oidc_discover(cfg['oidc_issuer'])
     except Exception as e:
-        sys.stderr.write(f'[remotepower] OIDC discovery failed: {e}\n')
+        log_json('error', 'OIDC discovery failed', error=str(e))
         respond(502, {'error': 'OIDC issuer unreachable',
                       'detail': str(e)[:240]})
     authorize_url = meta.get('authorization_endpoint')
@@ -52021,7 +52021,7 @@ def handle_prometheus_metrics():
         body = prometheus_export.generate_metrics(_build_metrics_ctx())
         scrape_error = 0
     except Exception as e:
-        sys.stderr.write(f'[remotepower] metrics scrape failed: {e}\n')
+        log_json('error', 'metrics scrape failed', error=str(e))
         body = f'remotepower_info{{version="{SERVER_VERSION}"}} 1\n'
         scrape_error = 1
     body += f'# HELP remotepower_scrape_error Whether the last scrape hit an internal error (1/0).\n'
