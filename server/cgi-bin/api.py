@@ -23518,14 +23518,28 @@ def handle_query_templates():
     though `owner` was already being stamped and enforced on delete. Missing
     `visibility` (every template saved before this fix) defaults to 'shared'
     -- nothing already-visible silently disappears -- but new templates
-    default to 'private' unless the caller explicitly opts into 'shared'."""
+    default to 'private' unless the caller explicitly opts into 'shared'.
+
+    v6.1.1 (#38 follow-up, adversarial self-review): the fix above had no
+    tenant dimension at all -- `is_admin` was a bare role check (any tenant's
+    own admin, not just a superadmin) and `visibility == 'shared'` broadcast
+    across every tenant. Same bug shape as the API-key tenant-isolation
+    fix earlier this session. Now gated by _tenant_gate() the same way
+    _tenant_filter_devices() gates the device roster: None (isolation off,
+    or caller is a platform superadmin) sees everything as before; a
+    tenant-scoped caller (including that tenant's own admin) only ever sees
+    templates stamped with their own tenant. A template saved before this
+    follow-up has no `tenant` key -- treated as the default tenant, same
+    fallback _device_tenant() already uses."""
     actor = require_auth()
     _, role = verify_token(get_token_from_request())
     is_admin = _resolve_role(role).get('admin')
+    gate = _tenant_gate()
     templates = load(QUERY_TEMPLATES_FILE) or {}
     visible = [t for t in templates.values()
-              if is_admin or t.get('owner') == actor
-              or t.get('visibility', 'shared') == 'shared']
+              if (gate is None or (t.get('tenant') or DEFAULT_TENANT) == gate)
+              and (is_admin or t.get('owner') == actor
+                   or t.get('visibility', 'shared') == 'shared')]
     respond(200, {'ok': True, 'templates': sorted(visible, key=lambda t: t.get('name', '').lower())})
 
 
@@ -23559,12 +23573,18 @@ def handle_query_template_create():
                           # query's filters can be business-sensitive; the
                           # caller opts INTO sharing it, not out of privacy.
                           'visibility': 'shared' if body.get('shared') else 'private',
-                          'owner': actor, 'created': int(time.time())}
+                          'owner': actor, 'created': int(time.time()),
+                          # v6.1.1 (#38 follow-up): server-stamped, never
+                          # client-supplied -- see handle_query_templates.
+                          'tenant': _caller_effective_tenant(actor)}
     respond(201, {'ok': True, 'id': tid})
 
 
 def handle_query_template_delete(tid):
-    """DELETE /api/query/templates/{id} — owner or admin."""
+    """DELETE /api/query/templates/{id} — owner or admin (within the caller's
+    own tenant when isolation is enforced; a cross-tenant id is reported
+    404, not 403, so its existence isn't leaked to a caller who can't see it
+    on the list endpoint either -- see handle_query_templates)."""
     actor = require_auth()
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
@@ -23573,6 +23593,9 @@ def handle_query_template_delete(tid):
     with _LockedUpdate(QUERY_TEMPLATES_FILE) as templates:
         t = templates.get(tid)
         if not t:
+            respond(404, {'error': 'Template not found'})
+        gate = _tenant_gate()
+        if gate is not None and (t.get('tenant') or DEFAULT_TENANT) != gate:
             respond(404, {'error': 'Template not found'})
         _, role = verify_token(get_token_from_request())
         if t.get('owner') != actor and not _resolve_role(role).get('admin'):

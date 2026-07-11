@@ -4307,6 +4307,104 @@ class TestQueryEngineHandlers(_HandlerBase):
         listed = self.call(api.handle_query_templates)
         self.assertEqual([t['name'] for t in listed['templates']], ['Old shared query'])
 
+    # ── v6.1.1 (#38 follow-up, adversarial self-review): the visibility fix
+    # above had no tenant dimension -- `is_admin` was a bare role check (any
+    # tenant's OWN admin, not just a platform superadmin) and a 'shared'
+    # template broadcast across every tenant. Same bug shape as the API-key
+    # tenant-isolation fix (#16) found earlier this session. ────────────────
+    def _enable_tenancy_two_tenants(self):
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active'}})
+        api.save(api.USERS_FILE, {
+            'jakob':     {'role': 'admin', 'tenant_id': 'default'},   # platform superadmin
+            'acmeadmin': {'role': 'admin', 'tenant_id': 'acme'},      # tenant-scoped admin
+        })
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True})
+
+    def _as_jakob_superadmin(self):
+        api.require_auth = lambda require_admin=False: 'jakob'
+        api.verify_token = lambda t: ('jakob', 'admin')
+        api._resolve_role = lambda role: {'admin': True}
+
+    def _as_acme_admin(self):
+        api.require_auth = lambda require_admin=False: 'acmeadmin'
+        api.verify_token = lambda t: ('acmeadmin', 'admin')
+        api._resolve_role = lambda role: {'admin': True}
+
+    def test_tenant_admin_does_not_see_other_tenants_private_template(self):
+        self._enable_tenancy_two_tenants()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Default-tenant secret', 'entity': 'devices'}
+        self.call(api.handle_query_template_create)   # jakob (default tenant)
+
+        self._as_acme_admin()   # a DIFFERENT tenant's own admin
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual(listed['templates'], [],
+                         "a tenant's own admin must not see another tenant's private templates")
+
+    def test_tenant_admin_does_not_see_other_tenants_shared_template(self):
+        # 'shared' means shared within the owner's own tenant, not
+        # broadcast to every tenant on the platform.
+        self._enable_tenancy_two_tenants()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Default-tenant team query',
+                                     'entity': 'devices', 'shared': True}
+        self.call(api.handle_query_template_create)
+
+        self._as_acme_admin()
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual(listed['templates'], [])
+
+    def test_platform_superadmin_still_sees_every_tenants_templates(self):
+        self._enable_tenancy_two_tenants()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Default-tenant secret', 'entity': 'devices'}
+        self.call(api.handle_query_template_create)   # jakob, default tenant
+
+        self._as_acme_admin()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Acme secret', 'entity': 'devices'}
+        self.call(api.handle_query_template_create)
+
+        self._as_jakob_superadmin()
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual({t['name'] for t in listed['templates']},
+                         {'Default-tenant secret', 'Acme secret'})
+
+    def test_delete_of_other_tenants_template_404s_not_403_and_does_not_delete(self):
+        # 404, not 403 -- a cross-tenant caller shouldn't learn the id exists.
+        self._enable_tenancy_two_tenants()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Default-tenant secret', 'entity': 'devices'}
+        tid = self.call(api.handle_query_template_create)['id']
+
+        self._as_acme_admin()
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_query_template_delete, tid)
+        self.assertEqual(self.cap['s'], 404)
+        self.assertIn(tid, api.load(api.QUERY_TEMPLATES_FILE))
+
+    def test_legacy_template_with_no_tenant_field_defaults_to_default_tenant(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.QUERY_TEMPLATES_FILE, {'legacy1': {
+            'id': 'legacy1', 'name': 'Old shared query', 'entity': 'devices',
+            'where': None, 'sort': None, 'sort_desc': False,
+            'visibility': 'shared', 'owner': 'jakob', 'created': 1},
+        })
+        self._as_acme_admin()
+        api.method = lambda: 'GET'
+        listed = self.call(api.handle_query_templates)
+        self.assertEqual(listed['templates'], [],
+                         'a tenant-less legacy template must resolve to the default tenant, not leak to acme')
+
+        self._as_jakob_superadmin()
+        api.method = lambda: 'GET'
+        listed2 = self.call(api.handle_query_templates)
+        self.assertEqual([t['name'] for t in listed2['templates']], ['Old shared query'])
+
     def test_default_creation_is_private_not_shared(self):
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {'name': 'Default', 'entity': 'devices'}
