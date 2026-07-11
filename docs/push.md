@@ -35,7 +35,7 @@ makes it run sooner. Two consequences:
 
 ## Enable it
 
-1. **Settings → (Advanced) → push_enabled.** Off by default. Turning it on
+1. **Settings → Security → Agent push channel (experimental).** Off by default. Turning it on
    makes the heartbeat response advertise `push_enabled: true` to agents,
    which is what makes an agent start its listener thread — nothing
    happens fleet-wide until you flip this.
@@ -43,12 +43,19 @@ makes it run sooner. Two consequences:
    web-terminal daemon already needs) and start the daemon:
    ```bash
    sudo apt install python3-websockets   # or dnf/pacman/apk/zypper equivalent
-   sudo cp server/push/remotepower-push.py /usr/local/bin/remotepower-push
+   sudo install -m 755 server/push/remotepower-push.py /usr/local/bin/remotepower-push
    sudo cp packaging/remotepower-push.service /etc/systemd/system/
    sudo useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-push
-   sudo usermod -a -G rp-www rp-push
+   # Join whichever group actually owns /var/lib/remotepower on this box
+   # (www-data on Debian/Ubuntu, nginx on Fedora/RHEL, http on Arch —
+   # there is no fixed "rp-www" user/group, nothing creates one) so the
+   # daemon can read devices.json/commands.json.
+   sudo usermod -a -G "$(stat -c '%G' /var/lib/remotepower)" rp-push
    sudo systemctl enable --now remotepower-push
    ```
+   `install -m 755` (not `cp`) matters here: the source script isn't marked
+   executable in git, so a plain `cp` produces a non-executable copy and
+   systemd fails the unit with `status=203/EXEC`.
 3. **Proxy the WebSocket through nginx** — drop `packaging/nginx-push.conf`
    into your `server {}` block (above any catch-all `location /`), same
    pattern as `nginx-webterm.conf`. Needs the same `$connection_upgrade`

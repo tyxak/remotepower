@@ -420,6 +420,7 @@
     // ── v4.1: full static-UI catalog — page titles, section titles, subtitles ──
     "6-hour rolling buffer across the fleet. Search, tail live, or manage alert rules.": {de: '6-Stunden-Rollpuffer über die gesamte Flotte. Durchsuchen, live verfolgen oder Alarmregeln verwalten.',  "zh": "全设备 6 小时滚动缓冲。搜索、实时跟踪或管理告警规则。", "hi": "पूरे fleet में 6-घंटे का रोलिंग बफ़र। खोजें, लाइव tail करें, या alert नियम प्रबंधित करें।", "es": "Búfer móvil de 6 horas en toda la flota. Busca, sigue en vivo o gestiona reglas de alerta.", "ar": "مخزن متجدد لمدة 6 ساعات عبر الأسطول. ابحث، أو تابع مباشرةً، أو أدر قواعد التنبيه." },
     "Accounts": { "fr": "Comptes", "de": "Konten", "zh": "账户", "hi": "खाते", "es": "Cuentas", "ar": "الحسابات" },
+    "Alerting": { "fr": "Alertes", "de": "Warnungen", "zh": "告警", "hi": "अलर्टिंग", "es": "Alertas", "ar": "التنبيهات" },
     "Alert rules": { "fr": "Règles d'alerte", "de": "Warnungsregeln", "zh": "告警规则", "hi": "अलर्ट नियम", "es": "Reglas de alerta", "ar": "قواعد التنبيه" },
     "Backup jobs": { "fr": "Tâches de sauvegarde", "de": "Sicherungsaufträge", "zh": "备份任务", "hi": "बैकअप जॉब", "es": "Trabajos de copia de seguridad", "ar": "مهام النسخ الاحتياطي" },
     "CVE Findings": { "fr": "Résultats CVE", "de": "CVE-Funde", "zh": "CVE 发现", "hi": "CVE निष्कर्ष", "es": "Hallazgos de CVE", "ar": "نتائج CVE" },

@@ -1350,11 +1350,17 @@
             <span class="settings-tab-group-label">Setup</span>
             <button class="settings-tab"        data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
             <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
-            <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Dashboard</button>
           </div>
           <div class="settings-tab-group">
             <span class="settings-tab-group-label">Monitoring</span>
             <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
+            <!-- v6.1.1: was labeled "Dashboard" (data-tab="dashboard" kept
+                 unchanged for #settings/dashboard bookmark compat) -- its
+                 contents are brute-force/health-score/quiet-hours/on-call/
+                 backup-monitoring/process-threshold alert config, zero
+                 actual dashboard-widget settings. Relabeled + moved next to
+                 Notifications, where the content actually belongs. -->
+            <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Alerting</button>
             <button class="settings-tab"        data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
             <button class="settings-tab"        data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
           </div>
@@ -1544,6 +1550,16 @@
             <div class="section-title">Alerts inbox</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ack-comment-enabled" checked> Prompt for an optional comment when acknowledging an alert</label></div>
             <p class="hint">When on, acknowledging an alert (single or "Ack selected") asks for an optional comment. The comment is stored on the alert and included in the acknowledgement webhook. Turn this off to acknowledge in one click.</p>
+          </div>
+
+          <!-- v6.1.1 (#53): alert-storm auto-promotion to a status-page
+               incident -- moved here from Security (v6.1.1): it's alert-
+               routing/escalation behavior, not a security control. -->
+          <div class="settings-section">
+            <div class="section-title">Incident auto-promotion</div>
+            <p class="hint">When the SAME alert fires on at least this many devices at once (a network outage, a bad driver batch, a mis-shipped config), automatically open a status-page incident pre-filled from the cluster, and auto-resolve it once every alert in it clears. This is the cross-device axis the per-host root-cause folding on the Alerts page doesn't cover. <strong>Off by default.</strong></p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-incident-auto-promote-enabled"> Auto-open an incident for a cross-device alert storm</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-incident-device-threshold">Device threshold</label><input type="number" id="cfg-incident-device-threshold" class="form-input mw-160" min="2" max="1000" value="5"></div>
           </div>
 
           <!-- v3.0.2: multi-webhook destinations -->
@@ -1982,6 +1998,137 @@
             </div>
             <pre id="scim-token-reveal" class="hint sb-result" hidden></pre>
           </div>
+
+          <!-- ── v1.8.6: LDAP / LDAPS authentication -- moved here from
+               Security (v6.1.1): it's an external identity source, same
+               category as OIDC/SAML/SCIM above, not a security control. ── -->
+          <div class="settings-section">
+            <div class="section-title">LDAP / LDAPS authentication</div>
+            <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership.</p>
+            <label class="isl-33">
+              <input type="checkbox" id="cfg-ldap-enabled" class="isl-34">
+              <span>Enable LDAP authentication</span>
+            </label>
+
+            <!-- v4.6.0: LDAP URL on its own full-width row — keeping it in the
+                 flex row left its hint pushing the input above the Timeout/toggle
+                 baseline (settings-row is align-items:flex-end). -->
+            <div class="form-group">
+              <label for="cfg-ldap-url" class="form-label">LDAP URL</label>
+              <input type="url" id="cfg-ldap-url" class="form-input" placeholder="ldaps://ldap.example.com:636">
+              <div class="meta-sm"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
+            </div>
+
+            <div class="settings-row ldap-row">
+              <div class="form-group isl-28">
+                <label class="isl-51">
+                  <input type="checkbox" id="cfg-ldap-tls-verify" checked class="isl-3">
+                  <span>Verify TLS cert</span>
+                </label>
+              </div>
+              <div class="form-group ldap-narrow">
+                <label for="cfg-ldap-timeout" class="form-label">Timeout (s)</label>
+                <input type="number" id="cfg-ldap-timeout" class="form-input" min="1" max="60" placeholder="5">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-ldap-bind-dn" class="form-label">Service account DN <span class="meta-sm-nm">(searches the directory)</span></label>
+              <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
+            </div>
+            <div class="form-group">
+              <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
+              <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
+              <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-ldap-user-base" class="form-label">User search base</label>
+              <input type="text" id="cfg-ldap-user-base" class="form-input" placeholder="ou=Users,dc=example,dc=com">
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-ldap-user-filter" class="form-label">User filter <span class="meta-sm-nm">(use <code>{u}</code> for the username)</span></label>
+              <input type="text" id="cfg-ldap-user-filter" class="form-input" placeholder="(uid={u})" aria-label="(uid={u})">
+              <div class="meta-sm">AD: <code>(sAMAccountName={u})</code> · OpenLDAP: <code>(uid={u})</code> · FreeIPA: <code>(uid={u})</code></div>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-ldap-required-group" class="form-label">Required group DN <span class="meta-sm-nm">(optional, leave blank for "anyone with valid creds")</span></label>
+              <input type="text" id="cfg-ldap-required-group" class="form-input" placeholder="cn=remotepower-users,ou=groups,dc=example,dc=com">
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-ldap-admin-group" class="form-label">Admin group DN <span class="meta-sm-nm">(members get admin role; others stay viewer)</span></label>
+              <input type="text" id="cfg-ldap-admin-group" class="form-input" placeholder="cn=remotepower-admins,ou=groups,dc=example,dc=com">
+            </div>
+
+            <div class="isl-53">
+              <button class="btn-icon" data-action="testLdap" >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-b2898196"/></svg>
+                Test connection
+              </button>
+              <button class="btn-icon" data-action="openLdapTestUserModal" >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-c3af51fd"/></svg>
+                Test user login
+              </button>
+            </div>
+            <div id="cfg-ldap-test-result" class="isl-54"></div>
+          </div>
+
+          <!-- v3.14.0 #34: SIEM event streaming -- moved here from Security
+               (v6.1.1): it's an outbound connection to an external system,
+               same category as OIDC/SAML/SCIM/LDAP above, not a security
+               control. Audit log forwarding stays in Security -- it's part
+               of the security audit trail, not a generic integration. -->
+          <div class="settings-section">
+            <div class="section-title">SIEM event streaming</div>
+            <p class="hint">Stream every fleet event and alert to a SIEM in its native ingest format. Distinct from audit-log forwarding (Settings → Security), which streams the audit trail. Best-effort and non-blocking.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-siem-enabled"> Enable streaming</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-siem-format">Format</label>
+              <select id="cfg-siem-format" class="form-input mw-200">
+                <option value="splunk">Splunk HEC</option>
+                <option value="elastic">Elasticsearch</option>
+                <option value="loki">Grafana Loki</option>
+                <option value="raw">Raw JSON</option>
+              </select></div>
+            <div class="settings-row"><label class="form-label" for="cfg-siem-url">Ingest URL</label>
+              <input type="url" id="cfg-siem-url" class="form-input" placeholder="https://splunk.example.com:8088/services/collector"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-siem-token">Token</label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-siem-token" class="form-input" placeholder="HEC token / API key / bearer" autocomplete="off"></form></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testSiem">Send test event</button></div>
+          </div>
+
+          <!-- v3.14.0 #28: OpenTelemetry (OTLP/HTTP) export -- moved here
+               from Security (v6.1.1), same reasoning as SIEM above. -->
+          <div class="settings-section">
+            <div class="section-title">OpenTelemetry export (OTLP)</div>
+            <p class="hint">Push rolled-up fleet gauges (devices online/offline, alerts by severity, health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, or any OTLP endpoint. The push piggybacks on agent heartbeats, rate-limited to the interval below. Same metrics Prometheus scrapes at <code>/api/metrics</code>, pushed instead of pulled.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-enabled"> Enable OTLP export</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-endpoint">Collector endpoint</label>
+              <input type="url" id="cfg-otlp-endpoint" class="form-input" placeholder="http://collector:4318 (›/v1/metrics added)"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-interval">Min push interval (seconds)</label>
+              <input type="number" id="cfg-otlp-interval" class="form-input mw-160" min="15" max="3600" placeholder="60"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-token">Bearer token</label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-otlp-token" class="form-input" placeholder="optional bearer token" autocomplete="off"></form></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testOtlp">Push metrics now</button></div>
+            <p class="hint mt-12">Also export a distributed-tracing <strong>span per HTTP request</strong> (method, path template, status, duration, joined to the same W3C <code>traceparent</code> trace-id already in the logs/webhooks) to the same collector's <code>/v1/traces</code> endpoint. Separate opt-in from the metrics above — higher volume, per-request path data.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-traces-enabled"> Enable OTLP trace export</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-traces-interval">Min flush interval (seconds)</label>
+              <input type="number" id="cfg-otlp-traces-interval" class="form-input mw-160" min="15" max="3600" placeholder="30"></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testOtlpTraces">Push spans now</button></div>
+          </div>
+
+          <!-- v3.14.0 #42: browser push notifications -- moved here from
+               Security (v6.1.1), same reasoning as SIEM above. -->
+          <div class="settings-section">
+            <div class="section-title">Browser push notifications</div>
+            <p class="hint">When enabled, high and critical alerts are pushed to operators who've turned on notifications in <em>My Account → Browser notifications</em> — even when RemotePower isn't the active tab. A VAPID key is generated automatically on first enable. Uses the Web Push standard; no third-party service.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webpush-enabled"> Enable browser push for high/critical alerts</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-webpush-subject">Contact URI (VAPID subject)</label>
+              <input type="text" id="cfg-webpush-subject" class="form-input" placeholder="mailto:ops@example.com"></div>
+          </div>
         </div>
 
         <!-- ── Security ─────────────────────────────────────────────────── -->
@@ -2036,13 +2183,8 @@
             <div class="settings-row"><label class="form-label" for="cfg-ups-critical-runtime-s">Critical runtime threshold (seconds, 0 to disable)</label><input type="number" id="cfg-ups-critical-runtime-s" class="form-input mw-160" min="0" max="3600" value="180"></div>
           </div>
 
-          <!-- v6.1.1 (#53): alert-storm auto-promotion to a status-page incident -->
-          <div class="settings-section">
-            <div class="section-title">Incident auto-promotion</div>
-            <p class="hint">When the SAME alert fires on at least this many devices at once (a network outage, a bad driver batch, a mis-shipped config), automatically open a status-page incident pre-filled from the cluster, and auto-resolve it once every alert in it clears. This is the cross-device axis the per-host root-cause folding on the Alerts page doesn't cover. <strong>Off by default.</strong></p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-incident-auto-promote-enabled"> Auto-open an incident for a cross-device alert storm</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-incident-device-threshold">Device threshold</label><input type="number" id="cfg-incident-device-threshold" class="form-input mw-160" min="2" max="1000" value="5"></div>
-          </div>
+          <!-- v6.1.1: Incident auto-promotion moved to Notifications --
+               it's alert-routing/escalation behavior, not a security control. -->
 
           <!-- v3.12.0: host-audit toggle (listening ports + firewall drift) -->
           <div class="settings-section">
@@ -2169,54 +2311,10 @@
             <div class="settings-row"><button class="btn-secondary" data-action="testAuditForward">Send test entry</button></div>
           </div>
 
-          <!-- v3.14.0 #34: SIEM event streaming (fleet events / alerts) -->
-          <div class="settings-section">
-            <div class="section-title">SIEM event streaming</div>
-            <p class="hint">Stream every fleet event and alert to a SIEM in its native ingest format. Distinct from audit-log forwarding above (which streams the audit trail). Best-effort and non-blocking.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-siem-enabled"> Enable streaming</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-siem-format">Format</label>
-              <select id="cfg-siem-format" class="form-input mw-200">
-                <option value="splunk">Splunk HEC</option>
-                <option value="elastic">Elasticsearch</option>
-                <option value="loki">Grafana Loki</option>
-                <option value="raw">Raw JSON</option>
-              </select></div>
-            <div class="settings-row"><label class="form-label" for="cfg-siem-url">Ingest URL</label>
-              <input type="url" id="cfg-siem-url" class="form-input" placeholder="https://splunk.example.com:8088/services/collector"></div>
-            <div class="settings-row"><label class="form-label" for="cfg-siem-token">Token</label>
-              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-siem-token" class="form-input" placeholder="HEC token / API key / bearer" autocomplete="off"></form></div>
-            <div class="settings-row"><button class="btn-secondary" data-action="testSiem">Send test event</button></div>
-          </div>
-
-          <!-- v3.14.0 #28: OpenTelemetry (OTLP/HTTP) metrics export -->
-          <div class="settings-section">
-            <div class="section-title">OpenTelemetry export (OTLP)</div>
-            <p class="hint">Push rolled-up fleet gauges (devices online/offline, alerts by severity, health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, or any OTLP endpoint. The push piggybacks on agent heartbeats, rate-limited to the interval below. Same metrics Prometheus scrapes at <code>/api/metrics</code>, pushed instead of pulled.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-enabled"> Enable OTLP export</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-otlp-endpoint">Collector endpoint</label>
-              <input type="url" id="cfg-otlp-endpoint" class="form-input" placeholder="http://collector:4318 (›/v1/metrics added)"></div>
-            <div class="settings-row"><label class="form-label" for="cfg-otlp-interval">Min push interval (seconds)</label>
-              <input type="number" id="cfg-otlp-interval" class="form-input mw-160" min="15" max="3600" placeholder="60"></div>
-            <div class="settings-row"><label class="form-label" for="cfg-otlp-token">Bearer token</label>
-              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-otlp-token" class="form-input" placeholder="optional bearer token" autocomplete="off"></form></div>
-            <div class="settings-row"><button class="btn-secondary" data-action="testOtlp">Push metrics now</button></div>
-            <!-- v6.1.1 (#48): OTLP TRACE export — the persistent-app-tier blocker this
-                 was previously gated on shipped as v6.1.0's WSGI/gunicorn cutover. -->
-            <p class="hint mt-12">Also export a distributed-tracing <strong>span per HTTP request</strong> (method, path template, status, duration, joined to the same W3C <code>traceparent</code> trace-id already in the logs/webhooks) to the same collector's <code>/v1/traces</code> endpoint. Separate opt-in from the metrics above — higher volume, per-request path data.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-traces-enabled"> Enable OTLP trace export</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-otlp-traces-interval">Min flush interval (seconds)</label>
-              <input type="number" id="cfg-otlp-traces-interval" class="form-input mw-160" min="15" max="3600" placeholder="30"></div>
-            <div class="settings-row"><button class="btn-secondary" data-action="testOtlpTraces">Push spans now</button></div>
-          </div>
-
-          <!-- v3.14.0 #42: browser push notifications (admin enable) -->
-          <div class="settings-section">
-            <div class="section-title">Browser push notifications</div>
-            <p class="hint">When enabled, high and critical alerts are pushed to operators who've turned on notifications in <em>My Account → Browser notifications</em> — even when RemotePower isn't the active tab. A VAPID key is generated automatically on first enable. Uses the Web Push standard; no third-party service.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webpush-enabled"> Enable browser push for high/critical alerts</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-webpush-subject">Contact URI (VAPID subject)</label>
-              <input type="text" id="cfg-webpush-subject" class="form-input" placeholder="mailto:ops@example.com"></div>
-          </div>
+          <!-- v6.1.1: SIEM event streaming, OpenTelemetry export and browser
+               push notifications moved to Integrations -- they're outbound
+               connections to an external system, same category as
+               OIDC/SAML/SCIM/LDAP, not a security control. -->
 
           <!-- v3.14.0 #24 P2: tenant isolation -->
           <div class="settings-section">
@@ -2301,82 +2399,9 @@
           </div>
 
           <!-- v3.12.0: SSH preferences moved to My Account (top-right). -->
-
-          <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
-          <div class="settings-section">
-            <div class="section-title">LDAP / LDAPS authentication</div>
-            <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership.</p>
-            <label class="isl-33">
-              <input type="checkbox" id="cfg-ldap-enabled" class="isl-34">
-              <span>Enable LDAP authentication</span>
-            </label>
-
-            <!-- v4.6.0: LDAP URL on its own full-width row — keeping it in the
-                 flex row left its hint pushing the input above the Timeout/toggle
-                 baseline (settings-row is align-items:flex-end). -->
-            <div class="form-group">
-              <label for="cfg-ldap-url" class="form-label">LDAP URL</label>
-              <input type="url" id="cfg-ldap-url" class="form-input" placeholder="ldaps://ldap.example.com:636">
-              <div class="meta-sm"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
-            </div>
-
-            <div class="settings-row ldap-row">
-              <div class="form-group isl-28">
-                <label class="isl-51">
-                  <input type="checkbox" id="cfg-ldap-tls-verify" checked class="isl-3">
-                  <span>Verify TLS cert</span>
-                </label>
-              </div>
-              <div class="form-group ldap-narrow">
-                <label for="cfg-ldap-timeout" class="form-label">Timeout (s)</label>
-                <input type="number" id="cfg-ldap-timeout" class="form-input" min="1" max="60" placeholder="5">
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-ldap-bind-dn" class="form-label">Service account DN <span class="meta-sm-nm">(searches the directory)</span></label>
-              <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
-            </div>
-            <div class="form-group">
-              <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
-              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
-              <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
-              <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-ldap-user-base" class="form-label">User search base</label>
-              <input type="text" id="cfg-ldap-user-base" class="form-input" placeholder="ou=Users,dc=example,dc=com">
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-ldap-user-filter" class="form-label">User filter <span class="meta-sm-nm">(use <code>{u}</code> for the username)</span></label>
-              <input type="text" id="cfg-ldap-user-filter" class="form-input" placeholder="(uid={u})" aria-label="(uid={u})">
-              <div class="meta-sm">AD: <code>(sAMAccountName={u})</code> · OpenLDAP: <code>(uid={u})</code> · FreeIPA: <code>(uid={u})</code></div>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-ldap-required-group" class="form-label">Required group DN <span class="meta-sm-nm">(optional, leave blank for "anyone with valid creds")</span></label>
-              <input type="text" id="cfg-ldap-required-group" class="form-input" placeholder="cn=remotepower-users,ou=groups,dc=example,dc=com">
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-ldap-admin-group" class="form-label">Admin group DN <span class="meta-sm-nm">(members get admin role; others stay viewer)</span></label>
-              <input type="text" id="cfg-ldap-admin-group" class="form-input" placeholder="cn=remotepower-admins,ou=groups,dc=example,dc=com">
-            </div>
-
-            <div class="isl-53">
-              <button class="btn-icon" data-action="testLdap" >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-b2898196"/></svg>
-                Test connection
-              </button>
-              <button class="btn-icon" data-action="openLdapTestUserModal" >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-c3af51fd"/></svg>
-                Test user login
-              </button>
-            </div>
-            <div id="cfg-ldap-test-result" class="isl-54"></div>
-          </div>
+          <!-- v6.1.1: LDAP / LDAPS authentication moved to Integrations,
+               next to OIDC/SAML/SCIM (same category: external identity
+               source, not a security control). -->
 
           <!-- ── v3.0.6: Transport & CSP diagnostics ─────────────────────── -->
           <div class="settings-section">
@@ -7747,7 +7772,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ups-dep-modal-title" id="ups-dep-modal"><div class="modal">
   <div class="modal-title" id="ups-dep-modal-title">UPS dependency</div>
-  <p class="hint">Mark this host as powered by another host's monitored UPS. When that UPS's battery crosses the critical threshold (Settings → Power), and fleet-wide UPS auto-shutdown is enabled, this host is queued a graceful shutdown automatically.</p>
+  <p class="hint">Mark this host as powered by another host's monitored UPS. When that UPS's battery crosses the critical threshold (Settings → Security), and fleet-wide UPS auto-shutdown is enabled, this host is queued a graceful shutdown automatically.</p>
   <input type="hidden" id="ups-dep-dev-id">
   <div class="form-group"><label class="form-label" for="ups-dep-source">Powered by (device reporting the UPS)</label>
     <select id="ups-dep-source" class="form-input"><option value="">(none — disable)</option></select></div>

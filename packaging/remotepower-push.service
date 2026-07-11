@@ -9,10 +9,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Dedicated user, read-only against the shared data dir. Created by
-# deploy-server.sh:
+# Dedicated user, read-only against the shared data dir. Set up manually
+# per docs/push.md (there is no automated installer for this daemon yet):
 #   useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-push
-#   usermod -a -G rp-www rp-push   # so we can READ devices.json/commands.json
+#   usermod -a -G "$(stat -c '%G' /var/lib/remotepower)" rp-push   # READ devices.json/commands.json
+User=rp-push
 ExecStart=/usr/local/bin/remotepower-push --verbose
 
 # Hardening. This daemon needs read access to two shared JSON files and

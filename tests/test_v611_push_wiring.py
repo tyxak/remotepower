@@ -140,5 +140,39 @@ class TestPushEnabledConfigRoundTrip(_ConfigHandlerBase):
         self.assertFalse(out.get('push_enabled'))
 
 
+class TestPushDaemonPackaging(unittest.TestCase):
+    """v6.1.1 follow-up: a live deploy hit both of these -- the unit ran as
+    root because User= was never set (the useradd/usermod dance in
+    docs/push.md was pointless as shipped), and `cp` (docs/push.md) propagated
+    the script's missing +x bit into a `status=203/EXEC` systemd failure.
+    """
+
+    def test_script_is_executable(self):
+        script = _ROOT / "server" / "push" / "remotepower-push.py"
+        self.assertTrue(os.access(script, os.X_OK),
+                         f"{script} must be chmod +x -- `cp` (per docs/push.md) "
+                         f"propagates this bit into the installed copy, and a "
+                         f"non-executable copy fails systemd with status=203/EXEC")
+
+    def test_unit_runs_as_dedicated_user_not_root(self):
+        unit = (_ROOT / "packaging" / "remotepower-push.service").read_text()
+        self.assertIn("User=rp-push", unit)
+
+    def test_unit_does_not_reference_nonexistent_rp_www_group(self):
+        # rp-www is never created by any installer in this repo (same mistake
+        # already fixed once for webterm, see CHANGELOG v1.11.11) -- the real
+        # group is auto-detected (www-data/nginx/http) from the data dir.
+        unit = (_ROOT / "packaging" / "remotepower-push.service").read_text()
+        self.assertNotIn("rp-www", unit)
+
+    def test_doc_install_step_does_not_hardcode_rp_www_usermod(self):
+        # The doc may still mention "rp-www" in prose explaining what NOT to
+        # use -- just make sure the actual command it tells operators to run
+        # doesn't hardcode that nonexistent group.
+        doc = (_ROOT / "docs" / "push.md").read_text()
+        self.assertNotIn("-G rp-www", doc)
+        self.assertIn("stat -c", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
