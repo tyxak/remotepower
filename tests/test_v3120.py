@@ -515,7 +515,7 @@ class TestConditionalGetEtag(unittest.TestCase):
         self._saved = {}
         for a in ('DEVICES_FILE', 'CVE_FINDINGS_FILE', 'SOFTWARE_VIOLATIONS_FILE',
                   'CMDB_FILE', 'HARDWARE_FILE', 'CONFIG_FILE', 'PACKAGES_FILE',
-                  'CVE_IGNORE_FILE'):
+                  'CVE_IGNORE_FILE', 'FLEET_EVENTS_FILE', 'CMD_OUTPUT_FILE'):
             self._saved[a] = getattr(api, a)
             setattr(api, a, self.d / Path(getattr(api, a)).name)
         self._orig_env = api._env
@@ -598,6 +598,88 @@ class TestConditionalGetEtag(unittest.TestCase):
             api.handle_risk_overview()
         self.assertEqual(cm2.exception.status, 200)
         self.assertEqual(cm2.exception.body['total'], 2)
+
+    # ── v6.1.1 (#10): the "timeline reads" the tracker note left open ─────
+    def _seed_event(self, ts=1):
+        api.save(api.FLEET_EVENTS_FILE, {'events': [
+            {'ts': ts, 'event': 'device_offline', 'payload': {'device_id': 'd1'}}]})
+
+    def test_fleet_events_first_call_returns_200_with_etag(self):
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_fleet_events()
+        self.assertEqual(cm.exception.status, 200)
+        self.assertIn('ETag', dict(cm.exception.headers))
+
+    def test_fleet_events_second_call_same_data_returns_304(self):
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_fleet_events()
+        etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = etag
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_fleet_events()
+        self.assertEqual(cm2.exception.status, 304)
+
+    def test_fleet_events_new_event_busts_the_etag(self):
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_fleet_events()
+        stale_etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = stale_etag
+        self._seed_event(ts=2)   # a genuinely new event fires
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_fleet_events()
+        self.assertEqual(cm2.exception.status, 200)
+
+    def test_fleet_events_device_edit_busts_the_etag_without_a_new_event(self):
+        # monitored/scope filtering reads live DEVICES_FILE state -- an
+        # operator flipping monitored=false can change the response with no
+        # new fleet event firing, so DEVICES_FILE must be in the etag key too.
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_fleet_events()
+        stale_etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = stale_etag
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'monitored': False,
+                 'last_seen': int(time.time())}})
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_fleet_events()
+        self.assertEqual(cm2.exception.status, 200)
+        self.assertEqual(cm2.exception.body, [])   # d1 now unmonitored -> filtered out
+
+    def test_device_timeline_conditional_get(self):
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_device_timeline('d1')
+        self.assertEqual(cm.exception.status, 200)
+        etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = etag
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_device_timeline('d1')
+        self.assertEqual(cm2.exception.status, 304)
+
+    def test_device_timeline_new_command_output_busts_the_etag(self):
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_device_timeline('d1')
+        stale_etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = stale_etag
+        api.save(api.CMD_OUTPUT_FILE, {'d1': [{'ts': 5, 'cmd': 'uptime', 'rc': 0}]})
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_device_timeline('d1')
+        self.assertEqual(cm2.exception.status, 200)
+
+    def test_fleet_timeline_conditional_get(self):
+        self._seed_event()
+        with self.assertRaises(api.HTTPError) as cm:
+            api.handle_fleet_timeline()
+        self.assertEqual(cm.exception.status, 200)
+        etag = dict(cm.exception.headers)['ETag']
+        self._if_none_match = etag
+        with self.assertRaises(api.HTTPError) as cm2:
+            api.handle_fleet_timeline()
+        self.assertEqual(cm2.exception.status, 304)
 
 
 class TestMountMonitoring(unittest.TestCase):

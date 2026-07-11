@@ -119,6 +119,12 @@ class TestFleetAndDrift(unittest.TestCase):
             fn(*a)
         except SystemExit:
             pass
+        except self.api.HTTPError as e:
+            # v6.1.1 (#10): a handful of GET endpoints now short-circuit via
+            # _respond_with_etag(), which raises the real HTTPError directly
+            # instead of going through the stubbed respond() above.
+            cap['status'] = e.status
+            cap['body'] = e.body
         return cap
 
     def test_unmonitored_excluded_from_fleet_events(self):

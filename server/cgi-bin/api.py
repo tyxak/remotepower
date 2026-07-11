@@ -49378,7 +49378,21 @@ def handle_fleet_events():
               if _channel_allowed(e.get('event', ''), 'recent_activity')]
 
     # Newest first
-    respond(200, list(reversed(events))[:limit])
+    out = list(reversed(events))[:limit]
+    # v6.1.1 (#10): conditional GET for the Home dashboard's activity
+    # timeline, the same pattern GET /api/risk already uses. Keyed off
+    # BOTH stores that can change what this response looks like without a
+    # new fleet event firing (DEVICES_FILE, since monitored/scope filtering
+    # reads live device state) plus the query params (limit/event-filter/
+    # scope), so two differently-filtered requests never share a 304.
+    try:
+        etag_source = (backend_mtime(FLEET_EVENTS_FILE), backend_mtime(DEVICES_FILE),
+                       limit, tuple(sorted(name_filter)), _scope)
+    except Exception:
+        etag_source = None
+    if etag_source is not None:
+        _respond_with_etag(out, etag_source)
+    respond(200, out)
 
 
 def _timeline_event_detail(event, payload):
@@ -49494,6 +49508,25 @@ def _timeline_collect(include_ids, name_map):
     return items
 
 
+def _timeline_etag_source(*extra):
+    """v6.1.1 (#10): conditional-GET freshness marker for the timeline
+    endpoints, mirroring GET /api/risk's pattern. Keyed off every store
+    _timeline_collect actually merges (fleet events, command output, CVE
+    findings + ignore list) plus DEVICES_FILE (scope/monitored filtering
+    reads live device state, so a device edit can change the response with
+    no new event firing) — any change to what the caller could see bumps
+    at least one of these. `extra` carries the per-request query params
+    (limit/kind filter/severity/device) so two differently-filtered
+    requests never share a 304. Returns None on any read failure (caller
+    falls back to a plain 200, matching every other etag_source site)."""
+    try:
+        return (backend_mtime(FLEET_EVENTS_FILE), backend_mtime(CMD_OUTPUT_FILE),
+               backend_mtime(CVE_FINDINGS_FILE), backend_mtime(CVE_IGNORE_FILE),
+               backend_mtime(DEVICES_FILE)) + extra
+    except Exception:
+        return None
+
+
 def _timeline_parse_qs():
     """Shared ?limit/?kinds parsing for the timeline endpoints."""
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
@@ -49533,13 +49566,17 @@ def handle_device_timeline(dev_id):
     if kind_filter:
         items = [i for i in items if i['kind'] in kind_filter]
     items.sort(key=lambda i: i['ts'], reverse=True)
-    respond(200, {
+    out = {
         'device_id':   dev_id,
         'device_name': dev.get('name', dev_id),
         'items':       items[:limit],
         'kinds':       kinds_present,
         'total':       len(items),
-    })
+    }
+    etag_source = _timeline_etag_source(dev_id, limit, tuple(sorted(kind_filter)))
+    if etag_source is not None:
+        _respond_with_etag(out, etag_source)
+    respond(200, out)
 
 
 def handle_fleet_timeline():
@@ -49578,13 +49615,18 @@ def handle_fleet_timeline():
     if sev_filter:
         items = [i for i in items if i['severity'] in sev_filter]
     items.sort(key=lambda i: i['ts'], reverse=True)
-    respond(200, {
+    out = {
         'items':   items[:limit],
         'kinds':   kinds_present,
         'devices': [{'id': did, 'name': nm} for did, nm in sorted(
                         name_map.items(), key=lambda kv: kv[1].lower())],
         'total':   len(items),
-    })
+    }
+    etag_source = _timeline_etag_source(
+        limit, tuple(sorted(kind_filter)), tuple(sorted(sev_filter)), dev_q, _caller_scope())
+    if etag_source is not None:
+        _respond_with_etag(out, etag_source)
+    respond(200, out)
 
 
 def handle_webhook_log():

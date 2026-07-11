@@ -183,7 +183,7 @@ class TestHandleFleetEvents(_Base):
             time.sleep(0.001)
         _set_method('GET', '')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(r.status, 200)
         self.assertEqual(len(r.body), 5)
         # Newest first — last recorded is at index 0
@@ -195,7 +195,7 @@ class TestHandleFleetEvents(_Base):
             api._record_fleet_event('device_offline', {'device_id': f'd{i}'})
         _set_method('GET', 'limit=5')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(r.status, 200)
         self.assertEqual(len(r.body), 5)
 
@@ -209,13 +209,13 @@ class TestHandleFleetEvents(_Base):
             api._record_fleet_event('device_offline', {'device_id': f'd{i}'})
         _set_method('GET', 'limit=99999')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(len(r.body), api.MAX_FLEET_EVENTS)
 
     def test_no_events_returns_empty(self):
         _set_method('GET', '')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(r.status, 200)
         self.assertEqual(r.body, [])
 
@@ -224,7 +224,7 @@ class TestHandleFleetEvents(_Base):
             api._record_fleet_event('device_offline', {'device_id': f'd{i}'})
         _set_method('GET', 'limit=not-an-int')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(r.status, 200)
         # Default is 50; we have 5 entries so just get them all
         self.assertEqual(len(r.body), 5)
@@ -238,7 +238,7 @@ class TestHandleFleetEvents(_Base):
             AssertionError("must not call require_admin_auth"))
         _set_method('GET', '')
         try: api.handle_fleet_events()
-        except _Captured as c: pass
+        except (_Captured, api.HTTPError) as c: pass
         # If we got here without AssertionError, the test passes
 
     def test_event_name_filter(self):
@@ -251,14 +251,14 @@ class TestHandleFleetEvents(_Base):
 
         _set_method('GET', 'event=log_alert')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(r.status, 200)
         self.assertEqual(len(r.body), 2)
         self.assertTrue(all(e['event'] == 'log_alert' for e in r.body))
 
         _set_method('GET', 'event=log_alert&event=cve_found')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(len(r.body), 3)
         self.assertEqual({e['event'] for e in r.body},
                          {'log_alert', 'cve_found'})
@@ -266,7 +266,7 @@ class TestHandleFleetEvents(_Base):
         # Unknown event name yields zero rows (no implicit pass-through)
         _set_method('GET', 'event=does_not_exist')
         try: api.handle_fleet_events()
-        except _Captured as c: r = c
+        except (_Captured, api.HTTPError) as c: r = c
         self.assertEqual(r.body, [])
 
 
