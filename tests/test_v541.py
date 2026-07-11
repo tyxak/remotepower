@@ -313,6 +313,46 @@ class TestEnterpriseHardening2(unittest.TestCase):
         finally:
             api.APIKEYS_FILE = orig
 
+    def test_apikey_legacy_migration_deferred_when_called_inside_a_lock(self):
+        # v6.1.1 (broad sweep, adversarial self-review): verify_token() used
+        # to unconditionally open a SECOND _LockedUpdate(APIKEYS_FILE) for
+        # this migration, even when called from inside an already-open lock
+        # scope (several handlers re-resolve the caller mid-lock, e.g.
+        # handle_query_template_delete). Under the SQLite/Postgres backends'
+        # shared per-directory connection this nests -- worst case
+        # (Postgres) a silent lost-update race, not even an exception.
+        # Confirm the migration is now deferred (not attempted immediately)
+        # while ANY lock is held, and still actually runs once it releases.
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig_keys = api.APIKEYS_FILE
+        orig_devices = api.DEVICES_FILE
+        try:
+            api.APIKEYS_FILE = api.Path(d) / 'apikeys.json'
+            api.DEVICES_FILE = api.Path(d) / 'devices.json'
+            api.save(api.APIKEYS_FILE, {'k': {'name': 'o', 'key': 'PLAINKEY0002',
+                                              'user': 'api', 'role': 'admin', 'active': True}})
+            api.save(api.DEVICES_FILE, {})
+            result = {}
+            with api._LockedUpdate(api.DEVICES_FILE) as devices:
+                self.assertTrue(api._locks_held())
+                result['auth'] = api.verify_token('PLAINKEY0002')
+                # deferred -- must NOT have migrated yet while the lock is open
+                api._invalidate_load_cache(api.APIKEYS_FILE)
+                rec = api.load(api.APIKEYS_FILE)['k']
+                self.assertIn('key', rec)
+                self.assertFalse(rec.get('key_hash'))
+            # auth itself still succeeded despite the deferral
+            self.assertEqual(result['auth'], ('api', 'admin'))
+            # lock released -- the deferred migration must have run by now
+            api._invalidate_load_cache(api.APIKEYS_FILE)
+            rec2 = api.load(api.APIKEYS_FILE)['k']
+            self.assertNotIn('key', rec2)
+            self.assertTrue(rec2.get('key_hash'))
+        finally:
+            api.APIKEYS_FILE = orig_keys
+            api.DEVICES_FILE = orig_devices
+
     # E2 — /api/v1 alias
     def test_api_v1_alias(self):
         import os

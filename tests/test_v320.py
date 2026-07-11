@@ -569,6 +569,141 @@ class TestMcpWriteTools(_ApiTestBase):
                   if x['id'] == conf_id)
         self.assertEqual(c['status'], 'rejected')
 
+    # ── v6.1.1 (broad sweep, adversarial self-review): _mcp_handle and the
+    # confirmation list/approve/reject handlers had NO tenant awareness at
+    # all -- an MCP key scoped to one tenant could reboot/run scripts on any
+    # OTHER tenant's device directly, and a tenant-scoped admin could see and
+    # approve/reject other tenants' pending confirmations. Same bug shape as
+    # the API-key/query-template/smart-group tenant fixes earlier this
+    # session -- device-tenant isolation is a real, universally-enforced
+    # product boundary that this one write path silently bypassed. ────────
+    def _enable_tenancy(self):
+        self.api.save(self.api.TENANTS_FILE, {
+            'default': {'name': 'Default', 'builtin': True},
+            'acme': {'name': 'Acme', 'status': 'active'},
+        })
+        self.api.save(self.api.CONFIG_FILE, {'tenancy_enforced': True})
+
+    def _mint_mcp_key(self, kid, raw_key, tenant_id):
+        ak = self.api.load(self.api.APIKEYS_FILE)
+        ak[kid] = {'name': kid, 'key': raw_key, 'user': kid,
+                   'role': 'mcp', 'created': int(time.time()),
+                   'active': True, 'expires_at': None, 'tenant_id': tenant_id}
+        self.api.save(self.api.APIKEYS_FILE, ak)
+
+    def _as_tenant_admin(self, username, tenant_id):
+        """A genuinely tenant-scoped (non-superadmin) admin -- tenant_id !=
+        'default', unlike the plain 'admin' user _as_admin() uses."""
+        users = self.api.load(self.api.USERS_FILE)
+        users[username] = {'password_hash': self.api.hash_password('x'),
+                           'role': 'admin', 'tenant_id': tenant_id}
+        self.api.save(self.api.USERS_FILE, users)
+        token = username + '_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[token] = {'user': username, 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = token
+        os.environ.pop('HTTP_X_MCP_CLIENT', None)
+        os.environ.pop('HTTP_X_MCP_PROMPT', None)
+
+    def test_mcp_reboot_blocked_for_cross_tenant_device(self):
+        self._enable_tenancy()
+        devs = self.api.load(self.api.DEVICES_FILE)
+        devs['d-auto']['tenant'] = 'acme'
+        self.api.save(self.api.DEVICES_FILE, devs)
+        self._mint_mcp_key('mcp-default', 'rpk_mcp_default', 'default')
+        os.environ['HTTP_X_TOKEN'] = 'rpk_mcp_default'
+        os.environ['HTTP_X_MCP_CLIENT'] = 'claude-desktop'
+        os.environ['HTTP_X_MCP_PROMPT'] = 'test'
+        r = self._call(self.api.handle_mcp_reboot_device, {'device_id': 'd-auto'})
+        self.assertEqual(r['status'], 403)
+        cmds = self.api.load(self.api.CMDS_FILE)
+        self.assertNotIn('reboot', cmds.get('d-auto', []))
+
+    def test_mcp_reboot_allowed_for_same_tenant_device(self):
+        self._enable_tenancy()
+        devs = self.api.load(self.api.DEVICES_FILE)
+        devs['d-auto']['tenant'] = 'default'
+        self.api.save(self.api.DEVICES_FILE, devs)
+        self._mint_mcp_key('mcp-default', 'rpk_mcp_default', 'default')
+        os.environ['HTTP_X_TOKEN'] = 'rpk_mcp_default'
+        os.environ['HTTP_X_MCP_CLIENT'] = 'claude-desktop'
+        os.environ['HTTP_X_MCP_PROMPT'] = 'test'
+        r = self._call(self.api.handle_mcp_reboot_device, {'device_id': 'd-auto'})
+        self.assertEqual(r['status'], 200)
+        cmds = self.api.load(self.api.CMDS_FILE)
+        self.assertIn('reboot', cmds.get('d-auto', []))
+
+    def test_confirmations_list_hides_other_tenants_pending(self):
+        self._enable_tenancy()
+        # d-confirm has no explicit tenant -> falls back to DEFAULT_TENANT
+        self._mint_mcp_key('mcp-default', 'rpk_mcp_default', 'default')
+        os.environ['HTTP_X_TOKEN'] = 'rpk_mcp_default'
+        os.environ['HTTP_X_MCP_CLIENT'] = 'claude-desktop'
+        os.environ['HTTP_X_MCP_PROMPT'] = 'test'
+        r1 = self._call(self.api.handle_mcp_reboot_device, {'device_id': 'd-confirm'})
+        self.assertEqual(r1['status'], 202)
+        conf_id = r1['body']['confirmation_id']
+
+        self._as_tenant_admin('acmeadmin', 'acme')
+        os.environ['REQUEST_METHOD'] = 'GET'
+        captured, orig = self._respond_stub()
+        try:
+            self.api.handle_confirmations_list()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        ids = [c['id'] for c in captured['body']['confirmations']]
+        self.assertNotIn(conf_id, ids)
+
+    def test_confirmation_approve_of_other_tenant_404s_and_does_not_execute(self):
+        self._enable_tenancy()
+        self._mint_mcp_key('mcp-default', 'rpk_mcp_default', 'default')
+        os.environ['HTTP_X_TOKEN'] = 'rpk_mcp_default'
+        os.environ['HTTP_X_MCP_CLIENT'] = 'claude-desktop'
+        os.environ['HTTP_X_MCP_PROMPT'] = 'test'
+        r1 = self._call(self.api.handle_mcp_reboot_device, {'device_id': 'd-confirm'})
+        conf_id = r1['body']['confirmation_id']
+
+        self._as_tenant_admin('acmeadmin', 'acme')
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.get_json_body = lambda: {}
+        captured, orig = self._respond_stub()
+        try:
+            self.api.handle_confirmation_approve(conf_id)
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        self.assertEqual(captured['status'], 404)
+        cmds = self.api.load(self.api.CMDS_FILE)
+        self.assertNotIn('reboot', cmds.get('d-confirm', []))
+
+    def test_confirmation_reject_of_other_tenant_404s(self):
+        self._enable_tenancy()
+        self._mint_mcp_key('mcp-default', 'rpk_mcp_default', 'default')
+        os.environ['HTTP_X_TOKEN'] = 'rpk_mcp_default'
+        os.environ['HTTP_X_MCP_CLIENT'] = 'claude-desktop'
+        os.environ['HTTP_X_MCP_PROMPT'] = 'test'
+        r1 = self._call(self.api.handle_mcp_reboot_device, {'device_id': 'd-confirm'})
+        conf_id = r1['body']['confirmation_id']
+
+        self._as_tenant_admin('acmeadmin', 'acme')
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.get_json_body = lambda: {}
+        captured, orig = self._respond_stub()
+        try:
+            self.api.handle_confirmation_reject(conf_id)
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        self.assertEqual(captured['status'], 404)
+        c = next(x for x in self.api.load(self.api.CONFIRMATIONS_FILE)['confirmations']
+                  if x['id'] == conf_id)
+        self.assertEqual(c['status'], 'pending')   # untouched, not rejected
+
     def test_mcp_allowlist_populated(self):
         # Stage 4 must have at least these four
         self.assertIn('reboot_device', self.api.MCP_ACTION_ALLOWLIST)

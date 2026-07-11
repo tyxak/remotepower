@@ -25,7 +25,7 @@ class _HandlerBase(unittest.TestCase):
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
                      'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE', 'SITES_FILE',
                      'RACKS_FILE', 'CMDB_FILE', 'SUBNETS_FILE', 'IPAM_STATE_FILE',
-                     'LLDP_NEIGHBORS_FILE', 'LLDP_DISMISS_FILE'):
+                     'LLDP_NEIGHBORS_FILE', 'LLDP_DISMISS_FILE', 'TENANTS_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -197,6 +197,139 @@ class TestSmartGroups(_HandlerBase):
         api.method = lambda: 'DELETE'
         self.call(api.handle_smart_group, 'g')
         self.assertNotIn('g', api.load(api.SMART_GROUPS_FILE) or {})
+
+    # ── v6.1.1 (broad sweep, adversarial self-review): smart groups had NO
+    # tenant dimension at all -- a group matched against the WHOLE fleet
+    # regardless of the creating admin's tenant, and GET .../members returned
+    # other tenants' device ids+names outright. Same shape as the API-key
+    # and query-template tenant bugs fixed earlier this session. ───────────
+    def _enable_tenancy_two_tenants(self):
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active'}})
+        api.save(api.USERS_FILE, {
+            'jakob':     {'role': 'admin', 'tenant_id': 'default'},
+            'acmeadmin': {'role': 'admin', 'tenant_id': 'acme'},
+        })
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': True})
+
+    def _as_acme_admin(self):
+        api.require_auth = lambda require_admin=False: 'acmeadmin'
+        api.require_admin_auth = lambda: 'acmeadmin'
+        api.verify_token = lambda t: ('acmeadmin', 'admin')
+
+    def _as_jakob_superadmin(self):
+        api.require_auth = lambda require_admin=False: 'jakob'
+        api.require_admin_auth = lambda: 'jakob'
+        api.verify_token = lambda t: ('jakob', 'admin')
+
+    def _mixed_tenant_devs(self):
+        return {
+            'd1': {'name': 'default-web', 'tenant': 'default', 'group': 'web',
+                   'sysinfo': {'mem_percent': 95}},
+            'd2': {'name': 'acme-web', 'tenant': 'acme', 'group': 'web',
+                   'sysinfo': {'mem_percent': 95}},
+        }
+
+    def test_materialize_restricted_to_given_tenant_when_enforced(self):
+        self._enable_tenancy_two_tenants()
+        members = api._materialize_smart_group({'group': 'web'}, self._mixed_tenant_devs(),
+                                                tenant='acme')
+        self.assertEqual(members, ['d2'])
+
+    def test_create_only_matches_own_tenants_devices(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.DEVICES_FILE, self._mixed_tenant_devs())
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        self._as_acme_admin()
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'web-hosts', 'rules': {'group': 'web'}}
+        self.call(api.handle_smart_groups)
+        st = api.load(api.SMART_GROUPS_FILE) or {}
+        self.assertEqual(st['web-hosts']['members'], ['d2'])   # not d1 (default tenant)
+        self.assertEqual(st['web-hosts']['tenant'], 'acme')
+
+    def test_list_hides_other_tenants_groups(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.SMART_GROUPS_FILE, {
+            'default-group': {'rules': {}, 'members': [], 'tenant': 'default'},
+        })
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        self._as_acme_admin()
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_smart_groups)
+        self.assertEqual(out['smart_groups'], [])
+
+    def test_get_members_404s_for_other_tenants_group_not_leaking_devices(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.SMART_GROUPS_FILE, {
+            'default-group': {'rules': {}, 'members': ['d1'], 'tenant': 'default'},
+        })
+        api.save(api.DEVICES_FILE, self._mixed_tenant_devs())
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        self._as_acme_admin()
+        api.method = lambda: 'GET'
+        self.call(api.handle_smart_group, 'default-group')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_delete_of_other_tenants_group_404s_and_does_not_delete(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.SMART_GROUPS_FILE, {
+            'default-group': {'rules': {}, 'members': [], 'tenant': 'default'},
+        })
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        self._as_acme_admin()
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_smart_group, 'default-group')
+        self.assertEqual(self.cap['s'], 404)
+        self.assertIn('default-group', api.load(api.SMART_GROUPS_FILE) or {})
+
+    def test_platform_superadmin_still_sees_and_matches_every_tenant(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.SMART_GROUPS_FILE, {
+            'all-web': {'rules': {'group': 'web'}, 'members': [], 'tenant': 'acme'},
+        })
+        api.save(api.DEVICES_FILE, self._mixed_tenant_devs())
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        self._as_jakob_superadmin()
+        api.run_smart_groups_if_due()
+        # cadence sweep still only matches the group's OWN (acme) tenant --
+        # a group's isolation boundary doesn't change based on who re-runs
+        # the background sweep.
+        st = api.load(api.SMART_GROUPS_FILE) or {}
+        self.assertEqual(st['all-web']['members'], ['d2'])
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_smart_groups)
+        self.assertEqual([g['name'] for g in out['smart_groups']], ['all-web'])
+
+    def test_cadence_rematerialize_respects_each_groups_own_tenant(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.SMART_GROUPS_FILE, {
+            'g': {'rules': {'group': 'web'}, 'members': [], 'tenant': 'default'},
+        })
+        api.save(api.DEVICES_FILE, self._mixed_tenant_devs())
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api.run_smart_groups_if_due()
+        st = api.load(api.SMART_GROUPS_FILE) or {}
+        self.assertEqual(st['g']['members'], ['d1'])   # not d2 (acme)
+
+    def test_legacy_group_with_no_tenant_field_defaults_to_default_tenant(self):
+        self._enable_tenancy_two_tenants()
+        api.save(api.SMART_GROUPS_FILE, {
+            'legacy': {'rules': {}, 'members': []},   # no 'tenant' key at all
+        })
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        self._as_acme_admin()
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_smart_groups)
+        self.assertEqual(out['smart_groups'], [])   # resolves to default tenant, not acme
+
+        self._as_jakob_superadmin()
+        api.method = lambda: 'GET'
+        out2 = self.call(api.handle_smart_groups)
+        self.assertEqual([g['name'] for g in out2['smart_groups']], ['legacy'])
 
 
 class TestSiteMap(_HandlerBase):

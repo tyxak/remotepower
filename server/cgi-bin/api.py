@@ -4028,13 +4028,34 @@ def verify_token(token):
             # v5.4.1 (C1): upgrade a legacy plaintext key to key_hash on first
             # (non-throttled) use so the plaintext copy stops living at rest.
             # Best-effort — never blocks auth.
-            try:
-                with _LockedUpdate(APIKEYS_FILE) as _ak:
-                    _e = _ak.get(_legacy_migrate)
-                    if isinstance(_e, dict) and _e.get('key') and not _e.get('key_hash'):
-                        _e['key_hash'] = _apikey_hash(_e.pop('key'))
-            except Exception:
-                pass
+            #
+            # v6.1.1 (broad sweep, adversarial self-review): verify_token()
+            # can be called from INSIDE an already-open lock scope (several
+            # handlers re-resolve the caller's role/tenant mid-_LockedUpdate,
+            # e.g. handle_query_template_delete, handle_device_save_bulk,
+            # the scan-schedule handlers). Opening a second lock here nests
+            # under the SQLite/Postgres backends' shared per-directory
+            # connection -- on Postgres this isn't even an exception: a
+            # nested BEGIN is a silent no-op, so this block's own COMMIT on
+            # exit ends the OUTER transaction early and releases its
+            # pg_advisory_xact_lock before the outer handler finishes
+            # mutating its own store -- a genuine, silent lost-update race.
+            # Defer through the same _defer_after_locks mechanism
+            # fire_webhook/audit_log/log_command already use when a lock is
+            # held; run immediately as before otherwise (the common case --
+            # verify_token is almost always called before any lock is taken).
+            def _migrate_legacy_apikey(kid=_legacy_migrate):
+                try:
+                    with _LockedUpdate(APIKEYS_FILE) as _ak:
+                        _e = _ak.get(kid)
+                        if isinstance(_e, dict) and _e.get('key') and not _e.get('key_hash'):
+                            _e['key_hash'] = _apikey_hash(_e.pop('key'))
+                except Exception:
+                    pass
+            if _locks_held():
+                _defer_after_locks(_migrate_legacy_apikey)
+            else:
+                _migrate_legacy_apikey()
         # v5.4.1 (D6): a per-key device scope confines this key's visibility +
         # actions to a subset of the fleet, intersected with its role scope (and
         # enforced even for an admin-role key — that's the point of a scoped
@@ -11372,9 +11393,20 @@ def _validate_smart_rules(raw):
     return out
 
 
-def _materialize_smart_group(rules, devices):
-    """Member dev_ids for a rule set over a devices dict. Pure."""
-    return sorted(did for did, dev in (devices or {}).items()
+def _materialize_smart_group(rules, devices, tenant=None):
+    """Member dev_ids for a rule set over a devices dict. Pure.
+
+    v6.1.1 (broad sweep, adversarial self-review): `tenant`, when given and
+    tenancy is enforced, restricts the candidate pool to that tenant's own
+    devices before matching. A smart group is a live view over devices --
+    the single most consistently tenant-isolated entity type in the product
+    -- so it must respect the same boundary every other device view does,
+    not just its own read/write endpoints (see handle_smart_groups)."""
+    pool = devices or {}
+    if tenant is not None and _tenancy_enforced():
+        pool = {k: v for k, v in pool.items()
+               if isinstance(v, dict) and _device_tenant(v) == tenant}
+    return sorted(did for did, dev in pool.items()
                   if isinstance(dev, dict) and _smart_group_match(dev, rules))
 
 
@@ -11394,20 +11426,31 @@ def run_smart_groups_if_due():
         for name, g in list(store.items()):
             if name == '_meta' or not isinstance(g, dict):
                 continue
-            g['members'] = _materialize_smart_group(g.get('rules') or {}, devices)
+            g_tenant = g.get('tenant') or DEFAULT_TENANT
+            g['members'] = _materialize_smart_group(g.get('rules') or {}, devices, g_tenant)
             g['evaluated_ts'] = now
         store['_meta'] = {'last_run': now}
 
 
 def handle_smart_groups():
-    """GET /api/smart-groups — list (with member counts); POST — create. Admin."""
+    """GET /api/smart-groups — list (with member counts, own tenant only);
+    POST — create. Admin.
+
+    v6.1.1 (broad sweep, adversarial self-review): neither the store nor
+    these handlers had any tenant dimension -- a tenant-scoped admin's
+    smart group matched against the WHOLE fleet, and GET .../members (below)
+    returned other tenants' device ids+names outright. Groups now stamp the
+    creating admin's tenant and are gated/materialized against it, mirroring
+    the fix already applied to saved query templates."""
     actor = require_admin_auth()
     if method() == 'GET':
         groups = load(SMART_GROUPS_FILE) or {}
+        gate = _tenant_gate()
         out = [{'name': k, 'rules': v.get('rules') or {},
                 'member_count': len(v.get('members') or []),
                 'evaluated_ts': v.get('evaluated_ts')}
-               for k, v in groups.items() if k != '_meta' and isinstance(v, dict)]
+               for k, v in groups.items() if k != '_meta' and isinstance(v, dict)
+               and (gate is None or (v.get('tenant') or DEFAULT_TENANT) == gate)]
         respond(200, {'smart_groups': sorted(out, key=lambda g: g['name'])})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -11418,6 +11461,7 @@ def handle_smart_groups():
     rules = _validate_smart_rules(body.get('rules') or {})
     if not rules:
         respond(400, {'error': 'at least one rule is required'})
+    tenant = _caller_effective_tenant(actor)
     devices = load(DEVICES_FILE) or {}
     with _LockedUpdate(SMART_GROUPS_FILE) as store:
         real = [k for k in store if k != '_meta']
@@ -11425,7 +11469,9 @@ def handle_smart_groups():
             respond(400, {'error': 'a smart group with that name already exists'})
         if len(real) >= 100:
             respond(400, {'error': 'smart group limit reached (max 100)'})
-        store[name] = {'rules': rules, 'members': _materialize_smart_group(rules, devices),
+        store[name] = {'rules': rules,
+                       'members': _materialize_smart_group(rules, devices, tenant),
+                       'tenant': tenant,
                        'evaluated_ts': int(time.time()), 'created': int(time.time())}
     audit_log(actor, 'smart_group_create', detail=f'name={name}')
     respond(201, {'ok': True, 'name': name, 'scope_value': f'smart:{name}'})
@@ -11433,14 +11479,16 @@ def handle_smart_groups():
 
 def handle_smart_group(name):
     """GET /api/smart-groups/{name}/members — current members; PATCH — update
-    rules; DELETE — remove. Admin."""
+    rules; DELETE — remove. Admin, own tenant only (v6.1.1 broad sweep — see
+    handle_smart_groups)."""
     actor = require_admin_auth()
     name = re.sub(r'[^a-z0-9_-]', '', str(name).lower())[:48]
     if method() == 'DELETE':
         with _LockedUpdate(SMART_GROUPS_FILE) as store:
-            existed = store.pop(name, None) is not None
-        if not existed:
-            respond(404, {'error': 'smart group not found'})
+            g = store.get(name)
+            if not isinstance(g, dict) or not _tenant_visible_id(g.get('tenant')):
+                respond(404, {'error': 'smart group not found'})
+            del store[name]
         audit_log(actor, 'smart_group_delete', detail=f'name={name}')
         respond(200, {'ok': True})
     if method() == 'PATCH':
@@ -11450,16 +11498,17 @@ def handle_smart_group(name):
         devices = load(DEVICES_FILE) or {}
         with _LockedUpdate(SMART_GROUPS_FILE) as store:
             g = store.get(name)
-            if not isinstance(g, dict):
+            if not isinstance(g, dict) or not _tenant_visible_id(g.get('tenant')):
                 respond(404, {'error': 'smart group not found'})
+            g_tenant = g.get('tenant') or DEFAULT_TENANT
             g['rules'] = rules
-            g['members'] = _materialize_smart_group(rules, devices)
+            g['members'] = _materialize_smart_group(rules, devices, g_tenant)
             g['evaluated_ts'] = int(time.time())
         audit_log(actor, 'smart_group_update', detail=f'name={name}')
         respond(200, {'ok': True})
     # GET members
     g = (load(SMART_GROUPS_FILE) or {}).get(name)
-    if not isinstance(g, dict):
+    if not isinstance(g, dict) or not _tenant_visible_id(g.get('tenant')):
         respond(404, {'error': 'smart group not found'})
     devices = load(DEVICES_FILE) or {}
     members = g.get('members') or []
@@ -13221,6 +13270,15 @@ def _tenant_gate():
 def _tenant_visible(dev):
     gate = _tenant_gate()
     return gate is None or _device_tenant(dev) == gate
+
+
+def _tenant_visible_id(tenant_id):
+    """Like _tenant_visible(dev), for a store that stamps a bare tenant id
+    string directly (e.g. saved query templates, smart groups) rather than
+    a device dict. `tenant_id` may be None/missing -- falls back to
+    DEFAULT_TENANT, same convention _device_tenant() uses."""
+    gate = _tenant_gate()
+    return gate is None or (tenant_id or DEFAULT_TENANT) == gate
 
 
 def _tenant_filter_devices(devices):
@@ -43211,7 +43269,13 @@ def handle_patch_snapshots():
         out.sort(key=lambda s: s['created'], reverse=True)
         respond(200, {'ok': True, 'snapshots': out})
         return
-    actor = require_auth()
+    # v6.1.1 (broad sweep, adversarial self-review): this create branch was
+    # the one outlier gated on bare require_auth() while every sibling
+    # handler (delete/promote/enforce, below) correctly requires admin --
+    # a viewer/auditor/finance/mcp token could otherwise freeze up to
+    # MAX_PATCH_SNAPSHOTS fleet-wide snapshots (a shared ledger other admin
+    # actions build on, not a personal/self-scoped resource).
+    actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
@@ -47458,6 +47522,12 @@ def _mcp_handle(action, destructive):
     devs = load(DEVICES_FILE)
     if device_id not in devs:
         respond(404, {'error': 'device not found'})
+    # v6.1.1 (broad sweep, adversarial self-review): this route isn't under
+    # /api/devices/, so _enforce_device_scope() never runs for it -- without
+    # an explicit check here an MCP-role caller could target ANY tenant's
+    # device directly. _scope_block_device is the established helper for
+    # exactly this shape of endpoint (see cmdb/acme/patch-report/device).
+    _scope_block_device(device_id)
     ai_host, ai_prompt = get_mcp_attribution()
 
     params = {k: v for k, v in body.items() if k != 'device_id'}
@@ -47509,7 +47579,10 @@ def handle_mcp_force_acme_rescan():
 # ── Confirmation queue endpoints (admin-only, called from the dashboard) ────
 
 def handle_confirmations_list():
-    """GET /api/confirmations — admin sees pending MCP confirmations."""
+    """GET /api/confirmations — admin sees pending MCP confirmations for
+    devices in their own tenant (v6.1.1 broad sweep: this used to show
+    every tenant's pending confirmations to any admin, not just a platform
+    superadmin -- same class as the _mcp_handle fix above)."""
     require_admin_auth()
     # Prune expired while we read
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
@@ -47523,6 +47596,8 @@ def handle_confirmations_list():
     out = []
     for c in arr:
         d = devs.get(c.get('device_id'), {}) or {}
+        if not _tenant_visible(d):
+            continue
         c2 = dict(c)
         c2['device_name'] = d.get('name', '')
         sid = (c.get('params') or {}).get('script_id')
@@ -47533,7 +47608,8 @@ def handle_confirmations_list():
 
 
 def handle_confirmation_approve(conf_id):
-    """POST /api/confirmations/<id>/approve — admin runs the action."""
+    """POST /api/confirmations/<id>/approve — admin runs the action (own
+    tenant only, see handle_confirmations_list)."""
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     entry = None
@@ -47545,6 +47621,11 @@ def handle_confirmation_approve(conf_id):
                 entry = c
                 break
         if not entry:
+            respond(404, {'error': 'confirmation not found'})
+        # v6.1.1 (broad sweep): 404, not 403 -- a cross-tenant admin
+        # shouldn't learn the id exists, matching the list endpoint's
+        # tenant filter above.
+        if not _tenant_visible((load(DEVICES_FILE) or {}).get(entry.get('device_id')) or {}):
             respond(404, {'error': 'confirmation not found'})
         if entry.get('status') != 'pending':
             respond(409, {'error': f'confirmation already {entry.get("status")}'})
@@ -47592,15 +47673,21 @@ def handle_confirmations_clear():
 
 
 def handle_confirmation_reject(conf_id):
-    """POST /api/confirmations/<id>/reject — admin declines the action."""
+    """POST /api/confirmations/<id>/reject — admin declines the action (own
+    tenant only, see handle_confirmations_list)."""
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
+    devs = load(DEVICES_FILE) or {}
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
         for c in store.get('confirmations', []):
             if c.get('id') == conf_id:
+                # v6.1.1 (broad sweep): 404, not 403 -- see approve's
+                # matching tenant check.
+                if not _tenant_visible(devs.get(c.get('device_id')) or {}):
+                    break
                 if c.get('status') != 'pending':
                     respond(409, {'error': f'confirmation already {c.get("status")}'})
                 c['status'] = 'rejected'

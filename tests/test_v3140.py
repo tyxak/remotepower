@@ -4671,6 +4671,17 @@ class TestPatchSnapshots(_HandlerBase):
         self.assertTrue(r['ok'])
         self.assertEqual(self._list()['snapshots'], [])
 
+    def test_create_requires_admin_not_bare_auth(self):
+        # v6.1.1 (broad sweep, adversarial self-review): create used to be
+        # gated on bare require_auth() while delete/promote/enforce all
+        # correctly require admin -- a viewer/auditor/finance/mcp token
+        # could freeze fleet-wide snapshots. require_admin_auth() must be
+        # what actually gates this, not just require_auth().
+        api.require_admin_auth = lambda: api.respond(403, {'error': 'admin required'})
+        self._create('should-fail')
+        self.assertEqual(self.cap['s'], 403)
+        self.assertEqual(self._list()['snapshots'], [])
+
     def test_diff_added_removed_changed(self):
         a = self._create('a')['id']
         # bump d1's curl and add a new package before snapshot b

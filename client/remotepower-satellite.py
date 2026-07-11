@@ -58,6 +58,23 @@ def _ssl_ctx():
     return ctx
 
 
+# v6.1.1 (broad sweep, adversarial self-review): every relayed request carries
+# the satellite's own X-RP-Satellite token plus whatever the forwarding agent
+# sent (its device token / telemetry body). A 3xx from UPSTREAM must NOT be
+# followed -- an open-redirect, misconfig, or MITM'd hop would silently
+# replay both credentials to the redirect target, and an https→http hop
+# would leak them in cleartext. Mirrors the agents' own _NoRedirect opener
+# (remotepower-agent.py / -win.py / -mac.py), which this separate,
+# not-auto-synced file never got.
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_OPENER = urllib.request.build_opener(
+    _NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
+
+
 class Relay(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
@@ -79,7 +96,7 @@ class Relay(BaseHTTPRequestHandler):
         req = urllib.request.Request(UPSTREAM + path, data=body,
                                      headers=headers, method=self.command)
         try:
-            resp = urllib.request.urlopen(req, timeout=30, context=_ssl_ctx())
+            resp = _OPENER.open(req, timeout=30)
             self._send(resp.status, resp.read(), dict(resp.headers))
         except urllib.error.HTTPError as e:
             self._send(e.code, e.read(), dict(e.headers))

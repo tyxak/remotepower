@@ -6,7 +6,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Live status | Green/red per device, auto-refresh 60s, configurable per device (10–3600s) |
+| Live status | Green/red per device, auto-refresh 60s, configurable per device (30–3600s; the fleet-wide enrolment default is 10–3600s) |
 | OS icons | Auto-detected SVG glyphs — Linux, Windows, macOS *(v4.0.0)*, fallback |
 | Uptime tracking | Online/offline state changes stored per device |
 | Container awareness | Auto-detected Docker / Podman / Kubernetes pods — image, status, restart count, ports, namespace; read-only |
@@ -265,7 +265,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | GeoIP enrichment | Point RemotePower at an operator-supplied offline GeoLite2 Country/ASN `.mmdb` file (pure-python reader, no external dependency, no egress) — login sources get country/ASN; optional impossible-travel detection fires `login_geo_anomaly` when one account logs in from two countries within a window. Degrades to no-op with no DB configured. *(v6.0.0)* |
 | Sudo audit trail | Agent tails sudo invocations (journal / `auth.log`) → a per-device privileged-command log (who/tty/pwd/command, secrets redacted); drawer table + fleet search `GET /api/sudo-search`; admin/auditor-only *(v6.0.0)* |
 | Lifecycle expiry | Warranty / license / support end dates per asset → attention items *(v3.5.0)* |
-| Warranty auto-lookup | Opt-in: a cadence job maps each device's inventoried serial → a vendor warranty API (**Lenovo** via ClientID; Dell behind TechDirect creds) → auto-fills the CMDB warranty-expiry field — only when it's empty or was previously auto-filled (never clobbers an operator-set date). Cached ~30 days/serial; credential write-only; no-op without a key. *(v6.0.0)* |
+| Warranty auto-lookup | Opt-in: a cadence job maps each device's inventoried serial → a vendor warranty API → auto-fills the CMDB warranty-expiry field — only when it's empty or was previously auto-filled (never clobbers an operator-set date). Cached ~30 days/serial; credential write-only; no-op without a key. **Lenovo** is a real, working lookup (ClientID). The Settings UI also offers a "Dell (needs TechDirect creds)" provider option, but there is no `warranty_dell_*` credential field or TechDirect OAuth call wired up yet — selecting it is currently a no-op stub, not a working integration. *(v6.0.0)* |
 | Container restart tracking | Real restart count/age via batched `docker inspect`, fleet-wide *(v3.10.0)* |
 
 ## Containers & virtualization
