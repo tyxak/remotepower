@@ -28,7 +28,7 @@ Usage (see the three call sites in api.py):
 """
 
 try:
-    from pydantic import BaseModel, ConfigDict, ValidationError
+    from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
     _AVAILABLE = True
 except Exception:  # library not installed -> pilot disabled, handlers unchanged
     _AVAILABLE = False
@@ -41,11 +41,55 @@ def available():
 
 if _AVAILABLE:
 
+    # v6.1.1 (#5 follow-up, adversarial self-review): these `mode='before'`
+    # coercions exist so pydantic's validation is a SUPERSET of the existing
+    # hand-rolled checks, never a narrower one. Plain type annotations
+    # (`rate_limit: int`, `username: str`) were caught rejecting requests the
+    # OLD code accepted -- `rate_limit: null`/`""` (old: `int(x or 0)` -> 0),
+    # a float timestamp (old: `int(x)` truncates), a numeric `username` (old:
+    # `_sanitize_str` coerces via `str(x)`) -- a real behavior regression for
+    # any API client relying on the old tolerant contract, defeating the
+    # whole point of "falls back to hand-rolled validation unchanged." Each
+    # helper below replicates the EXACT coercion the site it guards already
+    # performs, so a value the old code accepted still validates here, and a
+    # value the old code already rejected (with its own exception handling)
+    # still gets rejected here too -- just earlier, with a schema-checked
+    # error instead of a handler-specific one.
+    def _coerce_str_loose(v):
+        """Matches _sanitize_str(v, ...)'s str(v) coercion (sanitize.py) --
+        any scalar becomes a string; the handler's own _sanitize_str/regex
+        checks still run afterward and reject a nonsensical result."""
+        if v is None:
+            return ''
+        return str(v)
+
+    def _coerce_int_default_zero(v):
+        """Matches `int(body.get(field) or 0)` -- None/''/0/False all become
+        0, a float truncates, a non-numeric value raises (caught by the
+        handler's own except today; here it becomes a ValidationError)."""
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            raise ValueError('must be an integer')
+
+    def _coerce_optional_int(v):
+        """Matches `expires_at = int(expires_at) if expires_at is not None
+        else None` -- None stays None, else truncates like int()."""
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            raise ValueError('must be an integer or null')
+
     class UserCreateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')
         username: str = ''
-        password: str = ''
+        password: str = ''   # NOT coerced -- old code requires isinstance(password, str) already
         role: str = 'admin'
+
+        _v_username = field_validator('username', mode='before')(_coerce_str_loose)
+        _v_role = field_validator('role', mode='before')(_coerce_str_loose)
 
     class ApiKeyCreateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')
@@ -56,14 +100,22 @@ if _AVAILABLE:
         expires_at: int | None = None
         rotate_after_days: int = 0
 
+        _v_str = field_validator('name', 'role', 'user', mode='before')(_coerce_str_loose)
+        _v_int0 = field_validator('rate_limit', 'rotate_after_days', mode='before')(_coerce_int_default_zero)
+        _v_expires = field_validator('expires_at', mode='before')(_coerce_optional_int)
+
     class BillingPaymentWebhookRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')
         invoice_id: str = ''
-        amount: float
+        amount: float          # required -- matches float(body.get('amount')) raising on None
         currency: str = ''
         provider: str = ''
         external_ref: str = ''
         kind: str = 'payment'
+
+        _v_str = field_validator(
+            'invoice_id', 'currency', 'provider', 'external_ref', 'kind',
+            mode='before')(_coerce_str_loose)
 
 else:
     # Placeholders so `request_models.UserCreateRequest` etc. always resolve as

@@ -43781,6 +43781,14 @@ MAX_JOBS = 2000
 JOB_BACKOFF_BASE_S = 30
 JOB_BACKOFF_CAP_S = 3600
 JOBS_PER_RUN = 20   # bounded per cadence tick, mirrors run_image_scan_if_due's own cap
+# v6.1.1 (#2 follow-up, adversarial self-review): a job claimed then orphaned
+# by a hard worker death (OOM-kill, SIGKILL) between _claim_due_jobs and
+# _complete_job/_fail_job would sit in 'running' forever -- no watchdog ever
+# reclaimed it, a real gap in a primitive billed as "durable." Generous
+# margin over any realistic handler runtime (the sole current consumer,
+# _job_send_report_email, is a single SMTP call) so a merely-slow job is
+# never double-run by a second cadence tick reclaiming it prematurely.
+JOB_RUNNING_LEASE_S = 900
 
 JOB_HANDLERS = {}   # {kind: fn(payload) -> None; raises on failure}
 
@@ -43809,11 +43817,27 @@ def enqueue_job(kind, payload, max_attempts=3, delay_s=0):
 def _claim_due_jobs(limit=JOBS_PER_RUN):
     """Atomically claim up to `limit` due, queued jobs (status -> 'running',
     under the same lock so two concurrent cadence ticks can't double-claim).
-    Returns copies of the claimed job dicts."""
+    Also reclaims jobs orphaned by a hard worker crash (stuck in 'running'
+    past JOB_RUNNING_LEASE_S with no _complete_job/_fail_job ever landing) --
+    treated as a failed attempt with the same backoff/dead-letter math
+    _fail_job uses, never silently re-run as if nothing happened. Returns
+    copies of the claimed job dicts."""
     now = int(time.time())
     claimed = []
     with _LockedUpdate(JOBS_FILE) as store:
         jobs = store.get('jobs', [])
+        for j in jobs:
+            if j.get('status') == 'running' and now - int(j.get('updated_at', 0)) > JOB_RUNNING_LEASE_S:
+                attempts = int(j.get('attempts', 0)) + 1
+                j['attempts'] = attempts
+                j['last_error'] = 'lease expired -- worker likely died mid-run'
+                j['updated_at'] = now
+                if attempts >= int(j.get('max_attempts', 3)):
+                    j['status'] = 'dead'
+                else:
+                    backoff = min(JOB_BACKOFF_CAP_S, JOB_BACKOFF_BASE_S * (2 ** (attempts - 1)))
+                    j['status'] = 'queued'
+                    j['next_run'] = now + backoff
         for j in jobs:
             if len(claimed) >= limit:
                 break

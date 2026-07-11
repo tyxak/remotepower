@@ -5506,6 +5506,49 @@ class TestJobQueue(_HandlerBase):
         finally:
             api.MAX_JOBS = old_max
 
+    # ── v6.1.1 (#2 follow-up, adversarial self-review): stale-running reclaim ─
+    def test_job_stuck_running_past_lease_is_reclaimed_as_a_failure(self):
+        # Simulates a hard worker crash: claimed (status='running') but
+        # neither _complete_job nor _fail_job ever landed. Once the lease
+        # expires it must be treated as a failed attempt (backoff/dead-letter
+        # math), never silently re-run as if nothing happened.
+        jid = api.enqueue_job('noop', {}, max_attempts=3)
+        api._claim_due_jobs()   # -> running
+        with api._LockedUpdate(api.JOBS_FILE) as store:
+            for j in store['jobs']:
+                if j['id'] == jid:
+                    j['updated_at'] = int(api.time.time()) - api.JOB_RUNNING_LEASE_S - 1
+        api._claim_due_jobs()   # reclaim pass runs before the normal claim pass
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        j = next(x for x in jobs if x['id'] == jid)
+        self.assertEqual(j['status'], 'queued')
+        self.assertEqual(j['attempts'], 1)
+        self.assertIn('lease expired', j['last_error'])
+        self.assertGreater(j['next_run'], int(api.time.time()))   # backed off, not immediately reclaimable
+
+    def test_job_stuck_running_dead_letters_after_max_attempts_via_lease(self):
+        jid = api.enqueue_job('noop', {}, max_attempts=1)
+        api._claim_due_jobs()
+        with api._LockedUpdate(api.JOBS_FILE) as store:
+            for j in store['jobs']:
+                if j['id'] == jid:
+                    j['updated_at'] = int(api.time.time()) - api.JOB_RUNNING_LEASE_S - 1
+        api._claim_due_jobs()
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        j = next(x for x in jobs if x['id'] == jid)
+        self.assertEqual(j['status'], 'dead')
+
+    def test_job_running_within_lease_is_not_touched(self):
+        # A genuinely slow-but-still-alive job must not be reclaimed out from
+        # under the worker actually running it.
+        jid = api.enqueue_job('noop', {}, max_attempts=3)
+        api._claim_due_jobs()
+        api._claim_due_jobs()   # a second cadence tick shortly after
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        j = next(x for x in jobs if x['id'] == jid)
+        self.assertEqual(j['status'], 'running')
+        self.assertEqual(j['attempts'], 0)
+
     def test_scheduled_report_send_failure_enqueues_retry_job(self):
         # First real consumer: a transient SMTP failure on the synchronous
         # scheduled-report send must enqueue a retry, not just log-and-wait

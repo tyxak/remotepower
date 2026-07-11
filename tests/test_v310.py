@@ -158,14 +158,24 @@ class TestUserCreateRejectsMcpRole(_ApiTestBase):
         except self.api.HTTPError as e:
             self.assertEqual(e.status, 400)
 
-    def test_non_string_username_rejected(self):
-        # v6.1.1 (#5): the OPTIONAL pydantic pilot (request_models.py) catches
-        # a wrong-typed field ahead of the existing hand-rolled checks. When
-        # pydantic isn't installed, _sanitize_str(123, 32) still coerces to a
-        # string that then fails the username regex -- either way this must
-        # stay a clean 400, never a 500.
+    def test_numeric_username_coerced_and_accepted(self):
+        # v6.1.1 (#5, corrected after an adversarial self-review found the
+        # pilot was initially STRICTER than the code it's meant to only add a
+        # safety net on top of): a numeric username is not an error in the
+        # old hand-rolled path either -- _sanitize_str(123, 32) coerces it to
+        # "123", which is a legitimately valid username by the regex. The
+        # pydantic pilot must not 400 a request the old code would accept.
         try:
             self._post({'username': 123, 'password': 'pw', 'role': 'viewer'})
+        except self.api.HTTPError as e:
+            self.assertEqual(e.status, 201, f'expected 201, got {e.status}: {e.body}')
+
+    def test_list_username_still_rejected_by_the_real_regex_check(self):
+        # A structurally wrong username still ends up 400 -- just via the
+        # SAME downstream regex check the old code always relied on, not a
+        # premature pydantic type rejection.
+        try:
+            self._post({'username': ['not', 'a', 'string'], 'password': 'pw', 'role': 'viewer'})
         except self.api.HTTPError as e:
             self.assertEqual(e.status, 400)
 
