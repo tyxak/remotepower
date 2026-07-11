@@ -17869,6 +17869,14 @@ def handle_heartbeat():
     # only runs trivy once advertised, and it's feature-invisible without trivy.
     if _sec_cfg.get('image_scan_enabled'):
         common_resp['image_scan_enabled'] = True
+    # v6.1.1 (#1): opt-in agent push channel (see server/push/remotepower-
+    # push.py). Off by default -- unverified under real multi-agent
+    # concurrent-connection load, so an operator opts a fleet in explicitly.
+    # Feature-invisible without it: the agent only starts its listener
+    # thread once this flag arrives, and falls back to (does not change)
+    # its normal poll interval if the thread never starts or ever fails.
+    if _sec_cfg.get('push_enabled'):
+        common_resp['push_enabled'] = True
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
@@ -21287,6 +21295,7 @@ def handle_config_get():
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
+    safe.setdefault('push_enabled', False)          # v6.1.1 #1
     safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
     safe.setdefault('portal_ticket_approval_required', False)   # master-improvement-scoping #84
@@ -22275,6 +22284,8 @@ def handle_config_save():
         cfg['secrets_scan_enabled'] = bool(body['secrets_scan_enabled'])
     if 'image_scan_enabled' in body:      # W6-34: opt-in trivy image CVE scan
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
+    if 'push_enabled' in body:            # v6.1.1 #1: opt-in agent push channel
+        cfg['push_enabled'] = bool(body['push_enabled'])
     if 'rdp_enabled' in body:             # W6-49: opt-in RDP tunnelling
         cfg['rdp_enabled'] = bool(body['rdp_enabled'])
     if 'portal_enabled' in body:          # W6-28: opt-in customer portal

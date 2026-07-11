@@ -3222,6 +3222,8 @@ async function loadSettings() {
   // v3.14.0 #35: secrets-on-disk scanning
   const _imgEn = document.getElementById('cfg-image-scan-enabled');   // W6-34
   if (_imgEn) _imgEn.checked = !!data.image_scan_enabled;
+  const _pushEn = document.getElementById('cfg-push-enabled');        // v6.1.1 #1
+  if (_pushEn) _pushEn.checked = !!data.push_enabled;
   const _rdpEn = document.getElementById('cfg-rdp-enabled');          // W6-49
   if (_rdpEn) _rdpEn.checked = !!data.rdp_enabled;
   const _portEn = document.getElementById('cfg-portal-enabled');      // W6-28
@@ -3745,6 +3747,9 @@ async function saveSettings(btn) {
   // W6-34: container-image CVE scanning (trivy)
   const _imgSaveEn = document.getElementById('cfg-image-scan-enabled');
   if (_imgSaveEn) payload.image_scan_enabled = _imgSaveEn.checked;
+  // v6.1.1 (#1): experimental agent push channel
+  const _pushSaveEn = document.getElementById('cfg-push-enabled');
+  if (_pushSaveEn) payload.push_enabled = _pushSaveEn.checked;
   // W6-49: RDP tunnelling
   const _rdpSaveEn = document.getElementById('cfg-rdp-enabled');
   if (_rdpSaveEn) payload.rdp_enabled = _rdpSaveEn.checked;

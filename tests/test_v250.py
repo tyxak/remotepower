@@ -285,7 +285,7 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 40000]   # widened: v5.8.0 W3 agent-wave response handling
+        block = self.agent[idx: idx + 42000]   # widened: v6.1.1 #1 push-listener state
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):

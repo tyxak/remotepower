@@ -24,8 +24,9 @@ import shutil
 import stat
 import tempfile
 import threading
+import asyncio
 from pathlib import Path
-from urllib import request, error
+from urllib import request, error, parse as urlparse
 
 CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
@@ -406,6 +407,74 @@ class _NoRedirect(request.HTTPRedirectHandler):
         return None
 
 _OPENER = request.build_opener(_NoRedirect, request.HTTPSHandler(context=_SSL_CTX))
+
+# v6.1.1 (#1): OPTIONAL push-channel listener. Same "try/except ImportError,
+# feature just doesn't activate" pattern this file already uses for psutil --
+# NOT hand-rolled WebSocket framing in the core agent. This is a deliberate
+# choice: the agent runs as root on every managed host, so a subtly-wrong
+# hand-written binary-protocol parser here is a much worse place to carry
+# that risk than depending on the same well-tested `websockets` library the
+# server's companion push daemon (server/push/remotepower-push.py) already
+# uses. Absent the library, or on ANY connection/protocol error, the agent
+# behaves EXACTLY as it always has -- this channel only ever shortens the
+# wait before the next already-scheduled poll, never replaces it.
+try:
+    import websockets
+    _PUSH_AVAILABLE = True
+except ImportError:
+    _PUSH_AVAILABLE = False
+
+
+def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
+    """Runs in a background daemon thread for the agent's whole lifetime
+    once started. Maintains (and silently reconnects) a WebSocket to the
+    push daemon; sets wake_event on every 'wake' nudge so the main poll
+    loop can cut its sleep short. Never raises out of this function --
+    every failure just means "no early wake this cycle," identical to the
+    push channel never having been installed at all."""
+    if not _PUSH_AVAILABLE:
+        return
+    host_and_path = _strip_url_scheme(server_url)
+    url = f'wss://{host_and_path}/api/push/connect?device_id={urlparse.quote(dev_id, safe="")}'
+
+    async def _run():
+        backoff = 5
+        while not stop_event.is_set():
+            try:
+                connect_kwargs = dict(ping_interval=20, ping_timeout=20, ssl=_SSL_CTX,
+                                      open_timeout=10)
+                try:
+                    ws_cm = websockets.connect(
+                        url, additional_headers={'X-RP-Push-Token': token}, **connect_kwargs)
+                except TypeError:
+                    # websockets <13 used extra_headers instead of
+                    # additional_headers -- degrade gracefully rather than
+                    # hard-require the newest release.
+                    ws_cm = websockets.connect(
+                        url, extra_headers={'X-RP-Push-Token': token}, **connect_kwargs)
+                async with ws_cm as ws:
+                    backoff = 5   # reset once a connection actually succeeds
+                    async for raw in ws:
+                        if stop_event.is_set():
+                            break
+                        try:
+                            msg = json.loads(raw)
+                        except (TypeError, ValueError):
+                            continue
+                        if isinstance(msg, dict) and msg.get('type') == 'wake':
+                            wake_event.set()
+            except Exception as e:
+                log.debug(f'push listener: {type(e).__name__}: {e}')
+            if stop_event.is_set():
+                return
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+
+    try:
+        asyncio.run(_run())
+    except Exception as e:
+        log.debug(f'push listener thread exiting: {e}')
+
 
 def _strip_url_scheme(url: str) -> str:
     """Remove a leading http:// or https:// scheme from a URL.
@@ -7897,6 +7966,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     services_watched = []
     log_watch_rules  = []
 
+    # v6.1.1 (#1): push-channel wake nudge. wake_event is set by the
+    # background listener thread (started lazily below, once, only if the
+    # server advertises push_enabled) whenever a nudge arrives; the poll
+    # loop's sleep at the bottom watches it to cut the wait short. Starting
+    # the thread is a pure opt-in latency optimization -- if it's never
+    # started (server doesn't advertise it, or websockets isn't installed),
+    # every sleep just runs its full `interval` exactly as before.
+    _push_wake_event = threading.Event()
+    _push_stop_event = threading.Event()
+    _push_thread_started = False
+
     # v2.7.0: log source expansion state
     _auto_watch_detected = detect_auto_watch_units()
     if _auto_watch_detected:
@@ -8517,6 +8597,21 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 _wanted = {(c.get('path') if isinstance(c, dict) else c) for c in _canary_cfg}
                 for _gone in [p for p in list(_canary_reported) if p not in _wanted]:
                     _canary_reported.discard(_gone)
+            # v6.1.1 (#1): server opts a device INTO the push channel via the
+            # heartbeat response, same as every other server-pushed setting
+            # here. Started at most once per agent process lifetime -- if
+            # push_enabled later flips back off server-side there's
+            # currently no clean way to stop a running listener thread
+            # short of an agent restart, which is an acceptable limitation
+            # for a pure latency optimization (worst case: the thread keeps
+            # trying to connect and getting nothing useful to do).
+            if resp.get('push_enabled') and _PUSH_AVAILABLE and not _push_thread_started:
+                _push_thread_started = True
+                threading.Thread(
+                    target=_push_listener_thread,
+                    args=(server, dev_id, token, _push_wake_event, _push_stop_event),
+                    daemon=True, name='push-listener').start()
+                log.info('push channel: listener thread started')
             # W3-19: live high-res view — when armed, burst 1 s metric samples
             # for a bounded window so the operator's Live tab updates in near
             # real time. Bounded (≤30 iterations) so command processing resumes
@@ -8771,7 +8866,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f"Update check error: {e}")
 
-        time.sleep(interval)
+        # v6.1.1 (#1): wake early on a push nudge instead of always sleeping
+        # the full interval. wake_event.wait() with a timeout is exactly
+        # time.sleep(interval) when the event never fires (the channel isn't
+        # installed/enabled, or simply didn't have anything to say this
+        # cycle) -- no behavior change for the unmodified case.
+        if _push_wake_event.wait(timeout=interval):
+            _push_wake_event.clear()
+            log.debug('woken early by a push nudge')
 
 # ─── Entry point ───────────────────────────────────────────────────────────────
 def main():

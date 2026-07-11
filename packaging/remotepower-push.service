@@ -1,0 +1,48 @@
+[Unit]
+Description=RemotePower agent push (wake-nudge) daemon
+Documentation=https://github.com/tyxak/remotepower
+After=network-online.target
+Wants=network-online.target
+# No dependency on the main app-server unit for the same reason
+# remotepower-webterm.service has none: if it isn't up yet, this daemon
+# starts fine and just has nothing useful to nudge agents about yet.
+
+[Service]
+Type=simple
+# Dedicated user, read-only against the shared data dir. Created by
+# deploy-server.sh:
+#   useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-push
+#   usermod -a -G rp-www rp-push   # so we can READ devices.json/commands.json
+ExecStart=/usr/local/bin/remotepower-push --verbose
+
+# Hardening. This daemon needs read access to two shared JSON files and
+# nothing else -- no filesystem writes, no arbitrary outbound connections
+# (unlike remotepower-webterm, which legitimately dials out to whatever SSH
+# host the operator names), so it can be locked down further than that one.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/remotepower/devices.json /var/lib/remotepower/commands.json
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+# Restart on failure but back off so a misconfigured daemon doesn't spin
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=120s
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-push
+
+[Install]
+WantedBy=multi-user.target
