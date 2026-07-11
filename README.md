@@ -14,7 +14,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.1.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.1.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -177,6 +177,12 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
+- **v6.1.1 "HardenMatters"** — a broad hardening + feature-coverage pass:
+  two real cross-tenant security fixes (API keys, SSO config), step-up
+  re-auth for privilege escalation, litigation hold, a STRIDE threat model,
+  a full WCAG AA + axe-core accessibility pass, real per-package pinned
+  patch enforcement, invoice PDFs + payment-webhook reconciliation, and a
+  fleet query engine, among others. No breaking API changes.
 - **v6.1.0 "Runt1meMatters"** — enterprise-productization. Postgres, an
   out-of-band scheduler and a co-located scanner satellite are now the
   single-node default (opt back down with `--no-postgres`/`--no-scheduler`/
@@ -198,11 +204,6 @@ One tool instead of six — the ten things it does best:
   fixed (device delete, light-mode profile menu, theme/accent picker), a
   mobile/narrow-viewport pass, ticket lifecycle events, and a slimmer,
   faster-starting server. No breaking changes.
-- **v5.6.0 — HeapMatters** — the IaC / automation release: a **Provisioning**
-  page (Terraform/cloud-init/Ansible/iPXE blueprints, with an opt-in
-  server-side Terraform Plan/Apply/Destroy), an alert **Tuning** page with
-  per-alert mute, and virtualization lifecycle for VMware/OpenShift alongside
-  Proxmox. Everything opt-in, default-off — no breaking changes.
 
 Full release history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 

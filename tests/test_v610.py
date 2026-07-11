@@ -27,7 +27,9 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.1.0"
+    # v6.1.1: loosened to dynamic (tracks the current version) — test_v611 owns
+    # the strict current-release pins now, same as test_v600/601 before it.
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -66,9 +68,11 @@ class TestVersionBumps(unittest.TestCase):
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}", _html())
 
-    def test_changelog_header_is_runt1mematters(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.1.0 — "Runt1meMatters"', head)
+    def test_changelog_has_runt1mematters_entry(self):
+        # Runt1meMatters is no longer the top entry (loosened) — just assert
+        # its release section still exists in the complete history.
+        self.assertIn('## v6.1.0 — "Runt1meMatters"',
+                      (_ROOT / "CHANGELOG.md").read_text())
 
 
 class TestRunt1meMattersFeatures(unittest.TestCase):
@@ -660,7 +664,10 @@ class TestServiceWorkerApiRequestNotDuplicated(unittest.TestCase):
         self.assertNotIn(") return;", block)
 
     def test_cache_name_bumped_past_the_fix(self):
-        self.assertIn("remotepower-shell-v6.1.0-2", self.SRC)
+        # The exact suffix (v6.1.0-2) was the fix's own release; loosened to
+        # "matches the CURRENT version" so later bumps don't have to touch
+        # this file — every release bump forces a fresh cache regardless.
+        self.assertIn(f"remotepower-shell-v{api.SERVER_VERSION}", self.SRC)
 
 
 if __name__ == "__main__":

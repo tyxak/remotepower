@@ -2,6 +2,159 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.1.1 — "HardenMatters" — unreleased (test)
+
+A broad correctness-and-coverage pass across the whole product: real
+cross-tenant security fixes, step-up re-auth, litigation hold, a structured
+threat model, a full accessibility pass, real per-package patch-pin
+enforcement, invoice PDFs and payment-webhook reconciliation, a fleet query
+engine, distributed tracing, and a long tail of smaller features and fixes —
+several of them found live during production upgrades of v6.1.0. No breaking
+API changes. Full write-up: `docs/v6.1.1.md`.
+
+### Security & tenancy
+- **Step-up re-auth for privilege escalation**: `POST /api/auth/step-up`
+  re-verifies the caller's own password or TOTP and stamps a short-lived
+  freshness window on the session. Wired into creating a new admin and
+  promoting an existing user to admin — a hijacked session token alone can
+  no longer silently mint a backdoor admin.
+- **Fixed:** an API key with no tenant of its own resolved as a full
+  cross-tenant superadmin key once tenancy enforcement was on (its display
+  field defaulted to a string that resolved to `DEFAULT_TENANT`). Keys now
+  get their own `tenant_id`, stamped at creation from the creating admin's
+  real tenant; `handle_apikeys_list` is properly tenant-scoped too. A key
+  minted before this fix keeps resolving via the old path until rotated.
+- **Fixed:** the instance-wide `sso_group_roles` map was gated only on
+  `require_admin_auth()`, so any tenant's own admin could silently overwrite
+  SSO role mapping for every other tenant's users. Now gated on
+  `_caller_is_superadmin()`.
+- **Litigation hold** (Settings → Maintenance): suspends the one function
+  that age-based-deletes command history, fleet events, webhook logs,
+  monitor history, resolved alerts, and metric samples, fleet-wide. A reason
+  is required to enable; both directions are audit-logged.
+- New structured **STRIDE threat model** (`docs/threat-model.md`), organized
+  by attacker goal rather than by feature.
+- **Guided API-key rotation**: `POST /api/apikeys/{kid}/rotate` mints a
+  replacement key with the same name/role/scope/rate-limit/IP-allowlist,
+  reveals the new secret once, deactivates the old one.
+- **Versioned audit-HMAC key rotation**: `POST /api/audit/rotate-hmac-key`
+  rotates the hash-chain signing key without invalidating any prior entry's
+  verifiability, plus an optional scheduled auto-rotation.
+- Proxmox snapshot rollback's typed confirmation is now checked
+  server-side, not just client-side; storage actions (ZFS/Btrfs
+  scrub/balance/destroy/delete) now route through the same 4-eyes approval
+  hook other destructive actions use.
+- Backup policy gained declared RPO/RTO targets, graded on `/api/self/status`.
+
+### Patch management
+- New **Package Snapshots** page: freeze the fleet's installed-package
+  state into a named, immutable snapshot; diff two snapshots
+  (added/removed/changed); promote a snapshot to a device tag as a pin
+  reference.
+- A promoted (pinned) tag now actually **pauses auto-patch dispatch** for
+  every device it covers, across every target type; clearing the promotion
+  restores dispatch. Drift reporting keeps running regardless.
+- **Real per-package pinned-install enforcement**: `POST
+  /api/patch-snapshots/{id}/enforce` diffs a snapshot's pinned versions
+  against each covered device's installed packages and queues an exact
+  apt/dnf/yum install-or-downgrade command over the agent's existing
+  generic `exec:` channel, self-detecting the package manager at agent
+  runtime. `pacman` is refused with a clear error rather than silently
+  attempted. Goes through the same 4-eyes approval gate as any other
+  `exec:` command.
+- **Fixed a silently-broken performance regression:** the command queue
+  (`commands.json`) has been misclassified as cold storage since v5.0.0 due
+  to a filename typo in the entity-promotion migration
+  (`'cmds.json'` vs. the real `'commands.json'`), falling through to a
+  whole-fleet-blob read on every single heartbeat — exactly the cost the
+  v5.0.0 change claimed to have eliminated for this file. Fixed with a new
+  migration wave gated on a schema-version bump (SQLite 7→8, Postgres 6→7)
+  so already-upgraded production databases catch up too.
+
+### Billing & VPN
+- **Real generated invoice PDFs**: `GET /api/invoices/{id}?format=pdf`,
+  tamper-evidenced the same way the audit-archive download is.
+- **Two-way payment-webhook reconciliation**: `POST
+  /api/billing/payment-webhook` — a provider-agnostic, shared-secret
+  authenticated sink any processor's own webhook can post into, idempotent
+  on `external_ref`, records payments/refunds, and derives a new
+  `partially_paid` invoice status. Not a Stripe/PayPal integration — that
+  needs live processor credentials and stays a separate, blocked item.
+- VPN clients get an optional **preshared key** (AES-GCM encrypted at rest,
+  generated by default), per-peer RX/TX history, and a saveable default
+  tunnel template.
+
+### Discovery, query & observability
+- **Scheduled LAN netscan**: the one-shot netscan is now a living,
+  auto-refreshed unmanaged-host feed; discovered hosts fold into the
+  topology graph as dashed, muted nodes/edges. OPNsense DHCP-lease reading
+  reaches parity with RouterOS via the Kea plugin.
+- New **Data Explorer** page: a whitelisted predicate-tree query engine
+  over devices/CVEs/drift (deliberately not raw SQL — a raw-SQL surface
+  would be a direct RLS-bypass risk), plus a batch endpoint for up to 10
+  queries in one call.
+- **Real OTLP distributed tracing** — one span per HTTP request, recorded
+  from the single per-request choke point, opt-in and separate from the
+  existing OTLP metrics push.
+- Structured, correlation-ID-carrying logging (`log_json`) for five more
+  request-scoped failure paths; conditional-GET/ETag support on the
+  timeline and risk-overview reads; alert-storm **incident auto-promotion**
+  — the same event firing on several distinct devices at once now
+  auto-opens a status-page incident.
+- Control-plane uptime windows now surface on the public status page
+  alongside fleet component status.
+
+### Accessibility & i18n
+- Full **WCAG AA** color-contrast pass (accent text, muted text, avatar
+  chips, across all themes) and the last remaining nested-interactive
+  structural fix (the sidebar favorite-star). The axe-core accessibility
+  gate (`tests/test_a11y_axe.py`) is now fully enforced with zero
+  exemptions.
+- German (`de`) translation coverage completed.
+
+### Also in this release
+- A generated Python SDK (`make sdk`, via `openapi-python-client`) — and a
+  real invalid-`$ref` bug in the OpenAPI spec found and fixed along the
+  way (device-command endpoints pointed `requestBody`/`responses` refs at
+  `#/paths/...`, not a valid OpenAPI 3.x target), which would have broken
+  any strict OpenAPI-consuming tool. Plus new drift-guard contract tests.
+- Guided storage provisioning (RAID/LVM/mkfs, whole-disk only, five
+  recipes), every interpolated parameter validated server-side against a
+  strict allowlist before it reaches a shell command.
+- A UPS-critical threshold alert with opt-in auto-shutdown of dependent
+  devices — off by default on two axes (a global toggle and a per-device
+  mapping).
+- A connector-plugin repository panel (Settings) with metadata and a
+  reload-without-restart action.
+- Folder-as-tar streaming downloads in the file manager, for directories
+  too large for the existing base64-blob channel.
+- Per-ticket-type SLA overrides and type-based auto-routing; an optional
+  portal-ticket approval gate.
+- A real total-count pagination envelope on `GET /api/devices`
+  (`?meta=1` → `{items,total,limit,offset,next}`), fully backward-compatible.
+- TLS full-chain certificate view in the TLS detail modal.
+- An online catch-up pass for the Postgres migration path, mirroring the
+  one the JSON↔SQLite path has had since v3.12.0.
+- Compile-once hot-path regexes for log-ingest pattern matching.
+
+### Fixed live during v6.1.0 production upgrades
+- Postgres port/password drift on multi-instance boxes: the install/setup
+  scripts now auto-detect the real listening port everywhere, pin every
+  peer-auth call to it, and reuse a marker's already-recorded password on a
+  re-run instead of minting a new one each time.
+- A service-worker navigation-preload race that intermittently broke SSO
+  login in Chromium-based browsers — two physical requests went out for one
+  OIDC callback, and the single-use server-side state was consumed by
+  whichever one the server saw first.
+- The demo site was running its full ~33-sweep maintenance cadence in-line
+  on every request instead of out-of-band, and its generated nginx vhost
+  swallowed `/sw.js`/`/manifest.json` with a 404.
+- An unconditional `listen [::]:80` broke `nginx -t` outright on hosts with
+  IPv6 disabled at the kernel level.
+- Scanner containers were missing the raw-socket capability `nmap` needs
+  for `-sV` and its default NSE script set — scans ran but silently
+  produced degraded results.
+
 ## v6.1.0 — "Runt1meMatters" — unreleased (test)
 
 The enterprise-productization release: the single-node "enterprise" topology

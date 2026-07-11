@@ -78,6 +78,13 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v6.1.1.md](v6.1.1.md)** — "HardenMatters": a broad hardening +
+ feature-coverage release — two real cross-tenant security fixes (API keys,
+ SSO config), step-up re-auth for privilege escalation, litigation hold, a
+ STRIDE threat model, a full WCAG AA + axe-core accessibility pass, real
+ per-package pinned patch enforcement, invoice PDFs + payment-webhook
+ reconciliation, a fleet query engine, distributed tracing, and more. No
+ breaking API changes.
 - **[v6.1.0.md](v6.1.0.md)** — "Runt1meMatters": the enterprise-productization
  release — Postgres + the out-of-band scheduler + a co-located scanner satellite
  are now the single-node default (`install-server.sh`/`docker-compose.yml`), and
@@ -100,14 +107,7 @@ The five most recent per-release notes are kept here:
  pass; adds ticket lifecycle events, full-tree config-secret encryption and
  multi-table Postgres RLS (both opt-in); and is faster to start (lazy pages,
  parallel fonts) on a much slimmer, modular server. No breaking changes.
-- **[v5.6.0.md](v5.6.0.md)** — "HeapMatters": the IaC / automation +
- alert-tuning release. An opt-in **Provisioning** blueprint catalog (Terraform /
- cloud-init / Ansible / iPXE) that renders to copy/download or **runs Terraform
- server-side** (Plan / Apply / Destroy, behind a separate execute gate); an
- **alert Tuning** page that surfaces the noisiest alerts with per-host **mute**
- (the Ack button becomes an X mute); and **timesheet watchers** (view another
- user's hours, by user or team). All opt-in, default-off. No breaking changes.
-Older release notes (v5.5.0 and earlier) live in
+Older release notes (v5.6.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
