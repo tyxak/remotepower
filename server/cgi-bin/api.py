@@ -26252,6 +26252,26 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
         storage_pg._connect(DATA_DIR)            # source must be reachable
 
     files = backend_iter_files()                 # logical files in the source backend
+    if not dry_run and not verify_only:
+        # v6.1.1: best-effort disk-space guard. The source backend stays
+        # active until verification passes (so this fails loud up front
+        # instead of running out of room partway through a write loop that
+        # can't cleanly stop mid-file). Sized off DATA_DIR's own current
+        # on-disk footprint as a stand-in for migration volume -- exact for
+        # a JSON/SQLite source, a reasonable proxy either way; never blocks
+        # on a measurement failure, only on a genuinely-confirmed shortfall.
+        try:
+            data_bytes = sum(f.stat().st_size for f in DATA_DIR.rglob('*') if f.is_file())
+            free_bytes = shutil.disk_usage(DATA_DIR).free
+            headroom_needed = max(data_bytes * 2, 256 * 1024 * 1024)
+            if free_bytes < headroom_needed:
+                return {'ok': False, 'problems': [],
+                       'error': (f'not enough free disk space to migrate safely: '
+                                 f'{free_bytes // (1024*1024)} MB free, want at least '
+                                 f'{headroom_needed // (1024*1024)} MB (roughly 2x the '
+                                 f'current {data_bytes // (1024*1024)} MB of data)')}
+        except Exception:
+            pass   # measurement failure is not a reason to block a migration
     if dry_run:
         log(f"dry-run: would migrate {len(files)} files to {target}")
         return {'ok': True, 'dry_run': True, 'files': files}

@@ -358,6 +358,78 @@ class TestPgMigration(unittest.TestCase):
         self.assertEqual(self.S.load(d / 'devices.json')['d1']['name'], 'fresh')
 
 
+class TestMigrateStorageDiskSpaceGuard(unittest.TestCase):
+    """v6.1.1: _migrate_storage_pg's disk-space preflight (found by a
+    migration-smoothness audit -- there was no check at all before this).
+    Deliberately NOT gated on a real Postgres: uses a json->sqlite direction
+    so the guard logic is verifiable without a live DB (target='sqlite' and
+    src='json' means neither of _migrate_storage_pg's two storage_pg._connect
+    branches fire, so this exercises the exact same guard code the
+    postgres-direction migration also runs, with no Postgres dependency)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
+        os.environ['RP_DATA_DIR'] = tempfile.mkdtemp()
+        _spec = importlib.util.spec_from_file_location("api_diskguard", _CGI_BIN / "api.py")
+        cls.api = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(cls.api)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
+
+    def setUp(self):
+        import json as _json
+        self.d = Path(tempfile.mkdtemp())
+        self.api.DATA_DIR = self.d
+        self.api.STORAGE_MARKER_FILE = self.d / 'storage_backend.json'
+        self.api._BACKEND_CACHE = 'json'
+        (self.d / 'config.json').write_text(_json.dumps({'k': 'v'}))
+        self._orig_disk_usage = self.api.shutil.disk_usage
+
+    def tearDown(self):
+        self.api.shutil.disk_usage = self._orig_disk_usage
+
+    def _fake_usage(self, free_mb):
+        import collections
+        _Usage = collections.namedtuple('usage', ['total', 'used', 'free'])
+        def _fake(path):
+            real = self._orig_disk_usage(path)
+            return _Usage(real.total, real.used, free_mb * 1024 * 1024)
+        return _fake
+
+    def test_migration_refused_when_disk_is_nearly_full(self):
+        self.api.shutil.disk_usage = self._fake_usage(free_mb=1)   # 1 MB free
+        res = self.api._migrate_storage_pg('sqlite', '')
+        self.assertFalse(res['ok'])
+        self.assertIn('disk space', res.get('error', ''))
+        # Nothing should have been written -- refused before the write loop.
+        self.assertFalse((self.d / 'storage_backend.json').exists())
+
+    def test_migration_proceeds_when_disk_has_headroom(self):
+        self.api.shutil.disk_usage = self._fake_usage(free_mb=10_000)   # 10 GB free
+        res = self.api._migrate_storage_pg('sqlite', '')
+        self.assertTrue(res['ok'], res)
+
+    def test_dry_run_skips_the_disk_check(self):
+        # dry_run must still work even on a "full" disk -- it writes nothing.
+        self.api.shutil.disk_usage = self._fake_usage(free_mb=1)
+        res = self.api._migrate_storage_pg('sqlite', '', dry_run=True)
+        self.assertTrue(res['ok'], res)
+        self.assertTrue(res['dry_run'])
+
+    def test_measurement_failure_does_not_block_migration(self):
+        def _raise(path):
+            raise OSError('disk_usage unavailable')
+        self.api.shutil.disk_usage = _raise
+        res = self.api._migrate_storage_pg('sqlite', '')
+        self.assertTrue(res['ok'], res)
+
+
 @unittest.skipIf(_SKIP, _SKIP_REASON)
 class TestStoragePgRagVector(unittest.TestCase):
     """v4.1.0: pgvector RAG chunk store. Runs only against a live Postgres; if
