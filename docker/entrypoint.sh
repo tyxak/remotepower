@@ -292,6 +292,18 @@ if [ "${RP_EXTERNAL_SCHEDULER:-}" = "1" ] || [ "${RP_EXTERNAL_SCHEDULER:-}" = "t
     echo "[+] scheduler started (pid $!)"
 fi
 
+# ── Agent push (wake-nudge) daemon (default on; RP_WITH_PUSH=0 to skip) ───────
+# Tiny idle-until-used WebSocket daemon so the push channel is a single toggle
+# (Settings → Advanced → push_enabled). nginx routes /api/push/connect to it on
+# 127.0.0.1:8766. It reads device tokens through the active storage backend
+# (inherits RP_PG_DSN from the container env under Postgres). See docs/push.md.
+if [ "${RP_WITH_PUSH:-1}" = "1" ] || [ "${RP_WITH_PUSH:-1}" = "true" ]; then
+    echo "[*] Starting the agent push daemon on 127.0.0.1:8766 (idle until push_enabled)"
+    RP_DATA_DIR=/var/lib/remotepower RP_CGI_BIN=/var/www/remotepower/cgi-bin \
+        python3 /usr/local/bin/remotepower-push &
+    echo "[+] push daemon started (pid $!)"
+fi
+
 # First-greeting to the logs — the address to open.
 _scheme=http
 if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; then _scheme=https; fi

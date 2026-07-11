@@ -21,6 +21,7 @@ die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 WITH_SCHEDULER="${RP_WITH_SCHEDULER:-1}" # 1 → out-of-band maintenance scheduler
 WITH_POSTGRES="${RP_WITH_POSTGRES:-1}"   # 1 → provision a PostgreSQL backend
 WITH_SCANNER="${RP_WITH_SCANNER:-1}"     # 1 → install a co-located scanner satellite
+WITH_PUSH="${RP_WITH_PUSH:-1}"           # 1 → install the agent push (wake-nudge) daemon
 
 _usage() {
   cat <<EOF
@@ -39,6 +40,9 @@ Usage: sudo bash install-server.sh [options]
                         Security → Pentest scans (default)
   --no-scanner            Opt out — set one up later on a separate machine
                         per docs/security-scans.md
+  --with-push             Install the agent push (wake-nudge) daemon so the
+                        push channel is a single Settings toggle (default)
+  --no-push               Opt out — don't install remotepower-push
   -h, --help          Show this help
 
 This is the "enterprise" single-node default: Postgres + gunicorn/Flask +
@@ -55,6 +59,8 @@ while [[ $# -gt 0 ]]; do
     --no-postgres)    WITH_POSTGRES=0 ;;
     --with-scanner)   WITH_SCANNER=1 ;;
     --no-scanner)     WITH_SCANNER=0 ;;
+    --with-push)      WITH_PUSH=1 ;;
+    --no-push)        WITH_PUSH=0 ;;
     -h|--help)        _usage; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
@@ -390,6 +396,14 @@ info "Configuring Nginx..."
 # so `nginx -t` below can resolve the include.
 mkdir -p /etc/nginx/snippets
 cp "$SCRIPT_DIR/server/conf/remotepower-locations.conf" /etc/nginx/snippets/remotepower-locations.conf
+# WebSocket $connection_upgrade map (http{} context) — needed by the
+# /api/push/connect (and /api/webterm/connect) proxy in the locations snippet.
+# Only install it if no such map already exists (defining it twice is an nginx
+# error), so a host that already set one up for the web terminal is left alone.
+mkdir -p /etc/nginx/conf.d
+if ! nginx -T 2>/dev/null | grep -q 'map \$http_upgrade \$connection_upgrade'; then
+    cp "$SCRIPT_DIR/server/conf/remotepower-ws-map.conf" /etc/nginx/conf.d/remotepower-ws-map.conf
+fi
 if [[ -f /etc/nginx/sites-available/remotepower ]]; then
     warn "Nginx config already exists — skipping (edit /etc/nginx/sites-available/remotepower manually)"
     warn "  (refreshed /etc/nginx/snippets/remotepower-locations.conf to match this version)"
@@ -592,6 +606,31 @@ if [[ "$WITH_SCHEDULER" == "1" ]]; then
     systemctl is-active --quiet remotepower-wsgi 2>/dev/null && systemctl restart remotepower-wsgi || true
 fi
 
+# ── Agent push (wake-nudge) daemon (default; --no-push to opt out) ────────────
+# Installs the tiny WebSocket daemon so the push channel is a SINGLE toggle
+# (Settings → Advanced → agent push channel). nginx already routes
+# /api/push/connect to 127.0.0.1:8766 (the shipped locations snippet). The daemon
+# is idle-until-used — enabling it by default costs nothing until a device opts
+# in — and reads device tokens through the active storage backend (Postgres DSN
+# from the storage marker), so no extra secrets are needed. See docs/push.md.
+if [[ "$WITH_PUSH" == "1" ]]; then
+    info "Installing the agent push (wake-nudge) daemon..."
+    install -m 0755 "$SCRIPT_DIR/server/push/remotepower-push.py" /usr/local/bin/remotepower-push
+    install -m 644 "$SCRIPT_DIR/server/conf/remotepower-push.service" \
+        /etc/systemd/system/remotepower-push.service
+    # The unit ships User=www-data; run as the distro's web user (RHEL=nginx,
+    # Arch=http) so it can read the data dir + cgi-bin.
+    if [[ "$NGINX_USER" != "www-data" ]]; then
+        sed -i "s/^User=www-data/User=${NGINX_USER}/; s/^Group=www-data/Group=${NGINX_USER}/" \
+            /etc/systemd/system/remotepower-push.service
+    fi
+    systemctl daemon-reload
+    systemctl enable --now remotepower-push \
+        && success "Agent push daemon installed (remotepower-push on 127.0.0.1:8766)" \
+        || warn "Could not start remotepower-push — check: systemctl status remotepower-push"
+    info "  Turn the channel ON later in Settings → Advanced → agent push channel (push_enabled)."
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════╗"
@@ -605,7 +644,7 @@ echo ""
 echo "  User mgmt: python3 /var/www/remotepower/cgi-bin/remotepower-passwd"
 echo "             (add / change / delete users and list accounts)"
 echo ""
-echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}"
+echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}  push=${WITH_PUSH}"
 echo ""
 echo "  Next: Install the client on each machine you want to control:"
 echo "    sudo bash install-client.sh"

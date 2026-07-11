@@ -180,11 +180,16 @@ API changes. Full write-up: `docs/v6.1.1.md`.
   or absent on releases that moved sources into `/etc/apt/sources.list.d/`
   (classic `.list` fragments and deb822 `.sources`) — so the fetch came back
   empty. It now reads the drop-in directory too.
-- **Agent push (wake-nudge) daemon is backend-aware.** It read device
-  credentials from the on-disk `devices.json`, which doesn't exist under the
-  default Postgres/SQLite backend, so every push connection was rejected and
-  the opt-in channel was silently inert. It now reads through the same
-  storage backend the app uses.
+- **Agent push (wake-nudge) daemon is backend-aware and installed by default.**
+  It read device credentials from the on-disk `devices.json`, which doesn't
+  exist under the default Postgres/SQLite backend, so every push connection was
+  rejected and the channel was silently inert. It now reads through the same
+  storage backend the app uses (sourcing the Postgres DSN from the storage
+  marker), and `install-server.sh` + the Docker image now install and start the
+  daemon and its nginx route by default — so turning push on is a single
+  Settings toggle (`push_enabled`). Opt out with `--no-push` / `RP_WITH_PUSH=0`.
+  A client-side bug that broke the agent's WebSocket connect on `websockets ≤13`
+  was also fixed. See [docs/push.md](docs/push.md).
 - **Server status → "Distributed subsystems" card** surfaces relay/scan-worker
   satellite health and the push-daemon status alongside the existing storage/
   request-tier/scheduler runtime block.

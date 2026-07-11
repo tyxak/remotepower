@@ -237,7 +237,40 @@ class TestPushDaemonPackaging(unittest.TestCase):
         # doesn't hardcode that nonexistent group.
         doc = (_ROOT / "docs" / "push.md").read_text()
         self.assertNotIn("-G rp-www", doc)
-        self.assertIn("stat -c", doc)
+
+
+class TestPushInstalledByDefault(unittest.TestCase):
+    """v6.1.1: the push daemon + its nginx route are installed and started by
+    default so the channel is a single Settings toggle. Guard every install
+    surface so 'installed by default' can't silently regress."""
+
+    def test_installer_service_unit_exists(self):
+        self.assertTrue((_ROOT / "server" / "conf" / "remotepower-push.service").is_file())
+        self.assertTrue((_ROOT / "server" / "conf" / "remotepower-ws-map.conf").is_file())
+
+    def test_install_server_installs_and_enables_push(self):
+        sh = (_ROOT / "install-server.sh").read_text()
+        self.assertIn("WITH_PUSH", sh)
+        self.assertIn("--no-push", sh)
+        self.assertIn("/usr/local/bin/remotepower-push", sh)
+        self.assertIn("enable --now remotepower-push", sh)
+        self.assertIn("remotepower-ws-map.conf", sh)
+
+    def test_nginx_locations_route_push_connect_to_daemon(self):
+        loc = (_ROOT / "server" / "conf" / "remotepower-locations.conf").read_text()
+        self.assertIn("location = /api/push/connect", loc)
+        self.assertIn("127.0.0.1:8766", loc)
+        self.assertIn("$connection_upgrade", loc)
+
+    def test_docker_installs_and_starts_push(self):
+        df = (_ROOT / "Dockerfile").read_text()
+        self.assertIn("remotepower-push", df)
+        self.assertIn("remotepower-ws-map.conf", df)
+        ep = (_ROOT / "docker" / "entrypoint.sh").read_text()
+        self.assertIn("remotepower-push", ep)
+        dloc = (_ROOT / "docker" / "nginx-docker-locations.conf").read_text()
+        self.assertIn("location = /api/push/connect", dloc)
+        self.assertIn("127.0.0.1:8766", dloc)
 
 
 if __name__ == "__main__":

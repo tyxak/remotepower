@@ -34,13 +34,17 @@ COPY server/html/                   /var/www/remotepower/
 COPY server/cgi-bin/                /var/www/remotepower/cgi-bin/
 COPY server/remotepower-passwd      /var/www/remotepower/cgi-bin/remotepower-passwd
 COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
+# Agent push (wake-nudge) daemon — started idle by the entrypoint so the push
+# channel is a single Settings toggle (push_enabled). See docs/push.md.
+COPY server/push/remotepower-push.py /usr/local/bin/remotepower-push
 # Publish product docs under the web root so the in-app "Documentation" links
 # (href="docs/<name>.md") resolve. (Also indexed for RAG from the data dir.)
 COPY docs/                          /var/www/remotepower/docs/
 RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
               /var/www/remotepower/cgi-bin/wsgi.py \
               /var/www/remotepower/cgi-bin/remotepower-passwd \
-              /var/www/remotepower/agent/remotepower-agent && \
+              /var/www/remotepower/agent/remotepower-agent \
+              /usr/local/bin/remotepower-push && \
     # v1.11.0: helper scripts need +x too
     if [ -f /var/www/remotepower/cgi-bin/remotepower-tls-check ]; then \
         chmod 755 /var/www/remotepower/cgi-bin/remotepower-tls-check; \
@@ -55,6 +59,9 @@ COPY docker/nginx-docker.conf            /etc/nginx/sites-available/remotepower
 COPY docker/nginx-docker-tls.conf        /etc/nginx/sites-available/remotepower-tls
 RUN mkdir -p /etc/nginx/snippets
 COPY docker/nginx-docker-locations.conf  /etc/nginx/snippets/remotepower-docker-locations.conf
+# WebSocket $connection_upgrade map (http{} context) for the /api/push/connect
+# proxy in the locations snippet. conf.d/*.conf is included inside http{}.
+COPY server/conf/remotepower-ws-map.conf /etc/nginx/conf.d/remotepower-ws-map.conf
 RUN ln -sf /etc/nginx/sites-available/remotepower /etc/nginx/sites-enabled/remotepower && \
     rm -f /etc/nginx/sites-enabled/default
 

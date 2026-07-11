@@ -36,37 +36,49 @@ makes it run sooner. Two consequences:
 
 ## Enable it
 
-1. **Settings → Advanced → Agent push channel.** Off by default. Turning it on
-   makes the heartbeat response advertise `push_enabled: true` to agents,
-   which is what makes an agent start its listener thread — nothing
-   happens fleet-wide until you flip this.
-2. **Install `python3-websockets` on the server host** (same package the
-   web-terminal daemon already needs) and start the daemon:
-   ```bash
-   sudo apt install python3-websockets   # or dnf/pacman/apk/zypper equivalent
-   sudo install -m 755 server/push/remotepower-push.py /usr/local/bin/remotepower-push
-   sudo cp packaging/remotepower-push.service /etc/systemd/system/
-   sudo useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-push
-   # Join whichever group actually owns /var/lib/remotepower on this box
-   # (www-data on Debian/Ubuntu, nginx on Fedora/RHEL, http on Arch —
-   # there is no fixed "rp-www" user/group, nothing creates one) so the
-   # daemon can read devices.json/commands.json.
-   sudo usermod -a -G "$(stat -c '%G' /var/lib/remotepower)" rp-push
-   sudo systemctl enable --now remotepower-push
-   ```
-   `install -m 755` (not `cp`) matters here: the source script isn't marked
-   executable in git, so a plain `cp` produces a non-executable copy and
-   systemd fails the unit with `status=203/EXEC`.
-3. **Proxy the WebSocket through nginx** — drop `packaging/nginx-push.conf`
-   into your `server {}` block (above any catch-all `location /`), same
-   pattern as `nginx-webterm.conf`. Needs the same `$connection_upgrade`
-   map nginx-webterm.conf documents.
-4. **Install `websockets` on agent hosts too** (optional — the agent
-   degrades gracefully without it, exactly like it already does for
-   `psutil`): `pip install --break-system-packages 'websockets>=10'` or your
-   distro's `python3-websockets` package. An agent without it simply never
-   starts the listener thread and polls normally, forever — no error, no
-   degraded behavior beyond "no latency benefit."
+**On a fresh install it's already installed — flip one switch.** As of v6.1.1
+both `install-server.sh` and the Docker image install and start the push daemon
+by default (opt out with `--no-push` / `RP_WITH_PUSH=0`), and nginx already
+routes `/api/push/connect` to it. The daemon sits idle until you turn the channel
+on, so enabling push is a single toggle:
+
+1. **Settings → Advanced → Agent push channel** (`push_enabled`). Off by default.
+   Turning it on makes the heartbeat response advertise `push_enabled: true`,
+   which is what makes each agent start its listener thread — nothing happens
+   fleet-wide until you flip this.
+2. **Make sure `websockets` is present on the agent hosts** (optional — the agent
+   degrades gracefully without it, like it does for `psutil`):
+   `apt/dnf/pacman install python3-websockets`, or
+   `pip install --break-system-packages 'websockets>=10'`. Without it the agent
+   simply never starts the listener and keeps polling normally — no error, just
+   no latency benefit. The server host needs it too (it already does if the web
+   terminal is installed).
+
+That's it. Confirm on the **Server status → Distributed subsystems** card, or with
+the **Test daemon connection** button under Settings.
+
+### Upgrading an existing install (or a hand-rolled vhost)
+
+If you installed before v6.1.1, or you maintain your own nginx vhost, add the
+three pieces `install-server.sh` now ships:
+
+```bash
+# 1. the daemon binary + service (runs as the web user; reads the storage backend)
+sudo install -m 0755 server/push/remotepower-push.py /usr/local/bin/remotepower-push
+sudo cp server/conf/remotepower-push.service /etc/systemd/system/
+#    (set User=/Group= to your web user if not www-data)
+sudo systemctl daemon-reload && sudo systemctl enable --now remotepower-push
+
+# 2. the nginx route — the shipped snippet already has it; a custom vhost needs
+#    `location = /api/push/connect { … proxy_pass http://127.0.0.1:8766; … }`
+#    (see server/conf/remotepower-locations.conf) plus the $connection_upgrade
+#    map (server/conf/remotepower-ws-map.conf, in an http{} include).
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+`install -m 0755` (not `cp`) matters: the source isn't executable in git, so a
+plain `cp` yields a non-executable copy and systemd fails the unit with
+`status=203/EXEC`.
 
 ## Verifying it's actually working
 
@@ -109,13 +121,15 @@ access-log line the way a query-string secret would.
 Three things must line up for push to actually connect. All three only bite on
 an *installed* server (not the repo test tree), so verify them on the box:
 
-1. **nginx must proxy the WebSocket to the daemon.** Add a location that
-   forwards `/api/push/connect` to `127.0.0.1:8766` **with the WS upgrade
-   headers** — an exact `location = /api/push/connect { … }` (see
-   `packaging/nginx-push.conf`). Without it, the WS falls through to the generic
-   `/api/` proxy (port 8090, the app) and the handshake fails. On a private
-   (IP-allowlisted) vhost, include your allowlist in the location too, exactly
-   like the webterm block.
+1. **nginx must proxy the WebSocket to the daemon.** The shipped
+   `remotepower-locations.conf` already forwards `/api/push/connect` to
+   `127.0.0.1:8766` with the WS upgrade headers (plus the `$connection_upgrade`
+   map from `remotepower-ws-map.conf`), so fresh installs get this for free.
+   Only a **hand-maintained vhost** needs to add the exact
+   `location = /api/push/connect { … }` block itself — without it the WS falls
+   through to the generic `/api/` proxy (port 8090, the app) and the handshake
+   fails. On a private (IP-allowlisted) vhost, include your allowlist in the
+   location too, exactly like the webterm block.
 2. **The daemon is backend-aware.** Under the default Postgres/SQLite backend the
    `*.json` files don't exist on disk — the daemon reads device tokens through
    the app's storage layer. It locates `server/cgi-bin/storage*.py` automatically

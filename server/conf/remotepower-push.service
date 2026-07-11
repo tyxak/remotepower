@@ -1,0 +1,74 @@
+# RemotePower agent push (wake-nudge) daemon. Part of the v6.1.1+ default
+# single-node stack — install-server.sh / install.sh install + enable this unit
+# automatically for every fresh install (opt out with --no-push). The Docker
+# image runs the same daemon from docker/entrypoint.sh.
+#
+# What it is: a tiny asyncio WebSocket daemon (server/push/remotepower-push.py)
+# that holds one connection per opted-in agent and sends a "poll now" nudge when
+# that agent has queued commands — dropping command dispatch latency from up to
+# the poll interval (~60s) to ~2s. It is a PURE latency optimization: if it is
+# off, or no device has opted in, nothing changes. See docs/push.md.
+#
+# Turning it ON is a single switch: Settings → Advanced → "agent push channel"
+# (push_enabled). This unit just runs the (idle-until-used) listener so that
+# toggle is all an operator needs. nginx must also route /api/push/connect to
+# 127.0.0.1:8766 — the shipped remotepower-locations.conf snippet does that by
+# default, and needs the $connection_upgrade map (remotepower-ws-map.conf).
+#
+# Backend: under the default Postgres/SQLite backend the daemon reads device
+# tokens through the app's storage layer, sourcing the Postgres DSN from the
+# storage marker exactly like the app — no extra secrets needed. Runs as the
+# app user (www-data by default; install-server.sh rewrites it to the distro's
+# web user) so it can read the data dir + cgi-bin.
+#
+# Manual install (normally install-server.sh does this for you):
+#   install -m0755 server/push/remotepower-push.py /usr/local/bin/remotepower-push
+#   cp server/conf/remotepower-push.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now remotepower-push
+# Roll back: systemctl disable --now remotepower-push.
+
+[Unit]
+Description=RemotePower agent push (wake-nudge) daemon
+Documentation=file:///var/www/remotepower/cgi-bin/../push/remotepower-push.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+Environment=RP_DATA_DIR=/var/lib/remotepower
+# Where the daemon finds the app's storage modules (storage.py / storage_pg.py).
+# Auto-probed if unset; pinned here for the standard install layout.
+Environment=RP_CGI_BIN=/var/www/remotepower/cgi-bin
+# Same secrets file the app worker/scheduler read. Not strictly required (the
+# daemon pulls the Postgres DSN from the storage marker), but honored if
+# RP_PG_DSN is set there for a networked/custom DB.
+EnvironmentFile=-/etc/remotepower/api.env
+ExecStart=/usr/local/bin/remotepower-push
+Restart=always
+RestartSec=5s
+
+# Hardening. The daemon writes NOTHING — it only reads shared state and accepts
+# loopback WebSocket connections from nginx — so ProtectSystem=strict (whole FS
+# read-only) is safe and needs no ReadWritePaths.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-push
+
+[Install]
+WantedBy=multi-user.target
