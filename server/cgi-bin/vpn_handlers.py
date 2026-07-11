@@ -138,9 +138,19 @@ def _wg_unavailable_reason() -> str:
 # Last helper failure (rc/stderr), surfaced in the client-create 400 so an
 # operator can see WHY `up` failed (stripped PATH, sudo blocked by a sandboxed
 # service's NoNewPrivileges, missing wg, kernel perms) instead of a generic
-# "unavailable". Per-request CGI process, so a module global is fine. NOT
+# "unavailable".
+#
+# v6.1.1 (#7 stateless-audit follow-up): this used to be a bare module-level
+# global with the comment "per-request CGI process, so a module global is
+# fine" -- true under the retired CGI transport, false under gunicorn's
+# persistent threaded workers (--threads 8 per worker). Two concurrent VPN
+# operations on different threads of the SAME worker could interleave their
+# writes, so an operator's 400 could show a stale/unrelated error message
+# from a DIFFERENT concurrent request's helper failure. Lives on _RCTX (the
+# existing thread-local per-request context api.py's _begin_request() already
+# resets for exactly this class of state) instead — same fix, same root
+# cause, as the _APIKEY_RL_CHECKED bug found investigating tracker #7. NOT
 # re-exported into api.py — see the module docstring.
-_wg_last_err = ''
 
 
 def _wg_run(args, stdin=None, timeout=20):
@@ -149,7 +159,6 @@ def _wg_run(args, stdin=None, timeout=20):
     PATH env because the CGI's own PATH is often stripped by fcgiwrap (which made
     a bare 'sudo'/helper invocation fail with FileNotFoundError → empty hub key
     → 400 on client create)."""
-    global _wg_last_err
     env = dict(os.environ)
     env['PATH'] = (env.get('PATH', '') + ':' + _WG_SAFE_PATH).strip(':')
     if A._wg_direct():
@@ -164,11 +173,11 @@ def _wg_run(args, stdin=None, timeout=20):
                            input=stdin, capture_output=True, text=True,
                            timeout=timeout, env=env)
         if r.returncode != 0:
-            _wg_last_err = (f'{" ".join(str(a) for a in args)}: rc={r.returncode} '
-                            f'{(r.stderr or r.stdout or "").strip()}')[:300]
+            A._RCTX.wg_last_err = (f'{" ".join(str(a) for a in args)}: rc={r.returncode} '
+                                   f'{(r.stderr or r.stdout or "").strip()}')[:300]
         return r.returncode, r.stdout, r.stderr
     except Exception as e:                       # nosec B603 — argv list, no shell
-        _wg_last_err = (f'{" ".join(str(a) for a in args)}: {e}')[:300]
+        A._RCTX.wg_last_err = (f'{" ".join(str(a) for a in args)}: {e}')[:300]
         return 127, '', str(e)
 
 
@@ -613,7 +622,8 @@ def handle_vpn_client_create(tid) -> None:
     with A._LockedUpdate(A.VPN_FILE) as store:
         t = A._vpn_require_tunnel(store, tid)
         if not t.get('hub_pubkey'):
-            detail = (' Helper error: ' + _wg_last_err) if _wg_last_err else (
+            _last_err = getattr(A._RCTX, 'wg_last_err', '')
+            detail = (' Helper error: ' + _last_err) if _last_err else (
                 ' ' + A._wg_unavailable_reason())
             A.respond(400, {'error': 'This tunnel has no hub key yet — the WireGuard '
                             'helper could not initialize the interface on the server.'

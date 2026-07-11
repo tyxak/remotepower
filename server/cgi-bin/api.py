@@ -4626,6 +4626,7 @@ def _begin_request():
     _RCTX.key_scope = None     # v5.4.1 (D6): re-resolve the auth key's scope per request
     _RCTX.apikey_tenant = None   # v6.1.1 (#16): ditto
     _RCTX.apikey_rl_checked = False   # v6.1.1 (#7): re-arm the per-key rate-limit guard
+    _RCTX.wg_last_err = ''     # v6.1.1 (#7): vpn_handlers.py's last-helper-error scratch
     # v6.1.0 (Phase 6, opt-in DB-RLS): default this request's tenant GUC to bypass so
     # every path works (agent/system/unauth); verify_token narrows it for an
     # authenticated tenant user. No-op unless opt-in RLS is active.

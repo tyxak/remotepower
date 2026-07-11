@@ -377,6 +377,31 @@ class TestHandlers(unittest.TestCase):
             api.handle_vpn_default_template()
         self.assertEqual(cm.exception.status, 400)
 
+    # ── v6.1.1 (#7 stateless-audit follow-up): _wg_last_err thread-local fix ──
+    def test_wg_last_err_not_a_bare_module_global(self):
+        # It used to be, correct under CGI (fresh process per request), wrong
+        # under gunicorn's persistent threaded workers.
+        self.assertFalse(hasattr(api.vpn_handlers_mod, '_wg_last_err'))
+
+    def test_wg_last_err_cleared_by_begin_request(self):
+        api._RCTX.wg_last_err = 'stale error from an unrelated earlier request'
+        api._begin_request()   # simulates the next request landing on this thread
+        self.assertEqual(api._RCTX.wg_last_err, '')
+
+    def test_stale_wg_last_err_does_not_leak_into_a_later_requests_400(self):
+        # End-to-end: a value left behind by an earlier request on the same
+        # reused thread must NOT surface in a later, unrelated request's error
+        # detail once _begin_request() has run between them.
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'phone', 'pubkey': 'Q' * 43 + '='}
+        api._RCTX.wg_last_err = 'stale error from an unrelated earlier request'
+        api._begin_request()
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_client_create('wgt_test')   # hub_pubkey is '' in setUp
+        self.assertEqual(cm.exception.status, 400)
+        self.assertNotIn('stale error from an unrelated earlier request',
+                         cm.exception.data['error'])
+
 
 class TestApiWiring(unittest.TestCase):
     def test_handlers_exist(self):
