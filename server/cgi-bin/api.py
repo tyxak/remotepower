@@ -43842,7 +43842,12 @@ def _claim_due_jobs(limit=JOBS_PER_RUN):
     past JOB_RUNNING_LEASE_S with no _complete_job/_fail_job ever landing) --
     treated as a failed attempt with the same backoff/dead-letter math
     _fail_job uses, never silently re-run as if nothing happened. Returns
-    copies of the claimed job dicts."""
+    copies of the claimed job dicts, each stamped with a fresh 'run_token'
+    (see _complete_job/_fail_job: a lease-expiry reclaim is not always a
+    real crash -- a handler that legitimately runs past JOB_RUNNING_LEASE_S
+    is still alive and will eventually call _complete_job/_fail_job itself;
+    the token lets that now-stale call become a no-op instead of clobbering
+    whatever the reclaiming attempt already recorded)."""
     now = int(time.time())
     claimed = []
     with _LockedUpdate(JOBS_FILE) as store:
@@ -43853,6 +43858,8 @@ def _claim_due_jobs(limit=JOBS_PER_RUN):
                 j['attempts'] = attempts
                 j['last_error'] = 'lease expired -- worker likely died mid-run'
                 j['updated_at'] = now
+                j['run_token'] = None   # invalidate the orphaned attempt's token immediately --
+                                         # it may still be alive and call _complete_job/_fail_job later
                 if attempts >= int(j.get('max_attempts', 3)):
                     j['status'] = 'dead'
                 else:
@@ -43865,29 +43872,34 @@ def _claim_due_jobs(limit=JOBS_PER_RUN):
             if j.get('status') == 'queued' and int(j.get('next_run', 0)) <= now:
                 j['status'] = 'running'
                 j['updated_at'] = now
+                j['run_token'] = secrets.token_hex(8)
                 claimed.append(dict(j))
         store['jobs'] = jobs
     return claimed
 
 
-def _complete_job(job_id):
+def _complete_job(job_id, run_token=None):
     with _LockedUpdate(JOBS_FILE) as store:
         jobs = store.get('jobs', [])
         for j in jobs:
             if j.get('id') == job_id:
+                if run_token is not None and j.get('run_token') != run_token:
+                    break   # reclaimed by a newer attempt -- this one is stale, don't clobber
                 j['status'] = 'done'
                 j['updated_at'] = int(time.time())
                 break
         store['jobs'] = jobs
 
 
-def _fail_job(job_id, error):
+def _fail_job(job_id, error, run_token=None):
     """Increment attempts; requeue with exponential backoff, or mark 'dead'
     (dead-letter, no further automatic retry) once max_attempts is spent."""
     with _LockedUpdate(JOBS_FILE) as store:
         jobs = store.get('jobs', [])
         for j in jobs:
             if j.get('id') == job_id:
+                if run_token is not None and j.get('run_token') != run_token:
+                    break   # reclaimed by a newer attempt -- this one is stale, don't clobber
                 attempts = int(j.get('attempts', 0)) + 1
                 j['attempts'] = attempts
                 j['last_error'] = str(error)[:500]
@@ -43907,15 +43919,16 @@ def run_jobs_if_due():
     execute due jobs, bounded per tick. Cheap when the queue is empty (one
     JOBS_FILE read)."""
     for job in _claim_due_jobs():
+        token = job.get('run_token')
         handler = JOB_HANDLERS.get(job['kind'])
         if handler is None:
-            _fail_job(job['id'], f"no handler registered for kind={job['kind']!r}")
+            _fail_job(job['id'], f"no handler registered for kind={job['kind']!r}", run_token=token)
             continue
         try:
             handler(job['payload'])
-            _complete_job(job['id'])
+            _complete_job(job['id'], run_token=token)
         except Exception as exc:
-            _fail_job(job['id'], f'{exc.__class__.__name__}: {exc}')
+            _fail_job(job['id'], f'{exc.__class__.__name__}: {exc}', run_token=token)
 
 
 def _job_send_report_email(payload):

@@ -5616,6 +5616,67 @@ class TestJobQueue(_HandlerBase):
         self.assertEqual(j['status'], 'running')
         self.assertEqual(j['attempts'], 0)
 
+    # ── v6.1.1 (#2 second follow-up, adversarial self-review): stale-reclaim
+    # can't clobber a still-alive attempt's outcome ─────────────────────────
+    def test_reclaimed_job_stale_original_complete_does_not_overwrite_reclaim(self):
+        # A handler that legitimately runs past JOB_RUNNING_LEASE_S (not
+        # crashed, just slow) has its job reclaimed by a second cadence tick.
+        # When the ORIGINAL, still-alive attempt eventually finishes and
+        # calls _complete_job with its now-stale run_token, that call must
+        # be a no-op -- not overwrite whatever the reclaiming attempt
+        # already recorded (backoff-queued or dead-lettered).
+        jid = api.enqueue_job('noop', {}, max_attempts=3)
+        first_claim = api._claim_due_jobs()[0]
+        stale_token = first_claim['run_token']
+        with api._LockedUpdate(api.JOBS_FILE) as store:
+            for j in store['jobs']:
+                if j['id'] == jid:
+                    j['updated_at'] = int(api.time.time()) - api.JOB_RUNNING_LEASE_S - 1
+        api._claim_due_jobs()   # reclaims it: attempts=1, status='queued', backed off
+        reclaimed_state = api.load(api.JOBS_FILE)['jobs'][0]
+        self.assertEqual(reclaimed_state['status'], 'queued')
+        self.assertEqual(reclaimed_state['attempts'], 1)
+        # The original, never-crashed attempt now finishes and reports success.
+        api._complete_job(jid, run_token=stale_token)
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        j = next(x for x in jobs if x['id'] == jid)
+        self.assertEqual(j['status'], 'queued')   # unchanged by the stale call
+        self.assertEqual(j['attempts'], 1)
+
+    def test_reclaimed_job_stale_original_fail_does_not_overwrite_reclaim(self):
+        jid = api.enqueue_job('noop', {}, max_attempts=3)
+        stale_token = api._claim_due_jobs()[0]['run_token']
+        with api._LockedUpdate(api.JOBS_FILE) as store:
+            for j in store['jobs']:
+                if j['id'] == jid:
+                    j['updated_at'] = int(api.time.time()) - api.JOB_RUNNING_LEASE_S - 1
+        api._claim_due_jobs()   # reclaims it: attempts=1
+        second_claim_state = api.load(api.JOBS_FILE)['jobs'][0]
+        self.assertEqual(second_claim_state['attempts'], 1)
+        api._fail_job(jid, 'stale failure from the original attempt', run_token=stale_token)
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        j = next(x for x in jobs if x['id'] == jid)
+        self.assertEqual(j['attempts'], 1)   # not double-incremented by the stale call
+        self.assertNotIn('stale failure', j['last_error'])
+
+    def test_run_jobs_if_due_passes_run_token_through_to_complete(self):
+        calls = []
+        api.register_job_handler('record', lambda payload: calls.append(payload))
+        api.enqueue_job('record', {'v': 1})
+        api.run_jobs_if_due()
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'done')
+        self.assertTrue(jobs[0].get('run_token'))   # stamped, not left over from claim only
+
+    def test_complete_without_token_still_works_bare_call(self):
+        # Backward-compat: a caller that doesn't pass run_token (e.g. a
+        # manual/admin retry helper) keeps the old unconditional behavior.
+        jid = api.enqueue_job('noop', {})
+        api._claim_due_jobs()
+        api._complete_job(jid)   # no run_token
+        jobs = api.load(api.JOBS_FILE)['jobs']
+        self.assertEqual(jobs[0]['status'], 'done')
+
     def test_scheduled_report_send_failure_enqueues_retry_job(self):
         # First real consumer: a transient SMTP failure on the synchronous
         # scheduled-report send must enqueue a retry, not just log-and-wait
