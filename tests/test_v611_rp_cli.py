@@ -44,12 +44,15 @@ class TestRpCli(unittest.TestCase):
         self.assertIn("return $rc", src)          # doctor propagates failures
         self.assertIn('exit 1', src)              # need_root / failure paths exit non-zero
 
-    def test_installed_by_install_server_and_docker(self):
-        sh = (_ROOT / "install-server.sh").read_text()
-        self.assertIn("/usr/local/bin/rp", sh)
-        self.assertIn("server/rp", sh)
-        df = (_ROOT / "Dockerfile").read_text()
-        self.assertIn("/usr/local/bin/rp", df)
+    def test_installed_by_every_deploy_surface(self):
+        # install-server.sh (fresh), deploy-server.sh (update), and Docker all
+        # ship rp — so it's standard on every path, not just a fresh install.
+        for f in ("install-server.sh", "deploy-server.sh", "Dockerfile"):
+            txt = (_ROOT / f).read_text()
+            self.assertIn("/usr/local/bin/rp", txt, f"{f} doesn't install rp")
+        # deploy also keeps the push daemon binary current (the revert-trap fix)
+        dep = (_ROOT / "deploy-server.sh").read_text()
+        self.assertIn("/usr/local/bin/remotepower-push", dep)
 
     def test_documented(self):
         self.assertTrue((_ROOT / "docs" / "cli.md").is_file())

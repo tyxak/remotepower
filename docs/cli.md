@@ -5,8 +5,9 @@ node: one verb to see everything, start/stop/restart the whole thing, tail its
 logs, and — most usefully — a `doctor` that diagnoses the common misconfigurations
 in one shot.
 
-It's installed to `/usr/local/bin/rp` by `install-server.sh` and ships in the
-Docker image. `status`, `doctor`, `version`, and `logs` run as any user;
+It's installed to `/usr/local/bin/rp` by `install-server.sh` (fresh installs) and
+`deploy-server.sh` (updates), and ships in the Docker image — so it's standard on
+every path. `status`, `doctor`, `version`, and `logs` run as any user;
 `start`/`stop`/`restart`/`reload` need root (they drive `systemctl`).
 
 ```text

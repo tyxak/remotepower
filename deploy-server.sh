@@ -164,6 +164,37 @@ fi
 info "Deploying remotepower-passwd..."
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 
+# `rp` — omd/checkmk-style node control (rp status|tui|start|stop|restart|doctor).
+info "Deploying rp (node-control CLI)..."
+install -m 755 "$SCRIPT_DIR/server/rp" /usr/local/bin/rp
+echo "      → /usr/local/bin/rp"
+
+# Agent push (wake-nudge) daemon binary — keep the INSTALLED copy current on
+# every deploy. Deploying only a running binary and not this canonical one is
+# exactly what silently reverts a daemon fix; deploy owns the source of truth.
+if [[ -f /usr/local/bin/remotepower-push ]] \
+        || systemctl list-unit-files 2>/dev/null | grep -q '^remotepower-push\.service'; then
+    info "Deploying the agent push daemon binary..."
+    install -m 755 "$SCRIPT_DIR/server/push/remotepower-push.py" /usr/local/bin/remotepower-push
+    echo "      → /usr/local/bin/remotepower-push"
+fi
+
+# Refresh the shipped nginx locations snippet (push/webterm routes) IF this box
+# uses it — a hand-maintained vhost that doesn't include the snippet is left
+# untouched. Add the $connection_upgrade map to conf.d only if none exists.
+if [[ -f /etc/nginx/snippets/remotepower-locations.conf ]]; then
+    install -m 644 "$SCRIPT_DIR/server/conf/remotepower-locations.conf" \
+        /etc/nginx/snippets/remotepower-locations.conf
+    if command -v nginx >/dev/null 2>&1 \
+            && ! nginx -T 2>/dev/null | grep -q 'map \$http_upgrade \$connection_upgrade'; then
+        mkdir -p /etc/nginx/conf.d
+        install -m 644 "$SCRIPT_DIR/server/conf/remotepower-ws-map.conf" \
+            /etc/nginx/conf.d/remotepower-ws-map.conf
+    fi
+    command -v nginx >/dev/null 2>&1 && nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+    echo "      → nginx locations snippet refreshed"
+fi
+
 # The unit loads operator secrets from /etc/remotepower/api.env (EnvironmentFile=,
 # e.g. RP_BACKUP_PASSPHRASE). Ensure the dir exists across redeploys so that file
 # — which deploy never touches, so the passphrase survives updates — has a home.
@@ -212,7 +243,9 @@ fi
 # The units themselves were installed by install-server.sh; refresh them here and
 # — because a persistent process won't pick up the freshly-deployed code on its
 # own — restart any that are running so the redeploy actually takes effect.
-for _svc in remotepower-wsgi remotepower-scheduler; do
+# remotepower-push is included: its binary was just redeployed above, so a
+# running daemon must restart to pick it up (and its unit refreshes too).
+for _svc in remotepower-wsgi remotepower-scheduler remotepower-push; do
     _src="$SCRIPT_DIR/server/conf/${_svc}.service"
     _dst="/etc/systemd/system/${_svc}.service"
     if [[ -f "$_src" && -f "$_dst" ]]; then
