@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+#
+# rp — RemotePower node control (omd / checkmk style)
+#
+#   rp status              show every stack component + host service
+#   rp start   [component] start the RemotePower stack (or one component)
+#   rp stop    [component] stop it
+#   rp restart [component] restart it
+#   rp reload              reload nginx + restart the app server (config reload)
+#   rp doctor              run health checks; exit non-zero on any failure
+#   rp logs    [component] follow the journal for the stack (or one component)
+#   rp version             print the installed server version
+#   rp help                this help
+#
+# "Component" is one of the RemotePower-owned units without the leading
+# `remotepower-` (e.g. `rp restart push`, `rp logs wsgi`). With no component the
+# lifecycle verbs act on the whole stack.
+#
+# Lifecycle verbs need root (systemctl); status/doctor/version/logs do not.
+# Installed by install-server.sh to /usr/local/bin/rp. Under Docker (no systemd)
+# status/doctor still work via port/process probes; use `docker restart` for
+# lifecycle.
+
+set -uo pipefail
+
+RP_DATA_DIR="${RP_DATA_DIR:-/var/lib/remotepower}"
+RP_CODE_DIR="${RP_CODE_DIR:-/var/www/remotepower}"
+MARKER="$RP_DATA_DIR/storage_backend.json"
+
+# RemotePower-owned units, in start order. Optional ones may be absent.
+UNITS=(remotepower-wsgi remotepower-scheduler remotepower-scanner remotepower-push remotepower-webterm)
+# Host services shown in status but NOT touched by start/stop/restart (shared).
+HOST_SVCS=(nginx)
+# Loopback ports each component should be listening on (for probes).
+declare -A PORT=( [remotepower-wsgi]=8090 [remotepower-push]=8766 [remotepower-webterm]=8765 )
+
+# ── output helpers ────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+  C_G=$'\033[32m'; C_R=$'\033[31m'; C_Y=$'\033[33m'; C_D=$'\033[2m'; C_B=$'\033[1m'; C_0=$'\033[0m'
+else
+  C_G=''; C_R=''; C_Y=''; C_D=''; C_B=''; C_0=''
+fi
+ok(){   printf '  %sOK%s   %s\n'   "$C_G" "$C_0" "$*"; }
+warn(){ printf '  %sWARN%s %s\n'   "$C_Y" "$C_0" "$*"; }
+fail(){ printf '  %sFAIL%s %s\n'   "$C_R" "$C_0" "$*"; }
+info(){ printf '%s\n' "$*"; }
+
+have_systemd(){ [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
+unit_file(){ systemctl list-unit-files "$1.service" >/dev/null 2>&1 && systemctl cat "$1.service" >/dev/null 2>&1; }
+is_active(){ systemctl is-active --quiet "$1.service" 2>/dev/null; }
+is_enabled(){ systemctl is-enabled --quiet "$1.service" 2>/dev/null; }
+port_open(){ # $1 = port
+  if command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -q ":$1[[:space:]]"
+  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&-; return 0; } || return 1
+  fi
+}
+need_root(){ [ "$(id -u)" = 0 ] || { echo "rp $1 needs root — re-run with sudo." >&2; exit 1; }; }
+
+# Resolve a user-typed component to a real unit ("push" → remotepower-push).
+resolve_unit(){
+  local c="$1"
+  case "$c" in
+    remotepower-*) printf '%s' "$c" ;;
+    *)             printf 'remotepower-%s' "$c" ;;
+  esac
+}
+# Which of UNITS are actually installed on this box.
+installed_units(){
+  local u; for u in "${UNITS[@]}"; do unit_file "$u" && printf '%s\n' "$u"; done
+}
+
+backend(){ # print json|sqlite|postgres|unknown from the marker
+  [ -f "$MARKER" ] || { printf 'json'; return; }
+  python3 - "$MARKER" <<'PY' 2>/dev/null || printf 'unknown'
+import json,sys
+try: print((json.load(open(sys.argv[1])).get('backend') or 'json'))
+except Exception: print('unknown')
+PY
+}
+
+server_version(){
+  local v
+  v=$(grep -oE "SERVER_VERSION\s*=\s*'[0-9][^']*'" "$RP_CODE_DIR/cgi-bin/api.py" 2>/dev/null | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1)
+  printf '%s' "${v:-unknown}"
+}
+
+# ── status ────────────────────────────────────────────────────────────────────
+cmd_status(){
+  info "${C_B}RemotePower${C_0} $(server_version)   backend=$(backend)   data=$RP_DATA_DIR"
+  if ! have_systemd; then
+    info "(no systemd — container mode; showing port/process probes)"
+    local u p
+    for u in "${UNITS[@]}"; do
+      p="${PORT[$u]:-}"
+      if [ -n "$p" ] && port_open "$p"; then ok "$u  (listening :$p)"
+      elif pgrep -f "$u" >/dev/null 2>&1 || pgrep -f "${u#remotepower-}" >/dev/null 2>&1; then ok "$u  (process up)"
+      else info "  ${C_D}····${C_0} $u  (not detected)"; fi
+    done
+    port_open 8090 && ok "nginx→app reachable" || warn "app (:8090) not reachable"
+    return 0
+  fi
+  printf '  %-26s %-9s %-9s %s\n' "COMPONENT" "STATE" "BOOT" "PORT"
+  local u state boot port pstat
+  for u in "${UNITS[@]}"; do
+    if ! unit_file "$u"; then
+      printf '  %-26s %s%-9s%s %-9s %s\n' "$u" "$C_D" "absent" "$C_0" "-" "${C_D}not installed${C_0}"
+      continue
+    fi
+    if is_active "$u"; then state="${C_G}running${C_0}"; else state="${C_R}stopped${C_0}"; fi
+    if systemctl is-failed --quiet "$u.service" 2>/dev/null; then state="${C_R}FAILED${C_0}"; fi
+    if is_enabled "$u"; then boot="enabled"; else boot="${C_Y}disabled${C_0}"; fi
+    port="${PORT[$u]:-}"; pstat="-"
+    if [ -n "$port" ]; then port_open "$port" && pstat="${C_G}:$port ✓${C_0}" || pstat="${C_R}:$port ✗${C_0}"; fi
+    printf '  %-26s %-18b %-18b %b\n' "$u" "$state" "$boot" "$pstat"
+  done
+  local h
+  for h in "${HOST_SVCS[@]}"; do
+    if is_active "$h"; then printf '  %-26s %-18b %s\n' "$h ${C_D}(host)${C_0}" "${C_G}running${C_0}" ""
+    else printf '  %-26s %-18b\n' "$h ${C_D}(host)${C_0}" "${C_R}stopped${C_0}"; fi
+  done
+  # Postgres, if that's the backend
+  if [ "$(backend)" = postgres ]; then
+    if command -v pg_isready >/dev/null 2>&1 && pg_isready -q 2>/dev/null; then
+      printf '  %-26s %-18b\n' "postgresql ${C_D}(host)${C_0}" "${C_G}ready${C_0}"
+    else
+      printf '  %-26s %-18b\n' "postgresql ${C_D}(host)${C_0}" "${C_Y}unknown${C_0}"
+    fi
+  fi
+}
+
+# ── lifecycle ─────────────────────────────────────────────────────────────────
+_targets(){ # echo the units to act on, from an optional $1 component
+  if [ $# -ge 1 ] && [ -n "${1:-}" ]; then resolve_unit "$1"; else installed_units; fi
+}
+cmd_lifecycle(){ # $1 verb  $2 optional component
+  local verb="$1"; shift
+  have_systemd || { echo "No systemd here (container?). Use: docker restart <container>." >&2; exit 1; }
+  need_root "$verb"
+  local order; mapfile -t order < <(_targets "$@")
+  [ "$verb" = stop ] && order=($(printf '%s\n' "${order[@]}" | tac))  # stop in reverse
+  local u rc=0
+  for u in "${order[@]}"; do
+    unit_file "$u" || { warn "$u not installed — skipped"; continue; }
+    if systemctl "$verb" "$u.service" 2>/dev/null; then ok "$verb $u"; else fail "$verb $u — see: journalctl -u $u"; rc=1; fi
+  done
+  return $rc
+}
+cmd_reload(){
+  have_systemd || { echo "Container mode — reload not supported; docker restart." >&2; exit 1; }
+  need_root reload
+  if nginx -t 2>/dev/null; then systemctl reload nginx && ok "nginx reloaded"; else fail "nginx -t failed — not reloading"; return 1; fi
+  is_active remotepower-wsgi && { systemctl restart remotepower-wsgi && ok "app server restarted"; }
+}
+
+# ── logs ──────────────────────────────────────────────────────────────────────
+cmd_logs(){
+  have_systemd || { echo "Container mode — use: docker logs -f <container>." >&2; exit 1; }
+  local args=(); local u
+  if [ $# -ge 1 ] && [ -n "${1:-}" ]; then args+=(-u "$(resolve_unit "$1").service")
+  else for u in $(installed_units); do args+=(-u "$u.service"); done; fi
+  exec journalctl -f "${args[@]}"
+}
+
+# ── doctor ────────────────────────────────────────────────────────────────────
+cmd_doctor(){
+  local rc=0
+  info "${C_B}rp doctor${C_0} — RemotePower $(server_version), backend=$(backend)"
+  info ""
+
+  # 1. code + data dir
+  [ -f "$RP_CODE_DIR/cgi-bin/api.py" ] && ok "code present ($RP_CODE_DIR)" || { fail "api.py not found under $RP_CODE_DIR"; rc=1; }
+  if [ -d "$RP_DATA_DIR" ]; then
+    local perm; perm=$(stat -c '%a' "$RP_DATA_DIR" 2>/dev/null)
+    [ "$perm" = 700 ] && ok "data dir $RP_DATA_DIR (mode $perm)" || warn "data dir mode is $perm (expected 700)"
+  else fail "data dir $RP_DATA_DIR missing"; rc=1; fi
+
+  # 2. units + ports
+  if have_systemd; then
+    local u
+    for u in "${UNITS[@]}"; do
+      unit_file "$u" || { [ "$u" = remotepower-wsgi ] && { fail "$u not installed (the app server)"; rc=1; } || info "  ${C_D}····${C_0} $u not installed (optional)"; continue; }
+      if is_active "$u"; then
+        local p="${PORT[$u]:-}"
+        if [ -n "$p" ] && ! port_open "$p"; then warn "$u active but nothing on :$p"; else ok "$u running"; fi
+      else
+        [ "$u" = remotepower-wsgi ] && { fail "$u installed but NOT running"; rc=1; } || warn "$u installed but stopped"
+      fi
+    done
+  else
+    port_open 8090 && ok "app server reachable (:8090)" || { fail "app server not reachable on :8090"; rc=1; }
+  fi
+
+  # 3. storage backend connectivity
+  case "$(backend)" in
+    postgres)
+      if python3 - <<PY 2>/dev/null
+import json,sys
+sys.path.insert(0, "$RP_CODE_DIR/cgi-bin")
+m=json.load(open("$MARKER"))
+import storage_pg
+dsn=m.get("dsn") or __import__("os").environ.get("RP_PG_DSN")
+assert dsn, "no dsn"
+storage_pg.configure_dsn(dsn)
+d=storage_pg.load("$RP_DATA_DIR/devices.json") or {}
+print(len(d))
+PY
+      then ok "Postgres reachable (marker DSN, $(python3 -c "import json;print(len(json.load(open('$MARKER')).get('dsn','')) and 'dsn set' or 'no dsn')" 2>/dev/null))"
+      else fail "Postgres backend selected but the DSN check failed — the push daemon + app can't read devices"; rc=1; fi ;;
+    sqlite)  [ -f "$RP_DATA_DIR"/*.db ] 2>/dev/null && ok "SQLite backend" || ok "SQLite backend (marker)" ;;
+    json)    ok "JSON file backend" ;;
+    *)       warn "storage backend unknown (marker unreadable)" ;;
+  esac
+
+  # 4. nginx config + routes
+  if command -v nginx >/dev/null 2>&1; then
+    if nginx -t >/dev/null 2>&1; then ok "nginx config valid (nginx -t)"; else fail "nginx -t reports errors"; rc=1; fi
+    local dump; dump=$(nginx -T 2>/dev/null)
+    printf '%s' "$dump" | grep -q 'location = /api/push/connect' \
+      && ok "nginx routes /api/push/connect → push daemon" \
+      || { unit_file remotepower-push && { warn "push installed but nginx has no /api/push/connect route"; }; }
+    printf '%s' "$dump" | grep -q 'map \$http_upgrade \$connection_upgrade' \
+      || warn "no \$connection_upgrade map — WebSocket (push/webterm) upgrades will fail"
+  else warn "nginx not found on PATH — skipping config check"; fi
+
+  # 5. push-daemon specific (the failure class we know bites under Postgres)
+  if have_systemd && unit_file remotepower-push && is_active remotepower-push; then
+    local pj; pj=$(journalctl -u remotepower-push -n 40 --no-pager 2>/dev/null)
+    printf '%s' "$pj" | grep -q 'storage backend detection failed' \
+      && { fail "push daemon fell back to flat-file reads (can't find storage/DSN) — under Postgres it rejects every agent"; rc=1; }
+    if [ "$(backend)" = postgres ]; then
+      printf '%s' "$pj" | grep -q 'backend=postgres' \
+        && ok "push daemon on the Postgres backend" \
+        || printf '%s' "$pj" | grep -q 'backend=json' && { warn "push daemon reports backend=json under a Postgres install — restart it after this fix"; }
+    fi
+  fi
+
+  # 6. agent self-update distribution copy
+  if [ -f "$RP_CODE_DIR/agent/remotepower-agent" ]; then ok "agent distribution copy present (self-update source)"
+  else warn "no $RP_CODE_DIR/agent/remotepower-agent — agent self-update won't serve a binary"; fi
+
+  info ""
+  [ $rc -eq 0 ] && info "${C_G}${C_B}All checks passed.${C_0}" || info "${C_R}${C_B}Some checks FAILED — see above.${C_0}"
+  return $rc
+}
+
+usage(){ sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; }
+
+# ── dispatch ──────────────────────────────────────────────────────────────────
+cmd="${1:-status}"; shift || true
+case "$cmd" in
+  status|st)        cmd_status "$@" ;;
+  start)            cmd_lifecycle start "$@" ;;
+  stop)             cmd_lifecycle stop "$@" ;;
+  restart|re)       cmd_lifecycle restart "$@" ;;
+  reload)           cmd_reload "$@" ;;
+  doctor|diag|dr)   cmd_doctor "$@" ;;
+  logs|log)         cmd_logs "$@" ;;
+  version|-v|--version) info "RemotePower $(server_version)" ;;
+  help|-h|--help)   usage ;;
+  *) echo "rp: unknown command '$cmd' (try: rp help)" >&2; exit 2 ;;
+esac

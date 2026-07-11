@@ -227,6 +227,8 @@ Older release notes (v5.6.0 and earlier) live in
 - **[settings.md](settings.md)** — The complete Settings guide: every tab
  (Setup / Monitoring / Connections / System), the key knobs, and links to the
  deeper per-topic docs.
+- **[cli.md](cli.md)** — The `rp` node-control command (omd/checkmk style):
+ `rp status`, `rp start/stop/restart`, `rp logs`, and a `rp doctor` health check.
 - **[sla.md](sla.md)** — Uptime SLA targets and reporting.
 - **[terraform-api.md](terraform-api.md)** — Using the REST API from
  Terraform / IaC pipelines.

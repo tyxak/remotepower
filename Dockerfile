@@ -37,6 +37,9 @@ COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
 # Agent push (wake-nudge) daemon — started idle by the entrypoint so the push
 # channel is a single Settings toggle (push_enabled). See docs/push.md.
 COPY server/push/remotepower-push.py /usr/local/bin/remotepower-push
+# `rp` — omd/checkmk-style node control. In the container (no systemd) `rp status`
+# and `rp doctor` work via port/process probes; lifecycle is `docker restart`.
+COPY server/rp                       /usr/local/bin/rp
 # Publish product docs under the web root so the in-app "Documentation" links
 # (href="docs/<name>.md") resolve. (Also indexed for RAG from the data dir.)
 COPY docs/                          /var/www/remotepower/docs/
@@ -44,7 +47,8 @@ RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
               /var/www/remotepower/cgi-bin/wsgi.py \
               /var/www/remotepower/cgi-bin/remotepower-passwd \
               /var/www/remotepower/agent/remotepower-agent \
-              /usr/local/bin/remotepower-push && \
+              /usr/local/bin/remotepower-push \
+              /usr/local/bin/rp && \
     # v1.11.0: helper scripts need +x too
     if [ -f /var/www/remotepower/cgi-bin/remotepower-tls-check ]; then \
         chmod 755 /var/www/remotepower/cgi-bin/remotepower-tls-check; \

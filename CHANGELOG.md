@@ -190,6 +190,13 @@ API changes. Full write-up: `docs/v6.1.1.md`.
   Settings toggle (`push_enabled`). Opt out with `--no-push` / `RP_WITH_PUSH=0`.
   A client-side bug that broke the agent's WebSocket connect on `websockets ≤13`
   was also fixed. See [docs/push.md](docs/push.md).
+- **`rp` node-control CLI (omd/checkmk style)** — `rp status`, `rp start/stop/
+  restart[/reload]`, `rp logs`, and a `rp doctor` that diagnoses the whole stack
+  (units, ports, storage-backend connectivity, nginx routes/upgrade map, the
+  push-daemon-under-Postgres failure class, and the agent self-update source) and
+  exits non-zero on any failure so it can drive monitoring. Installed to
+  `/usr/local/bin/rp` by the installer and the Docker image. See
+  [docs/cli.md](docs/cli.md).
 - **Server status → "Distributed subsystems" card** surfaces relay/scan-worker
   satellite health and the push-daemon status alongside the existing storage/
   request-tier/scheduler runtime block.

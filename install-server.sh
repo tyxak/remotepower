@@ -341,6 +341,8 @@ for helper in remotepower-tls-check; do
     fi
 done
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
+# `rp` — omd/checkmk-style node control (rp status|start|stop|restart|doctor|logs).
+install -m 755 "$SCRIPT_DIR/server/rp" /usr/local/bin/rp
 success "Web files installed"
 
 # ── WG Access privileged helper + scoped sudoers (v5.2.0) ───────────────────────
@@ -643,6 +645,8 @@ echo "             tail -f /var/log/nginx/remotepower_*.log"
 echo ""
 echo "  User mgmt: python3 /var/www/remotepower/cgi-bin/remotepower-passwd"
 echo "             (add / change / delete users and list accounts)"
+echo ""
+echo "  Control:   rp status | rp doctor | rp restart | rp logs   (omd-style CLI)"
 echo ""
 echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}  push=${WITH_PUSH}"
 echo ""
