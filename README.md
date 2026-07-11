@@ -4,13 +4,13 @@
 
 <img src="docs/screenshots/RP.png" alt="RemotePower" width="760">
 
-**The all-in-one, Swiss-army-knife control plane for your Linux fleet — and your homelab.**
-Monitoring with alerting, a CMDB, documentation with RAG search, CVE scanning, patching
-and remote management in one self-hosted place — with AI woven through all of it (optional).
-Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
+**The Swiss-army-knife control plane for your Linux fleet — or your homelab.**
+Monitoring, alerting, a CMDB, CVE scanning, patching, and remote management,
+all self-hosted in one place — with optional AI woven through it. Push-based
+agents, zero inbound ports. Up and running in five minutes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](https://kernel.org)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://kernel.org)
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
@@ -18,15 +18,13 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
-[Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Wiki](https://github.com/tyxak/remotepower/wiki) · [Discussions](https://github.com/tyxak/remotepower/discussions) · [The story](HISTORY.md)
+[Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Wiki](https://github.com/tyxak/remotepower/wiki) · [Changelog](CHANGELOG.md) · [Discussions](https://github.com/tyxak/remotepower/discussions) · [The story](HISTORY.md)
 
 <a href="https://demoremote.tvipper.com"><img src="docs/screenshots/RemotePower.gif" alt="RemotePower — live dashboard tour" width="900"></a>
 
 <details>
-<summary><b>Click-through gallery — more screenshots</b></summary>
-
+<summary><b>Screenshots</b></summary>
 <br>
-
 <table>
 <tr>
 <td align="center"><b>Dashboard</b><br><a href="docs/screenshots/Dash.png"><img src="docs/screenshots/Dash.png" width="400"></a></td>
@@ -61,7 +59,6 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 <td></td>
 </tr>
 </table>
-
 </details>
 
 </div>
@@ -70,34 +67,26 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 
 ## What is it?
 
-**One tool instead of six.** Most teams stitch together a monitor, a CMDB, a wiki,
-a vulnerability scanner, a patch tool and an SSH jump box. RemotePower is the
-Swiss-army-knife that does all of it from a single host you control — **monitoring
-&amp; alerting**, an asset **CMDB**, **documentation with RAG search** over your own
-fleet, **CVE scanning**, **patching**, and **remote management** — and it's **heavily
-bound to AI as an option**: bring your own model (local Ollama/LocalAI or a cloud
-provider) and ask questions answered from *your* infrastructure, or leave it off
-entirely. Everything stays self-hosted.
+Most teams stitch together a monitor, a CMDB, a wiki, a vulnerability scanner,
+a patch tool and an SSH jump box. RemotePower is one self-hosted tool that
+does all of it — monitoring & alerting, an asset CMDB, documentation with RAG
+search over your own fleet, CVE scanning, patching, and remote management —
+with AI as an entirely optional layer on top (bring your own local or cloud
+model, or leave it off).
 
-A web dashboard that manages your Linux machines (and Windows, kind of) without
-opening firewall ports on them. Each host runs a small Python agent that **polls**
-the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-digit
-PIN, like pairing a console controller.
+Each host runs a small Python agent that polls the server over outbound
+HTTPS only — nothing opens on the client, ever. Enrolment is a 6-digit PIN,
+like pairing a controller.
 
-Deliberately small and **readable**: nginx + Python (gunicorn + Flask) on the
-server, **plain vanilla JS in the browser** — around **~87,000 lines** of server
-Python, one HTML file, one CSS file and a handful of JS files, no React/Vue/
-Angular, no JSX, no build step, no bundler, no transpiling. No Node.js, no
-Redis, no Kubernetes either — you can read every line. A single
-`install-server.sh` run or `docker compose up` provisions the full single-node
-stack by default: **PostgreSQL**, the app server, an out-of-band maintenance
-scheduler and a co-located scanner satellite — no flags required. The whole
-`/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs
-running 5–50 devices, fine up to a few hundred, and for constrained/dev installs
-you can opt back down to the lightweight flat-JSON backend
-(`--no-postgres`) — or scale further up with failover + read replicas,
-load-balanced **app nodes** and **relay satellites** for segmented networks. See
-**[docs/scaling.md](docs/scaling.md)**.
+Deliberately small and readable: nginx + Python (gunicorn/Flask) on the
+server, plain vanilla JS in the browser — no React/Vue, no build step, no
+Node.js, no Redis, no Kubernetes. `install-server.sh` or `docker compose up`
+provisions the full stack — PostgreSQL, the app server, a maintenance
+scheduler, a scanner satellite — with no flags required. A single small box
+handles a fleet up to a couple hundred devices out of the box, and further
+with tuning, load-balanced app nodes, read replicas and relay satellites —
+see **[docs/scaling.md](docs/scaling.md)** for the capacity table and
+**[docs/requirements.md](docs/requirements.md)** for hardware sizing.
 
 ## Quick start
 
@@ -108,148 +97,108 @@ load-balanced **app nodes** and **relay satellites** for segmented networks. See
 # password is printed to `docker logs remotepower`.
 docker compose up -d
 
-# Or bare-metal: a single wizard installs nginx + the app + TLS + admin.
-# You never edit an nginx file — it writes the vhost and certificate for you.
+# Or bare-metal: one wizard installs nginx + the app + TLS + admin.
 git clone https://github.com/tyxak/remotepower && cd remotepower
 sudo bash install.sh
 ```
 
-Open the printed URL and log in. HTTPS is automatic — a self-signed CA by
-default (agents pin it), or a real Let's Encrypt cert when you give a public
-domain. No cert wrangling, no nginx editing.
+Open the printed URL and log in — HTTPS is automatic (self-signed by
+default, or Let's Encrypt if you give it a public domain). No nginx editing.
 
-**Add a device — one line, nothing to configure:**
+**Add a device — one line:**
 
-In the dashboard, *Add device → Quick install command*, then on the target host:
+*Add device → Quick install command* in the dashboard, then on the target host:
 
 ```bash
 wget -qO- "https://your-server/install?t=<token>" | sudo sh
 ```
 
-It downloads the **signed** agent, verifies its checksum, enrols with the baked
-one-time token, and the host appears in the dashboard **by its hostname** within
-~60 seconds. Prefer Docker? *Add device → Generate Docker compose*. Onboarding
-many hosts? Push the installer over SSH: `install.sh agent push user@h1 user@h2 …`.
+The host appears in the dashboard within ~60 seconds. Onboarding many hosts?
+`install.sh agent push user@h1 user@h2 …` pushes it over SSH.
 
-**Uninstall:** `sudo bash install.sh uninstall` (server — keeps your data;
-`--purge` to wipe it) · `wget -qO- https://your-server/install | sudo sh -s -- --uninstall` (agent).
+**Upgrading?** `git pull origin main && sudo bash install.sh update` handles
+both a plain code update and a legacy pre-6.1.0 conversion. Full paths
+(Windows/macOS agents, demo vhost, advanced TLS, uninstall) →
+**[docs/install.md](docs/install.md)** · **[docs/upgrading.md](docs/upgrading.md)**.
 
-For longer paths (Windows client, demo vhost, Ansible, advanced TLS), see
-**[docs/install.md](docs/install.md)**.
-
-**Upgrading an existing install?** One command handles both cases — picking
-up new code, or converting a pre-6.1.0 install off the retired CGI transport:
-
-```bash
-git pull origin main
-sudo bash install.sh update
-```
-
-`sudo bash install.sh doctor` shows what it'll do first. Details:
-**[docs/upgrading.md](docs/upgrading.md)**.
-
-### Try the live demo
-
-A read-only demo deployment runs at **<https://demoremote.tvipper.com>** —
-seeded with synthetic devices, alerts, CVE findings, and metrics so you can poke
-around without installing anything. Login: **`demo`** / **`demo`** (reset every
-few hours, so feel free to break things).
+**Try it first:** a read-only demo runs at
+**[demoremote.tvipper.com](https://demoremote.tvipper.com)**, seeded with
+synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ## What you can do with it
 
-One tool instead of six — the ten things it does best:
-
-| | |
-|---|---|
-| **Monitor everything** | Live 60-second metrics, a CheckMK-style per-host **Checks** page, active monitors (HTTP / DNS / ICMP / TCP + credential-less DB liveness), and a composable dashboard. Every fired event lands in an **Alerts inbox** with acknowledge / auto-resolve / **per-alert mute** and a **Tuning** page that surfaces the noisiest alerts. |
-| **See every signal** | SMART & hardware health, **GPU** (NVIDIA + AMD, trend sparklines + thermal alerts), power / UPS, disk-fill **forecasting**, a per-host **timeline**, and logs with regex search — telemetry the agent already reports, surfaced as first-class views. |
-| **Manage remotely** | Shell, multi-line **Custom Scripts** with dry-run lint, batch & scheduled runs, a real **browser SSH terminal** and **VNC** over the same tunnel, an opt-in **agent file manager** (browse / view / edit host files, no SSH), **cron & systemd-timer** management, **Proxmox** VM / LXC create plus **VMware & OpenShift** guest lifecycle (power / snapshots), and host user / key / firewall edits — all with **zero inbound ports**. |
-| **Lock it down** | Passkeys / WebAuthn, SAML / OIDC / LDAP, TOTP + recovery codes, per-role **MFA enforcement**, a **tamper-evident** (hash-chained) audit log, strict CSP, and SSRF-guarded outbound calls. |
-| **Scan for CVEs** | OSV.dev-backed, CVSS-scored, prioritized by CISA **KEV** + **EPSS** (exploited-in-the-wild first), with **SBOM** export (CycloneDX / SPDX, VEX-style vulnerabilities embedded). |
-| **Pentest what you own** | Authorized vulnerability scanning of your own hosts & domains — nuclei / nikto / nmap / **OWASP ZAP** / wapiti / lynis — on a hardened scanner satellite, authorization-gated and schedulable. |
-| **CMDB + RAG search** | Asset DB, **encrypted credentials vault**, Markdown docs per asset, a **Knowledge Base** of runbooks / SOPs, network map — and an AI assistant whose **RAG** answers from *your* fleet and docs and cites the source (local or cloud model; off by default). |
-| **Stay compliant** | **OpenSCAP** CIS / STIG / PCI scans with downloadable HTML reports, plus PCI / HIPAA / SOC 2 control mapping and scheduled posture reports. |
-| **Integrate** | 40 **homelab-app** health connectors (Pi-hole, TrueNAS, the *arr suite, …) plus a code-free **custom HTTP-probe** plugin to turn any endpoint into a signal, Prometheus / Grafana / Uptime-Kuma endpoints, inbound webhooks & syslog, and an **MCP server** so an AI client can query your fleet. |
-| **Deploy & automate** | An **app catalog** — one-click Docker Compose deploy of curated (or your own custom) self-contained apps to a host — auto-patch policies (cron, per group / tag / site, maintenance-aware), config-**drift** detection, ACME / Let's Encrypt, backup orchestration, an **IaC generator** (Terraform / Ansible / Pulumi / …), and a **Provisioning** blueprint catalog that renders — or runs Terraform (Plan / Apply / Destroy) — server-side. |
+- **Monitor & alert** — live metrics, a CheckMK-style Checks page, active
+  monitors (HTTP/DNS/ICMP/TCP), an Alerts inbox with ack/auto-resolve/mute.
+- **See every signal** — SMART/hardware health, GPU, power/UPS, disk-fill
+  forecasting, a per-host timeline, log search.
+- **Manage remotely** — shell + Custom Scripts, a browser SSH terminal and
+  VNC, a file manager, cron/systemd-timer control, Proxmox/VMware/OpenShift guest
+  lifecycle — all with zero inbound ports.
+- **Lock it down** — passkeys/WebAuthn, SAML/OIDC/LDAP, TOTP, per-role MFA,
+  a tamper-evident audit log, strict CSP.
+- **Scan for CVEs** — OSV.dev-backed, CISA KEV + EPSS prioritized, SBOM
+  export (CycloneDX/SPDX).
+- **Pentest what you own** — authorized nuclei/nikto/nmap/ZAP/wapiti/lynis
+  scans on a hardened scanner satellite.
+- **CMDB + RAG search** — assets, an encrypted credentials vault, a
+  Knowledge Base, and an AI assistant that cites *your* fleet's own data.
+- **Stay compliant** — OpenSCAP CIS/STIG/PCI scans, PCI/HIPAA/SOC 2 mapping.
+- **Integrate** — 40 homelab-app connectors, a code-free custom-HTTP-probe
+  plugin, Prometheus/Grafana endpoints, webhooks, syslog, and an MCP server.
+- **Deploy & automate** — a one-click app catalog, auto-patch policies,
+  drift detection, ACME, backups, and a Terraform/Ansible provisioning catalog.
 
 **Full feature inventory → [docs/features.md](docs/features.md).**
 **Step-by-step recipes → [docs/cookbook.md](docs/cookbook.md).**
 
 ### Recent releases
 
-- **v6.1.1 "HardenMatters"** — a broad hardening + feature-coverage pass:
-  two real cross-tenant security fixes (API keys, SSO config), step-up
-  re-auth for privilege escalation, litigation hold, a STRIDE threat model,
-  a full WCAG AA + axe-core accessibility pass, real per-package pinned
-  patch enforcement, invoice PDFs + payment-webhook reconciliation, and a
-  fleet query engine, among others. No breaking API changes.
-- **v6.1.0 "Runt1meMatters"** — enterprise-productization. Postgres, an
-  out-of-band scheduler and a co-located scanner satellite are now the
-  single-node default (opt back down with `--no-postgres`/`--no-scheduler`/
-  `--no-scanner`); the server now runs entirely on **gunicorn + Flask** — CGI
-  and the old SCGI worker are retired, and a fresh install migrates into
-  Postgres automatically. One command (`install.sh update`) now takes any
-  existing install straight to this. No breaking API changes.
-- **v6.0.1 "RefineMatters" — 2026-07-08** — a polish, hardening and
-  correctness pass: sidebar reorganised, a real world map on the Sites page,
-  single-device auto-patch targets, PDF patch-report export. Certificate
-  expiry now alerts by default, plus new read-only-remount and
-  mail-queue-backlog alerts. No breaking changes.
-- **v6.0.0 "ClarityMatters" — 2026-07-05** — the v6 interface overhaul: one
-  flat modern UI (no more Industrial/New-UI toggle), a 12-domain accordion
-  sidebar, and Tickets/Billing/Provisioning/File-manager/Knowledge-base
-  promoted to standard always-on modules. Full SAST audit, no Critical/High/
-  Medium findings. No breaking API changes.
-- **v5.7.0 — F4ct0rMatters** — a refactor-and-fix release: five New-UI bugs
-  fixed (device delete, light-mode profile menu, theme/accent picker), a
-  mobile/narrow-viewport pass, ticket lifecycle events, and a slimmer,
-  faster-starting server. No breaking changes.
+- **v6.1.1 "HardenMatters"** — a broad hardening pass: cross-tenant security
+  fixes, step-up re-auth, litigation hold, a STRIDE threat model, a full
+  WCAG AA accessibility pass, and real per-package patch pinning.
+- **v6.1.0 "Runt1meMatters"** — enterprise productization: Postgres, an
+  out-of-band scheduler and a scanner satellite are now the single-node
+  default; the server runs entirely on gunicorn + Flask (CGI retired).
+- **v6.0.1 "RefineMatters"** — a polish pass: sidebar reorganised, a real
+  world map on the Sites page, PDF patch-report export.
 
-Full release history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
+Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security
 
-RemotePower is security-reviewed every few releases and **independently pentested
-clean** — the latest full run (Bandit SAST; OWASP ZAP, Nikto, Nuclei, Wapiti,
-WhatWeb DAST) reported **no exploitable findings**. Posture in brief: bcrypt
-(cost 12, PBKDF2-HMAC-SHA256 fallback) behind rate-limited login; TOTP 2FA with
-recovery codes; passkeys / SAML / OIDC / LDAP; 256-bit header session tokens
-(CSRF-safe by construction); a strict CSP with no `'unsafe-inline'`; an AES-GCM
-CMDB vault; a tamper-evident audit log; and mandatory TLS verification plus
-connect-time anti-DNS-rebinding on every outbound call. Full posture, threat
-model, review history and an operator hardening checklist:
+Security-reviewed every few releases and independently pentested clean —
+the latest full run (Bandit SAST; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb
+DAST) reported no exploitable findings. bcrypt-hashed passwords behind
+rate-limited login, TOTP/passkeys/SAML/OIDC/LDAP, a strict CSP with no
+`unsafe-inline`, an AES-GCM CMDB vault, a tamper-evident audit log, and
+mandatory TLS verification with anti-DNS-rebinding on every outbound call.
+Full posture, threat model and review history →
 **[docs/security.md](docs/security.md)**.
 
 ## Documentation
 
-Browse the full docs in the **[Wiki](https://github.com/tyxak/remotepower/wiki)**
-(generated from `docs/`, organised by topic). Prefer the source? Everything lives
-in **[docs/](docs/)** — start with the index there. The essentials:
+The **[Wiki](https://github.com/tyxak/remotepower/wiki)** is the browsable,
+topic-organised home for everything — install guides, the full feature
+reference, architecture, and the changelog. Prefer the source? It's all in
+**[docs/](docs/README.md)** too. Quick links:
 
 | Topic | Where |
 |---|---|
-| **Install** (Linux, Docker, demo, Windows) | [docs/install.md](docs/install.md) |
-| **Full feature inventory** | [docs/features.md](docs/features.md) |
-| **Architecture + on-disk layout** | [docs/architecture.md](docs/architecture.md) |
-| **API reference** (endpoints + OpenAPI) | [docs/api.md](docs/api.md) — interactive: `/swagger.html` |
-| **Security notes** | [docs/security.md](docs/security.md) |
-| **Scaling & deployment** | [docs/scaling.md](docs/scaling.md) |
-| **Troubleshooting / Upgrading** | [docs/troubleshooting.md](docs/troubleshooting.md) · [docs/upgrading.md](docs/upgrading.md) |
-
-## TL;DR
-
-A self-hosted Swiss-army knife for your Linux fleet or homelab: monitoring,
-alerting, CMDB, docs with **RAG**, CVE scanning, authorized pentesting, patching,
-compliance, and full remote management (browser SSH, Proxmox, files) — push-based
-agents, **zero inbound ports**, optional **local or cloud AI** that answers from
-*your* hosts. One tool instead of six.
+| Install (Linux, Docker, Windows, macOS) | [docs/install.md](docs/install.md) |
+| Full feature inventory | [docs/features.md](docs/features.md) |
+| Architecture + on-disk layout | [docs/architecture.md](docs/architecture.md) |
+| API reference (OpenAPI) | [docs/api.md](docs/api.md) — interactive: `/swagger.html` |
+| Security notes | [docs/security.md](docs/security.md) |
+| Scaling & deployment | [docs/scaling.md](docs/scaling.md) |
+| Minimum/recommended hardware | [docs/requirements.md](docs/requirements.md) |
+| Troubleshooting / Upgrading | [docs/troubleshooting.md](docs/troubleshooting.md) · [docs/upgrading.md](docs/upgrading.md) |
 
 ## Contributing & community
 
-- **Request a feature** — open a [Feature request](https://github.com/tyxak/remotepower/issues/new?template=feature_request.yml); it's labelled `enhancement` and triaged from there.
+- **Request a feature** — open a [Feature request](https://github.com/tyxak/remotepower/issues/new?template=feature_request.yml).
 - **Report a bug** — open a [Bug report](https://github.com/tyxak/remotepower/issues/new?template=bug_report.yml).
 - **Ask a question or float an idea** — head to [Discussions](https://github.com/tyxak/remotepower/discussions).
-- **Found a security issue?** — please report it privately per [SECURITY.md](SECURITY.md); don't open a public issue.
+- **Found a security issue?** — report it privately per [SECURITY.md](SECURITY.md); don't open a public issue.
 - **Contributing code or docs?** — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

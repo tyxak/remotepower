@@ -7,6 +7,8 @@ holds long-form docs that don't fit there.
 
 - **[install.md](install.md)** — Server install (Linux + Docker), client
  enrolment, optional webterm, demo vhost.
+- **[requirements.md](requirements.md)** — Minimum/recommended server
+ hardware (cores, RAM, disk) by fleet size, plus agent/client footprint.
 - **[admin-guide.md](admin-guide.md)** — Full install & operations guide:
  hardening, daily ops, backup/restore, upgrades, troubleshooting.
 - **[features.md](features.md)** — Full feature inventory and the
@@ -26,6 +28,8 @@ holds long-form docs that don't fit there.
  multi-node, relay satellites, PgBouncer, retention, and the encryption matrix.
 - **[satellites.md](satellites.md)** — Relay satellites for segmented networks:
  add one, encrypt the agent→satellite hop, point agents at it, revoke.
+- **[push.md](push.md)** — Experimental opt-in agent push channel: near-
+ instant command dispatch via a companion WebSocket daemon, off by default.
 - **[upgrading.md](upgrading.md)** — One command (`install.sh update`) for
  every upgrade, self-detecting whether that's a plain code update or a
  pre-6.1.0 CGI/SCGI-to-gunicorn/Flask conversion.
