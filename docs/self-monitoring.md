@@ -1,5 +1,10 @@
 # Server status — RemotePower watching itself
 
+> **On the box itself**, the [`rp`](cli.md) command is the terminal counterpart of
+> this page: `rp status` (or the live `rp tui`) shows every stack component, and
+> `rp doctor` runs a full health check with fixes. The page below is the in-browser
+> view of the same picture.
+
 The Server status page (`/api/self/status`) closes the "who monitors the monitor" gap. Without it, you only know the fleet is healthy because RemotePower says so — but if the RemotePower server itself starts misbehaving, you find out the slow way.
 
 ## What's reported

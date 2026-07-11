@@ -1,5 +1,14 @@
 # Troubleshooting
 
+**Start here: `sudo rp doctor`.** The `rp` node-control CLI runs one health check
+across the whole stack — units, ports, storage-backend connectivity, the nginx
+routes/upgrade map, the push daemon, and the agent self-update copy — and prints
+the fix for each failure. Most issues below are diagnosed (and often fixed) by it:
+`rp restart [component]`, `rp logs <component>`, or `rp repair` (re-deploy). Run
+`rp tui` for a live dashboard, with a built-in `?` troubleshooting panel. Full
+guide: **[cli.md](cli.md)**. The manual `systemctl`/`journalctl` recipes below are
+the equivalents `rp` wraps.
+
 **IPv6 error on nginx start**
 ```bash
 sudo sed -i '/listen \[::\]/d' /etc/nginx/sites-available/remotepower

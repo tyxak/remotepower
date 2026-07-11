@@ -9,8 +9,11 @@ sudo bash install.sh doctor    # optional — see what it detects before touchin
 sudo bash install.sh update
 ```
 
-That's it, regardless of where you're upgrading *from*. `install.sh update`
-self-detects the two cases that used to need different tools:
+That's it, regardless of where you're upgrading *from*. On a box that already has
+the [`rp`](cli.md) CLI you can also just run **`rp deploy`** (updates code + units
++ restarts), and **`sudo rp doctor`** afterwards to confirm the stack is healthy.
+
+`install.sh update` self-detects the two cases that used to need different tools:
 
 - **Already on gunicorn/Flask (v6.1.0+)** — deploys the new code and restarts
   the app server. Equivalent to `deploy-server.sh`, which it calls directly.

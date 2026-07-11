@@ -101,13 +101,15 @@ systemctl restart remotepower-wsgi
 ## Verify what's serving
 
 Open **Server status** in the app → the **"Serving & runtime"** panel, or
-from the shell:
+from the shell run **`sudo rp doctor`** ([cli.md](cli.md)) for a one-shot check of
+the app server, scheduler and the rest of the stack. The raw equivalents:
 
 ```bash
 journalctl -u remotepower-wsgi -f                        # requests arriving, no tracebacks
 journalctl -u remotepower-scheduler -n 20 --no-pager      # acquires leadership, runs cadence
 tail -n 5 /var/log/nginx/<vhost>_error.log                # no upstream errors
 ```
+(`rp logs wsgi` / `rp restart wsgi` wrap the first and a restart.)
 
 > **Gotcha:** `systemctl show -p Environment <unit>` only prints *inline*
 > `Environment=` lines — it does **not** show variables loaded from

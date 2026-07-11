@@ -70,6 +70,11 @@ use the Docker image (below).
 
 The installer asks for an admin username and password, then prints the URL. Open it in a browser and log in.
 
+Then run **`sudo rp doctor`** to confirm the whole stack came up healthy (app
+server, scheduler, scanner, push, nginx, storage backend), or **`rp tui`** for a
+live dashboard. `rp` is the omd/checkmk-style node-control command the installer
+sets up — see **[cli.md](cli.md)**.
+
 ### TLS — strongly recommended before enrolling any agent
 
 > **Without TLS, session tokens and agent credentials travel in cleartext.**

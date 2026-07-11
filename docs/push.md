@@ -82,6 +82,11 @@ plain `cp` yields a non-executable copy and systemd fails the unit with
 
 ## Verifying it's actually working
 
+The quickest check is **`sudo rp doctor`** ([cli.md](cli.md)) — it inspects the
+push daemon, its nginx route, the `$connection_upgrade` map, and the
+backend=json-under-Postgres failure class, and tells you the fix. The manual
+steps:
+
 1. Confirm the daemon and its nginx proxy are up: `systemctl status
    remotepower-push`, and `sudo journalctl -u remotepower-push -f` — keep
    this open, it logs every connect/disconnect.

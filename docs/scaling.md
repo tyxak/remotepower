@@ -9,6 +9,9 @@
 > HA (read replicas/failover), relay satellites, multiple **app nodes** and
 > load balancers below are the separate **heavy-fleet** track — ignore them
 > unless you are genuinely at large scale.
+>
+> To see and control that single-node stack (app server, scheduler, scanner,
+> push) on a box, use [`rp status` / `rp tui` / `rp doctor`](cli.md).
 
 This guide is for **large fleets — roughly 1,000 agents and up**, where the
 defaults start to strain. It explains *what actually limits scale*, then the

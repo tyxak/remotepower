@@ -154,6 +154,15 @@ secret fields. Set these in `/etc/remotepower/api.env` (the
 
 ## 5. Day-to-day operation
 
+### 5.0 Managing the server itself — `rp`
+
+On the server box, the [`rp`](cli.md) command controls the RemotePower stack,
+omd/checkmk-style: **`rp status`** (or the live **`rp tui`**) shows every
+component, **`sudo rp restart`** bounces the stack (or one part, `rp restart push`),
+**`sudo rp doctor`** health-checks everything with fixes, `rp logs <component>`
+tails a unit, and `rp deploy` / `rp repair` update or restore it. See
+[cli.md](cli.md) for the full guide and troubleshooting table.
+
 ### 5.1 The dashboard
 
 The Home page is the daily view: fleet status tiles (devices online,

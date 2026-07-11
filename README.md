@@ -107,6 +107,10 @@ sudo bash install.sh
 Open the printed URL and log in — HTTPS is automatic (self-signed by
 default, or Let's Encrypt if you give it a public domain). No nginx editing.
 
+On the box, manage the stack with **`rp`** (omd/checkmk-style): `rp status`, the
+live `rp tui` dashboard, and `sudo rp doctor` for a one-shot health check — see
+[docs/cli.md](docs/cli.md).
+
 **Add a device — one line:**
 
 *Add device → Quick install command* in the dashboard, then on the target host:
