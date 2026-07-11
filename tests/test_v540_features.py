@@ -227,6 +227,131 @@ class TestBillingHandlers(unittest.TestCase):
         self.assertIn(b'Date,User,Hours', data)
 
 
+class TestBillingPaymentWebhook(TestBillingHandlers):
+    """v6.1.1 (#90) — generic, provider-agnostic payment-webhook reconciliation.
+    NOT a Stripe/PayPal integration (#91, blocked on live processor creds) —
+    a shared-secret-authenticated sink any processor's own webhook (or a thin
+    relay script) can POST into, mirroring handle_webterm_session_audit's auth
+    shape exactly."""
+
+    SECRET = 'wh-secret-xyz'
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop('HTTP_X_RP_BILLING_SECRET', None)
+
+    def tearDown(self):
+        os.environ.pop('HTTP_X_RP_BILLING_SECRET', None)
+        super().tearDown()
+
+    def _set_secret(self):
+        r = self._call(api.handle_billing_config, 'POST', {'billing_webhook_secret': self.SECRET})
+        self.assertEqual(r.code, 200, r.body)
+
+    def _issue_invoice(self):
+        self._config()
+        self._call(api.handle_ticket_hours, 'POST',
+                   {'hours': 1.0, 'rate_name': 'Standard', 'date': '2026-06-15'}, arg='tk1')
+        r = self._call(api.handle_invoices, 'POST', {'site_id': 'site1', 'month': '2026-06'})
+        self.assertEqual(r.code, 200, r.body)
+        return r.body['id'], r.body['total']
+
+    def _webhook(self, payload):
+        os.environ['HTTP_X_RP_BILLING_SECRET'] = self.SECRET
+        return self._call(api.handle_billing_payment_webhook, 'POST', payload)
+
+    def test_config_get_never_echoes_secret(self):
+        self._set_secret()
+        r = self._call(api.handle_billing_config, 'GET')
+        self.assertTrue(r.body['billing_webhook_secret_set'])
+        self.assertNotIn('billing_webhook_secret', r.body)
+
+    def test_wrong_secret_rejected(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        os.environ['HTTP_X_RP_BILLING_SECRET'] = 'wrong'
+        r = self._call(api.handle_billing_payment_webhook, 'POST',
+                       {'invoice_id': iid, 'amount': total})
+        self.assertEqual(r.code, 403)
+
+    def test_no_secret_configured_rejects(self):
+        iid, total = self._issue_invoice()   # secret never set
+        os.environ['HTTP_X_RP_BILLING_SECRET'] = 'anything'
+        r = self._call(api.handle_billing_payment_webhook, 'POST',
+                       {'invoice_id': iid, 'amount': total})
+        self.assertEqual(r.code, 403)
+
+    def test_unknown_invoice_404s(self):
+        self._set_secret()
+        r = self._webhook({'invoice_id': 'inv_ghost', 'amount': 100})
+        self.assertEqual(r.code, 404)
+
+    def test_full_payment_marks_paid(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        r = self._webhook({'invoice_id': iid, 'amount': total, 'provider': 'stripe',
+                           'external_ref': 'ch_123'})
+        self.assertEqual(r.code, 200, r.body)
+        self.assertEqual(r.body['status'], 'paid')
+        self.assertEqual(r.body['amount_paid'], total)
+        inv = next(x for x in api.load(api.INVOICES_FILE)['invoices'] if x['id'] == iid)
+        self.assertEqual(inv['status'], 'paid')
+
+    def test_partial_payment_marks_partially_paid(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        r = self._webhook({'invoice_id': iid, 'amount': total / 2, 'external_ref': 'ch_1'})
+        self.assertEqual(r.body['status'], 'partially_paid')
+        # a second partial payment tops it up to fully paid
+        r = self._webhook({'invoice_id': iid, 'amount': total / 2, 'external_ref': 'ch_2'})
+        self.assertEqual(r.body['status'], 'paid')
+
+    def test_idempotent_on_external_ref(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        r1 = self._webhook({'invoice_id': iid, 'amount': total, 'external_ref': 'ch_dup'})
+        self.assertFalse(r1.body['duplicate'])
+        r2 = self._webhook({'invoice_id': iid, 'amount': total, 'external_ref': 'ch_dup'})
+        self.assertTrue(r2.body['duplicate'])
+        inv = next(x for x in api.load(api.INVOICES_FILE)['invoices'] if x['id'] == iid)
+        self.assertEqual(len(inv['payments']), 1)   # not double-recorded
+
+    def test_refund_reverts_paid_to_sent(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        self._webhook({'invoice_id': iid, 'amount': total, 'external_ref': 'ch_1'})
+        r = self._webhook({'invoice_id': iid, 'amount': total, 'kind': 'refund', 'external_ref': 're_1'})
+        self.assertEqual(r.code, 200, r.body)
+        self.assertEqual(r.body['status'], 'sent')
+        self.assertEqual(r.body['amount_paid'], 0)
+
+    def test_void_invoice_rejects_payment(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        self._call(api.handle_invoice_update, 'PATCH', {'status': 'void'}, arg=iid)
+        r = self._webhook({'invoice_id': iid, 'amount': total})
+        self.assertEqual(r.code, 409)
+
+    def test_invalid_kind_rejected(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        r = self._webhook({'invoice_id': iid, 'amount': total, 'kind': 'bogus'})
+        self.assertEqual(r.code, 400)
+
+    def test_list_endpoint_surfaces_amount_paid(self):
+        self._set_secret()
+        iid, total = self._issue_invoice()
+        self._webhook({'invoice_id': iid, 'amount': total / 2, 'external_ref': 'ch_1'})
+        r = self._call(api.handle_invoices, 'GET')
+        row = next(x for x in r.body['invoices'] if x['id'] == iid)
+        self.assertEqual(row['amount_paid'], total / 2)
+        self.assertEqual(row['status'], 'partially_paid')
+
+    def test_route_registered(self):
+        self.assertIs(api._build_exact_routes()[('POST', '/api/billing/payment-webhook')],
+                      api.handle_billing_payment_webhook)
+
+
 class TestInvoicePdf(TestBillingHandlers):
     """v6.1.1 — real generated invoice PDFs (reportlab), replacing depending
     on the recipient's browser print dialog as the only export path.

@@ -3168,6 +3168,13 @@ async function loadSettings() {
     const otk = document.getElementById('cfg-otlp-token');
     if (otk) otk.placeholder = data.otlp_token_set ? '•••••• (set — leave blank to keep)' : 'optional bearer token';
   }
+  // v6.1.1 (#48): OTLP TRACE export
+  const _otlpTrEn = document.getElementById('cfg-otlp-traces-enabled');
+  if (_otlpTrEn) {
+    _otlpTrEn.checked = !!data.otlp_traces_enabled;
+    const ti = document.getElementById('cfg-otlp-traces-interval');
+    if (ti) ti.value = data.otlp_traces_interval || 30;
+  }
   // v3.14.0 #42: browser push (admin enable)
   const _wpEn = document.getElementById('cfg-webpush-enabled');
   if (_wpEn) {
@@ -3231,6 +3238,12 @@ async function loadSettings() {
     _upsAse.checked = !!data.ups_auto_shutdown_enabled;
     const bp = document.getElementById('cfg-ups-critical-battery-pct'); if (bp) bp.value = data.ups_critical_battery_pct ?? 20;
     const rt = document.getElementById('cfg-ups-critical-runtime-s'); if (rt) rt.value = data.ups_critical_runtime_s ?? 180;
+  }
+  // v6.1.1 (#53): incident auto-promotion, default off.
+  const _incAp = document.getElementById('cfg-incident-auto-promote-enabled');
+  if (_incAp) {
+    _incAp.checked = !!data.incident_auto_promote_enabled;
+    const th = document.getElementById('cfg-incident-device-threshold'); if (th) th.value = data.incident_device_threshold ?? 5;
   }
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
@@ -3502,6 +3515,13 @@ async function testOtlp() {
   if (d?.ok) toast('Metrics pushed to the OTLP collector', 'success');
   else toast(d?.error || 'OTLP push failed', 'error');
 }
+async function testOtlpTraces() {
+  toast('Saving & pushing spans…', 'info');
+  await saveSettings();
+  const d = await api('POST', '/otlp/traces-test', {});
+  if (d?.ok) toast(d.message || 'Spans pushed to the OTLP collector', 'success');
+  else toast(d?.error || 'OTLP trace push failed', 'error');
+}
 async function saveSettings(btn) {
   const webhook_events = {};
   document.querySelectorAll('#event-toggle-table .toggle-webhook').forEach(cb => {
@@ -3676,6 +3696,12 @@ async function saveSettings(btn) {
     const _otlpTok = document.getElementById('cfg-otlp-token')?.value;
     if (_otlpTok) payload.otlp_token = _otlpTok;
   }
+  // v6.1.1 (#48): OTLP TRACE export
+  const _otlpTrSaveEn = document.getElementById('cfg-otlp-traces-enabled');
+  if (_otlpTrSaveEn) {
+    payload.otlp_traces_enabled = _otlpTrSaveEn.checked;
+    payload.otlp_traces_interval = parseInt(document.getElementById('cfg-otlp-traces-interval')?.value || '30', 10);
+  }
   // v3.14.0 #42: browser push (admin enable)
   const _wpSaveEn = document.getElementById('cfg-webpush-enabled');
   if (_wpSaveEn) {
@@ -3729,6 +3755,12 @@ async function saveSettings(btn) {
     payload.ups_auto_shutdown_enabled = _upsAseEn.checked;
     payload.ups_critical_battery_pct = parseInt(document.getElementById('cfg-ups-critical-battery-pct')?.value, 10) || 20;
     payload.ups_critical_runtime_s = parseInt(document.getElementById('cfg-ups-critical-runtime-s')?.value, 10) || 0;
+  }
+  // v6.1.1 (#53): incident auto-promotion.
+  const _incApEn = document.getElementById('cfg-incident-auto-promote-enabled');
+  if (_incApEn) {
+    payload.incident_auto_promote_enabled = _incApEn.checked;
+    payload.incident_device_threshold = parseInt(document.getElementById('cfg-incident-device-threshold')?.value, 10) || 5;
   }
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');
@@ -16824,7 +16856,9 @@ async function loadIncidents() {
   box.innerHTML = incs.map(i => {
     const opts = ['investigating', 'identified', 'monitoring', 'resolved']
       .map(s => `<option value="${s}" ${i.status === s ? 'selected' : ''}>${s}</option>`).join('');
-    return `<div class="dash-card mb-8"><div class="row-6-center"><span class="fw-500 fs-13 ellipsis flex-1">${escHtml(i.title)} <span class="meta-sm-nm">${escHtml(i.impact)}</span></span>`
+    const autoBadge = i.auto_promoted
+      ? ` <span class="patch-badge warn fs-11" title="Auto-opened from a cross-device ${escAttr(i.root_event || '')} alert storm (${(i.device_ids || []).length} devices) — Settings → Security → Incident auto-promotion">auto</span>` : '';
+    return `<div class="dash-card mb-8"><div class="row-6-center"><span class="fw-500 fs-13 ellipsis flex-1">${escHtml(i.title)} <span class="meta-sm-nm">${escHtml(i.impact)}</span>${autoBadge}</span>`
       + `<select class="form-input" data-inc-status="${escAttr(i.id)}" aria-label="Incident status">${opts}</select>`
       + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteIncident" data-arg="${escAttr(i.id)}">Delete</button></div>`
       + `<div class="row-6-center mt-6"><input type="text" class="form-input flex-1" data-inc-update="${escAttr(i.id)}" maxlength="4000" placeholder="Post an update…"><button class="btn-secondary cell-sm" data-action="updateIncident" data-arg="${escAttr(i.id)}">Update</button></div></div>`;

@@ -45,6 +45,23 @@ Under **Admin → Billing**:
    invoice**.
 3. **Invoices** — issued invoices with **draft → sent → paid** (and **void**).
    View / **print to PDF**, **export CSV**, or **email** to the customer.
+   A payment webhook (below) can also move an invoice through
+   **partially_paid → paid** automatically as payments come in.
+
+### Payment webhook *(v6.1.1)*
+
+A generic, **provider-agnostic** reconciliation sink under Rates & Fees —
+**not** a Stripe/PayPal integration (no live processor credentials are
+required or used). Point your payment processor's own webhook, or a thin
+relay script, at the shown URL with header `X-RP-Billing-Secret: <secret>`
+(set alongside the rate card) and a JSON body
+`{invoice_id, amount, kind: "payment"|"refund", external_ref?, provider?}`.
+Payments accumulate into the invoice's `amount_paid`; the status moves to
+`partially_paid` once any payment lands and to `paid` once the total is
+covered. A `refund` payment (or a full refund back to zero) reverts a
+`paid`/`partially_paid` invoice to `sent`. Idempotent on `external_ref` — a
+processor retrying the same webhook is a safe no-op, not a double-credit.
+A voided invoice refuses further payments (409).
 
 ### Emailing invoices
 
@@ -98,3 +115,4 @@ Assign **finance** on the **Users** page (Edit role).
 | `GET` / `POST /api/invoices` | admin/finance (list) / admin (issue) | List / issue invoices |
 | `GET /api/invoices/{id}` | admin/finance | One invoice (`format=csv`) |
 | `PATCH /api/invoices/{id}` | admin | Set status (draft/sent/paid/void) |
+| `POST /api/billing/payment-webhook` | shared secret (`X-RP-Billing-Secret`) | Record a payment/refund against an invoice — provider-agnostic, idempotent on `external_ref` |

@@ -104,6 +104,7 @@ MAX_SLOW_HANDLERS  = 100
 # Severity, ack_by, ack_at, resolved_by, resolved_at land here.
 ALERTS_FILE = DATA_DIR / 'alerts.json'
 INCIDENTS_FILE = DATA_DIR / 'incidents.json'   # W2-25 operator-posted status-page incidents
+INCIDENT_PROMOTE_STATE_FILE = DATA_DIR / 'incident_promote_state.json'   # v6.1.1 (#53)
 USER_NOTIFY_FILE = DATA_DIR / 'user_notify.json'   # W2-20 per-user notification subscriptions
 SUDO_LOG_FILE = DATA_DIR / 'sudo_log.json'         # W3-40 per-device privileged-command trail
 MAX_SUDO_PER_DEVICE = 500                           # W3-40 rolling cap per device
@@ -217,7 +218,7 @@ INVOICES_FILE = DATA_DIR / 'invoices.json'   # {invoices:[...], invoice_seq:int}
 INVOICE_REMINDER_STATE_FILE = DATA_DIR / 'invoice_reminder_state.json'  # W1-30 sweep gate
 INVOICE_REMINDER_INTERVAL = 6 * 3600         # W1-30: overdue-reminder sweep cadence
 MAX_INVOICES = 100000
-INVOICE_STATUSES = ('draft', 'sent', 'paid', 'void')
+INVOICE_STATUSES = ('draft', 'sent', 'partially_paid', 'paid', 'void')
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -6040,6 +6041,158 @@ def _maybe_export_otlp():
         _export_otlp(cfg)
     except Exception as e:
         sys.stderr.write(f'[remotepower] OTLP export failed: {e}\n')
+
+
+# ─── v6.1.1 (#48): OpenTelemetry (OTLP/HTTP) TRACE export ────────────────────
+# Full server-side spans were previously gated on "the future persistent app
+# tier" (v5.4.1) — that tier shipped as v6.1.0's WSGI/gunicorn cutover
+# (wsgi.py), so the blocker no longer applies: a gunicorn worker is a real
+# persistent process that can accumulate spans across requests in memory and
+# flush them on an interval, the same shape _maybe_export_otlp already uses
+# for metrics (just in-process instead of file-locked, since spans only need
+# a shared trace_id for a collector to stitch a distributed trace back
+# together — no cross-worker aggregation is needed). One span per HTTP
+# request, recorded from wsgi.py's _run_request — the single choke point
+# that already wraps every request, including early respond()/HTTPError
+# exits (see wsgi.py's module docstring).
+_OTLP_SPAN_BUFFER = []
+_OTLP_SPAN_LOCK = threading.Lock()
+_OTLP_SPAN_STATE = {'last_flush': 0.0}
+_OTLP_SPAN_MAX_BUFFER = 2000   # hard cap — an unreachable collector must not grow this unbounded
+
+_OTLP_ID_SEGMENT_RE = re.compile(r'^[0-9a-fA-F]{8,}$|^\d+$')
+
+
+def _otlp_route_template(path):
+    """Collapse obvious id-shaped path segments (device ids, numeric ids) to
+    `:id` so span names stay low-cardinality (`GET /api/devices/:id/checks`
+    instead of one unique name per device) — display-only, not used for
+    routing."""
+    parts = (path or '/').split('/')
+    return '/'.join(':id' if _OTLP_ID_SEGMENT_RE.match(p) else p for p in parts)
+
+
+def _otlp_traces_payload(spans, cfg):
+    otlp_spans = [{
+        'traceId': s['trace_id'],
+        'spanId': s['span_id'],
+        'name': s['name'],
+        'kind': 2,   # SPAN_KIND_SERVER
+        'startTimeUnixNano': s['start_time_unix_nano'],
+        'endTimeUnixNano': s['end_time_unix_nano'],
+        'attributes': s['attributes'],
+        'status': {'code': s['status_code']},   # 0=UNSET, 1=OK, 2=ERROR
+    } for s in spans]
+    return {'resourceSpans': [{
+        'resource': {'attributes': [
+            {'key': 'service.name',
+             'value': {'stringValue': get_server_name() or 'remotepower'}},
+        ]},
+        'scopeSpans': [{
+            'scope': {'name': 'remotepower', 'version': SERVER_VERSION},
+            'spans': otlp_spans,
+        }],
+    }]}
+
+
+def _otlp_traces_endpoint(base):
+    base = (base or '').strip()
+    if not base:
+        return ''
+    if base.rstrip('/').endswith('/v1/traces'):
+        return base
+    return base.rstrip('/') + '/v1/traces'
+
+
+def _export_otlp_traces(spans, cfg):
+    """Push a batch of spans to the configured OTLP collector. Best-effort."""
+    if not spans:
+        return
+    url = _otlp_traces_endpoint(cfg.get('otlp_endpoint'))
+    if not url:
+        return
+    body = json.dumps(_otlp_traces_payload(spans, cfg)).encode()
+    headers = {'Content-Type': 'application/json'}
+    token = (cfg.get('otlp_token') or '').strip()
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    _siem_post(url, body, headers, cfg)   # reuse the SSRF-guarded POST
+
+
+def _otlp_record_span(method, path, status_code, start_ns):
+    """Called once per HTTP request (wsgi.py's _run_request). Cheap no-op on
+    the hot path when trace export is off — one _config_ro() read, no lock.
+    Buffered per-worker-process, flushed at most once per otlp_traces_interval
+    (default 30s). Never raises into the request path."""
+    try:
+        cfg = _config_ro()
+        if not (cfg.get('otlp_enabled') and cfg.get('otlp_traces_enabled')):
+            return
+        end_ns = time.time_ns()
+        span = {
+            'trace_id': _trace_id(),
+            'span_id': secrets.token_hex(8),
+            'name': f'{method} {_otlp_route_template(path)}',
+            'start_time_unix_nano': str(start_ns),
+            'end_time_unix_nano': str(end_ns),
+            'attributes': [
+                {'key': 'http.method', 'value': {'stringValue': method}},
+                {'key': 'http.target', 'value': {'stringValue': (path or '')[:200]}},
+                {'key': 'http.status_code', 'value': {'intValue': str(status_code)}},
+            ],
+            'status_code': 2 if status_code >= 500 else 0,
+        }
+        try:
+            interval = max(15, min(3600, int(cfg.get('otlp_traces_interval') or 30)))
+        except (TypeError, ValueError):
+            interval = 30
+        batch = None
+        with _OTLP_SPAN_LOCK:
+            if len(_OTLP_SPAN_BUFFER) < _OTLP_SPAN_MAX_BUFFER:
+                _OTLP_SPAN_BUFFER.append(span)
+            now_s = end_ns / 1_000_000_000
+            if now_s - _OTLP_SPAN_STATE['last_flush'] >= interval:
+                _OTLP_SPAN_STATE['last_flush'] = now_s
+                batch = _OTLP_SPAN_BUFFER[:]
+                _OTLP_SPAN_BUFFER.clear()
+        if batch:
+            _export_otlp_traces(batch, cfg)
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] OTLP trace export failed: {e}\n')
+
+
+def handle_otlp_traces_test():
+    """POST /api/otlp/traces-test — flush the current span buffer (or a
+    synthetic single span if it's empty) to the OTLP collector now,
+    bypassing the interval gate, so the operator can confirm ingestion."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('otlp_enabled'):
+        respond(400, {'error': 'OTLP export is not enabled in settings.'})
+    if not cfg.get('otlp_traces_enabled'):
+        respond(400, {'error': 'OTLP trace export is not enabled in settings.'})
+    if not _otlp_traces_endpoint(cfg.get('otlp_endpoint')):
+        respond(400, {'error': 'No OTLP endpoint configured.'})
+    with _OTLP_SPAN_LOCK:
+        batch = _OTLP_SPAN_BUFFER[:]
+        _OTLP_SPAN_BUFFER.clear()
+        _OTLP_SPAN_STATE['last_flush'] = time.time()
+    if not batch:
+        now_ns = time.time_ns()
+        batch = [{
+            'trace_id': _trace_id(), 'span_id': secrets.token_hex(8),
+            'name': 'remotepower.selftest', 'start_time_unix_nano': str(now_ns - 1_000_000),
+            'end_time_unix_nano': str(now_ns),
+            'attributes': [{'key': 'remotepower.selftest', 'value': {'boolValue': True}}],
+            'status_code': 0,
+        }]
+    try:
+        _export_otlp_traces(batch, cfg)
+    except Exception as e:
+        respond(502, {'error': f'Export failed: {str(e)[:200]}'})
+    respond(200, {'ok': True, 'message': f'{len(batch)} span(s) pushed to the OTLP collector.'})
 
 
 def handle_otlp_test():
@@ -12121,7 +12274,9 @@ def handle_billing_config():
                       'issuer_name': cfg.get('issuer_name', ''),
                       'issuer_address': cfg.get('issuer_address', ''),
                       'rate_card': cfg.get('rate_card') or [], 'sites': rows,
-                      'fee_kinds': list(billing_mod.FEE_KINDS)})
+                      'fee_kinds': list(billing_mod.FEE_KINDS),
+                      # v6.1.1 (#90): payment-webhook reconciliation — never echo the secret.
+                      'billing_webhook_secret_set': bool(cfg.get('billing_webhook_secret'))})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
@@ -12146,6 +12301,12 @@ def handle_billing_config():
             cfg['reminder_days'] = max(1, min(365, int(body.get('reminder_days'))))
         except (TypeError, ValueError):
             pass
+    if 'billing_webhook_secret' in body:   # v6.1.1 (#90): '' clears, omitted preserves
+        t = str(body['billing_webhook_secret'])
+        if t != '':
+            cfg['billing_webhook_secret'] = t[:512]
+        else:
+            cfg.pop('billing_webhook_secret', None)
     if 'rate_card' in body and isinstance(body['rate_card'], list):
         card = []
         for r in body['rate_card'][:50]:
@@ -12243,7 +12404,7 @@ def handle_invoices():
                 continue
             row = {k: inv.get(k) for k in ('id', 'number', 'site_id', 'status',
                    'currency', 'vat_rate', 'subtotal', 'vat_amount', 'total',
-                   'issued_at', 'created_by', 'period', 'notes')}
+                   'issued_at', 'created_by', 'period', 'notes', 'amount_paid')}
             row['site_name'] = sites.get(inv.get('site_id'), {}).get('name', inv.get('site_id'))
             out.append(row)
         out.sort(key=lambda x: x.get('issued_at', 0), reverse=True)
@@ -12299,7 +12460,8 @@ def handle_invoices():
                      'line_items': line_items, 'snapshot_entry_ids': ws['entry_ids'],
                      'subtotal': subtotal, 'vat_amount': vat_amount, 'total': total,
                      'issued_at': now, 'created_by': actor,
-                     'notes': _sanitize_str(str(body.get('notes') or ''), 2000)})
+                     'notes': _sanitize_str(str(body.get('notes') or ''), 2000),
+                     'amount_paid': 0.0, 'payments': []})   # v6.1.1 (#90)
     # Lock the contributing entries AFTER the invoices lock (separate file lock —
     # never nest two _LockedUpdate blocks under SQLite).
     locked = 0
@@ -12395,6 +12557,73 @@ def handle_invoice_update(iid):
                     unlocked += 1
     audit_log(actor, 'invoice_update', f'id={iid} status={new_status} unlocked={unlocked}')
     respond(200, {'ok': True, 'status': new_status, 'unlocked_entries': unlocked})
+
+
+def handle_billing_payment_webhook():
+    """POST /api/billing/payment-webhook — provider-agnostic payment/refund
+    reconciliation. This is NOT a Stripe/PayPal integration (#91, blocked on
+    live processor credentials) — it's a generic authenticated sink any
+    processor's own webhook (or a thin relay script) can POST into, the same
+    "receive external POST, verify a shared secret, mutate state" shape as
+    handle_webterm_session_audit. Body: {invoice_id, amount, currency?,
+    provider?, external_ref?, kind?: 'payment'|'refund'}. Idempotent on
+    external_ref (a processor retries webhooks; the same ref is a no-op the
+    second time). Never a Stripe-signature/PayPal-cert verifier — that's
+    provider-specific hardening layered on top by whatever relays into this
+    endpoint, out of scope for a generic sink."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _billing_cfg()
+    expected = cfg.get('billing_webhook_secret', '')
+    provided = _env('HTTP_X_RP_BILLING_SECRET', '')
+    if not expected or not provided or not hmac.compare_digest(expected, provided):
+        respond(403, {'error': 'Billing webhook secret mismatch'})
+    body = get_json_obj()
+    iid = str(body.get('invoice_id') or '').strip()
+    try:
+        amount = float(body.get('amount'))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'amount must be a number'})
+    kind = str(body.get('kind') or 'payment').strip().lower()
+    if kind not in ('payment', 'refund'):
+        respond(400, {'error': "kind must be 'payment' or 'refund'"})
+    external_ref = _sanitize_str(str(body.get('external_ref') or ''), 128)
+    provider = _sanitize_str(str(body.get('provider') or ''), 64)
+    signed_amount = amount if kind == 'payment' else -abs(amount)
+
+    result = {}
+    with _LockedUpdate(INVOICES_FILE) as store:
+        inv = next((x for x in (store.get('invoices') or []) if x.get('id') == iid), None)
+        if not inv:
+            respond(404, {'error': 'invoice not found'})
+        if inv.get('status') == 'void':
+            respond(409, {'error': 'invoice is void'})
+        payments = inv.setdefault('payments', [])
+        if external_ref and any(p.get('external_ref') == external_ref for p in payments):
+            result = {'ok': True, 'duplicate': True, 'status': inv.get('status'),
+                      'amount_paid': inv.get('amount_paid', 0.0), 'total': inv.get('total')}
+        else:
+            payments.append({'amount': signed_amount, 'currency': (body.get('currency') or inv.get('currency') or ''),
+                             'provider': provider, 'external_ref': external_ref,
+                             'kind': kind, 'received_at': int(time.time())})
+            paid = round(sum(p.get('amount', 0.0) for p in payments), 2)
+            inv['amount_paid'] = paid
+            total = float(inv.get('total') or 0.0)
+            if paid <= 0:
+                if inv.get('status') in ('paid', 'partially_paid'):
+                    inv['status'] = 'sent'
+            elif paid >= total > 0:
+                inv['status'] = 'paid'
+            else:
+                inv['status'] = 'partially_paid'
+            result = {'ok': True, 'duplicate': False, 'status': inv['status'],
+                      'amount_paid': paid, 'total': total}
+    audit_log(f'billing-webhook({provider or "unknown"})', 'invoice_payment',
+             f'invoice={iid} kind={kind} amount={amount} ref={external_ref} '
+             f'dup={result.get("duplicate")} status={result.get("status")}')
+    respond(200, result)
 
 
 def _invoice_email_text(inv, site_name):
@@ -20907,6 +21136,10 @@ def handle_config_get():
     safe.setdefault('otlp_endpoint', '')
     safe.setdefault('otlp_interval', 60)
     safe['otlp_token_set'] = bool(cfg.get('otlp_token'))
+    # v6.1.1 (#48): OTLP TRACE export — separate opt-in from metrics (higher
+    # volume, per-request path data).
+    safe.setdefault('otlp_traces_enabled', False)
+    safe.setdefault('otlp_traces_interval', 30)
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
@@ -20942,6 +21175,9 @@ def handle_config_get():
     safe.setdefault('ups_auto_shutdown_enabled', False)  # v6.1.1: opt-in UPS-critical auto-shutdown
     safe.setdefault('ups_critical_battery_pct', 20)
     safe.setdefault('ups_critical_runtime_s', 180)
+    # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
+    safe.setdefault('incident_auto_promote_enabled', False)
+    safe.setdefault('incident_device_threshold', 5)
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     # v5.8.0 (B3.4): surface the gated-kinds list (+ the full offerable set) so
@@ -22391,6 +22627,15 @@ def handle_config_save():
             cfg['otlp_token'] = t[:512]
         else:
             cfg.pop('otlp_token', None)
+    # v6.1.1 (#48): OTLP/HTTP TRACE export — separate opt-in from metrics.
+    if 'otlp_traces_enabled' in body:
+        cfg['otlp_traces_enabled'] = bool(body['otlp_traces_enabled'])
+    if 'otlp_traces_interval' in body:
+        try:
+            iv = int(body['otlp_traces_interval'] or 30)
+        except (TypeError, ValueError):
+            respond(400, {'error': 'otlp_traces_interval must be an integer'})
+        cfg['otlp_traces_interval'] = max(15, min(3600, iv))
 
     # v6.1.1: UPS-critical auto-shutdown — opt-in, off by default (see
     # _ups_shutdown_dependents; also needs each dependent device's own
@@ -22409,6 +22654,15 @@ def handle_config_save():
         except (TypeError, ValueError):
             respond(400, {'error': 'ups_critical_runtime_s must be an integer'})
         cfg['ups_critical_runtime_s'] = max(0, min(3600, rt))
+    # v6.1.1 (#53): incident auto-promotion.
+    if 'incident_auto_promote_enabled' in body:
+        cfg['incident_auto_promote_enabled'] = bool(body['incident_auto_promote_enabled'])
+    if 'incident_device_threshold' in body:
+        try:
+            th = int(body['incident_device_threshold'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'incident_device_threshold must be an integer'})
+        cfg['incident_device_threshold'] = max(2, min(1000, th))
     # v3.7.0: change approval (maker-checker)
     if 'change_approval_enabled' in body:
         cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
@@ -22816,6 +23070,19 @@ def handle_config_save():
     # {group_name: role_name}; role_name is any builtin or custom role. Sanitised +
     # bounded; unknown roles are ignored at resolve time (_role_from_groups).
     if 'sso_group_roles' in body:
+        # v6.1.1 (#16 follow-up): sso_group_roles is a single INSTANCE-WIDE map
+        # (one shared IdP for the whole deployment, api.py's _saml_cfg/OIDC
+        # config confirm there's no per-tenant IdP) — handle_config_save was
+        # gated only on plain require_admin_auth(), so any tenant's own admin
+        # could silently overwrite the role mapping for every OTHER tenant's
+        # SSO users too. Same bug class as the apikey tenant-resolution fix
+        # earlier this session. _caller_is_superadmin() is a no-op restriction
+        # in the common single-tenant deployment (every admin resolves to the
+        # default tenant there), so this only bites multi-tenant installs.
+        if not _caller_is_superadmin():
+            respond(403, {'error': "sso_group_roles is an instance-wide setting affecting "
+                                   "every tenant's SSO users — only a platform "
+                                   "superadmin can change it"})
         raw = body.get('sso_group_roles')
         clean = {}
         if isinstance(raw, dict):
@@ -38486,6 +38753,10 @@ def _incident_public(inc, *, admin):
     }
     if admin:
         out['id'] = inc.get('id')
+        if inc.get('auto_promoted'):   # v6.1.1 (#53)
+            out['auto_promoted'] = True
+            out['root_event'] = inc.get('root_event', '')
+            out['device_ids'] = inc.get('device_ids') or []
     return out
 
 
@@ -44232,6 +44503,121 @@ def _annotate_alert_correlation(alerts):
         elif a.get('event') in ALERT_SYMPTOM_EVENTS and _is_open(a):
             a['_symptom_of'] = roots[did]
     return alerts
+
+
+# v6.1.1 (#53): opt-in auto-promotion of a cross-device alert storm into a
+# first-class incident object. _annotate_alert_correlation above folds
+# per-HOST root-cause/symptom alerts for display; this is the orthogonal
+# axis it doesn't cover — the SAME open event firing on many DIFFERENT
+# devices at once (a network outage, a bad driver batch, a mis-shipped
+# config). Mirrors the existing manual alert->ticket conversion
+# (tickets_handlers.py, body.alert_id) in spirit — promote + link back +
+# auto-clear — but for the fleet-wide status-page incident object instead
+# of a single ticket.
+def _incident_impact_from_severity(sev):
+    return 'major' if sev in ('critical', 'high') else 'minor'
+
+
+def _auto_promote_incident_for_cluster(event, alert_ids, device_ids, actor):
+    """Open ONE incident for a cross-device alert cluster and stamp
+    `incident_id` on every alert in it so it isn't picked up again next
+    sweep. Two separate _LockedUpdate blocks, never nested (INCIDENTS_FILE
+    then ALERTS_FILE) — see CLAUDE.md's self-locking-helpers rule."""
+    spec = EVENT_REGISTRY.get(event) or {}
+    sev = spec.get('severity') or 'high'
+    label = spec.get('title') or event.replace('_', ' ').title()
+    now = int(time.time())
+    iid = 'inc_' + secrets.token_hex(5)
+    rec = {'id': iid, 'title': f'{label} — {len(device_ids)} devices affected'[:160],
+           'impact': _incident_impact_from_severity(sev), 'status': 'investigating',
+           'created_at': now, 'updated_at': now,
+           'updates': [{'ts': now, 'status': 'investigating',
+                        'body': f'Auto-opened: {len(device_ids)} devices reported '
+                                f'"{label}" at the same time.'}],
+           'auto_promoted': True, 'root_event': event,
+           'alert_ids': list(alert_ids), 'device_ids': list(device_ids)}
+    with _LockedUpdate(INCIDENTS_FILE) as store:
+        incs = store.setdefault('incidents', [])
+        if len(incs) >= 500:
+            return None
+        incs.append(rec)
+    with _LockedUpdate(ALERTS_FILE) as astore:
+        ids = set(alert_ids)
+        for a in (astore.get('alerts') or []):
+            if a.get('id') in ids:
+                a['incident_id'] = iid
+    audit_log(actor, 'incident_auto_promote',
+             f'id={iid} event={event} devices={len(device_ids)}')
+    try:
+        _notify_incident_subscribers(rec, load(CONFIG_FILE) or {}, event='created')
+    except Exception:
+        pass
+    return iid
+
+
+def _maybe_auto_resolve_promoted_incidents():
+    """Resolve an open auto-promoted incident once every alert that drove it
+    has cleared (resolved_at set) — mirrors the manual ticket-conversion
+    auto-ack pattern, for incidents instead of tickets."""
+    alerts = (load(ALERTS_FILE) or {}).get('alerts') or []
+    by_id = {a.get('id'): a for a in alerts}
+    with _LockedUpdate(INCIDENTS_FILE) as store:
+        for inc in (store.get('incidents') or []):
+            if not inc.get('auto_promoted') or inc.get('status') == 'resolved':
+                continue
+            ids = inc.get('alert_ids') or []
+            if not ids:
+                continue
+            if all(by_id.get(i) is None or by_id[i].get('resolved_at') for i in ids):
+                now = int(time.time())
+                inc['status'] = 'resolved'
+                inc['updated_at'] = now
+                inc.setdefault('updates', []).append(
+                    {'ts': now, 'status': 'resolved',
+                     'body': 'Auto-resolved — every alert in this cluster cleared.'})
+
+
+def run_incident_promotion_if_due():
+    """Per-request sweep (main()'s cadence, mirrors run_monitors_if_due):
+    open (or resolve) auto-promoted incidents for cross-device alert
+    clusters. Opt-in, off by default on TWO axes would be overkill here
+    (unlike UPS auto-shutdown this has no destructive blast radius — an
+    incident is just a status-page announcement) so a single config flag
+    gates it."""
+    cfg = _config_ro()
+    if not cfg.get('incident_auto_promote_enabled'):
+        return
+    now = int(time.time())
+    try:
+        with _LockedUpdate(INCIDENT_PROMOTE_STATE_FILE) as st:
+            if now - int(st.get('last_run', 0)) < 60:
+                return
+            st['last_run'] = now
+    except Exception:
+        return
+    try:
+        threshold = max(2, int(cfg.get('incident_device_threshold') or 5))
+    except (TypeError, ValueError):
+        threshold = 5
+    alerts = (load(ALERTS_FILE) or {}).get('alerts') or []
+    clusters = {}
+    for a in alerts:
+        if a.get('resolved_at') or a.get('incident_id') or not a.get('device_id'):
+            continue
+        c = clusters.setdefault(a.get('event'), {'alert_ids': [], 'device_ids': set()})
+        c['alert_ids'].append(a['id'])
+        c['device_ids'].add(a['device_id'])
+    for event, c in clusters.items():
+        if len(c['device_ids']) >= threshold:
+            try:
+                _auto_promote_incident_for_cluster(
+                    event, c['alert_ids'], sorted(c['device_ids']), 'incident-auto-promote')
+            except Exception as e:
+                sys.stderr.write(f'[remotepower] incident auto-promote failed: {e}\n')
+    try:
+        _maybe_auto_resolve_promoted_incidents()
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] incident auto-resolve failed: {e}\n')
 
 
 # v5.8.0 (B1.2): map an alert's `event` to a mitigation playbook kind so the
@@ -55258,6 +55644,7 @@ def _build_exact_routes():
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
         ('POST', '/api/otlp/test'): handle_otlp_test,
+        ('POST', '/api/otlp/traces-test'): handle_otlp_traces_test,
         ('GET', '/api/push/vapid'): handle_push_vapid,            # v3.14.0 #42
         ('POST', '/api/push/subscribe'): handle_push_subscribe,
         ('POST', '/api/push/unsubscribe'): handle_push_unsubscribe,
@@ -55328,6 +55715,7 @@ def _build_exact_routes():
         ('POST', '/api/timesheet/watchers'): handle_timesheet_watchers,
         ('GET', '/api/billing/config'): handle_billing_config,
         ('POST', '/api/billing/config'): handle_billing_config,
+        ('POST', '/api/billing/payment-webhook'): handle_billing_payment_webhook,
         ('GET', '/api/billing/worksheet'): handle_billing_worksheet,
         ('GET', '/api/invoices'): handle_invoices,
         ('POST', '/api/invoices'): handle_invoices,
@@ -56370,6 +56758,7 @@ def main():
     _safe(run_cve_campaign_sample_if_due, 'run_cve_campaign_sample_if_due')  # W2-35 campaign burn-down
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
+    _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v5.8.0: periodic TLS/DANE expiry re-probe (was cron-only — see the sweep).

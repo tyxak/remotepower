@@ -2036,6 +2036,14 @@
             <div class="settings-row"><label class="form-label" for="cfg-ups-critical-runtime-s">Critical runtime threshold (seconds, 0 to disable)</label><input type="number" id="cfg-ups-critical-runtime-s" class="form-input mw-160" min="0" max="3600" value="180"></div>
           </div>
 
+          <!-- v6.1.1 (#53): alert-storm auto-promotion to a status-page incident -->
+          <div class="settings-section">
+            <div class="section-title">Incident auto-promotion</div>
+            <p class="hint">When the SAME alert fires on at least this many devices at once (a network outage, a bad driver batch, a mis-shipped config), automatically open a status-page incident pre-filled from the cluster, and auto-resolve it once every alert in it clears. This is the cross-device axis the per-host root-cause folding on the Alerts page doesn't cover. <strong>Off by default.</strong></p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-incident-auto-promote-enabled"> Auto-open an incident for a cross-device alert storm</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-incident-device-threshold">Device threshold</label><input type="number" id="cfg-incident-device-threshold" class="form-input mw-160" min="2" max="1000" value="5"></div>
+          </div>
+
           <!-- v3.12.0: host-audit toggle (listening ports + firewall drift) -->
           <div class="settings-section">
             <div class="section-title">Listening-port &amp; firewall audit</div>
@@ -2185,6 +2193,13 @@
             <div class="settings-row"><label class="form-label" for="cfg-otlp-token">Bearer token</label>
               <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-otlp-token" class="form-input" placeholder="optional bearer token" autocomplete="off"></form></div>
             <div class="settings-row"><button class="btn-secondary" data-action="testOtlp">Push metrics now</button></div>
+            <!-- v6.1.1 (#48): OTLP TRACE export — the persistent-app-tier blocker this
+                 was previously gated on shipped as v6.1.0's WSGI/gunicorn cutover. -->
+            <p class="hint mt-12">Also export a distributed-tracing <strong>span per HTTP request</strong> (method, path template, status, duration, joined to the same W3C <code>traceparent</code> trace-id already in the logs/webhooks) to the same collector's <code>/v1/traces</code> endpoint. Separate opt-in from the metrics above — higher volume, per-request path data.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-traces-enabled"> Enable OTLP trace export</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-traces-interval">Min flush interval (seconds)</label>
+              <input type="number" id="cfg-otlp-traces-interval" class="form-input mw-160" min="15" max="3600" placeholder="30"></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testOtlpTraces">Push spans now</button></div>
           </div>
 
           <!-- v3.14.0 #42: browser push notifications (admin enable) -->

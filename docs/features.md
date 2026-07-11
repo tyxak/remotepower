@@ -399,7 +399,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Per-site (customer) reports | Same report scoped to one site; RBAC-scoped *(v4.10.0)* |
 | SLA / uptime reporting | Per-device + per-group uptime % over 7/30/90d *(v3.4.1)* |
 | Print / Save as PDF | Self-contained posture report for native print/PDF *(v3.4.2)* |
-| Public status page | Standalone `status.html` (no login) via status token *(v3.4.1)*; **operator-posted incidents** (title / impact / status with a running update log, above the component list) + optional subscriber emails on open/resolve. `GET/POST /api/incidents` *(v6.0.0)* |
+| Public status page | Standalone `status.html` (no login) via status token *(v3.4.1)*; **operator-posted incidents** (title / impact / status with a running update log, above the component list) + optional subscriber emails on open/resolve. `GET/POST /api/incidents` *(v6.0.0)*; opt-in **auto-promotion** — a single alert firing on N-or-more devices at once (Settings → Security → Incident auto-promotion) auto-opens an incident pre-filled from the cluster and auto-resolves it once every alert in it clears *(v6.1.1)* |
 | Status endpoint | `/api/status` machine-readable fleet summary (status token) *(v2.4.7)* |
 | iCal feed | `/api/schedule.ics` — scheduled jobs + maintenance windows, recurring as RRULEs *(v3.4.1)* |
 
@@ -500,7 +500,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.5.0)* |
 | Postman collection | `make postman` → a Postman v2.1 collection from the OpenAPI spec (foldered by tag, auth + baseUrl pre-wired) *(v5.5.0)* |
 | Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.5.0)* |
-| Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.5.0)* |
+| Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.5.0)*; real OTLP span export (one span per request, `POST <collector>/v1/traces`, separate opt-in from OTLP metrics, Settings → Security) *(v6.1.1)* |
 | Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.5.0)* |
 | List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.5.0)* |
 | Signed exports | Evidence pack carries an HMAC-SHA256 `signature`; audit-archive download emits `X-RP-Signature` (per-install `export_sign.key`) *(v5.5.0)* |

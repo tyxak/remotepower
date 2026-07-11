@@ -895,6 +895,161 @@ class TestAlertEvents(_HandlerBase):
         self.assertIn('disk_predict_fail', fired)
 
 
+class TestIncidentAutoPromotion(_HandlerBase):
+    """v6.1.1 (#53): opt-in cross-device alert-storm -> status-page incident
+    auto-promotion + auto-resolve. _annotate_alert_correlation folds per-HOST
+    root-cause; this covers the orthogonal cross-device axis (same event,
+    many different devices) it doesn't."""
+
+    def setUp(self):
+        super().setUp()
+        self._extra_files = {}
+        for attr in ('ALERTS_FILE', 'INCIDENTS_FILE', 'INCIDENT_PROMOTE_STATE_FILE'):
+            self._extra_files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api.save(api.INCIDENTS_FILE, {'incidents': []})
+
+    def tearDown(self):
+        for attr, v in self._extra_files.items():
+            setattr(api, attr, v)
+        super().tearDown()
+
+    def _seed_alerts(self, event, n, *, resolved=False, incident_id=None):
+        alerts = api.load(api.ALERTS_FILE) or {'alerts': []}
+        ids = []
+        for i in range(n):
+            aid = f'a-{event}-{i}'
+            ids.append(aid)
+            a = {'id': aid, 'event': event, 'device_id': f'dev{i}', 'device_name': f'dev{i}',
+                'severity': 'critical', 'resolved_at': (1 if resolved else None)}
+            if incident_id:
+                a['incident_id'] = incident_id
+            alerts['alerts'].append(a)
+        api.save(api.ALERTS_FILE, alerts)
+        return ids
+
+    def test_config_roundtrip(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'incident_auto_promote_enabled': True,
+                                     'incident_device_threshold': 3}
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertTrue(cfg['incident_auto_promote_enabled'])
+        self.assertEqual(cfg['incident_device_threshold'], 3)
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        self.assertTrue(got['incident_auto_promote_enabled'])
+
+    def test_disabled_by_default_no_promotion(self):
+        api.save(api.CONFIG_FILE, {})   # incident_auto_promote_enabled unset -> off
+        self._seed_alerts('device_offline', 6)
+        api.run_incident_promotion_if_due()
+        self.assertEqual((api.load(api.INCIDENTS_FILE) or {}).get('incidents', []), [])
+
+    def test_below_threshold_no_promotion(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 5})
+        self._seed_alerts('monitor_down', 3)   # below threshold
+        api.run_incident_promotion_if_due()
+        self.assertEqual((api.load(api.INCIDENTS_FILE) or {}).get('incidents', []), [])
+
+    def test_cluster_crosses_threshold_creates_incident_and_links_alerts(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 3})
+        ids = self._seed_alerts('service_down', 4)
+        api.run_incident_promotion_if_due()
+        incs = (api.load(api.INCIDENTS_FILE) or {}).get('incidents', [])
+        self.assertEqual(len(incs), 1)
+        inc = incs[0]
+        self.assertTrue(inc['auto_promoted'])
+        self.assertEqual(inc['root_event'], 'service_down')
+        self.assertEqual(sorted(inc['device_ids']), sorted(f'dev{i}' for i in range(4)))
+        self.assertEqual(inc['status'], 'investigating')
+        alerts = (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
+        for a in alerts:
+            self.assertEqual(a['id'] in ids, a.get('incident_id') == inc['id'])
+
+    def test_already_linked_alerts_not_re_promoted(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 2})
+        self._seed_alerts('service_down', 3, incident_id='inc_existing')
+        api.run_incident_promotion_if_due()
+        # every alert already carries an incident_id -> nothing new-linked to promote
+        self.assertEqual((api.load(api.INCIDENTS_FILE) or {}).get('incidents', []), [])
+
+    def test_interval_gate_prevents_immediate_double_run(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 2})
+        self._seed_alerts('service_down', 3)
+        api.run_incident_promotion_if_due()
+        self.assertEqual(len(api.load(api.INCIDENTS_FILE)['incidents']), 1)
+        self._seed_alerts('mailq_high', 3)   # a second, distinct cluster
+        api.run_incident_promotion_if_due()   # gated out — ran <60s ago
+        self.assertEqual(len(api.load(api.INCIDENTS_FILE)['incidents']), 1)
+
+    def test_auto_resolves_when_every_linked_alert_clears(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 2})
+        ids = self._seed_alerts('service_down', 3)
+        api.run_incident_promotion_if_due()
+        inc = api.load(api.INCIDENTS_FILE)['incidents'][0]
+        self.assertEqual(inc['status'], 'investigating')
+        # clear every linked alert, then bypass the interval gate directly
+        alerts = api.load(api.ALERTS_FILE)
+        for a in alerts['alerts']:
+            if a['id'] in ids:
+                a['resolved_at'] = int(api.time.time())
+        api.save(api.ALERTS_FILE, alerts)
+        api._maybe_auto_resolve_promoted_incidents()
+        inc = api.load(api.INCIDENTS_FILE)['incidents'][0]
+        self.assertEqual(inc['status'], 'resolved')
+
+    def test_partial_clear_does_not_resolve(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 2})
+        ids = self._seed_alerts('service_down', 3)
+        api.run_incident_promotion_if_due()
+        alerts = api.load(api.ALERTS_FILE)
+        alerts['alerts'][0]['resolved_at'] = int(api.time.time())   # only ONE of three
+        api.save(api.ALERTS_FILE, alerts)
+        api._maybe_auto_resolve_promoted_incidents()
+        inc = api.load(api.INCIDENTS_FILE)['incidents'][0]
+        self.assertEqual(inc['status'], 'investigating')
+
+    def test_incident_public_exposes_auto_fields_for_admin_only(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 2})
+        self._seed_alerts('service_down', 3)
+        api.run_incident_promotion_if_due()
+        inc = api.load(api.INCIDENTS_FILE)['incidents'][0]
+        admin_view = api._incident_public(inc, admin=True)
+        self.assertTrue(admin_view['auto_promoted'])
+        self.assertEqual(admin_view['root_event'], 'service_down')
+        public_view = api._incident_public(inc, admin=False)
+        self.assertNotIn('auto_promoted', public_view)
+        self.assertNotIn('device_ids', public_view)
+
+    def test_manually_posted_incident_has_no_auto_fields(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'title': 'Planned maintenance'}
+        r = self.call(api.handle_incidents)
+        self.assertTrue(r['ok'])
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_incidents)
+        self.assertNotIn('auto_promoted', got['incidents'][0])
+
+    def test_handle_incidents_list_surfaces_auto_promoted(self):
+        api.save(api.CONFIG_FILE, {'incident_auto_promote_enabled': True,
+                                   'incident_device_threshold': 2})
+        self._seed_alerts('service_down', 3)
+        api.run_incident_promotion_if_due()
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_incidents)
+        self.assertEqual(len(got['incidents']), 1)
+        self.assertTrue(got['incidents'][0]['auto_promoted'])
+
+
 class TestUpsCriticalShutdown(_HandlerBase):
     """v6.1.1 (#76): threshold-based ups_critical alert + opt-in auto-shutdown
     of devices that depend on the UPS that went critical."""
@@ -1820,6 +1975,143 @@ class TestOtlpExport(_HandlerBase):
         self.assertEqual(self.cap['s'], 400)
 
 
+class TestOtlpTraceExport(_HandlerBase):
+    """v6.1.1 (#48) — real OTLP span export. The original blocker ("gated on
+    the future persistent app tier") is stale: that tier shipped as v6.1.0's
+    WSGI/gunicorn cutover, which is what makes a per-worker in-memory span
+    buffer safe (see api._otlp_record_span's docstring)."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_post = api._siem_post
+        self.posts = []
+        api._siem_post = lambda url, data, headers, cfg: self.posts.append((url, data, headers))
+        api._OTLP_SPAN_BUFFER.clear()
+        api._OTLP_SPAN_STATE['last_flush'] = api.time.time()   # "just flushed" — not immediately due
+
+    def tearDown(self):
+        api._siem_post = self._orig_post
+        api._OTLP_SPAN_BUFFER.clear()
+        api._OTLP_SPAN_STATE['last_flush'] = 0.0
+        super().tearDown()
+
+    def test_endpoint_appends_traces_path(self):
+        self.assertEqual(api._otlp_traces_endpoint('http://c:4318'), 'http://c:4318/v1/traces')
+        self.assertEqual(api._otlp_traces_endpoint('http://c:4318/v1/traces'),
+                         'http://c:4318/v1/traces')
+        self.assertEqual(api._otlp_traces_endpoint(''), '')
+
+    def test_route_template_collapses_id_segments(self):
+        self.assertEqual(api._otlp_route_template('/api/devices/abcd1234ef/checks'),
+                         '/api/devices/:id/checks')
+        self.assertEqual(api._otlp_route_template('/api/tickets/42'), '/api/tickets/:id')
+        self.assertEqual(api._otlp_route_template('/api/devices'), '/api/devices')
+
+    def test_payload_is_spec_shaped(self):
+        span = {'trace_id': 'a' * 32, 'span_id': 'b' * 16, 'name': 'GET /api/devices',
+                'start_time_unix_nano': '1700000000000000000',
+                'end_time_unix_nano': '1700000000010000000',
+                'attributes': [], 'status_code': 0}
+        p = api._otlp_traces_payload([span], {})
+        s = p['resourceSpans'][0]['scopeSpans'][0]['spans'][0]
+        self.assertEqual(s['traceId'], 'a' * 32)
+        self.assertEqual(s['spanId'], 'b' * 16)
+        self.assertEqual(s['kind'], 2)   # SERVER
+        self.assertEqual(s['startTimeUnixNano'], '1700000000000000000')   # strings, not ints
+        self.assertEqual(s['status']['code'], 0)
+
+    def test_record_span_noop_when_disabled(self):
+        api.save(api.CONFIG_FILE, {})
+        api._otlp_record_span('GET', '/api/devices', 200, api.time.time_ns())
+        self.assertEqual(len(api._OTLP_SPAN_BUFFER), 0)
+        self.assertEqual(self.posts, [])
+
+    def test_record_span_buffers_when_enabled_but_metrics_off(self):
+        # both otlp_enabled (transport) AND otlp_traces_enabled (opt-in) are
+        # required — metrics-only config must not also turn on trace export.
+        api.save(api.CONFIG_FILE, {'otlp_enabled': False, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318'})
+        api._otlp_record_span('GET', '/api/devices', 200, api.time.time_ns())
+        self.assertEqual(len(api._OTLP_SPAN_BUFFER), 0)
+
+    def test_record_span_buffers_then_flushes_on_interval(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318', 'otlp_traces_interval': 3600})
+        start = api.time.time_ns()
+        api._otlp_record_span('GET', '/api/devices', 200, start)
+        self.assertEqual(len(api._OTLP_SPAN_BUFFER), 1)
+        self.assertEqual(self.posts, [])   # not due yet
+        api._OTLP_SPAN_STATE['last_flush'] = 0.0   # force due
+        api._otlp_record_span('POST', '/api/shutdown', 500, start)
+        self.assertEqual(len(self.posts), 1)
+        self.assertEqual(self.posts[0][0], 'http://c:4318/v1/traces')
+        self.assertEqual(len(api._OTLP_SPAN_BUFFER), 0)   # buffer cleared after flush
+
+    def test_error_status_maps_to_error_code(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318', 'otlp_traces_interval': 3600})
+        api._OTLP_SPAN_STATE['last_flush'] = 0.0
+        api._otlp_record_span('GET', '/api/x', 503, api.time.time_ns())
+        self.assertEqual(len(self.posts), 1)
+        body = api.json.loads(self.posts[0][1])
+        span = body['resourceSpans'][0]['scopeSpans'][0]['spans'][0]
+        self.assertEqual(span['status']['code'], 2)   # ERROR
+
+    def test_record_span_never_raises(self):
+        # a broken _siem_post must not break the request it's attached to.
+        api._siem_post = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom'))
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318', 'otlp_traces_interval': 3600})
+        api._OTLP_SPAN_STATE['last_flush'] = 0.0
+        api._otlp_record_span('GET', '/api/x', 200, api.time.time_ns())   # must not raise
+
+    def test_buffer_caps_and_does_not_grow_unbounded(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318', 'otlp_traces_interval': 3600})
+        for _ in range(api._OTLP_SPAN_MAX_BUFFER + 50):
+            api._otlp_record_span('GET', '/api/x', 200, api.time.time_ns())
+        self.assertLessEqual(len(api._OTLP_SPAN_BUFFER), api._OTLP_SPAN_MAX_BUFFER)
+
+    def test_config_roundtrip(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'otlp_traces_enabled': True, 'otlp_traces_interval': 5}
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertTrue(cfg['otlp_traces_enabled'])
+        self.assertEqual(cfg['otlp_traces_interval'], 15)   # clamped up to floor
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        self.assertTrue(got['otlp_traces_enabled'])
+
+    def test_traces_test_endpoint_requires_enabled(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True})   # traces not enabled
+        api.method = lambda: 'POST'
+        self.call(api.handle_otlp_traces_test)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_traces_test_endpoint_sends_synthetic_span_when_buffer_empty(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318'})
+        api.method = lambda: 'POST'
+        r = self.call(api.handle_otlp_traces_test)
+        self.assertTrue(r['ok'])
+        self.assertEqual(len(self.posts), 1)
+
+    def test_traces_test_endpoint_flushes_real_buffered_spans(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_traces_enabled': True,
+                                   'otlp_endpoint': 'http://c:4318', 'otlp_traces_interval': 3600})
+        api._otlp_record_span('GET', '/api/devices', 200, api.time.time_ns())
+        self.assertEqual(self.posts, [])
+        api.method = lambda: 'POST'
+        r = self.call(api.handle_otlp_traces_test)
+        self.assertTrue(r['ok'])
+        self.assertIn('1 span', r['message'])
+
+    def test_route_registered(self):
+        self.assertIs(api._build_exact_routes()[('POST', '/api/otlp/traces-test')],
+                      api.handle_otlp_traces_test)
+
+
 class TestReleaseChannels(_HandlerBase):
     """v3.14.0 #38 — agent release channels (inert until a beta binary ships)."""
 
@@ -2541,6 +2833,54 @@ class TestApiKeyTenantIsolation(_HandlerBase):
         api.method = lambda: 'GET'
         out = self.call(api.handle_apikeys_list)
         self.assertEqual({k['id'] for k in out}, {'kd', 'ka'})
+
+
+class TestSsoGroupRolesTenantGate(_HandlerBase):
+    """docs/master-improvement-scoping-internal.md #16 follow-up -- a second
+    real cross-tenant bypass the SSO-tenant-dimension investigation surfaced
+    (not the apikey one already fixed above): handle_config_save gated
+    sso_group_roles on plain require_admin_auth(), so any TENANT admin could
+    silently overwrite the single INSTANCE-WIDE SSO group->role map, changing
+    login outcomes for every OTHER tenant's SSO users too. Fixed with a
+    _caller_is_superadmin() check scoped to just this one config key --
+    every other config field's gate is unchanged."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active'}})
+
+    def _save(self, mapping):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'sso_group_roles': mapping}
+        return self.call(api.handle_config_save)
+
+    def test_tenant_admin_cannot_change_instance_wide_map(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'tenant_id': 'acme'}})
+        r = self._save({'engineers': 'admin'})
+        self.assertEqual(self.cap['s'], 403)
+        self.assertNotIn('sso_group_roles', api.load(api.CONFIG_FILE) or {})
+
+    def test_superadmin_can_change_it(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'tenant_id': 'default'}})
+        r = self._save({'engineers': 'admin'})
+        self.assertTrue(r['ok'])
+        self.assertEqual(api.load(api.CONFIG_FILE)['sso_group_roles'], {'engineers': 'admin'})
+
+    def test_single_tenant_deployment_unaffected(self):
+        # the common case: no USERS_FILE tenant_id at all -> falls back to
+        # DEFAULT_TENANT for everyone, so the gate is a transparent no-op.
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin'}})
+        r = self._save({'engineers': 'admin'})
+        self.assertTrue(r['ok'])
+
+    def test_other_config_fields_unaffected_by_tenant_admin(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'tenant_id': 'acme'}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'otlp_enabled': True}   # no sso_group_roles key
+        r = self.call(api.handle_config_save)
+        self.assertTrue(r['ok'])
+        self.assertTrue(api.load(api.CONFIG_FILE)['otlp_enabled'])
 
 
 class TestProxmoxLifecycle(_HandlerBase):

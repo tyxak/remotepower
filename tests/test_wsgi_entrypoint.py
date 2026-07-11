@@ -70,6 +70,40 @@ class TestWsgiEntrypoint(unittest.TestCase):
         self.assertNotEqual(resp.status_code, 405)
         self.assertEqual(resp.content_type, "application/json")
 
+    def test_span_recorded_for_real_request(self):
+        # v6.1.1 (#48): confirm the wsgi.py _run_request hook actually wires
+        # up end-to-end through a real Flask test-client request — not just
+        # api._otlp_record_span in isolation (test_v3140.TestOtlpTraceExport
+        # covers that unit). A request is made whether or not it reaches an
+        # authenticated handler (this one 401s), so the span must still be
+        # recorded regardless of status code.
+        import importlib.util
+        import os
+        import sys
+        import tempfile
+
+        os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-wsgi-span-test-"))
+        sys.path.insert(0, str(_CGI))
+        spec = importlib.util.spec_from_file_location("wsgi_span_test", _CGI / "wsgi.py")
+        wsgi = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wsgi)
+
+        posts = []
+        wsgi.api._siem_post = lambda url, data, headers, cfg: posts.append((url, data, headers))
+        wsgi.api.save(wsgi.api.CONFIG_FILE, {
+            'otlp_enabled': True, 'otlp_traces_enabled': True,
+            'otlp_endpoint': 'http://collector:4318', 'otlp_traces_interval': 15,
+        })
+        client = wsgi.application.test_client()
+        resp = client.get("/api/devices")
+        self.assertEqual(resp.status_code, 401)   # unauthenticated — span still recorded
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(posts[0][0], 'http://collector:4318/v1/traces')
+        import json as _json
+        span = _json.loads(posts[0][1])['resourceSpans'][0]['scopeSpans'][0]['spans'][0]
+        self.assertEqual(span['name'], 'GET /api/devices')
+        self.assertEqual(span['attributes'][2]['value']['intValue'], '401')
+
     def test_api_py_still_directly_executable(self):
         # api.py must keep its __main__ entry block and stay importable — the
         # WSGI app imports it once per worker, and tools like cve_scan_runner.py

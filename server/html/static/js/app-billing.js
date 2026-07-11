@@ -563,7 +563,7 @@ async function _billingInvoices() {
   const invs = (r && r.invoices) || [];
   const statusBadge = s => {
     const cls = s === 'paid' ? 'ok' : (s === 'void' ? '' : 'warn');
-    return `<span class="patch-badge ${cls} fs-11">${escHtml(s)}</span>`;
+    return `<span class="patch-badge ${cls} fs-11">${escHtml(s === 'partially_paid' ? 'partially paid' : s)}</span>`;
   };
   const rows = invs.length ? invs.map(inv => {
     const per = (inv.period && (inv.period.from || inv.period.to)) ? (escHtml(inv.period.from || '') + ' → ' + escHtml(inv.period.to || '')) : '—';
@@ -573,11 +573,13 @@ async function _billingInvoices() {
       <button class="btn-icon cell-sm" data-action="invoiceSetStatus" data-arg="${escAttr(inv.id)}" data-arg2="sent" title="Mark sent">Sent</button>
       <button class="btn-icon cell-sm" data-action="invoiceSetStatus" data-arg="${escAttr(inv.id)}" data-arg2="paid" title="Mark paid">Paid</button>
       <button class="btn-icon cell-sm c-danger-outline" data-action="invoiceVoid" data-arg="${escAttr(inv.id)}" title="Void (frees its hours to re-bill)">Void</button>` : '';
+    const paidNote = (inv.amount_paid > 0 && inv.amount_paid < inv.total)
+      ? ` <span class="c-muted fs-11">(${_bMoney(inv.amount_paid, inv.currency)} received)</span>` : '';
     return `<tr>
       <td class="fw-600">${escHtml(inv.number || '')}</td>
       <td>${escHtml(inv.site_name || inv.site_id || '')}</td>
       <td>${per}</td>
-      <td class="num">${_bMoney(inv.total, inv.currency)}</td>
+      <td class="num">${_bMoney(inv.total, inv.currency)}${paidNote}</td>
       <td>${statusBadge(inv.status)}</td>
       <td><div class="row-6">
         <button class="btn-icon cell-sm" data-action="invoiceView" data-arg="${escAttr(inv.id)}" title="View / print">${_bIcon('eye', 13)}</button>
@@ -694,6 +696,14 @@ async function _billingRates() {
       <div class="section-title">Per-customer rates &amp; recurring fees</div>
       <div class="form-group"><label class="form-label">Customer (site)</label><select id="bc-site" class="form-input">${siteOpts}</select></div>
       <div id="bc-site-cfg"></div>
+    </div>
+    <div class="dash-card mt-16">
+      <div class="section-title">Payment webhook</div>
+      <p class="hint">A generic, provider-agnostic sink for payment reconciliation — NOT a Stripe/PayPal integration. Point your payment processor's own webhook (or a thin relay script) at the URL below with header <code>X-RP-Billing-Secret: &lt;secret&gt;</code> and a JSON body <code>{invoice_id, amount, kind: "payment"|"refund", external_ref?, provider?}</code>. Marks the invoice <code>partially_paid</code>/<code>paid</code> as payments accumulate; idempotent on <code>external_ref</code> (safe against processor webhook retries).</p>
+      <div class="form-group"><label class="form-label">Webhook URL</label><input id="bc-webhook-url" class="form-input ff-mono" readonly value="${escAttr(location.origin + '/api/billing/payment-webhook')}"></div>
+      <div class="form-group"><label class="form-label" for="bc-webhook-secret">Shared secret</label>
+        <form autocomplete="off" data-csp-pw-form><input type="password" id="bc-webhook-secret" class="form-input" placeholder="${r.billing_webhook_secret_set ? '•••••• (set — leave blank to keep)' : 'set a shared secret to enable the webhook'}" autocomplete="off" ${readonly ? 'disabled' : ''}></form>
+        <span class="hint">Saved by the "Save global + rate card" button above.</span></div>
     </div>`;
   const sel = document.getElementById('bc-site');
   if (sel) sel.onchange = () => _renderSiteCfg(sel.value);
@@ -729,6 +739,8 @@ async function saveBillingGlobals() {
     reminder_days: parseInt(document.getElementById('bc-reminder-days')?.value || '14', 10) || 14,
     rate_card: card,
   };
+  const _whSecret = document.getElementById('bc-webhook-secret')?.value;
+  if (_whSecret) body.billing_webhook_secret = _whSecret;
   const r = await api('POST', '/billing/config', body);
   if (r && r.ok) { toast('Billing config saved', 'success'); window._bRateCard = card; }
   else toast((r && r.error) || 'Failed', 'error');

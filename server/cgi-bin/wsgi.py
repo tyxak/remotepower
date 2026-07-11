@@ -34,6 +34,7 @@ so gunicorn's existing ``wsgi:application`` target keeps working unchanged.
 """
 import io
 import sys
+import time
 
 from flask import Flask, Response, request
 
@@ -170,6 +171,7 @@ def _run_request(environ):
     """Run api.main() against a WSGI environ, exactly as the pre-Flask bridge
     did, and return (status, headers, body) — the CGI-response triple."""
     _ensure_stdout_proxy()
+    _span_start_ns = time.time_ns()   # v6.1.1 (#48): OTLP trace span timing
     try:
         n = int(environ.get('CONTENT_LENGTH') or 0)
     except (TypeError, ValueError):
@@ -207,6 +209,20 @@ def _run_request(environ):
             out_text.flush()
         except Exception:
             pass
+        status, headers, body = _parse_cgi_response(out.getvalue())
+        try:
+            # v6.1.1 (#48): one OTLP span per request. Cheap no-op when trace
+            # export is off (api._otlp_record_span's own config check), but
+            # even the "off" check calls api._config_ro(), which WARMS
+            # api._LOAD_CACHE — this must run BEFORE api._end_request()
+            # (in `finally` below) clears it, or the cache leaks into the
+            # next request (test_v600_wsgi.test_no_load_cache_leak_between_
+            # requests caught exactly this on the first draft).
+            api._otlp_record_span(environ.get('REQUEST_METHOD', ''),
+                                  environ.get('PATH_INFO', '') or '/',
+                                  int(status.split(' ', 1)[0]), _span_start_ns)
+        except Exception:
+            pass
     finally:
         try:
             api._end_request()
@@ -222,7 +238,7 @@ def _run_request(environ):
             except Exception:
                 pass
 
-    return _parse_cgi_response(out.getvalue())
+    return status, headers, body
 
 
 _ALL_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
