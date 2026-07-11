@@ -4295,7 +4295,17 @@ def _ip_ratelimit(scope: str, ip: str, max_per_window: int, window: int = 60) ->
 # v5.0.0 (#C4): per-API-key rate limiting. A leaked key can otherwise saturate
 # the API; an admin sets `rate_limit` (requests/minute, 0 = unlimited) per key.
 # Keyed on the key id (NOT the IP) so the cap follows the key across sources.
-_APIKEY_RL_CHECKED = False  # per-request guard (fork-per-request → process-local)
+#
+# v6.1.1 (#7 stateless-audit): the guard used to be a bare module-level global,
+# commented "fork-per-request -> process-local" -- true under the retired CGI
+# transport (a fresh process per request), false under gunicorn's persistent
+# threaded workers. In practice: the FIRST request in a worker's lifetime that
+# hit a rate-limited key set the flag PERMANENTLY for that worker -- every
+# later request, on every thread, for ANY key, silently skipped enforcement
+# for the rest of the worker's life. Fixed by moving it onto _RCTX (the
+# existing thread-local per-request context, reset in _begin_request()), the
+# same mechanism _LOAD_CACHE/request_id/trace_id already use for exactly this
+# class of state.
 
 
 def _key_ratelimit(kid: str, max_per_min: int) -> bool:
@@ -4323,8 +4333,7 @@ def _enforce_apikey_ratelimit(kid: str, kdata: dict) -> None:
     """Charge one hit against the key's per-minute budget; 429 if exhausted.
     Runs at most ONCE per request — `verify_token` can be called twice on the
     auditor path, and double-charging would halve the effective limit."""
-    global _APIKEY_RL_CHECKED
-    if _APIKEY_RL_CHECKED:
+    if getattr(_RCTX, 'apikey_rl_checked', False):
         return
     try:
         limit = int(kdata.get('rate_limit') or 0)
@@ -4332,7 +4341,7 @@ def _enforce_apikey_ratelimit(kid: str, kdata: dict) -> None:
         limit = 0
     if limit <= 0:
         return
-    _APIKEY_RL_CHECKED = True
+    _RCTX.apikey_rl_checked = True
     if not _key_ratelimit(kid, limit):
         respond(429, {'error': 'API key rate limit exceeded',
                       'limit_per_min': limit, 'retry_after': 60})
@@ -4616,6 +4625,7 @@ def _begin_request():
     _RCTX.trace_id = None      # v5.4.1 (F2): re-read traceparent per request
     _RCTX.key_scope = None     # v5.4.1 (D6): re-resolve the auth key's scope per request
     _RCTX.apikey_tenant = None   # v6.1.1 (#16): ditto
+    _RCTX.apikey_rl_checked = False   # v6.1.1 (#7): re-arm the per-key rate-limit guard
     # v6.1.0 (Phase 6, opt-in DB-RLS): default this request's tenant GUC to bypass so
     # every path works (agent/system/unauth); verify_token narrows it for an
     # authenticated tenant user. No-op unless opt-in RLS is active.

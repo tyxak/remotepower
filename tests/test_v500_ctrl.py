@@ -41,7 +41,7 @@ class TestApiKeyRateLimit(unittest.TestCase):
     def setUp(self):
         # fresh ratelimit store each test
         api.save(api.RATELIMIT_FILE, {})
-        api._APIKEY_RL_CHECKED = False
+        api._begin_request()   # v6.1.1 (#7): re-arms the thread-local guard
 
     def test_key_ratelimit_window(self):
         # limit=3 → first 3 allowed, 4th denied within the same minute
@@ -65,14 +65,41 @@ class TestApiKeyRateLimit(unittest.TestCase):
     def test_enforce_charges_once_per_request(self):
         # the per-request guard means a second verify_token call doesn't
         # double-charge (auditor path calls verify_token twice).
-        api._APIKEY_RL_CHECKED = False
         kid = "abcd1234"
         # 1/min limit: first enforce records a hit; second enforce is a no-op
         api._enforce_apikey_ratelimit(kid, {"rate_limit": 1})
-        self.assertTrue(api._APIKEY_RL_CHECKED)
+        self.assertTrue(api._RCTX.apikey_rl_checked)
         # second call short-circuits (guard) → does NOT 429 even though the
         # bucket is now full
         api._enforce_apikey_ratelimit(kid, {"rate_limit": 1})
+
+    def test_guard_is_thread_local_not_a_bare_global(self):
+        # v6.1.1 (#7 stateless-audit): the guard used to be a bare module
+        # global, commented "fork-per-request -> process-local" -- true under
+        # the retired CGI transport, false under gunicorn's persistent
+        # threaded workers. A bare global set True by the FIRST request in a
+        # worker's lifetime would silently disable rate-limit enforcement for
+        # every later request on every thread, for any key. It must now live
+        # on _RCTX (thread-local, reset every request by _begin_request()).
+        self.assertFalse(hasattr(api, '_APIKEY_RL_CHECKED'))
+        self.assertIsInstance(api._RCTX, type(__import__('threading').local()))
+
+    def test_re_armed_across_simulated_requests_same_thread(self):
+        # Regression test for the real bug: on a REUSED worker thread (gunicorn
+        # thread pool), a second unrelated request for a DIFFERENT key must
+        # still be enforced -- not silently skipped because some earlier
+        # request on the same thread already flipped the (old) global guard.
+        kid1, kid2 = "thread-reuse-1", "thread-reuse-2"
+        api._enforce_apikey_ratelimit(kid1, {"rate_limit": 1})   # request 1
+        self.assertTrue(api._RCTX.apikey_rl_checked)
+
+        api._begin_request()   # request 2 lands on the same thread
+        self.assertFalse(api._RCTX.apikey_rl_checked)
+        # kid2's own bucket is empty, so this must be allowed and must charge
+        # a real hit (not silently pass through as a no-op).
+        api._enforce_apikey_ratelimit(kid2, {"rate_limit": 1})
+        self.assertTrue(api._RCTX.apikey_rl_checked)
+        self.assertFalse(api._key_ratelimit(kid2, 1))   # bucket now full -- proves it was charged
 
     def test_create_validates_and_persists_rate_limit(self):
         i = API_SRC.index("def handle_apikeys_create(")
