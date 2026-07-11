@@ -208,6 +208,15 @@ class StoreReader:
                 self._mod = _st
             elif self.backend == 'postgres':
                 import storage_pg as _pg
+                # The app sources the PG DSN from the marker file (api.py:
+                # `marker.get('dsn')`), with env RP_PG_DSN winning if set — NOT
+                # from api.env necessarily. Mirror that here or storage_pg has no
+                # DSN and every read fails, so the daemon still can't authenticate
+                # anyone. This makes the daemon self-configuring from the marker,
+                # same as the app.
+                _dsn = marker.get('dsn')
+                if _dsn and not os.environ.get('RP_PG_DSN'):
+                    _pg.configure_dsn(_dsn)
                 self._mod = _pg
         except Exception as e:
             log.warning("push: storage backend detection failed (%s) — "
