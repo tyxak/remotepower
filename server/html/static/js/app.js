@@ -1236,7 +1236,12 @@ const _SIDEBAR_EXTRA = [
 ];
 let _sidebarIdx = null, _sidebarHits = [];
 function _buildSidebarIdx() {
-  const nav = Array.from(document.querySelectorAll('.sidebar .nav-btn:not(.nav-fav-clone)')).map(btn => {
+  // v6.1.1 (#62): nav-fav-clone now marks the .nav-item WRAPPER, not the
+  // button itself (the star moved out to a sibling) — closest() catches it
+  // regardless of nesting depth, unlike a bare :not(.nav-fav-clone) class
+  // check on the button.
+  const nav = Array.from(document.querySelectorAll('.sidebar .nav-btn'))
+    .filter(btn => !btn.closest('.nav-fav-clone')).map(btn => {
     const span = btn.querySelector('span:not(.nav-badge):not(.nav-new):not(.nav-star)');
     const label = (span ? span.textContent : (btn.textContent || '')).trim();
     const kw = _SIDEBAR_KW[label.toLowerCase()] || '';
@@ -1414,10 +1419,15 @@ function _renderFavorites() {
   if (!wrap) return;
   const favs = _getFavorites();
   const faved = new Set(favs);
-  // Sync the star state on the original (in-group) nav buttons.
+  // Sync the star state on the original (in-group) nav buttons. v6.1.1 (#62):
+  // the star is now a SIBLING of .nav-btn (both children of a .nav-item
+  // wrapper), not a nested descendant — axe's nested-interactive rule
+  // flagged the old shape (a role="button" span inside a real <button> is
+  // two independently-focusable controls, invalid). Look for the star on
+  // the wrapper, not inside the button.
   const sources = Array.from(document.querySelectorAll('.sidebar-group .nav-btn[data-fav]'));
   sources.forEach(b => {
-    const star = b.querySelector('.nav-star');
+    const star = b.parentElement && b.parentElement.querySelector('.nav-star');
     if (!star) return;
     const on = faved.has(b.dataset.fav);
     star.classList.toggle('faved', on);
@@ -1435,10 +1445,13 @@ function _renderFavorites() {
   }
   favs.forEach(key => {
     const src = sources.find(b => b.dataset.fav === key);
-    if (!src) return;
-    const clone = src.cloneNode(true);
+    if (!src || !src.parentElement) return;
+    // Clone the WRAPPER (.nav-item = button + star), not the bare button, so
+    // the pinned clone under "Main" keeps its own un-pin star.
+    const clone = src.parentElement.cloneNode(true);
     clone.classList.add('nav-fav-clone');
-    clone.classList.remove('active');
+    const cloneBtn = clone.querySelector('.nav-btn');
+    if (cloneBtn) cloneBtn.classList.remove('active');
     const star = clone.querySelector('.nav-star');
     if (star) { star.classList.add('faved'); star.title = 'Unpin from favorites'; star.setAttribute('aria-pressed', 'true'); }
     wrap.appendChild(clone);
@@ -1449,12 +1462,21 @@ function _renderFavorites() {
 function _initFavorites() {
   // Attach a hover-reveal star to every grouped nav entry (the buried ones
   // worth pinning — the top-level Main rows are already at the top).
+  // v6.1.1 (#62): the star is wrapped as a SIBLING of .nav-btn (both inside
+  // a new .nav-item flex row), never appended INSIDE the <button> — a
+  // role="button" span nested in a real <button> is two independently-
+  // focusable/activatable controls, which axe-core's nested-interactive
+  // rule (correctly) flags as invalid. See tests/test_a11y_axe.py.
   document.querySelectorAll('.sidebar-group .nav-btn').forEach(btn => {
-    if (btn.classList.contains('nav-fav-clone')) return;
-    if (btn.querySelector('.nav-star')) return; // idempotent
+    if (btn.closest('.nav-fav-clone')) return;
+    if (btn.parentElement && btn.parentElement.classList.contains('nav-item')) return; // idempotent
     const key = _favKey(btn);
     if (!key) return;
     btn.dataset.fav = key;
+    const navItem = document.createElement('div');
+    navItem.className = 'nav-item';
+    btn.replaceWith(navItem);
+    navItem.appendChild(btn);
     const star = document.createElement('span');
     star.className = 'nav-star';
     star.setAttribute('role', 'button');
@@ -1462,7 +1484,7 @@ function _initFavorites() {
     star.setAttribute('aria-label', 'Toggle favorite');
     star.title = 'Pin to favorites';
     star.innerHTML = _FAV_STAR_SVG;
-    btn.appendChild(star);
+    navItem.appendChild(star);
   });
   _renderFavorites();
 }
@@ -22459,7 +22481,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const star = e.target.closest('.nav-star');
       if (star) {
         e.stopPropagation();
-        const b = star.closest('.nav-btn');
+        // v6.1.1 (#62): the star is a SIBLING of .nav-btn now (both children
+        // of .nav-item), not nested inside it — closest() can't walk sideways,
+        // so look it up via the shared wrapper instead of an ancestor search.
+        const b = star.parentElement && star.parentElement.querySelector('.nav-btn');
         if (b) toggleFavorite(b.dataset.fav);
         return;
       }
@@ -22483,7 +22508,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!star) return;
       e.preventDefault();
       e.stopPropagation();
-      const b = star.closest('.nav-btn');
+      // v6.1.1 (#62): sibling lookup, not ancestor — see the click handler above.
+      const b = star.parentElement && star.parentElement.querySelector('.nav-btn');
       if (b) toggleFavorite(b.dataset.fav);
     });
   }

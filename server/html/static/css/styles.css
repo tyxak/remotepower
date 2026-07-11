@@ -3675,15 +3675,24 @@ button, a, [role="button"],
 /* v3.14.0: sidebar favorites — hover-reveal star + pinned clones under "Main" */
 .nav-favorites { display: flex; flex-direction: column; }
 .nav-fav-empty { font-size: 11px; color: var(--muted); padding: 2px 12px 6px; line-height: 1.35; }
+/* v6.1.1 (#62): the star is a SIBLING of .nav-btn (both wrapped in
+   .nav-item), not nested inside it — a role="button" span nested inside a
+   real <button> is two independently-focusable/activatable controls, which
+   axe-core's nested-interactive rule correctly flags as invalid. .nav-btn
+   keeps its own padding/content layout unchanged; .nav-item just replaces
+   the row .nav-btn used to lay out alone. */
+.nav-item { display: flex; align-items: center; }
+.nav-item .nav-btn { width: auto; flex: 1 1 auto; min-width: 0; }
 .nav-star {
-  margin-left: auto; flex-shrink: 0; display: inline-flex; align-items: center;
+  flex-shrink: 0; display: inline-flex; align-items: center;
   justify-content: center; width: 22px; height: 22px; border-radius: 6px;
+  margin-right: 3px;
   color: var(--muted); opacity: 0; cursor: pointer;
   transition: opacity .12s, color .12s, background .12s;
 }
 .nav-star svg { width: 14px; height: 14px; fill: none; }
-.nav-btn:hover .nav-star,
-.nav-btn:focus-within .nav-star { opacity: .85; }
+.nav-item:hover .nav-star,
+.nav-item:focus-within .nav-star { opacity: .85; }
 .nav-star:hover { opacity: 1; color: var(--text); background: var(--surface2); }
 .nav-star:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
 .nav-star.faved { opacity: 1; color: #f5c518; }

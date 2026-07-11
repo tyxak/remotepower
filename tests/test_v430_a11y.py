@@ -10,10 +10,13 @@ These pin the a11y floor so it can only ratchet up:
   * the global keyboard-focus ring (:focus-visible) stays present.
 """
 import re
+import sys
 import unittest
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(Path(__file__).parent))
+from srcpin import js_function   # noqa: E402
 _HTML = _ROOT / "server" / "html"
 INDEX = (_HTML / "index.html").read_text()
 CSS = (_HTML / "static" / "css" / "styles.css").read_text()
@@ -112,6 +115,59 @@ class TestFocusRing(unittest.TestCase):
         self.assertRegex(
             CSS, r':focus-visible\s*\{[^}]*outline:',
             "the global :focus-visible keyboard-focus ring is gone")
+
+
+class TestNavStarNotNestedInsideButton(unittest.TestCase):
+    """v6.1.1 (#62) — the sidebar favorite-star toggle (.nav-star,
+    role="button" tabindex="0") used to be injected as a DESCENDANT of the
+    real <button class="nav-btn">, which axe-core's nested-interactive rule
+    correctly flags (two independently-focusable/activatable controls,
+    nested). Fixed by restructuring the star to a SIBLING of .nav-btn, both
+    wrapped in a new .nav-item flex row. Verified live via Playwright + a
+    real axe run in tests/test_a11y_axe.py (which now enforces this rule
+    with NO exemption); these are the fast, non-browser structural pins."""
+
+    APP_JS = next(f for f in JS_FILES if f.name == 'app.js').read_text()
+
+    def test_init_favorites_does_not_append_star_into_button(self):
+        fn = js_function(self.APP_JS, '_initFavorites')
+        self.assertNotIn('btn.appendChild(star)', fn,
+                         'the star must not be appended INTO the button again')
+        self.assertIn('nav-item', fn, 'the star must be wrapped in a .nav-item sibling row')
+
+    def test_render_favorites_star_lookup_is_not_a_button_descendant_query(self):
+        fn = js_function(self.APP_JS, '_renderFavorites')
+        # the old shape read `b.querySelector('.nav-star')` (star INSIDE b) --
+        # the fixed shape must look at the wrapper instead.
+        self.assertNotRegex(fn, r"\bb\.querySelector\('\.nav-star'\)",
+                            'must not query the star as a descendant of the button')
+
+    def test_click_delegate_handlers_do_not_use_ancestor_search_from_star(self):
+        # star.closest('.nav-btn') walks UP the ancestor chain -- broken once
+        # the star became a SIBLING (closest() can't walk sideways). Both the
+        # click and keydown delegate handlers must use a same-parent lookup
+        # instead.
+        self.assertNotIn("star.closest('.nav-btn')", self.APP_JS,
+                         'an ancestor search from the star can no longer find the button')
+
+    def test_sidebar_search_index_excludes_pinned_clones_via_closest(self):
+        fn = js_function(self.APP_JS, '_buildSidebarIdx')
+        # nav-fav-clone now marks the WRAPPER, not the button -- a bare
+        # :not(.nav-fav-clone) class check on the button would silently stop
+        # excluding pinned clones (double-counting them in search results).
+        self.assertIn("closest('.nav-fav-clone')", fn,
+                      'must exclude pinned clones via ancestor search, not a bare class check')
+
+    def test_css_hover_reveal_targets_the_wrapper_not_the_button(self):
+        self.assertIn('.nav-item:hover .nav-star', CSS)
+        self.assertIn('.nav-item:focus-within .nav-star', CSS)
+        self.assertNotIn('.nav-btn:hover .nav-star', CSS,
+                         'hover-reveal must key off .nav-item now the star is a sibling')
+
+    def test_axe_nested_interactive_exemption_is_gone(self):
+        axe_test = (_ROOT / "tests" / "test_a11y_axe.py").read_text()
+        self.assertNotIn("'nested-interactive'", axe_test,
+                         'the nested-interactive axe exemption should be fully removed, not just disabled')
 
 
 if __name__ == '__main__':

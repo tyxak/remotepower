@@ -6,35 +6,33 @@ browser smoke suite (test_v430_e2e.py) was: reuses the shared e2e_harness
 deps aren't installed.
 
 Bar: zero axe 'critical'/'serious' violations on the login page and the
-post-login dashboard, EXCEPT one rule disabled below with a named reason —
-this app hasn't had a full WCAG audit pass yet (see master-improvement-
-scoping #62), and gating on every finding today would either fail on a
-backlog unrelated to whatever change triggered the run, or need everything
-triaged/allowlisted up front. What's disabled is diagnosed, not guessed:
+post-login dashboard, with EVERY rule enforced — no disabled rules.
 
-  - nested-interactive: EVERY sidebar nav button fails this — the
-    favorite-star toggle (.nav-star, role="button" tabindex="0") is
-    injected as a DESCENDANT of the <button class="nav-btn">, which is
-    invalid (two independently-focusable/activatable controls, nested).
-    Root-caused, not guessed — see the sidebar favorites-star injection
-    (app.js, `data-fav` sources). The real fix restructures the star out
-    to a sibling of nav-btn (a wrapper element + CSS), which needs its own
-    visual-regression pass across every sidebar state (collapsed/expanded/
-    active/badge overlap) — out of scope for this test's addition.
+color-contrast is FULLY ENFORCED (#62's contrast fix landed in the same
+session that added this gate): every theme's --accent got a computed
+--accent-contrast (black text clears 4.5:1 against every current accent
+except the `paper` theme, which keeps white), --muted was retuned per-theme
+where it fell short against --surface, and two remaining hardcoded-color
+outliers (.sev-pill.sev-low, .isl-751) got dedicated colors sized for their
+actual composited background. See CHANGELOG / the #62 tracker row for the
+full per-theme numbers.
 
-color-contrast is FULLY ENFORCED (#62's fix landed in the same session that
-added this gate): every theme's --accent got a computed --accent-contrast
-(black text clears 4.5:1 against every current accent except the `paper`
-theme, which keeps white), --muted was retuned per-theme where it fell
-short against --surface, and two remaining hardcoded-color outliers
-(.sev-pill.sev-low, .isl-751) got dedicated colors sized for their actual
-composited background. See CHANGELOG / the #62 tracker row for the full
-per-theme numbers.
-
-Every OTHER axe rule stays enforced, so this gate still catches a genuinely
-new structural issue (a missing aria-label's role, a broken focus trap, a
-button with no accessible name) — it just doesn't (yet) claim to cover
-the pre-existing nav-star nesting.
+nested-interactive is ALSO fully enforced as of v6.1.1 (#62's other half):
+the sidebar favorite-star toggle (.nav-star, role="button" tabindex="0")
+used to be injected as a DESCENDANT of the <button class="nav-btn">, which
+is invalid (two independently-focusable/activatable controls, nested).
+Fixed by restructuring the star out to a SIBLING of .nav-btn — both wrapped
+in a new `.nav-item` flex row (app.js's `_initFavorites`/`_renderFavorites`,
+CSS in styles.css near `.nav-item`). Verified with a real Playwright pass:
+star click still pins/unpins, the pinned clone under "Main" keeps its own
+un-pin star, keyboard Enter still activates it, regular nav-btn clicks are
+unaffected, the collapsed-sidebar state still hides the star, and the
+sidebar search index doesn't double-count a pinned clone. Two click-delegate
+handlers in app.js used `star.closest('.nav-btn')` (an ANCESTOR search) to
+find the button from a star click — that broke once the star became a
+SIBLING instead of a descendant (`closest()` can't walk sideways) and had
+to be changed to a same-parent lookup; a `:not(.nav-fav-clone)` selector in
+`_buildSidebarIdx` had the same class-moved-to-the-wrapper issue.
 
 Install to run:
     pip install playwright gunicorn axe-core-python
@@ -59,11 +57,12 @@ except ImportError:
 
 _SERIOUS_IMPACTS = ('critical', 'serious')
 
-# Disabled with a named, diagnosed reason -- see the module docstring. NOT a
-# blanket "ignore everything" allowlist; every other rule stays enforced.
-_AXE_OPTIONS = {'rules': {
-    'nested-interactive': {'enabled': False},   # .nav-star inside .nav-btn, root-caused above
-}}
+# v6.1.1: no rules disabled -- nested-interactive's fix (see module
+# docstring) closed the last named exemption. Pass {} (every default rule
+# enforced) rather than deleting this constant, so a future exemption has an
+# obvious place to land with the same "named reason, not a blanket ignore"
+# discipline.
+_AXE_OPTIONS = {}
 
 
 def _run_axe(page, axe, options=None):
