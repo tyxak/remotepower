@@ -18144,12 +18144,21 @@ def _raw_metric_samples(dev_id, since_ts):
 def run_metric_rollup_if_due():
     """W4-10 cadence: fold each device's new raw metric samples into hourly/daily
     roll-up stores. Cheap + idempotent — only samples newer than the per-device
-    high-water mark are folded, and buckets outside the retention window pruned."""
+    high-water mark are folded, and buckets outside the retention window pruned.
+
+    v6.1.1 (#21 follow-up, adversarial self-review): _rollup_prune is a real
+    age-based DELETION of historical metric data, but this cadence sweep ran
+    entirely independent of _purge_old_data's litigation-hold gate -- the
+    hold's own docstring calls _purge_old_data "the single choke point," which
+    was false for this sweep. While a hold is active, new samples still fold
+    in (purely additive, preserves MORE evidence, never a problem to keep),
+    but pruning is skipped so no aggregated history is destroyed."""
     now = int(time.time())
     state = load(METRICS_ROLLUP_FILE) or {}
     meta = state.get('_meta') if isinstance(state.get('_meta'), dict) else {}
     if now - int(meta.get('last_run', 0) or 0) < METRIC_ROLLUP_INTERVAL:
         return
+    _hold = _litigation_hold_active()
     devices = load(DEVICES_FILE) or {}
     changed = False
     for dev_id in list(devices.keys()):
@@ -18162,8 +18171,8 @@ def run_metric_rollup_if_due():
         daily = _rollup_merge(rec.get('daily') or [], new, ROLLUP_DAILY_SEC)
         state[dev_id] = {
             'last_ts': max([last_ts] + [int(s.get('ts') or 0) for s in new]),
-            'hourly':  _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
-            'daily':   _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
+            'hourly':  hourly if _hold else _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
+            'daily':   daily if _hold else _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
         }
         changed = True
     # prune roll-ups for deleted devices
@@ -41329,11 +41338,18 @@ def handle_apikeys_create():
                     'created': int(time.time()), 'active': True,
                     'rate_limit': rate_limit,
                     'expires_at': expires_at,
-                    # v6.1.1 (#16): the key's REAL tenant is the creating admin's own
+                    # v6.1.1 (#16, fixed again in a later adversarial self-review
+                    # pass): the key's REAL tenant is the creating admin's own
                     # tenant -- not derived from the free-text `user` display field
                     # above, which doesn't have to correspond to any real account.
-                    # See _caller_effective_tenant's docstring for why this matters.
-                    'tenant_id': _user_tenant(actor)}
+                    # MUST be _caller_effective_tenant, not bare _user_tenant: if
+                    # `actor` is itself an API-key caller (not a session user),
+                    # _user_tenant(actor) resolves via the free-text `user` field
+                    # again and reopens the exact bypass this comment describes
+                    # closing -- a tenant-scoped admin API key minting a new key
+                    # would stamp it DEFAULT_TENANT (superadmin). See
+                    # _caller_effective_tenant's docstring for the full story.
+                    'tenant_id': _caller_effective_tenant(actor)}
     if key_scope:                                        # v5.4.1 (D6)
         apikeys[kid]['scope'] = key_scope
     if key_ipallow:                                      # v5.4.1 (D7)
@@ -41451,12 +41467,17 @@ def handle_apikeys_rotate(kid):
                    'created': int(time.time()), 'active': True,
                    'rate_limit': int(old.get('rate_limit') or 0),
                    'expires_at': old.get('expires_at'), 'rotated_from': kid,
-                   # v6.1.1 (#16): preserve the ORIGINAL tenant on rotation (a
-                   # superadmin rotating a tenant's key on their behalf must not
-                   # shift it to the superadmin's own tenant). A pre-fix key with
-                   # no stored tenant_id backfills from the rotating actor here --
-                   # rotation is a natural, safe point to pick up the fix.
-                   'tenant_id': old.get('tenant_id') or _user_tenant(actor)}
+                   # v6.1.1 (#16, fixed again in a later adversarial self-review
+                   # pass): preserve the ORIGINAL tenant on rotation (a superadmin
+                   # rotating a tenant's key on their behalf must not shift it to
+                   # the superadmin's own tenant). A pre-fix key with no stored
+                   # tenant_id backfills from the rotating actor here -- rotation
+                   # is a natural, safe point to pick up the fix. Must be
+                   # _caller_effective_tenant, not bare _user_tenant, for the same
+                   # reason as handle_apikeys_create: an API-key-authenticated
+                   # rotating actor's tenant lives on _RCTX.apikey_tenant, not the
+                   # free-text `user` field _user_tenant reads.
+                   'tenant_id': old.get('tenant_id') or _caller_effective_tenant(actor)}
         if old.get('scope'):
             new_rec['scope'] = old['scope']
         if old.get('ip_allow'):
@@ -45264,7 +45285,12 @@ def handle_me():
     # falling back to the instance-wide brand_name/brand_accent when unset
     # (or when tenancy isn't in play at all — the default tenant record
     # normally carries no override, so this is a no-op for the common case).
-    _tenant_id = _user_tenant(user)
+    # Must be _caller_effective_tenant (fixed in a later adversarial self-
+    # review pass), not bare _user_tenant: /api/me is reachable by an
+    # API-key caller too, whose real tenant lives on _RCTX.apikey_tenant, not
+    # a USERS_FILE lookup on the key's free-text `user` display field (which
+    # matches no real account and would silently resolve to DEFAULT_TENANT).
+    _tenant_id = _caller_effective_tenant(user)
     _tenant_rec = _load_tenants().get(_tenant_id) or {}
     _cfg = load(CONFIG_FILE) or {}
     _brand_name = _tenant_rec.get('brand_name') or _cfg.get('brand_name', '')
@@ -45288,8 +45314,9 @@ def handle_me():
         # v3.14.0 (#26): saved interface language (UI-only i18n). Default English.
         'lang':                 u.get('lang') if u.get('lang') in SUPPORTED_LANGS else 'en',
         # v3.14.0 (#24): tenant the user belongs to (foundation; 'default' for all
-        # until per-tenant isolation lands).
-        'tenant':               _user_tenant(user),
+        # until per-tenant isolation lands). _caller_effective_tenant, not bare
+        # _user_tenant -- see the identical comment above _tenant_id.
+        'tenant':               _tenant_id,
         # v3.14.0 (#45): in-app white-label branding, applied early by the UI.
         # v6.1.1 (#17/#15): now resolves the caller's tenant's OWN override
         # first (see above) -- the pre-auth login page has no tenant to

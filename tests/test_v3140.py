@@ -77,6 +77,16 @@ class _HandlerBase(unittest.TestCase):
         api.verify_token = lambda t: ('jakob', 'admin')
         api.get_token_from_request = lambda: 't'
         api.audit_log = lambda *a, **k: None
+        # v6.1.1 (adversarial self-review): a test that exercises the REAL
+        # verify_token() for an API-key caller sets _RCTX.apikey_tenant --
+        # thread-local, so it PERSISTS into every later test on this thread
+        # (unittest runs a class's tests on one thread) unless reset here,
+        # exactly like production's _begin_request() does at the top of
+        # every real request. Without this, an API-key-caller test run
+        # earlier in the file silently makes a LATER, unrelated test's
+        # _caller_effective_tenant/_caller_is_superadmin resolve the wrong
+        # tenant -- a false pass or a false failure depending on luck.
+        api._begin_request()
 
         def _resp(s, b=None):
             self.cap['s'] = s
@@ -2699,6 +2709,27 @@ class TestTenantBranding(_HandlerBase):
         res = self.call(api.handle_me)
         self.assertEqual(res['brand'], {'name': 'RemotePower', 'accent': 'blue'})
 
+    def test_me_by_apikey_caller_resolves_the_keys_own_tenant(self):
+        # v6.1.1 (adversarial self-review): handle_me used to resolve tenant/
+        # branding via bare _user_tenant(user) -- for an API-key caller, `user`
+        # is the key's free-text `user` display field (matches no real
+        # USERS_FILE account), so it fell through to DEFAULT_TENANT and an
+        # Acme-tenant API key silently saw the INSTANCE-WIDE brand instead of
+        # its own tenant's override. Must resolve via _RCTX.apikey_tenant.
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active',
+                                            'brand_name': 'Acme Ops', 'brand_accent': 'violet'}})
+        keys = api.load(api.APIKEYS_FILE)
+        keys['acmekey'] = {'name': 'acmekey', 'key_hash': api._apikey_hash('rawacmekey'),
+                           'role': 'admin', 'user': 'api', 'tenant_id': 'acme',
+                           'created': 1, 'active': True, 'rate_limit': 0, 'expires_at': None}
+        api.save(api.APIKEYS_FILE, keys)
+        api.verify_token = self._orig['verify_token']
+        api.get_token_from_request = lambda: 'rawacmekey'
+        res = self.call(api.handle_me)
+        self.assertEqual(res['tenant'], 'acme')
+        self.assertEqual(res['brand'], {'name': 'Acme Ops', 'accent': 'violet'})
+
     def test_route_registered(self):
         rows = [(kind, methods, a, b, fn) for kind, methods, a, b, fn, _src
                 in api._PATTERN_ROUTE_DEFS if kind == 'pat' and fn == 'handle_tenant_branding']
@@ -2806,6 +2837,42 @@ class TestApiKeyTenantIsolation(_HandlerBase):
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {}
         res = self.call(api.handle_apikeys_rotate, 'k5')
+        new_kid = res['id']
+        self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
+
+    # ── v6.1.1 (adversarial self-review): the fix itself had a gap ──────────
+    # handle_apikeys_create/rotate stamped the NEW key's tenant via bare
+    # _user_tenant(actor), not _caller_effective_tenant(actor) -- when the
+    # CREATING/ROTATING actor is itself an API-key caller (not a session
+    # user), _user_tenant(actor) resolves via the free-text `user` display
+    # field again (matches no real USERS_FILE account) and silently stamps
+    # DEFAULT_TENANT -- a tenant-scoped admin key could mint/rotate its way
+    # to a cross-tenant superadmin key, one hop removed from the original bug.
+    def _as_real_admin_apikey_caller(self, raw_key):
+        """Like _as_real_apikey, but also restores require_admin_auth/
+        require_auth to their real implementations so the handler's own
+        `actor = require_admin_auth()` call resolves through the REAL
+        verify_token -- exercising the actual code path, not a stub."""
+        self._as_real_apikey(raw_key)
+        api.require_auth = self._orig['require_auth']
+        api.require_admin_auth = self._orig['require_admin_auth']
+
+    def test_create_by_apikey_caller_stamps_the_callers_real_tenant(self):
+        self._seed_key('acmekey', 'rawacmekey', user='api', tenant_id='acme')
+        self._as_real_admin_apikey_caller('rawacmekey')
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'child-key', 'user': 'api'}
+        res = self.call(api.handle_apikeys_create)
+        new_kid = res['id']
+        self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
+
+    def test_rotate_by_apikey_caller_preserves_tenant_not_default(self):
+        self._seed_key('acmekey2', 'rawacmekey2', user='api', tenant_id='acme')
+        self._seed_key('k6', 'rawkey6', user='api')   # legacy, no tenant_id -- rotated by an acme key
+        self._as_real_admin_apikey_caller('rawacmekey2')
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        res = self.call(api.handle_apikeys_rotate, 'k6')
         new_kid = res['id']
         self.assertEqual(api.load(api.APIKEYS_FILE)[new_kid]['tenant_id'], 'acme')
 

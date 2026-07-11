@@ -150,11 +150,22 @@ def v_psk(value):
     reuse the same regex. Absent/empty is valid (pubkey-only peer); a
     present-but-malformed value fails closed (fail(), same as a bad pubkey)
     rather than silently dropping the PSK and syncing a weaker peer than the
-    caller asked for."""
+    caller asked for.
+
+    v6.1.1 (adversarial self-review): unlike v_pubkey (not a secret), this
+    must NEVER echo `value` into the failure message -- fail() -> emit()
+    writes to STDOUT, and vpn_handlers.py's _wg_run() falls back to stdout
+    for its `wg_last_err` diagnostic when stderr is empty, which surfaces in
+    the client-create 400 response. Currently unreachable in practice
+    (wg_access.build_sync_spec already silently drops a malformed PSK via
+    this same regex before the helper is ever invoked, and no endpoint
+    accepts an operator-supplied PSK today -- only server-generated), but
+    fixed defensively so a future "bring your own PSK" feature doesn't
+    inherit a live secret-leak on this path."""
     if value in (None, ""):
         return None
     if not isinstance(value, str) or not WG_KEY_RE.match(value):
-        fail("invalid preshared key: %r" % (value,))
+        fail("invalid preshared key (masked, not logged)")
     return value
 
 

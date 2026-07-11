@@ -421,6 +421,54 @@ class TestMetricRollups(_HandlerBase):
         st = api.load(api.METRICS_ROLLUP_FILE) or {}
         self.assertNotIn('d1', st)   # throttled — no fold happened
 
+    # ── v6.1.1 (#21 follow-up, adversarial self-review) ──────────────────────
+    def test_prune_skipped_while_litigation_hold_active(self):
+        # _rollup_prune is a real age-based deletion of historical metric
+        # data, but this cadence sweep ran entirely independent of
+        # _purge_old_data's litigation-hold gate -- a real, live bypass of
+        # a feature whose own docstring calls _purge_old_data "the single
+        # choke point." New samples must still fold in (purely additive,
+        # never a problem to keep MORE evidence); only pruning must pause.
+        api.save(api.CONFIG_FILE, {'litigation_hold': {'enabled': True, 'reason': 'x'}})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'host1'}})
+        now = int(__import__('time').time())
+        very_old_bucket_ts = now - api.ROLLUP_HOURLY_KEEP - 3600   # well past retention
+        api.save(api.METRICS_ROLLUP_FILE, {'d1': {
+            'last_ts': now - 600,
+            'hourly': [{'ts': very_old_bucket_ts, 'cpu': {'min': 1, 'sum': 1.0, 'max': 1, 'n': 1}}],
+            'daily': [],
+        }})
+        # a fresh sample so the per-device fold path actually runs
+        api.save(api.METRICS_FILE, {'d1': [{'ts': now - 60, 'cpu': 10, 'mem': 50, 'swap': 1, 'disk': 20}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api._invalidate_load_cache(api.METRICS_FILE)
+        api._invalidate_load_cache(api.METRICS_ROLLUP_FILE)
+        api.run_metric_rollup_if_due()
+        st = api.load(api.METRICS_ROLLUP_FILE) or {}
+        self.assertIn(very_old_bucket_ts, [b['ts'] for b in st['d1']['hourly']],
+                     'the old bucket must survive while the hold is active')
+
+    def test_prune_resumes_once_hold_cleared(self):
+        api.save(api.CONFIG_FILE, {'litigation_hold': {'enabled': False}})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'host1'}})
+        now = int(__import__('time').time())
+        very_old_bucket_ts = now - api.ROLLUP_HOURLY_KEEP - 3600
+        api.save(api.METRICS_ROLLUP_FILE, {'d1': {
+            'last_ts': now - 600,
+            'hourly': [{'ts': very_old_bucket_ts, 'cpu': {'min': 1, 'sum': 1.0, 'max': 1, 'n': 1}}],
+            'daily': [],
+        }})
+        api.save(api.METRICS_FILE, {'d1': [{'ts': now - 60, 'cpu': 10, 'mem': 50, 'swap': 1, 'disk': 20}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api._invalidate_load_cache(api.METRICS_FILE)
+        api._invalidate_load_cache(api.METRICS_ROLLUP_FILE)
+        api.run_metric_rollup_if_due()
+        st = api.load(api.METRICS_ROLLUP_FILE) or {}
+        self.assertNotIn(very_old_bucket_ts, [b['ts'] for b in st['d1']['hourly']],
+                         'pruning must resume once the hold is cleared')
+
     def test_endpoint_serves_tier(self):
         base = 1_700_000_000
         api.save(api.METRICS_ROLLUP_FILE, {'d1': {'last_ts': base,
