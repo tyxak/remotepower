@@ -21,9 +21,18 @@ class TestRpCli(unittest.TestCase):
 
     def test_has_all_subcommands(self):
         src = _RP.read_text()
-        for verb in ("status", "start", "stop", "restart", "reload",
+        for verb in ("status", "tui", "start", "stop", "restart", "reload",
                      "doctor", "logs", "version", "help"):
             self.assertIn(verb, src, f"rp is missing the {verb} verb")
+
+    def test_tui_dashboard_present(self):
+        # The interactive dashboard: a cmd_tui with a non-TTY --once fallback and
+        # box-drawing output. Source checks (no flaky subprocess under load).
+        src = _RP.read_text()
+        self.assertIn("cmd_tui()", src)
+        self.assertIn("--once", src)               # testable/non-TTY one-frame mode
+        self.assertIn("tui|top", src)              # wired in the dispatch
+        self.assertRegex(src, r"[╭╮╰╯│─]")         # actually draws a box
 
     def test_dispatch_wires_every_verb_and_doctor_returns_rc(self):
         # Deterministic (source) checks instead of spawning the script under the

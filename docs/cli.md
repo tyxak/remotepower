@@ -11,6 +11,7 @@ Docker image. `status`, `doctor`, `version`, and `logs` run as any user;
 
 ```text
 rp status              show every stack component + host service
+rp tui                 live interactive dashboard (arrow keys + action keys)
 rp start   [component] start the RemotePower stack (or one component)
 rp stop    [component] stop it
 rp restart [component] restart it
@@ -46,6 +47,34 @@ enabled at boot, and whether its port is actually listening (`:8090` app,
 `:8766` push, `:8765` web terminal). It also shows nginx and, on a Postgres
 install, whether Postgres is `ready`. It leads with the server version, the
 storage backend, and the data directory.
+
+## `rp tui` — live dashboard
+
+`rp tui` (aliases `top`, `dashboard`) opens a full-screen, auto-refreshing
+control board — think `htop`/`k9s` for the RemotePower stack. No dependencies;
+it's drawn with box characters and ANSI colour, so it works over plain SSH.
+
+```text
+╭─ RemotePower  ·  tviweb01 ───────────────────────────────────────────────╮
+│  version 6.1.1    backend postgres    uptime 3d 4h    load 0.42           │
+├───────────────────────────────────────────────────────────────────────────┤
+│  COMPONENT             STATUS        BOOT       PORT                       │
+│ ▸ ● wsgi               running       enabled    :8090 ✓                    │
+│   ● scheduler          running       enabled    —                         │
+│   ● scanner            running       enabled    —                         │
+│   ● push               running       enabled    :8766 ✓                    │
+│   ○ webterm            stopped       disabled   :8765 ✗                    │
+├───────────────────────────────────────────────────────────────────────────┤
+│  ● 4 running   ○ 1 stopped   ✖ 0 failed                                    │
+╰───────────────────────────────────────────────────────────────────────────╯
+  ↑/↓ select   [r]estart [s]tart [x]stop   [d]octor [l]ogs   [q]uit
+```
+
+Keys: **↑/↓** (or `j`/`k`) move the selection; **r/s/x** restart / start / stop
+the selected component (via `sudo` if you're not root); **d** runs `rp doctor` in
+a pager; **l** shows that component's recent logs; **q** quits. The board
+refreshes every 2 seconds. It needs an interactive terminal — piped or in a
+non-TTY it just prints `rp status` instead.
 
 ## `rp doctor`
 

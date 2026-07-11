@@ -3,6 +3,7 @@
 # rp — RemotePower node control (omd / checkmk style)
 #
 #   rp status              show every stack component + host service
+#   rp tui                 live interactive dashboard (arrow keys + r/s/x/d/l)
 #   rp start   [component] start the RemotePower stack (or one component)
 #   rp stop    [component] stop it
 #   rp restart [component] restart it
@@ -243,12 +244,113 @@ PY
   return $rc
 }
 
-usage(){ sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; }
+# ── tui — live interactive dashboard (k9s/htop style, no dependencies) ────────
+_tui_setup(){ printf '\033[?1049h\033[?25l'; }             # alt screen + hide cursor
+_tui_teardown(){ printf '\033[?25h\033[?1049l'; }          # restore
+_vlen(){ local s; s=$(printf '%s' "$1" | sed $'s/\033\\[[0-9;]*m//g'); printf '%s' "${#s}"; }
+
+cmd_tui(){
+  local once=0; [ "${1:-}" = "--once" ] && once=1
+  if [ $once -eq 0 ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+    echo "rp tui needs an interactive terminal — showing status instead." >&2
+    cmd_status; return
+  fi
+  # richer palette
+  local FR=$'\033[38;5;66m' AC=$'\033[38;5;39m' GG=$'\033[38;5;40m' RR=$'\033[38;5;203m'
+  local YY=$'\033[38;5;214m' DD=$'\033[38;5;244m' BB=$'\033[1m' ZZ=$'\033[0m'
+  local W IN; W=$(tput cols 2>/dev/null || echo 80); [ "$W" -gt 82 ] && W=82; [ "$W" -lt 56 ] && W=56; IN=$((W-2))
+  local -a units; mapfile -t units < <(installed_units)
+  [ ${#units[@]} -eq 0 ] && units=("${UNITS[@]}")   # show the roster even if none installed yet
+  local sel=0 msg="" key rest
+
+  _dash(){ printf '─%.0s' $(seq 1 "$1"); }
+  # pad a possibly-colored string to visible width $2
+  _pad(){ local s="$1" w="$2" v n; v=$(_vlen "$s"); n=$((w - v)); [ $n -lt 0 ] && n=0; printf '%s%*s' "$s" "$n" ""; }
+  _edge(){ # $1=corner-left $2=corner-right  $3=optional title
+    if [ -n "${3:-}" ]; then
+      local t=" $3 " r; r=$((IN - ${#t} - 1)); [ $r -lt 0 ] && r=0
+      printf '%s%s─%s%s%s%s%s%s\n' "$FR" "$1" "$BB$t$ZZ$FR" "$(_dash $r)" "$FR" "$2" "$ZZ" ""
+    else printf '%s%s%s%s%s\n' "$FR" "$1" "$(_dash $IN)" "$2" "$ZZ"; fi
+  }
+  _row(){ local c="$1" v; v=$(_vlen "$c")   # truncate (plain) if it would overflow the frame
+          if [ "$v" -gt "$IN" ]; then c=$(printf '%s' "$c" | sed $'s/\033\\[[0-9;]*m//g'); c="${c:0:$((IN-1))}…"; fi
+          printf '%s│%s%s%s│%s\n' "$FR" "$ZZ" "$(_pad "$c" $IN)" "$FR" "$ZZ"; }
+  _sep(){ printf '%s├%s┤%s\n' "$FR" "$(_dash $IN)" "$ZZ"; }
+
+  _draw(){
+    local host ver be up load
+    host=$(hostname -s 2>/dev/null || hostname); ver=$(server_version); be=$(backend)
+    up=$(awk '{d=int($1/86400);h=int($1%86400/3600);m=int($1%3600/60);if(d)printf "%dd %dh",d,h;else if(h)printf "%dh %dm",h,m;else printf "%dm",m}' /proc/uptime 2>/dev/null); up=${up:-?}
+    load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null); load=${load:-?}
+    printf '\033[H'   # home
+    _edge '╭' '╮' "RemotePower  ·  $host"
+    _row "  ${DD}version${ZZ} ${BB}$ver${ZZ}    ${DD}backend${ZZ} $be    ${DD}uptime${ZZ} $up    ${DD}load${ZZ} $load"
+    _sep
+    _row "  ${DD}COMPONENT             STATUS        BOOT       PORT${ZZ}"
+    local i u name statecol stateword boot port dot pointer nrun=0 nstop=0 nfail=0
+    for i in "${!units[@]}"; do
+      u="${units[$i]}"; name="${u#remotepower-}"
+      if have_systemd && unit_file "$u"; then
+        if systemctl is-failed --quiet "$u.service" 2>/dev/null; then dot="${RR}✖${ZZ}"; stateword="${RR}failed${ZZ}"; nfail=$((nfail+1))
+        elif is_active "$u"; then dot="${GG}●${ZZ}"; stateword="${GG}running${ZZ}"; nrun=$((nrun+1))
+        else dot="${DD}○${ZZ}"; stateword="${DD}stopped${ZZ}"; nstop=$((nstop+1)); fi
+        is_enabled "$u" && boot="enabled " || boot="${YY}disabled${ZZ}"
+      else dot="${DD}·${ZZ}"; stateword="${DD}absent${ZZ}"; boot="${DD}—${ZZ}"; nstop=$((nstop+0)); fi
+      local p="${PORT[$u]:-}"; port="—       "
+      if [ -n "$p" ]; then port_open "$p" && port="${GG}:$p ✓${ZZ}" || port="${RR}:$p ✗${ZZ}"; fi
+      if [ "$i" -eq "$sel" ]; then pointer="${AC}▸${ZZ}"; name="${AC}${BB}${name}${ZZ}"; else pointer=" "; fi
+      _row " $pointer $dot $(_pad "$name" 18) $(_pad "$stateword" 11) $(_pad "$boot" 9) $port"
+    done
+    _sep
+    _row "  ${GG}● $nrun running${ZZ}   ${DD}○ $nstop stopped${ZZ}   ${RR}✖ $nfail failed${ZZ}${msg:+     $msg}"
+    _edge '╰' '╯' ""
+    printf '%s  ↑/↓%s select   %s[r]%sestart %s[s]%start %s[x]%stop   %s[d]%soctor %s[l]%sogs   %s[q]%suit%s\n' \
+      "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$ZZ"
+    printf '\033[J'   # clear to end
+  }
+
+  _sudo(){ if [ "$(id -u)" = 0 ]; then "$@"; elif command -v sudo >/dev/null 2>&1; then sudo "$@"; else return 90; fi; }
+  _act(){ # $1 verb on the selected unit
+    local u="${units[$sel]}"
+    have_systemd && unit_file "$u" || { msg="${YY}$u not installed${ZZ}"; return; }
+    msg="${DD}${1}ing ${u#remotepower-}…${ZZ}"; _draw
+    if _sudo systemctl "$1" "$u.service" >/dev/null 2>&1; then msg="${GG}$1 ${u#remotepower-} ✓${ZZ}"
+    elif [ $? -eq 90 ]; then msg="${RR}need root — run rp as sudo${ZZ}"
+    else msg="${RR}$1 ${u#remotepower-} failed${ZZ}"; fi
+  }
+  _pager(){ if command -v less >/dev/null 2>&1; then less -R; else cat; fi; }
+
+  if [ $once -eq 1 ]; then _draw; return 0; fi
+  trap '_tui_teardown; exit 0' INT TERM
+  _tui_setup; printf '\033[2J'
+  while :; do
+    _draw
+    IFS= read -rsn1 -t 2 key || { msg=""; continue; }
+    case "$key" in
+      $'\033') read -rsn2 -t 0.05 rest || rest=''
+               case "$rest" in '[A') sel=$(( (sel-1+${#units[@]}) % ${#units[@]} ));;
+                                '[B') sel=$(( (sel+1) % ${#units[@]} ));; esac ;;
+      k|K) sel=$(( (sel-1+${#units[@]}) % ${#units[@]} )) ;;
+      j|J) sel=$(( (sel+1) % ${#units[@]} )) ;;
+      r|R) _act restart ;;
+      s|S) _act start ;;
+      x|X) _act stop ;;
+      d|D) _tui_teardown; { cmd_doctor; echo; echo "── press q to return ──"; } | _pager; _tui_setup; printf '\033[2J' ;;
+      l|L) _tui_teardown; { have_systemd && journalctl -u "${units[$sel]}.service" -n 300 --no-pager 2>/dev/null || echo "no logs"; } | _pager; _tui_setup; printf '\033[2J' ;;
+      g|G) msg="${DD}refreshed${ZZ}" ;;
+      q|Q) break ;;
+    esac
+  done
+  _tui_teardown
+}
+
+usage(){ awk 'NR<3{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; }
 
 # ── dispatch ──────────────────────────────────────────────────────────────────
 cmd="${1:-status}"; shift || true
 case "$cmd" in
   status|st)        cmd_status "$@" ;;
+  tui|top|dash|dashboard|ui) cmd_tui "$@" ;;
   start)            cmd_lifecycle start "$@" ;;
   stop)             cmd_lifecycle stop "$@" ;;
   restart|re)       cmd_lifecycle restart "$@" ;;
