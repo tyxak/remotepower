@@ -283,6 +283,21 @@ class TestAgent(unittest.TestCase):
         self.assertIn('sources.list.d', block)
         self.assertIn("glob('*.sources')", block)
 
+    def test_push_connect_uses_signature_detected_header_kwarg(self):
+        # v6.1.1 fix: the push WS connect must pick additional_headers vs
+        # extra_headers from the websockets signature UP FRONT. The old
+        # try(additional_headers)/except TypeError(extra_headers) pattern was
+        # broken on websockets 10.x — connect() stores the unknown kwarg and only
+        # raises when AWAITED, so the except never fired and every connect died
+        # silently (reproduced live). Guard against that pattern coming back.
+        self.assertIn('def _ws_header_kwarg(', self.agent)
+        self.assertIn('_WS_HEADER_KW', self.agent)
+        idx = self.agent.find('def _push_listener_thread(')
+        block = self.agent[idx: idx + 2000]
+        self.assertIn('connect_kwargs[_WS_HEADER_KW]', block)
+        # the broken inline additional_headers=... connect must be gone
+        self.assertNotIn('additional_headers={', block)
+
     def test_collect_reads_enabled_services(self):
         idx = self.agent.find('def collect_host_config(')
         block = self.agent[idx: idx + 5000]

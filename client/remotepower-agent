@@ -425,6 +425,28 @@ except ImportError:
     _PUSH_AVAILABLE = False
 
 
+def _ws_header_kwarg():
+    """websockets >=14 takes `additional_headers`; <=13 takes `extra_headers`.
+
+    CRITICAL: a try(additional_headers)/except TypeError(extra_headers) fallback
+    does NOT work on the older library. On websockets 10.x `connect()` STORES
+    unknown kwargs and only raises the TypeError when the connection is AWAITED
+    (inside `async with`), not at the `connect()` call — so the call-time except
+    never fires, the fallback is dead, and every push connect dies silently in
+    the outer handler (reproduced live against websockets 10.4 on Debian). Pick
+    the correct kwarg name up front from the signature instead."""
+    try:
+        import inspect
+        if 'additional_headers' in inspect.signature(websockets.connect).parameters:
+            return 'additional_headers'
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return 'extra_headers'
+
+
+_WS_HEADER_KW = _ws_header_kwarg() if _PUSH_AVAILABLE else 'extra_headers'
+
+
 def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
     """Runs in a background daemon thread for the agent's whole lifetime
     once started. Maintains (and silently reconnects) a WebSocket to the
@@ -443,16 +465,12 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
             try:
                 connect_kwargs = dict(ping_interval=20, ping_timeout=20, ssl=_SSL_CTX,
                                       open_timeout=10)
-                try:
-                    ws_cm = websockets.connect(
-                        url, additional_headers={'X-RP-Push-Token': token}, **connect_kwargs)
-                except TypeError:
-                    # websockets <13 used extra_headers instead of
-                    # additional_headers -- degrade gracefully rather than
-                    # hard-require the newest release.
-                    ws_cm = websockets.connect(
-                        url, extra_headers={'X-RP-Push-Token': token}, **connect_kwargs)
-                async with ws_cm as ws:
+                # Use the header kwarg this websockets version actually accepts
+                # (see _ws_header_kwarg — the old try/except-at-call-time was
+                # broken on websockets 10.x, where the TypeError only fires when
+                # the connection is awaited).
+                connect_kwargs[_WS_HEADER_KW] = {'X-RP-Push-Token': token}
+                async with websockets.connect(url, **connect_kwargs) as ws:
                     backoff = 5   # reset once a connection actually succeeds
                     async for raw in ws:
                         if stop_event.is_set():
