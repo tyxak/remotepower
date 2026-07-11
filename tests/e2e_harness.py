@@ -58,25 +58,38 @@ def start_stack():
                 raise RuntimeError('gunicorn never started listening')
             time.sleep(0.1)
 
-    # The worker's import seeded the default admin (must_change_password=True,
-    # which gates most endpoints). The smoke tests exercise the app POST-login,
-    # so clear the flag — first-login flow has its own coverage elsewhere.
-    # Done through the storage layer (a one-shot api import in a subprocess)
-    # so it works on BOTH backends: under RP_STORAGE_BACKEND=sqlite there is
-    # no users.json file to edit.
-    fix = subprocess.run(
-        [sys.executable, '-c',
-         'import sys; sys.path.insert(0, sys.argv[1]); import api; '
-         'u = api.load(api.USERS_FILE); '
-         "u['admin']['must_change_password'] = False; "
-         'api.save(api.USERS_FILE, u)',
-         str(_CGI)],
-        env=dict(os.environ, RP_DATA_DIR=data_dir),
-        capture_output=True, timeout=120)
-    if fix.returncode != 0:
-        worker.terminate()
-        raise RuntimeError('seed-user fixup failed: '
-                           + fix.stderr.decode(errors='replace'))
+    # Each of the `--workers 2` gunicorn processes independently imports
+    # wsgi.py -> api.py and runs ensure_default_user() at import time
+    # (must_change_password=True, which gates most endpoints). The smoke
+    # tests exercise the app POST-login, so clear the flag -- first-login
+    # flow has its own coverage elsewhere. Done through the storage layer
+    # (a one-shot api import in a subprocess) so it works on BOTH backends:
+    # under RP_STORAGE_BACKEND=sqlite there is no users.json file to edit.
+    #
+    # The readiness wait above only proves ONE worker's listen() succeeded
+    # (often before either worker has finished importing) -- a slower
+    # second worker can still be mid-import when the fixup below runs, and
+    # its OWN ensure_default_user() call re-seeds must_change_password=True
+    # right after, silently clobbering the fix. This is a real race that
+    # got worse under host load (a slow worker import widens the window)
+    # and showed up as an intermittent post-login redirect to Settings
+    # instead of Home in test_a11y_axe.py / test_v430_e2e.py. Re-apply the
+    # fixup a few times over ~1.5s to absorb a straggler worker.
+    _fix_cmd = [sys.executable, '-c',
+                'import sys; sys.path.insert(0, sys.argv[1]); import api; '
+                'u = api.load(api.USERS_FILE); '
+                "u['admin']['must_change_password'] = False; "
+                'api.save(api.USERS_FILE, u)',
+                str(_CGI)]
+    for attempt in range(5):
+        fix = subprocess.run(_fix_cmd, env=dict(os.environ, RP_DATA_DIR=data_dir),
+                              capture_output=True, timeout=120)
+        if fix.returncode != 0:
+            worker.terminate()
+            raise RuntimeError('seed-user fixup failed: '
+                               + fix.stderr.decode(errors='replace'))
+        if attempt < 4:
+            time.sleep(0.3)
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *a, **k):

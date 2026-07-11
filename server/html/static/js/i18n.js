@@ -1545,6 +1545,7 @@
     "Create profile": { "fr": "Créer un profil", "de": "Profil erstellen", "zh": "创建配置", "hi": "प्रोफ़ाइल बनाएँ", "es": "Crear perfil", "ar": "إنشاء ملف" },
     "Apply to selected": { "fr": "Appliquer aux sélectionnés", "de": "Auf Ausgewählte anwenden", "zh": "应用到所选", "hi": "चयनित पर लागू करें", "es": "Aplicar a seleccionados", "ar": "تطبيق على المحدد" },
     "Tickets": { "fr": "Tickets", "de": "Tickets", "zh": "工单", "hi": "टिकट", "es": "Tickets", "ar": "التذاكر" },
+    "Backups": { "fr": "Sauvegardes", "de": "Sicherungen", "zh": "备份", "hi": "बैकअप", "es": "Copias de seguridad", "ar": "النسخ الاحتياطي" },
     "Add contact": { "fr": "Ajouter un contact", "de": "Kontakt hinzufügen", "zh": "添加联系人", "hi": "संपर्क जोड़ें", "es": "Añadir contacto", "ar": "إضافة جهة اتصال" },
     "Save contact": { "fr": "Enregistrer le contact", "de": "Kontakt speichern", "zh": "保存联系人", "hi": "संपर्क सहेजें", "es": "Guardar contacto", "ar": "حفظ جهة الاتصال" },
     "New ticket": { "fr": "Nouveau ticket", "de": "Neues Ticket", "zh": "新建工单", "hi": "नया टिकट", "es": "Nuevo ticket", "ar": "تذكرة جديدة" },

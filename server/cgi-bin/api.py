@@ -46640,7 +46640,7 @@ def handle_setup_status():
          'page': 'settings', 'tab': 'notifs', 'required': False, 'done': notif_done},
         {'id': 'backups', 'title': 'Enable scheduled backups',
          'detail': 'Turn on automatic config/state backups so you can recover the server.',
-         'page': 'settings', 'tab': 'advanced', 'required': False, 'done': backup_done},
+         'page': 'settings', 'tab': 'backups', 'required': False, 'done': backup_done},
         {'id': 'two-factor', 'title': 'Turn on two-factor auth for your account',
          'detail': 'Add TOTP 2FA to your own login for defence in depth.',
          'page': 'settings', 'tab': 'security', 'required': False, 'done': twofa_done},
