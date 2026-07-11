@@ -104,11 +104,38 @@ either); the token travels in a custom `X-RP-Push-Token` header rather than
 the query string specifically so it doesn't land in nginx's default
 access-log line the way a query-string secret would.
 
+## Deployment (v6.1.1) — backend, nginx, and self-update
+
+Three things must line up for push to actually connect. All three only bite on
+an *installed* server (not the repo test tree), so verify them on the box:
+
+1. **nginx must proxy the WebSocket to the daemon.** Add a location that
+   forwards `/api/push/connect` to `127.0.0.1:8766` **with the WS upgrade
+   headers** — an exact `location = /api/push/connect { … }` (see
+   `packaging/nginx-push.conf`). Without it, the WS falls through to the generic
+   `/api/` proxy (port 8090, the app) and the handshake fails. On a private
+   (IP-allowlisted) vhost, include your allowlist in the location too, exactly
+   like the webterm block.
+2. **The daemon is backend-aware.** Under the default Postgres/SQLite backend the
+   `*.json` files don't exist on disk — the daemon reads device tokens through
+   the app's storage layer. It locates `server/cgi-bin/storage*.py` automatically
+   (repo layout, `/var/www/remotepower/cgi-bin`, …; override with `RP_CGI_BIN`)
+   and, on Postgres, pulls the DSN from the storage marker
+   (`/var/lib/remotepower/storage_backend.json`) just like the app — so no extra
+   env is normally needed. Confirm the startup line reads `backend=postgres`
+   (not `backend=json`) with no `storage backend detection failed` warning.
+3. **Deploy an agent fix to BOTH copies.** The agent self-updates by comparing
+   its sha256 to the one the server advertises from
+   `/var/www/remotepower/agent/remotepower-agent`. If you only replace the
+   running `/usr/local/bin/remotepower-agent`, the next self-update **reverts it**
+   to the server's copy. Always update the distribution copy too (drop its
+   `.sha256` sidecar to force a rehash) — `deploy-server.sh` does both at once.
+
 ## Operational notes
 
-- The daemon reads `devices.json`/`commands.json` directly (read-only) —
-  it shares only the on-disk data directory with the main app, not a
-  process or a network API.
+- The daemon reads device/command state through the active storage backend
+  (v6.1.1) — flat JSON files under the JSON backend, or the DB under
+  Postgres/SQLite — read-only, sharing only the data directory with the app.
 - Token rotation (or a brand-new enrollment) takes effect on the very next
   connection attempt — the daemon's device cache is keyed on the file's
   own mtime, not a time-based TTL, so there's no window where a just-
