@@ -50,7 +50,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 7  # v5.8.0: audit_log.json cold-blob -> wrapped-list rows (chained)
+SCHEMA_VERSION = 8  # v6.1.1: commands.json cold-blob -> entity rows (see _COLD_TO_ENTITY_V6)
 
 
 def configure(data_dir):
@@ -90,8 +90,18 @@ ENTITY_FILES = {
     # are migrated from kv -> entity once (see _migrate_cold_to_entity).
     'containers.json',
     'update_logs.json',
-    'cmds.json',
     'uptime.json',
+    # v6.1.1: the real command-queue file. NOTE this was NOT 'commands.json'
+    # here before -- the v5.0.0 wave above added the string 'cmds.json',
+    # which never matched CMDS_FILE's actual basename ('commands.json',
+    # api.py). _classify() matches by exact basename, so that entry was
+    # silently dead from day one: commands.json stayed classified 'cold' in
+    # every production deployment, and _entity_read_one(CMDS_FILE, ...) (the
+    # unconditional per-heartbeat call this was supposed to make O(1)) fell
+    # through entity_get()'s cold-blob fallback, parsing the WHOLE queue
+    # blob on every single heartbeat -- exactly the cost the v5.0.0 commit
+    # claimed to have eliminated for this file. See _COLD_TO_ENTITY_V6.
+    'commands.json',
     # v5.6.0 (perf, Tier-2): flat {device_id: value} posture/baseline blobs that
     # were read+rewritten whole on the heartbeat. Same treatment as the v5.0.0 set.
     'posture_state.json',
@@ -116,7 +126,14 @@ ENTITY_FILES = {
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY
 # files. On an existing DB their data still lives as a single kv blob — split it
 # into per-key entity rows ONCE (schema-version-gated) so nothing is orphaned.
-_COLD_TO_ENTITY_V3 = ('containers.json', 'update_logs.json', 'cmds.json', 'uptime.json')
+# v6.1.1: this originally also named 'cmds.json', which never matched any real
+# file (CMDS_FILE's real basename is 'commands.json') -- test_v560_entity_
+# promotion.TestBackendsStayInLockstep enforces "every migrated-from file must
+# be in ENTITY_FILES", so removed here rather than left as dead history; it
+# was always a no-op (no file was ever named that) and commands.json's real
+# migration now lives in _COLD_TO_ENTITY_V6 below, with its own schema-version
+# gate so already-upgraded databases still pick it up.
+_COLD_TO_ENTITY_V3 = ('containers.json', 'update_logs.json', 'uptime.json')
 # v5.6.0: second wave promoted to ENTITY — split their kv blob once at db_ver < 4.
 _COLD_TO_ENTITY_V4 = ('posture_state.json', 'port_baseline.json', 'av_status.json',
                       'ssh_key_baseline.json')
@@ -124,6 +141,15 @@ _COLD_TO_ENTITY_V4 = ('posture_state.json', 'port_baseline.json', 'av_status.jso
 _COLD_TO_ENTITY_V5 = ('hardware.json', 'drift_state.json', 'drift_contents.json',
                       'helm.json', 'discovery.json', 'secret_findings.json',
                       'speedtest.json', 'acme_state.json')
+# v6.1.1: commands.json — the ENTITY_FILES entry for this was always the
+# wrong string ('cmds.json', which never matched CMDS_FILE's real basename),
+# so this file has been silently cold this whole time despite the v5.0.0
+# wave claiming to have promoted it. A fresh migration wave (not just fixing
+# the ENTITY_FILES string) is required because ANY database that already
+# passed through schema v3+ has its schema_version stored well past that
+# gate — it would never re-run _migrate_cold_to_entity for this file
+# otherwise, leaving its data stuck as an unmigrated kv blob forever.
+_COLD_TO_ENTITY_V6 = ('commands.json',)
 
 # wrapped-list files: basename -> the single top-level list key.
 # v5.8.0: fleet_events.json joined this set. It was previously kept COLD because
@@ -383,6 +409,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_wrapped(conn, _COLD_TO_WRAPPED_V6)   # v5.8.0
     if db_ver is None or db_ver < 7:
         _migrate_cold_to_wrapped(conn, _COLD_TO_WRAPPED_V7)   # v5.8.0
+    if db_ver is None or db_ver < 8:
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V6)     # v6.1.1
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

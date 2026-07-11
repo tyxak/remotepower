@@ -31,8 +31,18 @@ API_SRC = (_CGI / "api.py").read_text()
 
 class TestEntityPromotion(unittest.TestCase):
     def test_files_promoted(self):
-        for f in ("containers.json", "update_logs.json", "cmds.json", "uptime.json"):
+        for f in ("containers.json", "update_logs.json", "commands.json", "uptime.json"):
             self.assertIn(f, storage.ENTITY_FILES)
+
+    def test_cmds_json_is_not_a_real_file(self):
+        # v6.1.1: 'cmds.json' was a stale/wrong string in the v5.0.0 wave that
+        # never matched any real file (CMDS_FILE's basename is
+        # 'commands.json') -- guard against it silently creeping back into
+        # ENTITY_FILES, which would just be dead classification again.
+        self.assertNotIn("cmds.json", storage.ENTITY_FILES)
+        self.assertEqual(Path(api.CMDS_FILE).name, "commands.json")
+        self.assertIn(Path(api.CMDS_FILE).name, storage.ENTITY_FILES,
+                     "CMDS_FILE's real basename must be entity-promoted")
 
     def test_schema_version_bumped(self):
         self.assertGreaterEqual(storage.SCHEMA_VERSION, 3)
@@ -65,7 +75,11 @@ class TestColdToEntityMigration(unittest.TestCase):
         c.execute("INSERT INTO schema_meta VALUES('schema_version','2')")
         c.execute("INSERT INTO kv VALUES('containers.json',?,0)",
                   (json.dumps({"d1": {"ts": 1, "items": ["a"]}, "d2": {"ts": 2, "items": []}}),))
-        c.execute("INSERT INTO kv VALUES('cmds.json',?,0)",
+        # v6.1.1: 'commands.json' -- CMDS_FILE's REAL basename (the pre-fix kv
+        # blob would have sat under the stale 'cmds.json' key, which never
+        # matched anything real; this fixture now reflects what an actual
+        # pre-v6.1.1 production database looks like).
+        c.execute("INSERT INTO kv VALUES('commands.json',?,0)",
                   (json.dumps({"d1": ["reboot"], "d2": ["update"]}),))
         c.execute("INSERT INTO kv VALUES('uptime.json',?,0)",
                   (json.dumps({"d1": {"name": "d1", "events": [{"ts": 1, "online": True}]}}),))
@@ -78,18 +92,54 @@ class TestColdToEntityMigration(unittest.TestCase):
         # first load triggers _ensure_schema -> _migrate_cold_to_entity
         self.assertEqual(storage.load(d / "containers.json"),
                          {"d1": {"ts": 1, "items": ["a"]}, "d2": {"ts": 2, "items": []}})
-        self.assertEqual(storage.entity_get(d / "cmds.json", "d1"), ["reboot"])
-        self.assertEqual(storage.load(d / "cmds.json"),
+        self.assertEqual(storage.entity_get(d / "commands.json", "d1"), ["reboot"])
+        self.assertEqual(storage.load(d / "commands.json"),
                          {"d1": ["reboot"], "d2": ["update"]})
         self.assertEqual(storage.entity_get(d / "uptime.json", "d1")["name"], "d1")
-        # kv blobs consumed, version stamped to the current schema (v5.6.0: 4)
+        # kv blobs consumed, version stamped to the current schema
         c = sqlite3.connect(str(storage.db_path(d)))
         self.assertEqual(c.execute(
-            "SELECT count(*) FROM kv WHERE path IN ('containers.json','cmds.json','uptime.json')"
+            "SELECT count(*) FROM kv WHERE path IN ('containers.json','commands.json','uptime.json')"
         ).fetchone()[0], 0)
         self.assertEqual(c.execute(
             "SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0],
             str(storage.SCHEMA_VERSION))
+        c.close()
+        storage.close_connection()
+
+    def test_already_migrated_db_still_catches_the_missed_commands_json_wave(self):
+        # v6.1.1: the REAL-WORLD broken state. Every existing production
+        # database already has schema_version >= 4 (it passed through the v3
+        # wave, which never actually touched commands.json because the
+        # ENTITY_FILES string was wrong) -- so a naive fix that only
+        # corrected the ENTITY_FILES string, without a NEW migration wave
+        # gated on a NEW schema version, would never re-run for any database
+        # that already exists. Simulate exactly that: a db already stamped
+        # at schema_version=7 (the version that shipped just before this
+        # fix), with commands.json still sitting as an unmigrated kv blob.
+        d = Path(tempfile.mkdtemp())
+        dbp = storage.db_path(d)
+        c = sqlite3.connect(str(dbp))
+        c.executescript("""
+          CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT);
+          CREATE TABLE kv(path TEXT PRIMARY KEY, doc TEXT NOT NULL, updated REAL);
+          CREATE TABLE devices(id TEXT PRIMARY KEY, doc TEXT NOT NULL, last_seen INTEGER DEFAULT 0);
+          CREATE TABLE entity(file TEXT NOT NULL, k TEXT NOT NULL, doc TEXT NOT NULL, PRIMARY KEY(file,k));
+          CREATE TABLE listrow(id INTEGER PRIMARY KEY AUTOINCREMENT, file TEXT NOT NULL, doc TEXT NOT NULL);
+          CREATE TABLE file_meta(file TEXT PRIMARY KEY, updated REAL NOT NULL);
+        """)
+        c.execute("INSERT INTO schema_meta VALUES('schema_version','7')")
+        c.execute("INSERT INTO kv VALUES('commands.json',?,0)",
+                  (json.dumps({"d1": ["reboot"], "d2": ["update"]}),))
+        c.commit(); c.close()
+        storage.close_connection()
+
+        self.assertEqual(storage.entity_get(d / "commands.json", "d1"), ["reboot"])
+        self.assertEqual(storage.load(d / "commands.json"),
+                         {"d1": ["reboot"], "d2": ["update"]})
+        c = sqlite3.connect(str(storage.db_path(d)))
+        self.assertEqual(c.execute(
+            "SELECT count(*) FROM kv WHERE path='commands.json'").fetchone()[0], 0)
         c.close()
         storage.close_connection()
 

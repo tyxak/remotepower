@@ -44,7 +44,8 @@ from storage import (
     json_inventory, read_marker, write_marker, _read_json, _write_json_atomic, _norm,
 )
 
-SCHEMA_VERSION = 6  # v5.8.0: audit_log cold-blob -> wrapped-list rows;
+SCHEMA_VERSION = 7  # v6.1.1: commands.json cold-blob -> entity rows (storage._COLD_TO_ENTITY_V6);
+#                      v5.8.0: audit_log cold-blob -> wrapped-list rows;
 #                      v5.6.0: posture_state/port_baseline/av_status/ssh_key_baseline -> entity
 # NB: this is Postgres's OWN schema counter (starts at 1); the SQLite backend
 # (storage.SCHEMA_VERSION) counts separately. What matters is that BOTH split the
@@ -475,6 +476,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_wrapped_pg(conn, storage._COLD_TO_WRAPPED_V6)   # v5.8.0
     if _dbv is None or _dbv < 6:
         _migrate_cold_to_wrapped_pg(conn, storage._COLD_TO_WRAPPED_V7)   # v5.8.0
+    if _dbv is None or _dbv < 7:
+        _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V6)     # v6.1.1
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', %s) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
