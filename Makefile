@@ -176,6 +176,22 @@ postman:
 	$(PY) tools/gen-postman.py > $(DIST_DIR)/remotepower.postman_collection.json
 	@echo "wrote $(DIST_DIR)/remotepower.postman_collection.json"
 
+# v6.1.1 (#43): typed Python client, generated from the same route-table-driven
+# OpenAPI spec the Postman collection above uses -- codegen only, no hand-written
+# client code (same risk class as `make postman`). Needs the optional
+# `openapi-python-client` tool (pip install --break-system-packages
+# openapi-python-client); not a runtime dependency of the server or agent, so
+# it's not in packaging/requirements-server.txt. Output is regenerated fresh
+# each run (--overwrite), same as the Postman collection -- not committed.
+sdk:
+	@command -v openapi-python-client >/dev/null || \
+		{ echo "openapi-python-client not found -- pip install --break-system-packages openapi-python-client"; exit 1; }
+	@mkdir -p $(DIST_DIR)
+	$(PY) tools/gen-openapi-json.py > $(DIST_DIR)/openapi.json
+	openapi-python-client generate --path $(DIST_DIR)/openapi.json \
+		--output-path $(DIST_DIR)/sdk-python --overwrite
+	@echo "wrote $(DIST_DIR)/sdk-python (Python client, regenerate anytime with 'make sdk')"
+
 # Fast SAST proxy for GitHub Code Scanning: bandit at medium+ severity AND
 # confidence over the shipped server + agent Python. The codebase has a large
 # INTENTIONAL sink surface (a fleet manager runs subprocesses / opens URLs), so

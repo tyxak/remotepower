@@ -80,6 +80,52 @@ def _common_responses() -> dict[str, Any]:
     }
 
 
+def _device_command_responses() -> dict[str, Any]:
+    """Shared response set for the four device-command endpoints (shutdown/
+    reboot/upgrade-device/update-device). A whole responses MAP has no valid
+    $ref target in OpenAPI 3.x (only individual components/responses entries
+    do) -- returns a fresh dict per call so each operation gets its own copy,
+    not a shared mutable reference."""
+    return {
+        "200": {
+            "description": "Queued.",
+            "content": {
+                "application/json": {"schema": {"$ref": "#/components/schemas/Ok"}}
+            },
+        },
+        "400": {"$ref": "#/components/responses/BadRequest"},
+        "401": {"$ref": "#/components/responses/Unauthorized"},
+    }
+
+
+def _common_request_bodies() -> dict[str, Any]:
+    # v6.1.1: /reboot, /upgrade-device and /update-device used to $ref this
+    # shape via "#/paths/~1shutdown/post/requestBody" -- OpenAPI's requestBody
+    # field DOES support a $ref, but only into components/requestBodies (or an
+    # inline object); a $ref into #/paths/... is not a valid target for any
+    # spec-consuming tool (confirmed: it fails validation in openapi-python-
+    # client, the codegen tool this now backs). Extracted here so the ref is
+    # actually valid and the four commands share one definition for real.
+    return {
+        "DeviceCommand": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "device_id": {"type": "string"},
+                            "device_ids": {"type": "array", "items": {"type": "string"}},
+                            "tag": {"type": "string"},
+                            "group": {"type": "string"},
+                        },
+                    }
+                }
+            },
+        },
+    }
+
+
 def _schemas() -> dict[str, Any]:
     return {
         "Error": {
@@ -353,32 +399,8 @@ def _path_devices() -> dict[str, Any]:
                 "tags": ["Commands"],
                 "summary": "Queue a shutdown on one or more devices",
                 "operationId": "queueShutdown",
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "device_id": {"type": "string"},
-                                    "device_ids": {"type": "array", "items": {"type": "string"}},
-                                    "tag": {"type": "string"},
-                                    "group": {"type": "string"},
-                                },
-                            }
-                        }
-                    },
-                },
-                "responses": {
-                    "200": {
-                        "description": "Queued.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/Ok"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                },
+                "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
+                "responses": _device_command_responses(),
             }
         },
         "/reboot": {
@@ -386,8 +408,8 @@ def _path_devices() -> dict[str, Any]:
                 "tags": ["Commands"],
                 "summary": "Queue a reboot on one or more devices",
                 "operationId": "queueReboot",
-                "requestBody": {"$ref": "#/paths/~1shutdown/post/requestBody"},
-                "responses": {"$ref": "#/paths/~1shutdown/post/responses"},
+                "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
+                "responses": _device_command_responses(),
             }
         },
         "/upgrade-device": {
@@ -399,8 +421,8 @@ def _path_devices() -> dict[str, Any]:
                     "``GET /api/devices/{id}/update-logs`` after the next heartbeat."
                 ),
                 "operationId": "queueUpgrade",
-                "requestBody": {"$ref": "#/paths/~1shutdown/post/requestBody"},
-                "responses": {"$ref": "#/paths/~1shutdown/post/responses"},
+                "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
+                "responses": _device_command_responses(),
             }
         },
         "/update-device": {
@@ -408,8 +430,8 @@ def _path_devices() -> dict[str, Any]:
                 "tags": ["Commands"],
                 "summary": "Push agent self-update on one or more devices",
                 "operationId": "queueAgentUpdate",
-                "requestBody": {"$ref": "#/paths/~1shutdown/post/requestBody"},
-                "responses": {"$ref": "#/paths/~1shutdown/post/responses"},
+                "requestBody": {"$ref": "#/components/requestBodies/DeviceCommand"},
+                "responses": _device_command_responses(),
             }
         },
     }
@@ -1202,6 +1224,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
         "components": {
             "schemas": _schemas(),
             "responses": _common_responses(),
+            "requestBodies": _common_request_bodies(),
             "securitySchemes": _security_schemes(),
         },
         "security": [{"SessionToken": []}, {"ApiKey": []}],

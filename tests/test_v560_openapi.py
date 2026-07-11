@@ -72,5 +72,55 @@ class TestFullSurfaceCoverage(unittest.TestCase):
         self.assertIn('requestBody', post)
 
 
+class TestRefsAreValidCodegenTargets(unittest.TestCase):
+    """v6.1.1 (#43) -- /reboot, /upgrade-device and /update-device used to
+    $ref "#/paths/~1shutdown/post/requestBody" / ".../responses". OpenAPI's
+    requestBody field DOES support a $ref, but only into
+    components/requestBodies (or an inline object) -- a $ref into #/paths/...
+    is not a valid target for any spec-consuming tool. This broke
+    `openapi-python-client generate` outright (confirmed live this session)
+    before the fix, i.e. it would break ANY strict OpenAPI-consuming tool,
+    not just that one. A whole `responses` MAP has no valid $ref target at
+    all in OpenAPI 3.x (only individual components/responses entries do),
+    so that half was fixed differently -- a shared Python helper returning a
+    fresh inline dict per operation, not a spec-level $ref."""
+
+    def setUp(self):
+        self.spec = openapi_spec.build_spec(api.SERVER_VERSION,
+                                            routes=list(api._build_exact_routes().keys()))
+        self.paths = self.spec['paths']
+
+    def test_no_ref_points_into_paths(self):
+        # A $ref into #/paths/... is invalid everywhere in this spec, not
+        # just the 3 sites that used to do it -- guard the whole surface.
+        def _walk(node, where):
+            if isinstance(node, dict):
+                ref = node.get('$ref')
+                if isinstance(ref, str):
+                    self.assertFalse(ref.startswith('#/paths/'),
+                                     f'{where}: invalid $ref into #/paths/ ({ref!r})')
+                for k, v in node.items():
+                    _walk(v, f'{where}.{k}')
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    _walk(v, f'{where}[{i}]')
+        _walk(self.spec, 'spec')
+
+    def test_device_command_endpoints_share_one_request_body_component(self):
+        component = self.spec['components']['requestBodies']['DeviceCommand']
+        self.assertIn('device_id', component['content']['application/json']['schema']['properties'])
+        for p in ('/shutdown', '/reboot', '/upgrade-device', '/update-device'):
+            self.assertEqual(self.paths[p]['post']['requestBody'],
+                             {'$ref': '#/components/requestBodies/DeviceCommand'},
+                             f'{p} should reuse the shared DeviceCommand request body')
+
+    def test_device_command_endpoints_have_consistent_responses(self):
+        for p in ('/shutdown', '/reboot', '/upgrade-device', '/update-device'):
+            responses = self.paths[p]['post']['responses']
+            self.assertEqual(set(responses), {'200', '400', '401'})
+            self.assertEqual(responses['200']['content']['application/json']['schema'],
+                             {'$ref': '#/components/schemas/Ok'})
+
+
 if __name__ == '__main__':
     unittest.main()

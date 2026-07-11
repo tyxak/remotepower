@@ -499,6 +499,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Swagger / OpenAPI | OpenAPI 3.1 at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected token; **route-table-driven so every endpoint is covered** (~290 paths), advertises the `/api/v1` base *(v5.5.0)* |
 | API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.5.0)* |
 | Postman collection | `make postman` → a Postman v2.1 collection from the OpenAPI spec (foldered by tag, auth + baseUrl pre-wired) *(v5.5.0)* |
+| Python SDK | `make sdk` → a typed Python client (`openapi-python-client`, generated from the same OpenAPI spec — not hand-written) at `dist/sdk-python`; needs `pip install openapi-python-client` *(v6.1.1)* |
 | Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.5.0)* |
 | Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.5.0)*; real OTLP span export (one span per request, `POST <collector>/v1/traces`, separate opt-in from OTLP metrics, Settings → Security) *(v6.1.1)* |
 | Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.5.0)* |
