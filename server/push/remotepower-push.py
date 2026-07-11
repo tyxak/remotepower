@@ -81,6 +81,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import signal
 import sys
 import time
@@ -152,6 +153,34 @@ def _load_json(path):
 DB_STORE_TTL_S = 5
 
 
+def _find_cgi_bin():
+    """Locate the server's cgi-bin dir (storage.py / storage_pg.py) across dev
+    AND installed layouts. In the repo the daemon runs from server/push/ so the
+    module sits at ../cgi-bin; but installed to /usr/local/bin the app code lives
+    at /var/www/remotepower/cgi-bin (the make / AUR-server default) — the old
+    __file__-relative guess resolved to /usr/local/cgi-bin and found nothing, so
+    the daemon fell back to flat-file reads and stayed broken under Postgres.
+    Honor RP_CGI_BIN, then probe the known install roots; return the first dir
+    that actually contains storage.py (or None → flat-file fallback)."""
+    candidates = []
+    env = os.environ.get('RP_CGI_BIN', '').strip()
+    if env:
+        candidates.append(Path(env))
+    candidates += [
+        Path(__file__).resolve().parent.parent / 'cgi-bin',   # repo: server/push -> server/cgi-bin
+        Path('/var/www/remotepower/cgi-bin'),                 # make / AUR-server default
+        Path('/usr/share/webapps/remotepower/cgi-bin'),
+        Path('/opt/remotepower/cgi-bin'),
+    ]
+    for c in candidates:
+        try:
+            if (c / 'storage.py').is_file():
+                return c
+        except OSError:
+            continue
+    return None
+
+
 class StoreReader:
     """Backend-aware reader for the shared state the main API owns.
 
@@ -169,8 +198,8 @@ class StoreReader:
         self.backend = 'json'
         self._mod = None
         try:
-            cgi = Path(__file__).resolve().parent.parent / 'cgi-bin'
-            if cgi.is_dir() and str(cgi) not in sys.path:
+            cgi = _find_cgi_bin()
+            if cgi is not None and str(cgi) not in sys.path:
                 sys.path.insert(0, str(cgi))
             import storage as _st
             marker = _st.read_marker(self.data_dir) or {}

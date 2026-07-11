@@ -13,7 +13,19 @@ Type=simple
 # per docs/push.md (there is no automated installer for this daemon yet):
 #   useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-push
 #   usermod -a -G "$(stat -c '%G' /var/lib/remotepower)" rp-push   # READ devices.json/commands.json
+# v6.1.1: under the DEFAULT Postgres/SQLite backend the daemon reads device
+# tokens through the app's storage layer (server/cgi-bin/storage*.py), NOT flat
+# JSON files. It therefore needs:
+#   - RP_DATA_DIR + RP_PG_DSN (the same secrets the app worker uses) — hence the
+#     EnvironmentFile below; and rp-push MUST be able to READ that file (either
+#     group-read it, or run the daemon as the same user as the worker). Without
+#     RP_PG_DSN the Postgres reader can't connect and every push auth fails.
+#   - read access to the cgi-bin storage modules (found automatically at
+#     /var/www/remotepower/cgi-bin, or set RP_CGI_BIN). ProtectSystem=strict
+#     already permits reads there.
 User=rp-push
+Environment=RP_DATA_DIR=/var/lib/remotepower
+EnvironmentFile=-/etc/remotepower/api.env
 ExecStart=/usr/local/bin/remotepower-push --verbose
 
 # Hardening. This daemon needs read access to two shared JSON files and
@@ -22,9 +34,13 @@ ExecStart=/usr/local/bin/remotepower-push --verbose
 # host the operator names), so it can be locked down further than that one.
 NoNewPrivileges=yes
 PrivateTmp=yes
+# ProtectSystem=strict already makes the ENTIRE filesystem read-only (the daemon
+# writes nothing) — reads of the data dir, the cgi-bin storage modules and
+# api.env are all permitted. The old per-file ReadOnlyPaths for
+# devices.json/commands.json were redundant here AND broke under the default
+# Postgres/SQLite backend, where those files don't exist on disk.
 ProtectSystem=strict
 ProtectHome=yes
-ReadOnlyPaths=/var/lib/remotepower/devices.json /var/lib/remotepower/commands.json
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
