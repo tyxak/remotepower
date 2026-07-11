@@ -106,7 +106,10 @@ backend that can be shared across multiple app nodes (Step 4).
 3. **Migrate existing data** with `tools/migrate_storage.py` (or the in-app
    *Settings → Advanced → Storage backend → Migrate*), which copies every store
    into Postgres and verifies before flipping the marker. The migration is
-   online-safe and reversible (keep the JSON/SQLite files until you're happy).
+   online-safe and reversible (keep the JSON/SQLite files until you're happy) —
+   the old backend stays active and writable for the whole copy, and up to 3
+   automatic catch-up passes re-copy any file a live heartbeat wrote during
+   the migration before the marker flips *(v6.1.1)*.
 
 > Sizing: the hot tables are `devices`, `entity`, `kv`, `listrow`, `file_meta`,
 > and the metric time-series `metric_samples`. For 1000 agents this is small

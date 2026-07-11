@@ -26076,9 +26076,30 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
         return storage._read_json(p)
 
     if not verify_only:
+        t0 = time.time()
         for name in files:
             _write(name, load(DATA_DIR / name))   # load() = current/source backend
             log(f"  {src} -> {target}  {name}")
+        # v6.1.1 (#8): catch-up passes, mirroring storage.migrate_run()'s
+        # JSON<->SQLite loop (storage.py, ~line 1286). The source backend is
+        # still ACTIVE (the marker doesn't flip until verification passes
+        # below), so a live heartbeat can write a source file after this
+        # migration already copied it. backend_mtime() reads the CURRENT
+        # active backend regardless of direction (_dbmod() derives from the
+        # marker, unaffected by storage_pg.configure_dsn() above), so this
+        # works the same whether Postgres is the source or the target.
+        # Bounded at 3 passes — a continuously-written file (devices.json on
+        # a busy fleet) shrinks to a sub-second residual window rather than
+        # blocking indefinitely on a fleet that never goes quiet.
+        for _ in range(3):
+            changed = [n for n in files if backend_mtime(DATA_DIR / n) >= t0]
+            if not changed:
+                break
+            t0 = time.time()
+            for name in changed:
+                _write(name, load(DATA_DIR / name))
+                log(f"  catch-up: {src} -> {target}  {name}")
+            log(f"catch-up: re-migrated {len(changed)} file(s) written during migration")
 
     # Verify: source reconstruction must equal target reconstruction.
     problems = []

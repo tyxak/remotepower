@@ -315,6 +315,48 @@ class TestPgMigration(unittest.TestCase):
         self.assertEqual(self.S.load(d / 'config.json'), {'k': 'v'})
         self.assertEqual(self.S.load(d / 'devices.json')['d1']['name'], 'h')
 
+    def test_catch_up_pass_re_migrates_a_file_written_during_migration(self):
+        # v6.1.1 (#8): a live heartbeat can write a source JSON file (still the
+        # ACTIVE backend until the marker flips at the end) after the main copy
+        # pass already read it. Simulate that by hooking api.load(): the first
+        # time it's asked for devices.json, write a NEW version of that file to
+        # disk (a fresh mtime, past the migration's t0) before returning the
+        # value the main pass will copy -- exactly what a concurrent heartbeat
+        # would do. The catch-up loop must notice the advanced mtime and
+        # re-copy the file, so Postgres ends up with the NEW content, not the
+        # stale first-pass copy.
+        import json as _json
+        d = Path(tempfile.mkdtemp())
+        self.api.DATA_DIR = d
+        self.api.STORAGE_MARKER_FILE = d / 'storage_backend.json'
+        self.api._BACKEND_CACHE = 'json'
+        (d / 'config.json').write_text(_json.dumps({'k': 'v'}))
+        (d / 'devices.json').write_text(_json.dumps({'d1': {'name': 'stale', 'last_seen': 1}}))
+        _truncate(self.S)
+
+        orig_load = self.api.load
+        fired = {'n': 0}
+
+        def _hooked_load(path):
+            val = orig_load(path)
+            if path.name == 'devices.json' and fired['n'] == 0:
+                fired['n'] += 1
+                # a "heartbeat" lands mid-migration -- rewrite the source file
+                # with new content, advancing its mtime past t0.
+                (d / 'devices.json').write_text(
+                    _json.dumps({'d1': {'name': 'fresh', 'last_seen': 2}}))
+            return val
+        self.api.load = _hooked_load
+        try:
+            res = self.api._migrate_storage_pg('postgres', _DSN)
+        finally:
+            self.api.load = orig_load
+        self.assertTrue(res['ok'], res)
+        self.assertEqual(fired['n'], 1, 'the hook never fired -- test setup is broken')
+        # The catch-up pass must have caught the concurrent write -- Postgres
+        # holds the FRESH content, not the stale one the main pass copied.
+        self.assertEqual(self.S.load(d / 'devices.json')['d1']['name'], 'fresh')
+
 
 @unittest.skipIf(_SKIP, _SKIP_REASON)
 class TestStoragePgRagVector(unittest.TestCase):
