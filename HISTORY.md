@@ -11,8 +11,9 @@ together in a homelab, all in one place.
 The agents poll the server over outbound HTTPS, so there are **no inbound ports
 open on the clients, ever**. Enrolling them is meant to be painless, including
 bulk enrollment through the API. Underneath, it's still deliberately boring:
-nginx, Python CGI, and flat JSON files. If you grow past a thousand or so agents,
-you can scale up to PostgreSQL with PgBouncer.
+nginx, gunicorn, and Python (Flask). PostgreSQL is the default from the start
+now, not something you bolt on later — and if you grow past a thousand or so
+agents, PgBouncer is there for connection pooling.
 
 Use it as your one tool, or use it as a supplement to whatever you already run.
 It plays nicely either way, from a single homelab box all the way up to a big
