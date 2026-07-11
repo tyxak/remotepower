@@ -343,6 +343,9 @@ done
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 # `rp` — omd/checkmk-style node control (rp status|start|stop|restart|doctor|logs).
 install -m 755 "$SCRIPT_DIR/server/rp" /usr/local/bin/rp
+# Record the source checkout so `rp install/deploy/repair` can find these scripts.
+install -d -m 755 /etc/remotepower 2>/dev/null || true
+printf 'RP_SRC=%s\n' "$SCRIPT_DIR" > /etc/remotepower/rp.env 2>/dev/null || true
 success "Web files installed"
 
 # ── WG Access privileged helper + scoped sudoers (v5.2.0) ───────────────────────

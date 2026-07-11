@@ -19,9 +19,18 @@ rp restart [component] restart it
 rp reload              reload nginx + restart the app server (config reload)
 rp doctor              run health checks; exit non-zero on any failure
 rp logs    [component] follow the journal for the stack (or one component)
+rp install [args…]     (re)run install-server.sh from the source checkout
+rp deploy  [args…]     run deploy-server.sh (update code + units + restart)
+rp repair              make everything current again (re-deploy, or restart+reload)
 rp version             print the installed server version
 rp help                this help
 ```
+
+> **Run `status`/`doctor` as root for the full picture.** The data directory is
+> `0700` (owned by the web user) and the nginx config/certs are root-only, so a
+> non-root `rp doctor` can't read them — it will say so and skip those checks
+> (`sudo rp doctor` gives the complete result). `install`/`deploy`/`repair`
+> auto-escalate with `sudo` themselves.
 
 A **component** is a stack unit named without the `remotepower-` prefix —
 `wsgi` (the gunicorn app server), `scheduler`, `scanner`, `push`, `webterm`. With
@@ -73,9 +82,14 @@ it's drawn with box characters and ANSI colour, so it works over plain SSH.
 
 Keys: **↑/↓** (or `j`/`k`) move the selection; **r/s/x** restart / start / stop
 the selected component (via `sudo` if you're not root); **d** runs `rp doctor` in
-a pager; **l** shows that component's recent logs; **q** quits. The board
-refreshes every 2 seconds. It needs an interactive terminal — piped or in a
+a pager; **l** shows that component's recent logs; **P** repairs the stack;
+**?** (or `h`) opens an in-app help + troubleshooting panel; **q** quits. The
+board refreshes every 2 seconds. It needs an interactive terminal — piped or in a
 non-TTY it just prints `rp status` instead.
+
+The **?** panel inside the TUI lists the keys **and** a compact version of the
+troubleshooting table below, so you don't have to leave the dashboard to figure
+out what a red check means.
 
 ## `rp doctor`
 
@@ -116,6 +130,48 @@ rp doctor — RemotePower 6.1.1, backend=postgres
 
   All checks passed.
 ```
+
+## Fixing things — `rp install`, `rp deploy`, `rp repair`
+
+`rp` can drive the setup scripts directly, so you don't have to `cd` into the
+source checkout. The installers record the checkout path in
+`/etc/remotepower/rp.env` (`RP_SRC=…`); `rp` reads it (or the `RP_SRC` env var, or
+a couple of common locations). All three escalate with `sudo` automatically.
+
+| Command | What it runs | Use it when |
+|---|---|---|
+| `rp install [args…]` | `install-server.sh` | first-time setup, or to add a component later (`rp install --with-scanner`) |
+| `rp deploy [args…]` | `deploy-server.sh` | ship new code — updates cgi-bin, static, the agent copy, `rp`, the push daemon, and restarts the app + scheduler + push |
+| `rp repair` | `deploy-server.sh` if the source is present, else restart-stack + reload-nginx | something's wedged and you want it made current again in one shot |
+
+If `rp` can't find the checkout it tells you to set `RP_SRC=/path/to/checkout`.
+
+## Troubleshooting — reading `rp doctor` and fixing each failure
+
+`rp doctor` prints `OK` / `WARN` / `FAIL` and exits non-zero if anything failed.
+Here's what each result means and the exact fix. (The same table, condensed,
+is in the TUI's **?** panel.)
+
+| Check | What a red/amber result means | Fix |
+|---|---|---|
+| **not running as root** (banner) | You ran it unprivileged, so the backend + nginx checks were skipped and the header may show `backend=unknown`. | `sudo rp doctor` |
+| **code present** FAIL | `api.py` isn't under the code dir (bad/partial deploy). | `rp deploy`, or check `RP_CODE_DIR` |
+| **data dir … mode** WARN | The data dir isn't `0700` (too open, or missing). | `chown -R <webuser> /var/lib/remotepower && chmod 700 /var/lib/remotepower` |
+| **`remotepower-wsgi` installed but NOT running** FAIL | The app server is down — the whole UI/API is offline. | `rp logs wsgi` to see why, then `sudo rp restart wsgi`; if it's a missing dep, `rp install` |
+| optional unit **stopped** WARN | scheduler / scanner / push / webterm is installed but not running. | `sudo rp restart <name>` (or leave it if you don't use it) |
+| **active but nothing on :PORT** WARN | The unit is up but not listening (crashed after start, or wrong bind). | `rp logs <name>` |
+| **storage backend unknown** | Root: the marker is unreadable/corrupt. Non-root: just needs `sudo`. | `sudo rp doctor`; if still unknown, inspect `/var/lib/remotepower/storage_backend.json` |
+| **Postgres … DSN check failed** FAIL | The backend is Postgres but the DSN in the marker is missing/invalid — the app *and* the push daemon can't read devices. | check `storage_backend.json` has a valid `dsn`; verify Postgres is up (`pg_isready`); see [scaling.md](scaling.md) |
+| **nginx -t reports errors** FAIL | The live nginx config is invalid. | run `nginx -t` (as root) to see the exact line, fix it, `systemctl reload nginx` |
+| **no `/api/push/connect` route** WARN | nginx isn't routing the push WebSocket to the daemon (push won't connect). | `rp repair`, or add the block from [push.md](push.md) to your vhost |
+| **no `$connection_upgrade` map** WARN | The http-level WebSocket map is missing — push *and* the web terminal will fail their upgrade. | add `server/conf/remotepower-ws-map.conf` to `/etc/nginx/conf.d/`, reload |
+| **push daemon … backend=json under Postgres** / **storage backend detection failed** | The push daemon fell back to flat files and can't read the DB, so it rejects every agent. | `sudo rp restart push`; if it persists, the daemon can't reach the marker/DSN — confirm it runs as the web user and see [push.md](push.md) |
+| **no agent distribution copy** WARN | `/var/www/remotepower/agent/remotepower-agent` is missing, so agent self-update serves nothing. | `rp deploy` (it publishes the agent binary) |
+
+**Still stuck?** `rp repair` re-runs the deployer (restores units, binaries and
+routes, and restarts), which fixes the large majority of "it was working
+yesterday" situations. For a component that won't start, `rp logs <component>`
+is almost always the fastest answer.
 
 ## In Docker
 

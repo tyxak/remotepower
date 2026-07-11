@@ -193,12 +193,14 @@ API changes. Full write-up: `docs/v6.1.1.md`.
 - **`rp` node-control CLI (omd/checkmk style)** — `rp status`, a live
   interactive **`rp tui`** dashboard (htop/k9s-style, arrow-key navigation +
   start/stop/restart/doctor/logs keys, zero dependencies), `rp start/stop/
-  restart[/reload]`, `rp logs`, and a `rp doctor` that diagnoses the whole stack
-  (units, ports, storage-backend connectivity, nginx routes/upgrade map, the
-  push-daemon-under-Postgres failure class, and the agent self-update source) and
-  exits non-zero on any failure so it can drive monitoring. Installed to
-  `/usr/local/bin/rp` by the installer and the Docker image. See
-  [docs/cli.md](docs/cli.md).
+  restart[/reload]`, `rp logs`, and a root-aware `rp doctor` that diagnoses the
+  whole stack (units, ports, storage-backend connectivity, nginx routes/upgrade
+  map, the push-daemon-under-Postgres failure class, and the agent self-update
+  source), prints an actionable fix for each failure, and exits non-zero so it
+  can drive monitoring. `rp` can also drive the setup scripts (`rp install` /
+  `rp deploy` / `rp repair`), and the TUI has an in-app `?` help/troubleshooting
+  panel. Installed by install-server.sh, deploy-server.sh, and the Docker image.
+  Full guide + troubleshooting table: [docs/cli.md](docs/cli.md).
 - **Server status → "Distributed subsystems" card** surfaces relay/scan-worker
   satellite health and the push-daemon status alongside the existing storage/
   request-tier/scheduler runtime block.

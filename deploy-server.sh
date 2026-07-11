@@ -167,6 +167,9 @@ install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-
 # `rp` — omd/checkmk-style node control (rp status|tui|start|stop|restart|doctor).
 info "Deploying rp (node-control CLI)..."
 install -m 755 "$SCRIPT_DIR/server/rp" /usr/local/bin/rp
+# Record the source checkout so `rp install/deploy/repair` can find these scripts.
+install -d -m 755 /etc/remotepower 2>/dev/null || true
+printf 'RP_SRC=%s\n' "$SCRIPT_DIR" > /etc/remotepower/rp.env 2>/dev/null || true
 echo "      → /usr/local/bin/rp"
 
 # Agent push (wake-nudge) daemon binary — keep the INSTALLED copy current on

@@ -22,8 +22,34 @@ class TestRpCli(unittest.TestCase):
     def test_has_all_subcommands(self):
         src = _RP.read_text()
         for verb in ("status", "tui", "start", "stop", "restart", "reload",
-                     "doctor", "logs", "version", "help"):
+                     "doctor", "logs", "install", "deploy", "repair",
+                     "version", "help"):
             self.assertIn(verb, src, f"rp is missing the {verb} verb")
+
+    def test_doctor_is_root_aware(self):
+        # A non-root run must NOT silently misreport the backend (0700 data dir)
+        # or emit false nginx failures — it says so and skips, advising sudo.
+        src = _RP.read_text()
+        self.assertIn("am_root", src)
+        self.assertIn("sudo rp doctor", src)
+        # backend() returns 'unknown' (not 'json') when the data dir isn't readable
+        i = src.index("backend(){")
+        self.assertRegex(src[i:i + 400], r"-x\s+\"\$RP_DATA_DIR\"")
+
+    def test_install_scripts_wired_in(self):
+        # rp can run the installers; the installers record RP_SRC for it to find.
+        src = _RP.read_text()
+        self.assertIn("install-server.sh", src)
+        self.assertIn("deploy-server.sh", src)
+        self.assertIn("RP_SRC", src)
+        for f in ("install-server.sh", "deploy-server.sh"):
+            self.assertIn("RP_SRC=", (_ROOT / f).read_text(), f"{f} must record RP_SRC")
+
+    def test_tui_has_help_and_repair(self):
+        src = _RP.read_text()
+        self.assertIn("_help()", src)                 # troubleshooting overlay
+        self.assertIn("Troubleshooting", src)         # ...with real guidance
+        self.assertRegex(src, r"'\?'\|h")             # ? / h key opens it
 
     def test_tui_dashboard_present(self):
         # The interactive dashboard: a cmd_tui with a non-TTY --once fallback and

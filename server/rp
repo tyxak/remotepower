@@ -10,8 +10,14 @@
 #   rp reload              reload nginx + restart the app server (config reload)
 #   rp doctor              run health checks; exit non-zero on any failure
 #   rp logs    [component] follow the journal for the stack (or one component)
+#   rp install [args…]     (re)run install-server.sh from the source checkout
+#   rp deploy  [args…]     run deploy-server.sh (update code + units + restart)
+#   rp repair              make everything current again (re-deploy, or restart+reload)
 #   rp version             print the installed server version
 #   rp help                this help
+#
+# doctor/status are most accurate as root (they read the 0700 data dir + nginx
+# config): use `sudo rp doctor`. install/deploy/repair auto-escalate with sudo.
 #
 # "Component" is one of the RemotePower-owned units without the leading
 # `remotepower-` (e.g. `rp restart push`, `rp logs wsgi`). With no component the
@@ -71,6 +77,9 @@ installed_units(){
 }
 
 backend(){ # print json|sqlite|postgres|unknown from the marker
+  # The data dir is 0700 (web user). A non-root/non-web caller can't traverse it,
+  # so DON'T silently claim 'json' — say 'unknown' (the doctor tells them to sudo).
+  if [ ! -r "$RP_DATA_DIR" ] || [ ! -x "$RP_DATA_DIR" ]; then printf 'unknown'; return; fi
   [ -f "$MARKER" ] || { printf 'json'; return; }
   python3 - "$MARKER" <<'PY' 2>/dev/null || printf 'unknown'
 import json,sys
@@ -78,6 +87,7 @@ try: print((json.load(open(sys.argv[1])).get('backend') or 'json'))
 except Exception: print('unknown')
 PY
 }
+am_root(){ [ "$(id -u)" = 0 ]; }
 
 server_version(){
   local v
@@ -164,9 +174,14 @@ cmd_logs(){
 
 # ── doctor ────────────────────────────────────────────────────────────────────
 cmd_doctor(){
-  local rc=0
+  local rc=0 priv=0; am_root && priv=1
   info "${C_B}rp doctor${C_0} — RemotePower $(server_version), backend=$(backend)"
   info ""
+  if [ $priv -eq 0 ]; then
+    warn "not running as root — the data dir (0700) and nginx config aren't readable,"
+    info "       so the backend + nginx checks below are skipped. Re-run: ${C_B}sudo rp doctor${C_0}"
+    info ""
+  fi
 
   # 1. code + data dir
   [ -f "$RP_CODE_DIR/cgi-bin/api.py" ] && ok "code present ($RP_CODE_DIR)" || { fail "api.py not found under $RP_CODE_DIR"; rc=1; }
@@ -209,19 +224,23 @@ PY
       else fail "Postgres backend selected but the DSN check failed — the push daemon + app can't read devices"; rc=1; fi ;;
     sqlite)  [ -f "$RP_DATA_DIR"/*.db ] 2>/dev/null && ok "SQLite backend" || ok "SQLite backend (marker)" ;;
     json)    ok "JSON file backend" ;;
-    *)       warn "storage backend unknown (marker unreadable)" ;;
+    unknown) if [ $priv -eq 0 ]; then info "  ${C_D}····${C_0} storage backend — skipped (needs root: sudo rp doctor)"
+             else warn "storage backend unknown — the marker is unreadable/corrupt at $MARKER"; fi ;;
   esac
 
-  # 4. nginx config + routes
-  if command -v nginx >/dev/null 2>&1; then
-    if nginx -t >/dev/null 2>&1; then ok "nginx config valid (nginx -t)"; else fail "nginx -t reports errors"; rc=1; fi
+  # 4. nginx config + routes — needs root (reads the config, certs, log dirs).
+  if ! command -v nginx >/dev/null 2>&1; then warn "nginx not found on PATH — skipping config check"
+  elif [ $priv -eq 0 ]; then info "  ${C_D}····${C_0} nginx config/routes — skipped (needs root: sudo rp doctor)"
+  else
+    if nginx -t >/dev/null 2>&1; then ok "nginx config valid (nginx -t)"
+    else fail "nginx -t reports errors → run '${C_B}nginx -t${C_0}' to see them; fix, then 'systemctl reload nginx'"; rc=1; fi
     local dump; dump=$(nginx -T 2>/dev/null)
     printf '%s' "$dump" | grep -q 'location = /api/push/connect' \
       && ok "nginx routes /api/push/connect → push daemon" \
-      || { unit_file remotepower-push && { warn "push installed but nginx has no /api/push/connect route"; }; }
+      || { unit_file remotepower-push && { warn "push installed but nginx has no /api/push/connect route → add it (see docs/push.md), or 'rp repair'"; }; }
     printf '%s' "$dump" | grep -q 'map \$http_upgrade \$connection_upgrade' \
-      || warn "no \$connection_upgrade map — WebSocket (push/webterm) upgrades will fail"
-  else warn "nginx not found on PATH — skipping config check"; fi
+      || warn "no \$connection_upgrade map — WebSocket (push/webterm) upgrades will fail → add server/conf/remotepower-ws-map.conf to conf.d"
+  fi
 
   # 5. push-daemon specific (the failure class we know bites under Postgres)
   if have_systemd && unit_file remotepower-push && is_active remotepower-push; then
@@ -240,7 +259,15 @@ PY
   else warn "no $RP_CODE_DIR/agent/remotepower-agent — agent self-update won't serve a binary"; fi
 
   info ""
-  [ $rc -eq 0 ] && info "${C_G}${C_B}All checks passed.${C_0}" || info "${C_R}${C_B}Some checks FAILED — see above.${C_0}"
+  if [ $rc -eq 0 ]; then
+    info "${C_G}${C_B}All checks passed.${C_0}"
+    [ $priv -eq 0 ] && info "${C_D}(some checks were skipped — run 'sudo rp doctor' for the full picture)${C_0}"
+  else
+    info "${C_R}${C_B}Some checks FAILED — see above.${C_0}"
+    info "Common fixes:  ${C_B}rp restart${C_0} (bounce the stack) · ${C_B}rp repair${C_0} (re-run the"
+    info "installer to restore units/routes) · ${C_B}rp logs <component>${C_0} (why a unit is down)."
+    info "Full guide: docs/cli.md → Troubleshooting."
+  fi
   return $rc
 }
 
@@ -304,9 +331,37 @@ cmd_tui(){
     _sep
     _row "  ${GG}● $nrun running${ZZ}   ${DD}○ $nstop stopped${ZZ}   ${RR}✖ $nfail failed${ZZ}${msg:+     $msg}"
     _edge '╰' '╯' ""
-    printf '%s  ↑/↓%s select   %s[r]%sestart %s[s]%start %s[x]%stop   %s[d]%soctor %s[l]%sogs   %s[q]%suit%s\n' \
-      "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$ZZ"
+    printf '%s  ↑/↓%s select  %s[r]%sestart %s[s]%start %s[x]%stop  %s[d]%soctor %s[l]%sogs %s[P]%srepair  %s[?]%shelp %s[q]%suit%s\n' \
+      "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$ZZ"
     printf '\033[J'   # clear to end
+  }
+  _help(){ cat <<H
+
+  rp tui — keys
+    ↑/↓ or j/k   move the selection            d   run 'rp doctor'
+    r            restart the selected unit      l   logs for the selected unit
+    s / x        start / stop the unit          P   repair (re-deploy / restart+reload)
+    q            quit                           ?   this help
+  Actions use sudo when you aren't root (you may be prompted for a password).
+
+  Troubleshooting — what a doctor failure means and how to fix it
+    "not running as root"        → run: sudo rp doctor   (reads the 0700 data dir + nginx)
+    a unit "installed but NOT running"
+                                 → rp logs <name> to see why, then: sudo rp restart <name>
+    "nginx -t reports errors"    → run 'nginx -t' as root, fix the file, systemctl reload nginx
+    "no /api/push/connect route" / "no \$connection_upgrade map"
+                                 → your nginx is missing the push route; run 'rp repair', or add
+                                   the block + map from docs/push.md to your vhost
+    "push daemon ... backend=json under Postgres" / "storage backend detection failed"
+                                 → the push daemon can't read the DB; sudo rp restart push, then
+                                   re-check. If it persists, the storage marker/DSN is unreadable.
+    "Postgres ... DSN check failed"
+                                 → the marker has no/invalid dsn; the app can't reach the DB either.
+    stack broadly wedged after an update
+                                 → rp repair  (re-runs deploy-server.sh: units, binaries, restart)
+
+  Full reference: docs/cli.md   ·   press q to return
+H
   }
 
   _sudo(){ if [ "$(id -u)" = 0 ]; then "$@"; elif command -v sudo >/dev/null 2>&1; then sudo "$@"; else return 90; fi; }
@@ -337,11 +392,45 @@ cmd_tui(){
       x|X) _act stop ;;
       d|D) _tui_teardown; { cmd_doctor; echo; echo "── press q to return ──"; } | _pager; _tui_setup; printf '\033[2J' ;;
       l|L) _tui_teardown; { have_systemd && journalctl -u "${units[$sel]}.service" -n 300 --no-pager 2>/dev/null || echo "no logs"; } | _pager; _tui_setup; printf '\033[2J' ;;
+      '?'|h|H) _tui_teardown; _help | _pager; _tui_setup; printf '\033[2J' ;;
+      p|P) _tui_teardown; printf '\033[?25h'; echo "Repairing (rp repair)…"; cmd_repair; echo; echo "── press ENTER to return ──"; read -r _; _tui_setup; printf '\033[2J' ;;
       g|G) msg="${DD}refreshed${ZZ}" ;;
       q|Q) break ;;
     esac
   done
   _tui_teardown
+}
+
+# ── install / deploy / repair — run the setup scripts from the source checkout ─
+_src_dir(){  # where install-server.sh / deploy-server.sh live (NOT the web root)
+  local d="${RP_SRC:-}"
+  [ -z "$d" ] && [ -r /etc/remotepower/rp.env ] && d=$(. /etc/remotepower/rp.env 2>/dev/null; printf '%s' "${RP_SRC:-}")
+  [ -n "$d" ] && [ -f "$d/install-server.sh" ] && { printf '%s' "$d"; return 0; }
+  local c; for c in "${HOME:-/root}/claude-code-ent" /opt/remotepower/src /usr/src/remotepower; do
+    [ -f "$c/install-server.sh" ] && { printf '%s' "$c"; return 0; }
+  done
+  return 1
+}
+_run_script(){  # $1 = script filename in the checkout; rest = its args
+  local src; src=$(_src_dir) || { echo "rp: can't find the RemotePower source checkout." >&2
+    echo "    Set RP_SRC=/path/to/checkout (the installers record it in /etc/remotepower/rp.env)." >&2; return 1; }
+  local script="$src/$1"; shift
+  [ -f "$script" ] || { echo "rp: $script not found in $src." >&2; return 1; }
+  echo "→ ${C_B}$script${C_0} $*"
+  if am_root; then bash "$script" "$@"
+  elif command -v sudo >/dev/null 2>&1; then sudo bash "$script" "$@"
+  else echo "rp: this needs root and sudo isn't available." >&2; return 1; fi
+}
+cmd_install(){ _run_script install-server.sh "$@"; }   # fresh install / re-run the wizard
+cmd_deploy(){  _run_script deploy-server.sh  "$@"; }    # update code + units + restart
+cmd_repair(){                                           # make everything current again
+  if _src_dir >/dev/null 2>&1; then _run_script deploy-server.sh "$@"
+  else
+    have_systemd || { echo "container mode — use docker restart / rebuild." >&2; return 1; }
+    echo "→ no source checkout found; in-place repair (restart the stack + reload nginx)"
+    cmd_lifecycle restart
+    am_root && nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null && echo "nginx reloaded" || true
+  fi
 }
 
 usage(){ awk 'NR<3{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$0"; }
@@ -357,6 +446,9 @@ case "$cmd" in
   reload)           cmd_reload "$@" ;;
   doctor|diag|dr)   cmd_doctor "$@" ;;
   logs|log)         cmd_logs "$@" ;;
+  install|setup)    cmd_install "$@" ;;
+  deploy|update)    cmd_deploy "$@" ;;
+  repair|fix)       cmd_repair "$@" ;;
   version|-v|--version) info "RemotePower $(server_version)" ;;
   help|-h|--help)   usage ;;
   *) echo "rp: unknown command '$cmd' (try: rp help)" >&2; exit 2 ;;
