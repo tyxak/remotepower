@@ -4099,6 +4099,16 @@ body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn {
 }
 body.sidebar-collapsed .sidebar:hover .side-foot .acct-btn > svg,
 body.sidebar-collapsed.has-active-alert .sidebar .side-foot .acct-btn > svg { display: inline; }
+/* v6.1.1: the favorite star (+ its "star a page" empty hint) must reveal
+   the same way every other row control does here -- the base
+   `body.sidebar-collapsed .nav-star { display: none }` rule (above, for the
+   narrow icon-only rail) otherwise stays in effect even while hover/alert
+   has expanded the rail to full width, permanently hiding the star with no
+   way to reach it in auto-hide sidebar mode. */
+body.sidebar-collapsed .sidebar:hover .nav-star,
+body.sidebar-collapsed.has-active-alert .sidebar .nav-star { display: inline-flex; }
+body.sidebar-collapsed .sidebar:hover .nav-fav-empty,
+body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block; }
 
 /* (v6: top-bar auto-hide was removed by request — only the sidebar auto-hides.) */
 

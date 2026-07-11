@@ -150,6 +150,49 @@ class TestSmoke(unittest.TestCase):
                          f'(topmost={topmost})')
         self._assert_no_page_errors()
 
+    def test_favorite_star_visible_in_autohide_sidebar_mode(self):
+        # Regression (v6.1.1): body.sidebar-collapsed .nav-star {display:none}
+        # (styles.css, for the narrow 56px icon rail) was never overridden
+        # back to visible in the body.sidebar-collapsed .sidebar:hover block
+        # that reveals every OTHER row control (labels, group items, …) when
+        # a user with "Sidebar auto-hide" enabled hovers the rail to expand
+        # it. The star stayed permanently display:none — no hover state
+        # could ever reach it, so favoriting was unreachable in that mode.
+        self._login()
+        self.page.evaluate(
+            "document.body.classList.add('autohide-sidebar', 'sidebar-collapsed')")
+        self.page.click('.sidebar-group[data-group="fleet"] .sidebar-group-toggle')
+        sbox = self.page.evaluate(
+            "() => { const r = document.querySelector('.sidebar')"
+            ".getBoundingClientRect(); return {x:r.x,y:r.y}; }")
+        self.page.mouse.move(sbox['x'] + 20, sbox['y'] + 20)
+        self.page.wait_for_timeout(300)
+        star_box = self.page.evaluate("""() => {
+          const g = document.querySelector('.sidebar-group[data-group="fleet"]');
+          const item = Array.from(g.querySelectorAll('.nav-item'))
+            .find(i => i.offsetParent !== null);
+          if (!item) return null;
+          const star = item.querySelector('.nav-star');
+          const cs = getComputedStyle(star);
+          const r = star.getBoundingClientRect();
+          return {display: cs.display, opacity: cs.opacity, x: r.x, y: r.y, w: r.width, h: r.height};
+        }""")
+        self.assertIsNotNone(star_box, 'no visible nav-item found in the hover-expanded rail')
+        self.assertNotEqual(star_box['display'], 'none',
+                            'favorite star stays display:none even while the '
+                            'auto-hide sidebar rail is hover-expanded')
+        self.page.mouse.move(star_box['x'] + star_box['w'] / 2, star_box['y'] + star_box['h'] / 2)
+        self.page.mouse.click(star_box['x'] + star_box['w'] / 2, star_box['y'] + star_box['h'] / 2)
+        self.page.wait_for_timeout(200)
+        faved = self.page.evaluate("""() => {
+          const g = document.querySelector('.sidebar-group[data-group="fleet"]');
+          const item = Array.from(g.querySelectorAll('.nav-item'))
+            .find(i => i.offsetParent !== null);
+          return item.querySelector('.nav-star').classList.contains('faved');
+        }""")
+        self.assertTrue(faved, 'clicking the visible star did not favorite the row')
+        self._assert_no_page_errors()
+
     def test_settings_page_loads_config(self):
         self._login()
         self._nav('settings')

@@ -6,7 +6,7 @@ hundreds of concurrently-connected agents (docs/master-improvement-scoping-
 internal.md #1 records why: no environment to spin that up in). Turn it on
 for a small/medium fleet you can watch, and report back before relying on
 it at real scale. Use the **Test daemon connection** button next to the
-toggle (Settings → Security) for a quick reachability check, and see
+toggle (Settings → Advanced) for a quick reachability check, and see
 "Verifying it's actually working" below for the full end-to-end procedure.
 
 ## What it does, and deliberately does NOT do
@@ -36,7 +36,7 @@ makes it run sooner. Two consequences:
 
 ## Enable it
 
-1. **Settings → Security → Agent push channel.** Off by default. Turning it on
+1. **Settings → Advanced → Agent push channel.** Off by default. Turning it on
    makes the heartbeat response advertise `push_enabled: true` to agents,
    which is what makes an agent start its listener thread — nothing
    happens fleet-wide until you flip this.
