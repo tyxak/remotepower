@@ -203,5 +203,45 @@ class TestEnforceReadOnly(unittest.TestCase):
         self.assertIn('github.com/tyxak/remotepower', c.body.get('detail', ''))
 
 
+class TestVersionCheckReadOnly(unittest.TestCase):
+    """A public read-only demo must never show the 'vX is available — run
+    git pull && install-server.sh' update banner: the viewer can't upgrade it
+    and it makes the demo look neglected. handle_version_check reports
+    up-to-date (and skips the outbound GitHub call) when RP_READ_ONLY is set."""
+
+    def setUp(self):
+        _capture_respond()
+        self._ra = api.require_auth
+        api.require_auth = lambda *a, **k: ('demo', 'viewer')
+
+    def tearDown(self):
+        api.require_auth = self._ra
+        os.environ.pop('RP_READ_ONLY', None)
+
+    def test_readonly_demo_never_advertises_update(self):
+        os.environ['RP_READ_ONLY'] = '1'
+        # Seed a cached "latest" far ahead of local — the read-only short-circuit
+        # must win over it (and must NOT hit the network).
+        api.save(api.CONFIG_FILE, {'_github_latest_version': '999.0.0',
+                                   '_github_latest_ts': int(__import__('time').time())})
+        with self.assertRaises(_Captured) as cm:
+            api.handle_version_check()
+        body = cm.exception.body
+        self.assertEqual(cm.exception.status, 200)
+        self.assertFalse(body['update_available'])
+        self.assertEqual(body['current'], body['latest'])
+        self.assertEqual(body['latest'], api.SERVER_VERSION)
+
+    def test_non_demo_still_reports_update_from_cache(self):
+        os.environ.pop('RP_READ_ONLY', None)
+        api.save(api.CONFIG_FILE, {'_github_latest_version': '999.0.0',
+                                   '_github_latest_ts': int(__import__('time').time())})
+        with self.assertRaises(_Captured) as cm:
+            api.handle_version_check()
+        body = cm.exception.body
+        self.assertTrue(body['update_available'])
+        self.assertEqual(body['latest'], '999.0.0')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -26567,6 +26567,16 @@ def handle_version_check():
     # cached 2.0.0 from a year ago, and the comparison against GitHub's
     # 2.0.0 release tag came out equal.
     local = SERVER_VERSION
+    # A public read-only demo can't be upgraded by whoever is viewing it, so the
+    # "vX is available — run git pull && install-server.sh" banner is both
+    # irrelevant and makes the demo look neglected. Report "up to date" and skip
+    # the outbound GitHub release check entirely on a demo/read-only instance.
+    if _is_demo_read_only():
+        respond(200, {
+            'current': local, 'latest': local, 'update_available': False,
+            'release_url': 'https://github.com/tyxak/remotepower/releases/latest',
+            'self_update_configured': False,
+        })
     now   = int(time.time())
     cached_latest = cfg.get('_github_latest_version')
     cached_ts     = cfg.get('_github_latest_ts', 0)
