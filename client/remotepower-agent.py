@@ -9000,32 +9000,6 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['hardware'] = hw
             except Exception as e:
                 log.debug(f'hardware inventory error: {e}')
-            # v6.1.2: ECC counters / zram / auto-update posture. All three are
-            # cheap read-only sniffs and each is feature-INVISIBLE on a host that
-            # doesn't have it (no EDAC → {}, no zram → [], no auto-updater →
-            # enabled:false), so nothing is sent for hosts they don't apply to.
-            try:
-                ecc = get_ecc_errors()
-                if ecc:
-                    sysinfo['ecc'] = ecc
-            except Exception as e:
-                log.debug(f'ecc probe error: {e}')
-            try:
-                zr = get_zram()
-                if zr:
-                    sysinfo['zram'] = zr
-            except Exception as e:
-                log.debug(f'zram probe error: {e}')
-            try:
-                sysinfo['autoupdate'] = get_autoupdate_posture()
-            except Exception as e:
-                log.debug(f'autoupdate probe error: {e}')
-            try:
-                hk = get_ssh_hostkeys()
-                if hk:
-                    sysinfo['ssh_hostkeys'] = hk
-            except Exception as e:
-                log.debug(f'ssh hostkey probe error: {e}')
             # v6.1.2: mDNS service discovery — a LAN browse, so it rides the same
             # slow cadence as the docker-df walk rather than every sysinfo poll.
             # Only when the server asks for it (mdns_enabled), because browsing
@@ -9117,6 +9091,37 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['custom_metrics'] = _cm
             except Exception as e:
                 log.debug(f'custom metrics error: {e}')
+            # v6.1.2: ECC counters / zram / auto-update posture / SSH host-key
+            # fingerprints. The server's safe_si reads all four from the sysinfo
+            # dict, so they MUST be written here — inside `if send_sysinfo:` and
+            # AFTER sysinfo is built. (They previously sat in the container-cadence
+            # block above, referencing `sysinfo` before it existed → an
+            # UnboundLocalError swallowed by each try/except, so none of them were
+            # ever sent and hostkey_changed could never fire.) Each is a cheap
+            # read-only sniff and feature-invisible on a host without it (no EDAC →
+            # {}, no zram → [], no auto-updater → enabled:false).
+            try:
+                ecc = get_ecc_errors()
+                if ecc:
+                    sysinfo['ecc'] = ecc
+            except Exception as e:
+                log.debug(f'ecc probe error: {e}')
+            try:
+                zr = get_zram()
+                if zr:
+                    sysinfo['zram'] = zr
+            except Exception as e:
+                log.debug(f'zram probe error: {e}')
+            try:
+                sysinfo['autoupdate'] = get_autoupdate_posture()
+            except Exception as e:
+                log.debug(f'autoupdate probe error: {e}')
+            try:
+                hk = get_ssh_hostkeys()
+                if hk:
+                    sysinfo['ssh_hostkeys'] = hk
+            except Exception as e:
+                log.debug(f'ssh hostkey probe error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # W3-8: sample outbound peer connections every ~15 polls so the

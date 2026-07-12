@@ -67,7 +67,7 @@ async function loadWan() {
     dd.textContent = d.ddns.ok
       ? 'Dynamic DNS: updated ' + timeAgo(d.ddns.ts)
       : 'Dynamic DNS: not updated — ' + (d.ddns.error || 'unknown error');
-    if (!d.ddns.ok) dd.classList.add('c-warn');
+    if (!d.ddns.ok) dd.classList.add('c-amber');   // c-warn is not a real class
     body.appendChild(dd);
   }
 

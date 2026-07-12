@@ -212,6 +212,23 @@ class TestDeadmanSwitch(_ApiCase):
         self.assertIn('/api/ping/', d['url'])
         self.assertTrue(d['job']['token'])
 
+    def test_the_LIST_also_returns_the_ping_url(self):
+        """Bug hunt: the create response had `url`, but the GET list did not — so
+        after the one-time toast the URL (the whole point of the feature: you paste
+        it into a remote cron) was unretrievable, and the list's Copy button copied
+        an empty string. The list must rebuild it from the token."""
+        self._make_job()
+        self.api.method = lambda: 'GET'
+        self.captured.clear()
+        try:
+            self.api.handle_deadman_jobs()
+        except self.api.HTTPError:
+            pass
+        jobs = self.captured['data']['jobs']
+        self.assertTrue(jobs)
+        self.assertIn('/api/ping/', jobs[0].get('url') or '',
+                      'the job list must carry the ping URL, not just the token')
+
     def test_job_id_is_not_numeric_looking(self):
         """The frontend data-arg dispatcher coerces numeric-looking strings to
         Number ('1e5000000000' -> Infinity), which would corrupt the id on DELETE.

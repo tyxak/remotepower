@@ -8582,7 +8582,11 @@ def _record_alert(event, payload):
                     # storage_recovered clears only the recovered pool (not every
                     # pool's alert + scrub_overdue on the host). paths lists the
                     # read-only mounts for the new readonly_fs alert.
-                    'pool', 'paths', 'threshold'):
+                    'pool', 'paths', 'threshold',
+                    # v6.1.2 network events: mac_conflict (mac), wan_ip_changed
+                    # (old_ip/new_ip). detail already carries the human text, but
+                    # store the structured keys too so the inbox can render them.
+                    'mac', 'old_ip', 'new_ip'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -18766,31 +18770,40 @@ def run_metric_rollup_if_due():
         meta = {}
     if now - int(meta.get('last_run', 0) or 0) < METRIC_ROLLUP_INTERVAL:
         return
-    state = load(METRICS_ROLLUP_FILE) or {}
     _hold = _litigation_hold_active()
     devices = load(DEVICES_FILE) or {}
-    changed = False
-    for dev_id in list(devices.keys()):
-        rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
-        last_ts = int(rec.get('last_ts', 0) or 0)
-        new = _raw_metric_samples(dev_id, last_ts)
-        if not new:
-            continue
-        hourly = _rollup_merge(rec.get('hourly') or [], new, ROLLUP_HOURLY_SEC)
-        daily = _rollup_merge(rec.get('daily') or [], new, ROLLUP_DAILY_SEC)
-        state[dev_id] = {
-            'last_ts': max([last_ts] + [int(s.get('ts') or 0) for s in new]),
-            'hourly':  hourly if _hold else _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
-            'daily':   daily if _hold else _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
-        }
-        changed = True
-    # prune roll-ups for deleted devices
-    for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
-        del state[k]
-        changed = True
-    if changed or not meta:
-        state['_meta'] = {'last_run': now}
-        save(METRICS_ROLLUP_FILE, state)
+    # v6.1.2: hold the lock across the read-modify-write. This was a bare
+    # load()/mutate/save() RMW, harmless while save() overwrote the whole cold
+    # blob — but promoting metrics_rollup.json to an ENTITY store changed save()
+    # to a reconcile-with-DELETE (it drops any device row absent from the passed
+    # dict). This sweep is the only writer today, so there is no live race; the
+    # lock keeps it that way, so a future per-device rollup writer can't have its
+    # row deleted by a concurrent full-set save here.
+    with _LockedUpdate(METRICS_ROLLUP_FILE) as state:
+        changed = False
+        for dev_id in list(devices.keys()):
+            rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
+            last_ts = int(rec.get('last_ts', 0) or 0)
+            new = _raw_metric_samples(dev_id, last_ts)
+            if not new:
+                continue
+            hourly = _rollup_merge(rec.get('hourly') or [], new, ROLLUP_HOURLY_SEC)
+            daily = _rollup_merge(rec.get('daily') or [], new, ROLLUP_DAILY_SEC)
+            state[dev_id] = {
+                'last_ts': max([last_ts] + [int(s.get('ts') or 0) for s in new]),
+                'hourly':  hourly if _hold else _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
+                'daily':   daily if _hold else _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
+            }
+            changed = True
+        # prune roll-ups for deleted devices
+        for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
+            del state[k]
+            changed = True
+        if changed or not meta:
+            state['_meta'] = {'last_run': now}
+        elif not state:
+            # nothing to write and no prior state — don't create an empty row set
+            return
 
 
 def handle_device_metric_rollup(dev_id):
@@ -18886,7 +18899,18 @@ def handle_drift_policies_set():
 
 
 def _resolve_targets(body):
-    """Resolve device_ids, tag, group, or single device_id — with length limits."""
+    """Resolve device_ids, tag, group, or single device_id — with length limits.
+
+    SECURITY: the resolved set is filtered to the devices the CALLER may act on
+    (`_scope_filter_devices` = role scope AND tenant, even for a scope=None tenant
+    admin; a no-op for a superadmin / non-tenant admin). Every command-queue
+    handler (reboot/shutdown/exec/exec-batch/update/upgrade/install/ansible/scap)
+    resolves its targets HERE and is NOT under `/api/devices/<id>/…`, so the
+    pre-dispatch `_enforce_device_scope` never covered them. Without this filter a
+    tenant admin could POST `{device_id: <other-tenant's-host>}` and queue an
+    arbitrary command on it — a confirmed cross-tenant RCE. Filtering at this one
+    chokepoint closes it for the whole family at once.
+    """
     # A top-level JSON array body is truthy and slips past `get_json_obj()`;
     # without this guard `body.get(...)` below AttributeErrors → 500 before auth
     # (shutdown/reboot/update/upgrade callers). Coerce non-dict → no targets.
@@ -18894,21 +18918,29 @@ def _resolve_targets(body):
         return []
     if 'device_ids' in body and isinstance(body['device_ids'], list):
         raw = body['device_ids'][:100]  # cap at 100 targets
-        return [str(d).strip() for d in raw if _validate_id(str(d).strip())]
-    if 'tag' in body:
+        ids = [str(d).strip() for d in raw if _validate_id(str(d).strip())]
+    elif 'tag' in body:
         tag = re.sub(r'[^a-zA-Z0-9_\-/]', '', str(body['tag']))[:MAX_TAG_LEN]
-        if not tag:
-            return []
-        devices = load(DEVICES_FILE)
-        return [did for did, dev in devices.items() if tag in dev.get('tags', [])]
-    if 'group' in body:
+        ids = ([did for did, dev in (load(DEVICES_FILE) or {}).items()
+                if tag in dev.get('tags', [])] if tag else [])
+    elif 'group' in body:
         grp = re.sub(r'[^a-zA-Z0-9_\-/]', '', str(body['group']))[:MAX_GROUP_LEN]
-        if not grp:
-            return []
-        devices = load(DEVICES_FILE)
-        return [did for did, dev in devices.items() if dev.get('group', '') == grp]
-    dev_id = str(body.get('device_id', '')).strip()
-    return [dev_id] if _validate_id(dev_id) else []
+        ids = ([did for did, dev in (load(DEVICES_FILE) or {}).items()
+                if dev.get('group', '') == grp] if grp else [])
+    else:
+        dev_id = str(body.get('device_id', '')).strip()
+        ids = [dev_id] if _validate_id(dev_id) else []
+    if not ids:
+        return []
+    # Drop targets that name a device the caller may NOT see. _caller_scope() is
+    # None for admins, so this is pure tenant filtering for a tenant admin and a
+    # true no-op for a superadmin — a real scope/tenant cut for everyone else.
+    # An id that names NO known device is kept: it's harmless (there's no real
+    # target) and the queue path reports it as "not found", preserving batch
+    # observability (a caller still learns a typo'd id didn't resolve).
+    known = load(DEVICES_FILE) or {}
+    allowed = _scope_filter_devices(known)
+    return [d for d in ids if d not in known or d in allowed]
 
 
 def _device_quarantined(dev):
@@ -19621,7 +19653,10 @@ def handle_agent_compat():
     """``GET /api/agent-compat`` — per-device agent/server version compatibility
     so the UI can warn before a (bulk) update queues a mismatch."""
     require_auth()
-    devs = load(DEVICES_FILE) or {}
+    # Tenant/scope filter: this is a fleet-aggregate read NOT under /api/devices/,
+    # so the pre-dispatch _enforce_device_scope doesn't cover it, and a tenant
+    # admin (scope=None) would otherwise see every tenant's agent versions.
+    devs = _scope_filter_devices(load(DEVICES_FILE) or {})
     out = []
     for dev_id, dev in devs.items():
         if dev.get('agentless'):
@@ -27808,7 +27843,10 @@ def handle_fleet_uptime7d():
     """
     require_auth()
     uptime = load(UPTIME_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     now = int(time.time())
     DAY = 86400
     # Midnight (local) of today, then the 7 day-windows ending with it.
@@ -31655,6 +31693,10 @@ def run_wan_ip_check_if_due():
           'checked': now,
           'online': is_up,
           'outages': outages,
+          # first_seen anchors handle_wan_status's uptime denominator to "since we
+          # started watching", so a freshly-enabled watcher doesn't report uptime
+          # over a full 30-day window it wasn't actually monitoring. Stamped once.
+          'first_seen': int(st.get('first_seen') or now),
           'since': now if was_up != is_up else st.get('since', now)}
     if ddns:
         st['ddns'] = ddns
@@ -31802,7 +31844,14 @@ def handle_deadman_jobs():
                             + int(j.get('period_minutes', 60)) * 60
                             + int(j.get('grace_minutes', 10)) * 60)
                 due_in = deadline - now
-            out.append({**j, 'due_in_s': due_in})
+            # The ping URL is the whole point of the feature — you paste it into a
+            # remote cron's curl line. It was returned ONLY in the create response,
+            # so after the one-time "job added" toast there was no way to retrieve
+            # it: the list column and its Copy button were blank. Rebuild it here
+            # from the token so the list is self-sufficient.
+            token = j.get('token')
+            url = (f"{_request_base_url()}/api/ping/{token}") if token else None
+            out.append({**j, 'due_in_s': due_in, 'url': url})
         respond(200, {'ok': True, 'jobs': out})
     if m != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -36404,7 +36453,10 @@ def handle_mailwatch_overview():
     management view.
     """
     require_auth()
-    devices = load(DEVICES_FILE)
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     rows = []
     for dev_id, dev in (devices or {}).items():
         paths = dev.get('mailbox_paths') or []
@@ -52663,7 +52715,10 @@ def handle_exposure_overview():
     _cfg = load(CONFIG_FILE) or {}
     audit_enabled = bool(_cfg.get('port_audit_enabled', False))
     mutes = _cfg.get('exposure_mutes') or []
-    devices = load(DEVICES_FILE)
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     rows = []
     counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0}
     for dev_id, d in (devices or {}).items():
@@ -52734,7 +52789,10 @@ def handle_exposure_mute():
 def handle_storage_overview():
     """GET /api/storage — fleet-wide ZFS/mdadm/btrfs pool health."""
     require_auth()
-    devices = load(DEVICES_FILE)
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     rows = []
     degraded = 0
     _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
@@ -52775,7 +52833,10 @@ THERMAL_CRIT_C = 85.0
 def handle_fleet_thermal():
     """GET /api/fleet/thermal — hottest-host roll-up across the fleet."""
     require_auth()
-    devices = load(DEVICES_FILE) or {}
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     hw_all = load(HARDWARE_FILE) or {}
     temp_hist = load(THERMAL_HIST_FILE) or {}
     rows = []
@@ -52869,7 +52930,10 @@ def handle_fleet_gpus():
     via nvidia-smi, AMD via rocm-smi or the amdgpu sysfs fallback) — no schema
     change. Hottest/busiest first; carries a fleet summary."""
     require_auth()
-    devices = load(DEVICES_FILE) or {}
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     hw_all = load(HARDWARE_FILE) or {}
     gpu_hist = load(GPU_HIST_FILE) or {}
     now = int(time.time())
@@ -52927,7 +52991,10 @@ def handle_fleet_power():
     GPU power draw. Energy/cost is left to the client (a cost/kWh the operator
     sets) since tariffs vary; we return the instantaneous total watts."""
     require_auth()
-    devices = load(DEVICES_FILE) or {}
+    # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
+    # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
+    # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     hw_all = load(HARDWARE_FILE) or {}
     rows = []
     total_w = 0.0

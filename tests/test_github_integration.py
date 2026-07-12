@@ -243,8 +243,12 @@ class TestEventWiring(unittest.TestCase):
         # feed-detail fields, so it no longer closes on 'label'):.
         # v6.0.1: the _record_alert whitelist gained pool/paths/threshold after
         # repo/title/url, so it no longer closes on url'):.
+        # v6.1.2: it then gained mac/old_ip/new_ip (network events), so the tuple
+        # now closes on new_ip'): — assert the keys are present without pinning the
+        # exact closing token (that brittleness is what keeps breaking here).
         self.assertIn("'repo', 'title', 'url',", src)
-        self.assertIn("'pool', 'paths', 'threshold'):", src)
+        self.assertIn("'pool', 'paths', 'threshold',", src)
+        self.assertIn("'mac', 'old_ip', 'new_ip'):", src)
         self.assertIn("'repo', 'title', 'url', 'label',", src)
 
 
