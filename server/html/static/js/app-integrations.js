@@ -257,9 +257,14 @@ async function saveOpnsenseConfig() {
   if (r?.ok) {
     toast('OPNsense config saved', 'success');
     const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense`);
-    const cardBody = document.getElementById('audit-body-opnsense');
-    const badge = document.getElementById('audit-badge-opnsense');
-    if (cardBody) _renderOpnsenseCard(cardBody, badge || { textContent: '' }, data || {});
+    // Repaint the surface the operator is actually looking at. This used to
+    // hard-code the drawer card, so saving from inside the full-width console
+    // left the console showing pre-save state (and repainted nothing at all
+    // when the drawer was closed). Every other OPNsense action already routes
+    // through _opnsenseSurface(); this one was the copy-paste holdout — the
+    // RouterOS twin (saveRouterosConfig -> routerosReload) does it correctly.
+    const surf = _opnsenseSurface();
+    if (surf.body) _renderOpnsenseCard(surf.body, surf.badge, data || {});
   } else toast(r?.error || 'Failed', 'error');
 }
 

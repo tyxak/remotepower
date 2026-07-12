@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.1.1'
+SERVER_VERSION = '6.1.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -6064,9 +6064,15 @@ def _export_otlp(cfg):
 def _maybe_export_otlp():
     """Heartbeat hook: push OTLP at most once per otlp_interval (default 60s).
     Cheap on the common path — one state read, an integer compare, return."""
-    cfg = load(CONFIG_FILE) or {}
+    # v6.1.2 (PERF): _config_ro() on the not-due path. load(CONFIG_FILE) DEEPCOPIES
+    # the entire config (monitors, thresholds, integrations, …) and this runs on
+    # EVERY heartbeat — so with OTLP off, which is the default, every heartbeat
+    # paid a full config deepcopy purely to read one absent boolean. This is
+    # exactly what _config_ro exists for (the other cadence gates already use it).
+    cfg = _config_ro()
     if not cfg.get('otlp_enabled'):
         return
+    cfg = load(CONFIG_FILE) or {}    # enabled: take the real (mutable) copy
     try:
         interval = max(15, min(3600, int(cfg.get('otlp_interval') or 60)))
     except (TypeError, ValueError):
@@ -7579,6 +7585,74 @@ def _portal_gate():
         respond(404, {'error': 'Not found'})
 
 
+# ── v6.1.2: optional modules ────────────────────────────────────────────────
+# RemotePower grew a lot of surface that a small homelab simply doesn't want
+# (a helpdesk, an alert inbox, billing, compliance frameworks, a pentest
+# orchestrator). Each of these is now a MODULE that can be switched off in
+# Settings → Advanced, which:
+#   * 404s its whole API prefix (enforced in main(), not in each handler), and
+#   * removes its nav entry + any badge from the UI (the client reads `modules`
+#     from /api/home and /api/nav-counts).
+# `default` is what an install that has never touched the setting gets, so the
+# opt-OUT modules (tickets/alerts/...) stay on for every existing deployment and
+# the opt-IN ones (billing/kb/portal) stay off. Turning `alerts` off ALSO stops
+# _record_alert writing inbox rows — webhooks/notifications and the fleet-event
+# history are separate channels and keep working, which is exactly the setup a
+# homelabber who just wants ntfy pings asks for.
+_MODULES = {
+    # name        config key             default  API prefixes gated
+    # NOTE on the tickets key: the obvious name — `tickets_enabled` — is POISONED
+    # and deliberately NOT reused. Before v6.0.0 tickets were opt-IN and that key
+    # defaulted to false, so any install whose admin ever saved the Settings page
+    # without ticking the box still carries `tickets_enabled: false` today. v6.0.0
+    # then made tickets always-on and IGNORED the key, so those installs have been
+    # happily running a helpdesk ever since with a stale `false` in their config.
+    # Honouring it now would silently delete a ticket system people actively use,
+    # on upgrade, with no warning. A fresh key sidesteps that with no migration
+    # marker and no guessing at intent. `billing_enabled` / `kb_enabled` ARE safe
+    # to reuse: they're still live opt-ins today with exactly these semantics.
+    'alerts':     ('alerts_enabled',         True,  ('/api/alerts', '/api/alert-mutes',
+                                                     '/api/alert-tuning')),
+    'tickets':    ('tickets_module_enabled', True,  ('/api/tickets',)),
+    'billing':    ('billing_enabled',        False, ('/api/billing', '/api/invoices')),
+    'kb':         ('kb_enabled',             False, ('/api/kb',)),
+    'compliance': ('compliance_enabled',     True,  ('/api/compliance', '/api/scap')),
+    'pentest':    ('pentest_enabled',        True,  ('/api/scans',)),
+}
+
+
+def _module_on(name):
+    """True if the optional module `name` is enabled (or unknown → always on)."""
+    entry = _MODULES.get(name)
+    if not entry:
+        return True
+    key, default, _prefixes = entry
+    return bool(_config_ro().get(key, default))
+
+
+def _modules_state():
+    """{name: bool} for the client — drives nav visibility."""
+    return {name: _module_on(name) for name in _MODULES}
+
+
+def _enforce_module_gate(pi):
+    """404 every route belonging to a switched-off module.
+
+    Called once per request from main(), before dispatch — so a module that's
+    off is genuinely unreachable, not just hidden. Cheap: _config_ro() is the
+    shared no-deepcopy config read, and the prefix scan is over 6 entries.
+    """
+    if not pi.startswith('/api/'):
+        return
+    for name, (key, default, prefixes) in _MODULES.items():
+        for p in prefixes:
+            if pi == p or pi.startswith(p + '/'):
+                if not bool(_config_ro().get(key, default)):
+                    respond(404, {'error': 'Not found',
+                                  'module_disabled': name})
+                return
+
+
 def _portal_hash(tok):
     return hashlib.sha256(('rp-portal:' + str(tok)).encode()).hexdigest()
 
@@ -8253,6 +8327,12 @@ def _record_alert(event, payload):
     """
     sev = _alert_severity(event, payload)
     if not sev:
+        return None
+    # v6.1.2: the Alerts module can be switched off entirely (minimal-homelab
+    # setups that want ntfy/Discord pings and no inbox to curate). Webhook
+    # delivery and the fleet-event history are separate channels and keep
+    # working — this only stops inbox rows being created.
+    if not _module_on('alerts'):
         return None
     # v3.2.3: routing matrix gate — if the operator has disabled the
     # `alerts` channel for this kind, skip recording. The event still
@@ -16105,39 +16185,17 @@ def _agent_mtls_ok(dev_id):
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    # v3.0.2: opportunistic scheduled-backup check. _maybe_run_scheduled_backup
-    # exits in ~1 file-read on heartbeats that aren't due — cheap. Runs once
-    # per 24h regardless of which agent's heartbeat triggers the check.
-    try:
-        _maybe_run_scheduled_backup()
-    except Exception as _bk:
-        sys.stderr.write(f'[remotepower] scheduled backup hook error: {_bk}\n')
-    # v5.0.0 (#R1): server self disk-space watchdog (30-min gate, cheap).
-    try:
-        _maybe_check_disk_space()
-    except Exception as _dw:
-        sys.stderr.write(f'[remotepower] disk watchdog hook error: {_dw}\n')
-    # v3.14.0 #28: opportunistic OTLP metrics push (interval-gated, ~1 file read
-    # when not due). Same piggyback pattern as the scheduled-backup hook.
-    try:
-        _maybe_export_otlp()
-    except Exception as _ot:
-        sys.stderr.write(f'[remotepower] OTLP hook error: {_ot}\n')
-    # v4.2.0 (#4): opportunistic scheduled-scan check (cheap 60s gate).
-    try:
-        run_scheduled_scans_if_due()
-    except Exception as _ss:
-        sys.stderr.write(f'[remotepower] scheduled scan hook error: {_ss}\n')
-    # v6.1.1: opportunistic scheduled-netscan check (cheap 60s gate).
-    try:
-        run_netscan_schedules_if_due()
-    except Exception as _ns:
-        sys.stderr.write(f'[remotepower] netscan schedule hook error: {_ns}\n')
-    # v6.1.1: opportunistic audit-HMAC-key auto-rotation check (off by default).
-    try:
-        run_audit_hmac_rotation_if_due()
-    except Exception as _ah:
-        sys.stderr.write(f'[remotepower] audit_hmac rotation hook error: {_ah}\n')
+    # v6.1.2 (PERF): the six maintenance hooks that used to be invoked here
+    # (scheduled backup, disk watchdog, OTLP push, scheduled scans, netscan
+    # schedules, audit-HMAC rotation) have MOVED into main()'s _safe(...) cadence.
+    # They were the only sweeps still hard-wired into the hottest path in the
+    # product, and — because they never went through _safe — they ran on every
+    # single heartbeat EVEN WITH the out-of-band scheduler enabled, which is the
+    # recommended production topology and is supposed to take the request path
+    # out of the maintenance business entirely. Each one costs at least a config
+    # or state read (and two of them take locks once enabled), so N agents × 1/min
+    # paid for cadence checks a dedicated process was already doing. In main()
+    # they get the _ext_sched gate for free, exactly like every other sweep.
     body = get_json_obj()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
@@ -16965,6 +17023,11 @@ def handle_heartbeat():
         if dev.get('force_package_scan'):
             saved_dev['force_package_scan'] = True
             dev.pop('force_package_scan', None)
+        # v6.1.2: one-shot "scan container images now" flag (trivy). Same
+        # one-shot contract as force_package_scan above.
+        if dev.get('force_image_scan'):
+            saved_dev['force_image_scan'] = True
+            dev.pop('force_image_scan', None)
         # v3.0.0: IaC collection request — also one-shot
         if dev.get('force_iac_collect'):
             saved_dev['force_iac_collect'] = dev['force_iac_collect']
@@ -17952,6 +18015,15 @@ def handle_heartbeat():
     # on the single heartbeat after the operator clicked "scan now".
     if saved_dev.get('force_package_scan'):
         common_resp['force_package_scan'] = True
+    # v6.1.2: one-shot container-image CVE scan (trivy). The agent has always
+    # honoured `force_image_scan` in the heartbeat response, but NOTHING on the
+    # server ever set it — so the only way the scan could ever run was the
+    # agent's `poll_count % 1440 == 0` cadence gate, which resets to 0 on every
+    # agent restart. An operator who installed trivy and enabled the feature
+    # could therefore wait forever and see an empty Image-CVE page. This (plus
+    # the agent's now time-based cadence) is what makes the feature reachable.
+    if saved_dev.get('force_image_scan'):
+        common_resp['force_image_scan'] = True
     # v3.0.0: one-shot IaC collection request — fires once on the heartbeat
     # right after the operator clicked Generate IaC.
     if saved_dev.get('force_iac_collect'):
@@ -20051,7 +20123,18 @@ def _persist_monitor_results(results):
     they came from a user-triggered run or the periodic auto-runner.
     """
     try:
-        mh = load(MON_HIST_FILE)
+        # v6.1.2 (PERF): touch ONLY the labels that just ran. monitor_history is
+        # an ENTITY store (one row per label), but this used load() — which
+        # reconstructs EVERY configured monitor's last-50 list — and then a
+        # whole-store save(), purely to append to the handful of monitors in
+        # `results`. Cost scaled with monitors CONFIGURED, not monitors RUN.
+        #
+        # On the DB backends we now read/write just the touched rows. On the
+        # JSON backend a per-row write is itself a whole-store save, so N labels
+        # would mean N saves — strictly worse than the single save it replaces.
+        # Hence the explicit branch: JSON keeps exactly the old shape.
+        _rowwise = _dbmod() is not None
+        mh = {} if _rowwise else load(MON_HIST_FILE)
         cfg = load(CONFIG_FILE)
         mon_notified = cfg.get('monitor_notified', {})
         # v4.3.0: per-monitor flap dampening. A monitor only raises monitor_down
@@ -20071,7 +20154,11 @@ def _persist_monitor_results(results):
         _path_baselines = cfg.get('path_baselines') or {}
         for r in results:
             key = r['label']
-            if key not in mh: mh[key] = []
+            if key not in mh:
+                # Row-wise: pull just this label's history. Whole-store: it's
+                # already in the dict we loaded (or genuinely new).
+                mh[key] = (list(_entity_read_one(MON_HIST_FILE, key, []) or [])
+                           if _rowwise else [])
             mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
             mh[key] = mh[key][-MAX_MON_HISTORY:]
             # W4-15: path monitors — diff the hop set against a stored baseline
@@ -20114,7 +20201,11 @@ def _persist_monitor_results(results):
                         'target': r['target'], 'detail': r['detail'],
                     })
                     mon_notified[key] = False; dirty = True
-        save(MON_HIST_FILE, mh)
+        if _rowwise:
+            for _k, _hist in mh.items():
+                _entity_write_one(MON_HIST_FILE, _k, _hist)
+        else:
+            save(MON_HIST_FILE, mh)
         if dirty:
             cfg['monitor_notified'] = mon_notified
             cfg['monitor_fail_streak'] = mon_streak
@@ -21363,7 +21454,15 @@ def handle_config_get():
     safe.setdefault('approval_gated_kinds', list(_APPROVAL_GATED_KINDS))
     safe['approval_kinds_all'] = list(_APPROVAL_KINDS_ALL)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
-    safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
+    # v6.1.2: optional-module switches (Settings → Advanced). See _MODULES —
+    # they're read through _module_on(), which supplies these same defaults, so
+    # an install that never touches them keeps today's behaviour exactly.
+    # (This subsumes the old separate tickets_enabled/billing_enabled/kb_enabled
+    # defaults; `tickets` in particular defaults ON — v6.0.0 made the ticket
+    # system standard and hard-coded it on, and this restores the switch as an
+    # opt-OUT rather than reverting to the pre-v6 opt-in.)
+    for _mname, (_mkey, _mdefault, _mprefixes) in _MODULES.items():
+        safe.setdefault(_mkey, _mdefault)
     safe.setdefault('ticket_csat_enabled',    False)  # W1-31: CSAT survey on resolve
     safe.setdefault('ticket_business_hours', {'enabled': False, 'tz_offset_min': 0,
                                               'weekly': {}, 'holidays': []})  # W2-29
@@ -22886,8 +22985,13 @@ def handle_config_save():
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
-    if 'tickets_enabled' in body:
-        cfg['tickets_enabled'] = bool(body['tickets_enabled'])
+    # v6.1.2: every optional-module switch, from the one registry. Doing this
+    # from _MODULES (rather than a hand-listed key per module) means adding a
+    # module can't silently fail to persist — the classic trap with this
+    # handler's fixed key lists.
+    for _mname, (_mkey, _mdefault, _mprefixes) in _MODULES.items():
+        if _mkey in body:
+            cfg[_mkey] = bool(body[_mkey])
     if 'ticket_csat_enabled' in body:   # W1-31: satisfaction survey on resolve
         cfg['ticket_csat_enabled'] = bool(body['ticket_csat_enabled'])
     # W2-29: business-hours calendar for ticket SLA clocks.
@@ -28105,7 +28209,53 @@ def handle_image_cves():
                 if len(g['top']) < 25 and v not in g['top']:
                     g['top'].append(v)
     out = sorted(by_image.values(), key=lambda g: (-g['critical'], -g['high']))
-    respond(200, {'images': out, 'enabled': bool(_config_ro().get('image_scan_enabled'))})
+    # `scanned` lets the page distinguish "enabled but no host has reported yet"
+    # (the state that used to look identical to "feature broken") from "enabled
+    # and genuinely nothing vulnerable".
+    respond(200, {'images': out,
+                  'enabled': bool(_config_ro().get('image_scan_enabled')),
+                  'scanned': sum(1 for d in store if d in devices)})
+
+
+def handle_image_cve_scan():
+    """POST /api/image-cves/scan — queue a one-shot trivy image scan.
+
+    Body: {device_id} for one host, or {} for every host that reports
+    containers. Sets the per-device one-shot `force_image_scan` flag the agent
+    already honours; the agent runs trivy on its next heartbeat and ships the
+    summary with the one after that (trivy takes a while per image).
+    """
+    actor = require_write_role('exec')
+    body = get_json_obj()
+    target = str(body.get('device_id') or '').strip()
+    if target and not _validate_id(target):
+        respond(400, {'error': 'Invalid device_id'})
+    if not _config_ro().get('image_scan_enabled'):
+        respond(400, {'error': 'Container image CVE scanning is off — enable it in '
+                               'Settings → Security first.'})
+    queued = []
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if target:
+            if target not in devices:
+                respond(404, {'error': 'device not found'})
+            targets = [target]
+        else:
+            # Only hosts that actually run containers — trivy on a host with no
+            # images is a wasted (slow) agent cycle.
+            containers = load(CONTAINERS_FILE) or {}
+            targets = [d for d in devices
+                       if (containers.get(d) or {}).get('items')]
+        for d in targets:
+            if not _tenant_visible(devices[d]):
+                continue
+            devices[d]['force_image_scan'] = True
+            queued.append(d)
+    audit_log(actor, 'image_cve_scan_queued', detail=f'devices={len(queued)}')
+    respond(200, {'ok': True, 'queued': len(queued),
+                  'message': (f'Image scan queued on {len(queued)} host(s) — trivy runs on '
+                              'the next heartbeat; results appear within a few minutes.')
+                             if queued else
+                             'No hosts with running containers to scan.'})
 
 
 def _ingest_secret_findings(dev_id, dev_name, findings):
@@ -37707,7 +37857,63 @@ def _compute_attention():
             if i.get('target'):
                 i['mitigation_target'] = i['target']
 
+    # v6.1.2: honour per-(host, event) alert mutes here too. A mute is
+    # documented as silencing the inbox AND needs-attention, but only the
+    # alert-firing path (_record_alert / fire_webhook) ever consulted
+    # _alert_muted — so a muted signal kept its NA item, and because fleet
+    # health is derived purely from NA items (_fleet_health), muting an
+    # alert never lifted the host's (or the fleet's) score. Filtering here
+    # fixes both surfaces at once, and history/Tuning stay intact (they read
+    # fleet_events, not this list).
+    items = [i for i in items if not _na_item_muted(i)]
+
     return items
+
+
+# NA items carry a `kind` (a UI grouping); mutes are keyed by the webhook
+# `event`. They're separate namespaces that only sometimes share a name, so
+# map (kind, severity) -> the event(s) that item represents. Severity is what
+# disambiguates the multi-event kinds: muting av_warning must NOT also hide an
+# av_infected item. A kind absent from this map is simply not muteable (no
+# corresponding per-device event exists — os_eol, cred_rotation, maintenance…).
+_NA_MUTE_EVENTS = {
+    ('offline',            'critical'): ('device_offline',),
+    ('patches',            'critical'): ('patch_alert', 'patch_sla_violation'),
+    ('patches',            'warning'):  ('patch_alert', 'patch_sla_violation'),
+    ('drift',              'warning'):  ('config_drift', 'drift_detected'),
+    ('mailbox',            'warning'):  ('mailbox_threshold',),
+    ('backup',             'critical'): ('backup_stale', 'backup_verify_failed',
+                                         'backup_size_anomaly'),
+    ('disk',               'critical'): ('metric_critical', 'disk_predict_fail'),
+    ('disk',               'warning'):  ('metric_warning',),
+    ('mount',              'critical'): ('mount_issue',),
+    ('mount',              'warning'):  ('mount_issue',),
+    ('container',          'warning'):  ('container_stopped', 'container_restarting',
+                                         'containers_stale'),
+    ('brute_force',        'critical'): ('brute_force_detected',),
+    ('failed_units',       'warning'):  ('failed_unit',),
+    ('av_posture',         'critical'): ('av_infected',),
+    ('av_posture',         'warning'):  ('av_warning',),
+    ('custom_script_fail', 'warning'):  ('custom_script_fail',),
+    ('log_alert',          'critical'): ('log_alert',),
+    ('log_alert',          'warning'):  ('log_alert',),
+    ('log_alert',          'info'):     ('log_alert',),
+    ('new_port',           'warning'):  ('new_port_detected', 'port_exposed_world'),
+    ('hardware',           'critical'): ('smart_failure',),
+    ('hardware',           'warning'):  ('temp_high',),
+}
+
+
+def _na_item_muted(item):
+    """True if this Needs-Attention item's (host, event) pair is muted."""
+    dev_id = item.get('device_id')
+    if not dev_id:
+        return False        # fleet-level / TLS items have no device to mute
+    events = _NA_MUTE_EVENTS.get((item.get('kind'), item.get('severity')))
+    if not events:
+        return False
+    muted = _alert_mute_set()
+    return any((dev_id, ev) in muted for ev in events)
 
 
 _ATTENTION_CACHE_TTL = 10
@@ -37718,51 +37924,56 @@ def _attention_cache_file():
     return DATA_DIR / 'attention_cache.json'
 
 
+def _attention_fingerprint():
+    """Cheap fingerprint of the OPERATOR-CONTROLLED inputs to the NA digest.
+
+    Deliberately excludes device telemetry (DEVICES_FILE): see _attention_payload.
+    Mirrors the `fp` the fleet-checks cache uses.
+    """
+    parts = []
+    for src in (IGNORED_ITEMS_FILE, ALERT_MUTES_FILE, CONFIG_FILE):
+        try:
+            parts.append(str(backend_mtime(src)))
+        except Exception:
+            parts.append('-')
+    return '|'.join(parts)
+
+
 def _attention_payload(use_cache=True):
     """Build the {items, counts, total} payload, optionally from a 10s
-    file-backed cache. CGI = no in-process cache, so the cache file's
-    mtime is the only way to share work across requests. Falls back to
-    a fresh compute if the cache file is missing, stale, or corrupt.
+    file-backed cache. Falls back to a fresh compute if the cache file is
+    missing, stale, or corrupt.
 
-    The cache is busted when devices.json or alerts-affecting state
-    files are newer than the cache — any heartbeat that wrote new
-    sysinfo or transitioned a service updates devices.json, so the NA
-    digest must recompute. This also makes tests deterministic without
-    every test fixture having to clear an implementation-specific
-    cache file."""
+    v6.1.2 (PERF): honour the cache for its full TTL. It used to ALSO bust
+    whenever DEVICES_FILE / FLEET_EVENTS_FILE mtime advanced — but every
+    heartbeat rewrites DEVICES_FILE, so on any fleet whose hosts collectively
+    beat more often than every 10s (i.e. ~any fleet at all) the cache NEVER hit,
+    and the O(fleet) _compute_attention() re-ran on every /api/attention poll and
+    for every health/risk consumer that derives from it. This is the identical
+    bug — and now the identical fix — as the fleet-checks cache (see
+    _fleet_checks_rows, v4.4.0): keep a `fp` fingerprint over the inputs an
+    operator CHANGES and expects reflected immediately (ignores, mutes, config),
+    and accept that device telemetry may be up to _ATTENTION_CACHE_TTL seconds
+    stale in a rollup digest — which is the intended contract for a 10s cache.
+    """
     cache_file = _attention_cache_file()
+    fp = _attention_fingerprint()
     if use_cache:
         try:
             if backend_exists(cache_file):
-                cache_mtime = backend_mtime(cache_file)
-                age = time.time() - cache_mtime
-                if age < _ATTENTION_CACHE_TTL:
-                    # Bust the cache if any underlying data file has been
-                    # written more recently than the cache. backend_mtime()
-                    # works under SQLite/Postgres too (these are storage keys,
-                    # not on-disk files) — a raw .exists()/.stat() left the
-                    # cache permanently cold on the DB backend.
-                    fresher = False
-                    for src in (DEVICES_FILE, FLEET_EVENTS_FILE,
-                                CVE_FINDINGS_FILE, DRIFT_STATE_FILE,
-                                IGNORED_ITEMS_FILE):
-                        try:
-                            if backend_mtime(src) > cache_mtime:
-                                fresher = True
-                                break
-                        except Exception:
-                            pass
-                    if not fresher:
-                        cached = load(cache_file)
-                        if isinstance(cached, dict) and 'items' in cached:
-                            return cached
+                cached = load(cache_file)
+                if (isinstance(cached, dict) and 'items' in cached
+                        and cached.get('fp') == fp
+                        and time.time() - cached.get('ts', 0) < _ATTENTION_CACHE_TTL):
+                    return cached
         except Exception:
             pass
     items = _compute_attention()
     counts = {'critical': 0, 'warning': 0, 'info': 0}
     for i in items:
         counts[i['severity']] = counts.get(i['severity'], 0) + 1
-    payload = {'items': items, 'counts': counts, 'total': len(items)}
+    payload = {'items': items, 'counts': counts, 'total': len(items),
+               'fp': fp, 'ts': time.time()}
     try:
         save(cache_file, payload)
     except Exception:
@@ -38868,11 +39079,15 @@ def handle_home():
         'links':        links,
         'server_tz':    _server_tz_label(),
         'fleet_note':   cfg.get('fleet_note', ''),
-        # v6.0.0: tickets/billing/provisioning are ALWAYS-ON modules now (the
-        # Settings → Advanced opt-in toggles are gone); flags kept for older
-        # frontends, permanently true.
-        'tickets_enabled': True,
-        'billing_enabled': True,
+        # v6.1.2: optional modules can be switched OFF again (Settings →
+        # Advanced) — a minimal homelab shouldn't have to carry a helpdesk, an
+        # alert inbox, billing and compliance it never opens. `modules` is the
+        # single source the frontend uses to hide navs; the two flags below stay
+        # for older frontends and now report the real state instead of a
+        # hard-coded True (v6.0.0 pinned them on).
+        'modules': _modules_state(),
+        'tickets_enabled': _module_on('tickets'),
+        'billing_enabled': _module_on('billing'),
         'ticket_devices': _open_ticket_device_ids(),
         'tickets_open': sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
                             if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal')),
@@ -51836,10 +52051,19 @@ def handle_cve_scan():
     if st.get('running') and (int(time.time()) - (st.get('updated') or 0)) < 1800:
         respond(409, {'error': 'A scan is already running', 'status': st})
     total = 1 if target else len(load(PACKAGES_FILE) or {})
-    save(CVE_SCAN_STATUS_FILE, {'running': True, 'total': total, 'done': 0,
+    # v6.1.2: the status marker is written non_blocking so a wedged writer can
+    # never hang the request — but a CONTENDED write then raises LockBusy, which
+    # used to propagate uncaught and render as a 500 (the production symptom on
+    # the Postgres backend, whose non_blocking acquire had no retry budget at
+    # all until this release; see storage_pg._try_lock). Contention here just
+    # means a scan runner is mid-write, so say so with a retryable 409.
+    try:
+        save(CVE_SCAN_STATUS_FILE, {'running': True, 'total': total, 'done': 0,
                                     'scanned': 0, 'skipped': 0, 'errors': 0,
                                     'updated': int(time.time()),
                                     'started_at': int(time.time())}, non_blocking=True)
+    except LockBusy:
+        respond(409, {'error': 'A scan is starting or running — try again shortly'})
     _spawn_cve_scan(actor, target)
     respond(202, {'queued': True, 'total': total,
                   'message': 'Scan queued — running in the background.'})
@@ -56451,6 +56675,7 @@ def _build_exact_routes():
         ('GET', '/api/lldp-suggestions'): handle_lldp_suggestions,   # W5-1
         ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
         ('GET', '/api/image-cves'): handle_image_cves,   # W6-34
+        ('POST', '/api/image-cves/scan'): handle_image_cve_scan,   # v6.1.2
         # W6-28: customer portal (closed allowlist; token-cookie auth, not X-Token).
         ('POST', '/api/portal/magic-link'): handle_portal_magic_link,
         ('POST', '/api/portal/session'): handle_portal_session,
@@ -57598,6 +57823,15 @@ def main():
     # v1.11.4: container-data-stale sweep, mirroring the offline check.
     # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
     _safe(check_container_webhooks, 'check_container_webhooks')
+    # v6.1.2: these six moved OFF the heartbeat handler (where they ran
+    # unconditionally, even with the out-of-band scheduler on) and into the
+    # normal gated cadence with everything else. See handle_heartbeat.
+    _safe(_maybe_run_scheduled_backup, '_maybe_run_scheduled_backup')
+    _safe(_maybe_check_disk_space, '_maybe_check_disk_space')
+    _safe(_maybe_export_otlp, '_maybe_export_otlp')
+    _safe(run_scheduled_scans_if_due, 'run_scheduled_scans_if_due')
+    _safe(run_netscan_schedules_if_due, 'run_netscan_schedules_if_due')
+    _safe(run_audit_hmac_rotation_if_due, 'run_audit_hmac_rotation_if_due')
     # v1.11.8: monitor checks used to only run when somebody opened
     # the Monitor page in the dashboard. Now they run on every CGI hit
     # but gated to the configured interval (default 300s). For low-
@@ -57734,6 +57968,13 @@ def main():
     _enforce_device_scope()
 
     pi = path_info(); m = method()
+
+    # v6.1.2: optional-module gate. A module switched off in Settings → Advanced
+    # is off for REAL — its API surface 404s here, at the same chokepoint the
+    # scope enforcement uses, rather than merely being hidden in the UI (which
+    # any caller could bypass). One place, so a new route under a gated prefix
+    # is covered automatically.
+    _enforce_module_gate(pi)
 
     # v4.3.0: time the handler and record it if it ran past the slow threshold.
     # try/finally so the timing fires on every exit path (normal HTTPError

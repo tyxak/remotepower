@@ -39,7 +39,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '6.1.1'
+VERSION = '6.1.2'
 DEFAULT_POLL = 60
 
 # Prime the non-blocking CPU sampler once at import so the first heartbeat's

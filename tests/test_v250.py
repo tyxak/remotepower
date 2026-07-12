@@ -285,7 +285,10 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 42000]   # widened: v6.1.1 #1 push-listener state
+        # Widened again in v6.1.2 (time-based trivy image-scan cadence). This
+        # fixed-size source window is inherently brittle: anything added to
+        # heartbeat() ABOVE this marker eventually pushes it out of range.
+        block = self.agent[idx: idx + 46000]
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):

@@ -318,7 +318,7 @@ async function viewComposeStack(stackId) {
 
 async function loadContainersOverview() {
   const tbody = document.getElementById('containers-tbody');
-  tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>';
+  tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</td></tr>';
   const data = await api('GET', '/containers');
   _containersOverview = Array.isArray(data) ? data : [];
   renderContainersOverview();
@@ -371,7 +371,7 @@ function _registerContainersOverviewTable() {
       const restartingCell = s.restarting > 0
         ? `<span class="c-red">${s.restarting}</span>`
         : `<span class="c-muted">0</span>`;
-      return `<tr${r.is_stale ? '' : ''} class="isl-451">
+      return `<tr class="isl-451">
         <td class="fw-500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
         <td class="hint">${escHtml(r.os || '—')}</td>
         <td class="fw-500">${s.total}</td>

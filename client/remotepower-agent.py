@@ -32,7 +32,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '6.1.1'
+VERSION      = '6.1.2'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -960,7 +960,27 @@ def collect_lldp_neighbors(limit=64):
 # secrets_scan_enabled); bounded hard on files, file size, and wall-clock so it
 # can never hog a host.
 SECRETS_SCAN_EVERY = 360            # ~6h at the 60s default poll
-IMAGE_SCAN_EVERY   = 1440           # ~24h at the 60s default poll (W6-34)
+IMAGE_SCAN_EVERY   = 1440           # ~24h at the 60s default poll (W6-34, legacy)
+
+# v6.1.2: the image scan is due on a WALL-CLOCK interval, persisted across
+# restarts. The old poll-count modulo (IMAGE_SCAN_EVERY, kept only so an old
+# pinned reference still resolves) silently never fired on any host whose agent
+# restarted more often than 24h.
+IMAGE_SCAN_INTERVAL_S = 24 * 3600
+IMAGE_SCAN_TS_FILE    = 'image_scan_last'
+
+
+def _load_image_scan_ts() -> float:
+    """Epoch of the last trivy image scan (0 if never / unreadable)."""
+    raw = _safe_state_read(IMAGE_SCAN_TS_FILE)
+    try:
+        return float((raw or '').strip())
+    except ValueError:
+        return 0.0
+
+
+def _save_image_scan_ts(ts: float) -> None:
+    _safe_state_write(IMAGE_SCAN_TS_FILE, str(int(ts)))
 
 
 def collect_image_cves(images, limit=20):
@@ -8060,6 +8080,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # W6-34: container-image CVE scan (trivy), opt-in + slow.
     image_scan_on = False
     force_image_scan = False
+    last_image_scan_ts = _load_image_scan_ts()   # v6.1.2: survives agent restarts
     # v3.0.0: IaC collection request from server
     pending_iac_request_id = None
     pending_iac_categories = None
@@ -8350,14 +8371,29 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
         # W6-34: container-image CVE scan (trivy) — opt-in, slow (~24h) cadence.
         # Only images of RUNNING containers; feature-invisible without trivy.
-        if image_scan_on and (poll_count % IMAGE_SCAN_EVERY == 0 or force_image_scan):
+        #
+        # v6.1.2: the cadence is now a TIMESTAMP, not `poll_count % 1440`.
+        # poll_count is process-local, so it reset to 0 on every agent restart
+        # (self-update, reboot, unit restart) — any host restarting its agent
+        # more often than 24h NEVER hit the modulo and so never scanned, which
+        # is why hosts with trivy installed and the feature enabled still showed
+        # an empty Image-CVE page. A monotonic due-time survives restarts.
+        _img_due = (time.time() - last_image_scan_ts) >= IMAGE_SCAN_INTERVAL_S
+        if image_scan_on and (_img_due or force_image_scan):
             try:
                 _imgs = [c.get('image') for c in (payload.get('containers') or [])
                          if c.get('image')]
                 if not _imgs and (_which('docker') or _which('podman')):
                     _imgs = [c.get('image') for c in (get_containers() or []) if c.get('image')]
                 if _imgs:
+                    log.info(f'image cve scan: {len(set(_imgs))} image(s) via trivy')
                     payload['image_cves'] = collect_image_cves(_imgs)
+                    # Stamp only on a real attempt, so a host with no containers
+                    # re-checks promptly once it gets some.
+                    last_image_scan_ts = time.time()
+                    _save_image_scan_ts(last_image_scan_ts)
+                elif force_image_scan:
+                    log.info('image cve scan requested but no running containers found')
             except Exception as e:
                 log.debug(f'image cve scan error: {e}')
             force_image_scan = False

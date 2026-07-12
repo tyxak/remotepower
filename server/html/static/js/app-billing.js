@@ -667,10 +667,12 @@ async function _billingRates() {
   window._bRateCard = r.rate_card || [];
   window._bSitesCfg = r.sites || [];
   const readonly = !_bIsAdmin();
-  const cardRows = (r.rate_card || []).map((rc, i) =>
-    `<tr><td><input class="form-input rate-name" value="${escAttr(rc.name)}" ${readonly ? 'disabled' : ''}></td>
+  const cardRows = (r.rate_card || []).map(rc => {
+    const rid = _bRowId();
+    return `<tr data-rid="${rid}"><td><input class="form-input rate-name" value="${escAttr(rc.name)}" ${readonly ? 'disabled' : ''}></td>
      <td><input type="number" step="0.01" class="form-input rate-val" value="${escAttr(String(rc.rate))}" ${readonly ? 'disabled' : ''}></td>
-     <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="rateCardDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}</td></tr>`).join('');
+     <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="rateCardDel" data-arg="${rid}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}</td></tr>`;
+  }).join('');
   const siteOpts = ['<option value="">— pick a site —</option>'].concat((r.sites || []).map(s =>
     `<option value="${escAttr(s.site_id)}">${escHtml(s.name)}</option>`)).join('');
   host.innerHTML = `
@@ -708,18 +710,32 @@ async function _billingRates() {
   const sel = document.getElementById('bc-site');
   if (sel) sel.onchange = () => _renderSiteCfg(sel.value);
 }
+// v6.1.2: rows are addressed by a STABLE id, never by their render-time
+// position. The delete buttons used to carry `data-arg="${i}"` (the index at
+// render time) and the table was never re-rendered after a delete — so once any
+// non-last row was removed, every surviving button's index pointed one row too
+// far and the next delete removed the WRONG row. Saving then persisted the
+// wrong rate card / fee list. A monotonic id can't drift.
+let _bRowSeq = 0;
+function _bRowId() { return ++_bRowSeq; }
+
+function _bDelRow(containerId, rid) {
+  const tb = document.getElementById(containerId);
+  const row = tb && tb.querySelector(`tr[data-rid="${String(rid)}"]`);
+  if (row) row.remove();
+}
+
 function rateCardAdd() {
   const tb = document.getElementById('rate-card-body');
   if (!tb) return;
-  const i = tb.querySelectorAll('tr').length;
+  const rid = _bRowId();
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td><input class="form-input rate-name" value=""></td><td><input type="number" step="0.01" class="form-input rate-val" value="0"></td><td><button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="rateCardDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>`;
+  tr.dataset.rid = String(rid);
+  tr.innerHTML = `<td><input class="form-input rate-name" value=""></td><td><input type="number" step="0.01" class="form-input rate-val" value="0"></td><td><button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="rateCardDel" data-arg="${rid}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>`;
   tb.appendChild(tr);
 }
-function rateCardDel(i) {
-  const tb = document.getElementById('rate-card-body');
-  const rows = tb ? tb.querySelectorAll('tr') : [];
-  if (rows[i]) rows[i].remove();
+function rateCardDel(rid) {
+  _bDelRow('rate-card-body', rid);
 }
 async function saveBillingGlobals() {
   const card = [];
@@ -751,15 +767,17 @@ function _renderSiteCfg(sid) {
   if (!sid) { box.innerHTML = ''; return; }
   const s = (window._bSitesCfg || []).find(x => x.site_id === sid) || { site_id: sid, recurring: [] };
   const readonly = !_bIsAdmin();
-  const feeRows = (s.recurring || []).map((f, i) =>
-    `<tr>
+  const feeRows = (s.recurring || []).map(f => {
+    const rid = _bRowId();
+    return `<tr data-rid="${rid}">
       <td><input class="form-input fee-label" value="${escAttr(f.label || '')}" ${readonly ? 'disabled' : ''}></td>
       <td><select class="form-input fee-kind" ${readonly ? 'disabled' : ''}>${_B_FEEKINDS.map(k => `<option value="${k}" ${f.kind === k ? 'selected' : ''}>${k}</option>`).join('')}</select></td>
       <td><input type="number" step="0.01" class="form-input fee-amount" value="${escAttr(String(f.amount || 0))}" ${readonly ? 'disabled' : ''}></td>
       <td><input type="number" step="1" class="form-input fee-qty" value="${escAttr(String(f.qty || 1))}" ${readonly ? 'disabled' : ''}></td>
       <td><input type="checkbox" class="fee-active" ${f.active !== false ? 'checked' : ''} ${readonly ? 'disabled' : ''}></td>
-      <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="feeDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}</td>
-    </tr>`).join('');
+      <td>${readonly ? '' : `<button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="feeDel" data-arg="${rid}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}</td>
+    </tr>`;
+  }).join('');
   box.innerHTML = `
     <div class="form-row">
       <div class="form-group"><label class="form-label">Rate / h <span class="meta-sm-nm">(blank = global)</span></label><input id="sc-rate" type="number" step="0.01" class="form-input" value="${escAttr(s.default_rate == null ? '' : String(s.default_rate))}" ${readonly ? 'disabled' : ''}></div>
@@ -774,19 +792,19 @@ function _renderSiteCfg(sid) {
 function feeAdd() {
   const tb = document.getElementById('fee-body');
   if (!tb) return;
-  const i = tb.querySelectorAll('tr').length;
+  const rid = _bRowId();
   const tr = document.createElement('tr');
+  tr.dataset.rid = String(rid);
   tr.innerHTML = `<td><input class="form-input fee-label" value=""></td>
     <td><select class="form-input fee-kind">${_B_FEEKINDS.map(k => `<option value="${k}">${k}</option>`).join('')}</select></td>
     <td><input type="number" step="0.01" class="form-input fee-amount" value="0"></td>
     <td><input type="number" step="1" class="form-input fee-qty" value="1"></td>
     <td><input type="checkbox" class="fee-active" checked></td>
-    <td><button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="feeDel" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>`;
+    <td><button class="btn-icon cell-sm c-danger-outline" aria-label="Delete" data-action="feeDel" data-arg="${rid}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>`;
   tb.appendChild(tr);
 }
-function feeDel(i) {
-  const rows = document.querySelectorAll('#fee-body tr');
-  if (rows[i]) rows[i].remove();
+function feeDel(rid) {
+  _bDelRow('fee-body', rid);
 }
 async function saveSiteCfg(sid) {
   const fees = [];

@@ -772,9 +772,9 @@ function tlsDetailOpen(id) {
           <th class="isl-44">Data</th>
         </tr></thead><tbody>
         ${t.dane_records.map(r => `<tr>
-          <td class="isl-44">${r.usage}</td>
-          <td class="isl-44">${r.selector}</td>
-          <td class="isl-44">${r.matching_type}</td>
+          <td class="isl-44">${escHtml(String(r.usage ?? ''))}</td>
+          <td class="isl-44">${escHtml(String(r.selector ?? ''))}</td>
+          <td class="isl-44">${escHtml(String(r.matching_type ?? ''))}</td>
           <td class="isl-482">${escHtml(String(r.data || '').slice(0, 64))}${(r.data || '').length > 64 ? '…' : ''}</td>
         </tr>`).join('')}
         </tbody></table></div>`;

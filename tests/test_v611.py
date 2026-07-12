@@ -29,7 +29,11 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.1.1"
+    # v6.1.2: loosened from the "6.1.1" literal to the live version, exactly as
+    # this file's docstring instructs on the next bump. The STRICT pins for the
+    # current release live in tests/test_v612.py; what stays valuable here is
+    # that every version surface remains in lockstep with SERVER_VERSION.
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -53,6 +57,7 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_no_stale_cachebust(self):
         self.assertNotIn("?v=6.1.0", _html())
+        self.assertNotIn("?v=6.1.1", _html())
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
@@ -68,9 +73,12 @@ class TestVersionBumps(unittest.TestCase):
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}", _html())
 
-    def test_changelog_header_is_hardenmatters(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.1.1 — "HardenMatters"', head)
+    def test_hardenmatters_stays_in_the_changelog(self):
+        # v6.1.2: this used to pin HardenMatters as the TOP entry. It's history
+        # now — what still matters is that its entry survives (and keeps its
+        # release date, i.e. never regressed to "unreleased").
+        text = (_ROOT / "CHANGELOG.md").read_text()
+        self.assertIn('## v6.1.1 — "HardenMatters" — 2026-07-12', text)
 
 
 class TestApiKeyTenantIsolationFix(unittest.TestCase):

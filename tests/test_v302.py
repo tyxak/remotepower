@@ -676,6 +676,14 @@ class TestNAcoverage(_ApiTestBase):
     def setUp(self):
         self.api._LOAD_CACHE.clear()
         self.api.require_auth = lambda *a, **kw: 'tester'
+        # v6.1.2: the Needs-Attention digest is cached for 10s and — by design,
+        # for performance — is no longer invalidated by device-telemetry writes.
+        # (Every heartbeat rewrites devices.json, which used to defeat the cache
+        # entirely; see _attention_payload.) These tests seed devices and then
+        # immediately read the digest, so without dropping the cache first they
+        # get served the PREVIOUS test's payload. They exercise the computation,
+        # not the caching.
+        self.api.save(self.api._attention_cache_file(), {})
 
     def _run_attention(self):
         captured = {}

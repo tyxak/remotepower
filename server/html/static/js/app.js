@@ -1524,7 +1524,56 @@ function _paintCrumb(navBtn, name) {
   b.textContent = page;
   el.appendChild(b);
 }
+// v6.1.2: optional modules → nav visibility. Each module owns exactly one
+// `data-page`, so hiding is a one-liner per module. The server independently
+// 404s the module's API, so this is presentation only — never the enforcement.
+const MODULE_PAGES = {
+  alerts:     'alerts',
+  tickets:    'tickets',
+  billing:    'billing',
+  kb:         'kb',
+  compliance: 'compliance',
+  pentest:    'scans',
+};
+
+// [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
+// fresh Settings page would render an opt-out module as unchecked and the next
+// Save would switch it off behind the operator's back.
+const MODULE_SETTINGS = [
+  ['cfg-mod-alerts',     'alerts_enabled',     true],
+  ['cfg-mod-tickets',    'tickets_module_enabled', true],
+  ['cfg-mod-billing',    'billing_enabled',    false],
+  ['cfg-mod-kb',         'kb_enabled',         false],
+  ['cfg-mod-compliance', 'compliance_enabled', true],
+  ['cfg-mod-pentest',    'pentest_enabled',    true],
+];
+
+function _applyModuleNavGates(modules) {
+  for (const [mod, page] of Object.entries(MODULE_PAGES)) {
+    // Absent from the payload = an older server = leave it visible.
+    if (!(mod in modules)) continue;
+    const off = !modules[mod];
+    document.querySelectorAll(`.nav-btn[data-page="${page}"]`).forEach(b => {
+      b.classList.toggle('d-none', off);
+    });
+  }
+}
+
+function _moduleOffFor(page) {
+  const mods = window._modules || {};
+  for (const [mod, p] of Object.entries(MODULE_PAGES)) {
+    if (p === page && mod in mods && !mods[mod]) return mod;
+  }
+  return null;
+}
+
 function showPage(name, btn) {
+  // A disabled module's page must not be reachable by deep link / bookmark /
+  // command palette either — the nav entry is gone, but the route isn't.
+  if (_moduleOffFor(name)) {
+    toast('That module is switched off (Settings → Advanced).', 'error');
+    return;
+  }
   // v5.6.x lazy pages: heavy, boot-safe pages ship as inert <template>s and
   // are cloned in place on first visit (i18n's MutationObserver localises
   // the clone; loaders run after, so eager sort wire-up etc. is unchanged).
@@ -3300,6 +3349,13 @@ async function loadSettings() {
   loadTicketImap(); loadTicketSla(); loadTicketAutoreply(); loadTicketTemplates(); loadTicketSchedules(); loadTicketCsat(); loadBusinessHours();
   const _iace = document.getElementById('cfg-iac-execute');   // terraform exec gate (kept — security switch)
   if (_iace) _iace.checked = !!data.iac_execute_enabled;
+  // v6.1.2: optional-module switches. Defaults mirror api._MODULES — the
+  // opt-OUT ones (alerts/tickets/compliance/pentest) are on unless explicitly
+  // false, so an install that has never touched them looks unchanged.
+  for (const [id, key, dflt] of MODULE_SETTINGS) {
+    const el = document.getElementById(id);
+    if (el) el.checked = (data[key] === undefined ? dflt : !!data[key]);
+  }
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3815,6 +3871,11 @@ async function saveSettings(btn) {
   if (_widEl && _widEl.value) payload.warranty_lenovo_client_id = _widEl.value;
   const _iacEn = document.getElementById('cfg-iac-execute');   // terraform exec gate (kept — security switch)
   if (_iacEn) payload.iac_execute_enabled = _iacEn.checked;
+  // v6.1.2: optional-module switches (see MODULE_SETTINGS / api._MODULES).
+  for (const [id, key] of MODULE_SETTINGS) {
+    const el = document.getElementById(id);
+    if (el) payload[key] = el.checked;
+  }
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
@@ -12406,49 +12467,15 @@ async function runbookModalRegen() {
 }
 
 
-// View an existing runbook (used by the device detail modal's
-// "View runbook" button when there's a stored one already).
-
-
-// Refresh the runbook section inside the device detail modal — called
-// after generate / delete so the view stays in sync. Implementation
-// below is just a hook; the detail modal renders its own runbook
-// section via openDetail().
-async function refreshDetailRunbookSection(devId) {
-  const el = document.getElementById('detail-runbook-section');
-  if (!el) return;   // detail modal not open or no runbook section
-  const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
-  el.innerHTML = _renderRunbookSectionHtml(devId, resp);
-}
-
-function _renderRunbookSectionHtml(devId, resp) {
-  // Shared between openDetail() and refreshDetailRunbookSection()
-  if (!resp || !resp.ok) return '';
-  if (!resp.exists) {
-    return `<div class="isl-530">
-      <div class="isl-93">
-        <div class="isl-433">Runbook</div>
-        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">${_icon('sparkles',14)} Generate runbook</button>
-      </div>
-      <div class="hint">No runbook generated yet for this device.</div>
-    </div>`;
-  }
-  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
-  return `<div class="isl-530">
-    <div class="isl-531">
-      <div>
-        <div class="isl-433">Runbook</div>
-        <div class="meta-sm-nm">${escHtml(resp.model || '?')} · generated ${escHtml(when)} by ${escHtml(resp.generated_by || '?')}</div>
-      </div>
-      <div class="row-6">
-        <button class="btn-icon badge-xs" data-action="aiViewRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">Open full</button>
-        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">${_icon('sparkles',14)} Regenerate</button>
-        <button class="btn-icon isl-459 c-danger-outline" title="Delete" data-action="aiDeleteRunbook" data-arg="${escAttr(devId)}" >${_icon('trash',14)}</button>
-      </div>
-    </div>
-    <div class="ai-content isl-532">${renderMarkdown(resp.content || '')}</div>
-  </div>`;
-}
+// v6.1.2: `refreshDetailRunbookSection` + `_renderRunbookSectionHtml` lived
+// here and were DEAD — they rendered into `#detail-runbook-section`, an element
+// no code has created since the device-detail modal was reworked, so the lookup
+// always returned null and the renderer was unreachable. Their comments still
+// claimed "the detail modal renders its own runbook section via openDetail()",
+// which openDetail() has not done for several releases. Removed rather than
+// left to mislead the next reader. Runbooks are unaffected: the drawer's
+// Runbook action (aiViewRunbook) and the runbook modal are the live path, and
+// app-ai.js's post-generate/delete refresh calls are typeof-guarded no-ops.
 
 // Track the last device name so we don't have to thread it through the
 // callbacks above. Set when openDetail runs.
@@ -14330,7 +14357,13 @@ async function loadHome() {
   const linksResp   = {links: home.links || []};
   if (home.server_tz) { window._serverTz = home.server_tz; _applyServerTzNotes(); }
   window._lastAttention = home.attention || null;   // for the health "why?" expander
-  // (v6.0.0: tickets/billing/provisioning navs are always visible — modules are standard now.)
+  // v6.1.2: optional modules. An operator running a minimal homelab can switch
+  // off Alerts / Tickets / Billing / KB / Compliance / Pentest in Settings →
+  // Advanced; the server 404s their API prefixes, and here we take their nav
+  // entries out of the sidebar so the UI matches. Unknown/missing `modules`
+  // (an older server) leaves everything visible, as before.
+  window._modules = home.modules || {};
+  _applyModuleNavGates(window._modules);
   window._ticketsOn = !!home.tickets_enabled;
   window._billingOn = !!home.billing_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);
@@ -19416,6 +19449,10 @@ async function _loadAuditSection(key) {
           label: b.label, age: (b.age_h == null ? Infinity : b.age_h),
           threshold: b.max_age_hours || 0, status: b.ok ? 1 : 0,
           verify: b.verify_status || '',
+          // The `drill` column header is sortable (data-col="drill") but had no
+          // key here, so every row compared as undefined and clicking it showed
+          // an active sort arrow while never reordering anything.
+          drill: b.restore_drill_enabled ? (b.drill_status || 'unknown') : '',
         }));
         const _fmtAge = h => h == null ? 'missing' : (h >= 48 ? `${(h/24).toFixed(1)}d` : `${h}h`);
         // v5.8.0 (B2.2): 3-2-1-rule summary chip row (informational — the

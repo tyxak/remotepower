@@ -198,6 +198,15 @@ def _run_request(environ):
             api._render_response(e.status, e.body, getattr(e, 'headers', None))
         except SystemExit:
             pass                       # a streaming handler wrote its body then exited
+        except api.LockBusy as e:
+            # v6.1.2: a contended non_blocking write is a TRANSIENT condition,
+            # not a server fault — it means another writer holds the store's
+            # lock right now. It used to fall through to the generic arm below
+            # and surface as an opaque 500 (this is what `POST /api/cve/scan`
+            # returned in production while the detached scan runner was writing
+            # cve_scan_status.json). 503 + Retry-After lets the client retry.
+            api._render_response(503, {'error': 'Storage busy, retry shortly',
+                                       'busy': str(e)}, {'Retry-After': '2'})
         except Exception:
             import traceback as _tb     # WSGI catches it → log the traceback ourselves
             _tb.print_exc(file=sys.stderr)

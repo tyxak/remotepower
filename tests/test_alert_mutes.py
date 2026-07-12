@@ -108,8 +108,11 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn("a['resolved_by'] = 'muted'", add)
 
     def test_inbox_suppression_wired(self):
+        # Window widened v6.1.2 (the Alerts-module gate was inserted above the
+        # mute check). These fixed-size source windows are brittle by nature:
+        # anything added near the top of _record_alert pushes the marker out.
         seg = _SRC[_SRC.index('def _record_alert'):
-                   _SRC.index('def _record_alert') + 2000]
+                   _SRC.index('def _record_alert') + 2600]
         self.assertIn('if _alert_muted(event, p):', seg)
 
 

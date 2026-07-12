@@ -42,6 +42,15 @@ import api
 CADENCE = (
     'check_offline_webhooks',
     'check_container_webhooks',
+    # v6.1.2: these six used to be hard-wired into handle_heartbeat(), so they
+    # ran on EVERY heartbeat even when this scheduler owned the cadence. Now
+    # they're normal sweeps like the rest.
+    '_maybe_run_scheduled_backup',
+    '_maybe_check_disk_space',
+    '_maybe_export_otlp',
+    'run_scheduled_scans_if_due',
+    'run_netscan_schedules_if_due',
+    'run_audit_hmac_rotation_if_due',
     'run_monitors_if_due',
     'run_integrations_if_due',
     'run_vpn_stats_if_due',

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.1.1">
+<link rel="stylesheet" href="static/css/styles.css?v=6.1.2">
 
 </head>
 <body>
@@ -2468,10 +2468,22 @@
 
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-advanced">
-          <!-- v6.0.0: the "Optional features" opt-in toggles are GONE — tickets,
-               billing, provisioning, the host file manager and the knowledge base
-               are standard, always-on modules now. Only the security-relevant
-               terraform server-side execution switch remains (default OFF). -->
+          <!-- v6.1.2: optional modules are switchable again. v6.0.0 had made
+               tickets/billing/KB "standard, always-on" and dropped the toggles;
+               that's wrong for a small homelab, which shouldn't have to carry a
+               helpdesk, an alert inbox, billing and compliance it never opens.
+               Switching one off 404s its whole API prefix server-side (not just
+               a hidden nav) — see api._MODULES. -->
+          <div class="settings-section">
+            <div class="section-title">Optional modules</div>
+            <p class="hint">Turn off what you don't use. A disabled module disappears from the sidebar <strong>and</strong> its API stops responding — it isn't merely hidden. Nothing is deleted: switch it back on and your data is exactly where you left it.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-alerts" checked> <strong>Alerts</strong> — the alert inbox (acknowledge / resolve / mute). Off means no inbox rows are recorded; <em>webhook and email notifications still fire</em>, and the event history is untouched. Good if you page yourself through ntfy/Discord and don't want a queue to curate.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-tickets" checked> <strong>Tickets</strong> — the built-in helpdesk (incidents, requests, changes, SLAs, email ingestion).</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-billing"> <strong>Billing</strong> — worksheet, invoices, rates &amp; fees. (Logging hours and the Timesheet stay available regardless.)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-kb"> <strong>Knowledge base</strong> — operator-authored SOPs and how-tos.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-compliance" checked> <strong>Compliance</strong> — CIS/PCI/HIPAA/SOC 2 scoring and OpenSCAP scans.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-pentest" checked> <strong>Pentest</strong> — the authorized vulnerability-scan orchestrator (nuclei / nikto / ZAP / nmap).</label></div>
+          </div>
           <div class="settings-section">
             <div class="section-title">Provisioning — server-side execution</div>
             <p class="hint">Provisioning itself (render-only blueprints) is always available. This switch additionally lets admins run Terraform on the server with your cloud credentials.</p>
@@ -3390,7 +3402,23 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.1.1 hardenmatters harden hardening security tenant isolation cross-tenant api key sso step-up re-auth mfa privilege escalation litigation hold threat model stride patch snapshot pinned install enforcement apt dnf yum pacman billing invoice pdf payment webhook reconciliation partially paid vpn preshared key psk discovery netscan topology query engine data explorer batch otlp distributed tracing structured logging incident promotion accessibility wcag aa axe a11y nested interactive german de i18n sdk openapi ref postgres migration catch-up ups critical shutdown connector plugin reload file manager tar archive storage provisioning raid lvm mkfs ticket sla auto routing pagination">
+          <details class="doc-card" open data-keywords="release notes changelog v6.1.2 afterglowmatters afterglow bugfix alert mute health score needs attention trivy container image cve scan now force postgres 500 lockbusy lock busy retry 503 billing rate card delete wrong row restore drill sort opnsense console runbook dead code optional modules minimal homelab disable alerts tickets billing knowledge base compliance pentest kill switch advanced performance attention cache heartbeat sweeps scheduler otlp deepcopy monitor history schema ddl">
+            <summary><strong>What's new — v6.1.2 &ldquo;AfterglowMatters&rdquo;</strong> — a correctness-and-fit release: muting an alert now actually lifts the health score, the trivy image-CVE scan can finally be triggered (it could never run), <code>POST /api/cve/scan</code> no longer 500s on PostgreSQL, a sweep of frontend defects (including Billing deleting the wrong row), the first wave of performance work, and optional modules you can switch off for a minimal homelab.</summary>
+            <div class="doc-body">
+              <p>v6.1.2 fixes three reported bugs — two of which meant a shipped feature simply did not work — plus a sweep of frontend defects, the first wave of performance work, and module switches for minimal setups. No breaking API changes; every new switch defaults to today's behaviour.</p>
+              <p><strong>Reported bugs</strong></p>
+              <ul>
+                <li><strong>Muting an alert now lifts the health score.</strong> A mute is meant to silence the inbox <em>and</em> Needs-Attention, but only the alert-firing path ever checked the mute list — so the Needs-Attention item survived, and because fleet health is derived entirely from those signals, a muted alert depressed the host's (and the fleet's) score forever. Matching is per event <em>and</em> severity, so silencing <code>av_warning</code> does not also hide a critical <code>av_infected</code>.</li>
+                <li><strong>Container image CVEs (trivy) could never actually run.</strong> The agent has always honoured a <code>force_image_scan</code> flag, but nothing on the server ever set one — leaving the agent's <code>poll_count % 1440</code> cadence as the only trigger, and that counter resets on every agent restart. Any host restarting its agent more than daily never scanned. The cadence is now a persisted wall-clock interval, there's a <strong>Scan now</strong> button, and the empty state finally distinguishes "off" from "nothing reported yet" from "clean".</li>
+                <li><strong><code>POST /api/cve/scan</code> no longer 500s on PostgreSQL.</strong> Postgres was the only backend giving a contended non-blocking lock <em>zero</em> retry budget (JSON retries 100 ms; SQLite sets <code>busy_timeout=100</code>), so a routine collision with the detached scan runner raised an uncaught <code>LockBusy</code>. The backends now agree, and a lock conflict anywhere renders as a retryable <strong>503</strong>.</li>
+              </ul>
+              <p><strong>Frontend fixes</strong> — from a full review of the JS modules: <strong>Billing could delete the wrong rate-card row or fee</strong> (rows were addressed by a render-time index that went stale after any delete — and Save then persisted the damage); the backups <strong>Restore drill</strong> column showed a sort arrow but never sorted; saving <strong>OPNsense</strong> config from the console repainted the drawer instead; an unreachable runbook renderer and a few escaping/markup defects were cleaned up.</p>
+              <p><strong>Performance</strong> — the <strong>Needs-Attention cache was defeated on essentially every fleet</strong> (it invalidated on any <code>devices.json</code> write, which every heartbeat does, so it never hit and the O(fleet) digest recomputed on every poll); <strong>six maintenance sweeps</strong> ran on every heartbeat even when a dedicated scheduler was already doing that work; the OTLP hook deep-copied the whole config per beat to read one disabled boolean; the monitor sweep rewrote every configured monitor's history to record the few that ran; and PostgreSQL re-ran its full schema DDL on every new connection.</p>
+              <p><strong>Optional modules</strong> — <strong>Settings → Advanced</strong> can now switch off <strong>Alerts, Tickets, Billing, Knowledge base, Compliance and Pentest</strong>. A disabled module leaves the sidebar <em>and</em> its whole API prefix 404s — genuinely off, not merely hidden. Nothing is deleted. Turning <strong>Alerts</strong> off stops inbox rows while webhook/email notifications and the event history keep working — for operators who page themselves through ntfy or Discord and don't want a queue to curate.</p>
+              <p class="hint">See <code>docs/v6.1.2.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v6.1.1 hardenmatters harden hardening security tenant isolation cross-tenant api key sso step-up re-auth mfa privilege escalation litigation hold threat model stride patch snapshot pinned install enforcement apt dnf yum pacman billing invoice pdf payment webhook reconciliation partially paid vpn preshared key psk discovery netscan topology query engine data explorer batch otlp distributed tracing structured logging incident promotion accessibility wcag aa axe a11y nested interactive german de i18n sdk openapi ref postgres migration catch-up ups critical shutdown connector plugin reload file manager tar archive storage provisioning raid lvm mkfs ticket sla auto routing pagination">
             <summary><strong>What's new — v6.1.1 &ldquo;HardenMatters&rdquo;</strong> — a broad hardening and feature-coverage release: two real cross-tenant security fixes (API keys, SSO config), step-up re-auth for privilege escalation, litigation hold, a STRIDE threat model, a full WCAG AA + axe-core accessibility pass, real per-package pinned patch enforcement, invoice PDFs + payment-webhook reconciliation, a fleet query engine, distributed tracing, and dozens more. No breaking API changes.</summary>
             <div class="doc-body">
               <p>v6.1.1 is a broad correctness-and-coverage pass across the whole product — security hardening, several feature-buildout items, and a handful of real bugs found live on production upgrades.</p>
@@ -3491,30 +3519,6 @@
               </ul>
               <p><strong>Also</strong>: enrollment PINs are stored hashed at rest; maintenance windows suppress more predictable churn (metrics, drift, failed units, reboots, container restarts, stale backups); a first-run empty Devices page shows an "add your first device" prompt; and a new <code>docs/cookbook.md</code> collects step-by-step recipes.
               <p class="hint">See <code>docs/v6.0.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.7.0 f4ct0rmatters factormatters refactor bugfix new ui industrial light mode theme themes accent color picker tokyo dracula nord gruvbox chamfer chamfered button profile menu account dropdown delete device remove device mobile responsive narrow viewport 390px touch target ticket lifecycle opened resolved config secret encryption rp_config_key at rest rls row level security multi-table tenant lazy template page first paint font preload navigation preload entity storage heartbeat api.py decomposition module notify checks tickets provisioning backups cmdb handlers event registry route table release-prep settings groups">
-            <summary><strong>What's new — v5.7.0 "F4ct0rMatters"</strong> — a refactor-and-fix release: fixes five New-UI theming / light-mode / accent bugs (device delete, profile menu, accent picker, themes, chamfered buttons) and a mobile pass, adds ticket lifecycle events and whole-tree config-secret encryption + multi-table Postgres RLS (opt-in), and starts faster on a slimmer, modular server (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.7.0 "F4ct0rMatters" is a refactor-and-fix release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.7.0</code>).</p>
-              <p><strong>Fixed — the New UI</strong> (all reported by @AndiBSE)</p>
-              <ul>
-                <li><strong>Devices can be deleted again</strong> — the drawer's <em>Remove device</em> button silently did nothing; it now confirms and deletes (every device type).</li>
-                <li><strong>Profile menu is readable in light mode</strong>; the <strong>accent picker</strong> and full <strong>themes</strong> (Tokyo / Dracula / Nord / …) now work in the New UI; and the accent reaches <strong>chamfered buttons</strong> in light mode too.</li>
-                <li><strong>Mobile / narrow viewports</strong>: no page scrolls sideways at phone width; header controls and the devices grid reflow for touch.</li>
-              </ul>
-              <p><strong>Added</strong> (opt-in)</p>
-              <ul>
-                <li><strong>Ticket lifecycle events</strong> — <code>ticket_opened</code> / <code>ticket_resolved</code> to the feed + webhooks; resolving a ticket auto-closes its SLA-breach alert.</li>
-                <li><strong>Config-secret encryption — full coverage</strong>: set <code>RP_CONFIG_KEY</code> and every secret at any depth (ACME DNS creds, webhook tokens, AI keys, integration secrets) is AES-GCM encrypted at rest, decrypted transparently on use.</li>
-                <li><strong>Postgres row-level security — multi-table</strong>: tenant isolation now covers per-device entity / list / metric rows, not just the roster.</li>
-              </ul>
-              <p><strong>Faster &amp; cleaner</strong></p>
-              <ul>
-                <li>Parallel font loading + preloads, service-worker navigation preload, and lazy <code>&lt;template&gt;</code> pages cut the boot DOM ~a third; the Postgres heartbeat writes one row instead of the whole fleet's blob.</li>
-                <li>The server is modular now (<code>api.py</code> ~57k→~52k lines) and Settings is grouped into Setup / Monitoring / Connections / System.</li>
-              </ul>
-              <p class="hint">See <code>docs/v5.7.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -5414,8 +5418,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- W6-34: container-image CVEs (trivy) -->
         <div class="dash-card mt-16">
-          <div class="section-header"><div class="section-title">Container image CVEs (trivy)</div><button class="btn-icon" data-action="loadImageCves"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
-          <p class="hint">Vulnerabilities found in the images of running containers, grouped by image across the fleet. Enable per-fleet in <strong>Settings → Security</strong> (needs <code>trivy</code> on the hosts; ~24h cadence).</p>
+          <div class="section-header"><div class="section-title">Container image CVEs (trivy)</div><div class="row-6"><button class="btn-icon" data-action="scanImageCves" title="Queue a trivy scan now on every host running containers"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Scan now</button><button class="btn-icon" data-action="loadImageCves"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div></div>
+          <p class="hint">Vulnerabilities found in the images of running containers, grouped by image across the fleet. Enable per-fleet in <strong>Settings → Security</strong> (needs <code>trivy</code> on the hosts). Trivy re-scans every ~24h; <strong>Scan now</strong> triggers it on the next heartbeat.</p>
           <div id="image-cve-list" class="mt-8 scroll-cap"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
@@ -9371,46 +9375,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=6.1.1"></script>
-<script defer src="static/js/app.js?v=6.1.1"></script>
+<script defer src="static/js/i18n.js?v=6.1.2"></script>
+<script defer src="static/js/app.js?v=6.1.2"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.1.1"></script>
-<script defer src="static/js/app-cmdb.js?v=6.1.1"></script>
-<script defer src="static/js/app-containers.js?v=6.1.1"></script>
-<script defer src="static/js/app-network.js?v=6.1.1"></script>
+<script defer src="static/js/app-calendar.js?v=6.1.2"></script>
+<script defer src="static/js/app-cmdb.js?v=6.1.2"></script>
+<script defer src="static/js/app-containers.js?v=6.1.2"></script>
+<script defer src="static/js/app-network.js?v=6.1.2"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.1.1"></script>
-<script defer src="static/js/app-compliance.js?v=6.1.1"></script>
-<script defer src="static/js/app-integrations.js?v=6.1.1"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.1.2"></script>
+<script defer src="static/js/app-compliance.js?v=6.1.2"></script>
+<script defer src="static/js/app-integrations.js?v=6.1.2"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.1.1"></script>
-<script defer src="static/js/app-dns.js?v=6.1.1"></script>
-<script defer src="static/js/app-drift.js?v=6.1.1"></script>
-<script defer src="static/js/app-dmarc.js?v=6.1.1"></script>
-<script defer src="static/js/app-cve.js?v=6.1.1"></script>
-<script defer src="static/js/app-firewall.js?v=6.1.1"></script>
-<script defer src="static/js/app-backups.js?v=6.1.1"></script>
-<script defer src="static/js/app-iac.js?v=6.1.1"></script>
-<script defer src="static/js/app-provisioning.js?v=6.1.1"></script>
-<script defer src="static/js/app-tuning.js?v=6.1.1"></script>
-<script defer src="static/js/app-kb.js?v=6.1.1"></script>
-<script defer src="static/js/app-rollouts.js?v=6.1.1"></script>
-<script defer src="static/js/app-power.js?v=6.1.1"></script>
-<script defer src="static/js/app-gpu.js?v=6.1.1"></script>
-<script defer src="static/js/app-proxmox.js?v=6.1.1"></script>
-<script defer src="static/js/wg-access.js?v=6.1.1"></script>
-<script defer src="static/js/app-billing.js?v=6.1.1"></script>
-<script defer src="static/js/app-virt.js?v=6.1.1"></script>
+<script defer src="static/js/app-ai.js?v=6.1.2"></script>
+<script defer src="static/js/app-dns.js?v=6.1.2"></script>
+<script defer src="static/js/app-drift.js?v=6.1.2"></script>
+<script defer src="static/js/app-dmarc.js?v=6.1.2"></script>
+<script defer src="static/js/app-cve.js?v=6.1.2"></script>
+<script defer src="static/js/app-firewall.js?v=6.1.2"></script>
+<script defer src="static/js/app-backups.js?v=6.1.2"></script>
+<script defer src="static/js/app-iac.js?v=6.1.2"></script>
+<script defer src="static/js/app-provisioning.js?v=6.1.2"></script>
+<script defer src="static/js/app-tuning.js?v=6.1.2"></script>
+<script defer src="static/js/app-kb.js?v=6.1.2"></script>
+<script defer src="static/js/app-rollouts.js?v=6.1.2"></script>
+<script defer src="static/js/app-power.js?v=6.1.2"></script>
+<script defer src="static/js/app-gpu.js?v=6.1.2"></script>
+<script defer src="static/js/app-proxmox.js?v=6.1.2"></script>
+<script defer src="static/js/wg-access.js?v=6.1.2"></script>
+<script defer src="static/js/app-billing.js?v=6.1.2"></script>
+<script defer src="static/js/app-virt.js?v=6.1.2"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.1.1"></script>
-<script defer src="static/js/app-checks.js?v=6.1.1"></script>
-<script defer src="static/js/app-logs.js?v=6.1.1"></script>
-<script defer src="static/js/app-remote.js?v=6.1.1"></script>
-<script defer src="static/js/app-tickets.js?v=6.1.1"></script>
+<script defer src="static/js/app-alerts.js?v=6.1.2"></script>
+<script defer src="static/js/app-checks.js?v=6.1.2"></script>
+<script defer src="static/js/app-logs.js?v=6.1.2"></script>
+<script defer src="static/js/app-remote.js?v=6.1.2"></script>
+<script defer src="static/js/app-tickets.js?v=6.1.2"></script>
 
-<script defer src="static/js/sw-register.js?v=6.1.1"></script>
+<script defer src="static/js/sw-register.js?v=6.1.2"></script>
 </body>
 </html>

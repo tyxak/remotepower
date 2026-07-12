@@ -1364,10 +1364,6 @@ async function aiGenerateRunbook(devId, deviceName) {
   document.getElementById('runbook-modal-meta').textContent =
     `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s · generated ${when}`;
 
-  // If the device detail modal is open, refresh its runbook section.
-  if (typeof refreshDetailRunbookSection === 'function') {
-    refreshDetailRunbookSection(devId);
-  }
 }
 
 async function aiViewRunbook(devId, deviceName) {
@@ -1404,9 +1400,6 @@ async function aiDeleteRunbook(devId) {
   const resp = await aiApi('DELETE', `/devices/${encodeURIComponent(devId)}/runbook`);
   if (resp.ok) {
     toast('Runbook deleted', 'success');
-    if (typeof refreshDetailRunbookSection === 'function') {
-      refreshDetailRunbookSection(devId);
-    }
   } else {
     toast('Delete failed: ' + (resp.error || '?'), 'error');
   }

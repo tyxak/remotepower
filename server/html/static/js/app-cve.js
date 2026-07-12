@@ -37,9 +37,18 @@ async function loadImageCves() {
   if (!r) { box.innerHTML = '<div class="c-red">Failed to load.</div>'; return; }
   const imgs = r.images || [];
   if (!imgs.length) {
-    box.innerHTML = r.enabled
-      ? '<div class="meta-sm-nm">No image CVEs reported yet (scan runs ~every 24h on hosts with trivy).</div>'
-      : '<div class="meta-sm-nm">Image scanning is off — enable it in Settings → Security.</div>';
+    // v6.1.2: distinguish "on, but no host has reported yet" from "off" and
+    // from "on and clean" — all three used to render the same dead-end text,
+    // which is how a genuinely broken scan looked exactly like an idle one.
+    if (!r.enabled) {
+      box.innerHTML = '<div class="meta-sm-nm">Image scanning is off — enable it in Settings → Security.</div>';
+    } else if (r.scanned) {
+      box.innerHTML = '<div class="meta-sm-nm">No image vulnerabilities found on the hosts that have reported.</div>';
+    } else {
+      box.innerHTML = '<div class="meta-sm-nm">No host has reported an image scan yet. '
+        + 'Trivy runs every ~24h — use <strong>Scan now</strong> to trigger it immediately '
+        + 'on every host running containers.</div>';
+    }
     return;
   }
   box.innerHTML = imgs.map(g => {
@@ -56,6 +65,19 @@ async function loadImageCves() {
       + (top ? `<div class="table-card scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>CVE</th><th>Package</th><th>Severity</th><th>Version</th></tr></thead><tbody>${top}</tbody></table></div>` : '')
       + '</div>';
   }).join('');
+}
+
+// v6.1.2: actually TRIGGER a trivy scan. "Refresh" only ever re-fetched the
+// stored results — there was no way to make the scan run, so a host with trivy
+// installed could sit at an empty page indefinitely (the agent's only other
+// trigger was a poll-count cadence that resets on every agent restart).
+async function scanImageCves() {
+  const r = await api('POST', '/image-cves/scan', {});
+  if (r && r.ok) {
+    toast(r.message || 'Image scan queued', 'success');
+  } else {
+    toast((r && r.error) || 'Failed to queue image scan', 'error');
+  }
 }
 
 async function loadCveCampaigns() {

@@ -82,6 +82,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v6.1.2.md](v6.1.2.md)** — "AfterglowMatters": a correctness-and-fit release
+ — muting an alert now actually lifts the health score, the trivy image-CVE scan
+ can finally be triggered (it could never run), `POST /api/cve/scan` no longer
+ 500s on PostgreSQL, a sweep of frontend defects (including Billing deleting the
+ wrong row), the first wave of the performance programme, and optional modules a
+ minimal homelab can switch off. No breaking API changes.
 - **[v6.1.1.md](v6.1.1.md)** — "HardenMatters": a broad hardening +
  feature-coverage release — two real cross-tenant security fixes (API keys,
  SSO config), step-up re-auth for privilege escalation, litigation hold, a
@@ -105,13 +111,8 @@ The five most recent per-release notes are kept here:
  sidebar and per-page documentation links — plus the accumulated backend work
  (built-in TLS/DANE expiry schedule, SNMPv3/USM polling, the GitHub Issues
  connector). No breaking API changes.
-- **[v5.7.0.md](v5.7.0.md)** — "F4ct0rMatters": a refactor-and-fix release.
- Fixes five New-UI theming/accent/light-mode bugs (device delete, profile menu,
- accent picker, themes, chamfered buttons) reported by @AndiBSE and a mobile
- pass; adds ticket lifecycle events, full-tree config-secret encryption and
- multi-table Postgres RLS (both opt-in); and is faster to start (lazy pages,
- parallel fonts) on a much slimmer, modular server. No breaking changes.
-Older release notes (v5.6.0 and earlier) live in
+
+Older release notes (v6.0.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

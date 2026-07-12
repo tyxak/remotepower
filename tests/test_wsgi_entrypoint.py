@@ -116,11 +116,17 @@ class TestWsgiEntrypoint(unittest.TestCase):
         client = wsgi.application.test_client()
         resp = client.get("/api/devices")
         self.assertEqual(resp.status_code, 401)  # unauthenticated — span still recorded
-        self.assertEqual(len(posts), 1)
-        self.assertEqual(posts[0][0], "http://collector:4318/v1/traces")
+        # v6.1.2: select the TRACES post rather than asserting this request made
+        # exactly one OTLP call. The OTLP *metrics* push (_maybe_export_otlp) used
+        # to be hard-wired into handle_heartbeat and so never fired for a plain
+        # GET; it now rides main()'s normal sweep cadence like everything else, so
+        # an OTLP-enabled request can legitimately emit a metrics post too. What
+        # this test is actually about is the span.
+        traces = [p for p in posts if p[0].endswith("/v1/traces")]
+        self.assertEqual(len(traces), 1)
         import json as _json
 
-        span = _json.loads(posts[0][1])["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        span = _json.loads(traces[0][1])["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         self.assertEqual(span["name"], "GET /api/devices")
         self.assertEqual(span["attributes"][2]["value"]["intValue"], "401")
 

@@ -62,9 +62,12 @@ def bind(api_globals):
     A = _ApiNamespace(api_globals)
 
 def _tickets_enabled():
-    # v6.0.0: the ticket system is a standard module — always on (the old
-    # Settings → Advanced opt-in is gone; the config key is ignored).
-    return True
+    # v6.0.0 made the ticket system standard and hard-coded this True, ignoring
+    # the config key entirely. v6.1.2 restores a real switch — but as an OPT-OUT
+    # (default ON, so nothing changes for anyone who leaves it alone), because a
+    # minimal homelab shouldn't have to carry a helpdesk it never opens.
+    # Single source of truth: api._MODULES / api._module_on.
+    return A._module_on('tickets')
 
 
 def _ticket_sla_policy(ttype=None):

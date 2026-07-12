@@ -2,6 +2,94 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.1.2 — "AfterglowMatters" — unreleased (test)
+
+A correctness-and-fit release: three reported bugs (two of which made a shipped
+feature simply not work), a set of frontend defects found in a full sweep of the
+JS modules, the first wave of the performance programme, and — for small
+homelabs — the ability to switch off the enterprise modules you don't use.
+
+### Fixed — reported
+
+- **Muted alerts now lift the health score.** A per-(host, event) mute is
+  documented as silencing the Alerts inbox *and* Needs-Attention, but only the
+  alert-firing path ever consulted the mute list. Needs-Attention kept the item,
+  and because fleet health is derived purely from Needs-Attention signals, a
+  muted alert went on depressing the host's — and the fleet's — score forever.
+  Mutes now apply to the digest itself, so both surfaces agree. Matching is per
+  event *and* severity, so silencing `av_warning` does not also hide a critical
+  `av_infected`.
+- **Container image CVEs (trivy) could never actually run.** The agent has always
+  honoured a `force_image_scan` flag in the heartbeat response, but nothing on
+  the server ever set one — so the only path to a scan was the agent's
+  `poll_count % 1440` cadence gate, which resets to zero on every agent restart.
+  A host whose agent restarted more often than once a day therefore never
+  scanned, and the page stayed empty no matter how much trivy you installed. The
+  cadence is now a persisted wall-clock interval that survives restarts; a **Scan
+  now** button (`POST /api/image-cves/scan`) triggers every container host on its
+  next heartbeat; and the empty state now distinguishes "off" from "nothing
+  reported yet" from "reported and clean".
+- **`POST /api/cve/scan` returned 500 on PostgreSQL.** Its status-marker write is
+  non-blocking, and Postgres was the only backend whose non-blocking lock acquire
+  had *no* retry budget (the JSON backend retries for 100 ms, SQLite sets
+  `busy_timeout=100`, Postgres gave up on the first contended attempt). Colliding
+  with the detached scan runner — which writes that marker continuously — raised
+  `LockBusy`, which propagated uncaught. The three backends now agree on the
+  retry budget, the handler handles contention explicitly, and an uncaught
+  `LockBusy` anywhere renders as a retryable **503** rather than an opaque 500.
+
+### Fixed — found in a full sweep of the frontend modules
+
+- **Billing: deleting a rate-card row or a recurring fee could remove the wrong
+  one.** Rows were addressed by their render-time index and the table was never
+  re-rendered after a delete, so removing any non-last row left every surviving
+  button's index pointing one row too far — and Save then persisted the damage.
+  Rows now carry a stable id.
+- The device-backups drawer's **Restore drill** column was sortable in appearance
+  only: the header had no matching sort key, so it showed an active arrow and
+  never reordered anything.
+- Saving **OPNsense** config from the full-width console repainted the drawer card
+  instead of the console (and nothing at all when the drawer was closed).
+- Removed an unreachable device-runbook renderer that targeted an element no code
+  has created for several releases, along with its misleading comments.
+- Escaped the TLSA/DANE record fields; fixed a malformed loading row and a dead
+  ternary in the containers view.
+
+### Performance
+
+- The **Needs-Attention cache was defeated on essentially every fleet.** It
+  invalidated whenever `devices.json` changed — which every heartbeat does — so on
+  any fleet whose hosts beat more often than its 10-second TTL it never hit once,
+  and the O(fleet) digest recomputed on every poll and for every health and risk
+  consumer derived from it. It now honours its TTL and invalidates on the inputs
+  an operator actually changes. (The same bug, and now the same fix, as the
+  fleet-checks cache.)
+- **Six maintenance sweeps no longer run on every heartbeat.** The scheduled
+  backup, disk watchdog, OTLP push, scheduled scans, netscan schedules and audit
+  HMAC rotation were hard-wired into the heartbeat handler, bypassing the
+  scheduler gate — so they ran on every beat from every agent even when a
+  dedicated out-of-band scheduler was already doing that work. They are now
+  ordinary gated sweeps.
+- The OTLP hook no longer deep-copies the whole config on every heartbeat just to
+  read one boolean that is off by default.
+- The monitor sweep reads and writes only the monitors that actually ran, instead
+  of reconstructing and rewriting every configured monitor's history.
+- PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
+  every new connection.
+
+### Added — optional modules (minimal homelab setups)
+
+- **Settings → Advanced → Optional modules.** Alerts, Tickets, Billing, Knowledge
+  base, Compliance and Pentest can each be switched off. A disabled module leaves
+  the sidebar *and* its whole API prefix 404s at the dispatcher — it is genuinely
+  off, not merely hidden. Nothing is deleted: switch it back on and the data is
+  where you left it. Defaults preserve current behaviour exactly. Switching
+  **Alerts** off stops inbox rows being recorded while webhook/email
+  notifications and the event history keep working — the setup for operators who
+  page themselves through ntfy or Discord and don't want a queue to curate.
+  (v6.0.0 had made tickets/billing/KB "standard, always-on" and deleted their
+  toggles; this restores them, as opt-outs.)
+
 ## v6.1.1 — "HardenMatters" — 2026-07-12
 
 This is the first production release built on the new **single-node enterprise

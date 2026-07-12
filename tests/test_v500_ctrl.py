@@ -418,7 +418,8 @@ class TestDiskWatchdog(unittest.TestCase):
     def test_target_in_record_alert_whitelist(self):
         # 'target' must be a whitelisted key or the recover never resolves
         i = API_SRC.index("def _record_alert(")
-        self.assertIn("'target'", API_SRC[i:i + 2800])   # window widened v5.6.0 (mute check inserted)
+        # Widened v5.6.0 (mute check inserted) and again v6.1.2 (Alerts-module gate).
+        self.assertIn("'target'", API_SRC[i:i + 3400])
 
     def test_low_fires_then_recovers(self):
         # Drive the watchdog by stubbing os.statvfs + bypassing the 30-min gate.
@@ -464,10 +465,20 @@ class TestDiskWatchdog(unittest.TestCase):
         finally:
             api.fire_webhook = real
 
-    def test_heartbeat_calls_watchdog(self):
-        self.assertIn("_maybe_check_disk_space()", API_SRC)
-        i = API_SRC.index("def handle_heartbeat(")
-        self.assertIn("_maybe_check_disk_space()", API_SRC[i:i + 1500])
+    def test_watchdog_runs_on_the_request_cadence(self):
+        # v6.1.2: the watchdog USED to be invoked directly inside
+        # handle_heartbeat(). It now rides main()'s normal _safe(...) cadence
+        # along with every other sweep, which (a) still runs it on the request
+        # path — heartbeats included — and (b) correctly SKIPS it when an
+        # out-of-band scheduler owns the cadence, which the old hard-wired call
+        # did NOT (it ran on every heartbeat even then). The scheduler half is
+        # pinned by test_v600_scheduler's CADENCE guardrail.
+        self.assertIn(
+            "_safe(_maybe_check_disk_space, '_maybe_check_disk_space')", API_SRC
+        )
+        import scheduler
+
+        self.assertIn("_maybe_check_disk_space", scheduler.CADENCE)
 
     def test_config_and_frontend(self):
         self.assertIn("cfg['disk_watchdog_pct'] = v", API_SRC)

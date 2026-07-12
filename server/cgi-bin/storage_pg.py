@@ -415,7 +415,26 @@ def pg_status():
             'replica_configured': bool(_read_dsn())}
 
 
+# v6.1.2 (PERF): the schema DDL below is idempotent but NOT free — ~9 catalog
+# round-trips (CREATE TABLE/INDEX IF NOT EXISTS + a schema_version upsert). It
+# ran on EVERY new connection: under a threaded gunicorn worker that's once per
+# thread, and on any topology that opens connections more often (fork, DSN
+# change, reconnect after a drop) it's once per open. The schema cannot change
+# under a running process, so verify it once per (process, DSN generation) and
+# skip the DDL thereafter. Keyed on _DSN_GEN so configure_dsn() re-verifies, and
+# on the pid so a fork can't inherit a stale "already done".
+_SCHEMA_OK = {'pid': None, 'gen': None}
+
+
 def _ensure_schema(conn):
+    if (_SCHEMA_OK['pid'] == os.getpid() and _SCHEMA_OK['gen'] == _DSN_GEN):
+        return
+    _ensure_schema_ddl(conn)
+    _SCHEMA_OK['pid'] = os.getpid()
+    _SCHEMA_OK['gen'] = _DSN_GEN
+
+
+def _ensure_schema_ddl(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT);
         """)
@@ -574,9 +593,37 @@ class _Tx:
         return False
 
 
+# v6.1.2: non_blocking must still give a CONTENDED lock a short grace period,
+# because that's what the other two backends do and callers are written against
+# that contract: the JSON backend retries 20 × 5 ms (api.LOCK_NB_RETRIES) and
+# SQLite sets `PRAGMA busy_timeout=100`. Postgres was the outlier — a bare
+# pg_try_advisory_xact_lock gives up on the FIRST contended attempt with zero
+# wait, so a write that both other backends complete raised LockBusyError here.
+# That surfaced as `POST /api/cve/scan` → 500 in production and nowhere else:
+# the detached cve_scan_runner writes cve_scan_status.json continuously, the
+# handler's `save(..., non_blocking=True)` collided with it, and LockBusy
+# propagated uncaught. Same budget as the others, so the three backends agree.
+_NB_RETRIES = 20
+_NB_SLEEP_S = 0.005
+
+
+def _try_lock(conn, sql, name):
+    """pg_try_advisory_xact_lock* with the same ~100 ms retry budget the JSON
+    and SQLite backends give a contended non-blocking write."""
+    for attempt in range(_NB_RETRIES):
+        got = conn.execute(sql, (name,)).fetchone()
+        # dict_row → {'pg_try_advisory_xact_lock': bool}
+        if list(got.values())[0]:
+            return
+        if attempt < _NB_RETRIES - 1:
+            time.sleep(_NB_SLEEP_S)
+    raise LockBusyError(name)
+
+
 def _acquire(conn, name, non_blocking, shared=False):
     """Take the per-file advisory lock inside the current transaction. In
-    non_blocking mode, raise LockBusyError instead of waiting.
+    non_blocking mode, raise LockBusyError after a short retry budget rather
+    than waiting indefinitely (see _try_lock for why the budget exists).
 
     shared=True takes a SHARED advisory lock: many shared holders coexist, but
     they mutually exclude with the EXCLUSIVE lock on the same key. Used so a
@@ -584,19 +631,12 @@ def _acquire(conn, name, non_blocking, shared=False):
     DEVICES_FILE reconcile-save without blocking other heartbeats."""
     if shared:
         if non_blocking:
-            got = conn.execute(
-                'SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))', (name,)).fetchone()
-            if not list(got.values())[0]:
-                raise LockBusyError(name)
+            _try_lock(conn, 'SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))', name)
         else:
             conn.execute('SELECT pg_advisory_xact_lock_shared(hashtext(%s))', (name,))
         return
     if non_blocking:
-        got = conn.execute(
-            'SELECT pg_try_advisory_xact_lock(hashtext(%s))', (name,)).fetchone()
-        # dict_row → {'pg_try_advisory_xact_lock': bool}
-        if not list(got.values())[0]:
-            raise LockBusyError(name)
+        _try_lock(conn, 'SELECT pg_try_advisory_xact_lock(hashtext(%s))', name)
     else:
         conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (name,))
 

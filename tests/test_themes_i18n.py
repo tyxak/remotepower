@@ -80,7 +80,9 @@ class TestI18nCatalog(unittest.TestCase):
 
     def test_apply_wired_into_page_show(self):
         i = APP.index("function showPage")
-        chunk = APP[i:i + 7000]
+        # Widened v6.1.2 (the disabled-module guard was added at the top of
+        # showPage). Fixed-size source windows are brittle by nature.
+        chunk = APP[i:i + 7600]
         self.assertIn("RPi18n.apply", chunk)
 
     def test_engine_translates_text_nodes_and_observes(self):
