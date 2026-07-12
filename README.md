@@ -56,7 +56,7 @@ agents, zero inbound ports. Up and running in five minutes.
 </tr>
 <tr>
 <td align="center"><b>Browser SSH terminal</b><br><a href="docs/screenshots/Terminal.png"><img src="docs/screenshots/Terminal.png" width="400"></a></td>
-<td></td>
+<td align="center"><b>rp — node control (TUI)</b><br><a href="docs/screenshots/TUI.png"><img src="docs/screenshots/TUI.png" width="400"></a></td>
 </tr>
 </table>
 </details>

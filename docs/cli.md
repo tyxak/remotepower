@@ -64,6 +64,9 @@ storage backend, and the data directory.
 control board — think `htop`/`k9s` for the RemotePower stack. No dependencies;
 it's drawn with box characters and ANSI colour, so it works over plain SSH.
 
+<img src="screenshots/TUI.png" alt="rp tui — live stack dashboard" width="640">
+
+
 ```text
 ╭─ RemotePower  ·  tviweb01 ───────────────────────────────────────────────╮
 │  version 6.1.1    backend postgres    uptime 3d 4h    load 0.42           │
