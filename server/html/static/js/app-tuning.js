@@ -52,9 +52,20 @@ function _renderTuningMutes(rows) {
   const el = document.getElementById('tuning-mutes');
   if (!el) return;
   if (!rows.length) { el.innerHTML = '<div class="meta-sm-nm">No active mutes. Silence a noisy alert above, or click Mute on any alert.</div>'; return; }
+  // v6.1.2: a mute may be TIMED — show when it lapses, so a mute can't quietly
+  // become "I stopped monitoring this months ago and forgot".
+  const _until = m => {
+    if (!m.expires_at) return '<span class="hint" title="Stays muted until you lift it">permanent</span>';
+    const secs = m.expires_at - Math.floor(Date.now() / 1000);
+    if (secs <= 0) return '<span class="hint">expiring…</span>';
+    const h = Math.floor(secs / 3600), mins = Math.round((secs % 3600) / 60);
+    const left = h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : (h >= 1 ? `${h}h ${mins}m` : `${mins}m`);
+    return `<span class="patch-badge fs-11" title="Lapses on its own at ${escAttr(new Date(m.expires_at * 1000).toLocaleString())}">${escHtml(left)} left</span>`;
+  };
   el.innerHTML = rows.map(m => `<div class="row-6 ts-entry">
     <span class="fw-600">${escHtml(m.device_name || m.device_id)}</span>
     <span class="patch-badge">${escHtml(m.event)}</span>
+    ${_until(m)}
     <span class="ml-auto"><button class="btn-icon cell-sm c-danger-outline" data-action="unmuteAlert" data-arg="${escAttr(m.id)}" title="Lift this mute — alerts resume">${_icon('bellOff', 12)} Un-silence</button></span>
   </div>`).join('');
 }

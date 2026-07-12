@@ -121,6 +121,41 @@ either); the token travels in a custom `X-RP-Push-Token` header rather than
 the query string specifically so it doesn't land in nginx's default
 access-log line the way a query-string secret would.
 
+## Through a relay satellite *(v6.1.2)*
+
+Agents behind a [relay satellite](satellites.md) get the push channel too.
+
+A satellite-relayed agent builds its push URL from the same base URL it uses
+for the API — which, behind a satellite, *is* the satellite. Until v6.1.2 the
+satellite relayed with `urllib`, which cannot carry an `Upgrade`, so the
+connect quietly failed and those agents simply never got a nudge. (Nothing
+broke — the channel is wake-only, so they just kept to their normal poll
+cadence — but push was in practice a direct-agents-only feature.)
+
+The satellite now **byte-tunnels** the WebSocket:
+
+    agent ──ws/wss──▶ satellite ──ws/wss──▶ push daemon (via nginx)
+
+- It tunnels **exactly one path** (`/api/push/connect`), and only when the
+  request really is a WebSocket upgrade. It is not a general WS proxy.
+- The tunnel is byte-level — no frame parsing, no protocol knowledge. The
+  handshake, the `X-RP-Push-Token` header and ping/pong pass through
+  untouched, so **the daemon's device-token check remains the only auth that
+  matters end to end**; the satellite adds its own `X-RP-Satellite` token to
+  the upgrade request exactly as it does to every relayed API call.
+- If the tunnel can't be established, the agent just doesn't get early wakes —
+  identical to push never having been installed. Same degrade-to-no-op
+  guarantee as the rest of the channel.
+
+Nothing to configure: enable `push_enabled` as usual and satellite-relayed
+agents pick it up on their next heartbeat like any other agent.
+
+One thing to know if your satellite listens over **plain HTTP** (allowed on a
+trusted segment LAN): the agent derives the WebSocket scheme from its server
+URL, so it will use `ws://` there and `wss://` for an `https://` satellite or
+server. Older agents hard-coded `wss://` and could not connect to a
+plaintext satellite at all — upgrade the agent if you run that setup.
+
 ## Deployment (v6.1.1) — backend, nginx, and self-update
 
 Three things must line up for push to actually connect. All three only bite on

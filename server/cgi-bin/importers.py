@@ -22,7 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 def detect_format(text: str) -> Optional[str]:
-    """Best-effort format sniff. Returns 'kuma' | 'nagios' | 'zabbix' | None."""
+    """Best-effort format sniff.
+    Returns 'remotepower' | 'kuma' | 'nagios' | 'zabbix' | None."""
     t = (text or '').lstrip()
     if not t:
         return None
@@ -31,6 +32,11 @@ def detect_format(text: str) -> Optional[str]:
             doc = json.loads(t)
         except ValueError:
             return None
+        # v6.1.2: our OWN export (GET /api/export/monitors) must import back, or
+        # "export" is a dead end and moving between your own instances stays a
+        # retyping exercise.
+        if isinstance(doc, dict) and doc.get('format') == 'remotepower':
+            return 'remotepower'
         if isinstance(doc, dict) and 'monitorList' in doc:
             return 'kuma'
         return None
@@ -48,6 +54,36 @@ def _mon(label: str, mtype: str, target: str, **extra: Any) -> Dict[str, Any]:
                          'target': str(target)[:255], 'target_kind': 'host'}
     m.update(extra)
     return m
+
+
+# ── RemotePower's own export (v6.1.2) ───────────────────────────────────────
+# Round-trips GET /api/export/monitors. Every entry is already in the native
+# shape, so this is a pass-through — but it still goes through the SAME
+# validation/dedup path as every other format (api.py re-validates each target
+# before it can be applied), so a hand-edited or hostile file is no more trusted
+# than a Kuma backup would be.
+
+_RP_PASSTHROUGH = ('port', 'expect', 'expect_status', 'max_latency_ms',
+                   'max_loss_pct', 'db_kind', 'body_match', 'expect_json',
+                   'steps', 'failures_before_alert', 'paused')
+
+
+def _parse_remotepower(doc: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    monitors, unmapped = [], []
+    for m in (doc.get('monitors') or []):
+        if not isinstance(m, dict) or not m.get('type'):
+            unmapped.append({'name': str(m)[:60], 'reason': 'not a monitor object'})
+            continue
+        target = str(m.get('target') or '')
+        if not target and m.get('type') != 'http_flow':
+            unmapped.append({'name': str(m.get('label') or '?')[:60],
+                             'reason': 'no target'})
+            continue
+        extra = {k: m[k] for k in _RP_PASSTHROUGH if m.get(k) not in (None, '')}
+        if m.get('target_kind') in ('tag', 'group'):
+            extra['target_kind'] = m['target_kind']
+        monitors.append(_mon(str(m.get('label') or ''), str(m['type']), target, **extra))
+    return monitors, unmapped
 
 
 # ── Uptime Kuma ─────────────────────────────────────────────────────────────
@@ -189,7 +225,9 @@ def parse(text: str, fmt: Optional[str] = None) -> Dict[str, Any]:
     """Parse `text` into {format, monitors:[...], unmapped:[...]}. Raises
     ValueError on an unrecognised / unparseable format."""
     fmt = fmt or detect_format(text)
-    if fmt == 'kuma':
+    if fmt == 'remotepower':
+        mons, un = _parse_remotepower(json.loads(text))
+    elif fmt == 'kuma':
         doc = json.loads(text)
         mons, un = _parse_kuma(doc)
     elif fmt == 'nagios':
@@ -197,8 +235,9 @@ def parse(text: str, fmt: Optional[str] = None) -> Dict[str, Any]:
     elif fmt == 'zabbix':
         mons, un = _parse_zabbix(text)
     else:
-        raise ValueError('unrecognised import format (expected Uptime Kuma JSON, '
-                         'Nagios object config, or Zabbix XML export)')
+        raise ValueError('unrecognised import format (expected a RemotePower '
+                         'monitor export, Uptime Kuma JSON, Nagios object '
+                         'config, or Zabbix XML export)')
     # de-dup by (type, target) keeping the first label
     seen, deduped = set(), []
     for m in mons:

@@ -77,6 +77,54 @@ homelabs — the ability to switch off the enterprise modules you don't use.
 - PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
   every new connection.
 
+### Added — monitors & alert tuning
+
+- **Pause a monitor.** Monitors had no enabled flag, so the only way to stop one
+  probing — a NAS you're rebuilding, a host away for a week — was to **delete**
+  it, which threw away its history and meant retyping it afterwards. A paused
+  monitor keeps its configuration, history and uptime %, produces no results and
+  no `monitor_down`/`monitor_up`, and isn't handed to a satellite either.
+  Pausing a monitor that is currently *down* also clears its down state, so it
+  can't sit stuck-alerted with no further probes able to recover it.
+  `POST /api/monitors/pause`
+- **Response-time percentiles** (p50/p95/p99, plus min/avg/max) on a monitor's
+  history. Latency was previously embedded in the human-readable `detail` string
+  for http/icmp only and never stored as a number, so there was nothing to
+  compute a p95 from. Every probe type is now timed and the value persisted.
+  Failed checks are excluded: a timeout's elapsed time is the *timeout value*,
+  not the service's response time, and folding those in would make the p99 track
+  the timeout constant instead of anything real.
+- **Export monitors** (`GET /api/export/monitors`). The Nagios/Kuma/Zabbix
+  importer has existed since v6.0.0 with no way *out*, so moving a monitor set
+  between your own instances (test → prod, old box → new) was a retyping
+  exercise. The export is exactly the shape the Import box accepts, so it
+  round-trips. Definitions only — no history, and a monitor's satellite
+  assignment is left out because it's local to the install.
+- **Clone a monitor** — prefill the create form from an existing one. Ten
+  near-identical HTTP checks is the normal homelab case.
+- **Timed alert mutes.** Mutes were permanent-only, so "silence this while I
+  rebuild the NAS this weekend" relied on you remembering to come back — and a
+  forgotten mute is a signal you have silently stopped monitoring. A mute can now
+  carry `hours` (0.25–8760) and lapses on its own; Monitoring → Tuning shows the
+  time remaining. Omit it for the old permanent behaviour.
+
+### Added — agent push channel through a relay satellite
+
+- The opt-in push channel (a wake-only "poll now" nudge) now reaches agents behind
+  a **relay satellite**. A relayed agent builds its push URL from the same base URL
+  it uses for the API — the satellite — but the satellite relayed with `urllib`,
+  which cannot carry an `Upgrade`, so the connect quietly failed and those agents
+  never got a nudge. Nothing broke (the channel is wake-only, so they kept to their
+  normal poll cadence), but push was effectively a direct-agents-only feature.
+  The satellite now **byte-tunnels** the WebSocket for exactly one path
+  (`/api/push/connect`), and only when the request really is an upgrade — it is not
+  a general WS proxy. The handshake and the agent's device token pass through
+  untouched, so the daemon's own token check remains the auth that matters end to
+  end. Nothing to configure.
+- The agent now derives its WebSocket scheme from its server URL instead of
+  hard-coding `wss://`, so a satellite listening over plain HTTP on a trusted
+  segment LAN (which the satellite explicitly supports) works.
+
 ### Added — optional modules (minimal homelab setups)
 
 - **Settings → Advanced → Optional modules.** Alerts, Tickets, Billing, Knowledge

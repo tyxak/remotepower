@@ -2475,7 +2475,15 @@ function _registerMonitorTable() {
     }),
     row: (m) => {
       const i = (window.monitorTargets || []).indexOf(m);
-      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
+      // v6.1.2: a paused monitor isn't probed, so its last status is stale and
+      // showing "↑ up"/"↓ down" would be a lie — say PAUSED instead.
+      const _st = m.paused
+        ? '<span class="patch-badge fs-11" title="Not being probed — history and uptime% are kept">PAUSED</span>'
+        : `<span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span>`;
+      const _pauseBtn = m.paused
+        ? `<button class="btn-icon isl-44" title="Resume probing" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="0"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>`
+        : `<button class="btn-icon isl-44" title="Pause — stop probing but keep the monitor and its history" data-action="toggleMonitorPause" data-arg="${escAttr(m.label)}" data-arg2="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>`;
+      return `<tr${m.paused ? ' class="c-muted"' : ''}><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}</td><td>${_st}</td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.paused ? '—' : (m.checked ? timeAgo(m.checked) : '—')}</td><td class="row-6">${_pauseBtn}<button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Clone — prefill a new monitor from this one" data-action="cloneMonitor" data-arg="${i}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -2602,6 +2610,40 @@ function editMonitor(idx) {
   monTypeChanged();
   openModal('monitor-add-modal');
 }
+
+// v6.1.2: clone — prefill the create form from an existing monitor. Ten
+// near-identical HTTP checks is the normal homelab case, and building each one
+// from an empty form is pure retyping.
+function cloneMonitor(idx) {
+  const m = (window.monitorTargets || [])[idx];
+  if (!m) return;
+  editMonitor(idx);
+  // Same fields, but it must SAVE AS NEW rather than overwrite the original.
+  // The "new" sentinel is -1, NOT null: addMonitor() branches on
+  // `_monitorEditIdx >= 0`, and in JS `null >= 0` is TRUE — null would take the
+  // edit branch and do `monitors[null] = entry`, quietly corrupting the array.
+  _monitorEditIdx = -1;
+  const t = document.querySelector('#monitor-add-modal .modal-title');
+  if (t) t.textContent = 'Clone monitor target';
+  const lbl = document.getElementById('mon-label');
+  if (lbl) lbl.value = `${m.label || m.target} (copy)`;
+}
+
+// v6.1.2: export the monitor definitions as JSON the Import box accepts, so a
+// set can move between your own instances without retyping. The importer has
+// existed since v6.0.0 with no way out.
+async function exportMonitors() {
+  const r = await api('GET', '/export/monitors');
+  if (!r || !r.monitors) { toast('Export failed', 'error'); return; }
+  const blob = new Blob([JSON.stringify(r, null, 2)], {type: 'application/json'});
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u;
+  a.download = `remotepower-monitors-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(u);
+  toast(`Exported ${r.monitors.length} monitor(s)`, 'success');
+}
 // v4.1.0: show only the inputs relevant to the selected monitor type / target kind.
 function monTypeChanged() {
   const type = document.getElementById('mon-type')?.value || 'ping';
@@ -2719,7 +2761,26 @@ async function addMonitor() {
   } else toast(res?.error || 'Failed', 'error');
 }
 async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
-async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${escAttr(new Date(h.ts*1000).toLocaleString() + ' — ' + (h.detail||''))}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${pct>=90?'c-green': pct>=70?'c-amber': 'c-red'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+// v6.1.2: pause/resume a monitor without deleting it (which used to be the only
+// way to stop it probing — and threw away its history).
+async function toggleMonitorPause(label, paused) {
+  const r = await api('POST', '/monitors/pause', {label, paused: String(paused) === '1'});
+  if (r && r.ok) {
+    toast(r.paused ? `Paused — ${label} is no longer probed` : `Resumed ${label}`, 'success');
+    runMonitor();
+  } else {
+    toast((r && r.error) || 'Failed', 'error');
+  }
+}
+
+async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${escAttr(new Date(h.ts*1000).toLocaleString() + ' — ' + (h.detail||''))}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1];
+  // v6.1.2: response-time percentiles over the window. Successful checks only —
+  // a timeout's elapsed time is the timeout value, not the service's latency, so
+  // folding failures in would make p99 track the timeout constant. Absent on a
+  // monitor whose window predates latency capture.
+  const L = data.latency;
+  const _lat = L ? `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">p50</div><div class="value">${L.p50} ms</div></div><div class="sysinfo-pill"><div class="label">p95</div><div class="value">${L.p95} ms</div></div><div class="sysinfo-pill"><div class="label">p99</div><div class="value">${L.p99} ms</div></div><div class="sysinfo-pill" title="min / avg / max over ${L.samples} successful checks"><div class="label">min · avg · max</div><div class="value fs-13">${L.min} · ${L.avg} · ${L.max} ms</div></div></div>` : '';
+  document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${pct>=90?'c-green': pct>=70?'c-amber': 'c-red'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div>${_lat}<div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Response</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${h.ms == null ? '—' : escHtml(String(h.ms)) + ' ms'}</td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
 // v1.11.6: users page gets filter+sort
 let _usersRegistered = false;
 function _registerUsersTable() {

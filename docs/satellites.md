@@ -98,5 +98,26 @@ satellite or the server.
 Only run the agent→satellite hop in plaintext on a trusted segment LAN — the
 relay prints a warning when it starts without a cert.
 
+## Agent push channel through a satellite *(v6.1.2)*
+
+The opt-in [agent push channel](push.md) — a wake-only "poll now" nudge that cuts
+command-dispatch latency — works through a satellite. The relay byte-tunnels the
+WebSocket for the single path `/api/push/connect`, and only when the request is a
+real upgrade (it is not a general WS proxy). The handshake and the agent's device
+token pass through untouched, so the push daemon's own token check stays the auth
+that matters end to end; the satellite adds its `X-RP-Satellite` token to the
+upgrade exactly as it does to every relayed API call.
+
+Nothing to configure — turn `push_enabled` on and relayed agents pick it up on
+their next heartbeat. Before v6.1.2 the relay could not carry an `Upgrade`, so
+these agents silently never got a nudge (they just kept polling on their normal
+cadence, which is the channel's designed fallback — nothing broke, but push was
+effectively a direct-agents-only feature).
+
+If the satellite listens over **plain HTTP**, note that the agent picks its
+WebSocket scheme from its server URL (`ws://` here, `wss://` for HTTPS). Agents
+older than v6.1.2 hard-coded `wss://` and cannot connect to a plaintext satellite
+at all.
+
 See also: [scaling.md](scaling.md) (where satellites fit in a large fleet),
 [install.md](install.md), [agentless-devices.md](agentless-devices.md).

@@ -8275,7 +8275,7 @@ def _alert_mutes_load():
     return data
 
 
-_ALERT_MUTE_SET_CACHE = {'mtime': None, 'set': frozenset()}
+_ALERT_MUTE_SET_CACHE = {'mtime': None, 'set': frozenset(), 'checked': 0}
 
 
 def _alert_mute_set():
@@ -8291,14 +8291,35 @@ def _alert_mute_set():
     except Exception:
         mt = None
     c = _ALERT_MUTE_SET_CACHE
-    if mt is not None and c['mtime'] == mt:
+    # v6.1.2: a TIMED mute (expires_at) must lapse on time, so the cache can't be
+    # keyed on the store's mtime alone — nothing writes the store when a mute
+    # merely expires, so a stale cache would keep silencing the alert forever.
+    # Recheck at most once a minute (well below the finest mute granularity of
+    # 15 minutes), which keeps this off the hot path's cost.
+    now = int(time.time())
+    if (mt is not None and c['mtime'] == mt
+            and now - c.get('checked', 0) < 60):
         return c['set']
     s = frozenset((m.get('device_id'), m.get('event'))
                   for m in _alert_mutes_load()['mutes']
-                  if isinstance(m, dict) and m.get('device_id') and m.get('event'))
+                  if isinstance(m, dict) and m.get('device_id') and m.get('event')
+                  and not _mute_expired(m, now))
     c['mtime'] = mt
+    c['checked'] = now
     c['set'] = s
     return s
+
+
+def _mute_expired(m, now=None):
+    """True once a timed mute's window has passed. A mute with no `expires_at`
+    is permanent (the pre-v6.1.2 behaviour) and never expires."""
+    exp = m.get('expires_at')
+    if not exp:
+        return False
+    try:
+        return int(exp) <= (now if now is not None else int(time.time()))
+    except (TypeError, ValueError):
+        return False
 
 
 def _alert_muted(event, payload):
@@ -19757,6 +19778,12 @@ def _run_one_monitor_check(mtype, target, label, m):
     a result dict. Shared by host-targeted and tag/group-expanded checks."""
     ok = False
     detail = ''
+    # v6.1.2: time EVERY probe, uniformly, so response-time percentiles work for
+    # all monitor types. Latency used to be embedded in the human-readable
+    # `detail` string for http/icmp only and never persisted as a number, so
+    # there was nothing to compute a p95 from. This is wall-clock around the
+    # whole probe (that IS what an operator means by "how slow is it").
+    _t0 = time.monotonic()
     if mtype in ('ping', 'icmp'):
         # ping = single up/down; icmp = multi-ping latency + packet-loss.
         count = 5 if mtype == 'icmp' else 1
@@ -19923,9 +19950,11 @@ def _run_one_monitor_check(mtype, target, label, m):
                  'ok': ok, 'detail': detail, 'checked': int(time.time())}
         if hops:
             _pres['hops'] = hops
+        _pres.setdefault('ms', int((time.monotonic() - _t0) * 1000))
         return _pres
     return {'label': label, 'type': mtype, 'target': target,
-            'ok': ok, 'detail': detail, 'checked': int(time.time())}
+            'ok': ok, 'detail': detail, 'checked': int(time.time()),
+            'ms': int((time.monotonic() - _t0) * 1000)}
 
 
 def _run_traceroute(target):
@@ -20064,6 +20093,14 @@ def _execute_monitor_checks(monitors):
     results = []
     _devs = None
     for m in monitors:
+        # v6.1.2: a PAUSED monitor is not probed at all — no result, so no
+        # history row, no up/down transition and therefore no monitor_down /
+        # monitor_up webhook. Its config and past history are untouched, and
+        # unpausing resumes exactly where it left off. Skipping here (rather
+        # than filtering at the call sites) covers BOTH callers — the periodic
+        # runner and the synchronous "run now" from the Monitor page.
+        if m.get('paused'):
+            continue
         # W4-14: monitors assigned to a relay satellite are probed BY that
         # satellite (it reaches segmented/private space the server refuses), not
         # here. Their last-reported result is merged in for display separately.
@@ -20159,7 +20196,10 @@ def _persist_monitor_results(results):
                 # already in the dict we loaded (or genuinely new).
                 mh[key] = (list(_entity_read_one(MON_HIST_FILE, key, []) or [])
                            if _rowwise else [])
-            mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
+            _row = {'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']}
+            if isinstance(r.get('ms'), (int, float)):
+                _row['ms'] = int(r['ms'])   # v6.1.2: feeds the latency percentiles
+            mh[key].append(_row)
             mh[key] = mh[key][-MAX_MON_HISTORY:]
             # W4-15: path monitors — diff the hop set against a stored baseline
             # and fire path_changed (edge-triggered) when the route changes.
@@ -20930,6 +20970,54 @@ def run_monitors_if_due():
 
     results = _execute_monitor_checks(monitors)
     _persist_monitor_results(results)
+
+
+def handle_monitor_pause():
+    """POST /api/monitors/pause — pause or resume one monitor by label.
+
+    Body: {label, paused: bool}. A paused monitor is skipped by the sweep (and
+    not handed to a satellite), so it produces no results, no history rows and
+    no monitor_down/monitor_up webhooks — but it KEEPS its configuration, its
+    history and its uptime%. Before this the only way to stop a monitor probing
+    (a NAS you're rebuilding, a host away for a week) was to DELETE it, which
+    threw the history away and meant retyping the whole thing afterwards.
+    """
+    actor = require_write_role('exec')
+    body = get_json_obj()
+    label = _sanitize_str(str(body.get('label', '')), 128)
+    if not label:
+        respond(400, {'error': 'label is required'})
+    paused = bool(body.get('paused'))
+    found = False
+    pending = []
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        for m in (cfg.get('monitors') or []):
+            if not isinstance(m, dict) or m.get('label') != label:
+                continue
+            m['paused'] = paused
+            found = True
+            if paused:
+                # A monitor that's DOWN when you pause it would otherwise stay
+                # flagged down forever: no further probes means no recovery
+                # result, so monitor_up never fires and the open alert never
+                # auto-resolves. Clear the down state now and resolve the alert
+                # AFTER the lock (fire_webhook/_auto_resolve are self-locking).
+                if (cfg.get('monitor_notified') or {}).get(label):
+                    cfg.setdefault('monitor_notified', {})[label] = False
+                    pending.append(label)
+                if (cfg.get('monitor_fail_streak') or {}).get(label):
+                    cfg.setdefault('monitor_fail_streak', {})[label] = 0
+    if not found:
+        respond(404, {'error': 'monitor not found'})
+    for lbl in pending:
+        # Resolve the open monitor_down alert — the condition isn't "fixed", but
+        # it IS no longer being watched, so leaving it open would be a lie.
+        try:
+            _auto_resolve_alerts('monitor_up', {'label': lbl})
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] monitor pause auto-resolve failed: {e}\n')
+    audit_log(actor, 'monitor_pause', detail=f'label={label} paused={paused}')
+    respond(200, {'ok': True, 'label': label, 'paused': paused})
 
 
 def handle_monitor_run():
@@ -22160,7 +22248,8 @@ def handle_config_save():
                 validated.append({
                     'label': _sanitize_str(m.get('label', steps[0]['url']), 128),
                     'type': 'http_flow', 'target': steps[0]['url'][:255],
-                    'target_kind': 'host', 'steps': steps})
+                    'target_kind': 'host', 'steps': steps,
+                    'paused': bool(m.get('paused'))})   # v6.1.2
                 continue
             raw_target = str(m.get('target', ''))
             # v4.1.0: tag/group targeting — target is a tag/group NAME (expanded
@@ -22182,6 +22271,12 @@ def handle_config_save():
                 'type':   mtype,
                 'target': target,
                 'target_kind': tkind,
+                # v6.1.2: a paused monitor is skipped by the sweep but KEPT —
+                # its config, history and uptime% all survive. Before this the
+                # only way to stop a noisy monitor probing (rebuilding a NAS,
+                # a host that's away for a week) was to DELETE it, which threw
+                # away its history and meant retyping it afterwards.
+                'paused': bool(m.get('paused')),
             }
             # tcp tag/group needs a port (the name carries no port).
             if mtype == 'tcp' and tkind in ('tag', 'group'):
@@ -27199,11 +27294,49 @@ def handle_fleet_uptime7d():
     respond(200, {'uptime': out})
 
 
+def _percentile(sorted_vals, pct):
+    """Nearest-rank percentile of an ALREADY-SORTED list. The monitor history
+    window is small (capped at MAX_MON_HISTORY), so interpolation would be false
+    precision — nearest-rank is what an operator reads as "the p95 check".
+    Integer ceil, so no math import for one call."""
+    if not sorted_vals:
+        return None
+    n = len(sorted_vals)
+    rank = -(-pct * n // 100)          # ceil(pct/100 * n) in integer arithmetic
+    return sorted_vals[max(0, min(n - 1, rank - 1))]
+
+
+def _monitor_latency_stats(hist):
+    """v6.1.2: p50/p95/p99 (+min/avg/max) response time over a monitor's window.
+
+    Only SUCCESSFUL checks count: a timeout's elapsed time is the timeout value,
+    not the service's response time, and folding those in would make the p99
+    track the timeout constant rather than anything real. Returns None when the
+    window has no timed successes yet (older history rows predate `ms`).
+    """
+    vals = sorted(int(h['ms']) for h in hist
+                  if isinstance(h, dict) and h.get('ok')
+                  and isinstance(h.get('ms'), (int, float)))
+    if not vals:
+        return None
+    return {
+        'samples': len(vals),
+        'min': vals[0],
+        'max': vals[-1],
+        'avg': int(round(sum(vals) / len(vals))),
+        'p50': _percentile(vals, 50),
+        'p95': _percentile(vals, 95),
+        'p99': _percentile(vals, 99),
+    }
+
+
 def handle_monitor_history(label):
     require_auth()
     label = _sanitize_str(label, 128)
     mh = load(MON_HIST_FILE)
-    respond(200, {'label': label, 'history': mh.get(label, [])})
+    hist = mh.get(label, [])
+    respond(200, {'label': label, 'history': hist,
+                  'latency': _monitor_latency_stats(hist)})   # v6.1.2
 
 
 def _slo_target():
@@ -40699,6 +40832,8 @@ def handle_satellite_monitor_work():
     for m in (cfg.get('monitors') or []):
         if not isinstance(m, dict) or m.get('via_satellite') != sid:
             continue
+        if m.get('paused'):
+            continue   # v6.1.2: don't hand a paused monitor to the satellite either
         jobs.append({
             'label':  _sanitize_str(m.get('label', m.get('target', '')), 128),
             'type':   m.get('type', 'ping'),
@@ -46290,7 +46425,18 @@ def handle_alert_mutes():
     an alert row derives device+event from the alert)."""
     if method() == 'GET':
         require_auth()
-        _mutes = _alert_mutes_load()['mutes']
+        # v6.1.2: an EXPIRED timed mute is no longer in force, so don't list it —
+        # showing it would say "this alert is silenced" when it isn't. Reaping
+        # them here (rather than in a sweep) keeps the store tidy without adding
+        # another cadence job; nothing else needs to run for a mute to lapse.
+        _now = int(time.time())
+        _all = _alert_mutes_load()['mutes']
+        _mutes = [m for m in _all if not _mute_expired(m, _now)]
+        if len(_mutes) != len(_all):
+            try:
+                save(ALERT_MUTES_FILE, {'mutes': _mutes})
+            except Exception:
+                pass   # listing must not fail just because the tidy-up did
         # v6.1.1: tenant-gate — don't leak another tenant's muted (device,event)
         # pairs (device names) to a tenant-scoped admin.
         _mgate = _tenant_gate()
@@ -46330,13 +46476,31 @@ def handle_alert_mutes():
     else:
         if len(data['mutes']) >= MAX_ALERT_MUTES:
             respond(400, {'error': 'alert-mute limit reached'})
+        # v6.1.2: optional TIMED mute — `hours` (0.25–8760) sets an expiry, after
+        # which the mute lapses on its own. Mutes were permanent-only, so
+        # "silence this while I rebuild the NAS this weekend" meant remembering
+        # to come back and un-silence it — and a forgotten mute is a signal you
+        # have silently stopped monitoring. Omit `hours` for the old behaviour.
+        expires_at = None
+        if body.get('hours') not in (None, ''):
+            try:
+                hrs = float(body['hours'])
+            except (TypeError, ValueError):
+                respond(400, {'error': 'hours must be a number'})
+            if not (0.25 <= hrs <= 8760):
+                respond(400, {'error': 'hours must be between 0.25 and 8760'})
+            expires_at = int(time.time() + hrs * 3600)
         mute = {'id': secrets.token_urlsafe(8), 'device_id': device_id,
                 'device_name': device_name, 'event': event,
                 'created': int(time.time()), 'created_by': actor}
+        if expires_at:
+            mute['expires_at'] = expires_at
         data['mutes'].append(mute)
         save(ALERT_MUTES_FILE, data)
         mute_id = mute['id']
-        audit_log(actor, 'alert_mute_add', detail=f'device={device_id} event={event}')
+        audit_log(actor, 'alert_mute_add',
+                  detail=f'device={device_id} event={event}'
+                         + (f' expires={expires_at}' if expires_at else ' permanent'))
     # Clear the noise now: resolve any currently-open alerts matching the mute.
     resolved = 0
     with _LockedUpdate(ALERTS_FILE) as store:
@@ -52416,6 +52580,37 @@ def handle_my_notify_prefs():
     respond(200, {'ok': True})
 
 
+def handle_export_monitors():
+    """GET /api/export/monitors — the monitor set as importable JSON.
+
+    The importer (Nagios / Kuma / Zabbix) has existed since v6.0.0 with no way
+    OUT, which makes moving between your own instances (test → prod, old box →
+    new box) a retyping exercise. This emits the RemotePower-native shape the
+    importer already accepts, so it round-trips: export here, paste into Import.
+
+    Deliberately narrow: only the operator-authored monitor DEFINITIONS. No
+    history, no last-result state, no per-monitor flags the destination will
+    rebuild for itself. (Config-as-code covers the whole config; this is the
+    focused, re-importable subset.)
+    """
+    require_auth()
+    out = []
+    for m in (_config_ro().get('monitors') or []):
+        if not isinstance(m, dict):
+            continue
+        e = {k: m[k] for k in
+             ('label', 'type', 'target', 'target_kind', 'port', 'expect',
+              'expect_status', 'max_latency_ms', 'max_loss_pct', 'db_kind',
+              'body_match', 'expect_json', 'steps', 'failures_before_alert',
+              'paused')
+             if m.get(k) not in (None, '')}
+        # via_satellite is an id local to THIS install — it would be meaningless
+        # (or worse, wrong) on the instance importing this file.
+        out.append(e)
+    respond(200, {'format': 'remotepower', 'version': SERVER_VERSION,
+                  'monitors': out})
+
+
 def handle_import_monitors():
     """POST /api/import/monitors — parse a Nagios / Uptime Kuma / Zabbix export
     into RemotePower monitors (admin). Dry-run by default (returns the proposal);
@@ -56666,6 +56861,7 @@ def _build_exact_routes():
         ('GET', '/api/cve/campaigns'): handle_cve_campaigns,   # W2-35
         ('POST', '/api/cve/campaigns'): handle_cve_campaigns,
         ('POST', '/api/import/monitors'): handle_import_monitors,   # W2-45
+        ('GET', '/api/export/monitors'): handle_export_monitors,    # v6.1.2
         ('POST', '/api/rollouts/reboot-plan'): handle_reboot_plan,  # W2-36
         ('GET', '/api/my/notify-prefs'): handle_my_notify_prefs,    # W2-20
         ('POST', '/api/my/notify-prefs'): handle_my_notify_prefs,
@@ -56869,6 +57065,7 @@ def _build_exact_routes():
         ('POST', '/api/mcp/reboot_device'): handle_mcp_reboot_device,
         ('POST', '/api/mcp/run_saved_script'): handle_mcp_run_saved_script,
         ('GET', '/api/monitor'): handle_monitor_run,
+        ('POST', '/api/monitors/pause'): handle_monitor_pause,   # v6.1.2
         ('DELETE', '/api/monitor/alerts/clear'): handle_monitor_alerts_clear,
         ('GET', '/api/network-map'): handle_network_map,
         ('PUT', '/api/network-map/positions'): handle_network_positions,

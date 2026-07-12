@@ -457,13 +457,23 @@ def _push_listener_thread(server_url, dev_id, token, wake_event, stop_event):
     if not _PUSH_AVAILABLE:
         return
     host_and_path = _strip_url_scheme(server_url)
-    url = f'wss://{host_and_path}/api/push/connect?device_id={urlparse.quote(dev_id, safe="")}'
+    # v6.1.2: derive the WS scheme from the server URL instead of hard-coding
+    # wss://. Behind a RELAY SATELLITE the agent's server_url is the satellite,
+    # and a satellite on a trusted segment LAN is explicitly allowed to listen
+    # over plain HTTP — against which a wss:// connect can never succeed. (For
+    # a normal https:// server this is still wss://, exactly as before.) The
+    # `ssl` kwarg must be None for a ws:// URL or websockets rejects the call.
+    _secure = not server_url.lower().startswith('http://')
+    _scheme = 'wss' if _secure else 'ws'
+    url = (f'{_scheme}://{host_and_path}/api/push/connect'
+           f'?device_id={urlparse.quote(dev_id, safe="")}')
 
     async def _run():
         backoff = 5
         while not stop_event.is_set():
             try:
-                connect_kwargs = dict(ping_interval=20, ping_timeout=20, ssl=_SSL_CTX,
+                connect_kwargs = dict(ping_interval=20, ping_timeout=20,
+                                      ssl=(_SSL_CTX if _secure else None),
                                       open_timeout=10)
                 # Use the header kwarg this websockets version actually accepts
                 # (see _ws_header_kwarg — the old try/except-at-call-time was

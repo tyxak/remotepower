@@ -947,13 +947,15 @@
 
         <!-- W2-45: import monitors from Nagios / Uptime Kuma / Zabbix -->
         <details class="dash-card mt-16">
-          <summary class="section-title">Import from Nagios / Uptime Kuma / Zabbix</summary>
-          <p class="hint mt-8">Paste an existing monitoring config and RemotePower proposes equivalent monitors. <strong>Preview first</strong> (dry-run) to see what maps and what doesn't, then apply. Accepts an Uptime Kuma backup JSON, Nagios/Icinga object config (<code>define host/service</code>), or a Zabbix XML export. Duplicates (same type + target) are skipped.</p>
-          <textarea id="import-content" class="form-input ff-mono" rows="6" placeholder="Paste your Nagios .cfg, Uptime Kuma backup JSON, or Zabbix export XML…" aria-label="Monitoring config to import"></textarea>
+          <summary class="section-title">Import / export monitors</summary>
+          <p class="hint mt-8">Paste an existing monitoring config and RemotePower proposes equivalent monitors. <strong>Preview first</strong> (dry-run) to see what maps and what doesn't, then apply. Accepts an Uptime Kuma backup JSON, Nagios/Icinga object config (<code>define host/service</code>), a Zabbix XML export — or a RemotePower export from another instance. Duplicates (same type + target) are skipped.</p>
+          <p class="hint"><strong>Export</strong> downloads your monitor definitions in a format this same Import accepts, so moving a set between your own instances is copy-paste rather than retyping. Definitions only — no history, and a monitor's satellite assignment is left out (it's local to this install).</p>
+          <textarea id="import-content" class="form-input ff-mono" rows="6" placeholder="Paste your Nagios .cfg, Uptime Kuma backup JSON, Zabbix export XML, or a RemotePower monitor export…" aria-label="Monitoring config to import"></textarea>
           <div class="row-6-center mt-8">
-            <select id="import-format" class="form-input input-auto" aria-label="Import format"><option value="">Auto-detect</option><option value="kuma">Uptime Kuma (JSON)</option><option value="nagios">Nagios / Icinga</option><option value="zabbix">Zabbix (XML)</option></select>
+            <select id="import-format" class="form-input input-auto" aria-label="Import format"><option value="">Auto-detect</option><option value="remotepower">RemotePower export (JSON)</option><option value="kuma">Uptime Kuma (JSON)</option><option value="nagios">Nagios / Icinga</option><option value="zabbix">Zabbix (XML)</option></select>
             <button class="btn-secondary" data-action="previewImportMonitors">Preview</button>
             <button class="btn-primary" data-action="applyImportMonitors">Apply</button>
+            <button class="btn-secondary ml-auto" data-action="exportMonitors" title="Download every monitor definition as JSON this Import accepts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export</button>
           </div>
           <div id="import-result" class="mt-8"></div>
         </details>

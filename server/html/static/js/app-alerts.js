@@ -246,13 +246,35 @@ async function resolveGroup(key) {
 }
 
 // v5.6.0: mute = silence this exact (host, event) — replaces the per-row Ack
-// button. Creates a permanent mute (lift it under Monitoring → Tuning) and
-// clears any currently-open matching alerts.
+// button. Clears any currently-open matching alerts.
+//
+// v6.1.2: the mute can now be TIMED. A permanent mute you forget to lift is a
+// signal you have silently stopped monitoring, so "for a while" is offered as a
+// first-class choice instead of relying on the operator to come back and lift
+// it. Blank/0 = permanent, exactly as before.
 async function muteAlert(id) {
-  if (!await uiConfirm('Mute this exact alert from this host? No more of this alert type will fire for this asset until you lift it under Monitoring → Tuning.')) return;
-  const r = await api('POST', '/alert-mutes', { alert_id: String(id) });
+  const hours = await uiPrompt({
+    title: 'Mute this alert from this host',
+    message: 'Silence this exact (host, event) for how many hours? '
+           + 'It stops firing and any open ones are cleared; history keeps recording. '
+           + 'Leave blank to mute until you lift it (Monitoring → Tuning).',
+    placeholder: 'e.g. 24 — blank = until I lift it',
+    confirmText: 'Mute',
+  });
+  if (hours === null) return;                 // cancelled
+  const body = { alert_id: String(id) };
+  const h = parseFloat(hours);
+  if (String(hours).trim() !== '') {
+    if (isNaN(h) || h < 0.25 || h > 8760) {
+      toast('Enter hours between 0.25 and 8760, or leave blank for permanent', 'error');
+      return;
+    }
+    body.hours = h;
+  }
+  const r = await api('POST', '/alert-mutes', body);
   if (r && r.ok) {
-    toast('Muted — silenced for this host' + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
+    toast('Muted — ' + (body.hours ? `for ${body.hours}h` : 'until you lift it')
+      + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
     // refresh whichever view surfaced the alert (dashboard widget or inbox)
     if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
     else loadAlerts();
