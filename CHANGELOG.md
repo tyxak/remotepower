@@ -77,6 +77,37 @@ homelabs — the ability to switch off the enterprise modules you don't use.
 - PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
   every new connection.
 
+### Performance — wave 2
+
+- **The DB backends wrote every metric sample twice.** Each heartbeat appended one
+  O(1) row to the `metric_samples` table *and* re-serialised the device's whole
+  ~1440-sample window blob (parse 1440 objects, append one, dump 1440). The blob
+  was pure duplication — the table already held the same data, and the blob's only
+  remaining job was to be a fallback when the time-series was empty. The DB
+  backends now write the row and **derive** the window on read. The JSON backend
+  keeps the blob: it has no time-series table, so there the blob *is* the store.
+- **`metrics_rollup.json` is an entity store.** It's keyed by device and holds
+  hourly (30 d) plus daily (~2 y) aggregates for every host, so it grows
+  O(devices × 2 years) — the worst possible shape for a single cold blob. The
+  hourly sweep loaded and saved *all* of it per run, and one device's rollup chart
+  parsed the whole fleet to answer for one host. Both are now one row. Its cadence
+  gate also reads only the `_meta` row: it used to load and parse the entire
+  fleet's history just to read one integer, on the not-due path — which is the path
+  taken on essentially every request.
+- **Conditional requests for the sidebar poll.** The server has had
+  `_respond_with_etag` for several releases, but the browser never sent an
+  `If-None-Match`, so the 304 path could not be reached from the UI at all.
+  `/api/nav-counts` — the hottest poll in the product, every open tab every 60 s —
+  now answers a bodyless **304** when nothing has changed. The ETag is derived from
+  the caller's scope and tenant as well as the source data, so two operators with
+  different visibility can never share a cached answer.
+- **`_load_ro()`.** `load()` deep-copies an entire store on every read to protect
+  its cache from mutating callers, which is the right default but means a read-only
+  handler pays a full copy of the fleet dict on every poll. `_load_ro()` (the
+  existing `_config_ro` pattern, generalised) hands back the shared object instead.
+  Applied where the whole read path is verifiably read-only — starting with
+  `/api/nav-counts`.
+
 ### Added — containers
 
 - **Docker disk footprint** (`docker system df`). The 40 GB build-cache surprise

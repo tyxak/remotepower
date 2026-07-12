@@ -3025,6 +3025,31 @@ def _config_ro():
     return load(CONFIG_FILE) or {}
 
 
+def _load_ro(path):
+    """v6.1.2 (perf #7): _config_ro(), generalised to any store.
+
+    load() returns a `copy.deepcopy` of the whole store on EVERY read — warm or
+    cold — so the cache can't be corrupted by a mutating caller. That is the right
+    default, but it means a READ-ONLY handler pays a full deep copy of the fleet
+    dict on every poll: the devices list, /home, the attention digest, the alerts
+    list and nav-counts all do it, several times each, once a minute, per open tab.
+
+    This hands back the SHARED cached object instead. The contract is therefore the
+    same as _config_ro()'s, and it is not a suggestion:
+
+        the caller MUST NOT mutate the result, mutate anything nested inside it,
+        or pass it to save().
+
+    Use it only where you can see that the whole read path is read-only. If you
+    need to mutate — even one nested key — use load(). A cold cache falls through
+    to load() (which warms it and returns a copy), so the value is always correct.
+    """
+    cached = _LOAD_CACHE.get(path)
+    if cached is not None and cached[1]:
+        return cached[0]
+    return load(path)
+
+
 def _external_scheduler_active():
     """v5.5.0 (keystone Stage D): True when an out-of-band scheduler process owns
     the maintenance cadence, so the request path stops piggy-backing the
@@ -18533,37 +18558,34 @@ def _record_metrics(dev_id, sysinfo):
     sample = {'ts': now, 'cpu': cpu, 'mem': mem, 'disk': disk, 'swap': swap}
     _m = _dbmod()
     if _m is not None:
-        # v4.2.0 sweep (perf): single-row read-append-write on the DB backend.
-        # The old load(METRICS_FILE) reconstructed EVERY device's 1440-sample
-        # window (json.loads per device) on every heartbeat just to touch one
-        # device's list. Heartbeats are per-device serialised, so the
-        # unlocked row read-modify-write here is no worse than before.
-        try:
-            window = _m.entity_get(METRICS_FILE, dev_id) or []
-        except Exception:
-            window = []
-        window.append(sample)
-        window = window[-MAX_METRICS:]
-        try:
-            _m.entity_set(METRICS_FILE, dev_id, window)
-            _invalidate_load_cache(METRICS_FILE)
-        except Exception:
-            pass
-        # v3.14.0: also append to the long-retention time-series (one cheap
-        # row). Best-effort — never fail a heartbeat over it.
+        # v6.1.2 (perf #3): the DB backends now write the sample ONCE.
+        #
+        # This used to do BOTH: entity_get the device's ~1440-sample window blob
+        # (json.loads 1440 objects), append one sample, entity_set it back
+        # (json.dumps 1440 objects) — and then ALSO metric_append the same sample
+        # to the append-only metric_samples table, which is O(1). Every heartbeat,
+        # every device. The blob was pure duplication: metric_samples already held
+        # the same data, and the blob's only remaining job was to be a fallback
+        # when the time-series was empty.
+        #
+        # So: append the row (O(1)) and DERIVE the window on read instead
+        # (_recent_metric_window). The JSON backend keeps the blob — it has no
+        # time-series table, so there the blob IS the store.
         try:
             if not _m.metric_has_any(DATA_DIR, dev_id):
-                # First time we see this device on a DB backend: seed the
-                # time-series from the recent window (which already holds the
-                # just-appended sample), so history isn't empty until 30 days
-                # have elapsed.
-                for s in window:
+                # First sight of this device on a DB backend (or a store migrated
+                # from the JSON backend): seed the time-series from whatever the
+                # old window blob holds, so history isn't empty for 30 days.
+                try:
+                    seed = _m.entity_get(METRICS_FILE, dev_id) or []
+                except Exception:
+                    seed = []
+                for s in seed:
                     _m.metric_append(DATA_DIR, dev_id, int(s.get('ts') or now),
                                      s.get('cpu'), s.get('mem'), s.get('swap'), s.get('disk'))
-            else:
-                _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
+            _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
         except Exception:
-            pass
+            pass                    # never fail a heartbeat over metrics
         return
     metrics = load(METRICS_FILE)
     if dev_id not in metrics:
@@ -18640,6 +18662,40 @@ def _rollup_read_shape(buckets):
     return out
 
 
+METRICS_WINDOW_SECS = MAX_METRICS * 60      # ~24h at one sample/minute
+
+
+def _recent_metric_window(dev_id):
+    """The recent (~24h) raw sample window for ONE device.
+
+    v6.1.2 (perf #3): on a DB backend this is DERIVED from the append-only
+    metric_samples table instead of read from the metrics.json window blob —
+    _record_metrics no longer maintains that blob there, because the same samples
+    were already being written to the table on every heartbeat. At max_points =
+    MAX_METRICS over a 24h window, metric_range's bucketing is ~1 sample per
+    bucket, i.e. effectively the raw series.
+
+    The blob is still the fallback for a store whose time-series is empty (an
+    older DB that hasn't recorded a heartbeat since upgrading), and it is still
+    the real store on the JSON backend, which has no time-series table.
+    """
+    _m = _dbmod()
+    if _m is None:
+        return (load(METRICS_FILE) or {}).get(dev_id) or []
+    try:
+        pts = _m.metric_range(DATA_DIR, dev_id,
+                              int(time.time()) - METRICS_WINDOW_SECS,
+                              max_points=MAX_METRICS)
+    except Exception:
+        pts = []
+    if pts:
+        return pts
+    try:
+        return _m.entity_get(METRICS_FILE, dev_id) or []
+    except Exception:
+        return []
+
+
 def _raw_metric_samples(dev_id, since_ts):
     """Raw samples newer than since_ts for a device, from whichever backend holds
     the high-res series. [{ts,cpu,mem,swap,disk}]."""
@@ -18667,10 +18723,16 @@ def run_metric_rollup_if_due():
     in (purely additive, preserves MORE evidence, never a problem to keep),
     but pruning is skipped so no aggregated history is destroyed."""
     now = int(time.time())
-    state = load(METRICS_ROLLUP_FILE) or {}
-    meta = state.get('_meta') if isinstance(state.get('_meta'), dict) else {}
+    # v6.1.2 (perf #5): read ONLY the _meta row for the is-it-due? check. This is
+    # a cadence gate — it runs on every request — and it used to load()+parse the
+    # whole fleet's hourly+daily rollup history just to read one integer, on the
+    # NOT-due path, which is the path taken ~99% of the time.
+    meta = _entity_read_one(METRICS_ROLLUP_FILE, '_meta', {}) or {}
+    if not isinstance(meta, dict):
+        meta = {}
     if now - int(meta.get('last_run', 0) or 0) < METRIC_ROLLUP_INTERVAL:
         return
+    state = load(METRICS_ROLLUP_FILE) or {}
     _hold = _litigation_hold_active()
     devices = load(DEVICES_FILE) or {}
     changed = False
@@ -18713,7 +18775,11 @@ def handle_device_metric_rollup(dev_id):
     tier = (qs.get('tier') or ['daily'])[0]
     if tier not in ('hourly', 'daily'):
         tier = 'daily'
-    rec = (load(METRICS_ROLLUP_FILE) or {}).get(dev_id) or {}
+    # v6.1.2 (perf #5): metrics_rollup is an ENTITY store now, so answering for
+    # ONE device is one row read. It used to load()+parse the WHOLE fleet's
+    # hourly(30d)+daily(2y) history to serve a single host's chart — the store
+    # grows O(devices x 2 years), so that only ever got worse.
+    rec = _entity_read_one(METRICS_ROLLUP_FILE, dev_id, {}) or {}
     respond(200, {'device_id': dev_id, 'tier': tier,
                   'points': _rollup_read_shape(rec.get(tier) or [])})
 
@@ -20027,8 +20093,9 @@ def handle_metrics(dev_id):
         # Time-series still empty (just enabled, or this device hasn't reported
         # since) — fall through to the recent metrics.json window so the chart
         # shows what we have rather than a dead "no samples".
-    metrics = load(METRICS_FILE)
-    win = metrics.get(dev_id, [])
+    # v6.1.2 (perf #3): DERIVED from the time-series on a DB backend (the window
+    # blob is no longer written there); still the blob on the JSON backend.
+    win = _recent_metric_window(dev_id)
     since = int(win[0].get('ts', 0)) if win else 0
     respond(200, {'device_id': dev_id, 'metrics': win,
                   'recent_window': True,
@@ -44716,8 +44783,11 @@ def handle_patch_report_device(dev_id):
     patch_cmds = [o for o in outputs if any(kw in o.get('cmd', '')
                   for kw in ('apt', 'dnf', 'pacman', 'upgrade', 'update', 'yum'))]
 
-    # Metrics history
-    metrics = load(METRICS_FILE).get(dev_id, [])
+    # Metrics history. v6.1.2 (perf #3): via _recent_metric_window — on a DB
+    # backend the metrics.json window blob is no longer maintained, so reading it
+    # directly here would have quietly started returning a FROZEN window (the last
+    # value written before the upgrade) instead of an empty one, which is worse.
+    metrics = _recent_metric_window(dev_id)
 
     report = {
         'device_id': dev_id,
@@ -48047,6 +48117,19 @@ def handle_nav_counts():
     except Exception:
         _nc_skey += '_t0'
     _nc_cache = DATA_DIR / f'nav_counts_cache_{_nc_skey}.json'
+    # v6.1.2 (perf #6): the ETag source. These are the SAME source mtimes the
+    # file cache below already stats, so it costs nothing extra — plus the scope
+    # and tenant, without which two callers with different visibility would share
+    # a 304 and see each other's counts (the v6.1.1 cache-key bug, in ETag form).
+    try:
+        _nc_etag_src = (
+            tuple(backend_mtime(_s) for _s in (
+                DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE, ALERTS_FILE,
+                CONFIRMATIONS_FILE, CMDS_FILE, TICKETS_FILE)),
+            repr(_caller_scope()), _tenant_gate())
+    except Exception:
+        _nc_etag_src = None
+
     try:
         if backend_exists(_nc_cache):
             _cmt = backend_mtime(_nc_cache)
@@ -48064,6 +48147,8 @@ def handle_nav_counts():
                 if _fresh:
                     _c = load(_nc_cache)
                     if isinstance(_c, dict):
+                        if _nc_etag_src is not None:
+                            _respond_with_etag(_c, _nc_etag_src)
                         respond(200, _c)
                         return
     except Exception:
@@ -48072,7 +48157,11 @@ def handle_nav_counts():
         ttl = get_online_ttl()
     except Exception:
         ttl = 180
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    # v6.1.2 (perf #7): _load_ro — this handler never mutates what it loads (the
+    # only writes are into `out`, the response), so it does not need load()'s
+    # per-call deepcopy of the whole fleet dict. This is the hottest poll in the
+    # product: every open tab, every 60s.
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     offline = 0
     for did, d in devices.items():
         if not isinstance(d, dict) or d.get('monitored') is False:
@@ -48186,6 +48275,8 @@ def handle_nav_counts():
         save(_nc_cache, out)
     except Exception:
         pass
+    if _nc_etag_src is not None:
+        _respond_with_etag(out, _nc_etag_src)
     respond(200, out)
 
 

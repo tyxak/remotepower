@@ -50,7 +50,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 8  # v6.1.1: commands.json cold-blob -> entity rows (see _COLD_TO_ENTITY_V6)
+SCHEMA_VERSION = 9  # v6.1.2: metrics_rollup.json cold-blob -> entity rows (see _COLD_TO_ENTITY_V7)
 
 
 def configure(data_dir):
@@ -121,6 +121,13 @@ ENTITY_FILES = {
     'secret_findings.json',
     'speedtest.json',
     'acme_state.json',
+    # v6.1.2 (perf #5): metrics_rollup.json. It's keyed by device_id and holds
+    # hourly (30d) + daily (~2y) aggregates for EVERY device in one blob, so it
+    # grows O(devices x 2 years) — the worst possible shape for a cold blob. The
+    # hourly sweep loaded and saved the WHOLE fleet's history once per run, and
+    # a single device's rollup chart parsed the entire fleet to answer for one
+    # host. As an entity file, both become one row.
+    'metrics_rollup.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY
@@ -150,6 +157,8 @@ _COLD_TO_ENTITY_V5 = ('hardware.json', 'drift_state.json', 'drift_contents.json'
 # gate — it would never re-run _migrate_cold_to_entity for this file
 # otherwise, leaving its data stuck as an unmigrated kv blob forever.
 _COLD_TO_ENTITY_V6 = ('commands.json',)
+# v6.1.2 (perf #5): metrics_rollup.json — split its kv blob once at db_ver < 9.
+_COLD_TO_ENTITY_V7 = ('metrics_rollup.json',)
 
 # wrapped-list files: basename -> the single top-level list key.
 # v5.8.0: fleet_events.json joined this set. It was previously kept COLD because
@@ -411,6 +420,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_wrapped(conn, _COLD_TO_WRAPPED_V7)   # v5.8.0
     if db_ver is None or db_ver < 8:
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V6)     # v6.1.1
+    if db_ver is None or db_ver < 9:
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V7)     # v6.1.2
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

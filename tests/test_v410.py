@@ -75,8 +75,15 @@ class _HandlerBase(unittest.TestCase):
     def call(self, fn, *a):
         try:
             fn(*a)
-        except api.HTTPError:
-            pass
+        except api.HTTPError as e:
+            # A handler that opts into a conditional GET (_respond_with_etag)
+            # raises HTTPError DIRECTLY rather than going through respond(),
+            # because respond() has no way to carry the ETag/Cache-Control
+            # headers. Capture the body from the exception too, or every
+            # etag-enabled handler silently reads back as None here.
+            if self.cap.get('b') is None and getattr(e, 'body', None) is not None:
+                self.cap['s'] = e.status
+                self.cap['b'] = e.body
         return self.cap.get('b')
 
 

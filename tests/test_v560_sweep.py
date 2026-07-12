@@ -50,8 +50,10 @@ class TestMuteSetMemoized(unittest.TestCase):
 
 class TestSiteHealthIsOwnInfra(unittest.TestCase):
     def test_nav_counts_carries_site_health(self):
+        # v6.1.2: widened — the conditional-GET + _load_ro work pushed
+        # out['site_health'] to ~6634 from the top of the handler.
         seg = _API[_API.index('def handle_nav_counts'):
-                   _API.index('def handle_nav_counts') + 6000]
+                   _API.index('def handle_nav_counts') + 9000]
         self.assertIn("out['site_health']", seg)
         self.assertIn('disk_watchdog_pct', seg)   # own-infra disk headroom, not fleet
         self.assertIn('statvfs', seg)

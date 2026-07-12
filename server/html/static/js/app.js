@@ -629,6 +629,12 @@ async function doLogin() {
   }
 }
 function doLogout() {
+  // v6.1.2 (perf #6): drop every cached response body. The ETag cache holds real
+  // fleet data keyed only by URL — if the next person to log in on this browser
+  // polled the same URL, a stale 304 would hand them the PREVIOUS user's counts.
+  // The server's ETag is scope- and tenant-derived so it would not actually
+  // match, but the cache must not be the thing we're relying on for that.
+  try { _clearEtagCache(); } catch (_) {}
   // v1.11.5: synchronously flush any pending prefs save before we toss the
   // token. The fetch is fire-and-forget — we don't await it because logout
   // should be snappy even on slow networks. If it fails the user keeps the
@@ -1087,11 +1093,37 @@ function _rpLoad(d) {
   if (_rpBar) _rpBar.classList.toggle('on', _rpLoadN > 0);
 }
 
+// v6.1.2 (perf #6): conditional requests for the 60s poll.
+//
+// The refresh cycle re-fetches /devices, /home and /nav-counts every 60 seconds
+// per open session and downloaded + parsed the full JSON every time, even when
+// nothing had changed — the render was skipped by a full-body JSON.stringify
+// diff, which is itself a per-tick main-thread serialize of the entire fleet.
+//
+// The server already had _respond_with_etag; the client simply never sent an
+// If-None-Match, so the 304 path could not be reached from the UI. Now: remember
+// the ETag per URL, send it, and on 304 return the last body — no download, no
+// parse, and the caller cannot tell the difference.
+//
+// OPT-IN per call (`extra.etag`). It is NOT the default: a cached response
+// returned to a caller that then MUTATES the object would corrupt the cache for
+// everyone, and there are ~500 call sites. Only the three poll endpoints, whose
+// consumers treat the result as read-only, opt in.
+const _etagCache = new Map();          // url -> {etag, body}
+
+function _clearEtagCache() { _etagCache.clear(); }
+
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
+  }
+  const _useEtag = !!(extra && extra.etag) && method === 'GET';
+  const _ekey = _useEtag ? path : null;
+  if (_useEtag) {
+    const hit = _etagCache.get(_ekey);
+    if (hit && hit.etag) opts.headers['If-None-Match'] = hit.etag;
   }
   // v3.2.1: callers can pass an AbortController signal (and other fetch
   // options) via the optional `extra` arg. Used by long-running calls
@@ -1118,6 +1150,20 @@ async function api(method, path, body, extra) {
   _rpLoad(-1);
   _setApiDown(false);
   if (r.status === 401) { doLogout(); return null; }
+  if (_useEtag) {
+    if (r.status === 304) {
+      const hit = _etagCache.get(_ekey);
+      // A 304 with nothing cached should be impossible (we only send
+      // If-None-Match when we HAVE a body), but if it happens, fall through to
+      // the normal path rather than handing the caller an undefined.
+      if (hit) return hit.body;
+    } else if (r.ok) {
+      const et = r.headers.get('ETag');
+      const parsed = await r.json().catch(() => null);
+      if (et && parsed !== null) _etagCache.set(_ekey, {etag: et, body: parsed});
+      return parsed;
+    }
+  }
   // v2.0: surface a friendly toast for demo-mode 403s. The server
   // returns {demo: true, error: "..."} which this catches centrally so
   // every caller sees the right behaviour without per-call handling.
@@ -12060,7 +12106,11 @@ async function saveSamlConfig() {
 // v4.1.0: per-sidebar-group "needs attention" count badges.
 async function refreshNavCounts() {
   try {
-    const c = await api('GET', '/nav-counts');
+    // v6.1.2 (perf #6): conditional GET. This is the hottest poll in the product
+    // — every open tab, every 60s, forever — and on an idle fleet the answer is
+    // identical every time. The consumers below only READ `c` (they paint badges),
+    // which is the precondition for handing back a cached body.
+    const c = await api('GET', '/nav-counts', undefined, {etag: true});
     if (!c) return;
     // v4.2.0 sweep (perf): /nav-counts now bundles the alerts summary and the
     // pending-confirmations count, so the 60s poll is one request, not three.
