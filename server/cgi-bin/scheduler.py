@@ -65,6 +65,8 @@ CADENCE = (
     'run_reputation_scan_if_due',
     'run_incident_promotion_if_due',     # v6.1.1 (#53) alert-storm auto-promotion
     'run_resolver_health_if_due',
+    'run_wan_ip_check_if_due',           # v6.1.2 WAN IP watch + DDNS + outage log
+    'run_deadman_check_if_due',          # v6.1.2 inbound dead-man's-switch
     'run_tls_scan_if_due',
     'run_ct_watch_if_due',               # W1-17 certificate-transparency watch
     'run_mailflow_if_due',               # W4-16 mail round-trip monitor

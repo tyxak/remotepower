@@ -1345,6 +1345,36 @@ EVENT_REGISTRY = {
         label='ECC memory errors increased', kind='hardware',
         title='ECC Memory Errors', severity=None, priority=4,
         tags='rotating_light,ram'),
+    # v6.1.2: WAN / public IP. Your IP changes and nothing tells you — the VPN
+    # endpoint, the port forwards and every published service now point at an
+    # address that belongs to someone else.
+    'wan_ip_changed': dict(
+        label='Public (WAN) IP address changed', kind='network',
+        title='Public IP Changed', severity='medium', priority=4,
+        tags='warning,globe_with_meridians'),
+    'wan_down': dict(
+        label='Internet (WAN) unreachable from the controller', kind='network',
+        title='Internet Down', severity='high', priority=5,
+        tags='rotating_light,globe_with_meridians'),
+    'wan_up': dict(
+        label='Internet (WAN) reachable again', kind='network',
+        title='Internet Restored', resolves=('wan_down',),
+        tags='green_circle,globe_with_meridians'),
+    # v6.1.2: a duplicate MAC is a cloned VM whose NIC was never regenerated —
+    # a Proxmox-homelab classic that produces baffling intermittent networking.
+    'mac_conflict': dict(
+        label='The same MAC address is on two devices', kind='network',
+        title='Duplicate MAC Address', severity='high', priority=4,
+        tags='warning,electric_plug'),
+    # v6.1.2: inbound dead-man's-switch — an off-fleet job stopped checking in.
+    'ping_missed': dict(
+        label='A dead-man\'s-switch job missed its check-in', kind='monitor',
+        title='Job Check-in Missed', severity='high', priority=4,
+        tags='rotating_light,alarm_clock'),
+    'ping_recovered': dict(
+        label='A dead-man\'s-switch job checked in again', kind='monitor',
+        title='Job Check-in Resumed', resolves=('ping_missed',),
+        tags='green_circle,alarm_clock'),
     'storage_recovered': dict(
         label='Storage pool/array returned to healthy', kind='storage',
         title='Storage Pool Healthy', resolves=('storage_degraded', 'scrub_overdue'),
@@ -2186,6 +2216,8 @@ SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized s
 SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
 SCAN_SCHEDULES_FILE = DATA_DIR / 'scan_schedules.json'  # v4.2.0 (#4): recurring scan schedules (cron)
 NETSCAN_SCHEDULES_FILE = DATA_DIR / 'netscan_schedules.json'  # v6.1.1: recurring LAN discovery (interval)
+WAN_STATE_FILE   = DATA_DIR / 'wan_state.json'       # v6.1.2: public-IP watch + DDNS + outage log
+DEADMAN_FILE     = DATA_DIR / 'deadman.json'         # v6.1.2: inbound dead-man's-switch ping jobs
 WEBAUTHN_CHALLENGES_FILE = DATA_DIR / 'webauthn_challenges.json'  # v4.2.0 (A1): transient, 5-min TTL
 SAML_REQUESTS_FILE = DATA_DIR / 'saml_requests.json'  # v4.2.0 (B1): outstanding AuthnRequest ids (InResponseTo/replay), 10-min TTL
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
@@ -4274,6 +4306,23 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/alerts/act',
 )
 
+# Same idea, but for paths that carry the capability IN the path, so an exact
+# match can never work.
+#
+# v6.1.2 — /api/ping/<token>: the dead-man's-switch check-in. The caller is a
+# `curl` at the end of a cron job on something that is NOT in the fleet (the
+# router, a VPS, the NAS) — i.e. exactly the arbitrary/dynamic source IP the
+# allowlist is designed to reject. Without this exemption, turning the allowlist
+# on would 403 every check-in, and the switch would then report those jobs as
+# LATE — a false alarm indistinguishable from a real backup failure. The token
+# (192 bits of urandom) is the capability, and a caller who has it can only mark
+# a job healthy: it cannot read anything or raise an alert. That is a strictly
+# weaker capability than /api/heartbeat, which is exempt for the same reason.
+# The trailing slash is load-bearing: it stops '/api/pingXYZ' from matching.
+_IP_ALLOWLIST_EXEMPT_PREFIXES = (
+    '/api/ping/',
+)
+
 
 def _enforce_ip_allowlist():
     """v3.3.0: optional IP allowlist for UI/API access.
@@ -4296,6 +4345,8 @@ def _enforce_ip_allowlist():
         return
     pi = path_info()
     if pi in _IP_ALLOWLIST_EXEMPT_PATHS:
+        return
+    if pi.startswith(_IP_ALLOWLIST_EXEMPT_PREFIXES):
         return
     ip = _get_client_ip()
     # Loopback safety net — never lock out a local request.
@@ -7346,6 +7397,21 @@ def _alert_title(event, payload):
                 f'— newest is {p.get("age_days","?")}d old')
     if event == 'snapshot_ok':
         return f'Snapshots current on {name}: pool {p.get("pool","?")}'
+    if event == 'wan_ip_changed':
+        return (f'Public IP changed: {p.get("old_ip","?")} → {p.get("new_ip","?")}')
+    if event == 'wan_down':
+        return 'Internet unreachable from the RemotePower host'
+    if event == 'wan_up':
+        _d = int(p.get('duration_s') or 0)
+        return (f'Internet restored after {_d // 60}m {_d % 60}s' if _d
+                else 'Internet restored')
+    if event == 'mac_conflict':
+        return f'Duplicate MAC {p.get("mac","?")}: {p.get("detail","")}'
+    if event == 'ping_missed':
+        return (f'Job "{p.get("job","?")}" missed its check-in '
+                f'(expected every {p.get("period_minutes","?")} min)')
+    if event == 'ping_recovered':
+        return f'Job "{p.get("job","?")}" is checking in again'
     if event == 'ecc_errors':
         _nue = int(p.get('new_ue') or 0)
         if _nue > 0:
@@ -12021,42 +12087,101 @@ def handle_ipam_occupancy(sid):
 
 def run_ipam_conflicts_if_due():
     """W5-2 cadence: detect duplicate IPs within any defined subnet and fire
-    ip_conflict (edge-triggered — only for IPs not already flagged). Cheap when
-    no subnets are configured."""
+    ip_conflict (edge-triggered — only for IPs not already flagged).
+
+    v6.1.2 also detects duplicate MACs here. Note the two halves have DIFFERENT
+    preconditions: the IP check is meaningless without a subnet to judge "same
+    network" against, but a duplicate MAC is wrong everywhere and must still be
+    detected when no subnet is configured — which is the common homelab case, and
+    exactly the setup most likely to be cloning Proxmox VMs. So the no-subnet
+    early-return skips only the IP half, never the whole sweep.
+    """
     subnets = load(SUBNETS_FILE) or {}
-    if not subnets:
-        return
     now = int(time.time())
     state = load(IPAM_STATE_FILE) or {}
     if now - int(state.get('last_run', 0) or 0) < 300:
         return
-    assignments = _ipam_assignments(load(DEVICES_FILE) or {}, _cmdb_load())
-    import ipaddress as _ipa
-    known = set()   # IPs inside any defined subnet
-    for s in subnets.values():
-        if not isinstance(s, dict):
-            continue
-        try:
-            net = _ipa.ip_network(s.get('cidr', ''), strict=False)
-        except ValueError:
-            continue
-        for ip in assignments:
-            try:
-                if _ipa.ip_address(ip) in net:
-                    known.add(ip)
-            except ValueError:
-                pass
-    conflicts = {ip for ip in known
-                 if len({h['device_id'] for h in assignments.get(ip, [])}) > 1}
-    prev = set(state.get('conflicts') or [])
+    devices = load(DEVICES_FILE) or {}
+    conflicts = set()
     fires = []
-    for ip in sorted(conflicts - prev):
-        holders = assignments.get(ip, [])
-        fires.append({'ip': ip, 'devices': ', '.join(sorted({h['name'] for h in holders}))})
-    save(IPAM_STATE_FILE, {'last_run': now, 'conflicts': sorted(conflicts)})
+    if subnets:
+        assignments = _ipam_assignments(devices, _cmdb_load())
+        import ipaddress as _ipa
+        known = set()   # IPs inside any defined subnet
+        for s in subnets.values():
+            if not isinstance(s, dict):
+                continue
+            try:
+                net = _ipa.ip_network(s.get('cidr', ''), strict=False)
+            except ValueError:
+                continue
+            for ip in assignments:
+                try:
+                    if _ipa.ip_address(ip) in net:
+                        known.add(ip)
+                except ValueError:
+                    pass
+        conflicts = {ip for ip in known
+                     if len({h['device_id'] for h in assignments.get(ip, [])}) > 1}
+        prev = set(state.get('conflicts') or [])
+        for ip in sorted(conflicts - prev):
+            holders = assignments.get(ip, [])
+            fires.append({'ip': ip,
+                          'devices': ', '.join(sorted({h['name'] for h in holders}))})
+
+    # v6.1.2: duplicate MAC. Sibling of the IP conflict above and it rides the
+    # same sweep/state — a MAC on two devices is almost always a cloned VM whose
+    # NIC was never regenerated, a Proxmox-homelab classic that produces exactly
+    # the kind of baffling intermittent networking nobody thinks to blame on a
+    # MAC. Runs whether or not subnets are defined (see the docstring).
+    mac_holders = {}
+    for did, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('decommissioned'):
+            continue
+        macs = set()
+        for m in ([dev.get('mac')] + [i.get('mac') for i in (dev.get('interfaces') or [])
+                                      if isinstance(i, dict)]):
+            m = _normalize_mac(m)
+            if m:
+                macs.add(m)
+        for m in macs:
+            mac_holders.setdefault(m, set()).add(dev.get('name', did))
+    mac_conflicts = {m for m, owners in mac_holders.items() if len(owners) > 1}
+    prev_macs = set(state.get('mac_conflicts') or [])
+    mac_fires = [{'mac': m, 'devices': ', '.join(sorted(mac_holders[m]))}
+                 for m in sorted(mac_conflicts - prev_macs)]
+
+    save(IPAM_STATE_FILE, {'last_run': now, 'conflicts': sorted(conflicts),
+                           'mac_conflicts': sorted(mac_conflicts)})
     for f in fires:
         fire_webhook('ip_conflict', {'ip': f['ip'], 'detail': f'assigned to {f["devices"]}',
                                      'name': f['devices']})
+    for f in mac_fires:
+        fire_webhook('mac_conflict', {
+            'mac': f['mac'], 'name': f['devices'],
+            'detail': f'the same MAC is on {f["devices"]} — a cloned VM whose NIC '
+                      'was never regenerated?'})
+
+
+def _normalize_mac(raw):
+    """'AA-BB-cc:DD:ee:FF' -> 'aa:bb:cc:dd:ee:ff'; None if it isn't a MAC.
+
+    Locally-administered/multicast and the all-zero placeholder are rejected: a
+    bridge or a VPN interface legitimately shows the same synthetic MAC on many
+    hosts, and alerting on those would be pure noise.
+    """
+    if not isinstance(raw, str):
+        return None
+    hexs = re.sub(r'[^0-9a-fA-F]', '', raw).lower()
+    if len(hexs) != 12:
+        return None
+    mac = ':'.join(hexs[i:i + 2] for i in range(0, 12, 2))
+    if mac in ('00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'):
+        return None
+    first = int(hexs[0:2], 16)
+    if first & 0x01:          # multicast bit — never a real NIC address
+        return None
+    return mac
 
 
 # ── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -16748,6 +16873,23 @@ def handle_heartbeat():
                 gw_ip = _sanitize_ip(g.get('ip', ''))
                 reachable = bool(g.get('reachable', True))
                 safe_si['gateway'] = {'ip': gw_ip, 'reachable': reachable}
+                # v6.1.2: the gateway ping already MEASURED the RTT — it was just
+                # thrown away, so this check could only ever say up/down. LAN
+                # congestion (a saturated uplink, a dying switch port, degraded
+                # wifi) shows as rising latency long before the gateway becomes
+                # unreachable. Keep a small rolling series so it's visible.
+                _lat = g.get('latency_ms')
+                if isinstance(_lat, (int, float)) and 0 <= _lat < 10000:
+                    safe_si['gateway']['latency_ms'] = round(float(_lat), 2)
+                    _hist = list(((dev.get('sysinfo') or {}).get('gateway') or {}
+                                  ).get('history') or [])
+                    _hist.append([now, round(float(_lat), 2)])
+                    safe_si['gateway']['history'] = _hist[-60:]   # ~last hour
+                else:
+                    _hist = list(((dev.get('sysinfo') or {}).get('gateway') or {}
+                                  ).get('history') or [])
+                    if _hist:
+                        safe_si['gateway']['history'] = _hist[-60:]
                 was_reach = (dev.get('sysinfo') or {}).get('gateway', {}).get('reachable', True)
                 if not reachable and was_reach:
                     _gw_event_pending = ('gateway_unreachable', {
@@ -17994,6 +18136,17 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] image cve ingest failed dev={dev_id}: {e}\n")
 
+    # v6.1.2: mDNS service advertisements. The netscan finds HOSTS (an IP is
+    # alive); mDNS says what they ARE — the Chromecasts, printers, HomeKit
+    # bridges and NAS boxes nobody puts an agent on. Folded into the same
+    # discovery store the network map already reads, so they show up there
+    # instead of as anonymous IPs.
+    if 'mdns' in body and isinstance(body['mdns'], list):
+        try:
+            _ingest_mdns(dev_id, body['mdns'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] mdns ingest failed dev={dev_id}: {e}\n")
+
     # v3.4.0: Helm releases (visibility only).
     if 'helm' in body:
         try:
@@ -18101,6 +18254,11 @@ def handle_heartbeat():
     # only runs trivy once advertised, and it's feature-invisible without trivy.
     if _sec_cfg.get('image_scan_enabled'):
         common_resp['image_scan_enabled'] = True
+    # v6.1.2: mDNS LAN browse. Opt-in — browsing from every host in the fleet is
+    # redundant (they all see the same advertisements on a segment), so this is a
+    # deliberate switch rather than something that just happens.
+    if _sec_cfg.get('mdns_enabled'):
+        common_resp['mdns_enabled'] = True
     # v6.1.1 (#1): opt-in agent push channel (see server/push/remotepower-
     # push.py). Off by default -- unverified under real multi-agent
     # concurrent-connection load, so an operator opts a fleet in explicitly.
@@ -23654,6 +23812,28 @@ def handle_config_save():
     # Off by default — it appends to a list operators curate deliberately.
     if 'drift_watch_compose' in body:
         cfg['drift_watch_compose'] = bool(body['drift_watch_compose'])
+    # v6.1.2: WAN public-IP watch (+ internet outage log) and mDNS LAN browse.
+    if 'wan_watch_enabled' in body:
+        cfg['wan_watch_enabled'] = bool(body['wan_watch_enabled'])
+    if 'mdns_enabled' in body:
+        cfg['mdns_enabled'] = bool(body['mdns_enabled'])
+    # v6.1.2: auto-DDNS — keep an A record pointed at the current public IP.
+    # This is what people run a whole second daemon (ddclient) for; the DNS write
+    # API and the SSRF-guarded client were both already here.
+    if 'ddns' in body and isinstance(body['ddns'], dict):
+        d = body['ddns']
+        prov = _sanitize_str(str(d.get('provider', '')), 32)
+        cfg['ddns'] = {
+            # The Settings UI models "off" as the provider select's empty option,
+            # so a chosen provider IS the enable switch — there is no separate
+            # checkbox to send. An explicit `enabled: false` from an API caller
+            # still wins, so a config can be disabled without clearing its fields.
+            'enabled':   bool(prov) and d.get('enabled', True) is not False,
+            'provider':  prov,
+            'zone':      _sanitize_str(str(d.get('zone', '')), 128),
+            'zone_name': _sanitize_str(str(d.get('zone_name', '')), 253),
+            'record':    _sanitize_str(str(d.get('record', '')), 253),
+        }
 
     # v5.4.1 enterprise hardening — security knobs (all opt-in, defaults off).
     if 'password_min_length' in body:        # D1
@@ -27802,11 +27982,14 @@ def process_schedule():
                             if job.get('recurring'): remaining.append(job)
                             changed = True; continue
                         queued = f'exec:{body}'
-                    # v6.1.2: nightly docker hygiene. Same fixed server-side
-                    # template as the on-demand Prune button — volumes are never
-                    # touched, because that would delete data.
+                    # v6.1.2: nightly docker hygiene. Deliberately the SAFE scope
+                    # only — a recurring job that quietly deletes volumes every
+                    # night is precisely the thing nobody wants, and an unattended
+                    # cron can't be shown a "this destroys data" confirmation.
+                    # Destructive cleanup stays an explicit, confirmed, on-demand
+                    # action (see handle_device_docker_prune).
                     elif command == 'docker_prune':
-                        queued = 'exec:' + _DOCKER_PRUNE_CMDS['all']
+                        queued = 'exec:' + _DOCKER_PRUNE_SAFE['all']
                     # v6.1.2: scheduled container restart ("restart Home
                     # Assistant nightly at 04:00"). Reuses the SAME container:
                     # action channel the on-demand restart button queues, so the
@@ -28610,6 +28793,61 @@ def handle_image_cve_scan():
                               'the next heartbeat; results appear within a few minutes.')
                              if queued else
                              'No hosts with running containers to scan.'})
+
+
+MDNS_FILE = DATA_DIR / 'mdns.json'   # v6.1.2: LAN service advertisements
+
+
+def _ingest_mdns(dev_id, raw):
+    """v6.1.2: store this host's view of the LAN's mDNS advertisements."""
+    clean = []
+    seen = set()
+    for e in (raw or [])[:60]:
+        if not isinstance(e, dict):
+            continue
+        addr = _sanitize_ip(str(e.get('address', '')))
+        stype = _sanitize_str(str(e.get('type', '')), 48)
+        if not addr or not stype:
+            continue
+        try:
+            port = int(e.get('port') or 0)
+        except (TypeError, ValueError):
+            port = 0
+        key = (addr, stype, port)
+        if key in seen:
+            continue
+        seen.add(key)
+        clean.append({
+            'name': _sanitize_str(str(e.get('name', '')), 96),
+            'type': stype,
+            'host': _sanitize_str(str(e.get('host', '')), 96),
+            'address': addr,
+            'port': port if 0 <= port <= 65535 else 0,
+        })
+    with _LockedUpdate(MDNS_FILE) as store:
+        store[dev_id] = {'ts': int(time.time()), 'services': clean}
+
+
+def handle_mdns_services():
+    """GET /api/mdns — LAN service advertisements, deduped across reporters."""
+    require_auth()
+    store = load(MDNS_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    by_key = {}
+    for dev_id, rec in store.items():
+        if dev_id not in devices or not isinstance(rec, dict):
+            continue
+        for s in (rec.get('services') or []):
+            # Several agents on one segment see the SAME advertisements — dedupe
+            # so the page shows the LAN, not one row per (service × reporter).
+            key = (s.get('address'), s.get('type'), s.get('port'))
+            if key not in by_key:
+                by_key[key] = {**s, 'seen_by': [], 'ts': rec.get('ts', 0)}
+            by_key[key]['seen_by'].append(devices[dev_id].get('name', dev_id))
+    out = sorted(by_key.values(),
+                 key=lambda s: (s.get('address') or '', s.get('type') or ''))
+    respond(200, {'ok': True, 'services': out,
+                  'enabled': bool(_config_ro().get('mdns_enabled'))})
 
 
 def _ingest_secret_findings(dev_id, dev_name, findings):
@@ -29843,33 +30081,75 @@ def handle_device_compose_list(dev_id):
     })
 
 
-# v6.1.2: docker prune. The command text is a FIXED server-side template — no
-# operator input reaches the shell, and the volume prune is deliberately NOT
-# offered: `docker volume prune` deletes DATA, and a homelabber cleaning up
-# "disk space" should never be one mis-click from wiping their Nextcloud volume.
-# Images and build cache are recreatable by definition; that's the whole point.
-_DOCKER_PRUNE_CMDS = {
-    'images': 'docker image prune -f',
-    'cache':  'docker builder prune -f',
-    'all':    'docker image prune -f && docker builder prune -f',
+# ── v6.1.2: docker cleanup ─────────────────────────────────────────────────
+# Every command here is a FIXED server-side template — no operator input ever
+# reaches the shell.
+#
+# The scopes split into two classes, and the split is the whole safety model:
+#
+#   SAFE     — images / cache / networks / all. Everything they remove is
+#              RECREATABLE: an unused image re-pulls, a build cache rebuilds, an
+#              unused network is re-created by `compose up`. Worst case you wait.
+#
+#   DESTRUCTIVE — volumes / full. `docker volume prune` deletes the DATA in every
+#              volume no container currently references — and a stopped stack's
+#              volumes look exactly like abandoned ones to Docker. This is how
+#              people lose their Nextcloud/Paperless/Postgres data. It is offered
+#              because operators legitimately need it, but it requires an explicit
+#              typed confirmation, checked SERVER-SIDE (a UI-only confirm is not a
+#              control — anything can POST to the API).
+#
+# `-f` on every command: the agent's exec channel is non-interactive, and docker
+# would otherwise block forever on its own "Are you sure? [y/N]" prompt.
+_DOCKER_PRUNE_SAFE = {
+    'images':   'docker image prune -f',
+    'cache':    'docker builder prune -f',
+    'networks': 'docker network prune -f',
+    # Everything unused EXCEPT volumes. -a also removes unreferenced images, not
+    # just dangling ones, which is where the real space usually is.
+    'all':      'docker system prune -a -f',
 }
+_DOCKER_PRUNE_DESTRUCTIVE = {
+    # Data-destroying. Both require the typed confirmation below.
+    'volumes':  'docker volume prune -f',
+    'full':     'docker system prune -a --volumes -f',
+}
+_DOCKER_PRUNE_CMDS = {**_DOCKER_PRUNE_SAFE, **_DOCKER_PRUNE_DESTRUCTIVE}
+_DOCKER_PRUNE_CONFIRM = 'DELETE VOLUMES'
 
 
 def handle_device_docker_prune(dev_id):
     """POST /api/devices/{id}/docker/prune — reclaim docker disk space.
 
-    Body: {scope: images|cache|all}. Rides the existing audited command queue,
-    so quarantine / audit-mode / maker-checker all apply exactly as they do to
-    any other exec. NEVER prunes volumes (that would delete data).
+    Body: {scope, confirm?}.
+
+      scope=images|cache|networks|all   safe; everything removed is recreatable.
+      scope=volumes|full                DESTROYS DATA — requires
+                                        confirm="DELETE VOLUMES".
+
+    Rides the existing audited command queue, so quarantine / audit-mode /
+    maker-checker all apply exactly as they do to any other exec.
     """
     actor = require_perm('containers', [dev_id])
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    scope = str(get_json_obj().get('scope', 'all')).strip().lower()
+    body = get_json_obj()
+    scope = str(body.get('scope', 'all')).strip().lower()
     if scope not in _DOCKER_PRUNE_CMDS:
         respond(400, {'error': f'scope must be one of {list(_DOCKER_PRUNE_CMDS)}'})
+    # The typed confirmation is checked HERE, not in the browser. A UI-only
+    # confirm is theatre: anything can POST to this endpoint.
+    if scope in _DOCKER_PRUNE_DESTRUCTIVE:
+        if str(body.get('confirm', '')).strip() != _DOCKER_PRUNE_CONFIRM:
+            respond(400, {
+                'error': f'scope "{scope}" deletes the data in every volume no '
+                         'running container references — including a stopped '
+                         "stack's volumes. Re-send with "
+                         f'confirm="{_DOCKER_PRUNE_CONFIRM}" to proceed.',
+                'requires_confirm': _DOCKER_PRUNE_CONFIRM,
+            })
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not _tenant_visible(dev):
@@ -29882,14 +30162,16 @@ def handle_device_docker_prune(dev_id):
         if cmd_payload not in cmds[dev_id]:
             cmds[dev_id].append(cmd_payload)
     log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
-    audit_log(actor, 'docker_prune', detail=f'device={dev_id} scope={scope}')
+    audit_log(actor, 'docker_prune',
+              detail=f'device={dev_id} scope={scope}'
+                     + (' DESTRUCTIVE' if scope in _DOCKER_PRUNE_DESTRUCTIVE else ''))
     fire_webhook('command_queued', {
         'device_id': dev_id, 'name': dev.get('name', dev_id),
         'command': cmd_payload, 'actor': actor,
     })
-    respond(200, {'ok': True, 'queued': cmd_payload,
-                  'message': 'Prune queued — it runs on the next heartbeat. '
-                             'Volumes are never pruned.'})
+    respond(200, {'ok': True, 'queued': cmd_payload, 'scope': scope,
+                  'destructive': scope in _DOCKER_PRUNE_DESTRUCTIVE,
+                  'message': 'Cleanup queued — it runs on the next heartbeat.'})
 
 
 def handle_device_compose_action(dev_id):
@@ -31056,6 +31338,360 @@ def _mailflow_imap_find(cfg, token, now):
                 pass
     except Exception:
         return None
+
+
+# ── v6.1.2: WAN public-IP watch, auto-DDNS, and the internet outage log ─────
+# A homelab's public IP changes and nothing tells you: your VPN endpoint, your
+# port forwards, your published services all point at an address that is now
+# someone else's. The usual answer is a second daemon (ddclient) doing exactly
+# this. RemotePower already has an SSRF-guarded HTTP client AND a DNS-provider
+# write API — the pieces were both here and simply never connected.
+#
+# The check is also the honest source for "is the internet up?": every sample is
+# a real request to a public endpoint, so a failure IS an outage from this host's
+# point of view. We log those transitions rather than throwing them away.
+
+WAN_IP_CHECK_INTERVAL_S = 300      # 5 min — a dynamic IP rarely changes faster
+_WAN_IP_URLS = (
+    # Plain-text single-line responders. Two providers so one being down is not
+    # an "outage"; we only call it an outage when we cannot reach ANY of them.
+    'https://api.ipify.org',
+    'https://ifconfig.me/ip',
+)
+_IPV4_RE = re.compile(r'^\d{1,3}(?:\.\d{1,3}){3}$')
+
+
+def _fetch_public_ip():
+    """Our public IPv4 as seen from outside, or None if nothing answered.
+
+    None means "no public endpoint was reachable" — which is what an internet
+    outage looks like from in here, and is treated as such by the caller.
+    """
+    for url in _WAN_IP_URLS:
+        try:
+            opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True)
+            req = urllib.request.Request(url, headers={'User-Agent': 'RemotePower'})
+            with opener.open(req, timeout=8) as r:
+                ip = (r.read(64) or b'').decode(errors='replace').strip()
+            if _IPV4_RE.match(ip) and all(0 <= int(o) <= 255 for o in ip.split('.')):
+                return ip
+        except Exception:
+            continue
+    return None
+
+
+def run_wan_ip_check_if_due():
+    """Sample the public IP; fire wan_ip_changed, keep an outage log, run DDNS."""
+    cfg = _config_ro()
+    if not cfg.get('wan_watch_enabled'):
+        return
+    now = int(time.time())
+    st = load(WAN_STATE_FILE) or {}
+    if now - int(st.get('checked') or 0) < WAN_IP_CHECK_INTERVAL_S:
+        return
+
+    ip = _fetch_public_ip()
+    prev_ip = st.get('ip')
+    was_up = st.get('online', True)
+    is_up = ip is not None
+
+    events = []          # fired AFTER the store write (fire_webhook self-locks)
+    # ── internet up/down ──────────────────────────────────────────────────
+    outages = list(st.get('outages') or [])
+    if was_up and not is_up:
+        outages.append({'start': now, 'end': None})
+        events.append(('wan_down', {}))
+    elif not was_up and is_up:
+        if outages and outages[-1].get('end') is None:
+            outages[-1]['end'] = now
+            dur = now - int(outages[-1].get('start') or now)
+        else:
+            dur = 0
+        events.append(('wan_up', {'duration_s': dur}))
+    outages = outages[-50:]        # bounded — this is a log, not a time series
+
+    # ── public IP changed ─────────────────────────────────────────────────
+    ddns = None
+    if is_up and prev_ip and ip != prev_ip:
+        events.append(('wan_ip_changed', {'old_ip': prev_ip, 'new_ip': ip}))
+        ddns = _run_auto_ddns(ip, cfg)
+
+    st = {'ip': ip or prev_ip,      # keep the last KNOWN ip through an outage
+          'checked': now,
+          'online': is_up,
+          'outages': outages,
+          'since': now if was_up != is_up else st.get('since', now)}
+    if ddns:
+        st['ddns'] = ddns
+    save(WAN_STATE_FILE, st)
+
+    for ev, payload in events:
+        try:
+            fire_webhook(ev, payload)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] wan event {ev} failed: {e}\n')
+
+
+def _run_auto_ddns(ip, cfg):
+    """Point a DNS A record at the new public IP. Returns a small result dict.
+
+    HONEST LIMITATION: the DNS providers' credentials can live EITHER in the
+    plaintext ACME credential store OR encrypted in the CMDB vault. The vault is
+    unlocked per-REQUEST with a key the browser sends — a background sweep has no
+    such key and never will. So auto-DDNS works with plaintext ACME credentials
+    only, and says so plainly rather than failing in a way that looks like a bug.
+    """
+    d = cfg.get('ddns') or {}
+    # `enabled` is DERIVED from the provider by the Settings save path (the select's
+    # "Off" option is the switch). Don't require the key to be present: a config
+    # written by hand, by GitOps or by declarative-config would carry provider+zone
+    # and no `enabled`, and demanding it would silently disable auto-DDNS for those
+    # deployments — a failure that looks exactly like "the feature is broken".
+    if d.get('enabled') is False or not d.get('provider') or not d.get('zone'):
+        return None
+    record = str(d.get('record') or '').strip()
+    if not record:
+        return None
+    spec = dns_zones_mod.PROVIDERS.get(str(d['provider']))
+    if not spec:
+        return {'ok': False, 'ts': int(time.time()),
+                'error': f"unknown DNS provider {d['provider']!r}"}
+    creds = dict((cfg.get('acme_dns_credentials') or {}).get(spec.acme_provider) or {})
+    if not creds:
+        vaulted = (cfg.get('dns_vault_creds') or {}).get(spec.key)
+        return {'ok': False, 'ts': int(time.time()),
+                'error': ('this provider\'s credentials are in the VAULT. Auto-DDNS '
+                          'runs in the background and cannot unlock it (the key comes '
+                          'from your browser). Store them under ACME → DNS credentials '
+                          'to use auto-DDNS.') if vaulted else
+                         f'no credentials configured for {spec.label}'}
+    try:
+        client = _SSRFIntegrationClient(spec.base_url, verify_tls=True,
+                                        timeout=_INTEGRATION_HTTP_TIMEOUT_S)
+        prov = spec(client, creds)
+        zone_id = str(d['zone'])
+        zone_name = str(d.get('zone_name') or '')
+        existing = prov.list_records(zone_id, zone_name)
+        want = record if record != '@' else (zone_name or record)
+        target = next((r for r in existing
+                       if str(r.get('type')) == 'A'
+                       and str(r.get('name', '')).rstrip('.') in
+                       (want.rstrip('.'), record.rstrip('.'))), None)
+        if not target:
+            return {'ok': False, 'ts': int(time.time()),
+                    'error': f'no A record named {record!r} in the zone — create it '
+                             'once, then auto-DDNS keeps it pointed at your IP'}
+        if str(target.get('value') or target.get('content') or '') == ip:
+            return {'ok': True, 'ts': int(time.time()), 'ip': ip,
+                    'note': 'record already correct'}
+        rec = dict(target)
+        rec['value'] = ip
+        rec['type'] = 'A'
+        prov.update_record(zone_id, zone_name, target.get('id'), rec)
+        audit_log('system', 'ddns_update',
+                  detail=f"{record} -> {ip} via {spec.label}")
+        return {'ok': True, 'ts': int(time.time()), 'ip': ip, 'record': record}
+    except Exception as e:
+        return {'ok': False, 'ts': int(time.time()),
+                'error': f'{e.__class__.__name__}: {e}'[:200]}
+
+
+# ── v6.1.2: inbound dead-man's-switch pings ────────────────────────────────
+# The outbound healthchecks.io pinger (we ping THEM so an external watchdog sees
+# us) has existed for ages, and the agent can check a file's freshness on an
+# enrolled host. Neither covers the case that actually bites: a cron job on
+# something that ISN'T in the fleet — the router's backup script, a VPS, a task
+# on the NAS. Those fail silently, and you find out months later.
+#
+# This is the healthchecks.io shape, inverted: each job gets a URL, the job curls
+# it when it finishes, and if a check-in doesn't arrive within period+grace we
+# alert. A job that never runs is exactly the thing that never tells you.
+MAX_DEADMAN_JOBS = 100
+
+
+def _deadman_load():
+    d = load(DEADMAN_FILE)
+    return d if isinstance(d, dict) and 'jobs' in d else {'jobs': []}
+
+
+def handle_deadman_ping(token_str):
+    """GET|POST /api/ping/<token> — a job checking in. NO AUTH BY DESIGN.
+
+    The token IS the credential (128 bits of urandom), exactly like the inbound
+    syslog/webhook receivers: the caller is a `curl` line at the end of someone's
+    backup script, which cannot carry a session or an API key. An attacker who
+    guesses a token can only make a job look HEALTHY — never fire a false alarm,
+    never read anything. That's a deliberate trade, and it's why this endpoint
+    can't do anything except record a timestamp.
+    """
+    tok = _sanitize_str(str(token_str or ''), 64)
+    fired = None
+    with _LockedUpdate(DEADMAN_FILE) as store:
+        jobs = store.setdefault('jobs', [])
+        job = next((j for j in jobs if isinstance(j, dict) and j.get('token') == tok), None)
+        if not job:
+            # 404 with no detail — don't confirm which tokens exist.
+            respond(404, {'error': 'Not found'})
+        now = int(time.time())
+        was_late = bool(job.get('late'))
+        job['last_ping'] = now
+        job['pings'] = int(job.get('pings') or 0) + 1
+        job['late'] = False
+        if was_late:
+            fired = dict(job)
+    if fired:
+        # It had been reported missing and has now come back.
+        try:
+            fire_webhook('ping_recovered', {'job': fired.get('name'),
+                                            'job_id': fired.get('id')})
+        except Exception:
+            pass
+    respond(200, {'ok': True})
+
+
+def handle_deadman_jobs():
+    """GET /api/deadman — list jobs. POST — create {name, period_minutes,
+    grace_minutes}. Admin. The token (and so the URL) is shown once on create and
+    is not secret in the auth sense — see handle_deadman_ping."""
+    m = method()
+    if m == 'GET':
+        require_auth()
+        now = int(time.time())
+        out = []
+        for j in _deadman_load()['jobs']:
+            if not isinstance(j, dict):
+                continue
+            due_in = None
+            if j.get('last_ping'):
+                deadline = (int(j['last_ping'])
+                            + int(j.get('period_minutes', 60)) * 60
+                            + int(j.get('grace_minutes', 10)) * 60)
+                due_in = deadline - now
+            out.append({**j, 'due_in_s': due_in})
+        respond(200, {'ok': True, 'jobs': out})
+    if m != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    name = _sanitize_str(str(body.get('name', '')), 96).strip()
+    if not name:
+        respond(400, {'error': 'name is required'})
+    try:
+        period = max(1, min(43200, int(body.get('period_minutes') or 60)))
+        grace = max(1, min(10080, int(body.get('grace_minutes') or 10)))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'period_minutes / grace_minutes must be numbers'})
+    with _LockedUpdate(DEADMAN_FILE) as store:
+        jobs = store.setdefault('jobs', [])
+        if len(jobs) >= MAX_DEADMAN_JOBS:
+            respond(400, {'error': f'job limit reached (max {MAX_DEADMAN_JOBS})'})
+        job = {
+            # 'dm-' prefix is load-bearing, not cosmetic: the frontend's data-arg
+            # dispatcher coerces any numeric-LOOKING string to a Number, and a bare
+            # hex id can be numeric ('1e5000000000' parses as Infinity), which would
+            # corrupt the id on the way to DELETE. A non-numeric prefix can't be coerced.
+            'id': 'dm-' + secrets.token_hex(6),
+            'token': secrets.token_urlsafe(24),
+            'name': name,
+            'period_minutes': period,
+            'grace_minutes': grace,
+            'created': int(time.time()),
+            'created_by': actor,
+            'last_ping': 0,
+            'pings': 0,
+            'late': False,
+        }
+        jobs.append(job)
+    audit_log(actor, 'deadman_create', detail=f'job={name} period={period}m')
+    respond(200, {'ok': True, 'job': job,
+                  'url': f"{_request_base_url()}/api/ping/{job['token']}"})
+
+
+def handle_deadman_job(job_id):
+    """DELETE /api/deadman/<id> — remove a job (admin)."""
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    removed = None
+    with _LockedUpdate(DEADMAN_FILE) as store:
+        jobs = store.setdefault('jobs', [])
+        for i, j in enumerate(jobs):
+            if isinstance(j, dict) and j.get('id') == job_id:
+                removed = jobs.pop(i)
+                break
+    if not removed:
+        respond(404, {'error': 'job not found'})
+    audit_log(actor, 'deadman_delete', detail=f"job={removed.get('name')}")
+    respond(200, {'ok': True})
+
+
+def run_deadman_check_if_due():
+    """Fire ping_missed for any job whose check-in window has passed.
+
+    Edge-triggered on a `late` flag, so a job that has been silent for a week
+    alerts ONCE, not every minute. A job that has never checked in is not late
+    yet — its clock starts at the first ping, or you'd get an alert the moment
+    you created it, before you had even added the curl line.
+    """
+    store = _deadman_load()
+    jobs = store.get('jobs') or []
+    if not jobs:
+        return
+    now = int(time.time())
+    newly_late = []
+    changed = False
+    with _LockedUpdate(DEADMAN_FILE) as st:
+        for j in st.get('jobs') or []:
+            if not isinstance(j, dict) or not j.get('last_ping'):
+                continue      # never pinged → the clock hasn't started
+            deadline = (int(j['last_ping'])
+                        + int(j.get('period_minutes', 60)) * 60
+                        + int(j.get('grace_minutes', 10)) * 60)
+            if now > deadline and not j.get('late'):
+                j['late'] = True
+                changed = True
+                newly_late.append(dict(j))
+    if not changed:
+        return
+    for j in newly_late:
+        try:
+            fire_webhook('ping_missed', {
+                'job': j.get('name'), 'job_id': j.get('id'),
+                'last_ping': j.get('last_ping'),
+                'period_minutes': j.get('period_minutes'),
+            })
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] ping_missed fire failed: {e}\n')
+
+
+def handle_wan_status():
+    """GET /api/wan — public IP, internet up/down, and the outage log."""
+    require_auth()
+    st = load(WAN_STATE_FILE) or {}
+    outages = [o for o in (st.get('outages') or []) if isinstance(o, dict)]
+    now = int(time.time())
+    # Uptime % over the last 30 days, from the outage log. Honest denominator:
+    # only count from the first sample we ever took, not from 30 days ago.
+    window_start = max(now - 30 * 86400, int(st.get('first_seen') or now - 30 * 86400))
+    down = 0
+    for o in outages:
+        s = max(int(o.get('start') or 0), window_start)
+        e = int(o.get('end') or now)
+        if e > s:
+            down += e - s
+    span = max(1, now - window_start)
+    respond(200, {
+        'enabled': bool(_config_ro().get('wan_watch_enabled')),
+        'ip': st.get('ip'),
+        'online': st.get('online', True),
+        'checked': st.get('checked', 0),
+        'since': st.get('since', 0),
+        'outages': list(reversed(outages))[:20],
+        'outage_count_30d': sum(1 for o in outages
+                                if int(o.get('start') or 0) >= window_start),
+        'uptime_pct_30d': round(100.0 * (span - down) / span, 3),
+        'ddns': st.get('ddns'),
+    })
 
 
 def run_resolver_health_if_due() -> None:
@@ -57328,6 +57964,10 @@ def _build_exact_routes():
         ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
         ('GET', '/api/image-cves'): handle_image_cves,   # W6-34
         ('POST', '/api/image-cves/scan'): handle_image_cve_scan,   # v6.1.2
+        ('GET', '/api/wan'): handle_wan_status,                    # v6.1.2
+        ('GET', '/api/mdns'): handle_mdns_services,               # v6.1.2
+        ('GET', '/api/deadman'): handle_deadman_jobs,             # v6.1.2
+        ('POST', '/api/deadman'): handle_deadman_jobs,            # v6.1.2
         # W6-28: customer portal (closed allowlist; token-cookie auth, not X-Token).
         ('POST', '/api/portal/magic-link'): handle_portal_magic_link,
         ('POST', '/api/portal/session'): handle_portal_session,
@@ -58083,6 +58723,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/docker/prune', 'handle_device_docker_prune', "pi.startswith('/api/devices/') and pi.endswith('/docker/prune') and m == 'POST'"),
+    ('pat', ('GET', 'POST'), '/api/ping/', '', 'handle_deadman_ping', "pi.startswith('/api/ping/') and m in ('GET', 'POST')"),
+    ('pat', ('DELETE',), '/api/deadman/', '', 'handle_deadman_job', "pi.startswith('/api/deadman/') and m == 'DELETE'"),
     ('pat', ('PUT',), '/api/tls/targets/', '', 'handle_tls_update', "pi.startswith('/api/tls/targets/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/tls/targets/', '', 'handle_tls_delete', "pi.startswith('/api/tls/targets/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/dmarc/targets/', '', 'handle_dmarc_delete', "pi.startswith('/api/dmarc/targets/') and m == 'DELETE'"),
@@ -58509,6 +59151,10 @@ def main():
     _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
+    # v6.1.2: public-IP watch (+ auto-DDNS + the internet outage log), and the
+    # inbound dead-man's-switch check-in deadlines.
+    _safe(run_wan_ip_check_if_due, 'run_wan_ip_check_if_due')
+    _safe(run_deadman_check_if_due, 'run_deadman_check_if_due')
     # v5.8.0: periodic TLS/DANE expiry re-probe (was cron-only — see the sweep).
     _safe(run_tls_scan_if_due, 'run_tls_scan_if_due')
     # W1-17: certificate-transparency watch (crt.sh, off unless domains set).

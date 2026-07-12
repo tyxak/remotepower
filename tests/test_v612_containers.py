@@ -124,12 +124,20 @@ class TestDockerDiskUsage(unittest.TestCase):
 
 
 class TestDockerPrune(unittest.TestCase):
-    def test_volumes_are_NEVER_pruned(self):
-        # `docker volume prune` deletes DATA. Someone clearing "disk space"
-        # must not be one mis-click from wiping their Nextcloud volume.
-        for cmd in api._DOCKER_PRUNE_CMDS.values():
-            self.assertNotIn("volume", cmd)
-        self.assertEqual(sorted(api._DOCKER_PRUNE_CMDS), ["all", "cache", "images"])
+    def test_volumes_are_never_pruned_without_an_explicit_confirmation(self):
+        # This test used to assert volumes could never be pruned AT ALL. Volume /
+        # network / full cleanup is now a deliberate feature (people genuinely need
+        # to reclaim the space), so the invariant moved rather than disappeared:
+        # `docker volume prune` deletes DATA, so it must never be reachable by
+        # mis-click — only behind a typed, server-checked confirmation.
+        for cmd in api._DOCKER_PRUNE_SAFE.values():
+            self.assertNotIn("volume", cmd,
+                             "a scope that needs no confirmation must not touch volumes")
+        self.assertEqual(sorted(api._DOCKER_PRUNE_SAFE),
+                         ["all", "cache", "images", "networks"])
+        self.assertEqual(sorted(api._DOCKER_PRUNE_DESTRUCTIVE), ["full", "volumes"])
+        self.assertTrue(api._DOCKER_PRUNE_CONFIRM,
+                        "the destructive scopes need a confirmation phrase")
 
     def test_the_command_is_a_fixed_server_side_template(self):
         # No operator input reaches the shell.

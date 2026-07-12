@@ -563,29 +563,65 @@ async function containersOpen(deviceId, name) {
 
 // v6.1.2: reclaim docker disk space. Rides the audited command queue, so
 // quarantine / audit-mode / maker-checker apply exactly as to any other exec.
-// VOLUMES ARE NEVER PRUNED — `docker volume prune` deletes DATA, and someone
-// clearing "disk space" should not be one mis-click from wiping their Nextcloud
-// volume. Images and build cache are recreatable by definition.
+//
+// The scope list splits into two classes and the split IS the safety model:
+// images/cache/networks/all remove only RECREATABLE things (an image re-pulls,
+// a cache rebuilds, an unused network is re-created by `compose up`) — worst
+// case you wait. volumes/full delete the DATA in every volume no *running*
+// container references, and a stopped stack's volumes look exactly like
+// abandoned ones to Docker. That's how people lose their Nextcloud data, so it
+// takes a typed confirmation — which the SERVER checks, because a browser-only
+// confirm is theatre when anything can POST to the API.
+const DOCKER_CLEANUP_SCOPES = [
+  { id: 'images',   label: 'Unused images',        hint: 'Re-pulled on next start' },
+  { id: 'cache',    label: 'Build cache',          hint: 'Rebuilt on next build' },
+  { id: 'networks', label: 'Unused networks',      hint: 'Re-created by compose up' },
+  { id: 'all',      label: 'All of the above',     hint: 'docker system prune -a — no volumes' },
+  { id: 'volumes',  label: 'Unused VOLUMES',       hint: 'DELETES DATA', destructive: true },
+  { id: 'full',     label: 'FULL — everything incl. volumes', hint: 'DELETES DATA', destructive: true },
+];
+const DOCKER_CLEANUP_CONFIRM = 'DELETE VOLUMES';
+
 async function pruneDocker(deviceId) {
-  const scope = await uiPrompt({
-    title: 'Reclaim Docker disk space',
-    message: 'What should be pruned?\n\n'
-           + '  images  — dangling/unused images\n'
-           + '  cache   — the build cache\n'
-           + '  all     — both (default)\n\n'
-           + 'Volumes are NEVER pruned — that would delete data.',
-    value: 'all',
-    confirmText: 'Queue prune',
+  const list = DOCKER_CLEANUP_SCOPES
+    .map((s, i) => `${i + 1}. ${s.label} — ${s.hint}`)
+    .join('\n');
+  const pick = await uiPrompt({
+    title: 'Clean up Docker',
+    message: 'What should be removed?\n\n' + list
+      + '\n\nOptions 1–4 only remove things Docker can recreate.\n'
+      + 'Options 5–6 DELETE THE DATA in every volume no running container '
+      + 'uses — including the volumes of a stack you have merely stopped.',
+    value: '4',
+    confirmText: 'Continue',
   });
-  if (scope === null) return;
-  const s = String(scope).trim().toLowerCase() || 'all';
-  if (!['images', 'cache', 'all'].includes(s)) {
-    toast('Pick images, cache, or all', 'error');
-    return;
+  if (pick === null) return;
+  const scope = DOCKER_CLEANUP_SCOPES[parseInt(pick, 10) - 1];
+  if (!scope) { toast(`Pick a number from 1 to ${DOCKER_CLEANUP_SCOPES.length}`, 'error'); return; }
+
+  const body = { scope: scope.id };
+  if (scope.destructive) {
+    const typed = await uiPrompt({
+      title: 'This deletes data',
+      message: `"${scope.label}" removes every Docker volume that no RUNNING `
+             + 'container references. Docker cannot tell an abandoned volume from '
+             + 'one belonging to a stack you stopped an hour ago — both look unused. '
+             + 'Databases, Nextcloud data, Paperless documents: gone, with no undo.\n\n'
+             + `Type ${DOCKER_CLEANUP_CONFIRM} to proceed.`,
+      placeholder: DOCKER_CLEANUP_CONFIRM,
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (typed === null) return;
+    if (String(typed).trim() !== DOCKER_CLEANUP_CONFIRM) {
+      toast('Not confirmed — nothing was removed', 'error');
+      return;
+    }
+    body.confirm = DOCKER_CLEANUP_CONFIRM;
   }
-  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/docker/prune`, { scope: s });
-  if (r && r.ok) toast(r.message || 'Prune queued', 'success');
-  else toast((r && r.error) || 'Failed to queue prune', 'error');
+  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/docker/prune`, body);
+  if (r && r.ok) toast(r.message || 'Cleanup queued', 'success');
+  else toast((r && r.error) || 'Failed to queue cleanup', 'error');
 }
 
 // v6.1.2: the `docker system df` panel — footprint by bucket, what a prune

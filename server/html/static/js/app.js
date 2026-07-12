@@ -3562,6 +3562,14 @@ async function loadSettings() {
   { const s = document.getElementById('cfg-snapshot-stale-days'); if (s) s.value = data.snapshot_stale_days ?? 0; }
   { const s = document.getElementById('cfg-unit-flap-restarts'); if (s) s.value = data.unit_flap_restarts ?? 0; }
   { const s = document.getElementById('cfg-drift-watch-compose'); if (s) s.checked = !!data.drift_watch_compose; }
+  // v6.1.2: WAN watch + DDNS + mDNS. The DDNS *token* is never echoed back here —
+  // it lives in the vault, not the config (see the secret-scrub rule).
+  { const s = document.getElementById('cfg-wan-watch'); if (s) s.checked = !!data.wan_watch_enabled; }
+  { const s = document.getElementById('cfg-mdns-enabled'); if (s) s.checked = !!data.mdns_enabled; }
+  { const d = data.ddns || {};
+    const p = document.getElementById('cfg-ddns-provider'); if (p) p.value = d.provider || '';
+    const z = document.getElementById('cfg-ddns-zone');     if (z) z.value = d.zone || '';
+    const r = document.getElementById('cfg-ddns-record');   if (r) r.value = d.record || ''; }
   loadMaintenanceMode();
   loadLitigationHold();
 
@@ -3714,6 +3722,14 @@ async function saveSettings(btn) {
     snapshot_stale_days:    parseInt(document.getElementById('cfg-snapshot-stale-days')?.value ?? '0', 10),
     unit_flap_restarts:     parseInt(document.getElementById('cfg-unit-flap-restarts')?.value ?? '0', 10),
     drift_watch_compose:    document.getElementById('cfg-drift-watch-compose')?.checked || false,
+    // v6.1.2: WAN watch + dynamic DNS + mDNS discovery.
+    wan_watch_enabled:      document.getElementById('cfg-wan-watch')?.checked || false,
+    mdns_enabled:           document.getElementById('cfg-mdns-enabled')?.checked || false,
+    ddns: {
+      provider: document.getElementById('cfg-ddns-provider')?.value || '',
+      zone:     document.getElementById('cfg-ddns-zone')?.value.trim() || '',
+      record:   document.getElementById('cfg-ddns-record')?.value.trim() || '',
+    },
 
     // v1.8.6: SMTP
     smtp_enabled:    document.getElementById('cfg-smtp-enabled').checked,
@@ -15743,6 +15759,8 @@ function _renderHomeActivity(fleetEvents) {
     // v3.4.0: hardware health
     'smart_failure', 'smart_recovered', 'kernel_outdated', 'kernel_current',
     'ecc_errors',   // v6.1.2
+    'wan_ip_changed', 'wan_down', 'wan_up', 'mac_conflict',   // v6.1.2
+    'ping_missed', 'ping_recovered',                          // v6.1.2
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
     // v3.11.0: exposure / software-policy / storage / access / firewall / timer
@@ -15949,6 +15967,9 @@ function _homeActivityAttrs(event, p) {
       // Click → MCP Confirmations admin page so the operator can see
       // what timed out
       return `${base} data-home-act="confirmations"`;
+    case 'wan_ip_changed': case 'wan_down': case 'wan_up':     // v6.1.2 -> network map
+    case 'mac_conflict': case 'ping_missed': case 'ping_recovered':
+      return `data-home-act="netmap"`;
     case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)

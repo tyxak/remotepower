@@ -303,6 +303,9 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'storage_degraded', 'scrub_overdue', 'storage_recovered',
             # v6.1.2: snapshot recency + ECC memory errors
             'snapshot_stale', 'snapshot_ok', 'ecc_errors',
+            # v6.1.2: WAN watch, duplicate MAC, inbound dead-man's-switch
+            'wan_ip_changed', 'wan_down', 'wan_up', 'mac_conflict',
+            'ping_missed', 'ping_recovered',
             'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
             'db_integrity_failed', 'mount_issue',
             'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line',  # v6.1.1 (#76)

@@ -107,6 +107,59 @@ homelabs — the ability to switch off the enterprise modules you don't use.
   on the box — the two halves simply were never connected, so a hand-edited
   `docker-compose.yml`, the most common "why did this stack change?", drifted
   unwatched. Discovered paths are *appended*, never displacing what you curated.
+- **Docker disk cleanup, including volumes.** Reclaiming space meant SSH-ing in
+  and remembering which `prune` does what. Now it's a per-host action with the
+  scopes separated by *consequence*, not by convenience: **images / build cache /
+  networks / all** are one click, because everything they remove is recreatable.
+  **Volumes** and **full** (`system prune -a --volumes`) DELETE DATA, so they
+  require typing a confirmation phrase — and that phrase is checked **on the
+  server**, because a browser-only `confirm()` is theatre when anything can POST
+  to the endpoint. `docker system df` shows what's actually reclaimable before
+  you commit. The *scheduled* nightly prune deliberately offers only the safe
+  scopes: a recurring job that quietly deletes volumes every night is precisely
+  what nobody wants, and an unattended cron can't be shown a warning.
+
+### Added — network (the homelab's blind spots)
+
+- **Internet (WAN) watch.** Three things a self-hosted setup otherwise cannot
+  see. **Your public IP changed** (`wan_ip_changed`) — a dynamic-lease rotation
+  silently breaks every port-forward, VPN endpoint and DNS record pointing home,
+  and you normally discover it when something stops working. **The internet is
+  down** (`wan_down`/`wan_up`), as a fact distinct from a host being down. And an
+  **outage log with 30-day uptime** — the evidence you need when you call the
+  ISP. Off by default; it makes an outbound request.
+- **Auto-DDNS.** On a detected IP change, point a Cloudflare A record at the new
+  address — what people otherwise run a second daemon (`ddclient`) for; the DNS
+  write API and the SSRF-guarded client were both already here. **An honest
+  limitation, stated rather than hidden:** the vault is unlocked per-request with
+  a key the browser sends, so a background sweep can never open it. Auto-DDNS
+  therefore works with the plaintext ACME DNS credentials, and when the
+  provider's credentials are in the vault it *skips and says so* — the
+  `wan_ip_changed` event still fires, so you always find out.
+- **Job check-ins (a dead-man's switch).** For cron jobs on the things that
+  **aren't in the fleet** — the router's backup script, a VPS, a task on the NAS.
+  Those fail silently and you find out months later. Give the job a URL, have it
+  `curl` that URL when it finishes; no check-in within period + grace fires
+  `ping_missed`, and a later check-in fires `ping_recovered`. The clock starts at
+  the **first** check-in, so a job created at 23:00 for an 03:00 cron doesn't
+  page you at 23:01. The endpoint is unauthenticated by design — the token *is*
+  the capability, and a caller holding it can only mark a job healthy, never read
+  anything or raise an alarm — and it is exempt from the operator IP allowlist,
+  because the caller is by definition on an arbitrary, off-fleet IP.
+- **Duplicate-MAC detection** (`mac_conflict`). One MAC on two devices is almost
+  always a cloned VM whose NIC was never regenerated — a Proxmox-homelab classic
+  that produces exactly the kind of baffling intermittent networking nobody
+  thinks to blame on a MAC. Notation is normalised (`AA-BB-cc` == `aabbcc`), and
+  all-zero/multicast addresses are ignored. Requires no subnet to be configured:
+  a duplicate MAC is wrong everywhere.
+- **LAN service discovery (mDNS).** The netscan finds *hosts* — it tells you an
+  IP is alive, not what it is. mDNS is how the rest of a homelab announces
+  itself: printers, Chromecasts, AirPlay, HomeKit bridges, NAS boxes. Those are
+  exactly the devices nobody enrols an agent on, so without this they are just
+  anonymous IPs on the network map. Off by default.
+- **Gateway latency history.** The agent already probed its default gateway but
+  threw the timing away; it now keeps a rolling window, so "the wifi feels slow"
+  becomes a chart instead of an argument.
 
 ### Added — host signals the agent never reported
 

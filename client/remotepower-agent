@@ -5398,6 +5398,58 @@ def get_clock_status():
     return out
 
 
+def get_mdns_services(limit=60):
+    """v6.1.2: what is ADVERTISING itself on this LAN (mDNS / Bonjour).
+
+    The netscan finds hosts (ARP/nmap) — it tells you an IP is alive, not what it
+    IS. mDNS is how the other half of a homelab announces itself: Chromecasts,
+    AirPlay speakers, printers, HomeKit bridges, Synology boxes, Proxmox nodes.
+    Those are exactly the devices nobody enrols an agent on, so without this they
+    are just anonymous IPs on the map.
+
+    Uses avahi-browse where present; returns [] otherwise (so the feature is
+    invisible rather than broken on a host without avahi). Strictly read-only:
+    it browses, it never registers anything.
+    """
+    tool = _which('avahi-browse')
+    if not tool:
+        return []
+    try:
+        # -a all types, -t terminate after the cache is dumped, -r resolve to
+        # host/port, -p parseable (semicolon-separated).
+        r = subprocess.run([tool, '-atrp', '--no-db-lookup'],
+                           capture_output=True, text=True, timeout=20)
+    except Exception as e:
+        log.debug(f'avahi-browse failed: {e}')
+        return []
+    if r.returncode != 0:
+        return []
+    seen = {}
+    for line in (r.stdout or '').splitlines():
+        # '=;eth0;IPv4;name;_http._tcp;local;host.local;192.168.1.5;80;"txt"'
+        f = line.split(';')
+        if len(f) < 9 or f[0] != '=' or f[2] != 'IPv4':
+            continue
+        name = f[3].replace('\\032', ' ').strip()[:96]
+        stype = f[4].strip()[:48]
+        host = f[6].strip()[:96]
+        addr = f[7].strip()[:45]
+        try:
+            port = int(f[8])
+        except (ValueError, IndexError):
+            port = 0
+        if not addr or not stype:
+            continue
+        key = (addr, stype, port)
+        if key in seen:
+            continue
+        seen[key] = {'name': name, 'type': stype, 'host': host,
+                     'address': addr, 'port': port}
+        if len(seen) >= limit:
+            break
+    return list(seen.values())
+
+
 def get_ecc_errors():
     """v6.1.2: ECC memory error counters from EDAC.
 
@@ -5549,9 +5601,20 @@ def get_network_gateway():
         return {}
     out = {'ip': gw}
     try:
+        # v6.1.2: capture the RTT, not just the exit code. The ping we already
+        # run PRINTS the latency — it was simply thrown away, so the gateway
+        # check could only ever say up/down. LAN congestion (a saturated uplink,
+        # a dying switch port, wifi that's degraded but not dead) shows up as
+        # rising latency long before it shows up as an unreachable gateway.
         r = subprocess.run(['ping', '-c', '1', '-W', '2', gw],
-                           capture_output=True, timeout=5)
+                           capture_output=True, text=True, timeout=5)
         out['reachable'] = (r.returncode == 0)
+        m = re.search(r'time[=<]([\d.]+)\s*ms', r.stdout or '')
+        if m:
+            try:
+                out['latency_ms'] = round(float(m.group(1)), 2)
+            except ValueError:
+                pass
     except Exception:
         out['reachable'] = None
     return out
@@ -8483,6 +8546,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     image_scan_on = False
     force_image_scan = False
     last_image_scan_ts = _load_image_scan_ts()   # v6.1.2: survives agent restarts
+    # v6.1.2: mDNS LAN browse — server-pushed opt-in, same shape as image_scan_on.
+    mdns_on = False
     # v3.0.0: IaC collection request from server
     pending_iac_request_id = None
     pending_iac_categories = None
@@ -8920,6 +8985,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo['autoupdate'] = get_autoupdate_posture()
             except Exception as e:
                 log.debug(f'autoupdate probe error: {e}')
+            # v6.1.2: mDNS service discovery — a LAN browse, so it rides the same
+            # slow cadence as the docker-df walk rather than every sysinfo poll.
+            # Only when the server asks for it (mdns_enabled), because browsing
+            # the LAN from every host in the fleet would be redundant noise: one
+            # agent per segment sees the same advertisements as all of them.
+            if mdns_on and poll_count % DOCKER_DF_EVERY == 0:
+                try:
+                    svcs = get_mdns_services()
+                    if svcs:
+                        payload['mdns'] = svcs
+                except Exception as e:
+                    log.debug(f'mdns probe error: {e}')
             # v3.14.0: GPU telemetry (nvidia-smi / rocm-smi).
             try:
                 gpus = get_gpu_status()
@@ -9162,6 +9239,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.info('Server requested a secrets scan')
             # W6-34: container-image CVE scan (trivy), opt-in + force.
             image_scan_on = bool(resp.get('image_scan_enabled'))
+            mdns_on = bool(resp.get('mdns_enabled'))   # v6.1.2
             if resp.get('force_image_scan'):
                 force_image_scan = True
                 log.info('Server requested an image CVE scan')

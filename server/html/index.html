@@ -2438,6 +2438,38 @@
               </div>
             </div>
           </div>
+          <div class="settings-section">
+            <div class="section-title">Internet (WAN) watch</div>
+            <p class="hint">Polls a public IP-echo service on the monitor cadence. It gives you three things a residential/self-hosted setup can't otherwise see: <strong>your public IP changed</strong> (a dynamic-IP lease renewal silently breaks every port-forward, VPN endpoint and DNS record pointing home), <strong>the internet is down</strong> as distinct from a host being down, and an <strong>outage log</strong> with 30-day uptime — the evidence you need when you call the ISP. Off by default; it makes an outbound request.</p>
+            <div class="settings-row">
+              <label class="form-label"><input type="checkbox" id="cfg-wan-watch"> Watch the public IP + internet reachability</label>
+            </div>
+            <p class="hint mt-8"><strong>Dynamic DNS.</strong> With a Cloudflare zone configured, a detected IP change can update an A record automatically, so your hostname follows the new lease. The API token is read from the <strong>vault</strong> at <code>ddns/cloudflare</code> — but note that only works while the vault is unsealed; a sealed vault means the update is <em>skipped and logged</em>, never silently wrong. The <code>wan_ip_changed</code> event fires either way, so you always find out.</p>
+            <div class="settings-row">
+              <div class="form-group mw-200">
+                <label for="cfg-ddns-provider" class="form-label">Provider</label>
+                <select id="cfg-ddns-provider" class="form-input">
+                  <option value="">Off</option>
+                  <option value="cloudflare">Cloudflare</option>
+                </select>
+              </div>
+              <div class="form-group mw-200">
+                <label for="cfg-ddns-zone" class="form-label">Zone ID</label>
+                <input type="text" id="cfg-ddns-zone" class="form-input" placeholder="Cloudflare zone id" maxlength="64">
+              </div>
+              <div class="form-group mw-200">
+                <label for="cfg-ddns-record" class="form-label">Record name</label>
+                <input type="text" id="cfg-ddns-record" class="form-input" placeholder="home.example.com" maxlength="253">
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">LAN service discovery (mDNS)</div>
+            <p class="hint">Asks agents to run <code>avahi-browse</code> and report what's advertising itself on their segment — printers, Chromecasts, AirPlay, HomeKit bridges, NAS boxes. These are the devices you'll never install an agent on, so without this they're just unlabelled IPs on the network map. Results appear under <strong>Network map → LAN services</strong>. Off by default: it's a broadcast query, and it names things on your LAN.</p>
+            <div class="settings-row">
+              <label class="form-label"><input type="checkbox" id="cfg-mdns-enabled"> Collect advertised LAN services from agents</label>
+            </div>
+          </div>
 
           <!-- ── v5.0.0 (#R3): maintenance mode ──────────────────────────────── -->
           <div class="settings-section">
@@ -6033,6 +6065,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-netmap" class="page">
         <div class="page-title">Network map</div>
         <div class="page-subtitle">Topology view from manually-set <code>connected_to</code> links and tunnels (peer links). Drag nodes to reposition — positions persist across refresh. Add agentless devices on the Devices page. <a href="docs/network-map.md" class="c-accent">Documentation</a></div>
+
+        <!-- v6.1.2: internet (WAN) watch — public IP, outage log, DDNS -->
+        <div class="dash-card mb-12" id="wan-card">
+          <div class="section-header"><div class="section-title">Internet (WAN)</div><button class="btn-icon" data-action="loadWan">Refresh</button></div>
+          <div id="wan-body"><div class="hint">Loading…</div></div>
+        </div>
+
+        <!-- v6.1.2: inbound dead-man's-switch pings for OFF-fleet jobs -->
+        <details class="dash-card mb-12">
+          <summary class="section-title">Job check-ins (dead-man's switch)</summary>
+          <p class="hint mt-8">For cron jobs on things that <strong>aren't in the fleet</strong> — the router's backup script, a VPS, a task on the NAS. Those fail silently and you find out months later. Give the job a URL, have it <code>curl</code> that URL when it finishes, and if a check-in doesn't arrive within its period + grace, RemotePower alerts. (This is the inverse of the outbound healthchecks.io pinger, which watches <em>RemotePower</em>.)</p>
+          <div class="row-6-center mt-8">
+            <input id="dm-name" class="form-input" aria-label="Job name" placeholder="Job name, e.g. NAS nightly backup" maxlength="96">
+            <input id="dm-period" type="number" class="form-input mw-160" aria-label="Check-in period in minutes" placeholder="Every (minutes)" min="1" max="43200" value="1440">
+            <input id="dm-grace" type="number" class="form-input mw-160" aria-label="Grace period in minutes" placeholder="Grace (minutes)" min="1" max="10080" value="60">
+            <button class="btn-primary" data-action="addDeadmanJob">Add job</button>
+          </div>
+          <div id="deadman-list" class="mt-8 scroll-cap"><div class="hint">Loading…</div></div>
+        </details>
+
+        <!-- v6.1.2: mDNS — what is ADVERTISING itself on the LAN -->
+        <details class="dash-card mb-12">
+          <summary class="section-title">LAN services (mDNS)</summary>
+          <p class="hint mt-8">The netscan finds <em>hosts</em> — it tells you an IP is alive, not what it is. mDNS is how the rest of a homelab announces itself: Chromecasts, AirPlay speakers, printers, HomeKit bridges, NAS boxes. Those are exactly the devices nobody enrols an agent on, so without this they're just anonymous IPs on the map. Enable under <strong>Settings → Security</strong>; needs <code>avahi-browse</code> on at least one agent per segment.</p>
+          <div id="mdns-list" class="mt-8 scroll-cap"><div class="hint">Loading…</div></div>
+        </details>
         <div class="isl-173">
           <button class="btn-icon" data-action="loadNetmap" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon" data-action="aiInsight" data-arg="network_review" title="AI: network dependency review — single points of failure, unmanaged hosts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>

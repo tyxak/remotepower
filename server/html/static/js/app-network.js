@@ -14,6 +14,231 @@ let _netmapDirty = new Set();   // device IDs whose position has been moved
 
 async function enterNetmap() {
   await loadNetmap();
+  loadWan();                      // v6.1.2 — independent of the topology fetch
+  loadDeadman();
+  loadMdns();
+}
+
+// ── v6.1.2: internet (WAN) watch ─────────────────────────────────────────────
+// Public IP + reachability + the outage log. Deliberately a separate fetch from
+// the topology: it's a different question ("is the internet up?" vs "how are my
+// hosts wired?") and it must still render when the map is empty.
+async function loadWan() {
+  const body = document.getElementById('wan-body');
+  if (!body) return;
+  let d;
+  try {
+    d = await api('GET', '/wan');
+  } catch (e) {
+    body.textContent = 'Could not load WAN status.';
+    return;
+  }
+  body.innerHTML = '';
+  if (!d.enabled) {
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = 'Off. Enable "Internet (WAN) watch" under Settings → Security to track your public IP, ISP outages and 30-day uptime.';
+    body.appendChild(p);
+    return;
+  }
+
+  const row = document.createElement('div');
+  row.className = 'stats-row';
+  const stat = (label, value, cls) => {
+    const w = document.createElement('div'); w.className = 'stat-card';
+    const inner = document.createElement('div');
+    const v = document.createElement('div'); v.className = 'stat-value' + (cls ? ' ' + cls : '');
+    v.textContent = value;
+    const l = document.createElement('div'); l.className = 'stat-label'; l.textContent = label;
+    inner.appendChild(v); inner.appendChild(l);
+    w.appendChild(inner); row.appendChild(w);
+  };
+  stat('Public IP', d.ip || '—');
+  stat('Status', d.online ? 'Online' : 'Offline', d.online ? 'c-green' : 'c-red');
+  stat('Outages (30d)', String(d.outage_count_30d ?? 0));
+  stat('Uptime (30d)', (d.uptime_pct_30d ?? 100).toFixed(2) + '%');
+  body.appendChild(row);
+
+  if (d.ddns) {
+    const dd = document.createElement('div');
+    dd.className = 'hint mt-8';
+    // The failure case is the one worth surfacing: DDNS did NOT update, and
+    // silently-stale DNS is exactly the failure this feature exists to prevent.
+    dd.textContent = d.ddns.ok
+      ? 'Dynamic DNS: updated ' + timeAgo(d.ddns.ts)
+      : 'Dynamic DNS: not updated — ' + (d.ddns.error || 'unknown error');
+    if (!d.ddns.ok) dd.classList.add('c-warn');
+    body.appendChild(dd);
+  }
+
+  const outages = d.outages || [];
+  if (!outages.length) {
+    const p = document.createElement('div');
+    p.className = 'hint mt-8';
+    p.textContent = 'No outages recorded yet.';
+    body.appendChild(p);
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'scrollable-table-wrap audit-scroll mt-8';
+  const t = document.createElement('table');
+  t.className = 'data-table';
+  const th = document.createElement('thead');
+  th.innerHTML = '<tr><th>Started</th><th>Ended</th><th>Duration</th></tr>';
+  const tb = document.createElement('tbody');
+  outages.slice().reverse().forEach(o => {
+    const tr = document.createElement('tr');
+    const c1 = document.createElement('td'); c1.textContent = _fmtTs(o.start, 4 * 86400);
+    const c2 = document.createElement('td');
+    c2.textContent = o.end ? _fmtTs(o.end, 4 * 86400) : 'ongoing';
+    const c3 = document.createElement('td');
+    c3.textContent = o.end ? _fmtDuration(Math.max(0, o.end - o.start)) : '—';
+    tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3);
+    tb.appendChild(tr);
+  });
+  t.appendChild(th); t.appendChild(tb); wrap.appendChild(t);
+  body.appendChild(wrap);
+}
+
+// ── v6.1.2: inbound dead-man's-switch ────────────────────────────────────────
+async function loadDeadman() {
+  const el = document.getElementById('deadman-list');
+  if (!el) return;
+  let d;
+  try {
+    d = await api('GET', '/deadman');
+  } catch (e) {
+    el.textContent = 'Could not load job check-ins.';
+    return;
+  }
+  el.innerHTML = '';
+  const jobs = d.jobs || [];
+  if (!jobs.length) {
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = 'No check-in jobs yet.';
+    el.appendChild(p);
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'scrollable-table-wrap audit-scroll';
+  const t = document.createElement('table');
+  t.className = 'data-table';
+  const th = document.createElement('thead');
+  th.innerHTML = '<tr><th>Job</th><th>Every</th><th>Last check-in</th><th>State</th><th>Ping URL</th><th></th></tr>';
+  const tb = document.createElement('tbody');
+  jobs.forEach(j => {
+    const tr = document.createElement('tr');
+    const name = document.createElement('td'); name.textContent = j.name;
+    const every = document.createElement('td');
+    every.textContent = _fmtDuration((j.period_minutes || 0) * 60) + ' (+' + (j.grace_minutes || 0) + 'm grace)';
+    const last = document.createElement('td');
+    last.textContent = j.last_ping ? timeAgo(j.last_ping) : 'never';
+    const state = document.createElement('td');
+    const b = document.createElement('span');
+    // "waiting" (never pinged) is deliberately NOT "late" — the clock only starts
+    // on the first check-in, so a job you just created doesn't page you at once.
+    const late = !!j.late, seen = !!j.last_ping;
+    b.className = 'badge badge-sm ' + (late ? 'c-red' : seen ? 'c-green' : 'c-muted');
+    b.textContent = late ? 'late' : seen ? 'ok' : 'waiting';
+    state.appendChild(b);
+    const url = document.createElement('td');
+    const code = document.createElement('code');
+    code.textContent = j.url || '';
+    code.className = 'ellipsis';
+    url.appendChild(code);
+    const act = document.createElement('td');
+    const copy = document.createElement('button');
+    copy.className = 'btn-icon';
+    copy.textContent = 'Copy';
+    copy.dataset.action = 'copyText';
+    copy.dataset.arg = j.url || '';
+    const del = document.createElement('button');
+    del.className = 'btn-icon';
+    del.textContent = 'Delete';
+    del.dataset.action = 'deleteDeadmanJob';
+    del.dataset.arg = j.id;
+    act.appendChild(copy); act.appendChild(del);
+    [name, every, last, state, url, act].forEach(c => tr.appendChild(c));
+    tb.appendChild(tr);
+  });
+  t.appendChild(th); t.appendChild(tb); wrap.appendChild(t);
+  el.appendChild(wrap);
+}
+
+async function addDeadmanJob() {
+  const name = document.getElementById('dm-name')?.value.trim();
+  const period = parseInt(document.getElementById('dm-period')?.value ?? '0', 10);
+  const grace = parseInt(document.getElementById('dm-grace')?.value ?? '0', 10);
+  if (!name) { toast('Give the job a name', 'error'); return; }
+  if (!(period > 0)) { toast('Set how often the job runs', 'error'); return; }
+  try {
+    await api('POST', '/deadman', {name: name, period_minutes: period, grace_minutes: grace});
+  } catch (e) {
+    toast(e.message || 'Could not add the job', 'error');
+    return;
+  }
+  const n = document.getElementById('dm-name'); if (n) n.value = '';
+  toast('Job added — have it curl the ping URL when it finishes');
+  loadDeadman();
+}
+
+async function deleteDeadmanJob(id) {
+  if (!confirm('Delete this check-in job? Its ping URL stops working.')) return;
+  try {
+    await api('DELETE', '/deadman/' + encodeURIComponent(id));
+  } catch (e) {
+    toast(e.message || 'Could not delete the job', 'error');
+    return;
+  }
+  loadDeadman();
+}
+
+// ── v6.1.2: mDNS-advertised LAN services ─────────────────────────────────────
+async function loadMdns() {
+  const el = document.getElementById('mdns-list');
+  if (!el) return;
+  let d;
+  try {
+    d = await api('GET', '/mdns');
+  } catch (e) {
+    el.textContent = 'Could not load LAN services.';
+    return;
+  }
+  el.innerHTML = '';
+  if (!d.enabled) {
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = 'Off. Enable "LAN service discovery (mDNS)" under Settings → Security.';
+    el.appendChild(p);
+    return;
+  }
+  const svcs = d.services || [];
+  if (!svcs.length) {
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = 'Nothing discovered yet. Agents report on their next heartbeat, and need avahi-browse installed.';
+    el.appendChild(p);
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'scrollable-table-wrap audit-scroll';
+  const t = document.createElement('table');
+  t.className = 'data-table';
+  const th = document.createElement('thead');
+  th.innerHTML = '<tr><th>Name</th><th>Type</th><th>Host</th><th>Address</th><th>Port</th><th>Seen by</th></tr>';
+  const tb = document.createElement('tbody');
+  svcs.forEach(s => {
+    const tr = document.createElement('tr');
+    [s.name, s.type, s.host, s.address, s.port ? String(s.port) : '', s.seen_by].forEach(v => {
+      const td = document.createElement('td');
+      td.textContent = v || '—';
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(th); t.appendChild(tb); wrap.appendChild(t);
+  el.appendChild(wrap);
 }
 
 // v5.0.0: scope the topology to one site / group / tag so a big fleet stays
