@@ -2954,7 +2954,13 @@ def get_services(watched_units):
     try:
         proc = subprocess.run(
             ['systemctl', 'show',
-             '--property=Id,ActiveState,SubState,ActiveEnterTimestampMonotonic,ActiveEnterTimestamp',
+             # v6.1.2: NRestarts rides along in the SAME batched call — no extra
+             # subprocess. A unit stuck in a crash/restart loop is 'active'
+             # every time we happen to sample it, so failed_unit never fires and
+             # the host looks perfectly healthy while a service flaps all day.
+             # The restart COUNT is the only thing that reveals it.
+             '--property=Id,ActiveState,SubState,ActiveEnterTimestampMonotonic,'
+             'ActiveEnterTimestamp,NRestarts',
              '--no-pager', '--', *units],
             capture_output=True, text=True, timeout=15,
         )
@@ -2973,6 +2979,10 @@ def get_services(watched_units):
             entry = {'unit': unit, 'active': active, 'sub': sub, 'since': since}
             if canonical != unit:
                 entry['canonical'] = canonical
+            try:
+                entry['restarts'] = int(props.get('NRestarts', ''))
+            except ValueError:
+                pass   # not a service unit (timer/socket/…), or an old systemd
             out.append(entry)
     except subprocess.TimeoutExpired:
         out = [{'unit': u, 'active': 'unknown', 'sub': 'timeout', 'since': 0} for u in units]
@@ -4465,6 +4475,51 @@ def get_host_health():
                             cur['mount'] = btrfs_mounts[devp]
     except Exception:
         pass
+    # ── v6.1.2: newest-snapshot age per pool ─────────────────────────
+    # Scrub recency has been reported since v3.11.0; SNAPSHOT recency never
+    # was — so a broken snapshot cron (the thing snapshots exist to survive)
+    # stayed invisible until the day you needed one. Best-effort, read-only,
+    # each backend guarded like the rest of this section.
+    try:
+        if _which('zfs') and any(p.get('kind') == 'zfs' for p in pools):
+            for p in pools:
+                if p.get('kind') != 'zfs':
+                    continue
+                r = subprocess.run(
+                    ['zfs', 'list', '-t', 'snapshot', '-H', '-p',
+                     '-o', 'creation', '-r', p['name']],
+                    capture_output=True, text=True, timeout=10)
+                if r.returncode == 0:
+                    ts = [int(x) for x in r.stdout.split() if x.isdigit()]
+                    if ts:
+                        p['last_snapshot'] = max(ts)
+                    else:
+                        p['last_snapshot'] = 0   # pool has NO snapshots at all
+    except Exception:
+        pass
+    try:
+        if _which('btrfs'):
+            for p in pools:
+                if p.get('kind') != 'btrfs' or not p.get('mount'):
+                    continue
+                r = subprocess.run(
+                    ['btrfs', 'subvolume', 'list', '-s', p['mount']],
+                    capture_output=True, text=True, timeout=10)
+                if r.returncode != 0:
+                    continue
+                newest = 0
+                for ln in r.stdout.splitlines():
+                    m = re.search(r'otime (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', ln)
+                    if m:
+                        try:
+                            newest = max(newest, int(time.mktime(
+                                time.strptime(m.group(1), '%Y-%m-%d %H:%M:%S'))))
+                        except (ValueError, OverflowError):
+                            pass
+                p['last_snapshot'] = newest   # 0 = no snapshots found
+    except Exception:
+        pass
+
     if pools:
         out['storage_health'] = pools[:40]
 
@@ -4799,6 +4854,57 @@ def get_smart_status():
         nw = re.search(r'Percentage Used:\s*(\d+)\s*%', out)
         if nw:
             entry['wear_pct'] = max(0, min(100, int(nw.group(1))))
+        # v6.1.2: NVMe spare-block reserve. Wear% says how used the flash is;
+        # available_spare says how much of the reserve pool is LEFT to remap
+        # failures into. When that runs low the drive is close to going
+        # read-only, which wear% alone doesn't tell you.
+        ns = re.search(r'Available Spare:\s*(\d+)\s*%', out)
+        if ns:
+            entry['spare_pct'] = max(0, min(100, int(ns.group(1))))
+        nst = re.search(r'Available Spare Threshold:\s*(\d+)\s*%', out)
+        if nst:
+            entry['spare_threshold_pct'] = max(0, min(100, int(nst.group(1))))
+
+        # v6.1.2: the last SMART SELF-TEST. `-H -A -i` reports the drive's own
+        # pass/fail opinion and its attributes, but NOT whether a self-test has
+        # ever actually run — so a disk that has not been tested in two years
+        # looked identical to one tested last night. A separate cheap call;
+        # -l selftest is a log read, it does not start anything.
+        try:
+            rt = subprocess.run([smartctl, '-l', 'selftest', dev],
+                                capture_output=True, text=True, timeout=20)
+            tout = rt.stdout or ''
+        except Exception:
+            tout = ''
+        if tout:
+            # ATA log:  "# 1  Short offline  Completed without error  00%  1234  -"
+            for ln in tout.splitlines():
+                m = re.match(r'\s*#\s*\d+\s+(\S.*?)\s\s+(\S.*?)\s\s+(\d+)%\s+(\d+)', ln)
+                if m:
+                    entry['selftest_type'] = m.group(1).strip()[:40]
+                    entry['selftest_result'] = m.group(2).strip()[:60]
+                    try:
+                        entry['selftest_hours'] = int(m.group(4))
+                    except ValueError:
+                        pass
+                    break
+            else:
+                # NVMe log — no '#' and no Remaining%; the hours column is
+                # followed by '-' placeholders, e.g.
+                #   " 0   Short   Completed without error   7405   -   -   -   -"
+                for ln in tout.splitlines():
+                    m = re.match(
+                        r'\s*\d+\s+(Short|Extended)\s+(\S.*?)\s\s+(\d+)\b', ln)
+                    if m:
+                        entry['selftest_type'] = m.group(1)
+                        entry['selftest_result'] = m.group(2).strip()[:60]
+                        try:
+                            entry['selftest_hours'] = int(m.group(3))
+                        except ValueError:
+                            pass
+                        break
+            if 'selftest_result' not in entry and 'No self-tests have been logged' in tout:
+                entry['selftest_result'] = 'never run'
         disks.append(entry)
     return disks
 
@@ -4842,6 +4948,33 @@ def get_kernel_status():
                 vers = [v for v in r.stdout.split() if v]
                 if vers:
                     latest = max(vers, key=_kernel_ver_key)
+        elif _which('pacman') and out.get('running'):
+            # v6.1.2: Arch and derivatives. The comment above always SAID
+            # "Arch: pacman linux" but no branch was ever written, so Arch
+            # boxes never showed "reboot for kernel" — and Arch has no
+            # /run/reboot-required either, so they had NO kernel-reboot signal
+            # at all. The canonical Arch method:
+            #   /usr/lib/modules/<uname -r>/pkgbase  = the package owning the
+            #   RUNNING kernel (works for linux, linux-lts, -zen, -hardened,
+            #   -cachyos, ...); `pacman -Q <pkgbase>` = its INSTALLED version.
+            # If the whole modules dir for the running kernel is GONE, pacman
+            # already removed it during an upgrade — a reboot is unambiguously
+            # required (this is also why a just-upgraded Arch box can't load
+            # e.g. USB-storage modules until it reboots).
+            run = out['running']
+            mod_dir = host_path(f'/usr/lib/modules/{run}')
+            pkgbase = (_safe_read(f'{mod_dir}/pkgbase', 128) or '').strip()
+            if pkgbase and re.fullmatch(r'[A-Za-z0-9._+-]{1,64}', pkgbase):
+                r = subprocess.run(['pacman', '-Q', pkgbase],
+                                   capture_output=True, text=True, timeout=10)
+                parts = r.stdout.split() if r.returncode == 0 else []
+                if len(parts) >= 2:
+                    # pacman versions use '.' before the flavour tag where
+                    # uname uses '-' ("6.9.7.arch1-1" vs "6.9.7-arch1-1") —
+                    # normalise so the prefix-containment check below works.
+                    latest = re.sub(r'\.([a-z])', r'-\1', parts[1])
+            elif os.path.isdir(host_path('/usr/lib/modules')) and not os.path.isdir(mod_dir):
+                out['reboot_for_kernel'] = True
     except Exception:
         pass
     if latest:
@@ -5148,6 +5281,136 @@ def get_clock_status():
                 out['peers'] = peers
         except Exception:
             pass
+    return out
+
+
+def get_ecc_errors():
+    """v6.1.2: ECC memory error counters from EDAC.
+
+    Homelabbers (TrueNAS/ZFS especially) deliberately buy ECC RAM and then never
+    look at the counters — which is a shame, because a rising correctable count
+    is the earliest warning a DIMM gives you, long before anything crashes.
+    /sys/devices/system/edac/mc/mc*/{ce_count,ue_count} is a free read.
+
+    Returns {} when EDAC isn't present (no ECC, or the driver isn't loaded —
+    very common), so the feature is simply invisible on those hosts.
+    """
+    base = host_path('/sys/devices/system/edac/mc')
+    if not os.path.isdir(base):
+        return {}
+    ce = ue = 0
+    controllers = 0
+    try:
+        for mc in sorted(os.listdir(base)):
+            if not mc.startswith('mc'):
+                continue
+            mcdir = os.path.join(base, mc)
+            c = _safe_read(os.path.join(mcdir, 'ce_count'), 32)
+            u = _safe_read(os.path.join(mcdir, 'ue_count'), 32)
+            if c is None and u is None:
+                continue
+            controllers += 1
+            try:
+                ce += int((c or '0').strip())
+            except ValueError:
+                pass
+            try:
+                ue += int((u or '0').strip())
+            except ValueError:
+                pass
+    except OSError:
+        return {}
+    if not controllers:
+        return {}
+    # correctable = the DIMM caught and fixed it (a warning);
+    # uncorrectable = it could not (data loss / a machine check).
+    return {'ce': ce, 'ue': ue, 'controllers': controllers}
+
+
+def get_zram():
+    """v6.1.2: zram (compressed-RAM swap) presence and usage.
+
+    Without this, swap pressure on a Pi or a Fedora box — where swap IS zram,
+    living in RAM — reads as "this host is swapping to disk, its disk must be
+    thrashing", which is simply wrong. Returns [] when no zram device exists.
+    """
+    base = host_path('/sys/block')
+    out = []
+    try:
+        for name in sorted(os.listdir(base)):
+            if not name.startswith('zram'):
+                continue
+            d = os.path.join(base, name)
+            disksize = _safe_read(os.path.join(d, 'disksize'), 32)
+            if not disksize:
+                continue
+            try:
+                total = int(disksize.strip())
+            except ValueError:
+                continue
+            if total <= 0:
+                continue
+            entry = {'name': name, 'total_bytes': total}
+            # mm_stat: orig_data_size compr_data_size mem_used_total ...
+            mm = (_safe_read(os.path.join(d, 'mm_stat'), 256) or '').split()
+            if len(mm) >= 3:
+                try:
+                    entry['orig_bytes'] = int(mm[0])
+                    entry['compr_bytes'] = int(mm[1])
+                    entry['used_bytes'] = int(mm[2])
+                except ValueError:
+                    pass
+            out.append(entry)
+    except OSError:
+        return []
+    return out[:8]
+
+
+# Where each distro records "patch yourself automatically". Value = the token
+# that means ENABLED in that file (None = mere existence of an enabled unit).
+_AUTOUPDATE_UNITS = ('unattended-upgrades.service', 'dnf-automatic.timer',
+                     'dnf-automatic-install.timer', 'yum-cron.service',
+                     'apt-daily-upgrade.timer')
+
+
+def get_autoupdate_posture():
+    """v6.1.2: does this host patch ITSELF?
+
+    A fleet where half the boxes silently auto-patch and half don't is a fleet
+    you cannot reason about — "0 pending updates" means something different on
+    each. This is a read-only config sniff, no new dependencies:
+
+      Debian/Ubuntu: unattended-upgrades enabled AND
+                     APT::Periodic::Unattended-Upgrade "1";
+      Fedora/RHEL:   dnf-automatic timer active (or yum-cron on older)
+
+    Returns {enabled: bool, mechanism: str} — mechanism is '' when nothing is
+    configured, so the UI can say "manual" rather than "unknown".
+    """
+    out = {'enabled': False, 'mechanism': ''}
+    # systemd is the common denominator for all of them.
+    if _which('systemctl'):
+        for unit in _AUTOUPDATE_UNITS:
+            try:
+                r = subprocess.run(['systemctl', 'is-enabled', unit],
+                                   capture_output=True, text=True, timeout=5)
+            except Exception:
+                continue
+            if r.returncode == 0 and r.stdout.strip() in ('enabled', 'static'):
+                out['mechanism'] = unit.rsplit('.', 1)[0]
+                out['enabled'] = True
+                break
+    # Debian's unit can be enabled while the periodic switch is 0, which means
+    # it does NOT actually apply updates — checking the unit alone would report
+    # "this host patches itself" when it doesn't.
+    if out['mechanism'] == 'unattended-upgrades':
+        periodic = ''
+        for p in ('/etc/apt/apt.conf.d/20auto-upgrades',
+                  '/etc/apt/apt.conf.d/50unattended-upgrades'):
+            periodic += (_safe_read(host_path(p), 8192) or '')
+        m = re.search(r'APT::Periodic::Unattended-Upgrade\s+"(\d+)"', periodic)
+        if m and m.group(1) == '0':
+            out['enabled'] = False
     return out
 
 
@@ -8512,6 +8775,26 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['hardware'] = hw
             except Exception as e:
                 log.debug(f'hardware inventory error: {e}')
+            # v6.1.2: ECC counters / zram / auto-update posture. All three are
+            # cheap read-only sniffs and each is feature-INVISIBLE on a host that
+            # doesn't have it (no EDAC → {}, no zram → [], no auto-updater →
+            # enabled:false), so nothing is sent for hosts they don't apply to.
+            try:
+                ecc = get_ecc_errors()
+                if ecc:
+                    sysinfo['ecc'] = ecc
+            except Exception as e:
+                log.debug(f'ecc probe error: {e}')
+            try:
+                zr = get_zram()
+                if zr:
+                    sysinfo['zram'] = zr
+            except Exception as e:
+                log.debug(f'zram probe error: {e}')
+            try:
+                sysinfo['autoupdate'] = get_autoupdate_posture()
+            except Exception as e:
+                log.debug(f'autoupdate probe error: {e}')
             # v3.14.0: GPU telemetry (nvidia-smi / rocm-smi).
             try:
                 gpus = get_gpu_status()

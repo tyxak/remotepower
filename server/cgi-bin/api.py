@@ -1132,6 +1132,13 @@ EVENT_REGISTRY = {
         label='Watched systemd unit recovered', kind='service', title='Service Recovered',
         resolves=('service_down',), tags='green_circle,gear'),
     'service_recover': dict(phantom=True, kind='service', resolves=('service_down',)),
+    # v6.1.2: a unit crash-looping under Restart=always is 'active' every time we
+    # sample it, so service_down never fires and the host looks healthy while the
+    # service restarts all day. systemd's NRestarts delta is the only tell.
+    'unit_flapping': dict(
+        label='Watched systemd unit is restarting repeatedly (flapping)',
+        kind='service', title='Service Flapping', severity='high', priority=4,
+        tags='warning,arrows_counterclockwise', symptom=True),
     'log_alert': dict(
         label='Log pattern matched threshold', kind='log_alert', title='Log Pattern Matched',
         severity=None, priority=4, tags='warning,scroll', symptom=True),
@@ -1320,6 +1327,24 @@ EVENT_REGISTRY = {
     'scrub_overdue': dict(
         label='Storage pool scrub is overdue', kind='storage', title='Storage Scrub Overdue',
         severity='medium', tags='warning,broom'),
+    # v6.1.2: snapshot recency. Scrub recency has been checked since v3.11.0 but
+    # SNAPSHOT recency never was — so a silently-broken snapshot cron (the exact
+    # thing snapshots exist to survive) stayed invisible until the day you needed
+    # one and found the newest was from March.
+    'snapshot_stale': dict(
+        label='Storage pool has no recent snapshot', kind='storage',
+        title='Snapshot Overdue', severity='medium', tags='warning,camera'),
+    'snapshot_ok': dict(
+        label='Storage pool snapshots are current again', kind='storage',
+        title='Snapshots Current', resolves=('snapshot_stale',),
+        tags='green_circle,camera'),
+    # v6.1.2: ECC memory. Homelabbers buy ECC precisely to catch this and then
+    # never look at the counters — a rising correctable count is the earliest
+    # warning a DIMM gives, and an UNcorrectable one means it already lost data.
+    'ecc_errors': dict(
+        label='ECC memory errors increased', kind='hardware',
+        title='ECC Memory Errors', severity=None, priority=4,
+        tags='rotating_light,ram'),
     'storage_recovered': dict(
         label='Storage pool/array returned to healthy', kind='storage',
         title='Storage Pool Healthy', resolves=('storage_degraded', 'scrub_overdue'),
@@ -6705,6 +6730,11 @@ def _record_fleet_event(event, payload):
                     # W1-17: ct_new_certificate feed items name the domain/issuer.
                     'domain', 'issuer', 'cn',
                     'campaign',       # W2-35 campaign_completed
+                    # v6.1.2: storage pool discriminators — snapshot_stale /
+                    # snapshot_ok (and the existing storage_* / scrub_overdue)
+                    # name the pool and its age. Without these the feed row
+                    # renders "on <host>" with no idea WHICH pool.
+                    'pool', 'kind', 'age_days',
                     # v5.8.0: feed-detail fields read by the activity-feed row
                     # renderer (app.js _homeActivityAttrs / detail line). Dropped
                     # here they rendered as blank/undefined detail text even though
@@ -7101,6 +7131,11 @@ def _alert_severity(event, payload):
         if int(p.get('high') or 0) > 0:
             return 'high'
         return 'medium'
+    # v6.1.2: ECC. An UNCORRECTABLE error means the DIMM could NOT fix it —
+    # data was already corrupted or the machine took a check exception. A rising
+    # CORRECTABLE count is a warning: the hardware is coping, for now.
+    if event == 'ecc_errors':
+        return 'critical' if int(p.get('new_ue') or 0) > 0 else 'medium'
     if event == 'tls_expiry':
         days = p.get('days_left')
         try:
@@ -7160,6 +7195,10 @@ def _alert_title(event, payload):
         return f'WG Access: {cn} {verb}' + (f' ({tn})' if tn else '')
     if event == 'service_down':
         return f'Service down on {name}: {p.get("unit", "")}'
+    if event == 'unit_flapping':
+        return (f'Service flapping on {name}: {p.get("unit", "")} restarted '
+                f'{p.get("restarts", "?")}× since the last check '
+                f'({p.get("total_restarts", "?")} total)')
     if event == 'container_stopped':
         return f'Container stopped on {name}: {p.get("container", "")}'
     if event == 'container_restarting':
@@ -7302,6 +7341,18 @@ def _alert_title(event, payload):
     if event == 'scrub_overdue':
         return (f'Scrub overdue on {name}: pool {p.get("pool","?")} '
                 f'({p.get("age_days","?")}d)')
+    if event == 'snapshot_stale':
+        return (f'No recent snapshot on {name}: pool {p.get("pool","?")} '
+                f'— newest is {p.get("age_days","?")}d old')
+    if event == 'snapshot_ok':
+        return f'Snapshots current on {name}: pool {p.get("pool","?")}'
+    if event == 'ecc_errors':
+        _nue = int(p.get('new_ue') or 0)
+        if _nue > 0:
+            return (f'UNCORRECTABLE ECC memory errors on {name}: '
+                    f'+{_nue} (total {p.get("ue","?")}) — a DIMM is failing')
+        return (f'ECC memory errors on {name}: +{p.get("new_ce","?")} correctable '
+                f'(total {p.get("ce","?")}) — the DIMM is coping, for now')
     if event == 'login_new_source':
         return (f'New-source login on {name}: {p.get("user","?")} '
                 f'from {p.get("source","?")}')
@@ -8531,6 +8582,12 @@ def _auto_resolve_alerts(event, payload):
         # v6.0.1: storage_degraded fires per-pool; a device-id-only recovery
         # cleared every pool's open alert (and any scrub_overdue) on the host,
         # so a still-degraded second pool lost its alert. Match the pool.
+        sub_match['pool'] = p.get('pool')
+    elif event == 'snapshot_ok':
+        # v6.1.2: same per-pool rule — snapshot_stale is edge-triggered per pool,
+        # so a device-id-only recovery would clear a pool whose snapshots are
+        # still stale. 'pool' is already in the _record_alert whitelist (added
+        # for storage_recovered), so it IS stored on the alert and can be matched.
         sub_match['pool'] = p.get('pool')
     elif event == 'mount_recovered':
         # Per-path: a recovered /mnt/a must not clear the open alert for /mnt/b
@@ -16414,6 +16471,39 @@ def handle_heartbeat():
                         safe_si['uptime_seconds'] = _ups
                 except (TypeError, ValueError):
                     pass
+            # v6.1.2: ECC counters / zram / auto-update posture. safe_si is a
+            # whitelist — a field the agent sends but this drops silently never
+            # reaches the UI or any check.
+            _ecc = si.get('ecc')
+            if isinstance(_ecc, dict):
+                _e = {}
+                for k in ('ce', 'ue', 'controllers'):
+                    v = _ecc.get(k)
+                    if isinstance(v, (int, float)) and 0 <= v < 1e12:
+                        _e[k] = int(v)
+                if _e:
+                    safe_si['ecc'] = _e
+            _zr = si.get('zram')
+            if isinstance(_zr, list):
+                _zs = []
+                for z in _zr[:8]:
+                    if not isinstance(z, dict):
+                        continue
+                    _z = {'name': _sanitize_str(str(z.get('name', '')), 16)}
+                    for k in ('total_bytes', 'orig_bytes', 'compr_bytes', 'used_bytes'):
+                        v = z.get(k)
+                        if isinstance(v, (int, float)) and 0 <= v < 1e15:
+                            _z[k] = int(v)
+                    if _z.get('name'):
+                        _zs.append(_z)
+                if _zs:
+                    safe_si['zram'] = _zs
+            _au = si.get('autoupdate')
+            if isinstance(_au, dict):
+                safe_si['autoupdate'] = {
+                    'enabled': bool(_au.get('enabled')),
+                    'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
+                }
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
             if 'packages' in si and isinstance(si['packages'], dict):
@@ -16776,6 +16866,11 @@ def handle_heartbeat():
                     # Storage-page maintenance buttons (zfs uses the pool name).
                     if p.get('mount'):
                         sp['mount'] = _sanitize_str(p.get('mount'), 256)
+                    # v6.1.2: newest-snapshot epoch (0 = pool has NO snapshots).
+                    # safe_si is a whitelist — unlisted keys silently vanish, so
+                    # the snapshot check below would never see anything.
+                    if isinstance(p.get('last_snapshot'), int) and p['last_snapshot'] >= 0:
+                        sp['last_snapshot'] = p['last_snapshot']
                     safe_pools.append(sp)
                 safe_si['storage_health'] = safe_pools
             # v3.11.0: recent logins / source IPs (access watch)
@@ -23525,6 +23620,22 @@ def handle_config_save():
             cfg['scrub_overdue_days'] = max(1, min(3650, int(body['scrub_overdue_days'])))
         except (TypeError, ValueError):
             pass
+    # v6.1.2: snapshot staleness. 0 = OFF (the default) — plenty of pools are
+    # legitimately not snapshotted, so this only alerts once an operator says
+    # "these pools SHOULD have a snapshot at least every N days".
+    if 'snapshot_stale_days' in body:
+        try:
+            cfg['snapshot_stale_days'] = max(0, min(3650, int(body['snapshot_stale_days'])))
+        except (TypeError, ValueError):
+            pass
+    # v6.1.2: unit-flap threshold — restarts BETWEEN two heartbeats that count as
+    # flapping. 0 = off (default), because a Restart=always unit that legitimately
+    # bounces occasionally shouldn't page anyone.
+    if 'unit_flap_restarts' in body:
+        try:
+            cfg['unit_flap_restarts'] = max(0, min(1000, int(body['unit_flap_restarts'])))
+        except (TypeError, ValueError):
+            pass
 
     # v5.4.1 enterprise hardening — security knobs (all opt-in, defaults off).
     if 'password_min_length' in body:        # D1
@@ -28677,8 +28788,64 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 scrub_fired.add(nm)
             else:
                 scrub_fired.discard(nm)
+        # v6.1.2: SNAPSHOT freshness. Same edge-triggered, per-pool shape as the
+        # scrub check above — but a snapshot cron that has quietly stopped is the
+        # more dangerous silence of the two, because you only discover it on the
+        # day you need to roll back. `last_snapshot == 0` means the pool has no
+        # snapshots at all; that's a legitimate configuration (plenty of pools
+        # aren't snapshotted), so it is NOT an alert — only a pool that HAD
+        # snapshots and has now gone stale is.
+        snap_fired = set(prev.get('snapshot_stale') or [])
+        try:
+            snap_days = int(_config_ro().get('snapshot_stale_days') or 0)
+        except (TypeError, ValueError):
+            snap_days = 0
+        if snap_days > 0:
+            now_ts = int(time.time())
+            for p in pools:
+                nm = p.get('name')
+                last = p.get('last_snapshot')
+                if not nm or not isinstance(last, int) or last <= 0:
+                    snap_fired.discard(nm)
+                    continue
+                age_d = (now_ts - last) // 86400
+                if age_d > snap_days:
+                    # NOTE the difference from the scrub block above: on the
+                    # first_seen pass we suppress the alert but do NOT mark the
+                    # pool as fired, so the very next heartbeat raises it. Marking
+                    # it (which is what scrub does) would suppress it FOREVER —
+                    # and an already-stale pool is the common case, because you
+                    # turn this setting on precisely when you suspect staleness.
+                    if first_seen:
+                        continue
+                    if nm not in snap_fired:
+                        _fire('snapshot_stale', {'pool': nm, 'kind': p.get('kind'),
+                                                 'age_days': age_d})
+                    snap_fired.add(nm)
+                elif nm in snap_fired:
+                    _fire('snapshot_ok', {'pool': nm, 'kind': p.get('kind'),
+                                          'age_days': age_d})
+                    snap_fired.discard(nm)
         new['pools'] = cur_pools
         new['scrub_overdue'] = sorted(scrub_fired)
+        new['snapshot_stale'] = sorted(x for x in snap_fired if x)
+
+    # ── v6.1.2: ECC memory errors ──────────────────────────────────
+    # EDAC counters are CUMULATIVE and never reset while the host is up, so a
+    # non-zero count is not news — an INCREASE is. Fire on the delta, and treat
+    # a counter that went DOWN (a reboot cleared it) as a new baseline rather
+    # than as a negative delta.
+    ecc = si.get('ecc')
+    if isinstance(ecc, dict) and ('ce' in ecc or 'ue' in ecc):
+        ce, ue = int(ecc.get('ce') or 0), int(ecc.get('ue') or 0)
+        p_ecc = prev.get('ecc') or {}
+        p_ce, p_ue = int(p_ecc.get('ce') or 0), int(p_ecc.get('ue') or 0)
+        d_ce = ce - p_ce if ce >= p_ce else ce      # counter reset → treat as new
+        d_ue = ue - p_ue if ue >= p_ue else ue
+        if not first_seen and (d_ce > 0 or d_ue > 0):
+            _fire('ecc_errors', {'ce': ce, 'ue': ue,
+                                 'new_ce': d_ce, 'new_ue': d_ue})
+        new['ecc'] = {'ce': ce, 'ue': ue}
 
     # ── host firewall drift ────────────────────────────────────────
     # v3.12.0: gated by the same `port_audit_enabled` host-audit toggle as the
@@ -35466,6 +35633,24 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             w = d.get('wear_pct')
             if isinstance(w, (int, float)) and 0 <= w <= 100:
                 entry['wear_pct'] = int(w)
+            # v6.1.2: NVMe spare-block reserve. wear_pct says how used the flash
+            # is; spare_pct says how much of the remap reserve is LEFT. A drive
+            # whose spare has fallen to its threshold is close to going
+            # read-only, which wear alone never told you.
+            for k in ('spare_pct', 'spare_threshold_pct'):
+                v = d.get(k)
+                if isinstance(v, (int, float)) and 0 <= v <= 100:
+                    entry[k] = int(v)
+            # v6.1.2: last SMART self-test. `-H -A -i` gave the drive's own
+            # verdict and its attributes but never said whether a self-test had
+            # EVER run — so an untested disk looked exactly like one tested last
+            # night. This is a whitelist: unlisted keys silently vanish.
+            for k in ('selftest_type', 'selftest_result'):
+                if d.get(k):
+                    entry[k] = _sanitize_str(str(d[k]), 64)
+            sh = d.get('selftest_hours')
+            if isinstance(sh, (int, float)) and 0 <= sh < 1e7:
+                entry['selftest_hours'] = int(sh)
             # Persist the verdict so the UI (and any consumer) reads one
             # authoritative `failed` flag instead of re-deriving the rule
             # client-side — they drifted once already (UNKNOWN handling).
@@ -36122,6 +36307,12 @@ def _disk_health_view():
                 'risk': risk, 'eta_days': eta_days,
                 'reallocated': realloc, 'pending': pending,
                 'wear_pct': d.get('wear_pct'), 'temperature_c': d.get('temperature_c'),
+                # v6.1.2: spare reserve + last self-test
+                'spare_pct': d.get('spare_pct'),
+                'selftest_result': d.get('selftest_result'),
+                'selftest_type': d.get('selftest_type'),
+                'selftest_hours': d.get('selftest_hours'),
+                'power_on_hours': d.get('power_on_hours'),
                 'reasons': reasons, 'samples': len((dhist.get(key) or {}).get('samples') or []),
             })
     _order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
@@ -54050,6 +54241,12 @@ def _sanitize_service_entry(entry):
     canonical = _sanitize_unit_name(entry.get('canonical', ''))
     if canonical and canonical != unit:
         out['canonical'] = canonical
+    # v6.1.2: systemd's cumulative restart count (NRestarts). Stored so the NEXT
+    # heartbeat can take a delta — flap detection is entirely about the delta,
+    # since the raw count is cumulative and one restart (a deploy) isn't a flap.
+    r = entry.get('restarts')
+    if isinstance(r, (int, float)) and 0 <= r < 1e9:
+        out['restarts'] = int(r)
     return out
 
 
@@ -54107,6 +54304,11 @@ def process_service_report(dev_id, services_payload):
     # so a slow webhook destination can't hold the services.json lock
     # against subsequent heartbeats.
     transitions = []
+    flaps = []
+    try:
+        flap_threshold = int(_config_ro().get('unit_flap_restarts') or 0)
+    except (TypeError, ValueError):
+        flap_threshold = 0
     with _LockedUpdate(SERVICES_FILE) as store:
         prev_dev = store.get(dev_id) or {}
         prev_by_unit = {s['unit']: s for s in (prev_dev.get('services') or [])}
@@ -54120,6 +54322,19 @@ def process_service_report(dev_id, services_payload):
             is_up  = (entry['active'] == 'active')
             if was_up != is_up:
                 transitions.append((entry, prev, is_up))
+            # v6.1.2: FLAP detection. A unit crash-looping under Restart=always
+            # is 'active' every time we sample it — it comes back before the next
+            # heartbeat — so the up/down transition above never sees it and
+            # failed_unit never fires. The host looks perfectly healthy while a
+            # service restarts all day. systemd's NRestarts counter is the only
+            # thing that reveals it, and only as a DELTA: the count is cumulative
+            # and a service legitimately restarted once (a deploy) isn't flapping.
+            if flap_threshold > 0:
+                now_r, was_r = entry.get('restarts'), prev.get('restarts')
+                if isinstance(now_r, int) and isinstance(was_r, int) and now_r > was_r:
+                    delta = now_r - was_r
+                    if delta >= flap_threshold:
+                        flaps.append((entry['unit'], delta, now_r))
 
         store[dev_id] = {'updated_at': now, 'services': clean}
 
@@ -54133,6 +54348,10 @@ def process_service_report(dev_id, services_payload):
             'active':    entry['active'],
             'sub':       entry['sub'],
             'previous':  prev.get('active'),
+        })
+    for unit, delta, total in flaps:
+        _fire_service_webhook('unit_flapping', dev_id, unit, {
+            'restarts': delta, 'total_restarts': total,
         })
 
 

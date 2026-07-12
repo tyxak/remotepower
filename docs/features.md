@@ -12,7 +12,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Container awareness | Auto-detected Docker / Podman / Kubernetes pods — image, status, restart count, ports, namespace; read-only |
 | Network map | Manual topology from per-device `connected_to`; agentless switches/APs; site/group/tag scope picker *(v5.0.0)*; **scheduled LAN netscan** — the one-shot netscan is now a living, auto-refreshed unmanaged-host feed that folds discovered hosts into the graph as dashed, muted nodes/edges *(v6.1.1)* |
 | Network metrics page | Per-device RX/TX from interface samples; fleet/group/tag/site scope, top-talkers, roll-ups *(v5.0.0)* |
-| Pending-reboot indicator | Amber ⟳ **Pending Reboot** badge on Patches when `/run/reboot-required` exists *(v2.4.14)* |
+| Pending-reboot indicator | Amber ⟳ **Pending Reboot** badge on Patches when `/run/reboot-required` exists *(v2.4.14)*; on **Arch and derivatives** (which have no such file) the running kernel is compared to the installed one via `/usr/lib/modules/<uname -r>/pkgbase`, so `linux`/`-lts`/`-zen`/`-cachyos` boxes finally get a kernel-reboot signal *(v6.1.2)* |
+| Auto-update posture | Whether each host patches *itself* (unattended-upgrades / dnf-automatic / yum-cron) — a fleet where half the boxes silently auto-patch is one where "0 pending updates" means two different things. Debian's unit being *enabled* while `APT::Periodic::Unattended-Upgrade` is `0` is correctly reported as **off** *(v6.1.2)* |
 | Timeline (fleet or device) | Merged fleet events + command runs, newest-first, filterable, scoped *(v3.4.1)* |
 | Fleet health score | 0–100 per device and fleet from Needs-Attention signals; history sparkline + `health_degraded`/`health_recovered` *(v3.4.1)* |
 | Fleet heat map | Home grid of device cells coloured by health score *(v3.4.2)* |
@@ -101,6 +102,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Service monitoring | Agent watches systemd units; matrix view; webhooks on transitions; shows resolved alias *(v3.9.0)* |
 | Service baselines | Fleet-wide default sets of watched units (e.g. `sshd.service`, `remotepower-agent.service`) scoped by all/group/tag/site and merged into each covered device's watch list — set once, no per-host editing. `GET/POST /api/service-baselines` *(v5.5.0)* |
 | Failed-unit alerting | A systemd unit entering the failed state raises a first-class `failed_unit` alert/webhook (edge-triggered, coalesced per host) *(v5.5.0)* |
+| Service flap detection | A unit crash-looping under `Restart=always` is *active* at every sample — it comes back before the next heartbeat — so `failed_unit`/`service_down` never fire and the host looks healthy while a service restarts all day. systemd's `NRestarts` **delta** reveals it → `unit_flapping` (Settings, off by default; rides the existing batched `systemctl show`, no extra subprocess) *(v6.1.2)* |
 | Log tail + alerts | journalctl per watched unit; rolling 6-hour buffer; regex search; pattern-match alerts; per-rule template / exclude / snooze; matched line shown in NA card / inbox / webhook + Open-in-Logs deep link *(v3.3.0)* |
 | Inbound syslog | HTTP receiver — point rsyslog `omhttp`/fluent-bit/`curl` at `POST /api/syslog/in/<token>`; parses RFC 3164/5424 into the device log buffer for `log_alert` rules *(v3.2.0)* |
 | SNMP trap receiver | HTTP receiver — an `snmptrapd` handler POSTs decoded traps as JSON to `POST /api/snmp/trap/<token>`; traps attach to the pinned device's SNMP view and raise a coalesced `snmp_trap_received` alert |
@@ -303,7 +305,10 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| SMART / inventory | smartctl health + pre-fail attributes → `smart_failure`; DIMMs, serials, temperatures, RAID state *(v3.4.0)* |
+| SMART / inventory | smartctl health + pre-fail attributes → `smart_failure`; DIMMs, serials, temperatures, RAID state *(v3.4.0)*; **last self-test** (type / result / age — `-H -A -i` never said whether a disk had ever been tested) and NVMe **available spare** (how much remap reserve is left, which wear% alone doesn't tell you) *(v6.1.2)* |
+| ECC memory errors | EDAC correctable/uncorrectable counts per host → `ecc_errors`. Fires on an **increase** (the counters are cumulative), treats a reboot's counter reset as a new baseline, and rates an uncorrectable error critical — the DIMM could *not* fix it — vs medium for correctable. Invisible on hosts without ECC/EDAC *(v6.1.2)* |
+| Snapshot freshness | Newest-snapshot age per ZFS/btrfs pool → `snapshot_stale` / `snapshot_ok` (Settings → Storage pool freshness, off by default). Scrub recency was checked since v3.11.0; snapshot recency never was, so a stopped snapshot cron stayed invisible until you needed to roll back. A pool with no snapshots at all is never alerted on; recovery is matched per pool *(v6.1.2)* |
+| zram | Compressed-RAM swap is detected and labelled, so swap pressure on a Pi/Fedora box isn't misread as disk thrashing *(v6.1.2)* |
 | Storage / RAID page | ZFS/mdadm/btrfs pool state, capacity, last-scrub; `storage_degraded`/`storage_recovered`, `scrub_overdue` *(v3.11.0)* |
 | One-click maintenance | Per-pool scrub/trim/error-clear/balance/status/snapshot from a fixed server-side template; audited *(v5.0.0)*; destructive actions (scrub/balance/destroy/delete) go through the same 4-eyes maker-checker approval hook other destructive actions use *(v6.1.1)* |
 | Guided storage provisioning | RAID/LVM/mkfs, whole-disk only, five recipes; every interpolated parameter validated server-side against a strict allowlist before it reaches a shell command *(v6.1.1)* |

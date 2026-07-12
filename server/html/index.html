@@ -2407,6 +2407,30 @@
               </div>
             </div>
           </div>
+          <div class="settings-section">
+            <div class="section-title">Storage pool freshness</div>
+            <p class="hint">Age thresholds for ZFS / btrfs / mdadm pools reported by the agent. <strong>Scrub</strong> checks how long since the last scrub (<code>scrub_overdue</code>). <strong>Snapshot</strong> checks how long since the newest snapshot (<code>snapshot_stale</code>) — a snapshot cron that has quietly stopped is the silence you only discover on the day you need to roll back. Snapshots default to <strong>off</strong>, because plenty of pools legitimately aren't snapshotted; a pool with no snapshots at all is never alerted on.</p>
+            <div class="settings-row">
+              <div class="form-group mw-200">
+                <label for="cfg-scrub-overdue-days" class="form-label">Scrub overdue after (days)</label>
+                <input type="number" id="cfg-scrub-overdue-days" class="form-input" min="1" max="3650" placeholder="35">
+              </div>
+              <div class="form-group mw-200">
+                <label for="cfg-snapshot-stale-days" class="form-label">Snapshot stale after (days, 0 = off)</label>
+                <input type="number" id="cfg-snapshot-stale-days" class="form-input" min="0" max="3650" placeholder="0">
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Service flap detection</div>
+            <p class="hint">A unit crash-looping under <code>Restart=always</code> is <em>active</em> every time we sample it — it comes back before the next heartbeat — so <code>service_down</code> never fires and the host looks perfectly healthy while a service restarts all day. systemd's restart counter is the only thing that reveals it. Set how many restarts <strong>between two heartbeats</strong> count as flapping (<code>unit_flapping</code>). 0 = off; a unit that legitimately bounces now and then shouldn't page anyone.</p>
+            <div class="settings-row">
+              <div class="form-group mw-200">
+                <label for="cfg-unit-flap-restarts" class="form-label">Restarts per check (0 = off)</label>
+                <input type="number" id="cfg-unit-flap-restarts" class="form-input" min="0" max="1000" placeholder="0">
+              </div>
+            </div>
+          </div>
 
           <!-- ── v5.0.0 (#R3): maintenance mode ──────────────────────────────── -->
           <div class="settings-section">

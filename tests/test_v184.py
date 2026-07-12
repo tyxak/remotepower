@@ -256,6 +256,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
             'campaign_completed',                    # W2-35 CVE campaigns
             'service_down', 'service_up',
+            'unit_flapping',                         # v6.1.2 systemd flap detection
             'log_alert',
             # v1.11.4: container alerts
             'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale',
@@ -300,6 +301,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # health, access watch, host firewall, scheduled-job failure
             'port_exposed_world', 'software_policy_violation',
             'storage_degraded', 'scrub_overdue', 'storage_recovered',
+            # v6.1.2: snapshot recency + ECC memory errors
+            'snapshot_stale', 'snapshot_ok', 'ecc_errors',
             'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
             'db_integrity_failed', 'mount_issue',
             'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line',  # v6.1.1 (#76)

@@ -3556,6 +3556,11 @@ async function loadSettings() {
   document.getElementById('cfg-remember-default').checked = !!data.remember_me_default;
   { const m = document.getElementById('cfg-require-agent-mtls'); if (m) m.checked = !!data.require_agent_mtls; }
   { const d = document.getElementById('cfg-disk-watchdog-pct'); if (d) d.value = data.disk_watchdog_pct ?? 85; }
+  // v6.1.2: storage-pool freshness thresholds. scrub_overdue_days has existed
+  // since v3.11.0 with NO UI at all (config-only); snapshot_stale_days is new.
+  { const s = document.getElementById('cfg-scrub-overdue-days'); if (s) s.value = data.scrub_overdue_days ?? 35; }
+  { const s = document.getElementById('cfg-snapshot-stale-days'); if (s) s.value = data.snapshot_stale_days ?? 0; }
+  { const s = document.getElementById('cfg-unit-flap-restarts'); if (s) s.value = data.unit_flap_restarts ?? 0; }
   loadMaintenanceMode();
   loadLitigationHold();
 
@@ -3703,6 +3708,10 @@ async function saveSettings(btn) {
     remember_me_default:   document.getElementById('cfg-remember-default').checked,
     require_agent_mtls:     document.getElementById('cfg-require-agent-mtls')?.checked || false,
     disk_watchdog_pct:      parseInt(document.getElementById('cfg-disk-watchdog-pct')?.value ?? '85', 10),
+    // v6.1.2: storage-pool freshness thresholds (snapshot 0 = off).
+    scrub_overdue_days:     parseInt(document.getElementById('cfg-scrub-overdue-days')?.value ?? '35', 10),
+    snapshot_stale_days:    parseInt(document.getElementById('cfg-snapshot-stale-days')?.value ?? '0', 10),
+    unit_flap_restarts:     parseInt(document.getElementById('cfg-unit-flap-restarts')?.value ?? '0', 10),
 
     // v1.8.6: SMTP
     smtp_enabled:    document.getElementById('cfg-smtp-enabled').checked,
@@ -13705,11 +13714,26 @@ function _renderDiskHealth() {
   // Shared renderer for a healthy/tracked disk row — used both in the all-healthy
   // state and appended under the at-risk list (so one at-risk disk never hides a
   // host's other healthy disks).
+  // v6.1.2: last SMART self-test + NVMe spare reserve. `-H -A -i` only ever gave
+  // the drive's own verdict; it never said whether a self-test had EVER run, so
+  // an untested disk looked identical to one tested last night.
+  const selftestBit = (t) => {
+    if (!t.selftest_result) return '';
+    if (/never run/i.test(t.selftest_result)) return '⚠ never self-tested';
+    const failed = !/without error|completed$/i.test(t.selftest_result);
+    const ago = (t.selftest_hours != null && t.power_on_hours != null
+                 && t.power_on_hours >= t.selftest_hours)
+      ? ` (${t.power_on_hours - t.selftest_hours}h ago)` : '';
+    return `${failed ? '✗' : '✓'} ${t.selftest_type || 'self-test'}: ${t.selftest_result}${ago}`;
+  };
   const trackedRow = (t) => {
     const det = [];
     if (t.reallocated != null) det.push(`realloc ${t.reallocated}`);
     if (t.pending != null) det.push(`pending ${t.pending}`);
     if (t.temperature_c != null) det.push(fmtTemp(t.temperature_c, 0));
+    if (t.spare_pct != null) det.push(`spare ${t.spare_pct}%`);
+    const st = selftestBit(t);
+    if (st) det.push(st);
     det.push(`${t.samples} sample${t.samples === 1 ? '' : 's'}`);
     return `<tr>
       <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
@@ -13749,7 +13773,9 @@ function _renderDiskHealth() {
       <td><code>${escHtml(r.disk)}</code>${r.model ? `<div class="fs-11 c-muted">${escHtml(r.model)}</div>` : ''}</td>
       <td class="ta-center ${(r.wear_pct >= 90) ? 'c-red' : (r.wear_pct >= 80) ? 'c-amber' : ''}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
       <td class="ta-center ${etaCls}">${eta}</td>
-      <td class="hint">${escHtml((r.reasons || []).join(' · '))}</td>
+      <td class="hint">${escHtml([...(r.reasons || []),
+                                  ...(r.spare_pct != null ? [`spare ${r.spare_pct}%`] : []),
+                                  ...(selftestBit(r) ? [selftestBit(r)] : [])].join(' · '))}</td>
     </tr>`;
   }).join('')
     + (healthy.length
@@ -15693,7 +15719,7 @@ function _renderHomeActivity(fleetEvents) {
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
     'monitor_down', 'monitor_up', 'path_changed', 'mailflow_delayed', 'mailflow_ok',
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
-    'service_down', 'service_up',
+    'service_down', 'service_up', 'unit_flapping',   // v6.1.2
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current',
     // v3.2.x: container image update tracking
@@ -15714,11 +15740,13 @@ function _renderHomeActivity(fleetEvents) {
     'mcp_confirmation_expired',
     // v3.4.0: hardware health
     'smart_failure', 'smart_recovered', 'kernel_outdated', 'kernel_current',
+    'ecc_errors',   // v6.1.2
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
     // v3.11.0: exposure / software-policy / storage / access / firewall / timer
     'port_exposed_world', 'port_unexposed', 'software_policy_violation',
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
+    'snapshot_stale', 'snapshot_ok',   // v6.1.2
     'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
@@ -15898,6 +15926,7 @@ function _homeActivityAttrs(event, p) {
     // v5.6.0: custom Check-catalog failures → the host drawer (or Checks fleet-wide)
     case 'custom_check_failed': case 'custom_check_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
+    case 'unit_flapping':   // v6.1.2 — same Services page as up/down
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
     case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'containers_stale': case 'containers_current':
@@ -15918,6 +15947,7 @@ function _homeActivityAttrs(event, p) {
       // Click → MCP Confirmations admin page so the operator can see
       // what timed out
       return `${base} data-home-act="confirmations"`;
+    case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
@@ -15931,6 +15961,7 @@ function _homeActivityAttrs(event, p) {
     case 'software_policy_violation':
       return `${base} data-home-act="${devId ? 'detail' : 'software-policy'}"`;
     case 'storage_degraded': case 'scrub_overdue': case 'storage_recovered':
+    case 'snapshot_stale': case 'snapshot_ok':   // v6.1.2 — same Storage page
       return `${base} data-home-act="${devId ? 'detail' : 'storage'}"`;
     case 'login_new_source':
     case 'login_geo_anomaly':
@@ -18711,7 +18742,23 @@ async function _loadAuditSection(key) {
           // v3.13.0: surface root-disk and swap pressure as at-a-glance pills
           // (both already in sysinfo; previously only on the devices table).
           ['Disk', si.disk_percent != null ? Number(si.disk_percent).toFixed(1) + '%' : null],
-          ['Swap', si.swap_percent != null ? Number(si.swap_percent).toFixed(1) + '%' : null],
+          // v6.1.2: say so when swap IS zram. Without this, swap pressure on a
+          // Pi or a Fedora box (where swap lives in compressed RAM) reads as
+          // "this host is thrashing its disk", which is simply wrong.
+          ['Swap', si.swap_percent != null
+            ? Number(si.swap_percent).toFixed(1) + '%'
+              + ((si.zram && si.zram.length) ? ' (zram)' : '')
+            : null],
+          // v6.1.2: does this host patch itself? A fleet where half the boxes
+          // silently auto-patch is a fleet where "0 pending" means two things.
+          ['Auto-updates', si.autoupdate
+            ? (si.autoupdate.enabled
+                ? `on (${si.autoupdate.mechanism || 'enabled'})`
+                : 'off — patched manually')
+            : null],
+          ['ECC memory', si.ecc
+            ? `${si.ecc.ce || 0} correctable · ${si.ecc.ue || 0} uncorrectable`
+            : null],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
           // v3.8.0: why the host last restarted (the command before the reboot)
           ['Boot reason', data?.last_boot_reason || null],

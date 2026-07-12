@@ -77,6 +77,48 @@ homelabs — the ability to switch off the enterprise modules you don't use.
 - PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
   every new connection.
 
+### Added — host signals the agent never reported
+
+- **Arch/pacman kernel-reboot detection.** `get_kernel_status()`'s comment always
+  said "Arch: pacman linux" but the branch was never written — and Arch has no
+  `/run/reboot-required` either, so Arch boxes had **no kernel-reboot signal at
+  all**. It now resolves the running kernel's owning package via
+  `/usr/lib/modules/<uname -r>/pkgbase` (so `linux-lts`, `-zen`, `-cachyos` etc.
+  all work) and compares it to the installed version. A running kernel whose
+  modules directory pacman has already deleted is unambiguously a reboot.
+- **Snapshot freshness** for ZFS/btrfs pools (`snapshot_stale` / `snapshot_ok`,
+  Settings → *Storage pool freshness*, off by default). Scrub recency has been
+  checked since v3.11.0; snapshot recency never was — so a snapshot cron that
+  quietly stopped stayed invisible until the day you needed to roll back. A pool
+  with *no* snapshots at all is never alerted on (that's a legitimate setup), and
+  recovery is matched per pool so a healthy pool can't clear a stale one's alert.
+- **SMART self-test visibility.** `-H -A -i` reports the drive's own verdict and
+  its attributes but never whether a self-test has *ever run* — an untested disk
+  looked identical to one tested last night. The last test's type, result and
+  age now show on Disk health, along with NVMe **available spare** (how much
+  remap reserve is left, which wear% alone never told you).
+- **ECC memory errors** (`ecc_errors`). Homelabbers buy ECC precisely to catch a
+  failing DIMM and then never look at the counters. EDAC counts are *cumulative*,
+  so this fires on an **increase**, treats a counter reset (a reboot) as a new
+  baseline, and rates an *uncorrectable* error critical — the DIMM could not fix
+  it — versus medium for correctable ones.
+- **zram awareness.** Swap pressure on a Pi or Fedora box, where swap lives in
+  compressed RAM, read as "this host is thrashing its disk", which is simply
+  wrong. The drawer now says `(zram)` next to swap.
+- **systemd unit flap detection** (`unit_flapping`, off by default). A unit
+  crash-looping under `Restart=always` is `active` every time we sample it — it
+  comes back before the next heartbeat — so `service_down` **never fires** and
+  the host looks perfectly healthy while a service restarts all day. systemd's
+  `NRestarts` counter is the only thing that reveals it, and only as a delta (a
+  service that legitimately restarted once, on a deploy, isn't flapping). The
+  counter rides the existing batched `systemctl show` call — no extra subprocess.
+- **Auto-update posture.** Whether a host patches *itself*
+  (unattended-upgrades / dnf-automatic / yum-cron) now shows in the drawer. A
+  fleet where half the boxes silently auto-patch is one where "0 pending updates"
+  means two different things. Debian's unit can be *enabled* while
+  `APT::Periodic::Unattended-Upgrade` is `0` — which means it does not actually
+  apply updates — so that case is reported as **off**, not as "patches itself".
+
 ### Added — interface
 
 - **Browser-tab alert badge.** A dashboard lives in a background tab, but the
