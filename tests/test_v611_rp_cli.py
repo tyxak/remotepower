@@ -32,9 +32,12 @@ class TestRpCli(unittest.TestCase):
         src = _RP.read_text()
         self.assertIn("am_root", src)
         self.assertIn("sudo rp doctor", src)
-        # backend() returns 'unknown' (not 'json') when the data dir isn't readable
+        # backend() guards on data-dir access (returns the rp.env hint or
+        # 'unknown', never a false 'json') when the dir isn't traversable.
         i = src.index("backend(){")
-        self.assertRegex(src[i:i + 400], r"-x\s+\"\$RP_DATA_DIR\"")
+        blk = src[i:i + 900]
+        self.assertRegex(blk, r"-x\s+\"\$RP_DATA_DIR\"")
+        self.assertIn("RP_BACKEND", blk)          # non-root fallback to the recorded name
 
     def test_install_scripts_wired_in(self):
         # rp can run the installers; the installers record RP_SRC for it to find.
@@ -43,7 +46,10 @@ class TestRpCli(unittest.TestCase):
         self.assertIn("deploy-server.sh", src)
         self.assertIn("RP_SRC", src)
         for f in ("install-server.sh", "deploy-server.sh"):
-            self.assertIn("RP_SRC=", (_ROOT / f).read_text(), f"{f} must record RP_SRC")
+            txt = (_ROOT / f).read_text()
+            self.assertIn("RP_SRC=", txt, f"{f} must record RP_SRC")
+            # also record the backend name so a non-root rp can display it
+            self.assertIn("RP_BACKEND=", txt, f"{f} must record RP_BACKEND")
 
     def test_tui_has_help_and_repair(self):
         src = _RP.read_text()

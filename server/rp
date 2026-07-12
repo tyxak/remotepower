@@ -77,9 +77,17 @@ installed_units(){
 }
 
 backend(){ # print json|sqlite|postgres|unknown from the marker
-  # The data dir is 0700 (web user). A non-root/non-web caller can't traverse it,
-  # so DON'T silently claim 'json' — say 'unknown' (the doctor tells them to sudo).
-  if [ ! -r "$RP_DATA_DIR" ] || [ ! -x "$RP_DATA_DIR" ]; then printf 'unknown'; return; fi
+  # The data dir is 0700 (web user). A non-root/non-web caller can't traverse it
+  # to read the marker — so fall back to the backend NAME the installers record in
+  # the world-readable rp.env (they read the marker as root). The DSN is never in
+  # there; only the harmless backend name. Last resort: 'unknown'.
+  if [ ! -r "$RP_DATA_DIR" ] || [ ! -x "$RP_DATA_DIR" ]; then
+    if [ -r /etc/remotepower/rp.env ]; then
+      local b; b=$(. /etc/remotepower/rp.env 2>/dev/null; printf '%s' "${RP_BACKEND:-}")
+      [ -n "$b" ] && { printf '%s' "$b"; return; }
+    fi
+    printf 'unknown'; return
+  fi
   [ -f "$MARKER" ] || { printf 'json'; return; }
   python3 - "$MARKER" <<'PY' 2>/dev/null || printf 'unknown'
 import json,sys
@@ -206,7 +214,12 @@ cmd_doctor(){
     port_open 8090 && ok "app server reachable (:8090)" || { fail "app server not reachable on :8090"; rc=1; }
   fi
 
-  # 3. storage backend connectivity
+  # 3. storage backend connectivity — the live DB/marker read needs root (0700
+  # data dir). Non-root still knows the backend NAME (from rp.env) but can't test
+  # connectivity, so report it as skipped rather than run a check that must fail.
+  if [ $priv -eq 0 ]; then
+    info "  ${C_D}····${C_0} storage backend ($(backend)) — connectivity check needs root (sudo rp doctor)"
+  else
   case "$(backend)" in
     postgres)
       if python3 - <<PY 2>/dev/null
@@ -224,9 +237,9 @@ PY
       else fail "Postgres backend selected but the DSN check failed — the push daemon + app can't read devices"; rc=1; fi ;;
     sqlite)  [ -f "$RP_DATA_DIR"/*.db ] 2>/dev/null && ok "SQLite backend" || ok "SQLite backend (marker)" ;;
     json)    ok "JSON file backend" ;;
-    unknown) if [ $priv -eq 0 ]; then info "  ${C_D}····${C_0} storage backend — skipped (needs root: sudo rp doctor)"
-             else warn "storage backend unknown — the marker is unreadable/corrupt at $MARKER"; fi ;;
+    unknown) warn "storage backend unknown — the marker is unreadable/corrupt at $MARKER" ;;
   esac
+  fi
 
   # 4. nginx config + routes — needs root (reads the config, certs, log dirs).
   if ! command -v nginx >/dev/null 2>&1; then warn "nginx not found on PATH — skipping config check"
@@ -293,16 +306,16 @@ cmd_tui(){
   _dash(){ printf '─%.0s' $(seq 1 "$1"); }
   # pad a possibly-colored string to visible width $2
   _pad(){ local s="$1" w="$2" v n; v=$(_vlen "$s"); n=$((w - v)); [ $n -lt 0 ] && n=0; printf '%s%*s' "$s" "$n" ""; }
-  _edge(){ # $1=corner-left $2=corner-right  $3=optional title
+  _edge(){ # $1=corner-left $2=corner-right  $3=optional title ; \033[K erases stale tail
     if [ -n "${3:-}" ]; then
       local t=" $3 " r; r=$((IN - ${#t} - 1)); [ $r -lt 0 ] && r=0
-      printf '%s%s─%s%s%s%s%s%s\n' "$FR" "$1" "$BB$t$ZZ$FR" "$(_dash $r)" "$FR" "$2" "$ZZ" ""
-    else printf '%s%s%s%s%s\n' "$FR" "$1" "$(_dash $IN)" "$2" "$ZZ"; fi
+      printf '%s%s─%s%s%s%s%s\033[K\n' "$FR" "$1" "$BB$t$ZZ$FR" "$(_dash $r)" "$FR" "$2" "$ZZ"
+    else printf '%s%s%s%s%s\033[K\n' "$FR" "$1" "$(_dash $IN)" "$2" "$ZZ"; fi
   }
   _row(){ local c="$1" v; v=$(_vlen "$c")   # truncate (plain) if it would overflow the frame
           if [ "$v" -gt "$IN" ]; then c=$(printf '%s' "$c" | sed $'s/\033\\[[0-9;]*m//g'); c="${c:0:$((IN-1))}…"; fi
-          printf '%s│%s%s%s│%s\n' "$FR" "$ZZ" "$(_pad "$c" $IN)" "$FR" "$ZZ"; }
-  _sep(){ printf '%s├%s┤%s\n' "$FR" "$(_dash $IN)" "$ZZ"; }
+          printf '%s│%s%s%s│%s\033[K\n' "$FR" "$ZZ" "$(_pad "$c" $IN)" "$FR" "$ZZ"; }
+  _sep(){ printf '%s├%s┤%s\033[K\n' "$FR" "$(_dash $IN)" "$ZZ"; }
 
   _draw(){
     local host ver be up load
@@ -331,9 +344,9 @@ cmd_tui(){
     _sep
     _row "  ${GG}● $nrun running${ZZ}   ${DD}○ $nstop stopped${ZZ}   ${RR}✖ $nfail failed${ZZ}${msg:+     $msg}"
     _edge '╰' '╯' ""
-    printf '%s  ↑/↓%s select  %s[r]%sestart %s[s]%start %s[x]%stop  %s[d]%soctor %s[l]%sogs %s[P]%srepair  %s[?]%shelp %s[q]%suit%s\n' \
+    printf '%s  ↑/↓%s select  %s[r]%sestart %s[s]%start %s[x]%stop  %s[d]%soctor %s[l]%sogs %s[P]%srepair  %s[?]%shelp %s[q]%suit%s\033[K\n' \
       "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$ZZ"
-    printf '\033[J'   # clear to end
+    printf '\033[K\033[J'   # erase to EOL + clear below (kills stale frame tails)
   }
   _help(){ cat <<H
 

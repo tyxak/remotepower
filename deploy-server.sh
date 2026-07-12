@@ -167,9 +167,14 @@ install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-
 # `rp` — omd/checkmk-style node control (rp status|tui|start|stop|restart|doctor).
 info "Deploying rp (node-control CLI)..."
 install -m 755 "$SCRIPT_DIR/server/rp" /usr/local/bin/rp
-# Record the source checkout so `rp install/deploy/repair` can find these scripts.
+# Record the source checkout (so `rp install/deploy/repair` finds these scripts)
+# and the storage backend NAME (so a non-root `rp status`/`rp tui` can show it
+# without reading the 0700 data dir — only the harmless name, never the DSN).
 install -d -m 755 /etc/remotepower 2>/dev/null || true
-printf 'RP_SRC=%s\n' "$SCRIPT_DIR" > /etc/remotepower/rp.env 2>/dev/null || true
+{ printf 'RP_SRC=%s\n' "$SCRIPT_DIR"
+  _rpbe=$(python3 -c "import json;print(json.load(open('/var/lib/remotepower/storage_backend.json')).get('backend','json'))" 2>/dev/null)
+  [ -n "$_rpbe" ] && printf 'RP_BACKEND=%s\n' "$_rpbe"
+} > /etc/remotepower/rp.env 2>/dev/null || true
 echo "      → /usr/local/bin/rp"
 
 # Agent push (wake-nudge) daemon binary — keep the INSTALLED copy current on

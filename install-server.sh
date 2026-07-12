@@ -343,9 +343,15 @@ done
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 # `rp` — omd/checkmk-style node control (rp status|start|stop|restart|doctor|logs).
 install -m 755 "$SCRIPT_DIR/server/rp" /usr/local/bin/rp
-# Record the source checkout so `rp install/deploy/repair` can find these scripts.
+# Record the source checkout (so `rp install/deploy/repair` finds these scripts)
+# and, if the backend marker already exists, its NAME (so a non-root rp can show
+# it). On a fresh install the marker is written later by the Postgres migration;
+# the RP_BACKEND line is refreshed near the end of this script and on every deploy.
 install -d -m 755 /etc/remotepower 2>/dev/null || true
-printf 'RP_SRC=%s\n' "$SCRIPT_DIR" > /etc/remotepower/rp.env 2>/dev/null || true
+{ printf 'RP_SRC=%s\n' "$SCRIPT_DIR"
+  _rpbe=$(python3 -c "import json;print(json.load(open('/var/lib/remotepower/storage_backend.json')).get('backend','json'))" 2>/dev/null)
+  [ -n "$_rpbe" ] && printf 'RP_BACKEND=%s\n' "$_rpbe"
+} > /etc/remotepower/rp.env 2>/dev/null || true
 success "Web files installed"
 
 # ── WG Access privileged helper + scoped sudoers (v5.2.0) ───────────────────────
@@ -635,6 +641,13 @@ if [[ "$WITH_PUSH" == "1" ]]; then
         || warn "Could not start remotepower-push — check: systemctl status remotepower-push"
     info "  Turn the channel ON later in Settings → Advanced → agent push channel (push_enabled)."
 fi
+
+# Refresh RP_BACKEND now that the storage marker exists (the Postgres migration
+# above writes it) so a non-root `rp status`/`rp tui` shows the backend name.
+{ printf 'RP_SRC=%s\n' "$SCRIPT_DIR"
+  _rpbe=$(python3 -c "import json;print(json.load(open('/var/lib/remotepower/storage_backend.json')).get('backend','json'))" 2>/dev/null)
+  [ -n "$_rpbe" ] && printf 'RP_BACKEND=%s\n' "$_rpbe"
+} > /etc/remotepower/rp.env 2>/dev/null || true
 
 # ── Summary ─────────────────────────────────────────────────────────────────────
 echo ""
