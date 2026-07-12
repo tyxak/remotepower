@@ -3555,8 +3555,8 @@
             <summary><strong>Web terminal</strong> — open SSH from the browser</summary>
             <div class="doc-body">
               <p>Click "Web terminal" on a device. Modal asks for SSH user, port, password, plus your RemotePower admin password (re-prompted every time, by design).</p>
-              <p>Architecture: a separate <code>remotepower-webterm</code> daemon handles the WebSocket+SSH bits because RemotePower's CGI can't hold persistent connections. nginx proxies <code>/api/webterm/connect</code> to it. SSH credentials live only in memory for the duration of the session — never persisted.</p>
-              <p><strong>Setup (one-time):</strong> <code>sudo bash packaging/install-webterm.sh</code>. Auto-detects the CGI user (<code>www-data</code>, <code>nginx</code>, <code>http</code>, etc.), installs Python deps, generates the daemon ↔ CGI shared secret, prints the nginx snippet you need to add. Run with <code>--dry-run</code> first if you want a preview.</p>
+              <p>Architecture: a separate <code>remotepower-webterm</code> daemon handles the WebSocket+SSH bits because the main app server handles short request/response cycles, not the long-lived connections a terminal needs. nginx proxies <code>/api/webterm/connect</code> to it. SSH credentials live only in memory for the duration of the session — never persisted.</p>
+              <p><strong>Setup (one-time):</strong> <code>sudo bash packaging/install-webterm.sh</code>. Auto-detects the app-server user (<code>www-data</code>, <code>nginx</code>, <code>http</code>, etc.), installs Python deps, generates the daemon ↔ app shared secret, prints the nginx snippet you need to add. Run with <code>--dry-run</code> first if you want a preview.</p>
               <p><strong>Recordings:</strong> Every session recorded to <code>/var/lib/remotepower/webterm-sessions/&lt;id&gt;.cast</code> in asciinema v2 format. Output-only by default (set <code>RECORD_INPUT=1</code> in daemon env to capture keystrokes too — only do this if you've thought about who can read the recordings dir). Replay with <code>asciinema play &lt;file&gt;</code>.</p>
             </div>
           </details>
@@ -3584,7 +3584,7 @@
             <summary><strong>External monitors</strong> — ping/TCP/HTTP probes</summary>
             <div class="doc-body">
               <p>Monitor page → "Add target". The server runs these probes itself, not the agents — useful for checking your ISP gateway is up, a web service is responding, or an SSH port is open.</p>
-              <p>Probes run on a schedule (<code>monitor_interval</code>, default 300s, minimum 60s). The schedule piggybacks on incoming CGI requests, so as long as any agent is heartbeating or anyone's browsing, monitors run on time. State transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks.</p>
+              <p>Probes run on a schedule (<code>monitor_interval</code>, default 300s, minimum 60s). By default a dedicated <code>remotepower-scheduler</code> service runs them out-of-band; if you disable it the schedule falls back to piggybacking on incoming API requests, so as long as any agent is heartbeating or anyone's browsing, monitors still run on time. State transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks.</p>
             </div>
           </details>
 
@@ -3681,7 +3681,7 @@
             <summary><strong>Troubleshooting common issues</strong></summary>
             <div class="doc-body">
               <p><strong>Devices show "Offline" but agent is running:</strong> agent token doesn't match server. Check <code>journalctl -u remotepower-agent</code> for "Credentials rejected" — re-enroll on the device with <code>sudo remotepower-agent enroll</code>.</p>
-              <p><strong>Web terminal fails with 404:</strong> nginx routes <code>/api/webterm/connect</code> to fcgiwrap instead of the daemon. The exact-match <code>location = /api/webterm/connect</code> block must come BEFORE any <code>location ^~ /api/</code> in the same server block.</p>
+              <p><strong>Web terminal fails with 404:</strong> nginx routes <code>/api/webterm/connect</code> to the app server instead of the daemon. The exact-match <code>location = /api/webterm/connect</code> block must come BEFORE any <code>location ^~ /api/</code> in the same server block.</p>
               <p><strong>Web terminal fails with 502:</strong> nginx is correctly trying the daemon but the daemon isn't running. <code>sudo systemctl status remotepower-webterm</code> and <code>journalctl -u remotepower-webterm</code>.</p>
               <p><strong>Per-mount disk thresholds aren't taking effect:</strong> Agent must be v1.11.10+ to report per-mount data. Push an agent self-update from the toolbar.</p>
               <p><strong>Update history is empty for old agents:</strong> Pre-v1.11.7 had a bug where command output never reached the server. Push agent self-updates; the next upgrade will populate history.</p>
@@ -4057,7 +4057,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li>Help → AI Assistant → standalone chat with model picker and Ollama server stats.</li>
               </ul>
               <p><strong>Privacy:</strong> hostnames and IPs are <em>redacted</em> before leaving the building unless you toggle "Send hostnames" / "Send IP addresses" in Settings. Bearer tokens, AWS keys, and long hex strings are <em>always</em> redacted regardless. AI-generated scripts go through the same dry-run + dangerous-pattern detection as anything else — no AI-trusted bypass.</p>
-              <p><strong>Slow local models</strong> (smallthinker, qwq, deepseek-r1) routinely take 60–180 s per response. The HTTP timeout is 5 min on the Python side, but nginx's <code>fastcgi_read_timeout</code> defaults to 60 s and will cut you off first — add a <code>location /api/ai/</code> block with <code>fastcgi_read_timeout 300s;</code>. See <a href="/docs/ai.md" class="c-accent">docs/ai.md</a> for the snippet and the full reference.</p>
+              <p><strong>Slow local models</strong> (smallthinker, qwq, deepseek-r1) routinely take 60–180 s per response. The HTTP timeout is 5 min on the Python side, but nginx's <code>proxy_read_timeout</code> defaults to 60 s and will cut you off first — add a <code>location /api/ai/</code> block with <code>proxy_read_timeout 300s;</code>. See <a href="/docs/ai.md" class="c-accent">docs/ai.md</a> for the snippet and the full reference.</p>
               <p><strong>Rate limits:</strong> per-user per-day cap in Settings (default 100; 0 = unlimited). Per-button <code>max_tokens</code> tuned client-side so a short Explain doesn't sit waiting for 4000 tokens to generate.</p>
             </div>
           </details>

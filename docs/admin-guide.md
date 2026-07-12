@@ -73,8 +73,9 @@ password. Use that password for the first login.
 ### 2.2 What the installer lays down
 
 - The application under the web root (the `server/` tree).
-- A data directory for the JSON state files, created mode `0700`.
-- An nginx vhost with the security headers and the `/api/` CGI
+- A data directory for local state, created mode `0700` (used by the
+  flat-JSON backend, and for files that live on disk even under Postgres).
+- An nginx vhost with the security headers and the `/api/` `proxy_pass`
   location.
 - The state files themselves, written mode `0600`.
 
@@ -230,7 +231,7 @@ A few controls worth knowing about:
 
 ## 6. Backup &amp; restore
 
-All state lives in the data directory — flat JSON by default, or a
+All state lives in the data directory — PostgreSQL by default (flat JSON with `--no-postgres`), or a
 single `remotepower.db` SQLite file if you switched backends — so
 backing RemotePower up is backing up that directory.
 

@@ -10,7 +10,7 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       ├─ /static/*      → Logos, CSS, JS
                       ├─ /agent/        → Agent binary (static, for self-update)
                       ├─ /swagger.html  → Interactive OpenAPI UI
-                      └─ /var/lib/remotepower/   (state — flat JSON by default, hardened with flock + .bak fallback)
+                      └─ /var/lib/remotepower/   (state — PostgreSQL by default; flat JSON with --no-postgres, hardened with flock + .bak fallback)
                               ├── Identity:        users.json, tokens.json, apikeys.json, pins.json,
                               │                    enrollment_tokens.json
                               ├── Fleet state:     devices.json, metrics.json, packages.json,

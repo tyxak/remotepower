@@ -48,6 +48,15 @@ API changes. Full write-up: `docs/v6.1.1.md`.
   now tenant-filtered, and every mutation (ack/unack/resolve, bulk, mute)
   is tenant-gated (a cross-tenant alert id 404s). Fleet-level alerts stay
   visible, unchanged.
+- **Fixed (finalize sweep):** six more fleet-aggregate views had the same
+  scope-only-not-tenant gap as the alerts store — the OpenSCAP compliance
+  overview, the fleet-wide sudo (privileged-command) search, the activity/event
+  feed, the authorized-scan list **and its bulk-clear**, the per-asset risk
+  overview, and the fleet-health rollup. With tenancy enforced a tenant admin
+  could read another tenant's compliance/scan/risk/health data (and delete
+  another tenant's finished scans). Each now routes its device set through the
+  shared scope-and-tenant filter, and the two cached views (risk, events) fold
+  the tenant into their ETag so responses can't be shared across tenants.
 - **Fixed (finalize sweep):** the sidebar "needs attention" badge counts were
   cached per role-scope but not per tenant, so two tenant admins shared one
   cache entry, and the alerts/pending-confirmation/pending-command counts

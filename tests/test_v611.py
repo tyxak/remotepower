@@ -223,5 +223,55 @@ class TestThreatModelDocExists(unittest.TestCase):
         self.assertTrue((_ROOT / "docs" / "threat-model.md").exists())
 
 
+class TestFleetAggregateTenantIsolationFix(unittest.TestCase):
+    """v6.1.1 finalize (2026-07-12): the alerts IDOR fix was NOT generalized —
+    six fleet-aggregate handlers filtered by _caller_scope() only (which is None
+    for a tenant admin) and never consulted the tenant gate, so a tenant admin
+    could read (and, for scans-clear, destructively mutate) other tenants'
+    device data when tenancy_enforced is on. Each must route its device set
+    through _scope_filter_devices() (which folds in _tenant_filter_devices) or
+    consult _tenant_gate()."""
+
+    SRC = (_CGI / "api.py").read_text()
+
+    def _body(self, fn):
+        i = self.SRC.index(fn)
+        return self.SRC[i : self.SRC.index("\ndef ", i + 10)]
+
+    def test_scap_overview_tenant_filtered(self):
+        self.assertIn("_scope_filter_devices", self._body("def handle_scap_overview"))
+
+    def test_sudo_search_tenant_filtered(self):
+        self.assertIn("_scope_filter_devices", self._body("def handle_sudo_search"))
+
+    def test_fleet_events_tenant_filtered(self):
+        b = self._body("def handle_fleet_events")
+        self.assertIn("_tenant_gate", b)
+        # the conditional-GET ETag must vary by tenant too (else two tenant
+        # admins with scope=None share a 304)
+        self.assertIn("_tgate", b)
+
+    def test_scans_list_and_clear_tenant_filtered(self):
+        for fn in ("def handle_scans_list", "def handle_scans_clear"):
+            b = self._body(fn)
+            self.assertIn("_scope_filter_devices", b, fn)
+            self.assertIn("_tenant_gate", b, fn)
+
+    def test_risk_overview_tenant_filtered(self):
+        b = self._body("def handle_risk_overview")
+        self.assertIn("_scope_filter_devices", b)
+        self.assertIn("_tgate", b)  # ETag varies by tenant
+
+    def test_fleet_health_tenant_filtered(self):
+        self.assertIn("_scope_filter_devices", self._body("def handle_fleet_health"))
+
+    def test_no_regressed_bare_device_load_in_scans(self):
+        # scans-list/clear must not fall back to the un-filtered device set.
+        for fn in ("def handle_scans_list", "def handle_scans_clear"):
+            self.assertNotIn(
+                "load(DEVICES_FILE) if scope is not None else None",
+                self._body(fn), fn)
+
+
 if __name__ == "__main__":
     unittest.main()

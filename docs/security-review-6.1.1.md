@@ -58,6 +58,23 @@ now scopes the alerts list and the sidebar badge counts, and every mutation
 Fleet-level (device-less) alerts stay visible, matching the existing behaviour.
 This affects only deployments that have turned tenancy on.
 
+**High — the same tenant-isolation gap existed in six other fleet-wide views.**
+A follow-up pass asked the obvious next question: if the alerts store was missed,
+what other fleet-aggregate endpoints filter only by role scope and never consult
+the tenant gate? A tenant admin resolves to the "all devices" role scope, so any
+handler that checks *only* that scope sees the whole fleet. Six did: the OpenSCAP
+compliance overview, the fleet-wide privileged-command (sudo) search, the activity
+/event feed, the authorized-scan list **and its bulk-clear**, the per-asset risk
+overview, and the fleet health rollup. With tenancy enforced, a tenant admin could
+read another tenant's compliance scores, privileged-command history, device
+activity, scan findings and risk/health posture — and, via scan-clear, delete
+another tenant's finished scan records. Fixed: each now routes its device set
+through the shared scope-and-tenant filter (the same helper the already-correct
+container / drift / command-queue overviews use), so out-of-tenant devices are
+dropped before anything is read or mutated; the two conditionally-cached views
+(risk, events) also fold the tenant into their cache key so two tenant admins can
+no longer share a cached response. This affects only deployments with tenancy on.
+
 **Medium — sidebar badge counts could cross tenants via a shared cache.** The
 per-sidebar "needs attention" badge counts are cached briefly, keyed by the
 caller's role scope. Two different tenant admins both resolve to the same

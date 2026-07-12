@@ -234,7 +234,7 @@ echo "OK: $MOUNT is ${PCT}% full"
  edit, or delete scripts.
 - The script body is transmitted over the same HTTPS channel as all
  other RemotePower data. It is stored in `custom_scripts.json` on the
- server (mode 0600, owned by the CGI user).
+ server (mode 0600, owned by the app-server user).
 - Scripts are written to a private temp file (mode 0700) before
  execution and deleted immediately after. They do not persist on the
  agent host between runs.

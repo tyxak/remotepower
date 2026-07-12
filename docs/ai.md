@@ -325,7 +325,7 @@ key is editable under **Settings → AI → Prompts**.
 ## Storage
 
 - **API key**: cleartext in `config.json` under `cfg['ai']['api_key']`.
- The file is mode 0600 owned by the CGI user. Operators who need
+ The file is mode 0600 owned by the app-server user. Operators who need
  stronger storage can swap in `cmdb_vault` later — there's a hook
  point in `_ai_cfg()`.
 - **Rate-limit counters**: `ai_usage.json`, one key per `<date>:<user>`,
@@ -344,7 +344,7 @@ configure a provider, save.
 
 ### "Network error: SyntaxError: JSON.parse: unexpected character"
 
-Almost always nginx's `fastcgi_read_timeout` cutting off a slow
+Almost always nginx's `proxy_read_timeout` cutting off a slow
 request before the model responds. Add the `location /api/ai/`
 block above and reload nginx. v2.1.4+ replaces this generic error
 with a more specific message that tells you exactly which fix to
@@ -364,10 +364,10 @@ DeepSeek, `sk-`.
 
 ### "URLError: timed out" on every chat
 
-The provider hostname is unreachable from the CGI process. For
+The provider hostname is unreachable from the app server. For
 Ollama at `10.0.0.2`, check that the server can resolve and reach
 that address — if you're running RemotePower in a container or
-behind tight egress firewalling, the CGI worker may not have the
+behind tight egress firewalling, the app-server process may not have the
 network path.
 
 ### "Test connection succeeds but real chats fail"
@@ -377,13 +377,13 @@ This was the canonical 2.1.3→2.1.4 bug. Test uses `max_tokens=8`
 60–180 second generation tripped nginx's 60s timeout. Fixed in
 2.1.4 by lowering per-button max_tokens and bumping the Python
 timeout to 5 min, but you still need to bump nginx's
-`fastcgi_read_timeout` to 300s as shown above.
+`proxy_read_timeout` to 300s as shown above.
 
 ### Heartbeat noise in `error.log`
 
 Unrelated to AI but commonly noticed at the same time. v2.1.5
 silences routine heartbeat and lock-wait logs by default; set
-`RP_LOG_HEARTBEATS=1` or `RP_LOG_LOCK_WAITS=1` in the CGI
+`RP_LOG_HEARTBEATS=1` or `RP_LOG_LOCK_WAITS=1` in the app-server
 environment to re-enable for diagnostics. OFFLINE/ONLINE
 transitions stay unconditional.
 
@@ -396,7 +396,7 @@ of them are in this release:
  `/api/devices` etc. is interesting but needs a separate
  Settings toggle and a read-only action allowlist. Queued.
 - **Streaming responses.** Visible benefit small for 1–30s
- requests; complications with CGI buffering and nginx
+ requests; complications with app-server buffering and nginx
  buffering large. Sync request/response only.
 - **Saved prompts / templates.** The inline buttons cover the
  bulk of use. A library of named prompts could come later.

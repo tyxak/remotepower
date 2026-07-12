@@ -14,7 +14,7 @@ service, elevation of privilege) rather than by feature, see
 - CMDB vault uses AES-GCM with PBKDF2-derived keys; passphrase never persisted server-side
 - Custom commands run as root - use the per-device command allowlist for untrusted operators
 - Viewer role users cannot queue commands, change config, or access API keys
-- `apikeys.json`, `tokens.json`, and `users.json` are owned by the CGI user mode `700` - protect your server
+- `apikeys.json`, `tokens.json`, and `users.json` are owned by the app-server user mode `700` - protect your server
 - Agent state files (`/var/lib/remotepower/` mode `0700`) use `O_NOFOLLOW` on every read/write to defeat symlink attacks from local non-root users
 - **Session tokens are hashed at rest** — `tokens.json` is keyed by the SHA-256 of the bearer token, never the token itself, so a leaked file yields no usable session
 - Agents verify the server's TLS certificate (`CERT_REQUIRED` + hostname check); an internal CA can be trusted via `RP_CA_BUNDLE` *in addition to* the system store, never instead of it. The agent→satellite relay hop can also run over HTTPS

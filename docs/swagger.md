@@ -55,13 +55,14 @@ the source — it's better than what a hand-written spec would give you.
 The spec is regenerated on every `GET /api/openapi.json` request,
 which sounds wasteful but takes about half a millisecond.
 
-### Why not auto-generate?
+### How it's generated
 
-The CGI dispatch table in `api.py` is an `elif` chain over
-`path_info`/`method` — there's no decorator metadata to introspect,
-and adding one would just be a different way to be wrong. Hand-
-writing keeps the spec honest: when an endpoint changes, the spec
-changes with it, and the test suite enforces that the documented
+Routing in `api.py` is table-driven (`_EXACT_ROUTES` /
+`_PATTERN_ROUTE_DEFS`), so the spec is derived from those route
+tables plus hand-written path detail for the richer subsystems —
+it is not a hand-maintained list that silently drifts. A new route
+is picked up automatically as long as its dispatch branch declares
+its HTTP method, and the test suite enforces that the documented
 endpoints actually exist (`tests/test_v1100.py::TestOpenAPISpec`).
 
 ---

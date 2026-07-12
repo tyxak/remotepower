@@ -37,7 +37,7 @@ server {
 }
 ```
 
-> **Note:** `fastcgi_read_timeout 130s` is required for `/api/exec/wait` long-poll connections. Without it, Nginx will close the connection after the default 60 s.
+> **Note:** `proxy_read_timeout 130s` is required for `/api/exec/wait` long-poll connections. Without it, Nginx will close the connection after the default 60 s.
 
 ---
 

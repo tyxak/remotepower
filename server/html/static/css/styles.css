@@ -416,7 +416,7 @@
   .notes-tip:hover::after { opacity: 1; }
   .form-textarea {
     width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 11px 14px; font-size: 14px; color: var(--text); outline: none;
+    padding: 11px 14px; font-size: 12.5px; color: var(--text); outline: none;
     transition: border-color 0.2s; font-family: var(--font); resize: vertical; min-height: 80px;
   }
   .form-textarea:focus { border-color: var(--accent); }
@@ -1048,7 +1048,7 @@
      left, internal notes a dashed amber aside. */
   #tk-conversation .tk-msg { max-width: 82%; padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; }
   #tk-conversation .tk-msg-meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
-  #tk-conversation .tk-msg-body { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  #tk-conversation .tk-msg-body { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
   #tk-conversation .tk-msg-in  { background: rgba(127,127,127,0.10); border: 1px solid var(--border); margin-right: auto; }
   #tk-conversation .tk-msg-out { background: rgba(59,130,246,0.12); border: 1px solid var(--accent); margin-left: auto; }
   #tk-conversation .tk-msg-note { background: rgba(255,193,7,0.10); border: 1px dashed #d4a017; margin-right: auto; }
@@ -1067,13 +1067,13 @@
     color: var(--text, #16181d); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.30); }
   .tour-pop-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
-  .tour-pop-body { font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+  .tour-pop-body { font-size: 13.5px; line-height: 1.5; margin-bottom: 12px; }
   .tour-pop-row { display: flex; align-items: center; gap: 6px; }
   .tour-pop-meta { font-size: 12px; color: var(--muted); margin-right: auto; }
   /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused. */
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 1000;
     background: var(--accent); color: var(--accent-contrast, #fff); padding: 8px 14px; border-radius: 0 0 6px 0;
-    font-size: 14px; text-decoration: none; }
+    font-size: 13.5px; text-decoration: none; }
   .skip-link:focus { left: 0; }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
@@ -2126,7 +2126,7 @@
   .login-sub   { font-size: 13.5px; color: var(--muted); margin-bottom: 28px; }
   /* v5.0.0: login banner / security notice */
   .login-banner {
-    font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
     background: var(--accent-soft); border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 12px; margin: -16px 0 24px; color: var(--text);
   }
@@ -3650,7 +3650,7 @@ button, a, [role="button"],
 .audit-section[open] summary::after { transform: rotate(90deg); }
 .audit-section-body {
   padding: 0 16px 14px;
-  font-size: 13px; line-height: 1.6;
+  font-size: 13.5px; line-height: 1.6;
   /* v3.13.0: cap each drawer card to ~15 rows then scroll internally, so a
    * host with many containers/disks/ports doesn't make one card grow
    * unboundedly. Inner tables wrapped in .audit-scroll cap first. */
@@ -3779,7 +3779,7 @@ td .kev-badge { margin-left: 0; }
 .hw-h {
   font-size: 13px; font-weight: 620; color: var(--text); margin-bottom: 6px;
 }
-.hw-changes { margin: 0; padding-left: 18px; }
+.hw-changes { margin: 0; padding-left: 18px; max-height: 200px; overflow-y: auto; }
 .hw-changes li { margin-bottom: 2px; }
 .hw-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .diag-pending { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); animation: diagPulse 1.4s ease-in-out infinite; }
@@ -4445,7 +4445,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-116 { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; min-height:300px; max-height:55vh; overflow-y:auto; font-size: 13.5px; line-height:1.55 }
 .isl-117 { color:var(--muted); text-align:center; padding:40px 12px }
 .isl-118 { margin-top:12px; display:flex; gap:8px; align-items:flex-end }
-.isl-119 { flex:1; resize:vertical; min-height:60px; font-family:inherit; font-size:14px }
+.isl-119 { flex:1; resize:vertical; min-height:60px; font-family:inherit; font-size:12.5px }
 .isl-120 { height:60px; min-width:90px }
 .isl-121 { margin-top:6px; font-size:11px; color:var(--muted) }
 .isl-122 { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
@@ -4982,7 +4982,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-553 { padding: 14px 8px }
 .isl-554 { font-size: 12px; padding: 2px 8px }
 .isl-555 { flex: 1; cursor: pointer }
-.isl-556 { font-size: 14px; padding: 2px 8px; color: var(--muted) }
+.isl-556 { font-size: 13px; padding: 2px 8px; color: var(--muted) }
 .isl-557 { display: flex; align-items: center; gap: 10px; padding: 5px 4px; border-bottom: 1px solid var(--border) }
 .isl-558 { flex: 1; font-size: 13px; display: flex; align-items: center; gap: 6px }
 .isl-559 { color: var(--text); text-decoration: none; font-weight: 600 }
@@ -5296,7 +5296,7 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 }
 .isl-715 { cursor: pointer; color: var(--muted); font-size: 12px }
 .isl-716 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(580px,90vw); max-height: 60vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
-.isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 14px; outline: none }
+.isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 12.5px; outline: none }
 .isl-718 { overflow-y: auto; padding: 6px; flex: 1 }
 .isl-719 { font-size: 11px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 14px }
 .isl-720 { background: var(--bg); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border) }

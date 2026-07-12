@@ -39,7 +39,7 @@ need it. Start at the top; most installs only need the first two rows.
 
 | Component | Script | When you need it |
 |-----------|--------|------------------|
-| **Server** | `install-server.sh` | always (the dashboard + API) — Postgres + WSGI + scheduler + a co-located scanner satellite are all default-on single-node; `--no-postgres`/`--app-server=cgi`/`--no-scheduler`/`--no-scanner` opt back down |
+| **Server** | `install-server.sh` | always (the dashboard + API) — Postgres + WSGI + scheduler + a co-located scanner satellite are all default-on single-node; `--no-postgres`/`--no-scheduler`/`--no-scanner` opt back down |
 | **Linux agent** | `install-client.sh` | each Linux host to manage |
 | **Windows agent** | `client/install-windows.ps1` | each Windows host |
 | **macOS agent** | `client/install-macos.sh` | each Mac |
@@ -49,7 +49,7 @@ need it. Start at the top; most installs only need the first two rows.
 | **Postgres HA (primary)** | `packaging/postgres-ha-primary.sh` | DB failover |
 | **Postgres HA (standby)** | `packaging/postgres-ha-standby.sh` | DB failover |
 | **PgBouncer pooler** | `packaging/pgbouncer-setup.sh` | very high request rates |
-| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | default-on via `install-server.sh` — a pre-warmed gunicorn app server instead of CGI — see [wsgi.md](wsgi.md) |
+| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | default-on via `install-server.sh` — a pre-warmed gunicorn app server (the only server since v6.1.0) — see [wsgi.md](wsgi.md) |
 | **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | default-on via `install-server.sh` — runs the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) |
 | **Load balancer** | `packaging/loadbalancer-haproxy.cfg.example` | multi-node |
 | **Web SSH terminal** | `packaging/install-webterm.sh` | optional browser SSH |

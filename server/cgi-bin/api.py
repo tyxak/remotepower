@@ -30778,7 +30778,9 @@ def handle_sudo_search():
     except ValueError:
         limit = 200
     store = load(SUDO_LOG_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    # _scope_filter_devices folds in tenant isolation (a tenant admin/auditor
+    # has scope=None but must not read other tenants' privileged-command log).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     scope = _caller_scope()
     rows = []
     for did, events in store.items():
@@ -38050,9 +38052,12 @@ def handle_risk_overview():
     require_auth()
     risks = _fleet_risk_cached()
     scope = _caller_scope()
-    if scope is not None:
-        devs = load(DEVICES_FILE) or {}
-        risks = [r for r in risks if _device_in_scope(scope, devs.get(r['device_id'], {}))]
+    _tgate = _tenant_gate()
+    if scope is not None or _tgate is not None:
+        # _scope_filter_devices folds in tenant isolation (a tenant admin has
+        # scope=None but must not enumerate other tenants' risk posture).
+        devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+        risks = [r for r in risks if r['device_id'] in devs]
     counts = {'low': 0, 'medium': 0, 'high': 0, 'critical': 0}
     for r in risks:
         counts[r['level']] = counts.get(r['level'], 0) + 1
@@ -38063,7 +38068,7 @@ def handle_risk_overview():
     # changed) — a poller re-fetching this dashboard endpoint every N seconds
     # gets a bodyless 304 on every call where nothing changed.
     try:
-        etag_source = (backend_mtime(_fleet_risk_cache_file()), scope)
+        etag_source = (backend_mtime(_fleet_risk_cache_file()), scope, _tgate)
     except Exception:
         etag_source = None
     if etag_source is not None:
@@ -38120,10 +38125,12 @@ def handle_fleet_health():
     # v3.5.0 RBAC v2: filter per-device rows to the caller's scope and recompute
     # the headline score/total over just those devices.
     scope = _caller_scope()
-    if scope is not None:
-        devs = load(DEVICES_FILE) or {}
+    if scope is not None or _tenant_gate() is not None:
+        # _scope_filter_devices folds in tenant isolation (a tenant admin has
+        # scope=None but must not see other tenants' per-device health).
+        devs = _scope_filter_devices(load(DEVICES_FILE) or {})
         rows = [d for d in (h.get('devices') or [])
-                if _device_in_scope(scope, devs.get(d.get('device_id'), {}))]
+                if d.get('device_id') in devs]
         scores = [d['score'] for d in rows if isinstance(d.get('score'), (int, float))]
         h = {**h, 'devices': rows, 'total_devices': len(rows),
              'score': round(sum(scores) / len(scores)) if scores else None}
@@ -40578,15 +40585,21 @@ def handle_scans_list():
     target device). Newest first."""
     require_perm('scan')
     scope = _caller_scope()
-    devices = load(DEVICES_FILE) if scope is not None else None
+    # Restrict to the caller's visible devices when EITHER role scope OR tenant
+    # isolation applies. _scope_filter_devices folds in both (a tenant admin has
+    # scope=None but must not see other tenants' scans). Device-less (IP-only)
+    # scans are hidden from restricted callers, matching the prior scoped
+    # behaviour; superadmins/unscoped admins still see everything.
+    _restrict = scope is not None or _tenant_gate() is not None
+    _visible = _scope_filter_devices(load(DEVICES_FILE) or {}) if _restrict else None
     scans = load(SCANS_FILE) or {}
     out = []
     for s in scans.values():
         if not isinstance(s, dict):
             continue
-        if scope is not None:
-            dev = (devices or {}).get(s.get('target_device_id') or '')
-            if not dev or not _device_in_scope(scope, dev):
+        if _visible is not None:
+            tdid = s.get('target_device_id') or ''
+            if not tdid or tdid not in _visible:
                 continue
         out.append(_scan_public(s))
     out.sort(key=lambda r: r.get('created') or 0, reverse=True)
@@ -40791,16 +40804,21 @@ def handle_scans_clear():
         respond(405, {'error': 'Method not allowed'})
     actor = require_perm('scan')
     scope = _caller_scope()
-    devices = load(DEVICES_FILE) if scope is not None else None
+    # Only clear scans the caller can actually see — restrict by role scope AND
+    # tenant (a tenant admin has scope=None; without this it would delete every
+    # tenant's finished scans). Device-less scans are left alone for restricted
+    # callers, matching handle_scans_list.
+    _restrict = scope is not None or _tenant_gate() is not None
+    _visible = _scope_filter_devices(load(DEVICES_FILE) or {}) if _restrict else None
     removed = 0
     with _LockedUpdate(SCANS_FILE) as scans:
         for k in list(scans.keys()):
             v = scans.get(k)
             if not isinstance(v, dict) or v.get('status') not in ('done', 'failed', 'cancelled'):
                 continue
-            if scope is not None:
-                dev = (devices or {}).get(v.get('target_device_id') or '')
-                if not dev or not _device_in_scope(scope, dev):
+            if _visible is not None:
+                tdid = v.get('target_device_id') or ''
+                if not tdid or tdid not in _visible:
                     continue
             del scans[k]
             removed += 1
@@ -42837,7 +42855,10 @@ def handle_scap_overview():
     """GET /api/scap — latest OpenSCAP result per (in-scope) device + summary."""
     require_auth()
     scope = _caller_scope()
-    devices = load(DEVICES_FILE) or {}
+    # _scope_filter_devices folds in tenant isolation (a tenant admin has
+    # scope=None but must not see other tenants' SCAP results). The
+    # _device_in_scope checks below then just re-confirm role scope.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     store = load(SCAP_FILE) or {}
     rows = []
     for did, rec in store.items():
@@ -45245,6 +45266,12 @@ def run_incident_promotion_if_due():
     if not cfg.get('incident_auto_promote_enabled'):
         return
     now = int(time.time())
+    # PERF: cheap read-only pre-gate before the write lock (see _maybe_sample_*)
+    # — when enabled this sweep runs every request, so avoid taking a write lock
+    # on INCIDENT_PROMOTE_STATE_FILE just to find it's not due yet.
+    _st = load(INCIDENT_PROMOTE_STATE_FILE) or {}
+    if now - int(_st.get('last_run', 0)) < 60:
+        return
     try:
         with _LockedUpdate(INCIDENT_PROMOTE_STATE_FILE) as st:
             if now - int(st.get('last_run', 0)) < 60:
@@ -50135,6 +50162,16 @@ def handle_fleet_events():
                   if not (e.get('payload') or {}).get('device_id')
                   or _device_in_scope(_scope, devices.get((e.get('payload') or {}).get('device_id'), {}))]
 
+    # Tenant isolation: a tenant admin has scope=None but must only see events
+    # for devices in its own tenant (fleet-wide events with no device_id stay
+    # visible). Same class as the alerts inbox fix (v6.1.1).
+    _tgate = _tenant_gate()
+    if _tgate is not None:
+        _visible = _tenant_filter_devices(devices)
+        events = [e for e in events
+                  if not (e.get('payload') or {}).get('device_id')
+                  or (e.get('payload') or {}).get('device_id') in _visible]
+
     # v3.2.3: routing matrix filter — Recent Activity only shows events
     # whose kind has recent_activity=true. Centralised here so the home
     # feed, mobile app, and any other reader of /api/fleet/events all
@@ -50152,7 +50189,7 @@ def handle_fleet_events():
     # scope), so two differently-filtered requests never share a 304.
     try:
         etag_source = (backend_mtime(FLEET_EVENTS_FILE), backend_mtime(DEVICES_FILE),
-                       limit, tuple(sorted(name_filter)), _scope)
+                       limit, tuple(sorted(name_filter)), _scope, _tgate)
     except Exception:
         etag_source = None
     if etag_source is not None:

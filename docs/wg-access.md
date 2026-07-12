@@ -119,7 +119,7 @@ or IP for the client configs.
   helper; no API ever returns a private key.
 - The privileged helper accepts only a **structured JSON spec** and rebuilds the
   `wg` / `nftables` config itself (argv-only, no shell) — no untrusted string is
-  ever interpolated into a command. The CGI worker itself stays unprivileged; the
+  ever interpolated into a command. The app-server process itself stays unprivileged; the
   one root action is the scoped, audited helper invocation.
 - Reach is enforced on the hub (nftables), not on the client, so a tunnel's scope
   is authoritative.

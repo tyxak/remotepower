@@ -55,7 +55,7 @@ existing `cmd_output.json` (which the Patches page already reads) and
 the new `update_logs.json` (which the Update history modal reads).
 This keeps backward compatibility — nothing existing breaks — at the
 cost of a small write amplification, which doesn't matter for a
-flat-file CGI app handling tens of writes per minute.
+flat-file app handling tens of writes per minute.
 
 **Rolling buffer, not append-only.** 10 runs per device. New run,
 oldest evicted. If you want long-term retention, scrape the endpoint
