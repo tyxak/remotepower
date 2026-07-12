@@ -2,15 +2,23 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.1.1 — "HardenMatters" — unreleased (test)
+## v6.1.1 — "HardenMatters" — 2026-07-12
 
-A broad correctness-and-coverage pass across the whole product: real
-cross-tenant security fixes, step-up re-auth, litigation hold, a structured
-threat model, a full accessibility pass, real per-package patch-pin
-enforcement, invoice PDFs and payment-webhook reconciliation, a fleet query
-engine, distributed tracing, and a long tail of smaller features and fixes —
-several of them found live during production upgrades of v6.1.0. No breaking
-API changes. Full write-up: `docs/v6.1.1.md`.
+This is the first production release built on the new **single-node enterprise
+stack** — PostgreSQL, an out-of-band scheduler and a co-located scanner as the
+default install, with the server running entirely on **gunicorn + Flask/WSGI**
+(CGI and the SCGI worker are retired). That transport-and-storage cutover landed
+in v6.1.0, which never shipped standalone and folds into this release; see the
+v6.1.0 section below for its full detail. It also ships the new interactive
+**`rp` / `rp tui`** command-line dashboard (htop/k9s style) for node control.
+
+On top of that foundation, v6.1.1 is a broad correctness-and-coverage pass across
+the whole product: real cross-tenant security fixes, step-up re-auth, litigation
+hold, a structured threat model, a full accessibility pass, real per-package
+patch-pin enforcement, invoice PDFs and payment-webhook reconciliation, a fleet
+query engine, distributed tracing, and a long tail of smaller features and fixes —
+several of them found live during production upgrades of the v6.1.0 stack. No
+breaking API changes. Full write-up: `docs/v6.1.1.md`.
 
 ### Security & tenancy
 - **Step-up re-auth for privilege escalation**: `POST /api/auth/step-up`
@@ -245,7 +253,7 @@ API changes. Full write-up: `docs/v6.1.1.md`.
   for `-sV` and its default NSE script set — scans ran but silently
   produced degraded results.
 
-## v6.1.0 — "Runt1meMatters" — unreleased (test)
+## v6.1.0 — "Runt1meMatters" — folded into v6.1.1 (no standalone release)
 
 The enterprise-productization release: the single-node "enterprise" topology
 is now the default install, and the server runs entirely on gunicorn + Flask.
