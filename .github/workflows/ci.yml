@@ -39,10 +39,12 @@ jobs:
       # bcrypt + cryptography + dnspython are the runtime deps the
       # server imports unconditionally; without them the test files
       # fail at import (they exec api.py to get at internal helpers).
+      # flask + gunicorn are the app server since v6.1.0 (wsgi.py) — the
+      # WSGI entrypoint tests import wsgi.py, which imports flask.
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bcrypt cryptography dnspython webauthn pysaml2
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn
 
       - name: Run test suite
         env:

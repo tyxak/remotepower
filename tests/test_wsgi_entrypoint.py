@@ -13,6 +13,17 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 
+# Flask is a hard runtime dependency since v6.1.0, but the tests that actually
+# import/exec wsgi.py must degrade to a skip (not ERROR) in a minimal env that
+# lacks it — e.g. a `make dist` staged-tree run on a box without the runtime
+# deps installed. CI installs flask so these still run there.
+try:
+    import flask  # noqa: F401
+
+    _HAS_FLASK = True
+except ImportError:
+    _HAS_FLASK = False
+
 
 def _maybe(p):
     p = _ROOT / p
@@ -29,6 +40,7 @@ class TestWsgiEntrypoint(unittest.TestCase):
         self.assertIn("from flask import", src)
         self.assertIn("application = Flask(", src)
 
+    @unittest.skipUnless(_HAS_FLASK, "flask not installed")
     def test_no_flask_default_static_route(self):
         # Flask registers /static/<path:filename> by default, served by
         # Flask's own handler — a code path that bypasses api.main() entirely
@@ -47,6 +59,7 @@ class TestWsgiEntrypoint(unittest.TestCase):
         rules = {str(r) for r in wsgi.application.url_map.iter_rules()}
         self.assertNotIn("/static/<path:filename>", rules)
 
+    @unittest.skipUnless(_HAS_FLASK, "flask not installed")
     def test_nonstandard_method_reaches_api_main(self):
         # v6.1.0 pentest sweep: the catch-all route only lists 7 explicit
         # methods (Werkzeug requires an explicit list), so any other verb
@@ -70,6 +83,7 @@ class TestWsgiEntrypoint(unittest.TestCase):
         self.assertNotEqual(resp.status_code, 405)
         self.assertEqual(resp.content_type, "application/json")
 
+    @unittest.skipUnless(_HAS_FLASK, "flask not installed")
     def test_span_recorded_for_real_request(self):
         # v6.1.1 (#48): confirm the wsgi.py _run_request hook actually wires
         # up end-to-end through a real Flask test-client request — not just
