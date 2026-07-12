@@ -1093,6 +1093,46 @@ function _rpLoad(d) {
   if (_rpBar) _rpBar.classList.toggle('on', _rpLoadN > 0);
 }
 
+// ─── v6.1.2 (perf #8): load i18n.js on demand ──────────────────────────────
+// i18n.js is ~776 KB — the second-largest asset after app.js itself — and it is
+// pure dead weight for an English user, which is the default and the large
+// majority of loads. It is no longer an eager <script> in index.html; it is
+// fetched only when a non-English language is actually in play.
+//
+// A dynamically-injected <script> tag, NOT import(): i18n.js is a classic script
+// that publishes window.RPi18n from an IIFE, and the injected tag is the exact
+// equivalent of what index.html was already doing. import() would change the
+// execution semantics (module scope, strict mode, timing) for no benefit.
+//
+// Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded, so
+// while it is absent (or still in flight) the UI renders English — the correct
+// fallback, and exactly what an unrecognised language already did.
+let _i18nPromise = null;
+
+function _ensureI18n() {
+  if (window.RPi18n) return Promise.resolve(window.RPi18n);
+  if (_i18nPromise) return _i18nPromise;
+  _i18nPromise = new Promise(resolve => {
+    const sc = document.createElement('script');
+    // Same cache-bust as every other asset — a stale i18n.js after a release
+    // would show the previous version's strings.
+    sc.src = 'static/js/i18n.js?v=' + (window.RP_VERSION || '6.1.2');
+    sc.onload = () => resolve(window.RPi18n || null);
+    // Never leave a caller hanging on a missing/blocked file: resolve null and
+    // stay in English rather than deadlocking the language picker.
+    sc.onerror = () => { _i18nPromise = null; resolve(null); };
+    document.head.appendChild(sc);
+  });
+  return _i18nPromise;
+}
+
+// Boot: if this browser already remembers a non-English language, start the fetch
+// at once so the swap out of English happens as early as possible.
+try {
+  const _savedLang = localStorage.getItem('rp_lang');
+  if (_savedLang && _savedLang !== 'en') _ensureI18n();
+} catch (_) {}
+
 // v6.1.2 (perf #6): conditional requests for the 60s poll.
 //
 // The refresh cycle re-fetches /devices, /home and /nav-counts every 60 seconds
@@ -6072,8 +6112,13 @@ async function loadMe() {
   // them over the local fast-paint cache (older servers omit the field).
   if ('favorites' in me) _hydrateFavoritesFromServer(me.favorites);
   // v3.14.0 (#26): adopt the account's saved interface language over the local
-  // fast-paint guess (best-effort; i18n.js is loaded before app.js).
-  if (me.lang && window.RPi18n) window.RPi18n.adopt(me.lang);
+  // fast-paint guess. v6.1.2: i18n.js may not be loaded at all (English default),
+  // so pull it in first when the account says otherwise, then adopt.
+  if (me.lang && me.lang !== 'en') {
+    _ensureI18n().then(i18n => { if (i18n) i18n.adopt(me.lang); });
+  } else if (me.lang && window.RPi18n) {
+    window.RPi18n.adopt(me.lang);
+  }
   // v3.14.0 (#45): apply in-app white-label branding (org name + default accent).
   if (me.brand) {
     if (me.brand.name) {
@@ -6271,6 +6316,13 @@ async function loadAccount() {
         await flushUiPrefs();
       };
     } }
+  // v6.1.2 (perf #8): the <select id="acct-lang"> options are built by i18n.js's
+  // own init(). Since i18n.js is no longer loaded eagerly, an English user opening
+  // this pane would otherwise find an EMPTY language dropdown — i.e. no way to
+  // ever leave English, which would make the whole feature unreachable. Pull it in
+  // here; it self-inits on inject (readyState is past 'loading' by now) and builds
+  // the picker itself.
+  _ensureI18n();
   _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
   _initPushUI();              // v3.14.0 (#42): browser push notifications
   loadMyNotifyPrefs();        // W2-20: per-user notification subscription

@@ -1013,6 +1013,82 @@ def list_append_chained(path, build_entry, cap=None):
     return overflow
 
 
+
+def list_coalesce_or_append(path, coalesce, build, cap=None):
+    """v6.1.2 (perf #4): append-or-merge into a wrapped-list file with O(1) WRITES.
+
+    The alerts inbox went through save(), which for a wrapped-list file DELETEs
+    every row and re-INSERTs every row (_save_wrapped) — O(N) writes for ONE new
+    alert, i.e. O(N^2) across an alert storm, which is exactly when the server most
+    needs to keep up. fleet_events/history already avoided that with list_append;
+    alerts couldn't, because a new alert may COALESCE into an existing open row
+    rather than append.
+
+    One BEGIN IMMEDIATE transaction, so read + write stay atomic exactly as the
+    old _LockedUpdate did:
+
+      * scan the rows NEWEST-FIRST and offer each to ``coalesce(doc)``. The first
+        call that returns non-None claims that row: it is UPDATEd in place (one
+        row), and we stop.
+      * otherwise ``build(meta)`` produces the entry to INSERT. `meta` is the
+        file's sibling-metadata dict (kv ``<name>#meta``) and may be MUTATED —
+        that is how the alerts counter is bumped atomically with the insert.
+        Returning None from build writes nothing.
+
+    ``coalesce`` and ``build`` must be PURE (no DB access): they run inside the
+    write lock — same contract as list_append_chained's build_entry.
+
+    Returns (entry, coalesced: bool, overflow: list).
+    """
+    conn = _connect(_dir(path))
+    name = _name(path)
+    metaname = name + '#meta'
+    overflow = []
+    with _Tx(conn, immediate=True):
+        rows = conn.execute(
+            'SELECT id, doc FROM listrow WHERE file=? ORDER BY id DESC',
+            (name,)).fetchall()
+        for r in rows:
+            try:
+                doc = json.loads(r['doc'])
+            except (ValueError, TypeError):
+                continue
+            merged = coalesce(doc)
+            if merged is not None:
+                conn.execute('UPDATE listrow SET doc=? WHERE id=?',
+                             (_dumps(merged), r['id']))
+                _touch(conn, name)
+                return merged, True, []
+        mrow = conn.execute('SELECT doc FROM kv WHERE path=?', (metaname,)).fetchone()
+        try:
+            meta = json.loads(mrow['doc']) if mrow else {}
+        except (ValueError, TypeError):
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        entry = build(meta)
+        if entry is None:
+            return None, False, []
+        conn.execute('INSERT INTO listrow(file, doc) VALUES(?,?)',
+                     (name, _dumps(entry)))
+        conn.execute(
+            'INSERT INTO kv(path, doc, updated) VALUES(?,?,?) '
+            'ON CONFLICT(path) DO UPDATE SET doc=excluded.doc, updated=excluded.updated',
+            (metaname, _dumps(meta), time.time()))
+        if cap is not None:
+            n = conn.execute('SELECT COUNT(*) AS c FROM listrow WHERE file=?',
+                             (name,)).fetchone()['c']
+            if n > cap:
+                old = conn.execute(
+                    'SELECT id, doc FROM listrow WHERE file=? ORDER BY id LIMIT ?',
+                    (name, n - cap)).fetchall()
+                overflow = [json.loads(r['doc']) for r in old]
+                conn.executemany('DELETE FROM listrow WHERE id=?',
+                                 [(r['id'],) for r in old])
+        _touch(conn, name)
+    return entry, False, overflow
+
+
 # ── presence / inventory / snapshot (the widened seam) ────────────────────────
 
 def exists(path):

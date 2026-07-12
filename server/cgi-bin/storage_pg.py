@@ -1237,6 +1237,68 @@ def list_append_chained(path, build_entry, cap=None):
     return overflow
 
 
+
+def list_coalesce_or_append(path, coalesce, build, cap=None):
+    """Postgres twin of storage.list_coalesce_or_append (v6.1.2, perf #4).
+
+    MUST behave identically to the SQLite version — a handler that works on two
+    backends and breaks on the third is this codebase's recurring failure mode
+    (see the non_blocking lock-parity bug). Same contract: one transaction, scan
+    newest-first, first non-None `coalesce(doc)` UPDATEs that one row; otherwise
+    `build(meta)` INSERTs (meta is the file's kv `<name>#meta` sibling dict and may
+    be mutated in place). Both callbacks are pure. Returns (entry, coalesced,
+    overflow).
+    """
+    conn = _connect(_dir(path))
+    name = _name(path)
+    metaname = name + '#meta'
+    overflow = []
+    with _Tx(conn) as c:
+        _acquire(c, name, False)
+        rows = c.execute(
+            'SELECT id, doc FROM listrow WHERE file=%s ORDER BY id DESC',
+            (name,)).fetchall()
+        for r in rows:
+            try:
+                doc = json.loads(r['doc'])
+            except (ValueError, TypeError):
+                continue
+            merged = coalesce(doc)
+            if merged is not None:
+                c.execute('UPDATE listrow SET doc=%s WHERE id=%s',
+                          (_dumps(merged), r['id']))
+                _touch(c, name)
+                return merged, True, []
+        mrow = c.execute('SELECT doc FROM kv WHERE path=%s', (metaname,)).fetchone()
+        try:
+            meta = json.loads(mrow['doc']) if mrow else {}
+        except (ValueError, TypeError):
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        entry = build(meta)
+        if entry is None:
+            return None, False, []
+        c.execute('INSERT INTO listrow(file, doc) VALUES(%s,%s)', (name, _dumps(entry)))
+        c.execute(
+            'INSERT INTO kv(path, doc, updated) VALUES(%s,%s,%s) '
+            'ON CONFLICT(path) DO UPDATE SET doc=excluded.doc, updated=excluded.updated',
+            (metaname, _dumps(meta), time.time()))
+        if cap is not None:
+            n = c.execute('SELECT COUNT(*) AS ct FROM listrow WHERE file=%s',
+                          (name,)).fetchone()['ct']
+            if n > cap:
+                old = c.execute(
+                    'SELECT id, doc FROM listrow WHERE file=%s ORDER BY id LIMIT %s',
+                    (name, n - cap)).fetchall()
+                overflow = [json.loads(r['doc']) for r in old]
+                with c.cursor() as cur:
+                    cur.executemany('DELETE FROM listrow WHERE id=%s',
+                                    [(r['id'],) for r in old])
+        _touch(c, name)
+    return entry, False, overflow
+
+
 # ── presence / inventory / maintenance ───────────────────────────────────────
 
 def exists(path):

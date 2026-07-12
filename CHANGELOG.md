@@ -108,6 +108,22 @@ homelabs — the ability to switch off the enterprise modules you don't use.
   Applied where the whole read path is verifiably read-only — starting with
   `/api/nav-counts`.
 
+- **An alert fire no longer rewrites the whole inbox.** `_record_alert` went through
+  `save()`, which for a wrapped-list file deletes every row and re-inserts every row
+  — so recording ONE alert cost O(N) database writes, i.e. O(N²) across an alert
+  storm, which is exactly when the server has to keep up. The database backends now
+  do the scan and a single `UPDATE`-or-`INSERT` in one transaction: a new alert is
+  three write statements and a coalesce is two, no matter how large the ledger is.
+  Coalescing, the monotonic `alertid` counter, the resolved-alert rule and the cap
+  all behave exactly as before — on both backends.
+- **776 KB of translations no longer ship to people reading English.** `i18n.js` was
+  the second-largest asset in the app and was loaded eagerly (and precached by the
+  service worker) on every single visit, including the overwhelming majority that
+  never leave the default language. It is now fetched on demand: at boot when a
+  non-English language is remembered, when your account reports one, and when you
+  open the language picker. Absent, the UI renders English — which is exactly what
+  it already did for an unrecognised language.
+
 ### Added — containers
 
 - **Docker disk footprint** (`docker system df`). The 40 GB build-cache surprise

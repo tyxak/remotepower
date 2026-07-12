@@ -27,7 +27,13 @@ const CACHE_NAME = 'remotepower-shell-v6.1.2';   // bump on every asset change
 const SHELL_ASSETS = [
   '/',
   '/index.html',
-  '/static/js/i18n.js',
+  // v6.1.2 (perf #8): i18n.js (~776 KB) is NOT precached. It is no longer part of
+  // "the minimum set needed for the app to load" — the app renders in English
+  // without it, and it is fetched on demand only when the language isn't English.
+  // Precaching it here would have quietly re-downloaded the whole translation
+  // catalogue on every install and undone the saving entirely. The runtime
+  // fetch handler still caches it for offline use once a non-English user pulls
+  // it in, which is when it actually matters to them.
   '/static/js/app.js',
   '/static/js/app-calendar.js',
   '/static/js/app-cmdb.js',

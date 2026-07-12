@@ -8605,28 +8605,62 @@ def _record_alert(event, payload):
         'resolved_by':     None,
         'resolved_at':     None,
     }
+    # Coalesce into an existing OPEN alert for the same condition rather than
+    # stacking a duplicate row. Scan newest-first; an alert is "open" while
+    # resolved_at is unset. Refresh its timestamp and bump an occurrence counter
+    # so the inbox shows one live row, not N. Only coalesce when the alert is
+    # identifiable (has a device_id or at least one identity field) — two
+    # anonymous same-event alerts may be genuinely distinct occurrences, so they
+    # still append.
+    ident = _alert_identity(event, summary, alert['device_id'])
+    identifiable = bool(ident[1] or ident[2])
+
+    def _coalesce(ex):
+        """Claim `ex` if it's the same open condition. Returns the updated row (the
+        backend UPDATEs that ONE row) or None to keep scanning. Pure — it runs
+        inside the storage write transaction."""
+        if not identifiable or not isinstance(ex, dict) or ex.get('resolved_at'):
+            return None
+        if _alert_identity(ex.get('event'), ex.get('payload') or {},
+                           ex.get('device_id')) != ident:
+            return None
+        ex['ts'] = alert['ts']
+        ex['count'] = int(ex.get('count') or 1) + 1
+        ex['last_seen'] = alert['ts']
+        return ex
+
+    def _build(meta):
+        """No open row matched → this is a new alert. `meta` is the file's sibling
+        metadata; bumping alert_seq HERE keeps the counter atomic with the insert,
+        exactly as the old read-modify-write under _LockedUpdate did."""
+        seq = int(meta.get('alert_seq') or 0) + 1
+        meta['alert_seq'] = seq
+        alert['alertid'] = f'alertid_{seq:06d}'
+        return alert
+
+    _m = _dbmod()
     try:
+        if _m is not None:
+            # v6.1.2 (perf #4): O(1) WRITES on the DB backends. This used to be a
+            # _LockedUpdate whose exit called save() → for a wrapped-list file that
+            # DELETEs every row and re-INSERTs every row (~MAX_ALERTS of them) for
+            # ONE new alert — O(N) writes per event, so O(N^2) across an alert
+            # storm, which is precisely when the server must keep up. The scan +
+            # the single UPDATE-or-INSERT happen in ONE transaction, so read and
+            # write stay as atomic as the lock made them.
+            merged, coalesced, _overflow = _m.list_coalesce_or_append(
+                ALERTS_FILE, _coalesce, _build, cap=MAX_ALERTS)
+            _invalidate_load_cache(ALERTS_FILE)
+            return merged if coalesced else (merged or alert)
+        # JSON backend: no row store — the whole file is rewritten either way, so
+        # keep the original read-modify-write under the lock, unchanged.
         with _LockedUpdate(ALERTS_FILE) as store:
             alerts = store.setdefault('alerts', [])
-            # Coalesce into an existing OPEN alert for the same condition rather
-            # than stacking a duplicate row. Scan newest-first; an alert is
-            # "open" while resolved_at is unset. Refresh its timestamp and bump
-            # an occurrence counter so the inbox shows one live row, not N.
-            # Only coalesce when the alert is identifiable (has a device_id or at
-            # least one identity field) — two anonymous same-event alerts may be
-            # genuinely distinct occurrences, so they still append.
-            ident = _alert_identity(event, summary, alert['device_id'])
-            if ident[1] or ident[2]:
-                for ex in reversed(alerts):
-                    if ex.get('resolved_at'):
-                        continue
-                    if _alert_identity(ex.get('event'), ex.get('payload') or {},
-                                       ex.get('device_id')) == ident:
-                        ex['ts'] = alert['ts']
-                        ex['count'] = int(ex.get('count') or 1) + 1
-                        ex['last_seen'] = alert['ts']
-                        return ex
-            _assign_alertid(store, alert)
+            for ex in reversed(alerts):
+                merged = _coalesce(ex)
+                if merged is not None:
+                    return merged
+            _build(store)
             alerts.append(alert)
             if len(alerts) > MAX_ALERTS:
                 del alerts[:-MAX_ALERTS]

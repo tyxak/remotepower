@@ -1343,13 +1343,30 @@ class TestI18nWiring(unittest.TestCase):
     def test_supported_langs(self):
         self.assertEqual(api.SUPPORTED_LANGS, ('en', 'zh', 'hi', 'es', 'ar', 'de', 'fr'))
 
-    def test_i18n_loads_before_app(self):
-        i = self.HTML.index('static/js/i18n.js')
-        a = self.HTML.index('static/js/app.js')
-        self.assertLess(i, a, "i18n.js must be loaded before app.js")
+    # v6.1.2 (perf #8): these two tests used to require the OPPOSITE — that i18n.js
+    # loaded eagerly before app.js, and that the service worker precached it. Both
+    # requirements were reversed on purpose: i18n.js is ~776 KB, it is the second-
+    # largest asset in the app, and it is dead weight for an English user (the
+    # default, and the large majority of loads). It is now fetched on demand. The
+    # invariants that MATTER survive, and are what these now pin.
 
-    def test_i18n_precached(self):
-        self.assertIn('/static/js/i18n.js', self.SW)
+    def test_i18n_is_not_loaded_eagerly(self):
+        self.assertNotIn('<script defer src="static/js/i18n.js', self.HTML)
+
+    def test_i18n_is_not_precached(self):
+        """Precaching would re-download the whole catalogue on install and undo the
+        saving completely."""
+        block = self.SW[self.SW.index('const SHELL_ASSETS'):]
+        block = block[:block.index('];')]
+        self.assertNotIn("'/static/js/i18n.js'", block)
+
+    def test_i18n_is_still_reachable_on_demand(self):
+        """The point is to defer it, NOT to break it: a non-English user must still
+        get their language, and an English user must still be able to CHOOSE one
+        (the language <select> is populated by i18n.js's own init())."""
+        self.assertIn('function _ensureI18n', self.JS)
+        self.assertIn('static/js/i18n.js?v=', self.JS)
+        self.assertIn("localStorage.getItem('rp_lang')", self.JS)
 
     def test_language_card_present(self):
         self.assertIn('id="acct-lang"', self.HTML)
