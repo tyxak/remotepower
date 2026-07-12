@@ -648,6 +648,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v4.1.0: actionable alerts feed (ack/resolve inline)
                               'alertsfeed',
                               'health', 'heatmap', 'overview', 'roster', 'links', 'postit',
+                              # v6.1.2: longest-uptime leaderboard (from uptime.json)
+                              'uptimetop',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
@@ -16400,6 +16402,18 @@ def handle_heartbeat():
             safe_si = {}
             if 'uptime' in si:
                 safe_si['uptime'] = _sanitize_str(si['uptime'], 128)
+            # v6.1.2: the NUMERIC uptime. `uptime` above is the human string from
+            # `uptime -p` ("up 3 weeks") — unsortable and uncomparable, which is
+            # why nothing could ever rank hosts by uptime. safe_si is a whitelist:
+            # a field the agent sends but this drops silently never reaches the
+            # UI, so it has to be named here explicitly.
+            if isinstance(si.get('uptime_seconds'), (int, float)):
+                try:
+                    _ups = int(si['uptime_seconds'])
+                    if 0 <= _ups <= 60 * 60 * 24 * 365 * 50:   # sanity: ≤50 years
+                        safe_si['uptime_seconds'] = _ups
+                except (TypeError, ValueError):
+                    pass
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
             if 'packages' in si and isinstance(si['packages'], dict):
@@ -24594,6 +24608,15 @@ def _sanitise_ui_prefs(raw):
     postit = raw.get('postit')
     if isinstance(postit, str):
         out['postit'] = _sanitize_str(postit, 2000)
+
+    # v6.1.2: temperature display unit. Storage stays Celsius everywhere (the
+    # agent reports °C, thresholds are °C, history is °C) — this only changes
+    # what's RENDERED, so switching it can never corrupt data or move a
+    # threshold. A per-user pref, not a server setting: two operators on the
+    # same instance can disagree about Fahrenheit.
+    temp_unit = raw.get('temp_unit')
+    if temp_unit in ('c', 'f'):
+        out['temp_unit'] = temp_unit
 
     # Per-user email signature (HTML) appended to outbound ticket emails.
     signature = raw.get('signature')

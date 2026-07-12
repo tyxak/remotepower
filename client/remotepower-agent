@@ -1136,6 +1136,21 @@ def get_uptime():
     except Exception:
         return ''
 
+
+def get_uptime_seconds():
+    """v6.1.2: uptime as a NUMBER, not just the `uptime -p` prose.
+
+    The only uptime the server ever stored was that human string ("up 3 weeks"),
+    which can't be sorted or compared — so nothing could rank hosts by uptime.
+    /proc/uptime is a cheap, dependency-free read. host_path() so a containerized
+    agent reads the HOST's uptime, not the container's.
+    """
+    try:
+        raw = _safe_read(host_path('/proc/uptime'), 64) or ''
+        return int(float(raw.split()[0]))
+    except (ValueError, IndexError, TypeError):
+        return None
+
 def get_journal(lines=100):
     noisy = {'pipewire', 'pipewire-pulse', 'wireplumber', 'audit', 'dbus-daemon', 'systemd-networkd'}
     try:
@@ -8544,6 +8559,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         if send_sysinfo:
             sysinfo = {
                 'uptime':   get_uptime(),
+                'uptime_seconds': get_uptime_seconds(),   # v6.1.2: sortable uptime
                 'platform': platform.platform(),
                 'kernel':   platform.release(),     # v3.13.0: CMDB Hardware panel
                 'cpu':      _cpu_model(),            # v3.13.0: CPU model string

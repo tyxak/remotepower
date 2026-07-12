@@ -4676,6 +4676,33 @@ function enhanceDeviceCombos(root) {
   } catch (e) { /* never break a page */ }
 }
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
+
+// ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
+// Everything is STORED in Celsius — the agent reports °C, thresholds are °C,
+// history is °C. This converts at RENDER time only, so flipping the unit can
+// never corrupt data or silently move an alert threshold. It's a per-user pref
+// (`ui_prefs.temp_unit`), because two operators on one instance can reasonably
+// disagree about Fahrenheit.
+function _tempUnit() { return (_uiPrefs && _uiPrefs.temp_unit) === 'f' ? 'f' : 'c'; }
+
+// Format a Celsius value for display. `digits` defaults to 1 (0 for the
+// coarse readouts that never showed decimals). Returns '—' for null/undefined
+// so call sites don't each need their own guard.
+function fmtTemp(c, digits = 1) {
+  if (c === null || c === undefined || isNaN(c)) return '—';
+  const f = _tempUnit() === 'f';
+  const v = f ? (Number(c) * 9 / 5 + 32) : Number(c);
+  return `${v.toFixed(digits)}${f ? '°F' : '°C'}`;
+}
+
+// A bare delta/headroom (a DIFFERENCE, not a point on the scale) — scale it by
+// 9/5 but do NOT add the 32 offset, or "5°C of headroom" would render as 41°F.
+function fmtTempDelta(c, digits = 1) {
+  if (c === null || c === undefined || isNaN(c)) return '—';
+  const f = _tempUnit() === 'f';
+  const v = f ? (Number(c) * 9 / 5) : Number(c);
+  return `${v.toFixed(digits)}${f ? '°F' : '°C'}`;
+}
 let toastId = 0;
 function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: 'check', error: 'x', info: 'info'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
 // v3.13.0: store the tag as a string. The data-action dispatcher coerces
@@ -5590,7 +5617,7 @@ function _snmpMetricsRow(d) {
     const lv = state['temp_board:'] || state['temp_cpu:'] || 'ok';
     const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
     const which = ss.temp_board != null ? 'board' : 'cpu';
-    tempCell = `<span class="isl-348" data-color="${col}" title="${which} temperature">${t.toFixed(1)} °C</span>`;
+    tempCell = `<span class="isl-348" data-color="${col}" title="${which} temperature">${fmtTemp(t)}</span>`;
   }
 
   // Uptime
@@ -5834,6 +5861,13 @@ async function loadMe() {
       const lt = document.querySelector('.logo-text');
       if (lt) lt.textContent = me.brand.name;
       document.title = me.brand.name + ' — Device Control';
+      // v6.1.2: branding lands AFTER the first alert-badge paint, so it would
+      // otherwise wipe the "(N)" tab count. Re-establish the base title and
+      // re-apply the badge against it.
+      _tabBaseTitle = document.title;
+      const _n = _tabBadgeN;
+      _tabBadgeN = -1;              // force a repaint against the new base
+      if (_n > 0) _paintTabAlertBadge(_n);
     }
     window._brandAccent = me.brand.accent || '';
     if (typeof applyAccent === 'function') applyAccent();
@@ -5973,6 +6007,18 @@ async function loadAccount() {
   if (!me) return;
   { const ta = document.getElementById('acct-signature'); if (ta) ta.value = (_uiPrefs && _uiPrefs.signature) || ''; }
   { const tm = document.getElementById('acct-team'); if (tm) tm.value = (_uiPrefs && _uiPrefs.team) || ''; }
+  // v6.1.2: °C/°F display unit. An addEventListener/onchange assignment from JS
+  // is CSP-safe (script-src 'self' blocks inline on*= ATTRIBUTES, not handler
+  // properties set in code).
+  { const tu = document.getElementById('cfg-temp-unit');
+    if (tu) {
+      tu.value = _tempUnit();
+      tu.onchange = async () => {
+        _uiPrefs.temp_unit = tu.value === 'f' ? 'f' : 'c';
+        await flushUiPrefs();
+        toast(`Temperatures now shown in ${tu.value === 'f' ? 'Fahrenheit' : 'Celsius'}`, 'success');
+      };
+    } }
   _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
   _initPushUI();              // v3.14.0 (#42): browser push notifications
   loadMyNotifyPrefs();        // W2-20: per-user notification subscription
@@ -10847,6 +10893,66 @@ function _paintAlertsBadge(n) {
   badge.title = n === 0 ? 'No open alerts' :
                 n === 1 ? '1 open alert' :
                 `${n} open alerts`;
+  _paintTabAlertBadge(n);   // v6.1.2
+}
+
+// ─── v6.1.2: browser-tab alert badge ───────────────────────────────────────
+// A dashboard lives in a background tab. The favicon was static and the title
+// never carried a count, so the one place you actually glance — the tab strip —
+// said nothing. Now the title carries "(N)" and the favicon gets a dot, so an
+// alert is visible without switching to the tab.
+//
+// The favicon is redrawn on a canvas (CSP-safe: no external asset, no inline
+// style) from the real favicon, so branding is preserved. If the image can't be
+// loaded for any reason we simply leave the original favicon alone — the title
+// count still works, so this degrades rather than breaks.
+let _tabBadgeN = -1;
+let _tabBaseTitle = null;
+let _tabFaviconImg = null;
+let _tabFaviconOriginal = null;
+
+function _tabFaviconLink() {
+  return document.querySelector('link[rel="icon"]');
+}
+
+function _paintTabAlertBadge(n) {
+  if (n === _tabBadgeN) return;          // nothing changed — don't re-paint
+  _tabBadgeN = n;
+
+  // Title: "(3) RemotePower — …". Capture the clean title once, so repeated
+  // paints can't stack "(1) (2) (3)" prefixes.
+  if (_tabBaseTitle === null) _tabBaseTitle = document.title;
+  document.title = n > 0 ? `(${n > 99 ? '99+' : n}) ${_tabBaseTitle}` : _tabBaseTitle;
+
+  const link = _tabFaviconLink();
+  if (!link) return;
+  if (_tabFaviconOriginal === null) _tabFaviconOriginal = link.href;
+  if (n === 0) { link.href = _tabFaviconOriginal; return; }
+
+  const draw = img => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 32;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0, 32, 32);
+      // A dot, not a number: at 32px a count is unreadable anyway, and the
+      // exact figure is already in the title.
+      g.beginPath();
+      g.arc(23, 9, 8, 0, 2 * Math.PI);
+      g.fillStyle = '#e5484d';
+      g.fill();
+      g.strokeStyle = '#fff';
+      g.lineWidth = 2;
+      g.stroke();
+      link.href = c.toDataURL('image/png');
+    } catch (_) { /* tainted canvas / no 2d ctx — keep the original favicon */ }
+  };
+
+  if (_tabFaviconImg && _tabFaviconImg.complete) { draw(_tabFaviconImg); return; }
+  const img = new Image();
+  img.onload = () => { _tabFaviconImg = img; if (_tabBadgeN > 0) draw(img); };
+  img.onerror = () => { /* leave the favicon as-is; the title count still works */ };
+  img.src = _tabFaviconOriginal;
 }
 
 async function refreshAlertsBadge() {
@@ -13603,7 +13709,7 @@ function _renderDiskHealth() {
     const det = [];
     if (t.reallocated != null) det.push(`realloc ${t.reallocated}`);
     if (t.pending != null) det.push(`pending ${t.pending}`);
-    if (t.temperature_c != null) det.push(`${t.temperature_c}°C`);
+    if (t.temperature_c != null) det.push(fmtTemp(t.temperature_c, 0));
     det.push(`${t.samples} sample${t.samples === 1 ? '' : 's'}`);
     return `<tr>
       <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
@@ -14765,6 +14871,30 @@ function _renderHomeWidgets(home) {
     ? _miniRows(worst.map(d => ({ l: escHtml(d.device_name || d.device_id || ''),
       r: String(d.score), cls: d.score >= 90 ? 'c-green' : d.score >= 70 ? 'c-amber' : 'c-red' })))
     : '<div class="hint">No health data yet.</div>');
+  // v6.1.2: longest-uptime leaderboard. Uses sysinfo.uptime_seconds — the
+  // numeric uptime added this release; the old `uptime` field is prose from
+  // `uptime -p` and can't be sorted. Offline hosts are excluded: their last
+  // reported uptime is frozen at the moment they died, so ranking them would
+  // put a long-dead box at the top of a board about being up.
+  {
+    const upRows = devs
+      .filter(d => d.online && d.sysinfo && typeof d.sysinfo.uptime_seconds === 'number')
+      .sort((a, b) => b.sysinfo.uptime_seconds - a.sysinfo.uptime_seconds)
+      .slice(0, 8);
+    const fmtUp = s => {
+      const dys = Math.floor(s / 86400);
+      if (dys >= 1) return `${dys}d`;
+      const h = Math.floor(s / 3600);
+      return h >= 1 ? `${h}h` : `${Math.floor(s / 60)}m`;
+    };
+    _setWidget('home-w-uptimetop-body', upRows.length
+      ? _miniRows(upRows.map(d => ({
+          l: escHtml(d.name || d.id),
+          r: fmtUp(d.sysinfo.uptime_seconds),
+          cls: d.sysinfo.uptime_seconds >= 86400 * 90 ? 'c-green' : '',
+        })))
+      : '<div class="hint">No uptime reported yet — agents send it with their next full sysinfo.</div>');
+  }
   const gradeOf = s => s >= 90 ? 'good' : s >= 70 ? 'fair' : s >= 40 ? 'poor' : 'critical';
   const gd = breakdown(hdevs.filter(d => typeof d.score === 'number'), d => gradeOf(d.score));
   _setWidget('home-w-gradedist-body', gd.length
@@ -14997,6 +15127,9 @@ const DASH_WIDGETS = [
   { key: 'roster',   label: 'Fleet roster',                     size: 'lg' },
   { key: 'links',    label: 'Quick links',                      size: 'lg' },
   { key: 'postit',   label: 'Post-it note',                     opt: true, size: 'sm' },
+  // v6.1.2: longest-uptime leaderboard. Must stay in the SAME ORDER as
+  // api.DASHBOARD_WIDGETS — a guardrail test pins the two lists equal.
+  { key: 'uptimetop', label: 'Longest uptime',                  opt: true, size: 'sm' },
   // Ask-AI omnibox — toggleable like any widget, but stays pinned in the footer
   // (not moved into the grid). size is irrelevant; default on.
   { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },
@@ -17942,6 +18075,44 @@ async function startLiveView(id) {
   // re-arm periodically so the window stays open while the tab is up
   _liveRenew = setInterval(() => api('POST', '/devices/' + encodeURIComponent(id) + '/live', {}), 25000);
 }
+// ─── v6.1.2: copy a host summary to the clipboard ──────────────────────────
+// The homelab support workflow is "paste what your box looks like into a
+// Discord/Reddit/forum thread". That meant screenshotting the drawer or
+// retyping facts by hand. This builds a plain-text digest from data already on
+// screen — no new endpoint.
+//
+// Deliberately NOT included: IP addresses and the device id. A summary is
+// pasted in PUBLIC by definition, and neither is anyone's business; hostname,
+// OS and utilisation are what a helper actually needs.
+async function copyDeviceSummary(id) {
+  const d = _drawerDeviceData || {};
+  const si = d.sysinfo || {};
+  const L = [];
+  L.push(`Host: ${d.name || id}`);
+  if (d.os) L.push(`OS: ${d.os}${si.kernel ? ` (kernel ${si.kernel})` : ''}`);
+  if (si.cpu_model) L.push(`CPU: ${si.cpu_model}${si.cpu_count ? ` · ${si.cpu_count} cores` : ''}`);
+  if (si.mem_total_gb) L.push(`RAM: ${si.mem_total_gb} GB`);
+  L.push(`Agent: v${d.version || '?'} · poll ${d.poll_interval || '?'}s · ${d.online ? 'online' : 'OFFLINE'}`);
+  if (si.uptime) L.push(`Uptime: ${si.uptime}`);   // the `uptime -p` prose
+  const pct = [];
+  if (si.cpu_percent  != null) pct.push(`CPU ${si.cpu_percent}%`);
+  if (si.mem_percent  != null) pct.push(`MEM ${si.mem_percent}%`);
+  if (si.disk_percent != null) pct.push(`DISK ${si.disk_percent}%`);
+  if (si.swap_percent != null) pct.push(`SWAP ${si.swap_percent}%`);
+  if (pct.length) L.push(`Usage: ${pct.join(' · ')}`);
+  if (si.loadavg) L.push(`Load: ${Array.isArray(si.loadavg) ? si.loadavg.join(' ') : si.loadavg}`);
+  if (si.temperature_c != null) L.push(`Temp: ${fmtTemp(si.temperature_c, 0)}`);
+  if (d.pending_updates) L.push(`Pending updates: ${d.pending_updates}`);
+  if (si.failed_units && si.failed_units.length) L.push(`Failed units: ${si.failed_units.join(', ')}`);
+  if (si.reboot_required) L.push('Reboot required: yes');
+  try {
+    await navigator.clipboard.writeText(L.join('\n'));
+    toast('Host summary copied — paste it anywhere', 'success');
+  } catch (_) {
+    toast('Clipboard blocked by the browser', 'error');
+  }
+}
+
 function _stopLiveView() {
   if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; }
   if (_liveRenew) { clearInterval(_liveRenew); _liveRenew = null; }
@@ -18040,6 +18211,7 @@ function _renderDrawerActions() {
     ['clipboard', 'CMDB',            () => { closeDeviceDrawer(); cmdbOpenAsset(id); },                                                                                           false, false],
     ['building',  'Assign site',     () => { closeDeviceDrawer(); openDeviceSite(id, name); },                                                                                    false, false],
     ['bookOpen',  'Runbook',         () => { closeDeviceDrawer(); aiViewRunbook(id, name); },                                                                                     false, false],
+    ['clipboard', 'Copy summary',    () => copyDeviceSummary(id),                                                                                                                false, false],
     ['wrench',    'Maintenance',     () => { closeDeviceDrawer(); openNewMaintModal(); },                                                                                         false, false],
     ['bellOff',   'Snooze alerts 1h', () => snoozeDeviceAlerts(id, name),                                                                                                         false, false],
     ['clock',     'Adjust poll',     () => _drawerAdjustPoll(),                                                                                                                   false, agentless],
@@ -19270,14 +19442,17 @@ async function _loadAuditSection(key) {
             mtxrSystemVersion:  'RouterOS version',
             mtxrSystemUptime:   'Uptime (1/100 s)',
             mtxrHlCoreVoltage:  'Core voltage (mV)',
-            mtxrHlTemperature:  'CPU temperature (°C)',
-            mtxrHlBoardTemp:    'Board temperature (°C)',
+            // v6.1.2: no unit in the label — the VALUE carries its own unit now
+            // (fmtTemp honours the user's °C/°F pref), so a hard-coded "(°C)"
+            // here would read "CPU temperature (°C): 122.0°F".
+            mtxrHlTemperature:  'CPU temperature',
+            mtxrHlBoardTemp:    'Board temperature',
             mtxrHlCpuFrequency: 'CPU frequency (MHz)',
           };
           for (const [k, v] of Object.entries(data.mikrotik)) {
             let display = String(v ?? '—');
-            if (k === 'mtxrHlBoardTemp' && typeof v === 'number') display = (v / 10).toFixed(1) + ' °C';
-            if (k === 'mtxrHlTemperature' && typeof v === 'number') display = (v / 10).toFixed(1) + ' °C';
+            if (k === 'mtxrHlBoardTemp' && typeof v === 'number') display = fmtTemp(v / 10);
+            if (k === 'mtxrHlTemperature' && typeof v === 'number') display = fmtTemp(v / 10);
             h += `<tr><td class="c-muted-padded">${escHtml(labels[k] || k)}</td><td>${escHtml(display)}</td></tr>`;
           }
           h += '</table>';
@@ -19344,7 +19519,7 @@ async function _loadAuditSection(key) {
           h += `<tr><td class="c-muted-padded">Fan</td><td>${okBadge(sy.fan)}</td></tr>`;
           if (sy.temperature_c != null) {
             const tCls = sy.temperature_c > 65 ? 'c-red' : sy.temperature_c > 55 ? 'c-amber' : '';
-            h += `<tr><td class="c-muted-padded">Temperature</td><td class="${tCls}">${sy.temperature_c}°C</td></tr>`;
+            h += `<tr><td class="c-muted-padded">Temperature</td><td class="${tCls}">${fmtTemp(sy.temperature_c, 0)}</td></tr>`;
           }
           if (sy.upgrade) h += `<tr><td class="c-muted-padded">DSM update</td><td>${sy.upgrade === 'available' ? '<span class="c-amber">available</span>' : escHtml(sy.upgrade)}</td></tr>`;
           h += '</tbody></table>';
@@ -19352,7 +19527,7 @@ async function _loadAuditSection(key) {
             h += '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13 mt-6"><thead><tr><th>Disk</th><th>Model</th><th>Status</th><th class="ta-right">Temp</th></tr></thead><tbody>';
             for (const d of syn.disks) {
               const dCls = d.status && d.status !== 'normal' ? 'c-red' : '';
-              const dt = d.temperature_c != null ? `${d.temperature_c}°C` : '—';
+              const dt = d.temperature_c != null ? fmtTemp(d.temperature_c, 0) : '—';
               h += `<tr><td><strong>${escHtml(d.id || '?')}</strong></td><td class="hint">${escHtml(d.model || '—')}</td><td class="${dCls}">${escHtml(d.status || '—')}</td><td class="ta-right">${dt}</td></tr>`;
             }
             h += '</tbody></table></div>';
@@ -19643,7 +19818,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
           <td class="ta-center ${crcBad?'c-red':''}">${crcCell}</td>
-          <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
+          <td class="ta-center">${d.temperature_c!=null?fmtTemp(d.temperature_c,0):'—'}</td>
           <td class="ta-center">${d.power_on_hours??'—'}</td>
           <td class="ta-center ${d.wear_pct>=90?'c-red':d.wear_pct>=80?'c-amber':''}">${d.wear_pct!=null?`${d.wear_pct}%${_wearEol(d)?`<div class="fs-11 c-muted">${_wearEol(d)}</div>`:''}`:'—'}</td></tr>`;
       }).join('') + `</tbody></table></div>`;
@@ -19668,7 +19843,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
         return `<tr><td>${escHtml(g.name || 'GPU')}</td><td class="hint">${escHtml(g.vendor || '—')}</td>
           <td class="ta-center">${g.util_pct != null ? g.util_pct + '%' : '—'}</td>
           <td class="ta-center">${mem}</td>
-          <td class="ta-center ${tcls}">${g.temp_c != null ? g.temp_c + '°C' : '—'}</td>
+          <td class="ta-center ${tcls}">${g.temp_c != null ? fmtTemp(g.temp_c, 0) : '—'}</td>
           <td class="ta-center">${g.power_w != null ? g.power_w + ' W' : '—'}</td></tr>`;
       }).join('') + `</tbody></table></div></div>`;
   }
@@ -19796,7 +19971,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
     if ((inv.temps||[]).length) {
       const hot = inv.temps.filter(t=>t.current_c>=75);
       h += `<div class="fs-11 c-muted mb-4 mt-8">Temperatures${hot.length?` — <span class="c-red">${hot.length} hot</span>`:''}</div>` +
-        inv.temps.slice(0,16).map(t=>`<span class="cmd-badge fs-11 ${t.current_c>=75?'c-red':''}">${escHtml(t.label)}: ${t.current_c}°C</span>`).join(' ');
+        inv.temps.slice(0,16).map(t=>`<span class="cmd-badge fs-11 ${t.current_c>=75?'c-red':''}">${escHtml(t.label)}: ${fmtTemp(t.current_c, 0)}</span>`).join(' ');
     }
     h += `</div>`;
   }

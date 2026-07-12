@@ -45,12 +45,12 @@ function _renderThermal() {
   const { rows: shown, note } = _capFleetRows(rows, 9, 'hosts');
   tbody.innerHTML = shown.map(r => {
     const cls = r.critical ? 'c-red fw-600' : r.hot ? 'c-amber fw-600' : '';
-    const t = (typeof r.max_temp === 'number') ? `${r.max_temp.toFixed(1)}°C` : '—';
-    const thr = (typeof r.crit_c === 'number') ? `${r.crit_c.toFixed(0)}°C` : '<span class="c-muted">—</span>';
+    const t = (typeof r.max_temp === 'number') ? fmtTemp(r.max_temp) : '—';
+    const thr = (typeof r.crit_c === 'number') ? fmtTemp(r.crit_c, 0) : '<span class="c-muted">—</span>';
     let head = '<span class="c-muted">—</span>';
     if (typeof r.headroom === 'number') {
       const hc = r.headroom <= 5 ? 'c-red fw-600' : r.headroom <= 15 ? 'c-amber' : 'c-green';
-      head = `<span class="${hc}">${r.headroom.toFixed(1)}°C</span>`;
+      head = `<span class="${hc}">${fmtTempDelta(r.headroom)}</span>`;
     }
     let lbl = escHtml(r.sensor_label || '—');
     if (r.gpu) {  // GPU is the hottest sensor — show its fan/util/power
@@ -87,9 +87,9 @@ function _renderThermal() {
         : '';
       return `<tr>
         <td>${escHtml(s.label || 'sensor')}</td>
-        <td class="${sc}">${(typeof s.temp === 'number') ? s.temp.toFixed(1) + '°C' : '—'}</td>
+        <td class="${sc}">${(typeof s.temp === 'number') ? fmtTemp(s.temp) : '—'}</td>
         <td class="hint">${escHtml(s.type || '—')}</td>
-        <td class="hint">${(typeof s.crit === 'number') ? s.crit.toFixed(0) + '°C' : '—'}</td>
+        <td class="hint">${(typeof s.crit === 'number') ? fmtTemp(s.crit, 0) : '—'}</td>
       </tr>`;
     }).join('');
     const detail = `<tr class="thermal-detail-row"><td colspan="9">

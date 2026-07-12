@@ -527,6 +527,10 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | ClarityMatters interface | Flat, calm v6 UI — `--surface` panels with hairline borders, system font stack, accent-soft active states; a 12-domain sidebar accordion and a left-nav Settings *(v6.0.0)* |
 | Themes | 13 palettes + Follow system + accent presets, persisted per browser |
+| Browser-tab alert badge | Open alerts put a count in the tab title and a dot on the favicon, so a dashboard sitting in a background tab tells you something is wrong without switching to it. Redrawn on a canvas from your own favicon, so branding survives *(v6.1.2)* |
+| Temperature unit | Per-user °C / °F display toggle (My Account → Display units). Everything is stored and alerted on in Celsius — this converts at render time only, so switching it can never move a threshold *(v6.1.2)* |
+| Copy host summary | Drawer action that puts a plain-text digest (OS, kernel, CPU, RAM, usage, load, temp, pending updates, failed units) on the clipboard — for pasting into a forum/Discord help thread. Deliberately omits IPs and the device id, since a summary is pasted in public *(v6.1.2)* |
+| Longest-uptime widget | Dashboard leaderboard of the longest-running hosts (offline hosts excluded — their uptime is frozen at the moment they died). Needed a numeric uptime: the only uptime ever stored was the `uptime -p` prose, which can't be sorted *(v6.1.2)* |
 | Composable dashboard | Resizable widget grid, 67-widget catalog, size/reorder/show-hide/reset, import/export layout *(v4.1.0)* |
 | Command palette | `/` or `Ctrl/Cmd-K` fuzzy launcher — pages, devices, open alerts, vulnerable hosts, scripts, bulk actions, command history *(v3.0.2)* |
 | Filter & sort everywhere | Substring filter + multi-key clickable headers; sort persists |

@@ -96,6 +96,8 @@
     'Live Monitor': { fr: 'Moniteur en direct', de: 'Live-Monitor', zh: '实时监控', hi: 'लाइव मॉनिटर', es: 'Monitor en vivo', ar: 'المراقبة المباشرة' },
     'Provisioning — server-side execution': { fr: 'Provisionnement — exécution côté serveur', de: 'Provisionierung — serverseitige Ausführung', zh: '置备 — 服务器端执行', hi: 'प्रोविज़निंग — सर्वर-साइड निष्पादन', es: 'Aprovisionamiento — ejecución en el servidor', ar: 'التزويد — التنفيذ على الخادم' },
     'Optional modules': { fr: 'Modules optionnels', de: 'Optionale Module', zh: '可选模块', hi: 'वैकल्पिक मॉड्यूल', es: 'Módulos opcionales', ar: 'الوحدات الاختيارية' },
+    'Display units':    { fr: 'Unités d\'affichage', de: 'Anzeigeeinheiten', zh: '显示单位', hi: 'प्रदर्शन इकाइयाँ', es: 'Unidades de visualización', ar: 'وحدات العرض' },
+    'Longest uptime':   { fr: 'Disponibilité la plus longue', de: 'Längste Laufzeit', zh: '最长运行时间', hi: 'सबसे लंबा अपटाइम', es: 'Mayor tiempo activo', ar: 'أطول مدة تشغيل' },
     'Monitoring':  { fr: 'Surveillance', de: 'Überwachung', zh: '监控', hi: 'निगरानी', es: 'Monitoreo', ar: 'المراقبة' },
     'Network':     { fr: 'Réseau', de: 'Netzwerk', zh: '网络', hi: 'नेटवर्क', es: 'Red', ar: 'الشبكة' },
     'Security':    { fr: 'Sécurité', de: 'Sicherheit', zh: '安全', hi: 'सुरक्षा', es: 'Seguridad', ar: 'الأمان' },

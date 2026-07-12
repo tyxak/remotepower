@@ -26,7 +26,7 @@ function _gpuCard(g) {
     <div class="gpu-meter"><div class="gpu-meter-h"><span>Utilisation</span><span>${util}</span></div>${bar(g.util_pct, 'gpu-bar-util')}</div>
     <div class="gpu-meter"><div class="gpu-meter-h"><span>Memory</span><span>${g.mem_pct != null ? Math.round(g.mem_pct) + '%' : '—'}</span></div>${bar(g.mem_pct, 'gpu-bar-mem')}<div class="hint gpu-mem-txt">${_gpuMem(g.mem_used_mb)} / ${_gpuMem(g.mem_total_mb)}</div></div>
     <div class="gpu-stats">
-      ${stat('Temp', g.temp_c != null ? Math.round(g.temp_c) + '°C' : '—', tcls)}
+      ${stat('Temp', g.temp_c != null ? fmtTemp(g.temp_c, 0) : '—', tcls)}
       ${stat('Power', g.power_w != null ? Math.round(g.power_w) + ' W' : '—', '')}
       ${stat('Fan', g.fan_pct != null ? Math.round(g.fan_pct) + '%' : '—', '')}
     </div>${_gpuTrend(g)}

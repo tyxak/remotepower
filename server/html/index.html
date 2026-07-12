@@ -778,6 +778,7 @@
         <div class="dash-card dash-off" id="home-w-agentless" data-widget="agentless"><div class="section-title">Agent vs agentless</div><div id="home-w-agentless-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-neverseen" data-widget="neverseen"><div class="section-title">Never checked in</div><div id="home-w-neverseen-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-worsthealth" data-widget="worsthealth"><div class="section-title">Lowest health hosts</div><div id="home-w-worsthealth-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-uptimetop" data-widget="uptimetop"><div class="section-title">Longest uptime</div><div id="home-w-uptimetop-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-gradedist" data-widget="gradedist"><div class="section-title">Health grade spread</div><div id="home-w-gradedist-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-versionskew" data-widget="versionskew"><div class="section-title">Agent version skew</div><div id="home-w-versionskew-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-offlinegroups" data-widget="offlinegroups"><div class="section-title">Offline by group</div><div id="home-w-offlinegroups-body" class="dash-mini"></div></div>
@@ -1308,6 +1309,20 @@
             </div>
           </div>
           <button class="btn-primary isl-50" data-action="saveSshUsername" >Save SSH username</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Display units</div>
+          <p class="hint">How temperatures are shown to <em>you</em>. Everything is stored and alerted on in Celsius — this only changes what you read, so switching it can't move a threshold. Per-user, so operators on the same instance can disagree.</p>
+          <div class="settings-row">
+            <div class="form-group isl-49">
+              <label for="cfg-temp-unit" class="form-label">Temperature</label>
+              <select id="cfg-temp-unit" class="form-input">
+                <option value="c">Celsius (°C)</option>
+                <option value="f">Fahrenheit (°F)</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">

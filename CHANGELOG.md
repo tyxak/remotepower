@@ -77,6 +77,30 @@ homelabs — the ability to switch off the enterprise modules you don't use.
 - PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
   every new connection.
 
+### Added — interface
+
+- **Browser-tab alert badge.** A dashboard lives in a background tab, but the
+  favicon was static and the title never carried a count — so the one place you
+  actually glance said nothing. Open alerts now put a count in the tab title and
+  a dot on the favicon (redrawn on a canvas from your own favicon, so branding
+  survives; if the image can't be read the title count still works).
+- **Temperature unit (°C / °F)** — a per-user display toggle under My Account →
+  Display units. There was no Fahrenheit support at all. Everything is stored and
+  alerted on in Celsius; this converts at *render* time only, so switching it can
+  never move a threshold. Deltas (a "5°C of headroom" reading) are scaled but not
+  offset, so they don't render as 41°F.
+- **Copy host summary** — a drawer action that puts a plain-text digest (OS,
+  kernel, CPU, RAM, utilisation, load, temperature, pending updates, failed
+  units) on the clipboard, for pasting into a forum or Discord help thread. It
+  deliberately omits IP addresses and the device id: a summary gets pasted in
+  public by definition.
+- **Longest-uptime dashboard widget.** This needed a *numeric* uptime — the only
+  uptime ever stored was the `uptime -p` prose ("up 3 weeks"), which cannot be
+  sorted or compared, so nothing could rank hosts by it. The agent now reports
+  `uptime_seconds` (read through `host_path`, so a containerized agent reports
+  its *host's* uptime) and the heartbeat sanitizer persists it. Offline hosts are
+  excluded from the board — their uptime is frozen at the moment they died.
+
 ### Added — monitors & alert tuning
 
 - **Pause a monitor.** Monitors had no enabled flag, so the only way to stop one
