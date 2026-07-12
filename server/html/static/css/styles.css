@@ -6978,3 +6978,25 @@ option, optgroup{ background:var(--surface2); color:var(--text); }
   overflow: hidden; z-index: 1; cursor: default; }
 .rack-asset.conflict { border-color: var(--c-red, #f85149); background: rgba(248,81,73,0.15); }
 .rack-u-num { position: absolute; left: 2px; top: 0; width: 18px; text-align: right; }
+
+/* ── v6.1.2 (#43): kiosk mode ────────────────────────────────────────────────
+   For the wall-mounted rack tablet / the NOC board on the second monitor. Hides
+   every navigation affordance and gives the content the full viewport. It is a
+   DISPLAY mode, not a security boundary: the API still enforces the token's role,
+   so a kiosk left on a viewer token is read-only because the ROLE says so, not
+   because the buttons are hidden. Toggle with ?kiosk=1 or the Esc-able button. */
+body.kiosk .sidebar,
+body.kiosk header,
+body.kiosk #rp-topbar { display: none !important; }
+body.kiosk .app-content { margin-left: 0 !important; }
+body.kiosk .container { padding-top: 12px; }
+/* The exit affordance must survive: a kiosk you cannot leave without knowing the
+   URL trick is a trap, especially on a touch screen with no keyboard. */
+.kiosk-exit { display: none; }
+body.kiosk .kiosk-exit {
+  display: flex; align-items: center; gap: 6px;
+  position: fixed; top: 10px; right: 12px; z-index: 200;
+  opacity: 0.25; transition: opacity 120ms ease;
+}
+body.kiosk .kiosk-exit:hover,
+body.kiosk .kiosk-exit:focus-within { opacity: 1; }

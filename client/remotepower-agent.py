@@ -5539,6 +5539,41 @@ _AUTOUPDATE_UNITS = ('unattended-upgrades.service', 'dnf-automatic.timer',
                      'apt-daily-upgrade.timer')
 
 
+def get_ssh_hostkeys():
+    """v6.1.2: fingerprint this host's OWN SSH host keys.
+
+    A host key that changes without a reinstall is the classic MITM tripwire —
+    and the far more common benign case (the box was reimaged / the keys were
+    regenerated) is exactly why people click through the scary ssh warning
+    without reading it. Baselining the fingerprints server-side turns "ssh is
+    warning me and I don't know why" into a dated, attributable event.
+
+    Fingerprint format matches `ssh-keygen -lf`: SHA256:<base64, no padding> over
+    the raw (base64-decoded) key blob — computed here rather than shelling out,
+    so it works with no openssh-client installed and never touches a PRIVATE key.
+    """
+    import base64 as _b64
+    out = {}
+    # host_glob() globs the HOST rootfs and hands back DISPLAY paths; _safe_read()
+    # re-applies the prefix. Going through both is what makes this work inside the
+    # containerized agent instead of fingerprinting the slim image's own keys.
+    for path in sorted(host_glob('/etc/ssh/ssh_host_*_key.pub')):
+        raw = _safe_read(host_path(path), 8192)
+        if not raw:
+            continue
+        parts = raw.split()
+        if len(parts) < 2:
+            continue
+        keytype, blob = parts[0], parts[1]
+        try:
+            digest = hashlib.sha256(_b64.b64decode(blob, validate=True)).digest()
+        except Exception:
+            continue
+        fp = _b64.b64encode(digest).decode('ascii').rstrip('=')
+        out[keytype] = 'SHA256:' + fp
+    return out
+
+
 def get_autoupdate_posture():
     """v6.1.2: does this host patch ITSELF?
 
@@ -8985,6 +9020,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo['autoupdate'] = get_autoupdate_posture()
             except Exception as e:
                 log.debug(f'autoupdate probe error: {e}')
+            try:
+                hk = get_ssh_hostkeys()
+                if hk:
+                    sysinfo['ssh_hostkeys'] = hk
+            except Exception as e:
+                log.debug(f'ssh hostkey probe error: {e}')
             # v6.1.2: mDNS service discovery — a LAN browse, so it rides the same
             # slow cadence as the docker-df walk rather than every sysinfo poll.
             # Only when the server asks for it (mdns_enabled), because browsing

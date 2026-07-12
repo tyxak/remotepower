@@ -229,7 +229,7 @@ class TestHeartbeatWiring(unittest.TestCase):
     def setUpClass(cls):
         api = (_ROOT / 'server/cgi-bin/api.py').read_text()
         idx = api.find('def handle_heartbeat(')
-        cls.hb = api[idx: idx + 99000]   # widened as handle_heartbeat grew (v3.13.0 CMDB hardware fields; v3.14.0 network_io + secrets ingest; v4.1.0 inode/fd/conntrack + clock/gateway/oom edge-triggers; v4.2.0 sweep mailq/pkg_scan_ts + reinstall-audit hoist; v4.10.0 agent-stopping branch + backup_verify ingest; v5.4.1 device-token migration block; v5.5.0 failed_unit edge-trigger; v5.8.0 W5-1 LLDP-neighbor ingest; v6.1.2 uptime_seconds/ecc/zram/autoupdate sanitizer fields)
+        cls.hb = api[idx: idx + 112000]  # widened as handle_heartbeat grew (v3.13.0 CMDB hardware fields; v3.14.0 network_io + secrets ingest; v4.1.0 inode/fd/conntrack + clock/gateway/oom edge-triggers; v4.2.0 sweep mailq/pkg_scan_ts + reinstall-audit hoist; v4.10.0 agent-stopping branch + backup_verify ingest; v5.4.1 device-token migration block; v5.5.0 failed_unit edge-trigger; v5.8.0 W5-1 LLDP-neighbor ingest; v6.1.2 uptime_seconds/ecc/zram/autoupdate sanitizer fields; v6.1.2 ssh_hostkeys sanitizer pushed host_config_desired to 99088)
 
     def test_desired_pushed_in_response(self):
         self.assertIn('host_config_desired', self.hb)

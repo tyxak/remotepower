@@ -814,11 +814,48 @@ const THEMES = [
   { id:'solarized-light', name:'Solarized Light', type:'light', dots:['#fdf6e3','#fbf3d9','#268bd2','#586e75'] },
   { id:'nord-light',      name:'Nord Light',      type:'light', dots:['#eceff4','#ffffff','#5e81ac','#2e3440'] },
   { id:'auto',            name:'Follow system',   type:'auto',  dots:['#0a0c10','#f1f5f9','#3b7eff','#94a3b8'] },
+  // v6.1.2 (#44): time-of-day schedule. "Follow system" is useless if the OS is
+  // pinned to dark (most servers/kiosks are) — this switches on the clock instead.
+  { id:'schedule',        name:'Time of day',     type:'auto',  dots:['#f1f5f9','#0a0c10','#3b7eff','#94a3b8'] },
 ];
 const THEME_IDS = THEMES.map(t => t.id);
 function _themeById(id) { return THEMES.find(t => t.id === id) || THEMES[0]; }
+
+// v6.1.2 (#44): the theme schedule. Per-browser (like the theme itself), so the
+// rack tablet in the server room and your laptop can disagree.
+const _SCHED_DEFAULT = { from: 7, to: 19, day: 'light', night: 'dark' };
+function _themeSchedule() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem('rp_theme_sched') || '{}') || {}; }
+  catch (_) { s = {}; }
+  const clampH = (v, d) => {
+    const n = parseInt(v, 10);
+    return (Number.isFinite(n) && n >= 0 && n <= 23) ? n : d;
+  };
+  const themeOr = (v, d) => (THEME_IDS.includes(v) && v !== 'schedule' && v !== 'auto') ? v : d;
+  return {
+    from:  clampH(s.from, _SCHED_DEFAULT.from),
+    to:    clampH(s.to,   _SCHED_DEFAULT.to),
+    day:   themeOr(s.day,   _SCHED_DEFAULT.day),
+    night: themeOr(s.night, _SCHED_DEFAULT.night),
+  };
+}
+function _scheduleIsDaytime(sched, hour) {
+  const { from, to } = sched;
+  // from === to means "no daytime window" rather than "always day" — an
+  // accidental 0/0 must not pin the screen to the light theme forever.
+  if (from === to) return false;
+  // A window that wraps midnight (e.g. day from 21:00 to 05:00) is legitimate for
+  // night-shift operators, so handle it rather than silently mis-resolving.
+  return from < to ? (hour >= from && hour < to)
+                   : (hour >= from || hour < to);
+}
 function _resolveTheme(id) {
   if (id === 'auto') return _systemPrefersLight() ? 'light' : 'dark';
+  if (id === 'schedule') {
+    const s = _themeSchedule();
+    return _scheduleIsDaytime(s, new Date().getHours()) ? s.day : s.night;
+  }
   return THEME_IDS.includes(id) ? id : 'dark';
 }
 function _isLightTheme(resolvedId) { return _themeById(resolvedId).type === 'light'; }
@@ -890,6 +927,7 @@ function _buildThemeGrid() {
 function _buildAppearancePicker() {
   _buildThemeGrid();
   _buildBgGrid();
+  _buildThemeSchedule();   // v6.1.2 (#44)
   const wrap = document.getElementById('acct-accent');
   if (!wrap) return;
   let cur = 'blue'; try { cur = localStorage.getItem('rp_accent') || 'blue'; } catch (_) {}
@@ -910,6 +948,46 @@ function setThemeUI(id) {
   try { localStorage.setItem('rp_theme', id); } catch (_) {}
   applyTheme();
   _buildThemeGrid();
+  _buildThemeSchedule();   // reveal/hide the schedule controls with the choice
+}
+
+// v6.1.2 (#44): the time-of-day schedule controls. Only shown when 'schedule' is
+// the selected theme — a set of hour/theme pickers that do nothing is just noise.
+function _buildThemeSchedule() {
+  const wrap = document.getElementById('acct-theme-sched');
+  if (!wrap) return;
+  let cur = 'dark'; try { cur = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  wrap.classList.toggle('d-none', cur !== 'schedule');
+  if (cur !== 'schedule') return;
+
+  const s = _themeSchedule();
+  const from = document.getElementById('sched-from');
+  const to = document.getElementById('sched-to');
+  const day = document.getElementById('sched-day');
+  const night = document.getElementById('sched-night');
+  if (!from || !to || !day || !night) return;
+
+  // Only concrete themes can be scheduled — offering 'schedule' or 'auto' as the
+  // day theme would be circular (or would defer to an OS setting the operator
+  // chose this feature precisely to escape).
+  const pickable = THEMES.filter(t => t.type !== 'auto');
+  [day, night].forEach(sel => {
+    if (sel.dataset.built) return;
+    pickable.forEach(t => sel.appendChild(new Option(t.name, t.id)));
+    sel.dataset.built = '1';
+  });
+  from.value = s.from; to.value = s.to; day.value = s.day; night.value = s.night;
+
+  const save = () => {
+    const next = {
+      from: parseInt(from.value, 10), to: parseInt(to.value, 10),
+      day: day.value, night: night.value,
+    };
+    try { localStorage.setItem('rp_theme_sched', JSON.stringify(next)); } catch (_) {}
+    applyTheme();        // reflect it immediately, don't wait for the next tick
+    _buildThemeGrid();
+  };
+  [from, to, day, night].forEach(el => { el.onchange = save; });
 }
 // v4.1.0: optional decorative background applied via body[data-bg]. Pure CSS
 // (gradients/patterns), CSP-safe — no external images. Per-browser like theme.
@@ -974,6 +1052,16 @@ try {
       if (t === 'auto') applyTheme();
     });
 } catch (_) {}
+// v6.1.2 (#44): cross the schedule boundary WITHOUT a reload. The whole point of
+// this feature is the wall-mounted rack tablet that hasn't been reloaded in three
+// months — resolving the schedule only at page load would mean it never switches.
+// applyTheme() re-derives and re-assigns the same class/dataset when the hour
+// hasn't crossed a boundary, which is a no-op to the DOM, so ticking once a
+// minute costs nothing and needs no change-detection of its own.
+setInterval(() => {
+  let t = 'dark'; try { t = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  if (t === 'schedule') applyTheme();
+}, 60000);
 // v4.3.0: connectivity banner — network-level fetch failures (server down,
 // connection lost) show a persistent banner instead of only a one-shot toast;
 // the next request that gets through clears it. Endpoint errors (4xx/5xx with
@@ -1566,6 +1654,64 @@ function _moduleOffFor(page) {
   }
   return null;
 }
+
+// ─── v6.1.2 (#43): kiosk mode ──────────────────────────────────────────────
+// For the wall-mounted rack tablet / the NOC board on a second monitor: hide the
+// chrome, use the whole viewport, and optionally cycle through a set of pages.
+//
+// It is a DISPLAY mode, not a security boundary. The API still enforces whatever
+// the token's role allows, so a kiosk running on a viewer token is read-only
+// because the ROLE says so — never because the buttons are hidden. Don't let
+// anyone reason about it as a lockdown.
+//
+// Enter with ?kiosk=1 (so it can be a browser's start URL, which is how a kiosk
+// actually gets set up), optionally &cycle=30&pages=home,alerts,devices.
+let _kioskCycleTimer = null;
+
+function _kioskPages(raw) {
+  // Only real, module-enabled pages: a cycle that lands on a disabled module's
+  // page would toast an error at the wall every N seconds, forever.
+  return String(raw || '').split(',').map(s => s.trim()).filter(
+    p => p && document.getElementById('page-' + p) && !_moduleOffFor(p));
+}
+
+function enterKiosk(opts) {
+  const o = opts || {};
+  document.body.classList.add('kiosk');
+  try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }
+  catch (_) { /* fullscreen needs a user gesture; the layout still applies */ }
+
+  const pages = _kioskPages(o.pages);
+  const every = Math.max(5, parseInt(o.cycle, 10) || 0);
+  clearInterval(_kioskCycleTimer);
+  _kioskCycleTimer = null;
+  if (pages.length > 1 && o.cycle) {
+    // The active page lives in the DOM (.page.active), not in a variable — start
+    // the rotation from wherever we already are so the first tick advances rather
+    // than re-showing the current page.
+    const active = (document.querySelector('.page.active') || {}).id || '';
+    let i = Math.max(0, pages.indexOf(active.replace(/^page-/, '')));
+    _kioskCycleTimer = setInterval(() => {
+      i = (i + 1) % pages.length;
+      showPage(pages[i]);
+    }, every * 1000);
+  }
+}
+
+function exitKiosk() {
+  document.body.classList.remove('kiosk');
+  clearInterval(_kioskCycleTimer);
+  _kioskCycleTimer = null;
+  try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); }
+  catch (_) {}
+}
+
+// Esc leaves kiosk mode. Without this a touch-only wall tablet with no keyboard
+// and no visible chrome would be genuinely stuck — hence the hover-reveal button
+// too. Two ways out, because one of them is unusable on the device this targets.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.body.classList.contains('kiosk')) exitKiosk();
+});
 
 function showPage(name, btn) {
   // A disabled module's page must not be reachable by deep link / bookmark /
@@ -6046,6 +6192,39 @@ async function loadAccount() {
         toast(`Temperatures now shown in ${tu.value === 'f' ? 'Fahrenheit' : 'Celsius'}`, 'success');
       };
     } }
+  // v6.1.2 (#39): new-alert chime + browser notification (both default off).
+  { const ch = document.getElementById('cfg-alert-chime');
+    if (ch) {
+      ch.checked = !!(_uiPrefs && _uiPrefs.alert_chime);
+      ch.onchange = async () => {
+        _uiPrefs.alert_chime = ch.checked;
+        await flushUiPrefs();
+        // Play it on enable: an alert sound you've never heard is useless — you
+        // need to know what you're listening for, and that it works at all.
+        if (ch.checked) _playAlertChime();
+      };
+    } }
+  { const nt = document.getElementById('cfg-alert-notify');
+    if (nt) {
+      nt.checked = !!(_uiPrefs && _uiPrefs.alert_notify);
+      nt.onchange = async () => {
+        // Ask for permission at the moment of opt-in — the only moment a browser
+        // will honour the prompt (it requires a user gesture) and the only moment
+        // it isn't a mystery to the user. If they refuse, don't persist a pref
+        // that silently can't work: untick it and say why.
+        if (nt.checked && 'Notification' in window && Notification.permission !== 'granted') {
+          let perm = 'denied';
+          try { perm = await Notification.requestPermission(); } catch (_) {}
+          if (perm !== 'granted') {
+            nt.checked = false;
+            toast('Browser notifications are blocked for this site', 'error');
+            return;
+          }
+        }
+        _uiPrefs.alert_notify = nt.checked;
+        await flushUiPrefs();
+      };
+    } }
   _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
   _initPushUI();              // v3.14.0 (#42): browser push notifications
   loadMyNotifyPrefs();        // W2-20: per-user notification subscription
@@ -6278,6 +6457,34 @@ function _mcGrid(t0, t1) {
   }
   return g;
 }
+// v6.1.2: chart annotations. A metric chart is nearly always being asked "why
+// did it change THERE?" — and the answer is usually something we already recorded
+// (a reboot, a command run, config drift). Drawing those on the time axis turns a
+// shape into a cause. Deliberately sparse: a tick per alert would bury the line,
+// which is how annotated charts become unreadable.
+let _metricAnnotations = [];
+const _MC_ANNO_COLOR = {
+  reboot:  'var(--c-blue, #3b7eff)',
+  command: 'var(--muted)',
+  drift:   'var(--c-amber, #d29922)',
+  oom:     'var(--c-red, #f85149)',
+};
+function _mcAnnotations(t0, span) {
+  if (!_metricAnnotations.length) return '';
+  return _metricAnnotations
+    .filter(a => a.ts >= t0 && a.ts <= t0 + span)
+    .map(a => {
+      const x = _mcX(a.ts, t0, span).toFixed(1);
+      const col = _MC_ANNO_COLOR[a.kind] || 'var(--muted)';
+      // <title> gives a native tooltip with no JS and no CSP surface. The label
+      // is a fixed server-side string, never operator input.
+      return `<g><line x1="${x}" y1="${_MC.padT}" x2="${x}" y2="${_MC.H - _MC.padB}" ` +
+             `stroke="${col}" stroke-width="1" stroke-dasharray="3 2" opacity="0.75"/>` +
+             `<circle cx="${x}" cy="${_MC.padT}" r="2.5" fill="${col}"/>` +
+             `<title>${escHtml(a.label)} — ${escHtml(new Date(a.ts * 1000).toLocaleString())}</title></g>`;
+    }).join('');
+}
+
 function _metricSeriesChart(samples, key, label, color) {
   const pts = _metricPts(samples, key);
   if (!pts.length) return `<div class="isl-355"><div class="isl-356">${label}</div><span class="hint">no data</span></div>`;
@@ -6294,6 +6501,7 @@ function _metricSeriesChart(samples, key, label, color) {
       <span class="metric-stats">now <b>${cur.toFixed(1)}%</b> · min ${mn.toFixed(0)} · avg ${avg.toFixed(0)} · max ${mx.toFixed(0)}</span></div>
     <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${label} over time">
       ${_mcGrid(t0, t1)}
+      ${_mcAnnotations(t0, span)}
       <path d="${area}" fill="${color}" fill-opacity="0.13" stroke="none"/>
       <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       <circle cx="${_mcX(last.ts, t0, span).toFixed(1)}" cy="${_mcY(cur).toFixed(1)}" r="3" fill="${color}"/>
@@ -6311,7 +6519,7 @@ function _metricsOverlayChart(samples) {
   });
   return `<div class="isl-355"><div class="isl-356">All metrics</div>
     <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="All metrics over time">
-      ${_mcGrid(t0, t1)}${legend}${paths}</svg></div>`;
+      ${_mcGrid(t0, t1)}${_mcAnnotations(t0, span)}${legend}${paths}</svg></div>`;
 }
 const _METRIC_RANGES = [
   { label: '24h', secs: 86400 },
@@ -6345,6 +6553,7 @@ async function _loadMetrics() {
     return;
   }
   const metrics = data.metrics;
+  _metricAnnotations = Array.isArray(data.annotations) ? data.annotations : [];
   // The server fell back to the recent rolling window — long-term history is
   // only kept on a database backend and accumulates from when it was enabled.
   const note = data.recent_window
@@ -10921,6 +11130,62 @@ function _paintAlertsBadge(n) {
                 n === 1 ? '1 open alert' :
                 `${n} open alerts`;
   _paintTabAlertBadge(n);   // v6.1.2
+  _announceNewAlerts(n);    // v6.1.2 (#39)
+}
+
+// ─── v6.1.2 (#39): chime + browser notification on a NEW alert ─────────────
+// The tab badge above is passive — it only helps if you look at the tab. This
+// is the active half, for the dashboard that sits on a second monitor.
+//
+// Both halves are OFF by default (per-user prefs). A sound is the most intrusive
+// thing a page can do, so it is strictly opt-in.
+//
+// The chime is synthesised with WebAudio rather than served as an audio file:
+// no asset to fetch (so nothing for CSP to block, and no 404 if a deployment
+// trims static files), no binary in the repo, and it can't be cached stale.
+let _alertAnnounceN = null;      // null = we have not seen a count yet
+
+function _playAlertChime() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    const ctx = new AC();
+    // Two short descending tones — distinct from a notification "ping" so it
+    // reads as "something is wrong", not "you have mail".
+    [[880, 0], [660, 0.16]].forEach(([freq, at]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      // Ramp the gain: a bare start/stop on a sine clicks audibly.
+      gain.gain.setValueAtTime(0, ctx.currentTime + at);
+      gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + at + 0.15);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + at);
+      osc.stop(ctx.currentTime + at + 0.16);
+    });
+    // Release the hardware audio device instead of holding it open forever.
+    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 800);
+  } catch (_) { /* autoplay policy / no audio device — silently skip */ }
+}
+
+function _announceNewAlerts(n) {
+  const prev = _alertAnnounceN;
+  _alertAnnounceN = n;
+  // First paint of the session establishes the baseline. Without this, opening
+  // the dashboard with 5 pre-existing alerts would chime — announcing history,
+  // not news, which is exactly how people learn to ignore an alert sound.
+  if (prev === null) return;
+  if (!(n > prev)) return;              // resolved / unchanged: say nothing
+  const fresh = n - prev;
+  if (_uiPrefs.alert_chime) _playAlertChime();
+  if (_uiPrefs.alert_notify) {
+    sendNotification(
+      fresh === 1 ? 'New alert' : `${fresh} new alerts`,
+      fresh === 1 ? 'A new alert is open in RemotePower'
+                  : `${n} alerts are now open in RemotePower`);
+  }
 }
 
 // ─── v6.1.2: browser-tab alert badge ───────────────────────────────────────
@@ -11424,7 +11689,9 @@ async function loadIntegrationsPage() {
       status: i.enabled ? (i.last_status || 'unknown') : 'unknown',
       detail: i.enabled ? i.last_detail : 'disabled',
       version: i.last_version, checked: i.last_checked, stats: i.last_stats || [],
+      top_blocked: i.last_top_blocked || [], top_clients: i.last_top_clients || [],
     }));
+    _renderDnsBlockPanels(items);   // v6.1.2
     const order = { critical: 0, warning: 1, unknown: 2, ok: 3 };
     items.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.label || '').localeCompare(String(b.label || '')));
     wrap.innerHTML = _integrationTiles(items);
@@ -11436,6 +11703,80 @@ async function loadIntegrationsPage() {
   } catch (e) {
     wrap.innerHTML = '<div class="empty-state">Failed to load integrations.</div>';
   }
+}
+
+// ── v6.1.2: Pi-hole / AdGuard "what is actually being blocked" ───────────────
+// The tile says "23% blocked", which is a statistic. The thing an operator would
+// act on is WHICH domain, and WHICH device is asking for it — "the TV phoned home
+// 4,000 times" is a decision, "23%" is trivia. Both connectors already had to call
+// the stats endpoint for the headline number; the top-N lists come from the same
+// response (AdGuard) or one extra cheap call (Pi-hole).
+function _renderDnsBlockPanels(items) {
+  const wrap = document.getElementById('dns-block-panels');
+  if (!wrap) return;
+  const dns = (items || []).filter(
+    i => (i.top_blocked && i.top_blocked.length) || (i.top_clients && i.top_clients.length));
+  wrap.innerHTML = '';
+  if (!dns.length) { wrap.classList.add('d-none'); return; }
+  wrap.classList.remove('d-none');
+
+  dns.forEach(i => {
+    const card = document.createElement('div');
+    card.className = 'dash-card mb-12';
+    const title = document.createElement('div');
+    title.className = 'section-title';
+    title.textContent = i.label || i.type;
+    card.appendChild(title);
+
+    const row = document.createElement('div');
+    row.className = 'settings-row';
+    [['Top blocked domains', i.top_blocked], ['Top clients', i.top_clients]].forEach(([heading, rows]) => {
+      if (!rows || !rows.length) return;
+      const col = document.createElement('div');
+      col.className = 'form-group';
+      const h = document.createElement('div');
+      h.className = 'form-label';
+      h.textContent = heading;
+      col.appendChild(h);
+
+      const t = document.createElement('table');
+      t.className = 'data-table';
+      const tb = document.createElement('tbody');
+      // Bar width is relative to the top entry: an absolute scale would render
+      // every row as a sliver on a busy resolver and tell you nothing.
+      const max = Math.max(...rows.map(r => Number(r.count) || 0), 1);
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        const name = document.createElement('td');
+        name.textContent = r.name;           // textContent, never innerHTML — this
+        name.title = r.name;                 // is an attacker-influenceable domain
+        const bar = document.createElement('td');
+        const track = document.createElement('div');
+        track.className = 'hh-bar-track';
+        const fill = document.createElement('div');
+        fill.className = 'hh-bar-fill';
+        // .style.x, not a style="" string — an inline style attribute in an
+        // innerHTML string dies silently under our CSP.
+        fill.style.width = Math.round((Number(r.count) || 0) / max * 100) + '%';
+        fill.style.background = 'var(--accent)';
+        track.appendChild(fill);
+        bar.appendChild(track);
+        const n = document.createElement('td');
+        n.className = 'ta-right';
+        n.textContent = (Number(r.count) || 0).toLocaleString();
+        tr.appendChild(name); tr.appendChild(bar); tr.appendChild(n);
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb);
+      const scroll = document.createElement('div');
+      scroll.className = 'scrollable-table-wrap audit-scroll';
+      scroll.appendChild(t);
+      col.appendChild(scroll);
+      row.appendChild(col);
+    });
+    card.appendChild(row);
+    wrap.appendChild(card);
+  });
 }
 
 // ── v4.7.0: fleet GPU page (Monitoring → GPUs) — NVIDIA + AMD, rich cards ─────
@@ -15761,6 +16102,7 @@ function _renderHomeActivity(fleetEvents) {
     'ecc_errors',   // v6.1.2
     'wan_ip_changed', 'wan_down', 'wan_up', 'mac_conflict',   // v6.1.2
     'ping_missed', 'ping_recovered',                          // v6.1.2
+    'hostkey_changed',                                        // v6.1.2 (#40)
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
     // v3.11.0: exposure / software-policy / storage / access / firewall / timer
@@ -15970,6 +16312,7 @@ function _homeActivityAttrs(event, p) {
     case 'wan_ip_changed': case 'wan_down': case 'wan_up':     // v6.1.2 -> network map
     case 'mac_conflict': case 'ping_missed': case 'ping_recovered':
       return `data-home-act="netmap"`;
+    case 'hostkey_changed':   // v6.1.2 (#40) — the drawer shows the fingerprints
     case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
@@ -18782,6 +19125,13 @@ async function _loadAuditSection(key) {
           ['ECC memory', si.ecc
             ? `${si.ecc.ce || 0} correctable · ${si.ecc.ue || 0} uncorrectable`
             : null],
+          // v6.1.2 (#40): the host's own SSH host-key fingerprints. Shown so that
+          // when `hostkey_changed` fires you can compare against what ssh is
+          // warning you about — an alert you can't verify is an alert you ignore.
+          ['SSH host keys', si.ssh_hostkeys && Object.keys(si.ssh_hostkeys).length
+            ? Object.entries(si.ssh_hostkeys)
+                .map(([t, fp]) => `${t.replace(/^ssh-/, '')}: ${fp}`).join('\n')
+            : null],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
           // v3.8.0: why the host last restarted (the command before the reboot)
           ['Boot reason', data?.last_boot_reason || null],
@@ -21539,6 +21889,16 @@ async function loadReportDefs() {
       `<label class="rdef-sec"><input type="checkbox" class="rdef-sec-cb" value="${escAttr(s)}" checked> ${escHtml(_REPORT_SECTION_LABELS[s] || s)}</label>`).join('');
     secEl.dataset.built = '1';
   }
+  // v6.1.2 (#41): webhook destinations. Rebuilt every load (unlike sections,
+  // which are a fixed set) because the operator can add a destination in another
+  // tab and must not have to reload to pick it.
+  const destEl = document.getElementById('rdef-dests');
+  if (destEl) {
+    const dests = (_webhookDests || []).filter(d => d && d.id);
+    destEl.innerHTML = dests.length
+      ? dests.map(d => `<label class="rdef-sec"><input type="checkbox" class="rdef-dest-cb" value="${escAttr(d.id)}"> ${escHtml(d.name || d.id)}</label>`).join('')
+      : '<div class="hint">No notification destinations configured yet.</div>';
+  }
   // Render the saved-definitions list.
   if (!_reportDefs.length) { wrap.innerHTML = '<div class="hint">No custom reports yet.</div>'; return; }
   wrap.innerHTML = _reportDefs.map(d => {
@@ -21555,6 +21915,9 @@ async function loadReportDefs() {
 function _rdefSelectedSections() {
   return Array.from(document.querySelectorAll('.rdef-sec-cb')).filter(c => c.checked).map(c => c.value);
 }
+function _rdefSelectedDests() {
+  return Array.from(document.querySelectorAll('.rdef-dest-cb')).filter(c => c.checked).map(c => c.value);
+}
 function resetReportDef() {
   _reportDefEditId = '';
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
@@ -21562,6 +21925,7 @@ function resetReportDef() {
   const fmt = document.getElementById('rdef-format'); if (fmt) fmt.value = 'json';
   const en = document.getElementById('rdef-enabled'); if (en) en.checked = false;
   document.querySelectorAll('.rdef-sec-cb').forEach(c => { c.checked = true; });
+  document.querySelectorAll('.rdef-dest-cb').forEach(c => { c.checked = false; });
   const st = document.getElementById('rdef-status'); if (st) st.textContent = '';
 }
 function editReportDef(id) {
@@ -21575,6 +21939,8 @@ function editReportDef(id) {
   document.getElementById('rdef-enabled').checked = !!d.enabled;
   const sel = new Set(d.sections || []);
   document.querySelectorAll('.rdef-sec-cb').forEach(c => { c.checked = sel.has(c.value); });
+  const dsel = new Set(d.destinations || []);
+  document.querySelectorAll('.rdef-dest-cb').forEach(c => { c.checked = dsel.has(c.value); });
   const st = document.getElementById('rdef-status'); if (st) st.textContent = `Editing “${d.name}”`;
 }
 async function saveReportDef() {
@@ -21587,9 +21953,11 @@ async function saveReportDef() {
   if (enabled && !cron) { toast('Enter a cron schedule (or untick Email on schedule)', 'error'); return; }
   const recipients = document.getElementById('rdef-recipients').value
     .split(',').map(s => s.trim()).filter(s => s.includes('@'));
+  const destinations = _rdefSelectedDests();
   const payload = {
     id: _reportDefEditId || undefined, name, sections,
-    format: document.getElementById('rdef-format').value, cron, enabled, recipients,
+    format: document.getElementById('rdef-format').value, cron, enabled,
+    recipients, destinations,
   };
   const r = await api('POST', '/report/definitions', payload).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return; }
@@ -24419,3 +24787,16 @@ try {
   if (location.search.indexOf('perfhud') !== -1) localStorage.setItem('rp_perfhud', '1');
 } catch (_) {}
 setInterval(_perfHudTick, 2000);   // no-op while the HUD is off
+
+// v6.1.2 (#43): ?kiosk=1[&cycle=<seconds>][&pages=home,alerts,devices]
+// Read from the URL so the whole thing can be a browser's start/home URL — which
+// is how a wall-mounted kiosk is actually configured. Deferred to DOMContentLoaded
+// because _kioskPages() checks that each named page EXISTS (and that its module is
+// on), and the page elements aren't there yet at script-eval time.
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get('kiosk') !== '1') return;
+    enterKiosk({ cycle: q.get('cycle'), pages: q.get('pages') });
+  } catch (_) {}
+});

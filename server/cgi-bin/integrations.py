@@ -280,6 +280,28 @@ def _pihole(inst, c):
         ) or ""
     except IntegrationError:
         pass
+    # v6.1.2: what is actually being blocked. "23% blocked" is a number; "your TV
+    # phoned home 4,000 times" is the thing you'd act on. Best-effort — a failure
+    # here must NOT fail the health check, which is the connector's real job.
+    top_blocked, top_clients = [], []
+    try:
+        td = c.get_json("/api/stats/top_domains?blocked=true&count=10", headers=h)
+        top_blocked = [
+            {"name": str(d.get("domain", "")), "count": int(_num(d.get("count")))}
+            for d in (td.get("domains") or [])
+            if d.get("domain")
+        ][:10]
+    except (IntegrationError, AttributeError, TypeError, ValueError):
+        pass
+    try:
+        tc = c.get_json("/api/stats/top_clients?count=10", headers=h)
+        top_clients = [
+            {"name": str(d.get("name") or d.get("ip") or ""), "count": int(_num(d.get("count")))}
+            for d in (tc.get("clients") or [])
+            if d.get("name") or d.get("ip")
+        ][:10]
+    except (IntegrationError, AttributeError, TypeError, ValueError):
+        pass
     return {
         "status": OK,
         "version": ver,
@@ -289,6 +311,8 @@ def _pihole(inst, c):
             "blocked_pct": blocked_pct,
             "domains_blocked": g.get("domains_being_blocked", 0),
         },
+        "top_blocked": top_blocked,
+        "top_clients": top_clients,
     }
 
 
@@ -309,14 +333,27 @@ def _adguard(inst, c):
     prot = st.get("protection_enabled", True)
     ver = st.get("version", "")
     queries = blocked = 0
+    top_blocked, top_clients = [], []
     try:
         stats = c.get_json("/control/stats", headers=h)
         queries = stats.get("num_dns_queries", 0)
         blocked = stats.get("num_blocked_filtering", 0)
+        # v6.1.2: AdGuard already returns the top lists in the SAME response we
+        # fetch for the counters, so this costs no extra request. Shape is a list
+        # of single-pair dicts: [{"tracker.example": 42}, …].
+        top_blocked = _adguard_top(stats.get("top_blocked_domains"))
+        top_clients = _adguard_top(stats.get("top_clients"))
     except IntegrationError:
         pass
     if not running:
-        return {"status": CRIT, "detail": "DNS server not running", "version": ver, "metrics": {}}
+        return {
+            "status": CRIT,
+            "detail": "DNS server not running",
+            "version": ver,
+            "metrics": {},
+            "top_blocked": [],
+            "top_clients": [],
+        }
     status = OK if prot else WARN
     detail = f"{int(_num(queries))} queries, {_pct(blocked, queries)}% blocked"
     if not prot:
@@ -326,7 +363,23 @@ def _adguard(inst, c):
         "version": ver,
         "detail": detail,
         "metrics": {"queries": queries, "blocked": blocked, "protection": prot},
+        "top_blocked": top_blocked,
+        "top_clients": top_clients,
     }
+
+
+def _adguard_top(raw):
+    """AdGuard's top-N lists are [{"name": count}, …] — one pair per dict, not a
+    list of {name, count} objects. Normalise to the latter so the Pi-hole and
+    AdGuard panels can share one renderer."""
+    out = []
+    for item in (raw or [])[:10]:
+        if not isinstance(item, dict):
+            continue
+        for name, count in item.items():
+            out.append({"name": str(name), "count": int(_num(count))})
+            break  # exactly one pair per entry by AdGuard's contract
+    return out
 
 
 @_register(

@@ -1234,9 +1234,21 @@
           <div class="section-title">Appearance</div>
           <!-- v6.0.0 "ClarityMatters": single interface — the v4.6.0 New/Old
                toggle is gone; themes + accent apply to the one UI. -->
-          <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting. The accent tints buttons and highlights on top of any theme.</p>
+          <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting; <strong>Time of day</strong> switches on the clock instead — which is what you want when the OS is pinned to dark, as it is on most servers and kiosks. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
+          <!-- v6.1.2 (#44): only meaningful once "Time of day" is the chosen
+               theme, so it's revealed by JS rather than always taking up space. -->
+          <div class="mb-16 d-none" id="acct-theme-sched">
+            <div class="form-label mb-6">Time-of-day schedule</div>
+            <p class="hint">Applies live — the boundary is crossed without a reload, so a wall-mounted dashboard switches on its own. A window that wraps midnight (day from 21 to 5) works, for night shifts.</p>
+            <div class="row-8-center">
+              <label class="form-label">Day from <input type="number" id="sched-from" class="form-input input-auto" min="0" max="23" step="1"></label>
+              <label class="form-label">until <input type="number" id="sched-to" class="form-input input-auto" min="0" max="23" step="1"></label>
+              <label class="form-label">Day theme <select id="sched-day" class="form-input input-auto"></select></label>
+              <label class="form-label">Night theme <select id="sched-night" class="form-input input-auto"></select></label>
+            </div>
+          </div>
           <div class="mb-16">
             <div class="form-label mb-6">Accent</div>
             <div id="acct-accent" class="row-8-center"></div>
@@ -1322,6 +1334,17 @@
                 <option value="f">Fahrenheit (°F)</option>
               </select>
             </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">New-alert announcements</div>
+          <p class="hint">The tab badge is passive — it only helps if you look at the tab. These are the active half, for a dashboard sitting on a second monitor. Both are <strong>off by default</strong> and are per-user: a sound is the most intrusive thing a page can do. Only a <em>rise</em> in the open-alert count announces, so opening the dashboard with existing alerts stays silent — announcing history rather than news is how people learn to ignore an alert sound.</p>
+          <div class="settings-row">
+            <label class="form-label"><input type="checkbox" id="cfg-alert-chime"> Play a chime when a new alert arrives</label>
+          </div>
+          <div class="settings-row">
+            <label class="form-label"><input type="checkbox" id="cfg-alert-notify"> Show a browser notification (needs permission)</label>
           </div>
         </div>
 
@@ -4881,10 +4904,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <label class="form-label">Format
                 <select id="rdef-format" class="form-input input-auto"><option value="json">JSON</option><option value="csv">CSV</option></select></label>
               <label class="form-label">Cron <input type="text" id="rdef-cron" class="form-input input-auto" placeholder="0 8 * * 1" autocomplete="off"></label>
-              <label class="form-label"><input type="checkbox" id="rdef-enabled"> Email on schedule</label>
+              <label class="form-label"><input type="checkbox" id="rdef-enabled"> Send on schedule</label>
             </div>
-            <div class="form-group"><label for="rdef-recipients" class="form-label">Recipients (comma-separated)</label>
+            <div class="form-group"><label for="rdef-recipients" class="form-label">Email recipients (comma-separated)</label>
               <input type="text" id="rdef-recipients" class="form-input input-wide" placeholder="ops@example.com" autocomplete="off"></div>
+            <div class="form-group"><label class="form-label">Webhook destinations</label>
+              <p class="hint">Send the report to notification destinations instead of (or as well as) email — most homelabs never set up SMTP but always have ntfy or Discord, so an email-only report is one nobody reads. Configure destinations under <strong>Settings → Notifications</strong>. A report sent this way ignores the destination's event and priority filters: you chose it here on purpose.</p>
+              <div id="rdef-dests" class="rdef-sections scroll-cap-sm">—</div></div>
             <div class="sb-controls">
               <button class="btn-primary" data-action="saveReportDef">Save report</button>
               <button class="btn-secondary" data-action="resetReportDef">Clear</button>
@@ -6443,6 +6469,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="integrations-page-summary" class="hint"></span>
         </div>
         <div id="integrations-page-tiles" class="integ-tiles"><div class="hint">Loading…</div></div>
+        <!-- v6.1.2: Pi-hole / AdGuard top-blocked. Hidden until a DNS connector
+             actually reports lists, so instances without one see no empty box. -->
+        <div id="dns-block-panels" class="mt-12 d-none"></div>
       </div>
 
       <div id="page-gpus" class="page">
@@ -7152,6 +7181,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div><!-- /app-content -->
   </div><!-- /app-layout -->
 </div><!-- /app -->
+
+<!-- v6.1.2 (#43): kiosk mode exit. Body level (not inside .container), same as
+     the overlays — .container is a z-index:1 stacking context that would seal a
+     fixed element beneath the sidebar. -->
+<div class="kiosk-exit">
+  <button class="btn-secondary" data-action="exitKiosk" title="Leave kiosk mode (Esc)">Exit kiosk</button>
+</div>
 
 <!-- ── v2.9.0: Device Drawer (moved here from inside .container at v4.10.0 so
      its z-index:500 sits in the body-level stacking context, above the fixed

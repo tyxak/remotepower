@@ -125,6 +125,11 @@ LIVE_WINDOW_SECONDS = 30                            # W3-19 how long a live burs
 MAX_LIVE_SAMPLES = 60                              # W3-19 ring cap per device
 WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
 _DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
+# Synthetic webhook "events": not fleet events an operator subscribes to, but
+# deliveries they explicitly asked for. Exempt from a destination's event and
+# min-priority filters (see _dispatch_one_webhook) — filtering them would silently
+# drop something the operator configured on purpose. They are NOT in EVENT_REGISTRY.
+_SYNTHETIC_WEBHOOK_EVENTS = ('notification_digest', 'scheduled_report')
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
 # asset (inbox + webhook + needs-attention). fleet_events keeps recording so the
 # Monitoring → Tuning page can still surface and lift noisy sources.
@@ -1345,6 +1350,14 @@ EVENT_REGISTRY = {
         label='ECC memory errors increased', kind='hardware',
         title='ECC Memory Errors', severity=None, priority=4,
         tags='rotating_light,ram'),
+    # v6.1.2 (#40): the host's OWN SSH host key changed. Benignly, the box was
+    # reimaged or the keys regenerated. Maliciously, it's the MITM tripwire that
+    # the scary ssh warning exists to raise — and which people click through
+    # precisely because they have no way to tell the two apart. Now they do.
+    'hostkey_changed': dict(
+        label='SSH host key changed on a device', kind='ssh_key',
+        title='SSH Host Key Changed', severity='high', priority=5,
+        tags='rotating_light,key'),
     # v6.1.2: WAN / public IP. Your IP changes and nothing tells you — the VPN
     # endpoint, the port forwards and every published service now point at an
     # address that belongs to someone else.
@@ -9697,20 +9710,24 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority,
             _log_webhook(event, url, 'error',
                          'blocked: target resolves to a metadata or local address')
             return
-    # Per-destination event filter (if specified). The synthetic digest event
-    # (W2-22) is exempt — it's the flush of already-filtered events.
-    allowed_events = dest.get('events')
-    if isinstance(allowed_events, list) and allowed_events \
-            and event not in allowed_events and event != 'notification_digest':
-        return
-    # Per-destination priority filter
-    min_prio = dest.get('min_priority')
-    try:
-        if min_prio is not None and int(min_prio) > priority \
-                and event != 'notification_digest':
+    # Per-destination event/priority filters. SYNTHETIC events are exempt from
+    # both: they aren't fleet events an operator subscribes to, they're deliveries
+    # the operator explicitly asked for. `notification_digest` (W2-22) is the flush
+    # of already-filtered events; `scheduled_report` (v6.1.2 #41) is a report whose
+    # destination the operator chose on the report definition itself — filtering it
+    # against the destination's event list would silently drop it, and the operator
+    # would just see a report that never arrives.
+    if event not in _SYNTHETIC_WEBHOOK_EVENTS:
+        allowed_events = dest.get('events')
+        if isinstance(allowed_events, list) and allowed_events \
+                and event not in allowed_events:
             return
-    except (TypeError, ValueError):
-        pass
+        min_prio = dest.get('min_priority')
+        try:
+            if min_prio is not None and int(min_prio) > priority:
+                return
+        except (TypeError, ValueError):
+            pass
     # W2-22: per-destination digest window. A non-critical event queues for a
     # later single-summary flush instead of sending now; critical events
     # (priority >= _DIGEST_BYPASS_PRIORITY) always bypass and page immediately.
@@ -9874,6 +9891,27 @@ def _enqueue_webhook_digest(dest_id, event, title, message, priority):
         q['items'] = q['items'][-200:]
 
 
+def _webhook_destination_map(cfg):
+    """{id: destination} for every configured webhook destination, including the
+    legacy single `webhook_url` under the id 'legacy'. Shared by the digest flush
+    and the scheduled-report delivery so they can't drift apart."""
+    dests = {}
+    for d in (cfg.get('webhook_urls') or []):
+        if isinstance(d, dict) and d.get('id'):
+            dests[str(d['id'])] = d
+    if cfg.get('webhook_url'):
+        dests['legacy'] = {'id': 'legacy', 'url': cfg.get('webhook_url'),
+                           'format': _auto_detect_format(cfg.get('webhook_url'))}
+    return dests
+
+
+def _webhook_destinations_by_id(cfg, ids):
+    """The destinations named by `ids`, in the caller's order. Unknown ids are
+    skipped (a destination the operator deleted must not 500 the report sweep)."""
+    dests = _webhook_destination_map(cfg)
+    return [dests[str(i)] for i in (ids or []) if str(i) in dests]
+
+
 def run_webhook_digests_if_due():
     """W2-22: flush any destination whose oldest held notification is older than
     its digest window, as a single combined summary. Cheap when the queue is
@@ -9884,13 +9922,7 @@ def run_webhook_digests_if_due():
         return
     now = int(time.time())
     cfg = load(CONFIG_FILE) or {}
-    dests = {}
-    for d in (cfg.get('webhook_urls') or []):
-        if isinstance(d, dict) and d.get('id'):
-            dests[str(d['id'])] = d
-    if cfg.get('webhook_url'):
-        dests['legacy'] = {'id': 'legacy', 'url': cfg.get('webhook_url'),
-                           'format': _auto_detect_format(cfg.get('webhook_url'))}
+    dests = _webhook_destination_map(cfg)
     to_send, remaining = [], {}
     for dest_id, q in store.items():
         items = q.get('items') or []
@@ -16629,6 +16661,15 @@ def handle_heartbeat():
                     'enabled': bool(_au.get('enabled')),
                     'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
                 }
+            # v6.1.2 (#40): SSH host-key fingerprints. safe_si is a WHITELIST — a
+            # field the agent sends but this drops never reaches the baseline check
+            # or the UI, silently. {keytype: 'SHA256:…'}, both sides bounded.
+            _hk = si.get('ssh_hostkeys')
+            if isinstance(_hk, dict):
+                safe_si['ssh_hostkeys'] = {
+                    _sanitize_str(str(k), 32): _sanitize_str(str(v), 64)
+                    for k, v in list(_hk.items())[:12]
+                }
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
             if 'packages' in si and isinstance(si['packages'], dict):
@@ -19980,13 +20021,60 @@ def handle_metrics(dev_id):
             respond(400, {'error': 'invalid range'})
         series = _m.metric_range(DATA_DIR, dev_id, int(time.time()) - secs)
         if series:
-            respond(200, {'device_id': dev_id, 'metrics': series, 'range': secs})
+            respond(200, {'device_id': dev_id, 'metrics': series, 'range': secs,
+                          'annotations': _metric_annotations(
+                              dev_id, int(time.time()) - secs)})
         # Time-series still empty (just enabled, or this device hasn't reported
         # since) — fall through to the recent metrics.json window so the chart
         # shows what we have rather than a dead "no samples".
     metrics = load(METRICS_FILE)
-    respond(200, {'device_id': dev_id, 'metrics': metrics.get(dev_id, []),
-                  'recent_window': True})
+    win = metrics.get(dev_id, [])
+    since = int(win[0].get('ts', 0)) if win else 0
+    respond(200, {'device_id': dev_id, 'metrics': win,
+                  'recent_window': True,
+                  'annotations': _metric_annotations(dev_id, since)})
+
+
+# v6.1.2: events worth marking ON the metric charts. The question a metric chart
+# is usually asked is "why did it change THERE?", and the answer is almost always
+# something that already happened and was already recorded — a reboot, a patch
+# run, a config change. Overlaying them turns a shape into a cause.
+#
+# Kept deliberately SMALL: an annotation per alert would bury the line in ticks
+# and the chart would become unreadable, which is the failure mode of every
+# annotated chart anyone has ever regretted building.
+# Every key here is checked against EVENT_REGISTRY by a guardrail test: an
+# annotation for an event that does not exist is a marker that can never appear,
+# and it would look completely correct in review.
+_METRIC_ANNOTATION_EVENTS = {
+    'agent_started':     ('reboot', 'Host/agent came up'),
+    'reboot_cleared':    ('reboot', 'Rebooted'),
+    'command_executed':  ('command', 'Command run'),
+    'drift_detected':    ('drift', 'Config drift'),
+    'config_drift':      ('drift', 'Config drift'),
+    'oom_detected':      ('oom', 'OOM kill'),
+}
+
+
+def _metric_annotations(dev_id, since, limit=40):
+    """Timestamped markers for this device's metric charts, from the events we
+    already record. Bounded: a chart with 500 ticks tells you nothing."""
+    if not since:
+        return []
+    out = []
+    for e in reversed((load(FLEET_EVENTS_FILE) or {}).get('events') or []):
+        if len(out) >= limit:
+            break
+        if not isinstance(e, dict) or e.get('device_id') != dev_id:
+            continue
+        ts = int(e.get('ts') or 0)
+        if ts < since:
+            break            # the store is append-ordered — everything older follows
+        spec = _METRIC_ANNOTATION_EVENTS.get(e.get('event'))
+        if spec:
+            out.append({'ts': ts, 'kind': spec[0], 'label': spec[1]})
+    out.reverse()
+    return out
 
 
 def _db_health_probe(host, port, kind, timeout=3):
@@ -20959,6 +21047,12 @@ def handle_integrations_list():
             safe['last_metrics'] = r.get('metrics')
             # v4.7.0: formatted headline stat chips for the rich tiles.
             safe['last_stats'] = integrations_mod.format_stats(i.get('type'), r.get('metrics'))
+            # v6.1.2: DNS top-N lists (Pi-hole / AdGuard). This is a READ WHITELIST
+            # — a key a connector returns but that isn't copied here never reaches
+            # the browser, however correct the connector is.
+            for _k in ('top_blocked', 'top_clients'):
+                if isinstance(r.get(_k), list):
+                    safe['last_' + _k] = r[_k][:10]
         insts.append(safe)
     respond(200, {'integrations': insts,
                   'catalog': integrations_mod.list_connectors(),
@@ -24926,6 +25020,14 @@ def _sanitise_ui_prefs(raw):
     temp_unit = raw.get('temp_unit')
     if temp_unit in ('c', 'f'):
         out['temp_unit'] = temp_unit
+
+    # v6.1.2 (#39): announce a NEW alert while the dashboard sits in a background
+    # tab. Both default OFF and are per-user, because a sound is the single most
+    # intrusive thing a web app can do and one operator's "finally, I'll hear it"
+    # is another's "why is my browser beeping in a meeting".
+    for k in ('alert_chime', 'alert_notify'):
+        if k in raw:
+            out[k] = bool(raw[k])
 
     # Per-user email signature (HTML) appended to outbound ticket emails.
     signature = raw.get('signature')
@@ -29171,6 +29273,38 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
             _fire('ecc_errors', {'ce': ce, 'ue': ue,
                                  'new_ce': d_ce, 'new_ue': d_ue})
         new['ecc'] = {'ce': ce, 'ue': ue}
+
+    # ── v6.1.2 (#40): SSH host-key change ──────────────────────────
+    # Baseline the fingerprints, then fire when one CHANGES. Deliberate choices:
+    #   * only a changed key fires. A key APPEARING (a new type was generated,
+    #     e.g. ed25519 added to an old box) or DISAPPEARING (an admin removed
+    #     DSA) is not a MITM signal and must not cry wolf — cry wolf once and
+    #     the operator mutes the event that was supposed to catch a real MITM.
+    #   * first_seen never fires: enrolling a device is not a key change, and
+    #     firing on enrolment would make the very first heartbeat of every host
+    #     a HIGH alert.
+    hk = si.get('ssh_hostkeys')
+    if isinstance(hk, dict) and hk:
+        cur_hk = {str(k): str(v) for k, v in hk.items()}
+        p_hk = prev.get('ssh_hostkeys') or {}
+        if not first_seen and p_hk:
+            changed = sorted(k for k, v in cur_hk.items()
+                             if k in p_hk and p_hk[k] != v)
+            if changed:
+                # `fingerprint` and `detail` are BOTH already in the _record_alert
+                # and _record_fleet_event payload whitelists (fingerprint came in
+                # with ssh_key_added). Reusing them means the alert and the feed
+                # item carry the evidence without growing either whitelist — a
+                # non-whitelisted key would be silently dropped on the way in.
+                _fire('hostkey_changed', {
+                    'fingerprint': cur_hk.get(changed[0], ''),
+                    'detail': (f"{', '.join(changed)} changed "
+                               f"({p_hk.get(changed[0], '?')} → "
+                               f"{cur_hk.get(changed[0], '?')}) — the host was "
+                               'reimaged or its keys were regenerated; if it was '
+                               'neither, treat this as a possible MITM'),
+                })
+        new['ssh_hostkeys'] = cur_hk
 
     # ── host firewall drift ────────────────────────────────────────
     # v3.12.0: gated by the same `port_audit_enabled` host-audit toggle as the
@@ -45696,6 +45830,11 @@ def _clean_report_def(body):
         return 'badcron'
     recipients = [_sanitize_str(r, 254) for r in (body.get('recipients') or [])
                   if isinstance(r, str) and '@' in r][:50]
+    # v6.1.2 (#41): webhook destination ids. This is a WHITELIST — a key that
+    # isn't listed here never reaches the stored definition, so the Settings
+    # toggle would appear to save and then quietly do nothing.
+    destinations = [_sanitize_str(str(x), 32) for x in (body.get('destinations') or [])
+                    if isinstance(x, (str, int))][:20]
     return {
         'id':         _sanitize_str(str(body.get('id', '')), 16) or secrets.token_hex(6),
         'name':       name,
@@ -45704,6 +45843,7 @@ def _clean_report_def(body):
         'cron':       cron,
         'enabled':    enabled,
         'recipients': recipients,
+        'destinations': destinations,
     }
 
 
@@ -45773,20 +45913,40 @@ def _maybe_send_report_definitions():
             if state.get(claim_key) == current_minute:
                 continue
             state[claim_key] = current_minute
-        recipients = d.get('recipients') or _smtp_recipients_list(cfg)
-        if not recipients:
+        # v6.1.2 (#41): a report can go to webhook DESTINATIONS instead of (or as
+        # well as) email. Homelabs rarely run SMTP but always have ntfy/Discord —
+        # so an email-only report is, for most of them, a report they never see.
+        dest_ids = d.get('destinations') or []
+        recipients = d.get('recipients') or ([] if dest_ids else _smtp_recipients_list(cfg))
+        if not recipients and not dest_ids:
             continue
         try:
             report = _filter_report_sections(_build_fleet_report(), d.get('sections'))
             subject, body = _render_report_email(report)
             subject = f"[{d.get('name')}] " + subject
-            smtp_notifier.send_email(cfg, recipients, subject, body,
-                                     html_body=smtp_notifier.brand_html(cfg, subject, body))
-            _log_email('fleet_report', recipients, 'ok', d.get('name', ''))
-        except smtp_notifier.SmtpError as e:
-            _log_email('fleet_report', recipients, 'error', str(e))
         except Exception as e:
-            sys.stderr.write(f"[remotepower] custom report '{d.get('name')}' failed: {e}\n")
+            sys.stderr.write(f"[remotepower] custom report '{d.get('name')}' "
+                             f"build failed: {e}\n")
+            continue
+        if recipients:
+            try:
+                smtp_notifier.send_email(cfg, recipients, subject, body,
+                                         html_body=smtp_notifier.brand_html(cfg, subject, body))
+                _log_email('fleet_report', recipients, 'ok', d.get('name', ''))
+            except smtp_notifier.SmtpError as e:
+                _log_email('fleet_report', recipients, 'error', str(e))
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] custom report '{d.get('name')}' "
+                                 f"email failed: {e}\n")
+        # Each destination is delivered independently: one broken webhook must not
+        # stop the others, nor the email that already went out.
+        for dest in _webhook_destinations_by_id(cfg, dest_ids):
+            try:
+                _dispatch_one_webhook('scheduled_report', dest, {}, body, subject, 3,
+                                      allow_digest=False)
+            except Exception as e:
+                _log_webhook('scheduled_report', dest.get('url', '?'), 'error',
+                             f'report delivery failed: {type(e).__name__}: {str(e)[:120]}')
 
 
 
