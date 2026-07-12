@@ -98,6 +98,17 @@ def _int_or_zero(value: Any) -> int:
         return 0
 
 
+def _float_or_zero(value: Any) -> float:
+    """v6.1.2: coerce to a non-negative float. Anything weird becomes 0 (which
+    is docker's own encoding of "no limit", so a bad value degrades to the
+    truthful 'unlimited' rather than inventing a cap that isn't there)."""
+    try:
+        n = float(value)
+        return n if n >= 0 else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _pct_or_none(value: Any):
     """Coerce to a clamped 0–100 float, or None if absent/unparseable. Used for
     container cpu_percent / mem_percent, which the agent may omit (no `stats`)."""
@@ -177,6 +188,13 @@ def normalize_container(item: Any) -> dict | None:
         "cpu_percent": _pct_or_none(item.get("cpu_percent")),
         "mem_percent": _pct_or_none(item.get("mem_percent")),
         "mem_usage": _str(item.get("mem_usage"), 48),
+        # v6.1.2: the configured LIMITS (0 = unlimited, docker's own convention).
+        # Usage without a limit is half a story: "using 3 GB" means something
+        # entirely different capped at 4 GB vs uncapped — an uncapped container
+        # can OOM the whole host, which is how a homelab box actually falls over.
+        # This normaliser is a whitelist; an unlisted key never reaches the UI.
+        "mem_limit_bytes": _int_or_zero(item.get("mem_limit_bytes")),
+        "cpu_limit_cores": _float_or_zero(item.get("cpu_limit_cores")),
     }
 
 

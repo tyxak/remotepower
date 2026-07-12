@@ -3561,6 +3561,7 @@ async function loadSettings() {
   { const s = document.getElementById('cfg-scrub-overdue-days'); if (s) s.value = data.scrub_overdue_days ?? 35; }
   { const s = document.getElementById('cfg-snapshot-stale-days'); if (s) s.value = data.snapshot_stale_days ?? 0; }
   { const s = document.getElementById('cfg-unit-flap-restarts'); if (s) s.value = data.unit_flap_restarts ?? 0; }
+  { const s = document.getElementById('cfg-drift-watch-compose'); if (s) s.checked = !!data.drift_watch_compose; }
   loadMaintenanceMode();
   loadLitigationHold();
 
@@ -3712,6 +3713,7 @@ async function saveSettings(btn) {
     scrub_overdue_days:     parseInt(document.getElementById('cfg-scrub-overdue-days')?.value ?? '35', 10),
     snapshot_stale_days:    parseInt(document.getElementById('cfg-snapshot-stale-days')?.value ?? '0', 10),
     unit_flap_restarts:     parseInt(document.getElementById('cfg-unit-flap-restarts')?.value ?? '0', 10),
+    drift_watch_compose:    document.getElementById('cfg-drift-watch-compose')?.checked || false,
 
     // v1.8.6: SMTP
     smtp_enabled:    document.getElementById('cfg-smtp-enabled').checked,

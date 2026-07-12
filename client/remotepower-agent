@@ -305,6 +305,10 @@ WEB_ACCESS_MAX_LINES = 500   # per submission
 # 60s interval). Cheap when no runtime is installed (immediate empty return);
 # bounded to ~1s when Docker/Podman/k8s are present.
 CONTAINER_CHECK_EVERY = 5
+# v6.1.2: `docker system df` walks the layer store (and `-v` every volume), so
+# it gets its own slow cadence — ~1h at the 60s default poll. Disk footprint
+# does not change by the minute, and this is not worth paying for on every beat.
+DOCKER_DF_EVERY       = 60
 # v3.0.1: scan ~/.acme.sh once an hour by default. Cert state changes only
 # when acme.sh's own cron runs (typically once daily) or after a manual
 # action — no need to re-walk the directory every minute.
@@ -2435,8 +2439,15 @@ def _docker_inspect_meta(cmd_path, ids):
         return meta
     try:
         r = subprocess.run(
+            # v6.1.2: the memory / CPU LIMITS ride along in the SAME batched
+            # inspect — no extra call. Usage without a limit is only half the
+            # story: "this container is using 3 GB" means something completely
+            # different depending on whether it's capped at 4 GB or unlimited
+            # (in which case it can OOM the whole host, which is exactly how a
+            # homelab box falls over).
             [cmd_path, 'inspect', '--format',
-             '{{.Id}} {{.RestartCount}} {{.State.StartedAt}}', *ids],
+             '{{.Id}} {{.RestartCount}} {{.State.StartedAt}} '
+             '{{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}', *ids],
             capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT)
     except Exception:
         return meta
@@ -2454,10 +2465,22 @@ def _docker_inspect_meta(cmd_path, ids):
             restarts = 0
         started_at = _parse_iso_to_epoch(parts[2]) if len(parts) >= 3 else 0
         uptime = max(0, now - started_at) if started_at else 0
+        # 0 means "no limit" in docker's model, for both fields.
+        mem_limit = cpu_limit = 0
+        try:
+            if len(parts) >= 4:
+                mem_limit = max(0, int(parts[3]))
+            if len(parts) >= 5:
+                cpu_limit = max(0, int(parts[4]))
+        except (ValueError, TypeError):
+            pass
         meta[cid] = {
             'restart_count':  restarts,
             'started_at':     started_at,
             'uptime_seconds': uptime,
+            # 0 = unlimited (docker's own convention). NanoCpus/1e9 = cores.
+            'mem_limit_bytes': mem_limit,
+            'cpu_limit_cores': round(cpu_limit / 1e9, 2) if cpu_limit else 0,
         }
     return meta
 
@@ -2672,8 +2695,99 @@ def _docker_listing(cmd_path, runtime_name):
             'cpu_percent':    st.get('cpu_percent'),         # v2.2.6
             'mem_percent':    st.get('mem_percent'),         # v2.2.6
             'mem_usage':      st.get('mem_usage', ''),       # v2.2.6
+            # v6.1.2: the configured LIMITS (0 = unlimited). Usage without a
+            # limit is half a story — an unlimited container can OOM the host.
+            'mem_limit_bytes': im.get('mem_limit_bytes', 0),
+            'cpu_limit_cores': im.get('cpu_limit_cores', 0),
         })
     return items
+
+
+def get_docker_disk_usage():
+    """v6.1.2: `docker system df` — where the disk actually went.
+
+    The 40 GB build-cache surprise is a rite of passage in every homelab: the
+    box fills up, and nothing in the monitoring says WHY, because "disk 94%"
+    doesn't distinguish "your data" from "layers of images you deleted the
+    containers for months ago". This reports the four buckets Docker itself
+    tracks, plus what is RECLAIMABLE — which is the number you actually act on.
+
+    Also returns per-volume sizes (`docker system df -v`), so "which volume is
+    eating 200 GB" is answerable without SSHing in. Best-effort and slow-ish
+    (docker walks the layer store), so this rides a slow cadence, not every beat.
+    """
+    docker = _which('docker')
+    if not docker:
+        return {}
+    out = {}
+    try:
+        r = subprocess.run(
+            [docker, 'system', 'df', '--format', '{{json .}}'],
+            capture_output=True, text=True, timeout=60)
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                # Type is "Images" / "Containers" / "Local Volumes" / "Build Cache"
+                key = str(d.get('Type', '')).lower().replace(' ', '_')
+                if not key:
+                    continue
+                out[key] = {
+                    'size': str(d.get('Size', ''))[:24],
+                    'reclaimable': str(d.get('Reclaimable', ''))[:32],
+                    'total': str(d.get('TotalCount', d.get('Total', '')))[:12],
+                    'active': str(d.get('Active', ''))[:12],
+                }
+    except Exception as e:
+        log.debug(f'docker system df failed: {e}')
+        return {}
+    # Per-volume sizes. `-v` is the expensive part, so it's a separate call we
+    # can drop without losing the summary above.
+    try:
+        r = subprocess.run(
+            [docker, 'system', 'df', '-v', '--format',
+             '{{range .Volumes}}{{.Name}}\t{{.Size}}\t{{.Links}}\n{{end}}'],
+            capture_output=True, text=True, timeout=90)
+        vols = []
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                f = line.split('\t')
+                if len(f) >= 2 and f[0].strip():
+                    v = {'name': f[0].strip()[:96], 'size': f[1].strip()[:24]}
+                    if len(f) >= 3:
+                        try:
+                            v['links'] = int(f[2].strip())
+                        except ValueError:
+                            pass
+                    vols.append(v)
+        if vols:
+            # Biggest first — that's the only order anyone reads this in.
+            vols.sort(key=lambda v: _parse_docker_size(v['size']), reverse=True)
+            out['volumes'] = vols[:40]
+    except Exception as e:
+        log.debug(f'docker system df -v failed: {e}')
+    return out
+
+
+_SIZE_UNITS = {'b': 1, 'kb': 1e3, 'mb': 1e6, 'gb': 1e9, 'tb': 1e12,
+               'kib': 1024, 'mib': 1024**2, 'gib': 1024**3, 'tib': 1024**4}
+
+
+def _parse_docker_size(s):
+    """'1.234GB' -> bytes. Docker prints human sizes; we need to SORT them, and
+    lexicographic order would put 9MB above 10GB. Returns 0 on anything odd."""
+    m = re.match(r'\s*([\d.]+)\s*([A-Za-z]+)', str(s or ''))
+    if not m:
+        return 0
+    try:
+        return float(m.group(1)) * _SIZE_UNITS.get(m.group(2).lower(), 1)
+    except (ValueError, TypeError):
+        return 0
 
 
 def _kubectl_listing():
@@ -8749,6 +8863,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['compose_projects'] = projects
             except Exception as e:
                 log.debug(f'compose listing error: {e}')
+            # v6.1.2: `docker system df` — the disk-footprint breakdown. This one
+            # is EXPENSIVE (docker walks the whole layer store, and `-v` walks
+            # every volume), so it rides its own much slower cadence rather than
+            # the container listing's. Disk usage doesn't change by the minute.
+            if poll_count % DOCKER_DF_EVERY == 0:
+                try:
+                    df = get_docker_disk_usage()
+                    if df:
+                        payload['docker_df'] = df
+                except Exception as e:
+                    log.debug(f'docker df error: {e}')
 
         # v3.4.0: hardware / health inventory on the slow cadence — smartctl,
         # dmidecode, sensors and the kernel check aren't free, so they ride

@@ -316,9 +316,38 @@ async function viewComposeStack(stackId) {
   body.innerHTML = `<h4>docker-compose.yml</h4><pre class="isl-514"><code>${escHtml(s.yaml || '')}</code></pre>${out}`;
 }
 
+// v6.1.2: docker prints HUMAN sizes ("12.3GB"). We keep the string for display
+// — it's exactly what `docker system df` shows on the box, so there's nothing to
+// reconcile when the operator goes and checks — but sorting needs bytes.
+const _SIZE_UNITS = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12,
+                      kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 };
+
+function _parseSize(s) {
+  const m = /^\s*([\d.]+)\s*([A-Za-z]+)/.exec(String(s || ''));
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  return isNaN(n) ? 0 : n * (_SIZE_UNITS[m[2].toLowerCase()] || 1);
+}
+
+function _dfTotalBytes(df) {
+  if (!df) return 0;
+  return ['images', 'containers', 'local_volumes', 'build_cache']
+    .reduce((t, k) => t + (df[k] ? _parseSize(df[k].size) : 0), 0);
+}
+
+// Bytes -> human, for the container LIMITS (which arrive as raw bytes from
+// docker's HostConfig, unlike `system df` which is already formatted).
+function _fmtSize(bytes) {
+  const b = Number(bytes) || 0;
+  if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(1)}GiB`;
+  if (b >= 1024 ** 2) return `${Math.round(b / 1024 ** 2)}MiB`;
+  if (b >= 1024) return `${Math.round(b / 1024)}KiB`;
+  return `${b}B`;
+}
+
 async function loadContainersOverview() {
   const tbody = document.getElementById('containers-tbody');
-  tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" class="empty-state-sm">Loading…</td></tr>';
   const data = await api('GET', '/containers');
   _containersOverview = Array.isArray(data) ? data : [];
   renderContainersOverview();
@@ -338,8 +367,9 @@ function _registerContainersOverviewTable() {
     tbody: 'containers-tbody',
     filterInput: 'containers-search',
     sortHeaders: 'containers-thead',
-    colspan: 9,
-    columns: ['name', 'os', 'total', 'running', 'stopped', 'restarting', 'runtimes', 'reported_at'],
+    colspan: 10,
+    columns: ['name', 'os', 'total', 'running', 'stopped', 'restarting', 'disk',
+              'runtimes', 'reported_at'],
     getColumns: (r) => {
       const s = r.summary || {};
       return {
@@ -349,6 +379,12 @@ function _registerContainersOverviewTable() {
         running:    s.running || 0,
         stopped:    s.stopped || 0,
         restarting: s.restarting || 0,
+        // v6.1.2: sort by TOTAL docker footprint in BYTES, not the printed
+        // string — "9MB" sorts above "10GB" lexicographically, which is exactly
+        // backwards from what anyone hunting for the fat host wants. Every
+        // data-col must have a key here or the header shows a sort arrow that
+        // does nothing (the Restore-drill bug, fixed earlier this release).
+        disk:       _dfTotalBytes(r.df),
         // Concatenate runtime names so sorting groups same-runtime hosts
         runtimes:   Object.keys(s.by_runtime || {}).sort().join(','),
         reported_at: r.reported_at || 0,
@@ -371,6 +407,27 @@ function _registerContainersOverviewTable() {
       const restartingCell = s.restarting > 0
         ? `<span class="c-red">${s.restarting}</span>`
         : `<span class="c-muted">0</span>`;
+      // v6.1.2: `docker system df`. The 40 GB build-cache surprise is a homelab
+      // rite of passage — the box fills up and nothing says WHY, because "disk
+      // 94%" doesn't distinguish your data from layers of images whose
+      // containers you deleted months ago. Reclaimable is the number you act on.
+      const df = r.df || null;
+      let dfCell = '<span class="c-muted">—</span>';
+      if (df) {
+        const parts = [];
+        for (const [k, lbl] of [['images', 'img'], ['local_volumes', 'vol'],
+                                ['build_cache', 'cache']]) {
+          if (df[k] && df[k].size) parts.push(`${lbl} ${escHtml(df[k].size)}`);
+        }
+        // "Reclaimable" comes back as "12.3GB (57%)"; the leading size is enough.
+        const recl = (df.images && df.images.reclaimable) || '';
+        const reclSize = String(recl).split(' ')[0];
+        const wasteful = _parseSize(reclSize) >= 5e9;   // ≥5 GB is worth a nudge
+        dfCell = `<span class="hint">${parts.join(' · ') || '—'}</span>`
+          + (reclSize && reclSize !== '0B'
+              ? `<div class="fs-11 ${wasteful ? 'c-amber' : 'c-muted'}" title="Reclaimable by docker system prune">${escHtml(reclSize)} reclaimable</div>`
+              : '');
+      }
       return `<tr class="isl-451">
         <td class="fw-500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
         <td class="hint">${escHtml(r.os || '—')}</td>
@@ -378,6 +435,7 @@ function _registerContainersOverviewTable() {
         <td class="c-green">${s.running}</td>
         <td class="c-muted">${s.stopped}</td>
         <td>${restartingCell}</td>
+        <td>${dfCell}</td>
         <td class="hint">${runtimes}</td>
         <td class="hint-nowrap">${reported}${staleBadge}</td>
         <td class="row-4">
@@ -414,11 +472,18 @@ async function containersOpen(deviceId, name) {
          <code>journalctl -u remotepower-agent</code> on the device.
        </div>`
     : '';
+  // v6.1.2: `docker system df` — where the disk actually went, plus the
+  // per-volume sizes. "Disk 94%" doesn't distinguish your data from layers of
+  // images whose containers you deleted months ago; this does, and it makes
+  // "which volume is eating 200 GB" answerable without SSHing in.
+  const dfPanel = _renderDockerDf(data.df, deviceId);
+
   if (!items.length) {
-    body.innerHTML = staleBanner + '<div class="empty-state">No containers reported.</div>';
+    body.innerHTML = staleBanner + dfPanel
+      + '<div class="empty-state">No containers reported.</div>';
     return;
   }
-  body.innerHTML = staleBanner + items.map(c => {
+  body.innerHTML = staleBanner + dfPanel + items.map(c => {
     const statusLower = (c.status || '').toLowerCase();
     const statusColor = statusLower.includes('running') || statusLower.includes('up ')
       ? 'var(--green)'
@@ -449,9 +514,22 @@ async function containersOpen(deviceId, name) {
         : '';
       const memColor = c.mem_percent > 85 ? 'var(--red)'
                      : c.mem_percent > 70 ? 'var(--amber)' : 'var(--muted)';
+      // v6.1.2: the configured LIMITS beside the usage. Usage alone is half a
+      // story — "using 3 GB" means something entirely different capped at 4 GB
+      // versus uncapped, and an UNCAPPED container is the one that can OOM the
+      // whole host. That's how a homelab box actually falls over, so say so.
+      const lim = [];
+      if (c.mem_limit_bytes) lim.push(`mem ≤ ${_fmtSize(c.mem_limit_bytes)}`);
+      if (c.cpu_limit_cores) lim.push(`cpu ≤ ${c.cpu_limit_cores}`);
+      const limTxt = lim.length
+        ? `<span class="hint">${escHtml(lim.join(' · '))}</span>`
+        : (c.mem_limit_bytes === 0 && c.cpu_limit_cores === 0
+            ? '<span class="hint c-amber" title="No memory or CPU limit — this container can consume the whole host">unlimited</span>'
+            : '');
       resourceLine = `<div class="isl-456">
         ${cpuTxt ? `<span>${cpuTxt}</span>` : ''}
         ${memTxt ? `<span class="isl-457" data-color="${memColor}">${memTxt}</span>` : ''}
+        ${limTxt}
       </div>`;
     }
     const cid = c.id || c.name || '';
@@ -481,6 +559,75 @@ async function containersOpen(deviceId, name) {
       ${actions}
     </div>`;
   }).join('');
+}
+
+// v6.1.2: reclaim docker disk space. Rides the audited command queue, so
+// quarantine / audit-mode / maker-checker apply exactly as to any other exec.
+// VOLUMES ARE NEVER PRUNED — `docker volume prune` deletes DATA, and someone
+// clearing "disk space" should not be one mis-click from wiping their Nextcloud
+// volume. Images and build cache are recreatable by definition.
+async function pruneDocker(deviceId) {
+  const scope = await uiPrompt({
+    title: 'Reclaim Docker disk space',
+    message: 'What should be pruned?\n\n'
+           + '  images  — dangling/unused images\n'
+           + '  cache   — the build cache\n'
+           + '  all     — both (default)\n\n'
+           + 'Volumes are NEVER pruned — that would delete data.',
+    value: 'all',
+    confirmText: 'Queue prune',
+  });
+  if (scope === null) return;
+  const s = String(scope).trim().toLowerCase() || 'all';
+  if (!['images', 'cache', 'all'].includes(s)) {
+    toast('Pick images, cache, or all', 'error');
+    return;
+  }
+  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/docker/prune`, { scope: s });
+  if (r && r.ok) toast(r.message || 'Prune queued', 'success');
+  else toast((r && r.error) || 'Failed to queue prune', 'error');
+}
+
+// v6.1.2: the `docker system df` panel — footprint by bucket, what a prune
+// would reclaim, and the biggest volumes.
+function _renderDockerDf(df, deviceId) {
+  if (!df) return '';
+  const LBL = { images: 'Images', containers: 'Containers',
+                local_volumes: 'Volumes', build_cache: 'Build cache' };
+  const cells = Object.keys(LBL).filter(k => df[k]).map(k => {
+    const b = df[k];
+    // Reclaimable arrives as "12.3GB (57%)" — the size is the actionable part.
+    const recl = String(b.reclaimable || '').split(' ')[0];
+    const big = _parseSize(recl) >= 5e9;
+    return `<div class="sysinfo-pill">
+      <div class="label">${LBL[k]}</div>
+      <div class="value">${escHtml(b.size || '—')}</div>
+      ${recl && recl !== '0B'
+        ? `<div class="fs-11 ${big ? 'c-amber' : 'c-muted'}">${escHtml(recl)} reclaimable</div>`
+        : ''}
+    </div>`;
+  }).join('');
+
+  const vols = (df.volumes || []).slice(0, 15);
+  const volRows = vols.map(v => `<tr>
+      <td><code class="fs-12">${escHtml(v.name)}</code></td>
+      <td class="ta-right">${escHtml(v.size || '—')}</td>
+      <td class="ta-center ${v.links === 0 ? 'c-amber' : 'hint'}"
+          title="${v.links === 0 ? 'No container uses this volume — it may be an orphan' : 'Containers using this volume'}">${v.links == null ? '—' : v.links}</td>
+    </tr>`).join('');
+
+  return `<div class="dash-card mb-12">
+    <div class="section-header">
+      <div class="section-title">Docker disk footprint</div>
+      <button class="btn-icon" data-action="pruneDocker" data-arg="${escAttr(deviceId)}"
+              title="Queue an image + build-cache prune on this host. Never touches volumes.">Prune…</button>
+    </div>
+    <div class="sysinfo-row">${cells}</div>
+    ${vols.length ? `<div class="section-title mt-12">Largest volumes</div>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
+        <thead><tr><th>Volume</th><th class="ta-right">Size</th><th class="ta-center" title="How many containers use it">Used by</th></tr></thead>
+        <tbody>${volRows}</tbody></table></div>` : ''}
+  </div>`;
 }
 
 // v2.1.1: per-container action — start/stop/restart/logs. Goes through

@@ -77,6 +77,37 @@ homelabs — the ability to switch off the enterprise modules you don't use.
 - PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
   every new connection.
 
+### Added — containers
+
+- **Docker disk footprint** (`docker system df`). The 40 GB build-cache surprise
+  is a homelab rite of passage: the box fills up and nothing in the monitoring
+  says *why*, because "disk 94%" doesn't distinguish your data from layers of
+  images whose containers you deleted months ago. The Containers page now shows
+  the four buckets Docker itself tracks and, more usefully, **what a prune would
+  reclaim** — which is the number you actually act on. It rides its own slow
+  (~hourly) cadence, because Docker has to walk the whole layer store to answer.
+- **Per-volume sizes** — so "which volume is eating 200 GB" is answerable without
+  SSHing in, with a flag on volumes no container is using.
+- **Prune** (on demand, or on a schedule). **Volumes are never pruned**:
+  `docker volume prune` deletes *data*, and someone clearing "disk space" should
+  not be one mis-click away from wiping their Nextcloud volume. Images and build
+  cache are recreatable by definition — that's the whole point. It rides the
+  existing audited command queue, so quarantine / audit-mode / maker-checker all
+  apply exactly as to any other exec.
+- **Limits shown beside usage.** "Using 3 GB" means something entirely different
+  capped at 4 GB versus uncapped — and an **uncapped** container is the one that
+  can OOM the whole host, which is how a homelab box actually falls over. The
+  limits ride the existing batched `inspect`, so this costs no extra subprocess.
+- **Scheduled container restart** — "restart Home Assistant nightly at 04:00" is
+  *the* recurring homelab chore, and the restart action existed with no way to
+  schedule it. The container name is validated against what the agent actually
+  reported for that device, the same boundary the compose action enforces.
+- **Compose-file drift auto-watch** (Settings, off by default). The drift engine
+  could always watch any file, and the agent already discovers every compose file
+  on the box — the two halves simply were never connected, so a hand-edited
+  `docker-compose.yml`, the most common "why did this stack change?", drifted
+  unwatched. Discovered paths are *appended*, never displacing what you curated.
+
 ### Added — host signals the agent never reported
 
 - **Arch/pacman kernel-reboot detection.** `get_kernel_status()`'s comment always

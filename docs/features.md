@@ -278,7 +278,11 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Container detail | Per-device list — health badge, live CPU%/mem, published ports, stale pill *(v3.4.2)* |
+| Container detail | Per-device list — health badge, live CPU%/mem, published ports, stale pill *(v3.4.2)*; **configured limits beside usage** — "using 3 GB" means something different capped at 4 GB vs uncapped, and an *uncapped* container can OOM the whole host (rides the existing batched inspect, no extra subprocess) *(v6.1.2)* |
+| Docker disk footprint | `docker system df` per host — images / containers / volumes / build cache, **what a prune would reclaim**, and per-volume sizes (with a flag on volumes no container uses). "Disk 94%" doesn't distinguish your data from layers of images whose containers you deleted months ago; this does. Slow (~hourly) cadence — docker walks the layer store to answer *(v6.1.2)* |
+| Docker prune | Reclaim image + build-cache space on demand or on a cron. **Volumes are never pruned** (that deletes data). Fixed server-side command template; rides the audited command queue, so quarantine / audit-mode / maker-checker apply *(v6.1.2)* |
+| Scheduled container restart | "Restart Home Assistant nightly at 04:00" — the restart action existed with no way to schedule it. The container name is validated against what the agent actually reported for that device *(v6.1.2)* |
+| Compose drift watch | Fold each host's **discovered** compose files into its drift watch list (Settings, off by default). The drift engine could always watch any file and the agent already finds every compose file — the halves were never connected, so a hand-edited `docker-compose.yml` drifted unwatched. Appended, never displacing a curated entry *(v6.1.2)* |
 | Container alerts | `container_stopped`, `container_restarting`, `containers_stale` *(v1.11.4)* |
 | Image updates | Pulled-digest vs registry digest → stale flag on Image Updates page; one-click compose pull + up -d *(v3.3.4 / v3.9.0)*; **standalone-container Update** (pull image + recreate with the same config; compose-managed refused) *(v6.0.0)* |
 | Patch rings | An auto-patch policy can patch in **staged rings** (canary → wave → rest) — spawns a health-gated rollout that verifies each ring before the next and auto-halts on a health drop; optional per-ring reboot *(v6.0.0)* |

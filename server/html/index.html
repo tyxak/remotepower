@@ -2422,6 +2422,13 @@
             </div>
           </div>
           <div class="settings-section">
+            <div class="section-title">Compose drift watch</div>
+            <p class="hint">The drift engine can watch any file, but you had to know each path and add it by hand, per host — while the agent <em>already</em> discovers every compose file on the box (that's how the Containers page offers up/down/pull against them). The two halves were never connected, so a hand-edited <code>docker-compose.yml</code> — the most common "why did this stack change?" — drifted unwatched. Turn this on to fold each host's discovered compose files into its drift watch list. Appended, never replacing what you chose to watch.</p>
+            <div class="settings-row">
+              <label class="form-label"><input type="checkbox" id="cfg-drift-watch-compose"> Watch discovered <code>docker-compose.yml</code> files for drift</label>
+            </div>
+          </div>
+          <div class="settings-section">
             <div class="section-title">Service flap detection</div>
             <p class="hint">A unit crash-looping under <code>Restart=always</code> is <em>active</em> every time we sample it — it comes back before the next heartbeat — so <code>service_down</code> never fires and the host looks perfectly healthy while a service restarts all day. systemd's restart counter is the only thing that reveals it. Set how many restarts <strong>between two heartbeats</strong> count as flapping (<code>unit_flapping</code>). 0 = off; a unit that legitimately bounces now and then shouldn't page anyone.</p>
             <div class="settings-row">
@@ -5955,7 +5962,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="table-card">
             <table>
-              <thead id="containers-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="total">Total</th><th scope="col" data-col="running">Running</th><th scope="col" data-col="stopped">Stopped</th><th scope="col" data-col="restarting">Restarting (≥5)</th><th scope="col" data-col="runtimes">Runtimes</th><th scope="col" data-col="reported_at">Reported</th><th scope="col"></th></tr></thead>
+              <thead id="containers-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="total">Total</th><th scope="col" data-col="running">Running</th><th scope="col" data-col="stopped">Stopped</th><th scope="col" data-col="restarting">Restarting (≥5)</th><th scope="col" data-col="disk" title="docker system df — images / volumes / build cache, and what a prune would reclaim">Disk</th><th scope="col" data-col="runtimes">Runtimes</th><th scope="col" data-col="reported_at">Reported</th><th scope="col"></th></tr></thead>
               <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
             </table>
           </div>

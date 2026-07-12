@@ -17500,7 +17500,21 @@ def handle_heartbeat():
             # never let container processing break the heartbeat, but don't
             # hide a recurring processing bug either (mirror the metric path).
             traceback.print_exc(file=sys.stderr)
-        _entity_write_one(CONTAINERS_FILE, dev_id, {'ts': now, 'items': normalised})
+        _rec = {'ts': now, 'items': normalised}
+        # v6.1.2: `docker system df` — the disk-footprint breakdown, on its own
+        # slow cadence (the agent only sends it ~hourly, since docker has to walk
+        # the layer store). It arrives on SOME container reports, not all, so
+        # carry the previous value forward rather than blanking the page between
+        # samples — otherwise the panel would flicker empty for 59 of every 60
+        # heartbeats.
+        _df = _sanitize_docker_df(body.get('docker_df'))
+        if _df:
+            _rec['df'] = _df
+        else:
+            _prev = _entity_read_one(CONTAINERS_FILE, dev_id, {}) or {}
+            if isinstance(_prev, dict) and _prev.get('df'):
+                _rec['df'] = _prev['df']
+        _entity_write_one(CONTAINERS_FILE, dev_id, _rec)
         # v1.11.4: this device just gave us fresh container data, so clear
         # any "containers_stale" notified flag — the next time it goes stale
         # we want a new webhook to fire (matches device_offline pattern).
@@ -23636,6 +23650,10 @@ def handle_config_save():
             cfg['unit_flap_restarts'] = max(0, min(1000, int(body['unit_flap_restarts'])))
         except (TypeError, ValueError):
             pass
+    # v6.1.2: fold each host's DISCOVERED compose files into its drift watch list.
+    # Off by default — it appends to a list operators curate deliberately.
+    if 'drift_watch_compose' in body:
+        cfg['drift_watch_compose'] = bool(body['drift_watch_compose'])
 
     # v5.4.1 enterprise hardening — security knobs (all opt-in, defaults off).
     if 'password_min_length' in body:        # D1
@@ -27572,6 +27590,55 @@ def _cron_matches(cron, ts):
             _match(dom, dt.day) and _match(month, dt.month) and _match(dow, dt.isoweekday() % 7))
 
 
+# ── Scheduled-command whitelist (ONE source of truth) ──────────────────────
+# v6.1.2: this used to be a `_SCHED_STATIC` tuple duplicated in BOTH the create
+# and the update handler, plus a third copy (`_ALLOWED_SCHED`) in
+# process_schedule() — three lists that had to agree and could silently drift.
+# Now: one tuple, one validator, and process_schedule re-checks against the same
+# tuple as belt-and-braces on dequeue.
+SCHED_STATIC_COMMANDS = (
+    'shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot',
+    'suspend', 'wol',        # v3.14.0: power actions
+    'docker_prune',          # v6.1.2: nightly docker hygiene (never volumes)
+)
+
+
+def _validate_scheduled_command(command, dev_id):
+    """Reject anything not on the schedule whitelist. respond()s (and so exits)
+    on a bad command — the caller never has to check a return value.
+
+    The two parameterised forms are validated against data the DEVICE reported,
+    not against free text: `script:<id>` must be a real saved script, and
+    `container_restart:<name>` must name a container the agent actually listed
+    for THIS device. That's the same boundary the compose action enforces — a
+    stolen admin token cannot schedule an action against an arbitrary target.
+    """
+    if command in SCHED_STATIC_COMMANDS:
+        return
+    if command.startswith('script:'):
+        sid = command[7:]
+        if not _validate_id(sid):
+            respond(400, {'error': 'Invalid command'})
+        scripts_data = load(SCRIPTS_FILE)
+        if not any(s.get('id') == sid for s in scripts_data.get('scripts', [])):
+            respond(404, {'error': 'Script not found'})
+        return
+    if command.startswith('container_restart:'):
+        # "Restart Home Assistant every night at 04:00" is THE recurring homelab
+        # chore, and the restart ACTION existed with no way to schedule it.
+        cname = command.split(':', 1)[1].strip()
+        if not cname or len(cname) > 128:
+            respond(400, {'error': 'container name required'})
+        reported = {c.get('name') for c in
+                    ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}).get('items', [])
+                    if isinstance(c, dict)}
+        if cname not in reported:
+            respond(400, {'error': "container not in this device's reported list "
+                                   '(refresh the listing if you just added it)'})
+        return
+    respond(400, {'error': 'Invalid command'})
+
+
 def handle_schedule_add():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
@@ -27584,15 +27651,7 @@ def handle_schedule_add():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot',
-                     'suspend', 'wol')   # v3.14.0: power actions
-    if command not in _SCHED_STATIC:
-        if not (command.startswith('script:') and _validate_id(command[7:])):
-            respond(400, {'error': 'Invalid command'})
-        sid = command[7:]
-        scripts_data = load(SCRIPTS_FILE)
-        if not any(s.get('id') == sid for s in scripts_data.get('scripts', [])):
-            respond(404, {'error': 'Script not found'})
+    _validate_scheduled_command(command, dev_id)
 
     if cron:
         if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
@@ -27644,15 +27703,7 @@ def handle_schedule_update(job_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot',
-                     'suspend', 'wol')   # v3.14.0: power actions
-    if command not in _SCHED_STATIC:
-        if not (command.startswith('script:') and _validate_id(command[7:])):
-            respond(400, {'error': 'Invalid command'})
-        sid = command[7:]
-        scripts_data = load(SCRIPTS_FILE)
-        if not any(s.get('id') == sid for s in scripts_data.get('scripts', [])):
-            respond(404, {'error': 'Script not found'})
+    _validate_scheduled_command(command, dev_id)
     if cron:
         if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
     elif not isinstance(run_at, (int, float)) or run_at <= int(time.time()):
@@ -27708,10 +27759,14 @@ def process_schedule():
         if due:
             dev_id  = job['device_id']
             command = job['command']
-            _ALLOWED_SCHED = ('shutdown', 'reboot', 'upgrade_packages',
-                              'upgrade_and_reboot', 'suspend', 'wol')  # v3.14.0
+            # v6.1.2: re-check against the SAME whitelist the create/update
+            # handlers use (SCHED_STATIC_COMMANDS) rather than a third private
+            # copy that could silently drift out of step with them.
             is_script = command.startswith('script:') and _validate_id(command[7:])
-            if command not in _ALLOWED_SCHED and not is_script:  # extra safety
+            is_creq = (command.startswith('container_restart:')
+                       and 0 < len(command.split(':', 1)[1].strip()) <= 128)
+            if (command not in SCHED_STATIC_COMMANDS
+                    and not is_script and not is_creq):  # extra safety
                 if job.get('recurring'):
                     remaining.append(job)
                 changed = True
@@ -27747,6 +27802,34 @@ def process_schedule():
                             if job.get('recurring'): remaining.append(job)
                             changed = True; continue
                         queued = f'exec:{body}'
+                    # v6.1.2: nightly docker hygiene. Same fixed server-side
+                    # template as the on-demand Prune button — volumes are never
+                    # touched, because that would delete data.
+                    elif command == 'docker_prune':
+                        queued = 'exec:' + _DOCKER_PRUNE_CMDS['all']
+                    # v6.1.2: scheduled container restart ("restart Home
+                    # Assistant nightly at 04:00"). Reuses the SAME container:
+                    # action channel the on-demand restart button queues, so the
+                    # agent's existing validation/handling applies unchanged.
+                    # The wire format is container:<runtime>:<action>:<id> — FOUR
+                    # parts; the runtime comes from what the agent reported for
+                    # this container (docker vs podman), not from a guess.
+                    elif is_creq:
+                        cname = command.split(':', 1)[1].strip()
+                        _items = ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}
+                                  ).get('items', []) or []
+                        _rt = next((c.get('runtime') for c in _items
+                                    if isinstance(c, dict) and c.get('name') == cname
+                                    and c.get('runtime') in ('docker', 'podman')), None)
+                        if not _rt:
+                            # Container gone (renamed/removed) — skip this firing
+                            # but keep a recurring job so it resumes if it returns.
+                            if job.get('recurring'):
+                                job['last_fired_minute'] = current_minute
+                                remaining.append(job)
+                            changed = True
+                            continue
+                        queued = f'container:{_rt}:restart:{cname}'
                     else:
                         queued = command
                     if queued not in cmds[dev_id]: cmds[dev_id].append(queued)
@@ -27924,6 +28007,10 @@ def handle_device_containers(dev_id: str) -> None:
         'stale_ttl': ttl,
         'items':     items,
         'summary':   containers_mod.summarise(items),
+        # v6.1.2: `docker system df` — the footprint breakdown + per-volume
+        # sizes, so "which volume is eating 200 GB" is answerable here rather
+        # than by SSHing in.
+        'df':        entry.get('df') if isinstance(entry, dict) else None,
     })
 
 
@@ -29648,14 +29735,20 @@ def handle_containers_overview() -> None:
         # We use a `<device_id>/<empty>` key to mark "ignore this device when stale".
         if is_stale and f"{dev_id}/" in ignored_stale:
             continue
-        out.append({
+        row = {
             'device_id':   dev_id,
             'name':        devices[dev_id].get('name', dev_id),
             'os':          devices[dev_id].get('os', ''),
             'reported_at': ts,
             'is_stale':    is_stale,
             'summary':     containers_mod.summarise(items),
-        })
+        }
+        # v6.1.2: `docker system df` footprint (images / containers / volumes /
+        # build cache + what's reclaimable). Absent on hosts that haven't
+        # reported one yet, so the page shows the panel only where it has data.
+        if isinstance(entry, dict) and entry.get('df'):
+            row['df'] = entry['df']
+        out.append(row)
     out.sort(key=lambda r: r['name'].lower())
     respond(200, out)
 
@@ -29748,6 +29841,55 @@ def handle_device_compose_list(dev_id):
         # checked, none found" from "we never checked, no data".
         'docker_seen': bool(dev.get('compose_projects_ts')),
     })
+
+
+# v6.1.2: docker prune. The command text is a FIXED server-side template — no
+# operator input reaches the shell, and the volume prune is deliberately NOT
+# offered: `docker volume prune` deletes DATA, and a homelabber cleaning up
+# "disk space" should never be one mis-click from wiping their Nextcloud volume.
+# Images and build cache are recreatable by definition; that's the whole point.
+_DOCKER_PRUNE_CMDS = {
+    'images': 'docker image prune -f',
+    'cache':  'docker builder prune -f',
+    'all':    'docker image prune -f && docker builder prune -f',
+}
+
+
+def handle_device_docker_prune(dev_id):
+    """POST /api/devices/{id}/docker/prune — reclaim docker disk space.
+
+    Body: {scope: images|cache|all}. Rides the existing audited command queue,
+    so quarantine / audit-mode / maker-checker all apply exactly as they do to
+    any other exec. NEVER prunes volumes (that would delete data).
+    """
+    actor = require_perm('containers', [dev_id])
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    scope = str(get_json_obj().get('scope', 'all')).strip().lower()
+    if scope not in _DOCKER_PRUNE_CMDS:
+        respond(400, {'error': f'scope must be one of {list(_DOCKER_PRUNE_CMDS)}'})
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev or not _tenant_visible(dev):
+        respond(404, {'error': 'Device not found'})
+    if dev.get('agentless'):
+        respond(400, {'error': 'cannot run docker on an agentless device'})
+    cmd_payload = 'exec:' + _DOCKER_PRUNE_CMDS[scope]
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, [])
+        if cmd_payload not in cmds[dev_id]:
+            cmds[dev_id].append(cmd_payload)
+    log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
+    audit_log(actor, 'docker_prune', detail=f'device={dev_id} scope={scope}')
+    fire_webhook('command_queued', {
+        'device_id': dev_id, 'name': dev.get('name', dev_id),
+        'command': cmd_payload, 'actor': actor,
+    })
+    respond(200, {'ok': True, 'queued': cmd_payload,
+                  'message': 'Prune queued — it runs on the next heartbeat. '
+                             'Volumes are never pruned.'})
 
 
 def handle_device_compose_action(dev_id):
@@ -40100,12 +40242,43 @@ def get_watched_files_for(dev_id, devices=None):
     dev = devices.get(dev_id) if isinstance(devices, dict) else None
     if dev and isinstance(dev.get('watched_files'), list):
         # Explicit per-device override completely replaces everything else.
-        return list(dev['watched_files'])
+        return _with_compose_watch(dev_id, dev, drift_cfg, list(dev['watched_files']))
     if dev:
         prof = _resolve_drift_profile_files(dev_id, dev, drift_cfg)
         if prof is not None:
-            return prof
-    return list(defaults)
+            return _with_compose_watch(dev_id, dev, drift_cfg, prof)
+    return _with_compose_watch(dev_id, dev, drift_cfg, list(defaults))
+
+
+def _with_compose_watch(dev_id, dev, drift_cfg, files):
+    """v6.1.2: fold this device's DISCOVERED compose files into its drift watch.
+
+    The drift engine has always been able to watch any absolute path — but you
+    had to know the path and add it by hand, per host. Meanwhile the agent
+    already discovers every compose file on the box (that's how the Containers
+    page offers up/down/pull against them). So the two halves existed and simply
+    were never connected: a hand-edited docker-compose.yml — the single most
+    common "why did this stack change?" — silently drifted unwatched.
+
+    Opt-in (`drift_watch_compose`, default off) because it adds files to a list
+    operators curate deliberately, and appended rather than replacing, so it can
+    never displace something they chose to watch.
+    """
+    if not _config_ro().get('drift_watch_compose') or not dev:
+        return files
+    out = list(files)
+    seen = set(out)
+    for p in (dev.get('compose_projects') or []):
+        path = p.get('path') if isinstance(p, dict) else None
+        # Same validation the manual watch list gets — absolute, no traversal.
+        if (isinstance(path, str) and path.startswith('/')
+                and '..' not in path and len(path) <= 512 and path not in seen):
+            out.append(path)
+            seen.add(path)
+    # Bounded like the manual list (_validate_drift_files caps at 50): a host
+    # with 40 stacks must not silently blow the agent's per-heartbeat hash work
+    # up to hundreds of files.
+    return out[:80]
 
 
 def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
@@ -54987,6 +55160,47 @@ def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     fire_webhook(event, payload)
 
 
+_DF_BUCKETS = ('images', 'containers', 'local_volumes', 'build_cache')
+
+
+def _sanitize_docker_df(raw):
+    """v6.1.2: bound the agent's `docker system df` report.
+
+    Docker prints HUMAN sizes ("12.3GB"), and we keep them as strings rather
+    than parsing to bytes: the number we display is exactly the number
+    `docker system df` shows the operator on the box, so there is nothing to
+    reconcile when they go and check. The one thing we DO parse is the sort key
+    for volumes (biggest first), which the agent already did.
+    """
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for k in _DF_BUCKETS:
+        v = raw.get(k)
+        if not isinstance(v, dict):
+            continue
+        out[k] = {
+            'size': _sanitize_str(str(v.get('size', '')), 24),
+            'reclaimable': _sanitize_str(str(v.get('reclaimable', '')), 32),
+            'total': _sanitize_str(str(v.get('total', '')), 12),
+            'active': _sanitize_str(str(v.get('active', '')), 12),
+        }
+    vols = raw.get('volumes')
+    if isinstance(vols, list):
+        clean = []
+        for v in vols[:40]:
+            if not isinstance(v, dict) or not v.get('name'):
+                continue
+            e = {'name': _sanitize_str(str(v['name']), 96),
+                 'size': _sanitize_str(str(v.get('size', '')), 24)}
+            if isinstance(v.get('links'), int) and 0 <= v['links'] < 10000:
+                e['links'] = v['links']
+            clean.append(e)
+        if clean:
+            out['volumes'] = clean
+    return out or None
+
+
 def process_container_report(dev_id, normalised, now):
     """Diff a heartbeat's container list against the previous one and fire webhooks.
 
@@ -57868,6 +58082,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/compose', 'handle_device_compose_list', "pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET'"),
     ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/docker/prune', 'handle_device_docker_prune', "pi.startswith('/api/devices/') and pi.endswith('/docker/prune') and m == 'POST'"),
     ('pat', ('PUT',), '/api/tls/targets/', '', 'handle_tls_update', "pi.startswith('/api/tls/targets/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/tls/targets/', '', 'handle_tls_delete', "pi.startswith('/api/tls/targets/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/dmarc/targets/', '', 'handle_dmarc_delete', "pi.startswith('/api/dmarc/targets/') and m == 'DELETE'"),
