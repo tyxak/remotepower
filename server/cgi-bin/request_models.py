@@ -127,6 +127,20 @@ if _AVAILABLE:
             raise ValueError('must be a list of strings')
         return [str(t) for t in v]
 
+    def _coerce_int_or(default):
+        """Factory matching `int(body.get(field) or <default>)` -- a falsy raw
+        value (None/''/0/False) falls back to <default>, a truthy value is
+        int()'d (a float truncates, a non-numeric raises -> old code's 400).
+        Used where the handler CLAMPS the result afterward (max/min), so the
+        model must NOT impose ge/le bounds here or it would 400 a value the old
+        code silently clamped -- a narrower contract, which this module forbids."""
+        def _coerce(v):
+            try:
+                return int(v or default)
+            except (TypeError, ValueError):
+                raise ValueError('must be a number')
+        return _coerce
+
     class UserCreateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')
         username: str = ''
@@ -199,6 +213,33 @@ if _AVAILABLE:
 
         _v_name = field_validator('name', mode='before')(_coerce_str_loose)
 
+    class DeadmanCreateRequest(BaseModel):
+        """handle_deadman_jobs POST. period/grace are int-COERCED to match
+        `int(body.get(f) or <default>)`; the handler CLAMPS them into range
+        (max(1,min(43200,...))) afterward, so no ge/le here (bounds would 400 a
+        value the old code clamped). name is str-coerced; the handler's own
+        _sanitize_str + non-empty check still run."""
+        model_config = ConfigDict(extra='ignore')
+        name: str = ''
+        period_minutes: int = 60
+        grace_minutes: int = 10
+
+        _v_name = field_validator('name', mode='before')(_coerce_str_loose)
+        _v_period = field_validator('period_minutes', mode='before')(_coerce_int_or(60))
+        _v_grace = field_validator('grace_minutes', mode='before')(_coerce_int_or(10))
+
+    class DockerPruneRequest(BaseModel):
+        """handle_device_docker_prune POST. scope/confirm are str-coerced to
+        match `str(body.get(f, default))`; the handler validates scope against
+        the runtime _DOCKER_PRUNE_CMDS table and checks confirm, so no Literal
+        here (the two can't drift)."""
+        model_config = ConfigDict(extra='ignore')
+        scope: str = 'all'
+        confirm: str = ''
+
+        _v_scope = field_validator('scope', mode='before')(_coerce_str_loose)
+        _v_confirm = field_validator('confirm', mode='before')(_coerce_str_loose)
+
 else:
     # Placeholders so `request_models.UserCreateRequest` etc. always resolve as
     # an attribute at call sites -- validate() short-circuits on `_AVAILABLE`
@@ -209,6 +250,8 @@ else:
     LitigationHoldSetRequest = None
     EnrollTokenCreateRequest = None
     TenantCreateRequest = None
+    DeadmanCreateRequest = None
+    DockerPruneRequest = None
 
 
 def validate(model_cls, body):

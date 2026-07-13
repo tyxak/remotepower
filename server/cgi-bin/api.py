@@ -4534,89 +4534,6 @@ def get_json_obj():
     return b if isinstance(b, dict) else {}
 
 
-# ── v6.1.2: typed request-body validation (pydantic v2) ──────────────────────
-# The recurring `body = get_json_obj(); cfg['x'] = body.get('x')` pattern with a
-# hand-maintained key whitelist is the source of a whole bug class in this
-# codebase — a field silently not persisting because it was missed in the
-# whitelist tuple, a non-dict body 500ing a `.get()` caller, an int arriving as a
-# string. A pydantic model per endpoint replaces the manual dance: it declares the
-# accepted fields ONCE, coerces/validates types, rejects the rest, and turns a bad
-# body into a structured 400 instead of a silent miss or a 500. Adopted
-# incrementally, handler by handler.
-try:
-    import pydantic as _pydantic
-    from pydantic import (BaseModel as RPModel, ValidationError as _PydValidationError,
-                          Field as RPField)
-    _PYDANTIC_OK = True
-except Exception:                       # pragma: no cover - pydantic is a hard dep
-    _pydantic = None
-    _PYDANTIC_OK = False
-
-    class RPModel:                      # minimal shim so module import never dies
-        pass
-
-    class _PydValidationError(Exception):
-        pass
-
-    def RPField(*a, **k):               # pragma: no cover
-        return None
-
-
-def _format_validation_errors(exc):
-    """Flatten a pydantic ValidationError into a compact, safe {field: message}
-    map for the 400 body — the dotted field path + the human message, no input
-    values echoed back (they may carry secrets)."""
-    out = {}
-    try:
-        for e in exc.errors():
-            loc = '.'.join(str(p) for p in e.get('loc', ())) or '(body)'
-            out[loc] = str(e.get('msg', 'invalid'))[:160]
-    except Exception:
-        out = {'(body)': 'invalid request body'}
-    return out
-
-
-def validated(model_cls, data=None):
-    """Parse + validate the request body against a pydantic model. Returns the
-    validated model instance on success; on a validation error it respond()s a
-    structured 400 (and so unwinds the handler, like every other respond()).
-
-    Pass `data` to validate an already-parsed dict (e.g. a nested sub-object)
-    instead of reading the request body. Model config decides strictness: set
-    `model_config = ConfigDict(extra='forbid')` to reject unknown keys, or leave
-    the default 'ignore' to silently drop them (matching the old whitelist's
-    behaviour) — see the RPStrictModel/RPLenientModel bases below."""
-    if data is None:
-        data = get_json_obj()
-    if not _PYDANTIC_OK:                # pragma: no cover - hard dep in production
-        respond(500, {'error': 'request validation unavailable (pydantic missing)'})
-    try:
-        return model_cls.model_validate(data)
-    except _PydValidationError as exc:
-        respond(400, {'error': 'invalid request body',
-                      'fields': _format_validation_errors(exc)})
-
-
-if _PYDANTIC_OK:
-    from pydantic import ConfigDict as _ConfigDict
-
-    class RPStrictModel(RPModel):
-        """Base for bodies that should REJECT unknown keys (a typo'd field is an
-        error, not a silent drop). Also strips leading/trailing whitespace on strs."""
-        model_config = _ConfigDict(extra='forbid', str_strip_whitespace=True)
-
-    class RPLenientModel(RPModel):
-        """Base for bodies that should IGNORE unknown keys — matches the old
-        `for k in (whitelist)` behaviour where extra keys were simply not read.
-        Use when a client may send fields this endpoint doesn't consume."""
-        model_config = _ConfigDict(extra='ignore', str_strip_whitespace=True)
-else:                                   # pragma: no cover
-    class RPStrictModel(RPModel):
-        pass
-
-    class RPLenientModel(RPModel):
-        pass
-
 
 def _peek_heartbeat_dev_id():
     """If the current request is POST /api/heartbeat, return the device_id
@@ -30588,14 +30505,6 @@ _DOCKER_PRUNE_CMDS = {**_DOCKER_PRUNE_SAFE, **_DOCKER_PRUNE_DESTRUCTIVE}
 _DOCKER_PRUNE_CONFIRM = 'DELETE VOLUMES'
 
 
-class DockerPruneBody(RPLenientModel):
-    """POST /api/devices/{id}/docker/prune body. scope is validated against the
-    runtime _DOCKER_PRUNE_CMDS table in the handler (not a static Literal, so the
-    two can't drift); confirm gates the destructive scopes."""
-    scope: str = 'all'
-    confirm: str = ''
-
-
 def handle_device_docker_prune(dev_id):
     """POST /api/devices/{id}/docker/prune — reclaim docker disk space.
 
@@ -30613,14 +30522,17 @@ def handle_device_docker_prune(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    b = validated(DockerPruneBody)      # v6.1.2: typed body (scope + optional confirm)
-    scope = b.scope.strip().lower()
+    body = get_json_obj()
+    _rm_ok, _rm_err = request_models.validate(request_models.DockerPruneRequest, body)
+    if not _rm_ok:
+        respond(400, {'error': _rm_err})
+    scope = str(body.get('scope', 'all')).strip().lower()
     if scope not in _DOCKER_PRUNE_CMDS:
         respond(400, {'error': f'scope must be one of {list(_DOCKER_PRUNE_CMDS)}'})
     # The typed confirmation is checked HERE, not in the browser. A UI-only
     # confirm is theatre: anything can POST to this endpoint.
     if scope in _DOCKER_PRUNE_DESTRUCTIVE:
-        if b.confirm.strip() != _DOCKER_PRUNE_CONFIRM:
+        if str(body.get('confirm', '')).strip() != _DOCKER_PRUNE_CONFIRM:
             respond(400, {
                 'error': f'scope "{scope}" deletes the data in every volume no '
                          'running container references — including a stopped '
@@ -32031,14 +31943,6 @@ def handle_deadman_ping(token_str):
     respond(200, {'ok': True})
 
 
-class DeadmanCreateBody(RPLenientModel):
-    """POST /api/deadman body. Lenient (ignores unknown keys); an explicit
-    out-of-range period/grace is a 400 rather than being silently clamped."""
-    name: str = RPField(min_length=1, max_length=96)
-    period_minutes: int = RPField(default=60, ge=1, le=43200)
-    grace_minutes: int = RPField(default=10, ge=1, le=10080)
-
-
 def handle_deadman_jobs():
     """GET /api/deadman — list jobs. POST — create {name, period_minutes,
     grace_minutes}. Admin. The token (and so the URL) is shown once on create and
@@ -32069,16 +31973,21 @@ def handle_deadman_jobs():
     if m != 'POST':
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
-    # v6.1.2: typed body (pydantic). Declares the accepted fields + bounds once,
-    # coerces "1440"→1440, and 400s with structured field errors on a bad body —
-    # replacing the hand-rolled int()/max/min/try-except dance. `name` still gets
-    # _sanitize_str for control-char stripping (a concern pydantic length bounds
-    # don't cover).
-    b = validated(DeadmanCreateBody)
-    name = _sanitize_str(b.name, 96).strip()
+    body = get_json_obj()
+    # v6.1.2: pydantic validates the body as a superset pre-check (types coercible);
+    # the handler keeps its own clamp + _sanitize_str (control-char stripping, and
+    # the range clamp pydantic must NOT turn into a 400 — see the model docstring).
+    _rm_ok, _rm_err = request_models.validate(request_models.DeadmanCreateRequest, body)
+    if not _rm_ok:
+        respond(400, {'error': _rm_err})
+    name = _sanitize_str(str(body.get('name', '')), 96).strip()
     if not name:
         respond(400, {'error': 'name is required'})
-    period, grace = b.period_minutes, b.grace_minutes
+    try:
+        period = max(1, min(43200, int(body.get('period_minutes') or 60)))
+        grace = max(1, min(10080, int(body.get('grace_minutes') or 10)))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'period_minutes / grace_minutes must be numbers'})
     with _LockedUpdate(DEADMAN_FILE) as store:
         jobs = store.setdefault('jobs', [])
         if len(jobs) >= MAX_DEADMAN_JOBS:

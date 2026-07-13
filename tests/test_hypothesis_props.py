@@ -193,38 +193,26 @@ class TestStorageRoundTripAndBackendAgreement(unittest.TestCase):
                          'JSON and SQLite backends disagreed on a round-trip')
 
 
-class TestPydanticValidatedNeverCrashes(unittest.TestCase):
-    """validated() must turn ANY body into either a model or a clean 400 — never a
-    500 / uncaught exception. Fuzz it with arbitrary dicts."""
+class TestPydanticValidateNeverCrashes(unittest.TestCase):
+    """request_models.validate() must turn ANY body into either (True, None) or
+    (False, message) — never a raw exception. Fuzz it with arbitrary dicts against
+    a real model (BillingPaymentWebhookRequest: a required float + coerced strs)."""
 
     def setUp(self):
-        self.api = _fresh_api()
-        self.status = {}
-
-        def _r(s, d=None):
-            self.status['s'] = s
-            raise self.api.HTTPError(s, d)
-        self.api.respond = _r
-
-        class Body(self.api.RPLenientModel):
-            name: str
-            count: int = 0
-        self.Model = Body
+        import importlib
+        self.rm = importlib.import_module('request_models')
 
     @given(st.dictionaries(st.text(max_size=12),
                            _json_scalars | st.lists(_json_scalars, max_size=4),
                            max_size=8))
-    def test_arbitrary_body_is_model_or_clean_400(self, body):
-        self.api.get_json_obj = lambda: body
-        self.status.clear()
-        try:
-            m = self.api.validated(self.Model)
-            # success path: the model validated → required field present + typed
-            self.assertTrue(hasattr(m, 'name'))
-            self.assertIsInstance(m.count, int)
-        except self.api.HTTPError:
-            self.assertEqual(self.status['s'], 400,
-                             'a bad body must be a 400, never a 500 or a raw crash')
+    def test_arbitrary_body_is_ok_or_clean_error(self, body):
+        ok, err = self.rm.validate(self.rm.BillingPaymentWebhookRequest, body)
+        self.assertIsInstance(ok, bool)
+        if ok:
+            self.assertIsNone(err)
+        else:
+            self.assertIsInstance(err, str)
+            self.assertTrue(err, 'a rejection must carry a non-empty message')
 
 
 class TestAlertCoalesceInvariants(unittest.TestCase):

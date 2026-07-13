@@ -1,11 +1,15 @@
-"""v6.1.2 — typed request-body validation (pydantic v2), foundation + wave 1.
+"""v6.1.2 — typed request-body validation (pydantic v2), full adoption.
 
-The `validated(model)` helper replaces the hand-rolled
-`body = get_json_obj(); x = int(body.get('x') or default)` dance that is the source
-of the silent-whitelist / wrong-type / 500-on-bad-body bug class. This pins the
-helper's contract and the first converted handlers, and asserts pydantic is wired
-into every dependency-declaration surface (it is now a hard runtime dep, like Flask).
+The single pattern is the pre-existing `request_models.validate(Model, body)`
+additive pre-check (server/cgi-bin/request_models.py): it validates types as a
+SUPERSET of each handler's hand-rolled checks (never narrower — a value the old
+code accepted still validates, an out-of-range value the old code CLAMPED is not
+turned into a 400), returns (True, None) when pydantic is absent so handlers still
+work, and `extra='ignore'` so it can't break existing API clients. This pins the
+helper contract, the newly-added models, and that pydantic is wired into every
+dependency-declaration surface (installed by default, like flask/gunicorn).
 """
+import importlib
 import importlib.util
 import os
 import sys
@@ -26,75 +30,83 @@ def _fresh_api():
     return mod
 
 
-class TestValidatedHelper(unittest.TestCase):
+class TestValidateHelperContract(unittest.TestCase):
     def setUp(self):
-        self.api = _fresh_api()
-        self.cap = {}
-
-        def _r(s, d=None):
-            self.cap['s'] = s
-            self.cap['d'] = d
-            raise self.api.HTTPError(s, d)
-        self.api.respond = _r
-
-    def _model(self):
-        class M(self.api.RPStrictModel):
-            name: str
-            count: int = 0
-        return M
+        self.rm = importlib.import_module('request_models')
 
     def test_pydantic_is_actually_available(self):
-        self.assertTrue(self.api._PYDANTIC_OK,
-                        'pydantic must import — it is a hard runtime dependency')
+        self.assertTrue(self.rm.available(),
+                        'pydantic must import — it is installed by default '
+                        'so request validation actually runs in production')
 
-    def test_valid_body_is_coerced_and_returned(self):
-        self.api.get_json_obj = lambda: {'name': 'nas', 'count': '5'}
-        m = self.api.validated(self._model())
-        self.assertEqual(m.name, 'nas')
-        self.assertEqual(m.count, 5)             # "5" coerced to int
-        self.assertIsInstance(m.count, int)
+    def test_valid_body_passes(self):
+        ok, err = self.rm.validate(self.rm.TenantCreateRequest, {'name': 'acme'})
+        self.assertTrue(ok)
+        self.assertIsNone(err)
 
-    def test_a_bad_body_is_a_structured_400(self):
-        self.api.get_json_obj = lambda: {'count': 'x'}   # missing name, bad count
-        try:
-            self.api.validated(self._model())
-        except self.api.HTTPError:
-            pass
-        self.assertEqual(self.cap['s'], 400)
-        self.assertIn('fields', self.cap['d'])
-        self.assertIn('name', self.cap['d']['fields'])
+    def test_non_dict_body_is_rejected(self):
+        ok, err = self.rm.validate(self.rm.TenantCreateRequest, [1, 2, 3])
+        self.assertFalse(ok)
+        self.assertIn('object', err)
 
-    def test_strict_model_rejects_unknown_keys(self):
-        self.api.get_json_obj = lambda: {'name': 'x', 'bogus': 1}
-        try:
-            self.api.validated(self._model())
-        except self.api.HTTPError:
-            pass
-        self.assertEqual(self.cap['s'], 400)
-        self.assertIn('bogus', self.cap['d']['fields'])
+    def test_bad_type_is_a_message_not_a_crash(self):
+        # amount is required + must be float-coercible in BillingPaymentWebhookRequest
+        ok, err = self.rm.validate(self.rm.BillingPaymentWebhookRequest,
+                                   {'amount': 'not-a-number'})
+        self.assertFalse(ok)
+        self.assertIsInstance(err, str)
 
-    def test_lenient_model_ignores_unknown_keys(self):
-        class L(self.api.RPLenientModel):
-            name: str
-        self.api.get_json_obj = lambda: {'name': 'x', 'extra': 'ignored'}
-        m = self.api.validated(L)
-        self.assertEqual(m.name, 'x')
+    def test_extra_keys_are_ignored_not_rejected(self):
+        """extra='ignore' is deliberate — rejecting unknown keys would break
+        existing API clients (a breaking change this repo doesn't ship silently)."""
+        ok, err = self.rm.validate(self.rm.TenantCreateRequest,
+                                   {'name': 'acme', 'totally_unknown': 1})
+        self.assertTrue(ok, 'an unknown key must be ignored, not a 400')
 
     def test_errors_never_echo_input_values(self):
         """A validation error must not reflect the submitted value back — bodies
         can carry secrets (tokens, passwords)."""
-        self.api.get_json_obj = lambda: {'name': 123, 'count': 'sk_live_SECRET'}
-        try:
-            self.api.validated(self._model())
-        except self.api.HTTPError:
-            pass
-        body = str(self.cap['d'])
-        self.assertNotIn('sk_live_SECRET', body)
+        ok, err = self.rm.validate(self.rm.BillingPaymentWebhookRequest,
+                                   {'amount': 'sk_live_SECRET'})
+        self.assertFalse(ok)
+        self.assertNotIn('sk_live_SECRET', err)
 
 
-class TestConvertedHandlers(unittest.TestCase):
-    """The wave-1 conversions must keep their exact behaviour; each already has
-    functional tests elsewhere — these pin the pydantic-specific edges."""
+class TestNewModelsAreFaithfulSupersets(unittest.TestCase):
+    """The v6.1.2 models must not reject anything the old hand-rolled code accepted."""
+
+    def setUp(self):
+        self.rm = importlib.import_module('request_models')
+
+    def test_deadman_coerces_string_minutes(self):
+        ok, err = self.rm.validate(self.rm.DeadmanCreateRequest,
+                                   {'name': 'NAS', 'period_minutes': '1440'})
+        self.assertTrue(ok, err)
+
+    def test_deadman_out_of_range_is_NOT_rejected(self):
+        """The old code clamped (max(1,min(43200,...))) — so the model must NOT
+        400 an out-of-range value, or it would be narrower than the old contract."""
+        ok, err = self.rm.validate(self.rm.DeadmanCreateRequest,
+                                   {'name': 'NAS', 'period_minutes': 999999})
+        self.assertTrue(ok, 'out-of-range must pass validation (handler clamps it)')
+
+    def test_deadman_non_numeric_minutes_is_rejected(self):
+        ok, err = self.rm.validate(self.rm.DeadmanCreateRequest,
+                                   {'name': 'NAS', 'period_minutes': 'abc'})
+        self.assertFalse(ok)
+
+    def test_docker_prune_empty_body_passes(self):
+        ok, err = self.rm.validate(self.rm.DockerPruneRequest, {})
+        self.assertTrue(ok, err)
+
+    def test_docker_prune_coerces_non_string_scope(self):
+        # str(body.get('scope')) in the handler accepts any scalar; the model must too
+        ok, err = self.rm.validate(self.rm.DockerPruneRequest, {'scope': 123})
+        self.assertTrue(ok, err)
+
+
+class TestConvertedHandlersKeepBehaviour(unittest.TestCase):
+    """The converted handlers must keep their exact end-to-end behaviour."""
 
     def setUp(self):
         self.api = _fresh_api()
@@ -119,8 +131,17 @@ class TestConvertedHandlers(unittest.TestCase):
         job = self.cap['d']['job']
         self.assertEqual(job['period_minutes'], 1440)
 
-    def test_deadman_rejects_out_of_range_minutes(self):
+    def test_deadman_out_of_range_is_clamped_not_400(self):
         self.api.get_json_obj = lambda: {'name': 'NAS', 'period_minutes': 999999}
+        try:
+            self.api.handle_deadman_jobs()
+        except self.api.HTTPError:
+            pass
+        self.assertEqual(self.cap['s'], 200)
+        self.assertEqual(self.cap['d']['job']['period_minutes'], 43200)
+
+    def test_deadman_non_numeric_minutes_is_400(self):
+        self.api.get_json_obj = lambda: {'name': 'NAS', 'period_minutes': 'abc'}
         try:
             self.api.handle_deadman_jobs()
         except self.api.HTTPError:
@@ -138,10 +159,8 @@ class TestConvertedHandlers(unittest.TestCase):
     def test_docker_prune_defaults_scope_and_reads_confirm(self):
         self.api.require_perm = lambda *a, **k: 'admin'
         self.api._validate_id = lambda x: True
-        self.api.save(self.api.DEVICES_FILE,
-                      {'d1': {'name': 'n', 'token': 't'}})
-        # no scope -> defaults to 'all' (safe); reaches the queue path
-        self.api.get_json_obj = lambda: {}
+        self.api.save(self.api.DEVICES_FILE, {'d1': {'name': 'n', 'token': 't'}})
+        self.api.get_json_obj = lambda: {}   # no scope -> defaults to 'all' (safe)
         try:
             self.api.handle_device_docker_prune('d1')
         except self.api.HTTPError:
@@ -149,10 +168,10 @@ class TestConvertedHandlers(unittest.TestCase):
         self.assertEqual(self.cap['s'], 200)
 
 
-class TestPydanticIsAHardDependency(unittest.TestCase):
-    """It is now required at runtime (request validation depends on it), so it must
-    be declared everywhere the other hard deps (flask/gunicorn) are — the checklist
-    that the Flask cutover established and that a CI run missed once already."""
+class TestPydanticIsInstalledEverywhere(unittest.TestCase):
+    """It is installed by default (request validation depends on it running), so it
+    must be declared everywhere the other runtime deps (flask/gunicorn) are — the
+    checklist the Flask cutover established and that a CI run missed once already."""
 
     def test_ci_installs_it(self):
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
