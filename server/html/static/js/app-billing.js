@@ -486,8 +486,106 @@ function billingTab(name) {
   document.querySelectorAll('#billing-tabs .settings-tab').forEach(b =>
     b.classList.toggle('active', b.dataset.arg === name));
   if (name === 'worksheet') _billingWorksheet();
+  else if (name === 'quotes') _billingQuotes();      // v6.1.3
   else if (name === 'invoices') _billingInvoices();
   else if (name === 'rates') _billingRates();
+}
+
+/* ── v6.1.3: quotes ─────────────────────────────────────────────────────────
+   The mirror image of an invoice: an invoice looks BACKWARD (derived from logged
+   hours), a quote looks FORWARD (hand-authored) and, once accepted, becomes one.
+   The Convert button only appears on an accepted quote, and the server refuses a
+   second conversion even if a stale page offers it — a double-click must never
+   bill a customer twice. */
+async function _billingQuotes() {
+  const host = document.getElementById('billing-host');
+  if (!host) return;
+  const r = await api('GET', '/quotes');
+  const quotes = (r && r.quotes) || [];
+  const badge = s => {
+    const cls = s === 'accepted' ? 'ok'
+      : (s === 'declined' || s === 'expired') ? 'crit'
+      : (s === 'invoiced' ? '' : 'warn');
+    return `<span class="patch-badge ${cls} fs-11">${escHtml(s)}</span>`;
+  };
+  const rows = quotes.length ? quotes.map(q => {
+    const valid = q.valid_until
+      ? new Date(q.valid_until * 1000).toLocaleDateString() : '—';
+    // Only an ACCEPTED quote can convert. The server enforces this too — the UI
+    // just doesn't dangle a button that would be refused.
+    const convert = (_bIsAdmin() && q.status === 'accepted')
+      ? `<button class="btn-icon cell-sm" data-action="quoteConvert" data-arg="${escAttr(q.id)}" title="Turn this accepted quote into an invoice (once only)">Invoice it</button>` : '';
+    const lifecycle = (_bIsAdmin() && ['draft', 'sent'].includes(q.status)) ? `
+      <button class="btn-icon cell-sm" data-action="quoteSetStatus" data-arg="${escAttr(q.id)}" data-arg2="sent" title="Mark sent">Sent</button>
+      <button class="btn-icon cell-sm" data-action="quoteSetStatus" data-arg="${escAttr(q.id)}" data-arg2="accepted" title="Customer accepted">Accepted</button>
+      <button class="btn-icon cell-sm c-danger-outline" data-action="quoteSetStatus" data-arg="${escAttr(q.id)}" data-arg2="declined" title="Customer declined">Declined</button>` : '';
+    const inv = q.invoice_id
+      ? `<span class="fs-11 c-muted">→ invoiced</span>` : '';
+    return `<tr>
+      <td class="fw-600">${escHtml(q.number || '')}</td>
+      <td>${escHtml(q.site_name || q.site_id || '')}</td>
+      <td>${escHtml(valid)}</td>
+      <td class="num">${_bMoney(q.total, q.currency)}</td>
+      <td>${badge(q.status)} ${inv}</td>
+      <td><div class="row-6">${lifecycle}${convert}</div></td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty-state-sm">No quotes yet.</td></tr>';
+
+  const newBtn = _bIsAdmin()
+    ? '<button class="btn-primary" data-action="quoteNew">New quote</button>' : '';
+  host.innerHTML = `<div class="dash-card">
+    <div class="toolbar">${newBtn}</div>
+    <div class="scrollable-table-wrap audit-scroll">
+    <table class="data-table"><thead><tr><th>Number</th><th>Customer</th><th>Valid until</th>
+      <th class="num">Total</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>${rows}</tbody></table></div></div>`;
+}
+
+async function quoteNew() {
+  const site = await uiPrompt({
+    title: 'New quote',
+    message: 'Site id to quote for (see the Sites page).',
+    confirmText: 'Next',
+  });
+  if (!site) return;
+  const label = await uiPrompt({
+    title: 'New quote — line item',
+    message: 'What are you quoting for? (e.g. "Firewall replacement — labour")',
+    confirmText: 'Next',
+  });
+  if (!label) return;
+  const qty = Number(await uiPrompt({
+    title: 'New quote — quantity', message: 'Quantity (e.g. hours or units)',
+    value: '1', confirmText: 'Next',
+  }));
+  const unit = Number(await uiPrompt({
+    title: 'New quote — unit price', message: 'Price per unit, excluding VAT',
+    value: '0', confirmText: 'Create quote',
+  }));
+  if (!isFinite(qty) || !isFinite(unit)) { toast('Quantity and price must be numbers', 'error'); return; }
+  const r = await api('POST', '/quotes', {
+    site_id: site, line_items: [{ label, qty, unit }],
+  });
+  if (!r || !r.ok) { toast((r && r.error) || 'Could not create the quote', 'error'); return; }
+  toast(`Quote ${r.number} created`, 'success');
+  _billingQuotes();
+}
+
+async function quoteSetStatus(qid, status) {
+  const r = await api('POST', '/quotes/' + encodeURIComponent(qid), { status });
+  if (!r || !r.ok) { toast((r && r.error) || 'Could not update the quote', 'error'); return; }
+  toast(`Quote marked ${status}`, 'success');
+  _billingQuotes();
+}
+
+async function quoteConvert(qid) {
+  if (typeof uiConfirm === 'function'
+      ? !(await uiConfirm('Turn this accepted quote into an invoice? A quote can be '
+          + 'invoiced only once.'))
+      : !confirm('Invoice this quote?')) return;
+  const r = await api('POST', '/quotes/' + encodeURIComponent(qid) + '/convert', {});
+  if (!r || !r.ok) { toast((r && r.error) || 'Could not convert the quote', 'error'); return; }
+  toast(`Invoice ${r.invoice_number} created from this quote`, 'success');
+  _billingQuotes();
 }
 
 async function _bSiteSelectOptions(selected) {

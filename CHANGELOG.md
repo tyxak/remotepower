@@ -42,6 +42,20 @@ the most universal ops question there is, and a second opinion on your hardware.
   winget can *remediate*: `winget:<id>` upgrades one package, `winget:` upgrades
   all. argv-only, package-id charset-validated, never through a shell.
 
+- **JIT credential checkout.** "Who *can* reveal this credential" becomes "who has
+  **active, justified, expiring** access to it right now" — the useful half of PAM
+  without becoming a PAM. Opt-in (`vault_checkout_required`, default off, because
+  switching it on immediately requires every admin to check out before revealing
+  anything). A grant is scoped to one credential and one person, needs a reason,
+  is bounded (15 min – 24 h) and lapses on its own; expiry is evaluated at read
+  time, so a lapsed grant is dead the moment it lapses rather than whenever a
+  sweep next runs. Who holds live access is visible to admins and auditors. It is
+  a **floor, not a ceiling**: a `break_glass` credential still needs its
+  two-person approval as well. Note the server never holds the vault key (the
+  browser supplies it on every operation), so this is an *authorization* grant,
+  not a key lease — a checkout cannot lease key material without inverting that
+  design.
+
 ### Added — visibility
 
 - **Host-wide disk-usage explorer.** "Disk 94% — of *what*?" Disk-fill
@@ -59,6 +73,121 @@ the most universal ops question there is, and a second opinion on your hardware.
   answers "how likely is it to break", and a fully-patched server with a dying
   disk is low-risk and low-reliability. On **Monitoring → Predictive health**;
   high/critical hosts raise a muteable Needs-Attention card. `GET /api/reliability`.
+
+- **EDR connectors, and the coverage gap they exist to find.** Read-only
+  connectors for **Wazuh**, **CrowdStrike Falcon** and **SentinelOne**. The tile
+  is not the feature: each connector reports the hosts it *protects*, and
+  `GET /api/edr/coverage` cross-references that against the actual fleet to name
+  the machines with **no EDR on them at all**. A console reading "EDR: healthy"
+  while three servers are uncovered is worse than no console, because it is
+  reassuring. Hostnames are matched short-and-lowercase (`WEB01.corp.example.com`
+  in the console *is* `web01` in the fleet — match naively and everything reports
+  as uncovered, and the page gets ignored). A **stale** agent — installed, then
+  stopped reporting — is listed apart from a protected one rather than folded into
+  the "covered" count, because that is precisely the failure an EDR rollout makes
+  and precisely the one a coverage number would hide. On the **Risk** page.
+  (Microsoft Defender for Endpoint is deliberately absent: its OAuth token host
+  differs from its API host, and the SSRF-bound client refuses cross-host token
+  fetches. Working around that guard for a connector is not a trade worth making.)
+
+- **Governed AI executor — Phase 0: it proposes, a human disposes.** The category
+  pitch of the moment is the "autonomous AI operator". This takes the opposite bet:
+  **assume the model is fully prompt-injected by a hostile log line**, and design so
+  that the worst it can do is still safe. Three constraints do all the work, and
+  none of them is a new enforcement chokepoint — they compose gates that already
+  existed:
+
+  1. **The model returns an id, never a command.** It may only *select* from a
+     server-built catalog of artifacts an operator already wrote — saved scripts and
+     registered playbook fixes. Its answer is validated against that catalog and
+     anything else is refused and audited. A completely compromised model can, at
+     absolute worst, pick *a different script you wrote yourself*. It cannot author
+     shell. There is deliberately no free-form-command path at all — not an
+     oversight, the design. `GET /api/ai-exec/catalog` shows the entire action
+     space, because you should be able to read every action your AI could ever
+     propose, in one place.
+  2. **A human always approves.** A proposal is an ordinary entry in the existing
+     confirmations ledger, so it inherits — for free — the TTL, the tenant filter,
+     the separation-of-duties rule (the proposer cannot approve their own), the
+     audit trail with AI attribution, and the existing approve/reject UI. Phase 0
+     executes nothing on its own, ever.
+  3. **What you approve is what runs.** The proposal pins a hash of the script body
+     it was built from; at approval it is re-resolved and re-hashed, and if another
+     admin edited it in between, execution is **refused** rather than quietly running
+     something the approver never saw.
+
+  It ships **OFF**, and off means a 404 on the whole API prefix at the dispatcher —
+  an enterprise that wants zero AI-initiated actions can make that structurally
+  true rather than trusting a UI preference.
+
+- **Fixed while building it: the post-approval executor bypassed two gates.**
+  `_mcp_execute` — the path that runs an *approved* maker-checker confirmation —
+  checked quarantine but honoured neither **maintenance mode** nor **audit mode**.
+  So an approved command could fire at a host in the middle of a controller drain,
+  or at an agent that would refuse it locally anyway. Both paths now share one
+  predicate (`_command_block_reason`) instead of `_queue_command` having the full
+  set and `_mcp_execute` a subset.
+
+- **Regulated-data scan (PII).** *"Where is our regulated data?"* is the GDPR/PCI
+  question no amount of monitoring answers. An opt-in, bounded (~24 h) agent walk
+  of configurable roots now reports which **files** contain emails, card numbers,
+  national IDs, IBANs or phone numbers. Card matches are **Luhn-checked** — without
+  that, every 16-digit order id and timestamp reads as a credit card and the
+  operator learns to ignore the entire report.
+
+  **The matched values are never sent, stored, or even hashed.** Two reasons, and
+  the second is the one that usually gets missed: a PII scanner that ships PII into
+  its own database is not a control, it is a second breach with a nicer UI; and
+  *hashing does not anonymise low-entropy data* — there are only 10⁹ possible US
+  national IDs and a card is pinned by its BIN plus Luhn, so a rainbow table over
+  either is minutes of work and a "fingerprint" would be a reversible copy of the
+  thing you were protecting. (This is precisely why `secret_findings` may
+  fingerprint and this may not: an API key is high-entropy, so its hash reveals
+  nothing.) A finding therefore carries only **which file, what kind, how many, and
+  which lines** — everything an operator needs to go and look, and nothing an
+  attacker who pops the RemotePower server can use. The server does not merely
+  trust the agent to honour that: it rebuilds each stored entry from four
+  known-safe fields, so a tampered or future agent posting a `value` or a
+  `fingerprint` is *structurally* unable to get one into the store.
+
+  Deliberately a **report, not an alert** — PII sitting in `/srv/data` is the
+  expected state of a business, not an incident, and an event per finding would be
+  pure alert fatigue that trains people to mute the one category they must not.
+  On the **Compliance** page; the existing `secret_exposed` alert still covers the
+  actual incident case (a leaked credential).
+
+- **Quotes.** The mirror image of an invoice. An invoice looks *backward* — it is
+  derived from hours already logged. A quote looks *forward*: hand-authored line
+  items (labour estimate, hardware, licences) that, once the customer accepts,
+  **become** an invoice. draft → sent → accepted / declined, on the Billing page.
+
+  The interesting parts are all the ones that protect the customer, because a
+  billing module's worst bugs share a victim. **A quote converts exactly once** —
+  the claim is stamped under the same lock that checks it, so a double-click loses
+  the race rather than billing someone twice. **Only an accepted quote converts** —
+  invoicing a draft or a declined quote bills someone for work they never agreed
+  to. **The invoice snapshots the agreed numbers** — a VAT change or a rate-card
+  edit between acceptance and invoicing must not silently re-price a done deal.
+  **Expiry is evaluated at read time**, so a lapsed quote is expired the moment it
+  lapses (no sweep can leave a stale price acceptable), while an *accepted* quote
+  is terminal and never expires out from under a customer who accepted in time.
+  Quotes ride the existing `billing` kill switch — `/api/quotes` is registered in
+  the module registry, because a route under a gated module that isn't in its
+  prefix tuple silently escapes the switch entirely.
+
+### Added — control
+
+- **DNS-blocker control (Pi-hole / AdGuard).** The connectors could tell you the
+  blocker was up and how much it blocked; the one thing you then wanted to *do* —
+  "something's broken, is it the ad-blocker?" — was the one thing you had to leave
+  RemotePower for. You can now read the blocking state and **pause blocking** from
+  the Integrations page. Every pause is **timed** (30 s – 4 h, clamped in the
+  driver, not merely in the handler): the blocker re-enables *itself*, so the safe
+  state is restored by the remote device rather than by a sweep here that might
+  never run. There is deliberately **no disable-forever action** — a blocker
+  switched off and forgotten is a silent, permanent security regression, which is
+  the opposite of the point. Admin-only and audit-logged with the window, so "who
+  turned the ad-blocker off, when, and for how long" is answerable afterwards.
 
 ### Fixed
 
@@ -84,6 +213,14 @@ the most universal ops question there is, and a second opinion on your hardware.
   `av_warning` have set a `tool` field since v5.1.0, but it was never in the
   `_record_alert` payload whitelist, so the stored alert silently dropped it and
   the inbox could not say which scanner found the malware.
+- **The most severe badge in the product had no colour.** `.patch-badge.crit` was
+  used in five places — **TAMPER DETECTED** on the audit log's hash chain, the
+  critical-CVE count, a disabled user, a breached backup RPO — and no CSS rule for
+  it existed anywhere. It rendered as unstyled plain text, indistinguishable from
+  an ordinary label, while its `.ok` and `.warn` siblings were correctly green and
+  amber. The one badge that must never be missable was the only one nobody could
+  see. (Found while adding the EDR-coverage table, which reached for the same
+  class.)
 
 ## v6.1.2 — "AfterglowMatters" — unreleased (test)
 

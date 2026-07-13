@@ -56,6 +56,7 @@ function enterCMDB() {
   cmdbLoadServerFunctions();
   loadScopedCreds();
   loadBreakGlass();
+  loadVaultCheckouts();
 }
 
 // ── v5.0.0 (#C3): break-glass approval card ──────────────────────────────────
@@ -99,6 +100,52 @@ async function cmdbBreakGlassApprove(reqId) {
   }
   if (typeof toast === 'function') toast('Break-glass request approved', 'success');
   loadBreakGlass();
+}
+
+// ── v6.1.3: JIT credential checkout ─────────────────────────────────────────
+// Standing credential access becomes ACTIVE, JUSTIFIED, EXPIRING access — and
+// this card is where that becomes visible. Never shows a secret: just who holds
+// a live grant on what, why, and for how much longer.
+async function loadVaultCheckouts() {
+  const card = document.getElementById('cmdb-checkouts-card');
+  const body = document.getElementById('cmdb-checkouts-body');
+  if (!card || !body) return;
+  const res = await cmdbApi('GET', '/cmdb/vault/checkouts');
+  const rows = (res && res.ok && res.data && Array.isArray(res.data.checkouts))
+    ? res.data.checkouts : [];
+  // Nothing checked out (or the feature is off) → no card, no noise.
+  if (!rows.length) { card.classList.add('d-none'); return; }
+  card.classList.remove('d-none');
+  body.innerHTML = rows.map(r => {
+    const left = Math.max(0, r.expires_in || 0);
+    const mins = Math.floor(left / 60);
+    const left_s = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+    // Expiring inside 5 minutes is worth an eyebrow — it is about to stop working.
+    const badge = left <= 300
+      ? `<span class="patch-badge warn">expires in ${_cmdbEsc(left_s)}</span>`
+      : `<span class="patch-badge ok">expires in ${_cmdbEsc(left_s)}</span>`;
+    return `<div class="isl-444">
+      <div class="isl-445">
+        <div class="fw-600">${_cmdbEsc(r.cred_id || '')} ${badge}</div>
+        <div class="isl-328">held by ${_cmdbEsc(r.actor || '')} on ${_cmdbEsc(r.device_id || '')}${r.reason ? ' · ' + _cmdbEsc(r.reason) : ''}</div>
+      </div>
+      <div class="isl-446"><button class="btn-icon" data-action="cmdbCheckoutRevoke" data-arg="${_cmdbEsc(r.id)}">Revoke</button></div>
+    </div>`;
+  }).join('');
+}
+
+async function cmdbCheckoutRevoke(coId) {
+  if (typeof uiConfirm === 'function'
+      ? !(await uiConfirm('Revoke this checkout? The holder loses access to the '
+          + 'credential immediately.'))
+      : !confirm('Revoke this checkout?')) return;
+  const res = await cmdbApi('DELETE', '/cmdb/vault/checkouts/' + encodeURIComponent(coId));
+  if (!res || !res.ok) {
+    alert('Revoke failed: ' + (res && res.data && res.data.error || '?'));
+    return;
+  }
+  if (typeof toast === 'function') toast('Checkout revoked', 'success');
+  loadVaultCheckouts();
 }
 
 // ── v4.10.0: site / group / tag-scoped credentials ──────────────────────────
@@ -1125,6 +1172,9 @@ async function cmdbCredDelete(deviceId, credId) {
 // v5.0.0 (#C3): remember the open break-glass request per credential so the
 // requester's *second* reveal click carries the (now-approved) request id.
 let _cmdbBgReqs = {};
+// v6.1.3: one-shot guard so the checkout retry can never become a loop against a
+// server that keeps answering checkout_required.
+let _cmdbCheckoutRetry = {};
 async function cmdbCredReveal(deviceId, credId) {
   if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
   const bgKey = deviceId + '|' + credId;
@@ -1141,6 +1191,34 @@ async function cmdbCredReveal(deviceId, credId) {
     if (typeof loadBreakGlass === 'function') loadBreakGlass();
     return;
   }
+  // v6.1.3: JIT checkout. The credential needs an active, reasoned grant before
+  // it can be revealed. Offer to take one out inline rather than sending the
+  // operator off to hunt for a separate page — friction here is what makes
+  // people turn the feature off.
+  if (res && res.data && res.data.checkout_required) {
+    if (_cmdbCheckoutRetry[bgKey]) {      // guard: never loop on a server that
+      delete _cmdbCheckoutRetry[bgKey];   // keeps refusing after a grant
+      alert('Reveal still refused after checkout — check the audit log.');
+      return;
+    }
+    const reason = await uiPrompt({
+      title: 'Checkout required',
+      message: 'This credential must be checked out before it can be revealed. '
+             + 'Why do you need it? (recorded in the audit log)',
+      confirmText: 'Check out',
+    });
+    if (!reason) return;
+    const co = await cmdbApi('POST', '/cmdb/vault/checkout',
+      { device_id: deviceId, cred_id: credId, reason: reason, hours: 1 }, true);
+    if (!co || !co.ok) {
+      alert('Checkout failed: ' + (co && co.data && co.data.error || '?'));
+      return;
+    }
+    _cmdbCheckoutRetry[bgKey] = true;
+    loadVaultCheckouts();                      // the new grant is now visible
+    return cmdbCredReveal(deviceId, credId);   // grant is live — retry once
+  }
+  delete _cmdbCheckoutRetry[bgKey];
   if (!res || !res.ok) {
     alert('Reveal failed: ' + (res && res.data && res.data.error || '?'));
     return;

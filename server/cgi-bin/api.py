@@ -230,6 +230,8 @@ INVOICE_REMINDER_STATE_FILE = DATA_DIR / 'invoice_reminder_state.json'  # W1-30 
 INVOICE_REMINDER_INTERVAL = 6 * 3600         # W1-30: overdue-reminder sweep cadence
 MAX_INVOICES = 100000
 INVOICE_STATUSES = ('draft', 'sent', 'partially_paid', 'paid', 'void')
+QUOTES_FILE = DATA_DIR / 'quotes.json'   # v6.1.3: {quotes:[...], quote_seq:int}
+MAX_QUOTES = 100000
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -394,6 +396,7 @@ HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
 DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.1.3: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
+PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.1.3: PII inventory (NO values — see _ingest_pii_findings)
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
@@ -780,6 +783,7 @@ try:
 except Exception as _e:   # pragma: no cover - defensive
     sys.stderr.write(f'[remotepower] connector plugin load failed: {_e}\n')
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
+import dns_control as dns_control_mod  # v6.1.3: Pi-hole/AdGuard blocking control (pure)
 import notify as notify_mod    # notification-channel payload builders (pure)
 import checks as checks_mod    # per-host Checks engine (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
@@ -7835,10 +7839,17 @@ _MODULES = {
     'alerts':     ('alerts_enabled',         True,  ('/api/alerts', '/api/alert-mutes',
                                                      '/api/alert-tuning')),
     'tickets':    ('tickets_module_enabled', True,  ('/api/tickets',)),
-    'billing':    ('billing_enabled',        False, ('/api/billing', '/api/invoices')),
+    # v6.1.3: '/api/quotes' MUST be listed here — a new route under a gated module
+    # that isn't in its prefix tuple silently escapes the kill switch entirely.
+    'billing':    ('billing_enabled',        False, ('/api/billing', '/api/invoices',
+                                                     '/api/quotes')),
     'kb':         ('kb_enabled',             False, ('/api/kb',)),
     'compliance': ('compliance_enabled',     True,  ('/api/compliance', '/api/scap')),
     'pentest':    ('pentest_enabled',        True,  ('/api/scans',)),
+    # v6.1.3: the governed AI executor. DEFAULT OFF, and off means 404 at the
+    # dispatcher — an enterprise that wants zero AI-initiated actions must be able
+    # to make that structurally true, not merely a UI preference.
+    'ai_exec':    ('ai_exec_enabled',        False, ('/api/ai-exec',)),
 }
 
 
@@ -13111,6 +13122,240 @@ def handle_invoices():
                   'locked_entries': locked})
 
 
+# ── v6.1.3: quotes ────────────────────────────────────────────────────────────
+# The mirror image of an invoice. An invoice looks BACKWARD (derived from logged
+# time); a quote looks FORWARD (hand-authored: labour estimate, hardware,
+# licences) and, when accepted, becomes one. The money maths is shared with
+# invoices (billing_mod.invoice_totals) rather than reimplemented — two subtly
+# different VAT calculations in one product is a bug waiting to be found by a
+# customer.
+#
+# Rides the existing `billing` module kill switch: '/api/quotes' is registered in
+# _MODULES so turning billing off 404s quotes too. A new route under a gated
+# module that ISN'T in its prefix tuple silently escapes the switch.
+
+def _quote_line_items(body):
+    """Build sanitized quote line items. A quote is authored, not derived, so
+    every line is operator-supplied — sanitize the label, coerce the numbers."""
+    out = []
+    for li in (body.get('line_items') or [])[:100]:
+        if not isinstance(li, dict):
+            continue
+        label = _sanitize_str(str(li.get('label') or ''), 120).strip()
+        if not label:
+            continue
+        qty = billing_mod._num(li.get('qty'), 1.0) or 1.0
+        unit = billing_mod._num(li.get('unit'))
+        out.append({'kind': 'other', 'label': label, 'qty': qty, 'unit': unit,
+                    'amount': round(qty * unit, 2)})
+    return out
+
+
+def _quote_row(q, sites, now):
+    """The list/read projection — status is ALWAYS the effective one, so a lapsed
+    quote reads 'expired' everywhere, with no sweep having had to run."""
+    return {
+        'id': q.get('id'), 'number': q.get('number'), 'site_id': q.get('site_id'),
+        'site_name': sites.get(q.get('site_id'), {}).get('name', q.get('site_id')),
+        'status': billing_mod.quote_effective_status(q, now),
+        'currency': q.get('currency'), 'vat_rate': q.get('vat_rate'),
+        'subtotal': q.get('subtotal'), 'vat_amount': q.get('vat_amount'),
+        'total': q.get('total'), 'created_at': q.get('created_at'),
+        'created_by': q.get('created_by'), 'valid_until': q.get('valid_until'),
+        'notes': q.get('notes'), 'invoice_id': q.get('invoice_id'),
+    }
+
+
+def handle_quotes():
+    """GET /api/quotes[?site=&status=] — list (admin/finance).
+    POST — create a quote (admin)."""
+    now = int(time.time())
+    if method() == 'GET':
+        require_admin_or_finance_auth()
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+        f_site = (qs.get('site') or [''])[0].strip()
+        f_status = (qs.get('status') or [''])[0].strip()
+        sites = load(SITES_FILE) or {}
+        rows = []
+        for q in ((load(QUOTES_FILE) or {}).get('quotes') or []):
+            if f_site and q.get('site_id') != f_site:
+                continue
+            row = _quote_row(q, sites, now)
+            # Filter on the EFFECTIVE status, not the stored one — otherwise
+            # ?status=expired would return nothing until a sweep rewrote them.
+            if f_status and row['status'] != f_status:
+                continue
+            rows.append(row)
+        rows.sort(key=lambda x: x.get('created_at') or 0, reverse=True)
+        respond(200, {'ok': True, 'quotes': rows[:2000]})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    actor = require_admin_auth()
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.QuoteCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    site = str(body.get('site_id') or '').strip()
+    sites = load(SITES_FILE) or {}
+    if not site or site not in sites:
+        respond(400, {'error': 'valid site_id required'})
+    line_items = _quote_line_items(body)
+    if not line_items:
+        respond(400, {'error': 'a quote needs at least one line item'})
+    try:
+        valid_until = int(body.get('valid_until') or 0)
+    except (TypeError, ValueError):
+        valid_until = 0
+
+    cfg = _billing_cfg()
+    vat_rate = billing_mod.site_vat(cfg, site)
+    currency = billing_mod.currency(cfg)
+    subtotal, vat_amount, total = billing_mod.invoice_totals(line_items, vat_rate)
+    qid = 'qte_' + secrets.token_hex(6)
+    prefix = str(cfg.get('quote_prefix') or 'Q-')
+    with _LockedUpdate(QUOTES_FILE) as store:
+        quotes = store.setdefault('quotes', [])
+        if len(quotes) >= MAX_QUOTES:
+            respond(400, {'error': 'quote limit reached'})
+        seq = int(store.get('quote_seq') or 0) + 1
+        store['quote_seq'] = seq
+        number = f'{prefix}{seq:05d}'
+        quotes.append({
+            'id': qid, 'number': number, 'site_id': site, 'status': 'draft',
+            'currency': currency, 'vat_rate': vat_rate, 'line_items': line_items,
+            'subtotal': subtotal, 'vat_amount': vat_amount, 'total': total,
+            'created_at': now, 'created_by': actor, 'valid_until': valid_until,
+            'notes': _sanitize_str(str(body.get('notes') or ''), 2000),
+            'invoice_id': '',
+        })
+    audit_log(actor, 'quote_create', f'#{number} site={site} total={total}')
+    respond(200, {'ok': True, 'id': qid, 'number': number, 'total': total})
+
+
+def handle_quote_get(qid):
+    """GET /api/quotes/{id} — one quote, with its line items (admin/finance)."""
+    require_admin_or_finance_auth()
+    now = int(time.time())
+    q = next((x for x in ((load(QUOTES_FILE) or {}).get('quotes') or [])
+              if x.get('id') == qid), None)
+    if not q:
+        respond(404, {'error': 'quote not found'})
+    sites = load(SITES_FILE) or {}
+    out = _quote_row(q, sites, now)
+    out['line_items'] = q.get('line_items') or []
+    can, why = billing_mod.quote_can_convert(q, now)
+    out['can_convert'] = can
+    out['convert_blocked_reason'] = why
+    respond(200, {'ok': True, 'quote': out})
+
+
+def handle_quote_update(qid):
+    """POST /api/quotes/{id} {status} — move a quote through its lifecycle (admin).
+
+    draft → sent → accepted | declined. `expired` is never SET, only derived (see
+    billing.quote_effective_status), and `invoiced` is set only by conversion — a
+    caller must not be able to hand-wave a quote into a state that conversion
+    depends on.
+    """
+    actor = require_admin_auth()
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.QuoteUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    status = str(body.get('status') or '').strip().lower()
+    if status not in ('draft', 'sent', 'accepted', 'declined'):
+        respond(400, {'error': 'status must be one of draft, sent, accepted, declined'})
+    now = int(time.time())
+    with _LockedUpdate(QUOTES_FILE) as store:
+        q = next((x for x in (store.get('quotes') or []) if x.get('id') == qid), None)
+        if not q:
+            respond(404, {'error': 'quote not found'})
+        # An already-invoiced quote is frozen: re-opening it would let someone
+        # 'decline' work that has already been billed.
+        if q.get('invoice_id'):
+            respond(400, {'error': 'this quote has been invoiced and can no longer '
+                                   'change status'})
+        # Accepting a LAPSED quote would honour a price that expired last Tuesday.
+        if status == 'accepted' and \
+                billing_mod.quote_effective_status(q, now) == 'expired':
+            respond(400, {'error': 'this quote has expired — re-issue it before '
+                                   'accepting'})
+        q['status'] = status
+        q['updated_at'] = now
+    audit_log(actor, 'quote_status', f'quote={qid} status={status}')
+    respond(200, {'ok': True, 'status': status})
+
+
+def handle_quote_convert(qid):
+    """POST /api/quotes/{id}/convert — turn an ACCEPTED quote into an invoice.
+
+    The two rules here both protect the customer, and both are enforced INSIDE the
+    quotes lock so a double-click cannot race past them:
+
+      1. Only an accepted quote converts (billing.quote_can_convert). Invoicing a
+         draft or declined quote bills someone for work they never agreed to.
+      2. It converts exactly ONCE. The quote is stamped `invoice_id` under the same
+         lock that reads it, so the second request loses the race and is refused —
+         otherwise a double-click bills the customer twice, which is the worst bug
+         a billing module can have.
+
+    The invoice SNAPSHOTS the quote's line items, VAT rate and currency rather than
+    recomputing them from today's config. The customer accepted *those* numbers; a
+    VAT change or a rate-card edit between acceptance and invoicing must not
+    silently re-price an agreed deal.
+    """
+    actor = require_admin_auth()
+    now = int(time.time())
+    # Claim the quote first (inside its own lock), then write the invoice under a
+    # SEPARATE lock — never nest two _LockedUpdate blocks (SQLite/PG would raise on
+    # the nested BEGIN IMMEDIATE, and it has historically been swallowed).
+    iid = 'inv_' + secrets.token_hex(6)
+    with _LockedUpdate(QUOTES_FILE) as store:
+        q = next((x for x in (store.get('quotes') or []) if x.get('id') == qid), None)
+        if not q:
+            respond(404, {'error': 'quote not found'})
+        can, why = billing_mod.quote_can_convert(q, now)
+        if not can:
+            respond(400, {'error': why})
+        site = q.get('site_id')
+        snapshot = {
+            'line_items': list(q.get('line_items') or []),
+            'vat_rate': q.get('vat_rate'), 'currency': q.get('currency'),
+            'subtotal': q.get('subtotal'), 'vat_amount': q.get('vat_amount'),
+            'total': q.get('total'), 'number': q.get('number'),
+            'notes': q.get('notes') or '',
+        }
+        # Stamp the claim under the SAME lock that checked it — this is what makes
+        # the once-only rule hold against a concurrent second request.
+        q['status'] = 'invoiced'
+        q['invoice_id'] = iid
+        q['invoiced_at'] = now
+
+    cfg = _billing_cfg()
+    prefix = str(cfg.get('invoice_prefix') or '')
+    with _LockedUpdate(INVOICES_FILE) as store:
+        invs = store.setdefault('invoices', [])
+        seq = int(store.get('invoice_seq') or 0) + 1
+        store['invoice_seq'] = seq
+        number = f'{prefix}{seq:05d}'
+        invs.append({
+            'id': iid, 'number': number, 'site_id': site,
+            'period': {'from': '', 'to': ''}, 'status': 'draft',
+            'currency': snapshot['currency'], 'vat_rate': snapshot['vat_rate'],
+            'line_items': snapshot['line_items'], 'snapshot_entry_ids': [],
+            'subtotal': snapshot['subtotal'], 'vat_amount': snapshot['vat_amount'],
+            'total': snapshot['total'], 'issued_at': now, 'created_by': actor,
+            'notes': snapshot['notes'],
+            'quote_id': qid, 'quote_number': snapshot['number'],   # provenance
+            'amount_paid': 0.0, 'payments': [],
+        })
+    audit_log(actor, 'quote_convert',
+              f"quote={qid} invoice=#{number} site={site} total={snapshot['total']}")
+    respond(200, {'ok': True, 'invoice_id': iid, 'invoice_number': number,
+                  'total': snapshot['total']})
+
+
 def handle_invoice_get(iid):
     """GET /api/invoices/{id}[?format=csv|pdf] — one invoice (admin/finance)."""
     if not _billing_enabled():
@@ -17730,6 +17975,10 @@ def handle_heartbeat():
         if dev.get('force_secrets_scan'):
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
+        # v6.1.3: one-shot "find regulated data now" — same one-shot contract.
+        if dev.get('force_pii_scan'):
+            saved_dev['force_pii_scan'] = True
+            dev.pop('force_pii_scan', None)
         # v6.1.3: one-shot "explain my disk now" — same one-shot contract.
         if dev.get('force_du_scan'):
             saved_dev['force_du_scan'] = True
@@ -18568,6 +18817,14 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] secrets ingest failed dev={dev_id}: {e}\n")
 
+    # v6.1.3: PII / sensitive-data inventory (opt-in scan). Values never leave the
+    # host — see _ingest_pii_findings.
+    if 'pii_findings' in body:
+        try:
+            _ingest_pii_findings(dev_id, body['pii_findings'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] pii ingest failed dev={dev_id}: {e}\n")
+
     # v6.1.3: host-wide disk-usage report (opt-in du scan).
     if 'disk_usage' in body and isinstance(body['disk_usage'], dict):
         try:
@@ -18703,6 +18960,12 @@ def handle_heartbeat():
         _du_paths = _sec_cfg.get('du_scan_paths') or []
         if _du_paths:
             common_resp['du_scan_paths'] = _du_paths
+    # v6.1.3: opt-in PII / sensitive-data scan. Same shape again.
+    if _sec_cfg.get('pii_scan_enabled'):
+        common_resp['pii_scan_enabled'] = True
+        _pii_paths = _sec_cfg.get('pii_scan_paths') or []
+        if _pii_paths:
+            common_resp['pii_scan_paths'] = _pii_paths
     # W6-34: opt-in container-image CVE scan (trivy). Off by default; the agent
     # only runs trivy once advertised, and it's feature-invisible without trivy.
     if _sec_cfg.get('image_scan_enabled'):
@@ -18788,6 +19051,9 @@ def handle_heartbeat():
     # can never fire on demand" shape the v6.1.2 trivy bug taught us to avoid.
     if saved_dev.get('force_du_scan'):
         common_resp['force_du_scan'] = True
+    # v6.1.3: one-shot PII scan ("Scan now"). Same one-shot delivery contract.
+    if saved_dev.get('force_pii_scan'):
+        common_resp['force_pii_scan'] = True
     # v3.0.0: one-shot IaC collection request — fires once on the heartbeat
     # right after the operator clicked Generate IaC.
     if saved_dev.get('force_iac_collect'):
@@ -19558,22 +19824,51 @@ def handle_process_kill(dev_id):
     _queue_command(dev_id, f'kill:{sig}:{pid}', actor)   # responds 200 + exits
 
 
+def _command_block_reason(dev, command):
+    """v6.1.3: the shared, NON-responding pre-flight for any path that queues a
+    command on a host. Returns (status, message) when the command must not be
+    queued, or None when it may.
+
+    Extracted from `_queue_command` so that the OTHER queueing path —
+    `_mcp_execute`, the post-approval executor behind maker-checker and the AI
+    executor — enforces the same three conditions instead of its own subset. It
+    previously checked quarantine but NOT maintenance mode or audit mode, so an
+    approved confirmation could fire a command at a host in the middle of a
+    controller drain, or at an agent that would refuse it locally anyway.
+
+    This is deliberately ONE predicate with two callers, not a second chokepoint:
+    each caller renders it in its own idiom (respond() vs. an {'ok': False} dict).
+    """
+    # poll_interval only changes the agent's local timer — exempt from all three,
+    # matching the long-standing carve-out.
+    if str(command).startswith('poll_interval:'):
+        return None
+    active, reason = _maintenance_active()          # v5.0.0 #R3
+    if active:
+        return (503, f'Server is in maintenance mode ({reason}) — new commands are '
+                     f'paused. They will resume once maintenance ends.')
+    # v3.4.0: never queue actions for a quarantined device.
+    if _device_quarantined(dev):
+        return (409, 'Device is quarantined — exec/reboot/actions are disabled.')
+    # v4.11.0: an audit-mode (read-only) agent refuses every command locally.
+    # Refuse to even queue one so the operator gets a clear error now instead of a
+    # deferred "refused" result. The flag rides the heartbeat sysinfo.
+    if (dev.get('sysinfo') or {}).get('audit_mode'):
+        return (409, 'Device is in audit (read-only) mode — exec/reboot/actions are '
+                     'disabled. Remove /etc/remotepower/audit-mode on the host to '
+                     're-enable.')
+    return None
+
+
 def _queue_command(dev_id, command, actor, force_approval=False):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
-    _block_if_maintenance(command)  # v5.0.0 #R3
-    # v3.4.0: refuse to queue actions for a quarantined device. poll_interval
-    # is the one exception — it changes only the agent's local timer.
-    if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
-        respond(409, {'error': 'Device is quarantined — exec/reboot/actions are disabled.'})
-    # v4.11.0: an audit-mode (read-only) agent refuses every command locally.
-    # Refuse to even queue one so the operator gets a clear error now instead of
-    # a deferred "refused" result. The flag rides the heartbeat sysinfo.
-    if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
-        respond(409, {'error': 'Device is in audit (read-only) mode — exec/reboot/actions '
-                               'are disabled. Remove /etc/remotepower/audit-mode on the host '
-                               'to re-enable.'})
+    _blocked = _command_block_reason(devices[dev_id], command)
+    if _blocked:
+        _status, _msg = _blocked
+        _extra = {'maintenance': True} if _status == 503 else {}
+        respond(_status, dict({'error': _msg}, **_extra))
     # v3.14.0: 4-eyes — park risky actions for a second admin when enabled.
     # W2-39: `force_approval` makes a caller (guided CIS remediation) REQUIRE
     # a second admin whenever change-approval is on at all — even for a kind
@@ -21762,6 +22057,190 @@ def handle_integration_test():
                   'version': res.get('version'), 'metrics': res.get('metrics')})
 
 
+# ── v6.1.3: EDR coverage cross-reference ──────────────────────────────────────
+# The EDR connectors (wazuh / crowdstrike / sentinelone) each report the set of
+# hosts they PROTECT. On its own that is just another dashboard tile. The reason
+# they exist is this handler: cross-reference those sets against the ACTUAL fleet
+# and name the machines with no EDR on them at all.
+#
+# A console saying "EDR: healthy" while three servers are uncovered is worse than
+# no console, because it is actively reassuring. The gap is the product.
+
+_EDR_TYPES = ('wazuh', 'crowdstrike', 'sentinelone')
+
+
+def _edr_norm_host(name):
+    """Normalise a hostname for cross-vendor matching.
+
+    EDR consoles and our agents disagree constantly about case and domain suffix
+    ('WEB01', 'web01.corp.example.com', 'web01'). Compare on the short, lowercase
+    name — matching on the raw string would report almost everything as uncovered,
+    which is the failure mode that makes an operator distrust and ignore the page.
+    """
+    s = str(name or '').strip().lower().rstrip('.')
+    return s.split('.', 1)[0] if s else ''
+
+
+def _edr_covered_map():
+    """{normalised hostname: [{vendor, agent_version, last_seen, status}, …]} from
+    the last poll of every enabled EDR integration."""
+    state = load(INTEG_STATE_FILE) or {}
+    latest = state.get('latest') or {}
+    by_host: dict = {}
+    for inst in _get_integrations():
+        if not isinstance(inst, dict) or inst.get('type') not in _EDR_TYPES:
+            continue
+        if not inst.get('enabled'):
+            continue
+        r = latest.get(str(inst.get('id') or inst.get('label'))) or {}
+        for h in (r.get('edr_hosts') or []):
+            if not isinstance(h, dict):
+                continue
+            key = _edr_norm_host(h.get('hostname'))
+            if not key:
+                continue
+            by_host.setdefault(key, []).append({
+                'vendor': inst.get('type'),
+                'label': inst.get('label') or inst.get('type'),
+                'agent_version': h.get('agent_version') or '',
+                'last_seen': h.get('last_seen') or '',
+                'status': h.get('status') or '',
+            })
+    return by_host
+
+
+def handle_edr_coverage():
+    """GET /api/edr/coverage — which fleet hosts have EDR, and which have none.
+
+    Tenant/scope-filtered through `_scope_filter_devices` (NOT a bare
+    `_caller_scope()` check) so a tenant admin — whose role scope is None — cannot
+    enumerate the rest of the fleet. Decommissioned hosts are excluded: a retired
+    asset with no EDR is not a finding, and leaving them in trains operators to
+    ignore the list.
+    """
+    require_auth()
+    covered = _edr_covered_map()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    configured = [i for i in _get_integrations()
+                  if isinstance(i, dict) and i.get('type') in _EDR_TYPES
+                  and i.get('enabled')]
+    rows = []
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('decommissioned'):
+            continue
+        name = dev.get('hostname') or dev.get('host') or ''
+        hits = covered.get(_edr_norm_host(name)) or []
+        rows.append({
+            'device_id': dev_id,
+            'hostname': name,
+            'os': (dev.get('sysinfo') or {}).get('os') or dev.get('os') or '',
+            'covered': bool(hits),
+            # A stale agent is NOT protection — surface it as its own state rather
+            # than folding it into 'covered', which would hide the exact case an
+            # EDR rollout is most likely to get wrong.
+            'stale': bool(hits) and all(h.get('status') != 'active' for h in hits),
+            'by': hits,
+            'monitored': dev.get('monitored', True) is not False,
+        })
+    # Uncovered first — the page exists for them.
+    rows.sort(key=lambda r: (r['covered'] and not r['stale'],
+                             r['covered'],
+                             str(r['hostname']).lower()))
+    uncovered = sum(1 for r in rows if not r['covered'])
+    stale = sum(1 for r in rows if r['stale'])
+    respond(200, {
+        'ok': True,
+        'hosts': rows,
+        'configured': [{'id': i.get('id'), 'type': i.get('type'),
+                        'label': i.get('label') or i.get('type')}
+                       for i in configured],
+        'summary': {'total': len(rows), 'uncovered': uncovered, 'stale': stale,
+                    'covered': len(rows) - uncovered},
+    })
+
+
+# ── v6.1.3: DNS-blocker control (Pi-hole / AdGuard) ───────────────────────────
+# The write half of the read-only DNS connectors. Same shape as the virt
+# lifecycle below: the blocker is a saved integration instance, the client is the
+# same SSRF-guarded one every connector uses, and the per-product driver lives in
+# dns_control.py. Read is require_auth; the mutation is admin + audited.
+#
+# "Disable" is always TIMED (dns_control clamps the window) — a blocker switched
+# off and forgotten is a silent, permanent security regression, so the remote
+# device restores the safe state itself when the timer lapses. No disable-forever.
+
+def _dns_inst(integration_id):
+    """Resolve a controllable DNS-blocker integration instance (404/400 on miss)."""
+    integration_id = str(integration_id or '').strip()
+    inst = next((i for i in _get_integrations()
+                 if str(i.get('id')) == integration_id), None)
+    if not inst:
+        respond(404, {'error': 'DNS blocker not found'})
+    if not dns_control_mod.has_control(inst.get('type')):
+        respond(400, {'error': 'this integration is not a controllable DNS blocker'})
+    return inst
+
+
+def _dns_dispatch(inst, op, *args):
+    """Call a dns_control driver op, translating failures to a 502."""
+    try:
+        return dns_control_mod.CONTROL[inst['type']][op](
+            inst, _integration_client(inst), *args)
+    except integrations_mod.IntegrationError as e:
+        respond(502, {'error': str(e)[:200]})
+    except HTTPError:
+        raise
+    except Exception as e:   # pragma: no cover - defensive
+        respond(502, {'error': f'{e.__class__.__name__}: {e}'[:200]})
+
+
+def handle_dns_blockers():
+    """GET /api/dns-control/blockers — controllable blockers, for the page picker.
+
+    Any authenticated user (the Integrations page is read-visible to all); the
+    response carries NO secrets/urls — only id, label and type."""
+    require_auth()
+    out = [{'id': i.get('id'),
+            'label': i.get('label') or i.get('type'),
+            'type': i.get('type')}
+           for i in _get_integrations()
+           if dns_control_mod.has_control(i.get('type'))]
+    respond(200, {'ok': True, 'blockers': out,
+                  'max_seconds': dns_control_mod.MAX_DISABLE_SECONDS,
+                  'default_seconds': dns_control_mod.DEFAULT_DISABLE_SECONDS})
+
+
+def handle_dns_blocking_get(integration_id):
+    """GET /api/dns-control/{id}/blocking — is blocking on, and for how long."""
+    require_auth()
+    inst = _dns_inst(integration_id)
+    respond(200, dict(_dns_dispatch(inst, 'status') or {}, ok=True))
+
+
+def handle_dns_blocking_set(integration_id):
+    """POST /api/dns-control/{id}/blocking {enabled, seconds} — admin, audited.
+
+    Turning blocking OFF is a security-relevant act, so it is admin-gated and
+    audit-logged with the window it was disabled for — "who turned the ad-blocker
+    off, when, and for how long" is answerable after the fact."""
+    actor = require_admin_auth()
+    inst = _dns_inst(integration_id)
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsBlockingSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    enabled = bool(body.get('enabled'))
+    seconds = dns_control_mod.clamp_seconds(
+        body.get('seconds') or dns_control_mod.DEFAULT_DISABLE_SECONDS)
+    res = _dns_dispatch(inst, 'set_blocking', enabled, seconds)
+    audit_log(actor, 'dns_blocking_set',
+              detail=(f"{inst.get('type')} {inst.get('id')} "
+                      f"blocking={'on' if enabled else 'off'}"
+                      + ('' if enabled else f' for {seconds}s')),
+              source_ip=_get_client_ip())
+    respond(200, dict(res or {}, ok=True))
+
+
 # ── v5.6.0: virtualization lifecycle (vSphere/vCenter, OpenShift, vCloud) ──────
 # Parity with the Proxmox lifecycle, but driven through the integrations layer:
 # the platform is a saved integration instance (id), the client is the same
@@ -22463,6 +22942,13 @@ def handle_config_get():
     # v6.1.3: host-wide disk-usage explorer — opt-in (it walks the filesystem).
     safe.setdefault('du_scan_enabled', False)
     safe.setdefault('du_scan_paths', [])
+    # v6.1.3: PII / sensitive-data scan — opt-in (it walks the filesystem).
+    safe.setdefault('pii_scan_enabled', False)
+    safe.setdefault('pii_scan_paths', [])
+    # v6.1.3: JIT credential checkout. Default OFF — turning it on mid-flight
+    # would lock every admin out of every credential until they check one out,
+    # which is a hell of a surprise for an upgrade.
+    safe.setdefault('vault_checkout_required', False)
     safe.setdefault('push_enabled', False)          # v6.1.1 #1
     safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
@@ -23511,6 +23997,9 @@ def handle_config_save():
             if ps and ps not in paths:
                 paths.append(ps)
         cfg['secrets_scan_paths'] = paths
+    # v6.1.3: JIT credential checkout.
+    if 'vault_checkout_required' in body:
+        cfg['vault_checkout_required'] = bool(body['vault_checkout_required'])
     # v6.1.3: disk-usage explorer — opt-in + custom roots.
     if 'du_scan_enabled' in body:
         cfg['du_scan_enabled'] = bool(body['du_scan_enabled'])
@@ -23522,6 +24011,17 @@ def handle_config_save():
             if ps and ps not in dpaths:
                 dpaths.append(ps)
         cfg['du_scan_paths'] = dpaths
+    # v6.1.3: PII / sensitive-data scan — opt-in + custom roots.
+    if 'pii_scan_enabled' in body:
+        cfg['pii_scan_enabled'] = bool(body['pii_scan_enabled'])
+    if 'pii_scan_paths' in body:
+        raw_pp = body['pii_scan_paths'] if isinstance(body['pii_scan_paths'], list) else []
+        ppaths = []
+        for p in raw_pp[:20]:
+            ps = _sanitize_str(str(p), 256).strip()
+            if ps and ps not in ppaths:
+                ppaths.append(ps)
+        cfg['pii_scan_paths'] = ppaths
     # v3.14.0 (#24 P2): tenant isolation enforcement (opt-in, default off).
     if 'tenancy_enforced' in body:
         cfg['tenancy_enforced'] = bool(body['tenancy_enforced'])
@@ -29730,6 +30230,149 @@ def handle_secrets_scan_now():
     audit_log(actor, 'secrets_scan_queued', detail=f'devices={len(queued)}')
     respond(200, {'ok': True, 'queued': len(queued),
                   'message': (f'Secrets scan queued on {len(queued)} host(s) — the agent '
+                              'runs it on the next heartbeat.') if queued else
+                             'No agent hosts to scan.'})
+
+
+# ── v6.1.3: PII / sensitive-data inventory ────────────────────────────────────
+#
+# "Where is our regulated data?" — the GDPR/PCI question no amount of monitoring
+# answers. The agent walks opt-in paths and reports WHICH FILE holds WHAT KIND of
+# PII, HOW MUCH, and ON WHICH LINES.
+#
+# THE VALUE IS NEVER REPORTED — not raw, not redacted, not hashed. Two reasons,
+# and the second is the one people get wrong:
+#   1. A PII scanner that ships PII into its own database is not a control; it is
+#      a second breach with a nicer UI.
+#   2. Hashing does NOT anonymise low-entropy data. There are only 10^9 possible
+#      US SSNs, and a card number is pinned by BIN + Luhn — a rainbow table over
+#      either is minutes of work. A "fingerprint" of an SSN is a reversible copy
+#      of the SSN. (This is the whole difference from `secret_findings`, which
+#      DOES fingerprint: an API key is high-entropy, so its hash reveals nothing.)
+# The server re-enforces this on ingest rather than trusting the agent: even a
+# malicious/patched agent posting a `preview` cannot get a value into the store.
+#
+# Deliberately NOT an alert. PII sitting in /srv/data is the expected state of a
+# business, not an incident — an event per finding would be pure alert fatigue and
+# would train operators to mute the one category they must not mute. The
+# `secret_exposed` alert still covers the *incident* case (a leaked credential).
+# This is an inventory, and it reads as one: a report on the Compliance page.
+_PII_KINDS = ('email', 'credit_card', 'ssn', 'iban', 'phone')
+_PII_MAX_PER_HOST = 300
+
+
+def _ingest_pii_findings(dev_id, findings):
+    """Persist the agent's PII inventory. Stores no value, ever."""
+    if not isinstance(findings, list):
+        return
+    clean = []
+    for f in findings[:_PII_MAX_PER_HOST]:
+        if not isinstance(f, dict):
+            continue
+        kind = _sanitize_str(str(f.get('kind', '')), 24)
+        if kind not in _PII_KINDS:
+            continue                      # unknown kind → drop, don't guess
+        path = _sanitize_str(str(f.get('path', '')), 300)
+        if not path:
+            continue
+        try:
+            count = int(f.get('count') or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count <= 0:
+            continue
+        lines = []
+        for ln in (f.get('lines') or [])[:5]:
+            try:
+                n = int(ln)
+            except (TypeError, ValueError):
+                continue
+            if 0 < n < 10_000_000:
+                lines.append(n)
+        # Whitelist construction, not blacklist filtering: we build the stored
+        # entry from scratch out of four known-safe fields, so any extra key the
+        # agent sent (a 'preview', a 'value', a 'fingerprint' from a tampered or
+        # future agent) is structurally incapable of reaching the store.
+        clean.append({'path': path, 'kind': kind, 'count': count, 'lines': lines})
+    with _locked_update(PII_FILE) as store:
+        store[dev_id] = {'findings': clean, 'ts': int(time.time())}
+
+
+def handle_pii_list():
+    """GET /api/pii — the fleet's regulated-data inventory.
+
+    Scope/tenant-filtered via `_scope_filter_devices` (NOT a bare `_caller_scope()`
+    check — a tenant admin's role scope is None, and the v6.1.1 sweep found six
+    fleet aggregates leaking the whole estate that way).
+    """
+    require_auth()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    store = load(PII_FILE) or {}
+    hosts, totals = [], {k: 0 for k in _PII_KINDS}
+    for dev_id, rec in store.items():
+        if dev_id not in devices or not isinstance(rec, dict):
+            continue
+        findings = [f for f in (rec.get('findings') or []) if isinstance(f, dict)]
+        by_kind: dict = {}
+        for f in findings:
+            k = f.get('kind')
+            if k in totals:
+                by_kind[k] = by_kind.get(k, 0) + int(f.get('count') or 0)
+                totals[k] += int(f.get('count') or 0)
+        if not findings:
+            continue
+        hosts.append({
+            'device_id': dev_id,
+            'name': (devices[dev_id] or {}).get('name') or dev_id,
+            'ts': rec.get('ts'),
+            'files': len({f.get('path') for f in findings}),
+            'by_kind': by_kind,
+            'findings': sorted(findings, key=lambda f: -int(f.get('count') or 0))[:100],
+        })
+    hosts.sort(key=lambda h: -sum(h['by_kind'].values()))
+    respond(200, {
+        'ok': True,
+        'hosts': hosts,
+        'totals': totals,
+        'enabled': bool(_config_ro().get('pii_scan_enabled')),
+        'scanned_hosts': len(hosts),
+    })
+
+
+def handle_pii_scan_now():
+    """POST /api/pii/scan {device_id?} — queue a one-shot PII scan.
+
+    Same one-shot `force_*` delivery contract as the secrets/disk scans. Without a
+    server set-site the only trigger would be the 24h cadence, which is exactly the
+    "feature that can never fire on demand" shape the v6.1.2 trivy bug taught us.
+    """
+    actor = require_write_role('exec')
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PiiScanNowRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    target = str(body.get('device_id') or '').strip()
+    if target and not _validate_id(target):
+        respond(400, {'error': 'Invalid device_id'})
+    if not _config_ro().get('pii_scan_enabled'):
+        respond(400, {'error': 'PII scanning is off — enable it in Settings → '
+                               'Security first.'})
+    queued = []
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if target:
+            if target not in devices:
+                respond(404, {'error': 'device not found'})
+            targets = [target]
+        else:
+            targets = [d for d, dev in devices.items() if not dev.get('agentless')]
+        for d in targets:
+            if not _tenant_visible(devices[d]):
+                continue
+            devices[d]['force_pii_scan'] = True
+            queued.append(d)
+    audit_log(actor, 'pii_scan_queued', detail=f'devices={len(queued)}')
+    respond(200, {'ok': True, 'queued': len(queued),
+                  'message': (f'PII scan queued on {len(queued)} host(s) — the agent '
                               'runs it on the next heartbeat.') if queued else
                              'No agent hosts to scan.'})
 
@@ -50823,6 +51466,20 @@ def _fire_expired_confirmations(expired_payloads):
             sys.stderr.write(f'[remotepower] mcp_confirmation_expired fire failed: {e}\n')
 
 
+def _mcp_command_preview(action, params):
+    """The command string an MCP/AI action WOULD queue — for the shared gate only.
+
+    The gate needs to know the command's shape (poll_interval is exempt from all
+    three conditions); it does not need the real body. Anything that queues real
+    work maps to a representative string.
+    """
+    if action == 'reboot_device':
+        return 'reboot'
+    if action == 'queue_command':
+        return str((params or {}).get('command') or '')
+    return 'exec:'   # run_saved_script / exec_command / ai_exec_action
+
+
 def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt):
     """Append a pending confirmation; return its id. Locks the file."""
     conf_id = 'cf_' + os.urandom(6).hex()
@@ -50859,11 +51516,17 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
     # still exists and is not quarantined. A maker-checker request parked while
     # the device was healthy could otherwise be approved after the device was
     # deleted (orphaned queue entry) or quarantined (command would still run).
-    if action in ('reboot_device', 'run_saved_script', 'exec_command', 'queue_command'):
+    if action in ('reboot_device', 'run_saved_script', 'exec_command', 'queue_command',
+                  'ai_exec_action'):
         if device_id not in devs:
             return {'ok': False, 'error': 'device not found'}
-        if _device_quarantined(devs[device_id]):
-            return {'ok': False, 'error': 'device is quarantined'}
+        # v6.1.3: was a bare quarantine check — it did NOT honour maintenance mode
+        # or audit mode, so an approved confirmation could fire a command at a host
+        # mid-drain, or at an agent that would refuse it locally anyway. Now shares
+        # the one predicate with _queue_command rather than keeping its own subset.
+        _blocked = _command_block_reason(devs[device_id], _mcp_command_preview(action, params))
+        if _blocked:
+            return {'ok': False, 'error': _blocked[1]}
 
     if action == 'reboot_device':
         cmds = load(CMDS_FILE)
@@ -50897,6 +51560,34 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
             'device_id': device_id, 'name': dev_name,
             'command': f'exec:script:{script.get("name") or script_id}',
             'actor': actor,
+        })
+
+    elif action == 'ai_exec_action':
+        # v6.1.3: the AI executor's approved action. The catalog id is re-resolved
+        # from the LIVE store here — never a command string carried in the ledger,
+        # so there is no point at which model output or ledger content becomes a
+        # command.
+        catalog_id = (params or {}).get('catalog_id') or ''
+        cmd_str, body_hash = _ai_exec_resolve(catalog_id)
+        if not cmd_str:
+            return {'ok': False,
+                    'error': f'action "{catalog_id}" no longer exists — it may have '
+                             f'been deleted since it was proposed'}
+        # WHAT YOU APPROVE IS WHAT RUNS. If the script body changed between the
+        # proposal and the approval (another admin edited it), refuse rather than
+        # silently run something the approver never saw.
+        pinned = (params or {}).get('body_sha256') or ''
+        if pinned and pinned != body_hash:
+            return {'ok': False,
+                    'error': 'This action changed after it was proposed — the approver '
+                             'would not be approving what now runs. Re-propose it.'}
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            cmds.setdefault(device_id, []).append(cmd_str)
+        label = (params or {}).get('label') or catalog_id
+        log_command(actor, device_id, dev_name, f'ai_exec({catalog_id})')
+        fire_webhook('command_queued', {
+            'device_id': device_id, 'name': dev_name,
+            'command': f'ai_exec:{label}', 'actor': actor,
         })
 
     elif action == 'force_package_scan':
@@ -51066,6 +51757,214 @@ def handle_mcp_force_package_scan():
 
 def handle_mcp_force_acme_rescan():
     _mcp_handle('force_acme_rescan', destructive=False)
+
+
+# ── v6.1.3: governed AI executor — PHASE 0 (propose; a human always approves) ──
+#
+# The strategic bet of every "autonomous AI operator" pitch is that the model can
+# be trusted to act. We take the opposite bet: assume the model can be fully
+# prompt-injected by a hostile log line, and design so that the worst it can do is
+# still safe. Three constraints do all the work, and none of them is a new
+# enforcement chokepoint — they compose gates that already exist:
+#
+#   1. THE MODEL RETURNS AN ID, NEVER A COMMAND. The executor may only SELECT from
+#      a server-built catalog of operator-authored artifacts (saved scripts,
+#      registered playbook fixes). The catalog is built server-side; the model's
+#      answer is validated against it and anything else is refused. A completely
+#      compromised model can therefore, at absolute worst, pick a *different script
+#      an operator already wrote and saved*. It cannot author shell. This single
+#      constraint eliminates most of the threat model, which is why v1 has no
+#      free-form-command path at all — not as an oversight, as the design.
+#
+#   2. A HUMAN ALWAYS APPROVES. A proposal is an ordinary entry in the existing
+#      confirmations ledger, so it inherits — for free — the TTL, the tenant
+#      filter, the separation-of-duties rule (`change_approval_no_self`: the
+#      requester cannot approve their own change), the audit trail, and the
+#      existing approve/reject UI. Nothing here is autonomous. Phase 0 executes
+#      nothing on its own, ever.
+#
+#   3. WHAT YOU APPROVE IS WHAT RUNS. The proposal pins a hash of the script body
+#      it was built from. At approval the body is re-resolved and re-hashed; if it
+#      changed in between (another admin edited the script), the execution is
+#      REFUSED rather than silently running something the approver never saw. That
+#      TOCTOU is small but it is exactly the sort of gap an executor must not have.
+#
+# And it ships OFF. `ai_exec` is an optional module (default False), so a
+# deployment that wants zero AI-initiated actions can make that structurally true
+# at the dispatcher — a 404 on the whole prefix — rather than trusting a UI
+# preference.
+_AI_EXEC_MAX_CATALOG = 200
+
+
+def _ai_exec_catalog():
+    """The executor's ENTIRE action space. Built server-side from operator-authored
+    artifacts only — this is the list the model chooses from, and the list it is
+    validated against.
+
+    Exposed over the API on purpose: an operator should be able to read, in one
+    place, every action their AI could ever propose.
+    """
+    out = []
+    scripts = load(SCRIPTS_FILE) or {}
+    # scripts.json is a dict keyed by script id (see _mcp_execute).
+    for sid, s in list(scripts.items())[:_AI_EXEC_MAX_CATALOG]:
+        if not isinstance(s, dict):
+            continue
+        body = s.get('body') or ''
+        if not str(body).strip():
+            continue
+        out.append({
+            'id': f'script:{sid}',
+            'kind': 'script',
+            'label': s.get('name') or sid,
+            'description': s.get('description') or '',
+            # The approver sees the hash; execution re-checks it (constraint 3).
+            'body_sha256': hashlib.sha256(str(body).encode()).hexdigest(),
+        })
+    for key, pb in _MITIGATE_PLAYBOOKS.items():
+        fix = (pb or {}).get('fix')
+        if not fix or not str(fix).strip():
+            continue    # diagnostic-only playbooks are not actions
+        out.append({
+            'id': f'playbook:{key}',
+            'kind': 'playbook',
+            'label': pb.get('label') or key,
+            'description': 'Registered remediation playbook',
+            'body_sha256': hashlib.sha256(str(fix).encode()).hexdigest(),
+        })
+    return out
+
+
+def _ai_exec_resolve(catalog_id):
+    """(command, body_sha256) for a catalog id, or (None, None).
+
+    Re-resolved from the live store at EXECUTION time — never from anything the
+    model or the ledger carried. The hash is what ties it back to what was
+    approved.
+    """
+    cid = str(catalog_id or '')
+    if cid.startswith('script:'):
+        sid = cid.split(':', 1)[1]
+        script = (load(SCRIPTS_FILE) or {}).get(sid) or {}
+        body = str(script.get('body') or '')
+        if not body.strip():
+            return None, None
+        return 'exec:' + body, hashlib.sha256(body.encode()).hexdigest()
+    if cid.startswith('playbook:'):
+        key = cid.split(':', 1)[1]
+        fix = str((_MITIGATE_PLAYBOOKS.get(key) or {}).get('fix') or '')
+        if not fix.strip():
+            return None, None
+        return 'exec:' + fix, hashlib.sha256(fix.encode()).hexdigest()
+    return None, None
+
+
+def handle_ai_exec_catalog():
+    """GET /api/ai-exec/catalog — every action the executor could ever propose.
+
+    Transparency is the point: an operator can audit the model's entire action
+    space in one place, and see that it contains nothing but artifacts they wrote.
+    """
+    require_auth()
+    respond(200, {'ok': True, 'catalog': _ai_exec_catalog(),
+                  'note': 'The AI executor may only SELECT from this list. It cannot '
+                          'author a command.'})
+
+
+def handle_ai_exec_propose():
+    """POST /api/ai-exec/propose {device_id, context} — ask the model to pick a
+    remediation, and PARK it for a human.
+
+    Executes nothing. The response is a pending confirmation id; a (different)
+    admin approves it in the existing Confirmations UI, and only then does it run —
+    through the same gate as every other command.
+    """
+    actor = require_write_role('propose an AI remediation')
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiExecProposeRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    dev_id = str(body.get('device_id') or '').strip()
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'valid device_id required'})
+    # Cross-tenant/out-of-scope device → 404, never confirm the id exists.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+
+    catalog = _ai_exec_catalog()
+    if not catalog:
+        respond(400, {'error': 'The executor has no actions to choose from — save a '
+                               'script first. It can only select artifacts you wrote; '
+                               'it cannot author commands.'})
+    context = _sanitize_str(str(body.get('context') or ''), 4000)
+    dev_name = (devices.get(dev_id) or {}).get('name', dev_id)
+    listing = '\n'.join(
+        f"- {c['id']}: {c['label']}" + (f" — {c['description']}" if c['description'] else '')
+        for c in catalog)
+    system_prompt = (
+        'You are a cautious SRE assistant for a fleet-management product. You are '
+        'given a host, a problem description, and a FIXED CATALOG of remediation '
+        'actions that a human operator has already written and saved. '
+        'You must choose AT MOST ONE action from that catalog, by its exact id. '
+        'You may not invent an action, and you may not write a command — if nothing '
+        'in the catalog is appropriate, you must answer NONE. Preferring NONE over a '
+        'poor match is always the correct call; a human reviews your choice either '
+        'way, and a wrong action is far more expensive than no action.'
+    )
+    user_prompt = (
+        f'Host: {dev_name}\n'
+        f'Problem:\n{context or "(none given)"}\n\n'
+        f'Catalog of permitted actions:\n{listing}\n\n'
+        'Answer in exactly this format:\n'
+        'CHOICE: <exact id from the catalog, or NONE>\n'
+        'REASON: <one sentence>'
+    )
+    try:
+        ai_result = _call_ai_with_prompts(system_prompt, user_prompt, 'ai_exec_propose')
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] ai_exec propose failed: {e}\n')
+        respond(500, {'error': f'AI call failed: {e}'})
+    if not ai_result.get('ok'):
+        respond(502, {'error': ai_result.get('error') or 'AI provider returned no text'})
+    text = ai_result.get('text', '') or ''
+
+    choice, reason = '', ''
+    for line in text.splitlines():
+        ls = line.strip()
+        if ls.upper().startswith('CHOICE:'):
+            choice = ls.split(':', 1)[1].strip()
+        elif ls.upper().startswith('REASON:'):
+            reason = ls.split(':', 1)[1].strip()
+    if not choice or choice.upper() == 'NONE':
+        respond(200, {'ok': True, 'proposed': False,
+                      'summary': _sanitize_str(text, 2000),
+                      'message': 'The model found no suitable action in the catalog.'})
+
+    # THE VALIDATION THAT MAKES THE WHOLE DESIGN WORK: the model's answer is an
+    # index into a server-built list, and anything that is not in that list is
+    # refused outright. There is no path from model output to a command string.
+    entry = next((c for c in catalog if c['id'] == choice), None)
+    if not entry:
+        audit_log(actor, 'ai_exec_rejected',
+                  detail=f'model proposed an id not in the catalog: {choice[:80]}')
+        respond(400, {'ok': False, 'proposed': False,
+                      'error': 'The model proposed an action that is not in the catalog; '
+                               'it was refused.'})
+
+    conf_id = _create_confirmation(
+        'ai_exec_action', dev_id,
+        {'catalog_id': entry['id'], 'label': entry['label'],
+         'body_sha256': entry['body_sha256'],       # constraint 3: pin what was seen
+         'reason': _sanitize_str(reason, 300)},
+        actor=actor, ai_host=_ai_cfg().get('provider') or 'ai',
+        ai_prompt=_sanitize_str(context, 500),
+    )
+    respond(202, {'ok': True, 'proposed': True, 'confirmation_id': conf_id,
+                  'action': entry['id'], 'label': entry['label'],
+                  'reason': _sanitize_str(reason, 300),
+                  'message': 'Proposed. A human admin must approve it before it runs — '
+                             'nothing has been executed.'})
 
 
 # ── Confirmation queue endpoints (admin-only, called from the dashboard) ────
@@ -59325,6 +60224,138 @@ def _trim_sysinfo(sysinfo) -> dict:
 
 
 
+# ─── v6.1.3: JIT credential checkout ────────────────────────────────────────
+#
+# "Who can reveal this credential?" becomes "who has ACTIVE, justified, expiring
+# access to it right now?" — the useful half of PAM without becoming a PAM.
+#
+# What this is NOT: the server never holds the vault key (the passphrase is
+# entered in the browser, the derived key is returned to it and replayed as an
+# X-RP-Vault-Key header on every operation — see cmdb_vault.py). So a "checkout"
+# cannot lease key MATERIAL server-side without inverting that design. It is an
+# AUTHORIZATION grant: a time-boxed, reasoned, audited permission that the reveal
+# handler checks, while the browser still supplies the key.
+#
+# Deliberately distinct from break-glass, which stays exactly as it was:
+#   break-glass = TWO-PERSON, one-shot, 15 min, for creds flagged `break_glass`.
+#   checkout    = SELF-service, N-hour window, reusable within it, opt-in
+#                 fleet-wide via `vault_checkout_required`.
+# Break-glass creds still require break-glass; a checkout never substitutes for it.
+VAULT_CHECKOUTS_FILE = DATA_DIR / 'vault_checkouts.json'   # v6.1.3
+_CHECKOUT_MAX_HOURS = 24
+_CHECKOUT_DEFAULT_HOURS = 1
+
+
+def _checkouts_load() -> dict:
+    try:
+        return load(VAULT_CHECKOUTS_FILE) or {}
+    except Exception:
+        return {}
+
+
+def _checkout_active(actor: str, dev_id: str, cred_id: str) -> bool:
+    """True if `actor` holds an unexpired checkout for this exact credential.
+
+    Expiry is evaluated at READ time, not by a sweep — a grant that has lapsed is
+    dead the moment it lapses, even if nothing has pruned the store yet. A sweep
+    that had not run would otherwise silently extend everyone's access.
+    """
+    now = int(time.time())
+    for r in _checkouts_load().values():
+        if (r.get('actor') == actor
+                and r.get('device_id') == dev_id
+                and r.get('cred_id') == cred_id
+                and int(r.get('expires_at') or 0) > now):
+            return True
+    return False
+
+
+def _checkout_required() -> bool:
+    return bool(_config_ro().get('vault_checkout_required'))
+
+
+def handle_vault_checkout() -> None:
+    """POST /api/cmdb/vault/checkout {device_id, cred_id, reason, hours}
+
+    Grants the CALLER a time-boxed window to reveal one credential. Requires a
+    reason — an unreasoned checkout is just a slower reveal, and the reason is
+    the entire audit value.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.VaultCheckoutRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    dev_id = str(body.get('device_id') or '').strip()
+    cred_id = str(body.get('cred_id') or '').strip()
+    reason = _sanitize_str(str(body.get('reason') or ''), 300).strip()
+    if not _validate_id(dev_id) or not cred_id:
+        respond(400, {'error': 'device_id and cred_id are required'})
+    if not reason:
+        respond(400, {'error': 'a reason is required to check out a credential'})
+    # Cross-tenant / out-of-scope devices must 404, not 403 — never confirm that
+    # an id you cannot see exists.
+    devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+    if dev_id not in devs:
+        respond(404, {'error': 'device not found'})
+    try:
+        hours = float(body.get('hours') or _CHECKOUT_DEFAULT_HOURS)
+    except (TypeError, ValueError):
+        hours = _CHECKOUT_DEFAULT_HOURS
+    hours = max(0.25, min(_CHECKOUT_MAX_HOURS, hours))
+
+    now = int(time.time())
+    cid = 'co_' + secrets.token_hex(8)
+    expires_at = now + int(hours * 3600)
+    with _LockedUpdate(VAULT_CHECKOUTS_FILE) as store:
+        # Opportunistic prune of lapsed grants so the store can't grow forever.
+        for k in [k for k, v in store.items()
+                  if int(v.get('expires_at') or 0) < now - 86400]:
+            store.pop(k, None)
+        store[cid] = {
+            'id': cid, 'actor': actor, 'device_id': dev_id, 'cred_id': cred_id,
+            'reason': reason, 'created': now, 'expires_at': expires_at,
+        }
+    # audit_log is self-locking → AFTER the block.
+    audit_log(actor, 'cmdb_vault_checkout',
+              detail=f'device={dev_id} cred={cred_id} hours={hours:g} reason={reason[:80]}',
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True, 'id': cid, 'expires_at': expires_at,
+                  'expires_in': expires_at - now})
+
+
+def handle_vault_checkouts_list() -> None:
+    """GET /api/cmdb/vault/checkouts — who currently holds live access, and why.
+
+    The point of the feature: standing access becomes visible, dated, expiring
+    access. Admin + auditor (the oversight role reads it, and reveals nothing).
+    """
+    require_admin_or_auditor_auth()
+    now = int(time.time())
+    devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+    rows = [dict(r, expires_in=int(r.get('expires_at') or 0) - now)
+            for r in _checkouts_load().values()
+            if int(r.get('expires_at') or 0) > now and r.get('device_id') in devs]
+    rows.sort(key=lambda r: r.get('expires_at') or 0)
+    respond(200, {'ok': True, 'checkouts': rows, 'required': _checkout_required()})
+
+
+def handle_vault_checkout_revoke(cid: str) -> None:
+    """DELETE /api/cmdb/vault/checkouts/{id} — end a window early."""
+    actor = require_admin_auth()
+    with _LockedUpdate(VAULT_CHECKOUTS_FILE) as store:
+        r = store.get(cid)
+        if not r:
+            respond(404, {'error': 'checkout not found'})
+        store.pop(cid, None)
+    audit_log(actor, 'cmdb_vault_checkout_revoked',
+              detail=f"checkout={cid} holder={r.get('actor')}",
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True})
+
+
 # ─── v5.0.0 (#C3): break-glass two-person rule for sensitive credential reveals ──
 _BREAKGLASS_TTL = 900  # 15 min — a fresh approval is only valid this long
 
@@ -60055,6 +61086,8 @@ def _build_exact_routes():
         ('GET', '/api/billing/worksheet'): handle_billing_worksheet,
         ('GET', '/api/invoices'): handle_invoices,
         ('POST', '/api/invoices'): handle_invoices,
+        ('GET', '/api/quotes'): handle_quotes,     # v6.1.3
+        ('POST', '/api/quotes'): handle_quotes,    # v6.1.3
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
@@ -60650,6 +61683,10 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/cmdb/vault/change', '', 'handle_cmdb_vault_change', "pi == '/api/cmdb/vault/change'  and m == 'POST'"),
     ('eq', ('GET',), '/api/cmdb/server-functions', '', 'handle_cmdb_server_functions', "pi == '/api/cmdb/server-functions' and m == 'GET'"),
     ('eq', ('GET',), '/api/cmdb/break-glass', '', 'handle_breakglass_list', "pi == '/api/cmdb/break-glass' and m == 'GET'"),
+    # v6.1.3: JIT credential checkout
+    ('eq', ('POST',), '/api/cmdb/vault/checkout', '', 'handle_vault_checkout', "pi == '/api/cmdb/vault/checkout' and m == 'POST'"),
+    ('eq', ('GET',), '/api/cmdb/vault/checkouts', '', 'handle_vault_checkouts_list', "pi == '/api/cmdb/vault/checkouts' and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/cmdb/vault/checkouts/', '', 'handle_vault_checkout_revoke', "pi.startswith('/api/cmdb/vault/checkouts/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/cmdb/break-glass/', '/approve', 'handle_breakglass_approve', "pi.startswith('/api/cmdb/break-glass/') and pi.endswith('/approve') and m == 'POST'"),
     ('eq', ('GET',), '/api/scoped-credentials', '', 'handle_scoped_credentials_list', "pi == '/api/scoped-credentials' and m == 'GET'"),
     ('eq', ('POST',), '/api/scoped-credentials', '', 'handle_scoped_credentials_add', "pi == '/api/scoped-credentials' and m == 'POST'"),
@@ -60679,6 +61716,18 @@ _PATTERN_ROUTE_DEFS = (
     ('code', None, None, None, '_route_code_262', "pi.startswith('/api/proxmox/qemu/') and m == 'POST'"),
     ('code', None, None, None, '_route_code_263', "pi.startswith('/api/proxmox/lxc/') and m == 'POST'"),
     ('eq', ('POST',), '/api/proxmox/snapshot', '', 'handle_proxmox_snapshot_action', "pi == '/api/proxmox/snapshot' and m == 'POST'"),
+    # v6.1.3: governed AI executor (Phase 0 — proposes only; a human approves).
+    ('eq', ('GET',), '/api/ai-exec/catalog', '', 'handle_ai_exec_catalog', "pi == '/api/ai-exec/catalog' and m == 'GET'"),
+    ('eq', ('POST',), '/api/ai-exec/propose', '', 'handle_ai_exec_propose', "pi == '/api/ai-exec/propose' and m == 'POST'"),
+    # v6.1.3: EDR coverage cross-reference (which hosts have no EDR at all).
+    ('eq', ('GET',), '/api/edr/coverage', '', 'handle_edr_coverage', "pi == '/api/edr/coverage' and m == 'GET'"),
+    # v6.1.3: PII / sensitive-data inventory (never stores a value — see _ingest_pii_findings).
+    ('eq', ('GET',), '/api/pii', '', 'handle_pii_list', "pi == '/api/pii' and m == 'GET'"),
+    ('eq', ('POST',), '/api/pii/scan', '', 'handle_pii_scan_now', "pi == '/api/pii/scan' and m == 'POST'"),
+    # v6.1.3: DNS-blocker control (Pi-hole / AdGuard) — the write half.
+    ('eq', ('GET',), '/api/dns-control/blockers', '', 'handle_dns_blockers', "pi == '/api/dns-control/blockers' and m == 'GET'"),
+    ('pat', ('GET',), '/api/dns-control/', '/blocking', 'handle_dns_blocking_get', "pi.startswith('/api/dns-control/') and pi.endswith('/blocking') and m == 'GET'"),
+    ('pat', ('POST',), '/api/dns-control/', '/blocking', 'handle_dns_blocking_set', "pi.startswith('/api/dns-control/') and pi.endswith('/blocking') and m == 'POST'"),
     ('eq', ('GET',), '/api/virt/platforms', '', 'handle_virt_platforms', "pi == '/api/virt/platforms' and m == 'GET'"),
     ('pat', ('GET',), '/api/virt/', '/vms', 'handle_virt_vms', "pi.startswith('/api/virt/') and pi.endswith('/vms') and m == 'GET'"),
     ('pat', ('POST',), '/api/virt/', '/power', 'handle_virt_power', "pi.startswith('/api/virt/') and pi.endswith('/power') and m == 'POST'"),
@@ -60713,6 +61762,12 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PATCH', 'POST', 'DELETE'), '/api/cve/campaigns/', '', 'handle_cve_campaign', "pi.startswith('/api/cve/campaigns/') and m in ('PATCH', 'POST', 'DELETE')"),
     ('pat', ('GET',), '/api/invoices/', '', 'handle_invoice_get', "pi.startswith('/api/invoices/') and m == 'GET'"),
     ('pat', ('PATCH', 'POST'), '/api/invoices/', '', 'handle_invoice_update', "pi.startswith('/api/invoices/') and m in ('PATCH', 'POST')"),
+    # v6.1.3: quotes. /convert MUST precede the generic /api/quotes/{id} POST —
+    # first match wins, so the generic row would otherwise swallow the convert
+    # path and hand the handler an id of "<id>/convert".
+    ('pat', ('POST',), '/api/quotes/', '/convert', 'handle_quote_convert', "pi.startswith('/api/quotes/') and pi.endswith('/convert') and m == 'POST'"),
+    ('pat', ('GET',), '/api/quotes/', '', 'handle_quote_get', "pi.startswith('/api/quotes/') and m == 'GET'"),
+    ('pat', ('PATCH', 'POST'), '/api/quotes/', '', 'handle_quote_update', "pi.startswith('/api/quotes/') and m in ('PATCH', 'POST')"),
     ('pat', ('POST',), '/api/tickets/', '/email', 'handle_ticket_send_email', "pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST'"),
     ('code', None, None, None, '_route_code_294', "pi.startswith('/api/tickets/') and '/attachments/' in pi and m == 'GET'"),
     ('pat', ('GET',), '/api/tickets/', '', 'handle_ticket_get', "pi.startswith('/api/tickets/') and m == 'GET'"),

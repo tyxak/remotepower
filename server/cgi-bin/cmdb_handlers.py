@@ -583,6 +583,24 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
         if not ok:
             A.respond(403, {'break_glass': True, 'error': why})
 
+    # v6.1.3: JIT checkout. When `vault_checkout_required` is on, revealing a
+    # credential needs an active, reasoned, time-boxed grant held by THIS caller
+    # — standing admin access becomes expiring, justified access.
+    #
+    # Checked AFTER break-glass on purpose: a break-glass credential still needs
+    # its two-person approval, and a checkout must never substitute for that.
+    # (A break-glass cred therefore needs BOTH, which is correct — checkout is a
+    # floor, not a ceiling.)
+    if A._checkout_required() and not A._checkout_active(actor, dev_id, cred_id):
+        A.audit_log(actor, 'cmdb_credential_reveal_denied',
+                    detail=f'device={dev_id} cred={cred_id} reason=no_checkout',
+                    source_ip=A._get_client_ip())
+        A.respond(403, {
+            'checkout_required': True,
+            'error': 'This credential requires an active checkout. Check it out '
+                     '(with a reason) before revealing it.',
+        })
+
     try:
         plaintext = A.cmdb_vault.decrypt(key,
                                        {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})

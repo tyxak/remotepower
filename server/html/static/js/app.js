@@ -1724,6 +1724,13 @@ const MODULE_PAGES = {
   kb:         'kb',
   compliance: 'compliance',
   pentest:    'scans',
+  // v6.1.3: the AI executor gates an API prefix but owns NO page — its proposals
+  // land in the existing Confirmations queue. `null` means "no nav to hide", and
+  // it is spelled out rather than omitted so the map stays 1:1 with api._MODULES
+  // (an omission would read as an oversight). Mapping it to 'confirmations' would
+  // be wrong: switching the executor off must not hide the MCP maker-checker
+  // queue, which is a different feature entirely.
+  ai_exec:    null,
 };
 
 // [checkbox id, config key, default] — defaults MUST mirror api._MODULES, or a
@@ -1736,10 +1743,12 @@ const MODULE_SETTINGS = [
   ['cfg-mod-kb',         'kb_enabled',         false],
   ['cfg-mod-compliance', 'compliance_enabled', true],
   ['cfg-mod-pentest',    'pentest_enabled',    true],
+  ['cfg-mod-ai_exec',    'ai_exec_enabled',    false],
 ];
 
 function _applyModuleNavGates(modules) {
   for (const [mod, page] of Object.entries(MODULE_PAGES)) {
+    if (!page) continue;                  // module with no page of its own
     // Absent from the payload = an older server = leave it visible.
     if (!(mod in modules)) continue;
     const off = !modules[mod];
@@ -1752,6 +1761,7 @@ function _applyModuleNavGates(modules) {
 function _moduleOffFor(page) {
   const mods = window._modules || {};
   for (const [mod, p] of Object.entries(MODULE_PAGES)) {
+    if (!p) continue;                     // module with no page of its own
     if (p === page && mod in mods && !mods[mod]) return mod;
   }
   return null;
@@ -3659,6 +3669,16 @@ async function loadSettings() {
     const dp = document.getElementById('cfg-du-scan-paths');
     if (dp) dp.value = (data.du_scan_paths || []).join('\n');
   }
+  // v6.1.3: regulated-data (PII) scan
+  const _piiEn = document.getElementById('cfg-pii-scan-enabled');
+  if (_piiEn) {
+    _piiEn.checked = !!data.pii_scan_enabled;
+    const pp = document.getElementById('cfg-pii-scan-paths');
+    if (pp) pp.value = (data.pii_scan_paths || []).join('\n');
+  }
+  // v6.1.3: JIT credential checkout
+  const _coReq = document.getElementById('cfg-vault-checkout-required');
+  if (_coReq) _coReq.checked = !!data.vault_checkout_required;
   // W3-38: canary files
   { const cf = document.getElementById('cfg-canary-paths');
     if (cf) cf.value = (data.canary_files || []).map(c => c.path).join('\n'); }
@@ -4229,6 +4249,16 @@ async function saveSettings(btn) {
     payload.du_scan_paths = (document.getElementById('cfg-du-scan-paths')?.value || '')
       .split('\n').map(s => s.trim()).filter(Boolean);
   }
+  // v6.1.3: regulated-data (PII) scan
+  const _piiSaveEn = document.getElementById('cfg-pii-scan-enabled');
+  if (_piiSaveEn) {
+    payload.pii_scan_enabled = _piiSaveEn.checked;
+    payload.pii_scan_paths = (document.getElementById('cfg-pii-scan-paths')?.value || '')
+      .split('\n').map(s => s.trim()).filter(Boolean);
+  }
+  // v6.1.3: JIT credential checkout
+  const _coSaveReq = document.getElementById('cfg-vault-checkout-required');
+  if (_coSaveReq) payload.vault_checkout_required = _coSaveReq.checked;
   const _caEn = document.getElementById('cfg-change-approval-enabled');
   if (_caEn) {
     payload.change_approval_enabled = _caEn.checked;
@@ -6117,6 +6147,67 @@ async function loadRisk() {
   const s = document.getElementById('risk-summary');
   if (s) { const c = data.counts || {}; s.innerHTML = `${data.total} assets · avg ${data.avg} · critical <span class="${(c.critical||0) > 0 ? 'c-red fw-600' : ''}">${c.critical||0}</span> · high <span class="${(c.high||0) > 0 ? 'c-amber' : ''}">${c.high||0}</span> · medium ${c.medium||0}`; }
   _renderRisk();
+  loadEdrCoverage();   // v6.1.3
+}
+
+// ── v6.1.3: EDR coverage ─────────────────────────────────────────────────────
+// The EDR connectors know which hosts they protect. This names the ones they've
+// never heard of. The card stays hidden until an EDR integration is configured —
+// an empty "0 uncovered" table on a fleet with no EDR would read as an all-clear.
+let _edrResp = null;
+async function loadEdrCoverage() {
+  const card = document.getElementById('edr-coverage-card');
+  const tbody = document.getElementById('edr-coverage-tbody');
+  if (!card || !tbody) return;
+  tableCtl.wireSortOnly('edr-coverage-thead', 'edr_coverage', () => _renderEdrCoverage());
+  let data = null;
+  try { data = await api('GET', '/edr/coverage'); } catch (e) { /* optional */ }
+  if (!data || !data.ok || !(data.configured || []).length) {
+    card.classList.add('d-none');
+    return;
+  }
+  card.classList.remove('d-none');
+  _edrResp = data;
+  const sub = document.getElementById('edr-coverage-sub');
+  if (sub) {
+    const s = data.summary || {};
+    sub.innerHTML = `${s.covered || 0}/${s.total || 0} protected · `
+      + `<span class="${(s.uncovered || 0) > 0 ? 'c-red fw-600' : ''}">${s.uncovered || 0} with no EDR</span>`
+      + ((s.stale || 0) > 0 ? ` · <span class="c-amber">${s.stale} stale</span>` : '');
+  }
+  _renderEdrCoverage();
+}
+
+function _renderEdrCoverage() {
+  const tbody = document.getElementById('edr-coverage-tbody');
+  if (!tbody || !_edrResp) return;
+  let rows = (_edrResp.hosts || []).slice();
+  rows = tableCtl.sortRows('edr_coverage', rows, (r) => ({
+    host:    String(r.hostname || '').toLowerCase(),
+    // Sort key orders the way the page is meant to be read: gaps first.
+    state:   r.covered ? (r.stale ? 1 : 2) : 0,
+    vendor:  ((r.by || [])[0] || {}).vendor || '',
+    version: ((r.by || [])[0] || {}).agent_version || '',
+  }));
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="hint">No hosts.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const state = !r.covered
+      ? '<span class="patch-badge crit">No EDR</span>'
+      : (r.stale ? '<span class="patch-badge warn">Stale agent</span>'
+                 : '<span class="patch-badge ok">Protected</span>');
+    const by = (r.by || []).map(b => escHtml(b.label || b.vendor)).join(', ')
+      || '<span class="hint">—</span>';
+    const ver = ((r.by || [])[0] || {}).agent_version || '';
+    return `<tr>
+      <td>${escHtml(r.hostname || r.device_id)}</td>
+      <td>${state}</td>
+      <td>${by}</td>
+      <td>${ver ? escHtml(ver) : '<span class="hint">—</span>'}</td>
+    </tr>`;
+  }).join('');
 }
 function _riskColor(level) {
   return level === 'critical' ? 'var(--red)' : level === 'high' ? 'var(--amber)' : level === 'medium' ? 'var(--muted)' : 'var(--green)';
@@ -11887,7 +11978,14 @@ async function loadIntegrationsPage() {
       version: i.last_version, checked: i.last_checked, stats: i.last_stats || [],
       top_blocked: i.last_top_blocked || [], top_clients: i.last_top_clients || [],
     }));
-    _renderDnsBlockPanels(items);   // v6.1.2
+    // v6.1.3: which of these blockers we can actually CONTROL (server registry is
+    // authoritative — don't hard-code the type list in the client).
+    let dnsCtl = null;
+    try {
+      const d = await api('GET', '/dns-control/blockers');
+      if (d && d.ok) dnsCtl = d;
+    } catch (e) { /* control is optional — the panels still render read-only */ }
+    _renderDnsBlockPanels(items, dnsCtl);   // v6.1.2, control v6.1.3
     const order = { critical: 0, warning: 1, unknown: 2, ok: 3 };
     items.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.label || '').localeCompare(String(b.label || '')));
     wrap.innerHTML = _integrationTiles(items);
@@ -11907,11 +12005,16 @@ async function loadIntegrationsPage() {
 // 4,000 times" is a decision, "23%" is trivia. Both connectors already had to call
 // the stats endpoint for the headline number; the top-N lists come from the same
 // response (AdGuard) or one extra cheap call (Pi-hole).
-function _renderDnsBlockPanels(items) {
+function _renderDnsBlockPanels(items, dnsCtl) {
   const wrap = document.getElementById('dns-block-panels');
   if (!wrap) return;
+  // A controllable blocker gets a card even with no stats yet — otherwise the
+  // control you came here for is missing on a freshly-added Pi-hole.
+  const ctl = new Set(((dnsCtl && dnsCtl.blockers) || []).map(b => b.id));
   const dns = (items || []).filter(
-    i => (i.top_blocked && i.top_blocked.length) || (i.top_clients && i.top_clients.length));
+    i => (i.top_blocked && i.top_blocked.length)
+      || (i.top_clients && i.top_clients.length)
+      || ctl.has(i.id));
   wrap.innerHTML = '';
   if (!dns.length) { wrap.classList.add('d-none'); return; }
   wrap.classList.remove('d-none');
@@ -11923,6 +12026,7 @@ function _renderDnsBlockPanels(items) {
     title.className = 'section-title';
     title.textContent = i.label || i.type;
     card.appendChild(title);
+    if (ctl.has(i.id)) card.appendChild(_dnsControlRow(i, dnsCtl));
 
     const row = document.createElement('div');
     row.className = 'settings-row';
@@ -11973,6 +12077,95 @@ function _renderDnsBlockPanels(items) {
     card.appendChild(row);
     wrap.appendChild(card);
   });
+}
+
+// ── v6.1.3: DNS-blocker control (Pi-hole / AdGuard) ──────────────────────────
+// "Something's broken — is it the ad-blocker?" was the one question the read-only
+// connectors made you leave RemotePower to answer. Disabling is always TIMED: the
+// blocker re-enables itself, so a debug session can't silently become a permanent
+// hole. There is no disable-forever button on purpose.
+const _DNS_WINDOWS = [[300, '5 minutes'], [900, '15 minutes'],
+                      [3600, '1 hour'], [14400, '4 hours']];
+
+function _dnsControlRow(item, dnsCtl) {
+  const max = (dnsCtl && dnsCtl.max_seconds) || 14400;
+  const isAdmin = !!(_meCache && _meCache.admin);
+  const row = document.createElement('div');
+  row.className = 'row-8-center mb-12';
+
+  const state = document.createElement('span');
+  state.className = 'patch-badge';
+  state.textContent = '…';
+  row.appendChild(state);
+
+  const sel = document.createElement('select');
+  sel.className = 'form-input';
+  _DNS_WINDOWS.filter(([s]) => s <= max).forEach(([s, label]) => {
+    sel.appendChild(new Option(label, String(s)));   // new Option — CodeQL-clean
+  });
+  sel.value = String((dnsCtl && dnsCtl.default_seconds) || 300);
+
+  const off = document.createElement('button');
+  off.className = 'btn-icon';
+  off.textContent = 'Pause blocking';
+  const on = document.createElement('button');
+  on.className = 'btn-icon';
+  on.textContent = 'Resume blocking';
+
+  // Repaint from the server's own view of the state — never from what we just
+  // asked for. A blocker that ignored the call must not look like it obeyed.
+  const paint = (st) => {
+    if (!st) { state.className = 'patch-badge'; state.textContent = 'unknown'; return; }
+    if (st.blocking) {
+      state.className = 'patch-badge ok';
+      state.textContent = 'Blocking on';
+    } else {
+      const m = Math.ceil((st.remaining || 0) / 60);
+      state.className = 'patch-badge warn';
+      state.textContent = st.remaining
+        ? `Blocking PAUSED — resumes in ${m}m`
+        : 'Blocking PAUSED';
+    }
+    off.classList.toggle('hidden', !isAdmin || !st.blocking);
+    on.classList.toggle('hidden', !isAdmin || !!st.blocking);
+    sel.classList.toggle('hidden', !isAdmin || !st.blocking);
+  };
+
+  const refresh = async () => {
+    try {
+      const st = await api('GET', '/dns-control/' + encodeURIComponent(item.id) + '/blocking');
+      paint(st && st.ok ? st : null);
+    } catch (e) { paint(null); }
+  };
+
+  const set = async (enabled) => {
+    const seconds = Number(sel.value) || 300;
+    if (!enabled && typeof uiConfirm === 'function') {
+      const label = (_DNS_WINDOWS.find(([s]) => s === seconds) || [0, ''])[1];
+      if (!(await uiConfirm(`Pause DNS blocking on "${item.label || item.type}" for ${label}? `
+          + 'Ads and trackers will resolve normally until it resumes automatically.'))) return;
+    }
+    off.disabled = on.disabled = true;
+    try {
+      const st = await api('POST', '/dns-control/' + encodeURIComponent(item.id) + '/blocking',
+                           { enabled: enabled, seconds: seconds });
+      paint(st && st.ok ? st : null);
+      if (typeof toast === 'function') {
+        toast(enabled ? 'Blocking resumed' : 'Blocking paused', 'success');
+      }
+    } catch (e) {
+      if (typeof toast === 'function') toast('DNS blocker refused the change', 'error');
+      refresh();
+    } finally {
+      off.disabled = on.disabled = false;
+    }
+  };
+
+  off.addEventListener('click', () => set(false));
+  on.addEventListener('click', () => set(true));
+  row.appendChild(sel); row.appendChild(off); row.appendChild(on);
+  refresh();
+  return row;
 }
 
 // ── v4.7.0: fleet GPU page (Monitoring → GPUs) — NVIDIA + AMD, rich cards ─────
@@ -22421,6 +22614,78 @@ async function loadCompliance() {
   body.innerHTML = h;
   loadComplianceBaseline();
   loadScap();
+  loadPii();          // v6.1.3
+}
+
+// ── v6.1.3: regulated-data (PII) inventory ───────────────────────────────────
+// A REPORT, not an alert. The card renders counts and file paths only — the
+// server never stores a matched value, so there is none to render even by
+// accident.
+const _PII_KIND_LABELS = {
+  email: 'Email addresses', credit_card: 'Card numbers', ssn: 'National IDs',
+  iban: 'IBANs', phone: 'Phone numbers',
+};
+
+async function loadPii() {
+  const card = document.getElementById('pii-card');
+  const body = document.getElementById('pii-body');
+  if (!card || !body) return;
+  let d = null;
+  try { d = await api('GET', '/pii'); } catch (e) { /* optional */ }
+  // Hidden entirely when the feature is off — an empty "no PII found" panel on a
+  // fleet that never scanned would read as an all-clear, which is a lie.
+  if (!d || !d.ok || !d.enabled) { card.classList.add('d-none'); return; }
+  card.classList.remove('d-none');
+
+  const sum = document.getElementById('pii-summary');
+  const totals = d.totals || {};
+  const grand = Object.values(totals).reduce((a, b) => a + (b || 0), 0);
+  if (sum) {
+    sum.textContent = grand
+      ? `${grand.toLocaleString()} across ${d.scanned_hosts} host(s)`
+      : 'nothing found yet';
+  }
+  if (!(d.hosts || []).length) {
+    body.innerHTML = '<div class="hint">No regulated data found yet — or no host '
+      + 'has run the scan. It runs on a ~24h cadence; use <em>Scan now</em> to '
+      + 'trigger one on the next heartbeat.</div>';
+    return;
+  }
+  body.innerHTML = (d.hosts || []).map(h => {
+    const chips = Object.entries(h.by_kind || {}).map(([k, n]) =>
+      `<span class="patch-badge warn">${escHtml(_PII_KIND_LABELS[k] || k)}: ${Number(n).toLocaleString()}</span>`
+    ).join(' ');
+    const files = (h.findings || []).slice(0, 20).map(f =>
+      `<tr>
+         <td class="fs-12">${escHtml(f.path)}</td>
+         <td class="fs-12">${escHtml(_PII_KIND_LABELS[f.kind] || f.kind)}</td>
+         <td class="fs-12 ta-right">${Number(f.count || 0).toLocaleString()}</td>
+         <td class="fs-11 c-muted">${escHtml((f.lines || []).join(', '))}</td>
+       </tr>`).join('');
+    return `<div class="settings-section mb-12">
+      <div class="row-8-center mb-8">
+        <div class="fw-600">${escHtml(h.name)}</div>
+        <span class="fs-11 c-muted">${Number(h.files || 0).toLocaleString()} file(s)</span>
+        ${chips}
+      </div>
+      <div class="scrollable-table-wrap audit-scroll">
+        <table class="data-table w-full">
+          <thead><tr><th scope="col">File</th><th scope="col">Kind</th>
+            <th scope="col" class="ta-right">Count</th><th scope="col">Lines</th></tr></thead>
+          <tbody>${files}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function piiScanNow() {
+  const r = await api('POST', '/pii/scan', {});
+  if (!r || !r.ok) {
+    toast((r && r.error) || 'Could not queue the scan', 'error');
+    return;
+  }
+  toast(r.message || 'PII scan queued', 'success');
 }
 
 // ── moved to static/js/app-compliance.js (v3.13.0 split) ──

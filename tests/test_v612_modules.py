@@ -44,6 +44,9 @@ class TestModuleDefaults(unittest.TestCase):
                 "kb": False,
                 "compliance": True,
                 "pentest": True,
+                # v6.1.3: the governed AI executor ships OFF. An install that
+                # never opts in must have no AI-initiated action path at all.
+                "ai_exec": False,
             },
         )
 
@@ -175,11 +178,24 @@ class TestModuleSwitchesPersist(unittest.TestCase):
         self.assertEqual(found, expected)
 
     def test_every_module_has_a_settings_checkbox_and_a_nav_page(self):
+        """Every module must be accounted for in BOTH frontend maps.
+
+        v6.1.3: MODULE_PAGES may now map a module to `null` — the AI executor
+        gates an API prefix but owns no page (its proposals land in the existing
+        Confirmations queue, which must NOT be hidden when the executor is off,
+        since MCP maker-checker uses the same queue). A page-less module is spelled
+        out as `null` rather than omitted, so this parity check still catches a
+        module someone forgot to wire up. The slice is sized from the block itself
+        rather than a fixed 400 chars — a fixed source window silently stops
+        covering the tail of the map the moment a comment is added to it.
+        """
         html = (_ROOT / "server/html/index.html").read_text()
         js = (_ROOT / "server/html/static/js/app.js").read_text()
+        block = js[js.index("const MODULE_PAGES") :]
+        block = block[: block.index("};")]
         for name in api._MODULES:
             self.assertIn(f'id="cfg-mod-{name}"', html, f"{name} has no Settings toggle")
-            self.assertIn(f"{name}:", js[js.index("const MODULE_PAGES") :][:400])
+            self.assertIn(f"{name}:", block, f"{name} is missing from MODULE_PAGES")
 
 
 if __name__ == "__main__":

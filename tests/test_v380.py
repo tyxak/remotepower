@@ -132,9 +132,41 @@ class TestV380Bugs(unittest.TestCase):
         self.assertIn('data-col="name"', seg)
 
     def test_makerchecker_rejects_deleted_or_quarantined_device(self):
-        seg = API[API.index('def _mcp_execute'):API.index("if action == 'reboot_device'")]
-        self.assertIn('device not found', seg)
-        self.assertIn('_device_quarantined(devs[device_id])', seg)
+        """v6.1.3: DRIVEN, not grepped.
+
+        This used to slice api.py between `def _mcp_execute` and the first
+        occurrence of `if action == 'reboot_device'`. A NEW helper introduced that
+        same literal earlier in the file, so the slice silently collapsed to '' and
+        the test failed while asserting nothing about behaviour — a neat
+        demonstration of why a source-text test is not a test. Drive the function.
+
+        Also note the guard is now the shared `_command_block_reason` predicate
+        (quarantine + maintenance + audit mode), not a bespoke quarantine check:
+        the post-approval executor used to enforce only a subset of the gates that
+        the request path enforced.
+        """
+        import importlib.util
+        import os
+        import tempfile
+        os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v380-mc-'))
+        spec = importlib.util.spec_from_file_location(
+            'api_v380_mc', REPO_ROOT / 'server' / 'cgi-bin' / 'api.py')
+        api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api)
+
+        # A device that was deleted while the confirmation sat pending.
+        api.save(api.DEVICES_FILE, {})
+        api._LOAD_CACHE.clear()
+        res = api._mcp_execute('reboot_device', 'gone', {}, 'admin', None, None)
+        self.assertFalse(res['ok'])
+        self.assertIn('device not found', res['error'])
+
+        # A device quarantined while the confirmation sat pending.
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web01', 'quarantined': True}})
+        api._LOAD_CACHE.clear()
+        res = api._mcp_execute('reboot_device', 'd1', {}, 'admin', None, None)
+        self.assertFalse(res['ok'])
+        self.assertIn('quarantined', res['error'])
 
 
 class TestV380Bind(unittest.TestCase):

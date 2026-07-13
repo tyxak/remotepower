@@ -1241,6 +1241,155 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
     return findings
 
 
+# ── v6.1.3: PII / sensitive-data scan (GDPR/PCI "where is our regulated data?") ─
+#
+# Same bounded, opt-in, host_path()-aware walk as the secrets scan above. One
+# rule dominates the design:
+#
+#   **THE SCANNER NEVER REPORTS THE MATCHED VALUE — not raw, not redacted, and
+#   NOT HASHED.**
+#
+# A PII scanner that ships PII back to its own database is not a control, it is a
+# second breach with a nicer UI. And hashing does NOT save you here: unlike an API
+# key, the things this looks for are LOW-ENTROPY. There are only 10^9 possible
+# US SSNs and a card number is pinned by its BIN + Luhn — a rainbow table over
+# either is minutes of work, so a "fingerprint" would be a reversible copy of the
+# PII wearing a disguise. So the finding carries only: WHICH FILE, WHAT KIND, HOW
+# MANY, and WHICH LINES. That is everything an operator needs to go and look, and
+# nothing an attacker who pops the RemotePower server can use.
+PII_SCAN_INTERVAL_S = 24 * 3600      # slower than the secrets scan: it's a sweep,
+PII_SCAN_TS_FILE    = 'pii_scan_last'   # not a tripwire. Persisted-epoch cadence.
+
+
+def _load_pii_scan_ts() -> float:
+    raw = _safe_state_read(PII_SCAN_TS_FILE)
+    try:
+        return float((raw or '').strip())
+    except ValueError:
+        return 0.0
+
+
+def _save_pii_scan_ts(ts: float) -> None:
+    _safe_state_write(PII_SCAN_TS_FILE, str(int(ts)))
+
+
+def _luhn_ok(digits: str) -> bool:
+    """Luhn checksum. Without this, EVERY 16-digit number — an order id, a
+    timestamp, a serial — reads as a credit card, and the operator learns to
+    ignore the whole report. The check is what makes the signal usable."""
+    total, alt = 0, False
+    for ch in reversed(digits):
+        if not ch.isdigit():
+            return False
+        d = ord(ch) - 48
+        if alt:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+        alt = not alt
+    return total % 10 == 0 and len(digits) >= 13
+
+
+_PII_CARD_RX = re.compile(r'\b(?:\d[ -]?){12,18}\d\b')
+_PII_RULES = [
+    ('email', re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')),
+    # US SSN. The excluded ranges are never issued, and they are exactly what a
+    # test fixture reaches for ('123-45-6789', '000-…'), so skipping them cuts the
+    # noise that would otherwise bury the real hits.
+    ('ssn', re.compile(r'\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b')),
+    ('iban', re.compile(r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b')),
+    ('phone', re.compile(r'(?<![\w.])\+\d{1,3}[ -]?\d{3}[ -]?\d{3,4}[ -]?\d{3,4}(?![\w.])')),
+]
+_PII_SKIP_DIRS = _SECRETS_SKIP_DIRS | {'.terraform', 'dist', 'build'}
+# Deliberately NOT /etc: it is full of maintainer emails in config files, and a
+# report that opens with 400 hits from /etc is a report nobody reads twice. This
+# looks where an organisation's *data* lives, not where its config lives.
+_PII_DEFAULT_PATHS = ['/home', '/srv', '/var/www', '/opt']
+
+
+def collect_pii_findings(paths=None, max_findings=300, max_file_bytes=2097152,
+                         max_files=8000, time_budget=20.0):
+    """Walk `paths` and report FILES that contain PII, by kind and count.
+
+    Never returns a matched value (see the note above). Bounded on findings,
+    files visited and wall-clock — checked at every loop level, like the secrets
+    scan, so a pathological tree cannot wedge the heartbeat.
+    """
+    paths = paths or _PII_DEFAULT_PATHS
+    findings = []
+    start = time.monotonic()
+    visited = 0
+
+    def _budget_spent():
+        return (len(findings) >= max_findings or visited >= max_files
+                or time.monotonic() - start > time_budget)
+
+    for base in paths:
+        if not isinstance(base, str):
+            continue
+        hbase = host_path(base)   # the real host rootfs when containerized
+        if not os.path.exists(hbase) or _budget_spent():
+            continue
+        for dirpath, dirnames, filenames in os.walk(hbase):
+            if _budget_spent():
+                break
+            dirnames[:] = [d for d in dirnames if d not in _PII_SKIP_DIRS]
+            for fn in filenames:
+                if _budget_spent():
+                    break
+                fpath = os.path.join(dirpath, fn)
+                try:
+                    if os.path.islink(fpath) or not os.path.isfile(fpath):
+                        continue
+                    sz = os.stat(fpath).st_size
+                    if sz == 0 or sz > max_file_bytes:
+                        continue
+                    visited += 1
+                    with open(fpath, 'rb') as f:
+                        chunk = f.read(max_file_bytes)
+                    if b'\x00' in chunk[:4096]:          # binary — skip
+                        continue
+                    text = chunk.decode('utf-8', 'replace')
+                except Exception:
+                    continue
+
+                # Count per kind for THIS file. One row per (file, kind) — a row
+                # per match would drown a customer CSV in 50,000 identical rows.
+                counts: dict = {}
+                lines: dict = {}
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if len(line) > 4000:
+                        continue
+                    for kind, rx in _PII_RULES:
+                        n = len(rx.findall(line))
+                        if n:
+                            counts[kind] = counts.get(kind, 0) + n
+                            lines.setdefault(kind, [])
+                            if len(lines[kind]) < 5:
+                                lines[kind].append(lineno)
+                    for m in _PII_CARD_RX.finditer(line):
+                        digits = re.sub(r'[ -]', '', m.group(0))
+                        if not _luhn_ok(digits):
+                            continue          # not a card, just a long number
+                        counts['credit_card'] = counts.get('credit_card', 0) + 1
+                        lines.setdefault('credit_card', [])
+                        if len(lines['credit_card']) < 5:
+                            lines['credit_card'].append(lineno)
+
+                for kind, n in counts.items():
+                    findings.append({
+                        'path':  unhost_path(fpath)[:300],
+                        'kind':  kind,
+                        'count': n,
+                        'lines': lines.get(kind, []),
+                        # NO 'preview', NO 'fingerprint'. On purpose. See above.
+                    })
+                    if len(findings) >= max_findings:
+                        break
+    return findings
+
+
 def get_uptime():
     # v4.6.0: add a timeout — the bare check_output had none, so a hung `uptime`
     # (stuck utmp/NSS) could block the entire heartbeat loop indefinitely.
@@ -8743,6 +8892,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     du_scan_paths = None
     force_du_scan = False
     last_du_scan_ts = _load_du_scan_ts()
+    # v6.1.3: PII / sensitive-data scan — opt-in, slow (~24h), server-pushed paths,
+    # same persisted-timestamp cadence (never poll_count % N).
+    pii_scan_on = False
+    pii_scan_paths = None
+    force_pii_scan = False
+    last_pii_scan_ts = _load_pii_scan_ts()
     # v6.1.2: mDNS LAN browse — server-pushed opt-in, same shape as image_scan_on.
     mdns_on = False
     # v3.0.0: IaC collection request from server
@@ -9051,6 +9206,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'du scan error: {e}')
             force_du_scan = False
+
+        # v6.1.3: PII / sensitive-data scan. Opt-in, ~24h, or on demand.
+        _pii_due = (time.time() - last_pii_scan_ts) >= PII_SCAN_INTERVAL_S
+        if pii_scan_on and (_pii_due or force_pii_scan):
+            try:
+                payload['pii_findings'] = collect_pii_findings(pii_scan_paths)
+                log.debug(f'pii scan: {len(payload["pii_findings"])} finding(s)')
+                # Stamp on every real ATTEMPT (not only on success) — a host with a
+                # huge /srv must not re-walk it on every poll.
+                last_pii_scan_ts = time.time()
+                _save_pii_scan_ts(last_pii_scan_ts)
+            except Exception as e:
+                log.debug(f'pii scan error: {e}')
+            force_pii_scan = False
 
         # W6-34: container-image CVE scan (trivy) — opt-in, slow (~24h) cadence.
         # Only images of RUNNING containers; feature-invisible without trivy.
@@ -9486,6 +9655,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_du_scan'):
                 force_du_scan = True
                 log.info('Server requested a disk-usage scan')
+            # v6.1.3: PII / sensitive-data scan opt-in + paths + one-shot force.
+            pii_scan_on = bool(resp.get('pii_scan_enabled'))
+            _psp = resp.get('pii_scan_paths')
+            pii_scan_paths = _psp if isinstance(_psp, list) and _psp else None
+            if resp.get('force_pii_scan'):
+                force_pii_scan = True
+                log.info('Server requested a PII scan')
             # W6-34: container-image CVE scan (trivy), opt-in + force.
             image_scan_on = bool(resp.get('image_scan_enabled'))
             mdns_on = bool(resp.get('mdns_enabled'))   # v6.1.2

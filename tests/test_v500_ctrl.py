@@ -575,8 +575,37 @@ class TestMaintenanceMode(unittest.TestCase):
         api._block_if_maintenance("poll_interval:300")
 
     def test_queue_command_gated(self):
-        i = API_SRC.index("def _queue_command(")
-        self.assertIn("_block_if_maintenance(command)", API_SRC[i:i + 400])
+        """v6.1.3: DRIVEN, not grepped.
+
+        This used to assert that the literal `_block_if_maintenance(command)`
+        appeared in the first 400 chars of `_queue_command`'s source. When the
+        three command gates (maintenance / quarantine / audit-mode) were factored
+        into the shared `_command_block_reason` predicate — so that `_mcp_execute`,
+        the post-approval executor, would stop enforcing only a SUBSET of them —
+        this pin broke even though the behaviour it was protecting had strictly
+        improved. That is the source-text false-green class in reverse: the grep
+        was never testing the gate, only its address. So drive it.
+        """
+        api.save(api.CONFIG_FILE, {"maintenance_mode": True, "maintenance_reason": "drain"})
+        api._LOAD_CACHE.clear()
+        blocked = api._command_block_reason({"name": "web01"}, "reboot")
+        self.assertIsNotNone(blocked)
+        self.assertEqual(503, blocked[0])
+        self.assertIn("maintenance", blocked[1].lower())
+        # poll_interval stays exempt — it only changes the agent's local timer.
+        self.assertIsNone(api._command_block_reason({"name": "web01"}, "poll_interval:300"))
+        # …and with maintenance off, an ordinary command passes.
+        api.save(api.CONFIG_FILE, {})
+        api._LOAD_CACHE.clear()
+        self.assertIsNone(api._command_block_reason({"name": "web01"}, "reboot"))
+
+    def test_queue_command_paths_all_route_through_the_gate(self):
+        """Every path that queues a command must consult the gate — the single
+        predicate, not its own subset (the bug this factoring fixed)."""
+        qc = API_SRC[API_SRC.index("def _queue_command(dev_id"):]
+        self.assertIn("_command_block_reason(", qc[:900])
+        mc = API_SRC[API_SRC.index("def _mcp_execute("):]
+        self.assertIn("_command_block_reason(", mc[:1200])
         j = API_SRC.index("def _queue_command_batch(")
         self.assertIn("_block_if_maintenance(command)", API_SRC[j:j + 200])
 

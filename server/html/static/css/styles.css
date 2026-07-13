@@ -1585,6 +1585,12 @@
   }
   .patch-badge.warn { background: rgba(245,158,11,0.15); color: var(--amber); }
   .patch-badge.ok   { background: rgba(34,197,94,0.1);   color: var(--green); }
+  /* v6.1.3: .crit was used in five places (TAMPER DETECTED, critical-CVE counts,
+     disabled users, breached RPO) but never had a rule — so the most severe badge
+     in the product rendered as unstyled plain text, indistinguishable from a
+     label. The one badge that must never be missable was the only one with no
+     colour. */
+  .patch-badge.crit { background: rgba(239,68,68,0.15);  color: var(--red); }
   .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
   /* Dropdown menu styles - clean, no icons, properly positioned */

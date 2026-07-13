@@ -2286,6 +2286,16 @@
             <div class="settings-row"><label class="form-label" for="cfg-du-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-du-scan-paths" class="form-input" rows="3" placeholder="/var&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
+            <div class="section-title mt-16">Regulated-data scan (PII)</div>
+            <p class="hint">Answers the GDPR/PCI question no amount of monitoring does: <em>where is our regulated data?</em> Agents walk the paths below (~24h cadence) and report which files contain emails, card numbers (Luhn-checked, so a long order id isn't mistaken for a card), national IDs, IBANs or phone numbers — <strong>by kind and count only</strong>. The matched values are <strong>never</strong> sent, stored, or even hashed: hashing does not anonymise a national ID, because the number of possible values is small enough to reverse. A scanner that shipped your PII into its own database would be a second breach, not a control. Results appear on the <strong>Compliance</strong> page. <strong>Off by default</strong> — it walks the filesystem.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-pii-scan-enabled"> Enable regulated-data scanning (~24h cadence)</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-pii-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
+              <textarea id="cfg-pii-scan-paths" class="form-input" rows="3" placeholder="/home&#10;/srv&#10;/var/www&#10;/opt"></textarea></div>
+
+            <div class="section-title mt-16">Credential checkout (JIT access)</div>
+            <p class="hint">Turns standing credential access into <strong>active, justified, expiring</strong> access. When enabled, revealing a CMDB credential first requires <em>checking it out</em> with a reason; the grant lasts a bounded window (15 min – 24 h) and lapses on its own. Who currently holds live access — and why — is visible to admins and auditors. This is a <strong>floor, not a ceiling</strong>: a credential flagged <code>break_glass</code> still needs its two-person approval as well. <strong>Off by default</strong> — switching it on immediately requires every admin to check out before revealing anything.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-vault-checkout-required"> Require a checkout before a credential can be revealed</label></div>
+
             <div class="section-title mt-16">Canary files (honeytokens)</div>
             <p class="hint">Agents plant a decoy file at each absolute path below (never over an existing file) with realistic-but-fake credentials, then watch it. Any access — a read, a change, or deletion — raises a <strong>critical</strong> <code>canary_accessed</code> alert. A tripwire on your own hosts; decoys are removed when the agent uninstalls. One path per line; blank = off.</p>
             <div class="settings-row"><label class="form-label" for="cfg-canary-paths">Canary file paths (one absolute path per line)</label>
@@ -2605,6 +2615,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-kb"> <strong>Knowledge base</strong> — operator-authored SOPs and how-tos.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-compliance" checked> <strong>Compliance</strong> — CIS/PCI/HIPAA/SOC 2 scoring and OpenSCAP scans.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-pentest" checked> <strong>Pentest</strong> — the authorized vulnerability-scan orchestrator (nuclei / nikto / ZAP / nmap).</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mod-ai_exec"> <strong>AI executor</strong> — lets the AI <em>propose</em> a remediation for a host. It executes nothing: a proposal is parked in the Confirmations queue and a human admin must approve it, and the AI may only <em>select</em> from your saved scripts and registered playbooks — it cannot write a command. <strong>Off by default</strong>; off means the whole API is 404, not merely a hidden button.</label></div>
           </div>
           <div class="settings-section">
             <div class="section-title">Provisioning — server-side execution</div>
@@ -3524,8 +3535,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.1.3 sentinelmatters sentinel privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint">
-            <summary><strong>What's new — v6.1.3 &ldquo;SentinelMatters&rdquo;</strong> — closing competitive gaps using signals RemotePower already collected but never acted on: a privileged-group tripwire (someone lands in sudo/wheel/Administrators), Windows Defender AV posture including real-time-protection-off, a USB physical-access tripwire, a host-wide disk-usage explorer (&ldquo;disk 94% — of <em>what</em>?&rdquo;), and a composite device-reliability prediction.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.1.3 sentinelmatters sentinel privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint ai executor governed propose approve confirmations catalog saved scripts playbook prompt injection ai-exec pii regulated data gdpr pci luhn credit card national id ssn iban email scan compliance edr coverage wazuh crowdstrike falcon sentinelone uncovered hosts stale agent dns blocker control pihole adguard pause blocking quotes quote invoice convert accepted expired vat snapshot jit credential checkout vault_checkout_required winget third party patching">
+            <summary><strong>What's new — v6.1.3 &ldquo;SentinelMatters&rdquo;</strong> — closing competitive gaps using signals RemotePower already collected but never acted on: three new tripwires (privileged-group change, Windows Defender real-time-protection-off, USB), a disk-usage explorer, reliability prediction, EDR coverage gaps, a regulated-data (PII) scan, DNS-blocker control, quotes, JIT credential checkout — and a <strong>governed AI executor</strong> that proposes but never executes.</summary>
             <div class="doc-body">
               <p>Almost everything in v6.1.3 is built on telemetry the agents were <em>already sending</em>. The work was the baseline, the diff, and the honesty about what the stored data can and cannot support.</p>
               <p><strong>Three new tripwires</strong></p>
@@ -3538,7 +3549,21 @@
               <p>Disk-fill forecasting already told you <em>when</em> a mount runs out. Nothing told you what to delete. An opt-in, bounded <code>du</code> now reports the biggest space consumers per path, in the device drawer under the mounts table, with a Scan-now button. Off by default.</p>
               <p><strong>Reliability prediction</strong></p>
               <p>A per-host failure likelihood (0–100) with an explainable breakdown, on <strong>Monitoring → Predictive health</strong>. Deliberately separate from the risk score: risk = &ldquo;how exposed is this host&rdquo;, reliability = &ldquo;how likely is it to break&rdquo;. A fully-patched server with a dying disk is low-risk <em>and</em> low-reliability, and you need to see both. Built from SMART trends (reallocated sectors <em>growing</em>, not merely present), ECC errors, reboot churn, health trajectory and thermals — all already stored.</p>
-              <p><strong>Also fixed:</strong> the fleet-risk cache busted on <code>devices.json</code>, which every heartbeat rewrites — so on any real fleet it never hit, and the whole-fleet risk computation re-ran on every single dashboard poll.</p>
+              <p><strong>Governed AI executor — it proposes, you dispose</strong></p>
+              <p>The pitch of the moment is the &ldquo;autonomous AI operator&rdquo;. This takes the opposite bet: <em>assume the model is fully prompt-injected by a hostile log line</em>, and design so the worst it can do is still safe. The AI returns an <strong>id, never a command</strong> — it may only <em>select</em> from a catalog of scripts and playbooks <em>you</em> wrote, and anything else is refused. A <strong>human always approves</strong> (a proposal is an ordinary Confirmations entry, inheriting separation-of-duties and the audit trail). And <strong>what you approve is what runs</strong> — the script's hash is pinned at proposal and re-checked at approval, so an edit in between is refused, not silently run. <strong>Off by default</strong>, and off is a 404 on the whole API, not a hidden button.</p>
+              <p><strong>Security &amp; compliance</strong></p>
+              <ul>
+                <li><strong>EDR coverage</strong> — connectors for Wazuh, CrowdStrike Falcon and SentinelOne. The tile is not the feature: they report which hosts they <em>protect</em>, and RemotePower cross-references that against the real fleet to name the machines with <strong>no EDR at all</strong>. A stale agent is listed apart from a protected one — it is protecting nothing.</li>
+                <li><strong>Regulated-data (PII) scan</strong> — where your emails, card numbers (Luhn-checked), national IDs and IBANs actually live. The values are <strong>never sent, stored, or even hashed</strong>: hashing does not anonymise a national ID, because there are few enough possible values to reverse one.</li>
+                <li><strong>JIT credential checkout</strong> — standing credential access becomes active, justified, expiring access.</li>
+              </ul>
+              <p><strong>Control &amp; business</strong></p>
+              <ul>
+                <li><strong>DNS-blocker control</strong> — pause Pi-hole/AdGuard blocking from RemotePower to answer &ldquo;is it the ad-blocker?&rdquo;. Always <em>timed</em>: the blocker re-enables itself, so a debug session can't become a permanent hole. There is no disable-forever button.</li>
+                <li><strong>Quotes</strong> — the mirror image of an invoice. Converts <em>once</em> (a double-click can't bill twice) and snapshots the agreed VAT and line items, so a rate change can't re-price a done deal.</li>
+                <li><strong>Windows third-party patching (winget)</strong> — Windows Update covers the OS; the CVEs live in Chrome, 7-Zip and VLC.</li>
+              </ul>
+              <p><strong>Also fixed:</strong> the fleet-risk cache busted on <code>devices.json</code>, which every heartbeat rewrites — so on any real fleet it never hit, and the whole-fleet risk computation re-ran on every single dashboard poll. The post-approval executor honoured neither maintenance mode nor audit mode. And <code>.patch-badge.crit</code> — the most severe badge in the product, used for <em>TAMPER DETECTED</em> — had no CSS rule at all, so it rendered as plain unstyled text.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v6.1.2 afterglowmatters afterglow bugfix alert mute health score needs attention trivy container image cve scan now force postgres 500 lockbusy lock busy retry 503 billing rate card delete wrong row restore drill sort opnsense console runbook dead code optional modules minimal homelab disable alerts tickets billing knowledge base compliance pentest kill switch advanced performance attention cache heartbeat sweeps scheduler otlp deepcopy monitor history schema ddl">
@@ -4694,6 +4719,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="compliance-body"><div class="c-muted">Loading…</div></div>
 
+        <!-- v6.1.3: regulated-data (PII) inventory. Deliberately a REPORT, not an
+             alert: PII sitting in /srv/data is the expected state of a business,
+             and an event per finding would be pure alert fatigue. The matched
+             values are never sent, stored, or hashed — see _ingest_pii_findings. -->
+        <div class="settings-section mt-16 d-none" id="pii-card">
+          <div class="row-8-center mb-8">
+            <div class="section-label">Regulated data (PII)</div>
+            <span id="pii-summary" class="ro-badge"></span>
+            <button class="btn-secondary" data-action="piiScanNow"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Scan now</button>
+          </div>
+          <div class="hint">Where your regulated data actually lives. Agents report which files contain emails, card numbers (Luhn-checked), national IDs, IBANs or phone numbers — <strong>by kind and count only</strong>. The values themselves are never sent, stored, or hashed: hashing does not anonymise a national ID, since there are few enough possible values to reverse one. Enable it under Settings → Security.</div>
+          <div id="pii-body" class="scroll-cap"></div>
+        </div>
+
         <!-- v3.4.2: CIS-style configuration baseline -->
         <div class="settings-section mt-16" id="cis-baseline-card">
           <div class="row-8-center mb-8">
@@ -5380,6 +5419,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Turn logged hours and recurring fees into invoices, per customer (site). Admins manage rates and issue invoices; the finance role can view and export. <a href="docs/time-billing.md" class="c-accent">Documentation</a></div>
         <div class="settings-tabs" id="billing-tabs">
           <button class="settings-tab active" data-action="billingTab" data-arg="worksheet">Worksheet</button>
+          <button class="settings-tab" data-action="billingTab" data-arg="quotes">Quotes</button>
           <button class="settings-tab" data-action="billingTab" data-arg="invoices">Invoices</button>
           <button class="settings-tab" data-action="billingTab" data-arg="rates">Rates &amp; Fees</button>
           <button class="btn-icon ml-auto" data-action="aiInsight" data-arg="billing_review" title="AI: unbilled hours, invoices to send, time-tracking gaps"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>
@@ -5952,6 +5992,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="cmdb-breakglass-body" class="scroll-cap"></div>
         </div>
 
+        <!-- v6.1.3: JIT credential checkout — who holds live access, and why.
+             Hidden until a checkout exists (and when the feature is off). -->
+        <div class="dash-card mt-16 d-none" id="cmdb-checkouts-card">
+          <div class="row-8-center mb-8"><div class="section-title">Credential checkouts</div></div>
+          <div class="page-subtitle mb-12">Who currently holds <strong>active, justified, expiring</strong> access to a credential — and why. Each grant is scoped to one credential and one person, and lapses on its own. Revoking a checkout ends the window immediately.</div>
+          <div id="cmdb-checkouts-body" class="scroll-cap"></div>
+        </div>
+
         <!-- v4.10.0: site / group / tag-scoped credentials -->
         <div class="dash-card mt-16" id="cmdb-scoped-card">
           <div class="row-8-center mb-8"><div class="section-title">Scoped credentials</div></div>
@@ -6424,6 +6472,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tr></thead>
             <tbody id="risk-tbody"><tr><td colspan="4" class="hint">Loading…</td></tr></tbody>
           </table>
+        </div>
+
+        <!-- v6.1.3: EDR coverage. The connectors report which hosts each EDR
+             PROTECTS; this cross-references that against the real fleet. A
+             console reading "EDR: healthy" while three servers are uncovered is
+             worse than no console — it is reassuring. Hidden entirely until an
+             EDR integration is configured. -->
+        <div class="dash-card mt-16 d-none" id="edr-coverage-card">
+          <div class="section-title">EDR coverage <span id="edr-coverage-sub" class="hint"></span></div>
+          <div class="page-subtitle mb-12">Which hosts your endpoint-protection platform is actually protecting — and which it has never heard of. A host with a <strong>stale</strong> agent is listed separately from a covered one: an agent that installed and then stopped reporting is protecting nothing, and it is the failure an EDR rollout is most likely to get wrong.</div>
+          <div class="toolbar">
+            <input type="text" class="form-input page-filter" placeholder="Filter host…" data-input="filterRows" data-input-el="1" data-filter-target="#edr-coverage-tbody tr" aria-label="Filter host">
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="edr-coverage-thead"><tr>
+                <th scope="col" data-col="host">Host</th><th scope="col" data-col="state">EDR</th>
+                <th scope="col" data-col="vendor">Protected by</th><th scope="col" data-col="version">Agent</th>
+              </tr></thead>
+              <tbody id="edr-coverage-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 

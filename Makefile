@@ -18,6 +18,7 @@ LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/openapi_spec.py \
             server/cgi-bin/integrations.py \
             server/cgi-bin/hypervisor.py \
+            server/cgi-bin/dns_control.py \
             server/cgi-bin/dns_resolve.py \
             server/cgi-bin/resolver_health.py \
             server/cgi-bin/backup_crypto.py \
@@ -33,6 +34,7 @@ TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/openapi_spec.py \
                  server/cgi-bin/integrations.py \
                  server/cgi-bin/hypervisor.py \
+                 server/cgi-bin/dns_control.py \
                  server/cgi-bin/dmarc_monitor.py \
                  server/cgi-bin/ip_reputation.py \
                  server/cgi-bin/dns_resolve.py \

@@ -285,3 +285,55 @@ def iso_week_of(date_str):
         return ""
     y, w, _ = d.isocalendar()
     return "%04d-W%02d" % (y, w)
+
+
+# ── quotes (v6.1.3) ───────────────────────────────────────────────────────────
+# A quote is the mirror image of an invoice. An invoice looks BACKWARD and is
+# derived from time already logged; a quote looks FORWARD and is authored by
+# hand — labour estimate, hardware, licences. The money maths is identical
+# (invoice_totals), so it is reused rather than reimplemented: two subtly
+# different VAT calculations in one product is a bug waiting to be found by a
+# customer.
+
+# 'invoiced' is terminal and is what makes conversion idempotent — see
+# quote_can_convert.
+QUOTE_STATUSES = ("draft", "sent", "accepted", "declined", "expired", "invoiced")
+QUOTE_TERMINAL = ("accepted", "declined", "invoiced")
+
+
+def quote_effective_status(quote, now):
+    """The quote's status, with expiry applied AT READ TIME.
+
+    A quote that has passed its validity date is expired the moment it passes it —
+    not whenever a sweep next happens to run. A sweep that had not yet run would
+    otherwise let a customer accept a price that lapsed last Tuesday.
+
+    Accepted/declined/invoiced are TERMINAL: an accepted quote must not expire out
+    from under a customer who accepted it in time. The deal is done; the clock
+    stops.
+    """
+    status = str(quote.get("status") or "draft")
+    if status in QUOTE_TERMINAL:
+        return status
+    valid_until = _num(quote.get("valid_until"))
+    if valid_until and now > valid_until:
+        return "expired"
+    return status
+
+
+def quote_can_convert(quote, now):
+    """(ok, reason) — may this quote become an invoice?
+
+    Two rules, both of which protect the CUSTOMER:
+      1. Only an ACCEPTED quote converts. Invoicing a draft or a declined quote
+         means billing someone for work they never agreed to.
+      2. It converts exactly ONCE. A quote that already produced an invoice is
+         'invoiced' and is refused — otherwise a double-click bills the customer
+         twice, which is the worst bug a billing module can have.
+    """
+    status = quote_effective_status(quote, now)
+    if quote.get("invoice_id") or status == "invoiced":
+        return False, "this quote has already been converted to an invoice"
+    if status != "accepted":
+        return False, f"only an accepted quote can be invoiced (this one is {status})"
+    return True, ""

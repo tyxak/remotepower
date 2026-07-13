@@ -67,10 +67,33 @@ class TestAuditModeServer(unittest.TestCase):
         self.assertIn("safe_si['audit_mode'] = bool(si['audit_mode'])", API)
 
     def test_queue_command_refuses_audit_host(self):
-        i = API.index('def _queue_command(')
-        block = API[i:i + 1400]
-        self.assertIn("audit (read-only) mode", block)
-        self.assertIn("audit_mode", block)
+        """v6.1.3: DRIVEN, not grepped.
+
+        This used to assert the string "audit (read-only) mode" appeared within
+        1400 chars of `def _queue_command(`. When the three command gates were
+        factored into the shared `_command_block_reason` predicate — so the
+        post-approval executor would stop enforcing only a subset of them — the
+        grep broke while the behaviour it guarded got strictly stronger. The grep
+        was pinning the gate's ADDRESS, not the gate. So drive the gate.
+        """
+        import importlib.util
+        import os
+        import tempfile
+        os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-v4100-audit-'))
+        spec = importlib.util.spec_from_file_location(
+            'api_v4100_audit', ROOT / 'server' / 'cgi-bin' / 'api.py')
+        api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api)
+
+        audit_host = {'name': 'web01', 'sysinfo': {'audit_mode': True}}
+        blocked = api._command_block_reason(audit_host, 'exec:whoami')
+        self.assertIsNotNone(blocked, 'an audit-mode host must refuse commands')
+        self.assertEqual(409, blocked[0])
+        self.assertIn('audit (read-only) mode', blocked[1])
+        # A normal host is not blocked…
+        self.assertIsNone(api._command_block_reason({'name': 'web01'}, 'exec:whoami'))
+        # …and poll_interval stays exempt even on an audit host (agent-local timer).
+        self.assertIsNone(api._command_block_reason(audit_host, 'poll_interval:300'))
 
 
 class TestAuditModeUi(unittest.TestCase):

@@ -19,6 +19,7 @@ The instance-config dict (stored per-integration in the server config) carries:
     ('secret', plus non-secret 'username'/'slug').
 """
 
+import base64
 import json
 import re
 import urllib.parse
@@ -1659,6 +1660,170 @@ def _homebridge(inst, c):
     }
 
 
+# ── EDR / endpoint-protection connectors (v6.1.3) ─────────────────────────────
+# These are read-only *posture* connectors, but they exist for a reason the other
+# connectors don't have: besides their own health, each one reports the set of
+# hosts it PROTECTS (`edr_hosts`). api.py cross-references that against the actual
+# fleet to answer the only question that really matters — "which of my machines
+# have no EDR on them at all?". A dashboard saying "EDR: healthy" while three
+# servers are uncovered is worse than no dashboard, because it is reassuring.
+#
+# Each returns, in addition to the usual health keys:
+#   edr_hosts: [{hostname, agent_version, last_seen, status}]   (capped)
+# Hostname NORMALISATION is deliberately NOT done here — connectors stay dumb
+# parsers; the matching rules live in one place server-side.
+_EDR_HOST_CAP = 1000  # bounds the persisted blob on a big estate
+
+
+def _edr_summary(hosts, total=None):
+    """Shared health verdict: an EDR whose agents are falling off is a warning."""
+    total = len(hosts) if total is None else int(_num(total, len(hosts)))
+    active = sum(1 for h in hosts if h.get("status") == "active")
+    stale = len(hosts) - active
+    # An agent that stopped reporting is an agent that is not protecting anything.
+    status = OK if stale == 0 else (WARN if active else CRIT)
+    return {
+        "status": status,
+        "detail": (f"{active}/{total} endpoints protected" + (f", {stale} stale" if stale else "")),
+        "metrics": {"agents_total": total, "agents_active": active, "agents_stale": stale},
+        "edr_hosts": hosts[:_EDR_HOST_CAP],
+    }
+
+
+@_register(
+    "wazuh",
+    "Wazuh",
+    "security",
+    [_field("username", "API username", TEXT), _field("secret", "API password", PASSWORD)],
+    notes="Wazuh manager API (default port 55000). Reports agent coverage for the "
+    "EDR-coverage cross-reference.",
+)
+def _wazuh(inst, c):
+    # Wazuh mints a short-lived JWT from basic auth, then wants it as a bearer.
+    auth = base64.b64encode(f"{inst.get('username','')}:{inst.get('secret','')}".encode()).decode()
+    tok = c.get_json("/security/user/authenticate", headers={"Authorization": "Basic " + auth})
+    jwt = ((tok or {}).get("data") or {}).get("token") or ""
+    if not jwt:
+        raise IntegrationError("Wazuh did not return a token (bad credentials?)")
+    h = {"Authorization": "Bearer " + jwt}
+    d = c.get_json("/agents?limit=500&select=name,status,version,lastKeepAlive", headers=h)
+    data = (d or {}).get("data") or {}
+    items = data.get("affected_items") or []
+    hosts = []
+    for a in items:
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("name") or "").strip()
+        if not name or name.lower() == "wazuh-manager":
+            continue  # the manager registers itself as agent 000 — not an endpoint
+        hosts.append(
+            {
+                "hostname": name,
+                "agent_version": str(a.get("version") or ""),
+                "last_seen": str(a.get("lastKeepAlive") or ""),
+                "status": "active" if str(a.get("status") or "").lower() == "active" else "stale",
+            }
+        )
+    out = _edr_summary(hosts, data.get("total_affected_items"))
+    return out
+
+
+@_register(
+    "crowdstrike",
+    "CrowdStrike Falcon",
+    "security",
+    [_field("username", "Client ID", TEXT), _field("secret", "Client secret", PASSWORD)],
+    notes="Falcon OAuth2 API (e.g. https://api.crowdstrike.com). Read-only: needs "
+    "only the 'Hosts: Read' scope.",
+)
+def _crowdstrike(inst, c):
+    # OAuth2 client-credentials. The token endpoint is on the SAME host as the
+    # API, which is why this fits the SSRF-bound client at all (see the note on
+    # Defender for Endpoint in docs — its token host differs, so it cannot).
+    r = c.post_form(
+        "/oauth2/token",
+        {
+            "client_id": inst.get("username") or "",
+            "client_secret": inst.get("secret") or "",
+        },
+    )
+    if not r.ok:
+        raise IntegrationError(f"Falcon auth failed (HTTP {r.status})")
+    token = (r.json() or {}).get("access_token") or ""
+    if not token:
+        raise IntegrationError("Falcon returned no access token")
+    h = {"Authorization": "Bearer " + token}
+    q = c.get_json("/devices/queries/devices/v1?limit=500", headers=h)
+    ids = [str(i) for i in ((q or {}).get("resources") or []) if i]
+    total = (((q or {}).get("meta") or {}).get("pagination") or {}).get("total", len(ids))
+    hosts = []
+    if ids:
+        # Repeated ?ids= params — urlencode(dict) cannot express that, so build the
+        # query explicitly. Still a provider-RELATIVE path (the client rejects an
+        # absolute URL, which is what keeps the SSRF guard's host binding intact).
+        qs = urllib.parse.urlencode([("ids", i) for i in ids[:_EDR_HOST_CAP]])
+        e = c.get_json("/devices/entities/devices/v2?" + qs, headers=h)
+        for a in (e or {}).get("resources") or []:
+            if not isinstance(a, dict):
+                continue
+            name = str(a.get("hostname") or "").strip()
+            if not name:
+                continue
+            hosts.append(
+                {
+                    "hostname": name,
+                    "agent_version": str(a.get("agent_version") or ""),
+                    "last_seen": str(a.get("last_seen") or ""),
+                    # Falcon marks a sensor 'normal' when healthy; anything else
+                    # (containment, reduced functionality) is not full protection.
+                    "status": (
+                        "active"
+                        if str(a.get("status") or "").lower() in ("normal", "online", "")
+                        else "stale"
+                    ),
+                }
+            )
+    return _edr_summary(hosts, total)
+
+
+@_register(
+    "sentinelone",
+    "SentinelOne",
+    "security",
+    [_field("secret", "API token", PASSWORD)],
+    notes="SentinelOne management console API token (Settings → Users → API token).",
+)
+def _sentinelone(inst, c):
+    h = {"Authorization": "ApiToken " + (inst.get("secret") or "")}
+    d = c.get_json("/web/api/v2.1/agents?limit=500", headers=h)
+    items = (d or {}).get("data") or []
+    total = ((d or {}).get("pagination") or {}).get("totalItems", len(items))
+    hosts, infected = [], 0
+    for a in items:
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("computerName") or "").strip()
+        if not name:
+            continue
+        if a.get("infected"):
+            infected += 1
+        hosts.append(
+            {
+                "hostname": name,
+                "agent_version": str(a.get("agentVersion") or ""),
+                "last_seen": str(a.get("lastActiveDate") or ""),
+                "status": "active" if a.get("isActive") else "stale",
+            }
+        )
+    out = _edr_summary(hosts, total)
+    # An infected endpoint outranks a stale one: this is the alarm, not the tally.
+    if infected:
+        out["status"] = CRIT
+        out["detail"] = f"{infected} infected endpoint(s), " + out["detail"]
+    out["metrics"]["infected"] = infected
+    return out
+
+
 # ── per-connector headline stat chips (for the rich tiles) ─────────────────────
 # Map each connector type to a few (metric_key, label, kind) the UI shows as
 # labeled chips. kinds: int (humanized 12.3k), pct (18%), num (small count),
@@ -1667,6 +1832,20 @@ def _homebridge(inst, c):
 _STATS: dict = {
     "custom_probe": [
         ("http_status", "HTTP", "num"),
+    ],
+    # v6.1.3 — EDR. "Protected" is the headline; "stale" is the one that bites.
+    "wazuh": [
+        ("agents_active", "Protected", "int"),
+        ("agents_stale", "Stale", "int"),
+    ],
+    "crowdstrike": [
+        ("agents_active", "Protected", "int"),
+        ("agents_stale", "Stale", "int"),
+    ],
+    "sentinelone": [
+        ("agents_active", "Protected", "int"),
+        ("agents_stale", "Stale", "int"),
+        ("infected", "Infected", "int"),
     ],
     "github": [
         ("repos", "Repos", "int"),

@@ -150,8 +150,10 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 - **CMDB + RAG search** — assets, an encrypted credentials vault, a
   Knowledge Base, and an AI assistant that cites *your* fleet's own data.
 - **Stay compliant** — OpenSCAP CIS/STIG/PCI scans, PCI/HIPAA/SOC 2 mapping.
-- **Integrate** — 39 homelab-app connectors plus a code-free custom-HTTP-probe
-  plugin, Prometheus/Grafana endpoints, webhooks, syslog, and an MCP server.
+- **Integrate** — 47 connectors (homelab apps, hypervisors, and EDR — Wazuh,
+  CrowdStrike, SentinelOne — cross-referenced to find hosts with no EDR at all)
+  plus a code-free custom-HTTP-probe plugin, Prometheus/Grafana endpoints,
+  webhooks, syslog, and an MCP server.
 - **Deploy & automate** — a one-click app catalog, auto-patch policies,
   drift detection, ACME, backups, and a Terraform/Ansible provisioning catalog.
 
