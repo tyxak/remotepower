@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
-"""RemotePower — minimal Windows agent (v3.14.0).
+"""RemotePower — Windows agent.
 
-A small, standalone agent that speaks the same server contract as the Linux
-agent (client/remotepower-agent.py) but implements only the essentials so a
-Windows host can be managed:
+A standalone agent that speaks the same server contract as the Linux agent
+(client/remotepower-agent.py). As of v6.1.3 it covers the core management surface
+at parity with Linux:
 
-  * enroll (PIN or enrollment token)
-  * heartbeat loop with core sysinfo (CPU / memory / disk / uptime / network)
-  * remote reboot / shutdown / exec / poll-interval / uninstall
-  * posture parity: Windows Update pending (→ Patches), listening ports
-    (→ Exposure + port audit), the Event Log tail (→ Logs/journal), and local
-    users (→ account audit), all in the same shapes the Linux agent sends so the
-    existing UI renders them
+  * enroll (PIN or enrollment token); heartbeat loop with core sysinfo
+    (CPU / memory / disk / disk-I/O / uptime / network)
+  * commands: reboot / shutdown / exec (PowerShell) / explicit ps: + cmd: /
+    upgrade + winget / svc: (service control) / kill: (process) /
+    files: (file manager) / poll-interval / uninstall / signed self-update
+  * posture: Windows Update + winget (→ Patches, with remediation), Defender AV,
+    listening ports (→ Exposure), Event Log incl. the Security channel with a
+    RecordId cursor + Event IDs (→ Logs/journal + log_watch rules), watched
+    services (→ Services page), top processes + proc_names (→ process checks),
+    local users + privileged-group tripwire, reboot-required detection
 
-Still pending for full parity: watched-service status, SMART, drift apply,
-signed self-update, and PyInstaller packaging — added in later phases, at which
-point this converges onto the cross-platform agent. Keeping it separate for now
-means it can't destabilise the production Linux agent.
+Still Linux-only (not yet ported): SMART, hardware inventory, containers/compose,
+drift apply, OpenSCAP. Kept as a separate file from the Linux agent so it can't
+destabilise it; converging over time.
 
-Stdlib only (urllib/json/socket/subprocess/platform/hashlib). `psutil` is used
-for richer metrics when present, but the agent runs without it.
+Stdlib only (urllib/json/socket/subprocess/platform/hashlib/winreg/logging).
+`psutil` is used for richer metrics + the process list when present, but the
+agent runs without it.
 
 Usage:
     remotepower-agent-win.py --enroll --server https://rp.example.com --pin 123456 [--name NAME]
@@ -41,6 +44,63 @@ import urllib.request
 
 VERSION = '6.1.3'
 DEFAULT_POLL = 60
+
+
+# ── SECURITY: resolve system binaries by ABSOLUTE PATH, never bare name ────────
+#
+# The agent runs as SYSTEM. Invoking `powershell`/`winget`/`shutdown`/… by bare
+# name resolves them through %PATH%, and any directory on SYSTEM's PATH that a
+# lower-privileged user can write to becomes a privilege-escalation vector: drop
+# a `powershell.exe` there and the agent runs it as SYSTEM. So every fixed system
+# tool is pinned to its real location under %SystemRoot% (or the known winget
+# shim), and we refuse to fall back to a bare name — a missing tool is a clear
+# "not found", never a PATH lookup.
+_SYSTEM_ROOT = os.environ.get('SystemRoot', r'C:\Windows')
+_SYS32 = os.path.join(_SYSTEM_ROOT, 'System32')
+_POWERSHELL = os.path.join(
+    _SYS32, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+
+
+def _system_bin(name):
+    """Absolute path to a System32 tool (shutdown/icacls/schtasks/where/…).
+
+    Falls back to the bare name ONLY if the resolved path is absent, so a test
+    box or an unusual layout still works — but on a normal Windows install the
+    absolute path always wins, closing the writable-PATH hijack.
+    """
+    p = os.path.join(_SYS32, name if name.lower().endswith('.exe') else name + '.exe')
+    return p if os.path.exists(p) else name
+
+
+def _powershell_bin():
+    """Absolute powershell.exe, or the bare name if the canonical path is gone."""
+    return _POWERSHELL if os.path.exists(_POWERSHELL) else 'powershell'
+
+
+def _winget_bin():
+    """Resolve winget.exe absolutely. Unlike the System32 tools winget lives in a
+    per-user/WindowsApps shim whose path isn't fixed, so ask the OS via the
+    absolute `where.exe` (never bare `where`, same hijack reason) and cache it."""
+    global _WINGET_PATH
+    if _WINGET_PATH is not None:
+        return _WINGET_PATH
+    resolved = 'winget'
+    try:
+        r = subprocess.run([_system_bin('where'), 'winget'],
+                           capture_output=True, text=True, timeout=10,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        for line in (r.stdout or '').splitlines():
+            cand = line.strip()
+            if cand and os.path.exists(cand):
+                resolved = cand
+                break
+    except Exception:
+        pass
+    _WINGET_PATH = resolved
+    return resolved
+
+
+_WINGET_PATH = None
 
 # Prime the non-blocking CPU sampler once at import so the first heartbeat's
 # cpu_percent(interval=None) measures against a real baseline instead of
@@ -93,6 +153,35 @@ EXEC_TIMEOUT = 300
 MAX_OUTPUT = 32 * 1024
 
 
+# ── v6.1.3: a real logger (the agent had NONE — collectors swallowed every
+# exception silently, so a broken collector was indistinguishable from a host
+# that simply has nothing to report). Rotating file in ProgramData\RemotePower
+# plus stderr, so the scheduled task's failures are diagnosable after the fact.
+import logging as _logging
+from logging.handlers import RotatingFileHandler as _RotatingFileHandler
+
+log = _logging.getLogger('remotepower-win')
+
+
+def _init_logging():
+    if log.handlers:
+        return
+    log.setLevel(_logging.INFO)
+    fmt = _logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    try:
+        d = _data_dir()
+        os.makedirs(d, exist_ok=True)
+        fh = _RotatingFileHandler(os.path.join(d, 'agent.log'),
+                                  maxBytes=1_000_000, backupCount=3, encoding='utf-8')
+        fh.setFormatter(fmt)
+        log.addHandler(fh)
+    except Exception:
+        pass   # a file handler must never stop the agent from running
+    sh = _logging.StreamHandler(sys.stderr)
+    sh.setFormatter(fmt)
+    log.addHandler(sh)
+
+
 # ─── config / creds ──────────────────────────────────────────────────────────
 
 def _data_dir():
@@ -128,7 +217,7 @@ def save_creds(creds):
     def _harden_acl(path):
         try:
             subprocess.run(
-                ['icacls', path, '/inheritance:r',
+                [_system_bin('icacls'), path, '/inheritance:r',
                  '/grant:r', 'SYSTEM:(OI)(CI)F', '/grant:r', 'Administrators:(OI)(CI)F'],
                 capture_output=True, timeout=15,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -195,6 +284,477 @@ def self_sha256():
         return ''
 
 
+# ── v6.1.3: signed self-update (parity with the Linux agent's fail-closed gate) ─
+#
+# The Windows agent is a .py script, so "swap the binary" = replace this file and
+# re-launch the scheduled task. The trust model is IDENTICAL to Linux:
+#   * trigger on sha256 drift (a re-build of the same version legitimately differs)
+#   * verify the downloaded bytes against the server's advertised sha256
+#   * if a release public key is pinned (release.pub in ProgramData\RemotePower),
+#     REQUIRE a valid detached signature before installing — defends against a
+#     compromised server that dictates both the binary and its advertised hash
+#   * a `require-signed-updates` marker makes the signed path mandatory (refuse
+#     to install anything unsigned), closing the default fail-open window
+# Replaces the old stub that returned rc=0 ("not supported"), which made a
+# fleet-wide agent-update rollout report SUCCESS on every Windows host while
+# nothing happened.
+def _release_pubkey_win():
+    """Armored release public key pinned on this host, or None (→ no enforcement)."""
+    try:
+        p = os.path.join(_data_dir(), 'release.pub')
+        if os.path.exists(p):
+            with open(p, 'r', encoding='utf-8') as f:
+                return f.read().strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _require_signed_updates_win():
+    try:
+        return os.path.exists(os.path.join(_data_dir(), 'require-signed-updates'))
+    except Exception:
+        return False
+
+
+def _verify_detached_sig_win(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
+    """Verify a detached signature over data_bytes with an ephemeral gpg keyring
+    seeded only with the pinned key. (ok, detail). Fails closed. Needs gpg on
+    PATH (Gpg4win); absent gpg with a pinned key = refuse, never silently skip."""
+    import shutil as _shutil
+    import tempfile as _tempfile
+    gpg = _shutil.which('gpg') or _shutil.which('gpg.exe')
+    if not gpg:
+        return False, 'gpg not available (install Gpg4win to enforce signed updates)'
+    home = _tempfile.mkdtemp(prefix='rp-relverify-')
+    try:
+        env = dict(os.environ, GNUPGHOME=home)
+        imp = subprocess.run([gpg, '--batch', '--import'],
+                             input=(pubkey_armored or '').encode(),
+                             env=env, capture_output=True, timeout=20,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if imp.returncode != 0:
+            return False, 'public key import failed'
+        art = os.path.join(home, 'art')
+        sig = os.path.join(home, 'art.asc')
+        with open(art, 'wb') as f:
+            f.write(data_bytes)
+        with open(sig, 'w', encoding='utf-8') as f:
+            f.write(sig_text or '')
+        r = subprocess.run([gpg, '--batch', '--status-fd', '1', '--verify', sig, art],
+                           env=env, capture_output=True, timeout=20,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        out = (r.stdout or b'').decode('utf-8', 'replace')
+        valid = [ln for ln in out.splitlines() if ln.startswith('[GNUPG:] VALIDSIG')]
+        if not valid:
+            return False, 'signature not valid'
+        if expected_fpr:
+            want = expected_fpr.upper().replace(' ', '')
+            if valid[0].split()[2].upper() != want:
+                return False, 'signing key fingerprint mismatch'
+        return True, 'verified'
+    except Exception as e:
+        return False, f'verify error: {e}'
+    finally:
+        _shutil.rmtree(home, ignore_errors=True)
+
+
+def _http_get_json_win(url, timeout=15):
+    if not url.startswith('https://'):
+        raise ValueError('server URL must use HTTPS')
+    req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Win/{VERSION}'})
+    with _OPENER.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read(4 * 1024 * 1024).decode('utf-8'))
+
+
+def _http_get_bytes_win(url, timeout=60):
+    if not url.startswith('https://'):
+        raise ValueError('server URL must use HTTPS')
+    req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Win/{VERSION}'})
+    with _OPENER.open(req, timeout=timeout) as resp:
+        return resp.read(64 * 1024 * 1024)
+
+
+def _self_update():
+    """Download + verify + install a fresh Windows agent, then relaunch the task.
+
+    Never runs under audit (read-only) mode — self-update is a write. Returns a
+    cmd_output dict; rc is 0 ONLY on a real, verified install (or a legitimate
+    "already current" no-op), never as a placeholder for "unimplemented".
+    """
+    if _audit_mode():
+        return {'cmd': 'update', 'output': 'audit (read-only) mode: self-update refused', 'rc': 126}
+    if getattr(sys, 'frozen', False):
+        # A PyInstaller exe can't rewrite itself in place while running; that path
+        # needs a separate updater. Report honestly rather than pretend success.
+        return {'cmd': 'update',
+                'output': 'self-update of a frozen .exe is not supported by this build', 'rc': 1}
+    creds = load_creds()
+    server = (creds.get('server_url') or '').rstrip('/')
+    if not server:
+        return {'cmd': 'update', 'output': 'no server URL on record', 'rc': 1}
+    try:
+        info = _http_get_json_win(f'{server}/api/agent/win/version', timeout=15)
+    except Exception as e:
+        return {'cmd': 'update', 'output': f'version check failed: {e}', 'rc': 1}
+    remote_sha = (info.get('sha256') or '').strip().lower()
+    remote_ver = info.get('version') or '?'
+    if not remote_sha:
+        return {'cmd': 'update', 'output': 'server publishes no Windows agent — nothing to update', 'rc': 0}
+
+    self_path = os.path.abspath(__file__)
+    local_sha = self_sha256().lower()
+    import hmac as _hmac
+    if local_sha and _hmac.compare_digest(local_sha, remote_sha):
+        return {'cmd': 'update', 'output': f'already current (v{VERSION})', 'rc': 0}
+
+    try:
+        data = _http_get_bytes_win(f'{server}/api/agent/win/download', timeout=90)
+    except Exception as e:
+        return {'cmd': 'update', 'output': f'download failed: {e}', 'rc': 1}
+    actual_sha = hashlib.sha256(data).hexdigest().lower()
+    if not _hmac.compare_digest(actual_sha, remote_sha):
+        return {'cmd': 'update',
+                'output': f'sha256 mismatch (got {actual_sha[:12]}…, expected {remote_sha[:12]}…) '
+                          '— refusing to install', 'rc': 1}
+
+    # Signature gate — fail-closed when a key is pinned or signed updates required.
+    pubkey = _release_pubkey_win()
+    if not pubkey and _require_signed_updates_win():
+        return {'cmd': 'update',
+                'output': 'require-signed-updates is set but no release.pub is pinned — '
+                          'refusing an unsigned update', 'rc': 1}
+    if pubkey:
+        try:
+            sig_obj = _http_get_json_win(f'{server}/api/agent/win/signature', timeout=15)
+            sig_text = (sig_obj or {}).get('signature', '')
+        except Exception as e:
+            return {'cmd': 'update', 'output': f'signature required but unavailable: {e}', 'rc': 1}
+        ok, detail = _verify_detached_sig_win(data, sig_text, pubkey,
+                                              (info.get('key_fingerprint') or ''))
+        if not ok:
+            return {'cmd': 'update', 'output': f'signature verification FAILED ({detail}) — refusing', 'rc': 1}
+
+    # Atomic swap: write beside the target, os.replace (atomic on NTFS), harden ACL.
+    try:
+        tmp = self_path + '.rp-new'
+        with open(tmp, 'wb') as f:
+            f.write(data)
+        os.replace(tmp, self_path)
+    except Exception as e:
+        return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}
+
+    # Re-launch the scheduled task so the NEW file is running. The current process
+    # keeps running the old code until the task restarts it — schtasks /end then
+    # /run gives us a clean cutover without waiting for the next trigger.
+    try:
+        subprocess.run([_system_bin('schtasks'), '/end', '/tn', 'RemotePowerAgent'],
+                       capture_output=True, timeout=30,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        subprocess.run([_system_bin('schtasks'), '/run', '/tn', 'RemotePowerAgent'],
+                       capture_output=True, timeout=30,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        pass   # the file is swapped; the next scheduled trigger picks it up regardless
+    return {'cmd': 'update', 'output': f'updated to v{remote_ver} ({remote_sha[:12]}…); relaunching', 'rc': 0}
+
+
+# ── v6.1.3: Windows file manager (files:) ─────────────────────────────────────
+#
+# Parity with the Linux file manager so the existing browser UI works against a
+# Windows host. Same command wire-format (`files:<op>:<b64path>[:<b64content>]`)
+# and same JSON result shape; Windows path semantics throughout.
+#
+# Confinement: an operator-overridable allowlist of roots (default: the dirs where
+# data actually lives, never the OS/System roots), plus a realpath re-check so a
+# junction/symlink can't redirect a read/write outside the allowlist. Reads are
+# always allowed; every MUTATION is refused under audit (read-only) mode.
+FILE_MGR_MAX_READ = 256 * 1024
+FILE_MGR_MAX_WRITE = 512 * 1024
+_FILE_MGR_DEFAULT_ROOTS = [r'C:\Users', r'C:\ProgramData', r'C:\inetpub', r'C:\Temp']
+# Never expose the OS itself through the file manager, even if a root is misconfigured.
+_FILE_MGR_DENY = (r'c:\windows', r'c:\program files\windowsapps')
+
+
+def _file_mgr_roots_win():
+    try:
+        p = os.path.join(_data_dir(), 'file-roots')
+        if os.path.exists(p):
+            with open(p, 'r', encoding='utf-8') as f:
+                roots = [ln.strip() for ln in f if ln.strip() and ':' in ln]
+            if roots:
+                return roots
+    except Exception:
+        pass
+    return list(_FILE_MGR_DEFAULT_ROOTS)
+
+
+def _file_mgr_allowed_win(path):
+    """True iff `path` (absolute, normalized) is under an allowlisted root and not
+    under a denied prefix. Case-insensitive — Windows paths are."""
+    rp = os.path.normpath(path).casefold()
+    for d in _FILE_MGR_DENY:
+        d = os.path.normpath(d).casefold()
+        if rp == d or rp.startswith(d + os.sep):
+            return False
+    for r in _file_mgr_roots_win():
+        r = os.path.normpath(r).casefold()
+        if rp == r or rp.startswith(r + os.sep):
+            return True
+    return False
+
+
+def _handle_file_op_win(cmd):
+    """Execute a `files:` op → cmd_output dict with a JSON `output`. Never raises."""
+    import base64 as _b64
+    res, rc = {}, 0
+    try:
+        bits = cmd.split(':', 3)
+        op = bits[1] if len(bits) > 1 else ''
+        raw_path = (_b64.urlsafe_b64decode(bits[2]).decode('utf-8', 'replace')
+                    if len(bits) > 2 else '')
+        logical = os.path.normpath(raw_path)
+        if not os.path.isabs(logical) or not _file_mgr_allowed_win(logical):
+            return {'cmd': cmd, 'rc': 1,
+                    'output': json.dumps({'error': 'path is outside the allowlisted roots'})}
+        if op in ('write', 'mkdir', 'delete', 'upload') and _audit_mode():
+            return {'cmd': cmd, 'rc': 126,
+                    'output': json.dumps({'error': 'agent is in audit (read-only) mode'})}
+        # Realpath re-check: resolve junctions/symlinks and confirm the resolved
+        # target is STILL inside an allowed root (traversal / TOCTOU guard).
+        real = os.path.realpath(logical)
+        if not _file_mgr_allowed_win(real):
+            return {'cmd': cmd, 'rc': 1,
+                    'output': json.dumps({'error': 'resolved path escapes the allowlisted roots'})}
+
+        if op == 'list':
+            entries = []
+            try:
+                names = sorted(os.listdir(real))[:2000]
+            except Exception as e:
+                return {'cmd': cmd, 'rc': 1, 'output': json.dumps({'error': str(e)[:200]})}
+            for nm in names:
+                fp = os.path.join(real, nm)
+                try:
+                    st = os.lstat(fp)
+                    import stat as _stat
+                    kind = ('dir' if _stat.S_ISDIR(st.st_mode)
+                            else ('link' if _stat.S_ISLNK(st.st_mode) else 'file'))
+                    entries.append({'name': nm, 'type': kind, 'size': st.st_size,
+                                    'mtime': int(st.st_mtime), 'mode': ''})
+                except Exception:
+                    continue
+            res = {'path': logical, 'entries': entries}
+        elif op == 'read':
+            with open(real, 'rb') as f:
+                data = f.read(FILE_MGR_MAX_READ + 1)
+                size = os.fstat(f.fileno()).st_size
+            truncated = len(data) > FILE_MGR_MAX_READ
+            data = data[:FILE_MGR_MAX_READ]
+            try:
+                text, binary = data.decode('utf-8'), False
+            except UnicodeDecodeError:
+                text, binary = '', True
+            res = {'path': logical, 'binary': binary, 'truncated': truncated,
+                   'size': size, 'content': text}
+            if binary:
+                res['content_b64'] = _b64.b64encode(data).decode('ascii')
+        elif op == 'write':
+            content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
+                       if len(bits) > 3 else '')
+            enc = content.encode('utf-8', 'replace')
+            if len(enc) > FILE_MGR_MAX_WRITE:
+                return {'cmd': cmd, 'rc': 1,
+                        'output': json.dumps({'error': f'content exceeds {FILE_MGR_MAX_WRITE} bytes'})}
+            tmp = real + '.rp-tmp'
+            with open(tmp, 'wb') as f:
+                f.write(enc)
+            os.replace(tmp, real)
+            res = {'path': logical, 'written': len(enc)}
+        elif op == 'upload':
+            raw = _b64.urlsafe_b64decode(bits[3]) if len(bits) > 3 else b''
+            if len(raw) > 8 * 1024 * 1024:
+                return {'cmd': cmd, 'rc': 1, 'output': json.dumps({'error': 'upload too large'})}
+            if os.path.exists(real):
+                rc, res = 1, {'error': 'file exists (overwrite not permitted)'}
+            else:
+                tmp = real + '.rp-tmp'
+                with open(tmp, 'wb') as f:
+                    f.write(raw)
+                os.replace(tmp, real)
+                res = {'path': logical, 'uploaded': len(raw)}
+        elif op == 'mkdir':
+            os.makedirs(real, exist_ok=True)
+            res = {'path': logical, 'created': True}
+        elif op == 'delete':
+            if os.path.isdir(real):
+                os.rmdir(real)          # empty dirs only
+            else:
+                os.remove(real)
+            res = {'path': logical, 'deleted': True}
+        else:
+            rc, res = 1, {'error': f'unknown file op: {op}'}
+    except Exception as e:
+        rc, res = 1, {'error': str(e)[:300]}
+    return {'cmd': cmd, 'rc': rc, 'output': json.dumps(res)}
+
+
+# ── v6.1.3: Windows services (enumerate + control) ────────────────────────────
+#
+# Parity with the Linux agent's watched-service reporting and svc: command.
+# The server pushes `watched_services` (a list of service names) in the heartbeat
+# response, we report their state in the SAME {unit, active, sub, since} shape the
+# server already ingests, and it maps Windows states onto its systemd vocabulary:
+#   Running               → 'active'   (OK)
+#   StartPending/StopPending → 'activating'  (OK-ish, in flight)
+#   Stopped / Paused / …  → 'inactive' (warning — a watched service is down)
+# Windows has no "failed" state, so we never fabricate the systemd 'failed' that
+# the server escalates to CRITICAL — a stopped watched service is a warning, which
+# is the honest severity.
+_watched_services = []          # updated from each heartbeat response
+_WIN_SVC_STATE = {
+    'running': 'active', 'startpending': 'activating', 'stoppending': 'activating',
+    'stopped': 'inactive', 'paused': 'inactive', 'pausepending': 'inactive',
+    'continuepending': 'activating',
+}
+# Get-Service objects, one JSON line each: Name, Status, DisplayName.
+_SVC_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "$names={NAMES};"
+    "foreach($n in $names){"
+    "  $s=Get-Service -Name $n -ErrorAction SilentlyContinue;"
+    "  if($s){"
+    "    [pscustomobject]@{name=$n;canonical=$s.Name;status=$s.Status.ToString()}|ConvertTo-Json -Compress"
+    "  } else {"
+    "    [pscustomobject]@{name=$n;canonical='';status='NotFound'}|ConvertTo-Json -Compress"
+    "  }"
+    "}"
+)
+
+
+def _ps_single_quote(s):
+    """Escape a string for a PowerShell single-quoted literal ('' escapes ')."""
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def get_services(watched_units):
+    """Report the state of each watched Windows service. Returns
+    [{unit, active, sub, since, canonical}, ...] — the shape the server ingests.
+
+    The names came from the server's validated config; we still pass them as
+    PowerShell single-quoted literals (never string-concatenated into a command),
+    so there is nothing to inject even if a name were hostile.
+    """
+    if not watched_units:
+        return []
+    units = [str(u) for u in watched_units[:50] if str(u).strip()]
+    if not units:
+        return []
+    names_ps = '@(' + ','.join(_ps_single_quote(u) for u in units) + ')'
+    ps = _SVC_PS.replace('{NAMES}', names_ps)
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', ps],
+                           capture_output=True, text=True, timeout=30,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return []
+    out = []
+    for line in (r.stdout or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        name = str(obj.get('name') or '')
+        if not name:
+            continue
+        status = str(obj.get('status') or '').lower()
+        active = _WIN_SVC_STATE.get(status, 'unknown')
+        entry = {'unit': name, 'active': active, 'sub': str(obj.get('status') or ''),
+                 'since': 0}
+        canonical = str(obj.get('canonical') or '')
+        if canonical and canonical != name:
+            entry['canonical'] = canonical
+        out.append(entry)
+    return out
+
+
+def _run_service_action_win(cmd):
+    """svc:<action>:<unit> — Start/Stop/Restart-Service via fixed argv-ish PS (no
+    shell string-building; the unit is a single-quoted PS literal)."""
+    try:
+        _, action, unit = cmd.split(':', 2)
+    except ValueError:
+        return {'cmd': cmd, 'output': 'malformed service action', 'rc': 2}
+    verb = {'restart': 'Restart-Service', 'start': 'Start-Service',
+            'stop': 'Stop-Service'}.get(action)
+    if not verb or not unit.strip():
+        return {'cmd': cmd, 'output': 'refused: bad action/unit', 'rc': 2}
+    ps = (f"$ErrorActionPreference='Stop';"
+          f"{verb} -Name {_ps_single_quote(unit)} -Force;"
+          f"'{action} ok'")
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', ps],
+                           capture_output=True, text=True, timeout=90,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        out = ((r.stdout or '') + (r.stderr or '')).strip() or f'{action} {unit} -> rc {r.returncode}'
+        return {'cmd': cmd, 'output': out[:4000], 'rc': r.returncode}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'{type(e).__name__}: {e}', 'rc': 1}
+
+
+# ── v6.1.3: Windows processes (list + kill) ───────────────────────────────────
+def get_top_processes(limit=15):
+    """Top processes by memory (RSS). Returns (top_list, name_set) where top_list
+    is [{pid, name, cpu, mem_mb}] and name_set is the deduped names for the
+    server-side `process` custom-check (which reads sysinfo.proc_names). Needs
+    psutil; returns ([], []) without it."""
+    try:
+        import psutil
+    except Exception:
+        return [], []
+    procs = []
+    names = set()
+    for p in psutil.process_iter(['pid', 'name', 'memory_info']):
+        try:
+            info = p.info
+            nm = info.get('name') or ''
+            if nm:
+                names.add(nm)
+            mem = info.get('memory_info')
+            rss = getattr(mem, 'rss', 0) if mem else 0
+            procs.append({'pid': info.get('pid'), 'name': nm,
+                          'mem_mb': round(rss / (1024 * 1024), 1)})
+        except Exception:
+            continue
+    procs.sort(key=lambda x: x.get('mem_mb') or 0, reverse=True)
+    return procs[:limit], sorted(names)
+
+
+def _run_process_kill_win(cmd):
+    """kill:<SIG>:<pid> — terminate a PID. The server sends POSIX signal names
+    (TERM/KILL/…) which have no meaning on Windows; we map ANY of them to a
+    terminate (taskkill /PID), and refuse pid<=4 (System/Idle/csrss range)."""
+    try:
+        _, _sig, pid_s = cmd.split(':', 2)
+        pid = int(pid_s)
+    except ValueError:
+        return {'cmd': cmd, 'output': 'malformed kill command', 'rc': 2}
+    if pid <= 4:
+        return {'cmd': cmd, 'output': 'refused: system pid', 'rc': 2}
+    # /F force, /T with children. taskkill is a System32 tool → absolute path.
+    try:
+        r = subprocess.run([_system_bin('taskkill'), '/PID', str(pid), '/F', '/T'],
+                           capture_output=True, text=True, timeout=30,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        out = ((r.stdout or '') + (r.stderr or '')).strip() or f'taskkill {pid} -> {r.returncode}'
+        return {'cmd': cmd, 'output': out[:2000], 'rc': r.returncode}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'{type(e).__name__}: {e}', 'rc': 1}
+
+
 def _parse_wu_titles(stdout):
     """Parse one-title-per-line output from the Windows Update searcher into a
     clean list. Pure — unit-testable off-Windows."""
@@ -217,7 +777,7 @@ def windows_update_pending():
     if not sys.platform.startswith('win'):
         return None
     try:
-        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', _WU_PS],
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', _WU_PS],
                            capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             return None
@@ -284,7 +844,7 @@ def get_winget_updates():
         return {}
     try:
         r = subprocess.run(
-            ['winget', 'upgrade', '--accept-source-agreements'],
+            [_winget_bin(), 'upgrade', '--accept-source-agreements'],
             capture_output=True, text=True, timeout=120)
         # winget exits non-zero when there is nothing to upgrade; parse anyway.
         count, names = _parse_winget(r.stdout)
@@ -360,7 +920,7 @@ def get_defender_status():
         return {}
     try:
         r = subprocess.run(
-            ['powershell', '-NoProfile', '-NonInteractive', '-Command', _DEFENDER_PS],
+            [_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', _DEFENDER_PS],
             capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             return {}
@@ -430,43 +990,138 @@ def collect_listening_ports():
     return ports[:80]
 
 
-# PowerShell: recent System/Application events at Critical/Error/Warning level,
-# one formatted line each — the Windows analogue of the Linux journal tail.
-_EVENTLOG_PS = (
+# v6.1.3: Event Log with a RecordId CURSOR + the Security channel + Event IDs.
+#
+# The old collector re-fetched the newest 100 System+Application events EVERY
+# poll with no bookmark, so lines were duplicated across polls and any burst of
+# >100 events between polls was silently lost. And the Security log — where
+# logon failures (4625), account lockouts (4740), audit-policy changes live —
+# was never read at all.
+#
+# Now: per-channel RecordId cursors persisted to disk. Each poll fetches only
+# events NEWER than the cursor, advances the cursor to the newest fetched, and
+# emits one line per event PREFIXED WITH THE EVENT ID so the server's regex
+# log_watch rules can key on it (e.g. a rule matching "[4625]" alerts on failed
+# logons). First run per channel baselines to the newest few, so a fresh agent
+# doesn't dump the entire history into one heartbeat.
+_EVENTLOG_CHANNELS = ('System', 'Application', 'Security')
+_EVENTLOG_PER_POLL = 80          # cap per channel per poll (server stores ≤200 total)
+_EVENTLOG_BASELINE = 20          # first-run: emit only the newest N, then cursor forward
+_EVENTLOG_CURSOR_FILE = 'eventlog_cursor.json'
+# JSON-per-line so we get RecordId + Id + level structurally, not by re-parsing text.
+# Security events have no Level filter that's useful (most are Information), so we
+# take that channel unfiltered; System/Application stay Critical/Error/Warning.
+_EVENTLOG_PS_TMPL = (
     "$ErrorActionPreference='SilentlyContinue';"
-    "Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=1,2,3} "
-    "-MaxEvents 100 | ForEach-Object { '{0} {1} {2}: {3}' -f "
-    "$_.TimeCreated.ToString('MMM dd HH:mm:ss'), $_.LevelDisplayName, "
-    "$_.ProviderName, ($_.Message -replace '\\s+',' ') }"
+    "$f=@{{LogName='{CHANNEL}'{LEVEL}}};"
+    "Get-WinEvent -FilterHashtable $f -MaxEvents {MAX} | Where-Object {{ $_.RecordId -gt {SINCE} }} | "
+    "ForEach-Object {{ [pscustomobject]@{{"
+    "  rid=$_.RecordId; id=$_.Id; lvl=$_.LevelDisplayName; prov=$_.ProviderName;"
+    "  t=$_.TimeCreated.ToString('MMM dd HH:mm:ss');"
+    "  msg=($_.Message -replace '\\s+',' ')"
+    "}} | ConvertTo-Json -Compress }}"
 )
 
 
+def _eventlog_cursor_path():
+    return os.path.join(_data_dir(), _EVENTLOG_CURSOR_FILE)
+
+
+def _load_eventlog_cursor():
+    try:
+        with open(_eventlog_cursor_path(), 'r', encoding='utf-8') as f:
+            c = json.load(f)
+            return c if isinstance(c, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_eventlog_cursor(cur):
+    try:
+        d = _data_dir()
+        os.makedirs(d, exist_ok=True)
+        tmp = _eventlog_cursor_path() + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(cur, f)
+        os.replace(tmp, _eventlog_cursor_path())
+    except Exception:
+        pass
+
+
 def _parse_eventlog(stdout):
-    """One trimmed line per event, capped like the server's journal store
-    (≤100 lines, ≤512 bytes each). Pure — unit-testable off-Windows."""
-    out = []
-    for ln in (stdout or '').splitlines():
-        s = ln.strip()
-        if s:
-            out.append(s[:512])
-        if len(out) >= 100:
-            break
-    return out
+    """Parse the JSON-per-line output into (lines, max_rid).
+
+    Each line: '<t> <LEVEL> <PROV>[<id>]: <msg>' — the '[<id>]' is what an alert
+    rule keys on. Pure — unit-testable off-Windows with canned JSON lines.
+    """
+    lines, max_rid = [], 0
+    for raw in (stdout or '').splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            o = json.loads(raw)
+        except Exception:
+            continue
+        try:
+            rid = int(o.get('rid') or 0)
+        except (TypeError, ValueError):
+            rid = 0
+        max_rid = max(max_rid, rid)
+        line = (f"{o.get('t','')} {o.get('lvl','')} "
+                f"{o.get('prov','')}[{o.get('id','')}]: {o.get('msg','')}").strip()
+        lines.append(line[:512])
+    return lines, max_rid
 
 
 def get_event_log_journal():
-    """Recent Windows Event Log entries as journal lines, or []. Off-Windows []."""
+    """New Windows Event Log entries across System/Application/Security since the
+    last cursor, as journal lines. Advances + persists the cursor. Off-Windows []."""
     if not sys.platform.startswith('win'):
         return []
-    try:
-        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive',
-                            '-Command', _EVENTLOG_PS],
-                           capture_output=True, text=True, timeout=60)
+    cursor = _load_eventlog_cursor()
+    all_lines = []
+    dirty = False
+    for chan in _EVENTLOG_CHANNELS:
+        since = cursor.get(chan)
+        first_run = since is None
+        # First run: don't filter by RecordId (baseline to the newest few); after
+        # that, only events newer than the cursor.
+        since_val = 0 if first_run else int(since or 0)
+        level = '' if chan == 'Security' else ";Level=1,2,3"
+        maxn = _EVENTLOG_BASELINE if first_run else _EVENTLOG_PER_POLL
+        ps = (_EVENTLOG_PS_TMPL
+              .replace('{CHANNEL}', chan)
+              .replace('{LEVEL}', level)
+              .replace('{MAX}', str(maxn))
+              .replace('{SINCE}', str(since_val)))
+        try:
+            r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', ps],
+                               capture_output=True, text=True, timeout=60,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except Exception:
+            continue
         if r.returncode != 0:
-            return []
-        return _parse_eventlog(r.stdout)
-    except Exception:
-        return []
+            # The Security channel needs elevation; a non-SYSTEM agent just skips it
+            # rather than erroring the whole collection.
+            continue
+        lines, max_rid = _parse_eventlog(r.stdout)
+        if lines:
+            all_lines.extend(lines)
+        # Advance the cursor to the newest RecordId we SAW (even beyond the cap),
+        # so a burst larger than the cap drops its oldest rather than re-fetching
+        # the same events forever.
+        if max_rid > since_val:
+            cursor[chan] = max_rid
+            dirty = True
+        elif first_run:
+            # No events at all on first run — still set a cursor so we don't keep
+            # treating every future poll as a baseline.
+            cursor[chan] = since_val
+            dirty = True
+    if dirty:
+        _save_eventlog_cursor(cursor)
+    return all_lines[:200]
 
 
 # PowerShell: local users + whether each is in the Administrators group + when
@@ -517,7 +1172,7 @@ def get_local_accounts():
     if not sys.platform.startswith('win'):
         return []
     try:
-        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive',
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive',
                             '-Command', _LOCAL_USERS_PS],
                            capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
@@ -537,6 +1192,54 @@ def _audit_mode():
         return False
 
 
+def _reboot_required():
+    """v6.1.3: Windows pending-reboot detection → sysinfo.reboot_required (bool).
+
+    Parity with the Linux agent's /run/reboot-required. This is THE gap the
+    Windows updater created: it installs updates with -IgnoreReboot and used to
+    leave the host in a pending-reboot state that the operator never saw. The
+    three canonical signals (a True on ANY of them means a reboot is pending):
+      1. Component Based Servicing\\RebootPending          (servicing / .NET / role changes)
+      2. WindowsUpdate\\Auto Update\\RebootRequired        (a Windows Update needs it)
+      3. Session Manager\\PendingFileRenameOperations       (a file swap queued for boot)
+    Pure registry reads via stdlib winreg — no PowerShell, no subprocess. On a
+    non-Windows box (tests) winreg is absent, so this returns False, not an error.
+    """
+    try:
+        import winreg
+    except Exception:
+        return False
+    HKLM = winreg.HKEY_LOCAL_MACHINE
+
+    def _key_exists(path):
+        try:
+            winreg.CloseKey(winreg.OpenKey(HKLM, path))
+            return True
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return False
+
+    if _key_exists(r'SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'):
+        return True
+    if _key_exists(r'SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'):
+        return True
+    try:
+        k = winreg.OpenKey(HKLM, r'SYSTEM\CurrentControlSet\Control\Session Manager')
+        try:
+            val, _typ = winreg.QueryValueEx(k, 'PendingFileRenameOperations')
+            # A non-empty multi-string means at least one rename is queued for boot.
+            if val and any(str(s).strip() for s in val):
+                return True
+        except FileNotFoundError:
+            pass
+        finally:
+            winreg.CloseKey(k)
+    except OSError:
+        pass
+    return False
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -545,6 +1248,10 @@ def collect_sysinfo():
         'kernel':   platform.version(),       # Windows build string
         'hostname': socket.gethostname(),
         'audit_mode': _audit_mode(),          # v4.10.0: read-only agent flag
+        # v6.1.3: pending-reboot state — the server edge-triggers a reboot_required
+        # alert + auto-resolves it, and feeds the risk score. Previously never sent
+        # by Windows, so the -IgnoreReboot updater left a silent pending-reboot.
+        'reboot_required': _reboot_required(),
     }
     pkgs = windows_update_pending()
     if pkgs is not None:
@@ -609,11 +1316,42 @@ def collect_sysinfo():
                 info['network_io'] = nio
         except Exception:
             pass
+        # v6.1.3: aggregate disk I/O rate (bytes/sec), diffed across polls — the
+        # "% Disk Time"/throughput signal the Linux agent reports and Windows did
+        # not. Cheap (psutil counter, no PowerShell).
+        try:
+            dio = _collect_disk_io(psutil)
+            if dio:
+                info['disk_io'] = dio
+        except Exception:
+            pass
     except ImportError:
         info['psutil'] = False  # honest signal that metrics are limited
     except Exception:
         pass
     return info
+
+
+# v6.1.3: disk_io_counters are cumulative; diff for a bytes/sec rate.
+_prev_disk_io = {}   # 'read'/'write' cumulative bytes + monotonic ts
+
+def _collect_disk_io(psutil):
+    try:
+        c = psutil.disk_io_counters()
+    except Exception:
+        return None
+    if not c:
+        return None
+    now = time.monotonic()
+    prev = _prev_disk_io.get('v')
+    _prev_disk_io['v'] = (c.read_bytes, c.write_bytes, now)
+    if not prev:
+        return None
+    dt = now - prev[2]
+    if dt <= 0:
+        return None
+    return {'read_bps': int(max(0, c.read_bytes - prev[0]) / dt),
+            'write_bps': int(max(0, c.write_bytes - prev[1]) / dt)}
 
 
 # v3.14.0 #37: net_io_counters are cumulative; diff against the previous poll
@@ -693,13 +1431,13 @@ def command_argv(cmd):
     """Map a server command string to a Windows argv list, or None if the
     command is handled elsewhere / unknown. Pure — unit-testable off-Windows."""
     if cmd == 'reboot':
-        return ['shutdown', '/r', '/t', '30', '/c', 'RemotePower: scheduled reboot']
+        return [_system_bin('shutdown'), '/r', '/t', '30', '/c', 'RemotePower: scheduled reboot']
     if cmd == 'shutdown':
-        return ['shutdown', '/s', '/t', '30', '/c', 'RemotePower: scheduled shutdown']
+        return [_system_bin('shutdown'), '/s', '/t', '30', '/c', 'RemotePower: scheduled shutdown']
     # W6-32: patch execution — `upgrade` (all) or `upgrade:<title>` (one update).
     if cmd == 'upgrade' or (isinstance(cmd, str) and cmd.startswith('upgrade:')):
         title = cmd[len('upgrade:'):].strip() if cmd.startswith('upgrade:') else ''
-        return ['powershell', '-NoProfile', '-NonInteractive', '-Command',
+        return [_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command',
                 _win_update_install_ps(title)]
     # v6.1.3: third-party APP patching via winget. `winget:` upgrades everything,
     # `winget:<id>` one package. Kept as its own command rather than overloading
@@ -708,7 +1446,7 @@ def command_argv(cmd):
     # the id is charset-validated below, so there is nothing to inject into.
     if isinstance(cmd, str) and cmd.startswith('winget:'):
         pkg = cmd[len('winget:'):].strip()
-        base = ['winget', 'upgrade', '--accept-source-agreements',
+        base = [_winget_bin(), 'upgrade', '--accept-source-agreements',
                 '--accept-package-agreements', '--disable-interactivity',
                 '--silent']
         if not pkg:
@@ -725,8 +1463,21 @@ def command_argv(cmd):
         m = _re.match(r'^to=\d{1,5}:(.*)$', body, _re.DOTALL)
         if m:
             body = m.group(1)
-        # Run via PowerShell for parity with operators' expectations.
-        return ['powershell', '-NoProfile', '-NonInteractive', '-Command', body]
+        # exec: runs via PowerShell on Windows (the native default). An operator
+        # who needs a DIFFERENT interpreter — because `exec:` silently ran their
+        # bash/cmd body as PowerShell — uses the explicit ps:/cmd: verbs below.
+        return [_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', body]
+    # v6.1.3: EXPLICIT interpreter selection. The old failure: a script written for
+    # bash or cmd, queued as exec:, was reinterpreted as PowerShell with no error
+    # (it just did the wrong thing). These verbs make the interpreter deterministic
+    # instead of a function of which OS the command happened to land on.
+    if isinstance(cmd, str) and cmd.startswith('ps:'):
+        return [_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', cmd[len('ps:'):]]
+    if isinstance(cmd, str) and cmd.startswith('cmd:'):
+        # cmd.exe /c runs a batch/CMD one-liner; the remainder is one argument to
+        # the interpreter (no agent-side shell), nothing to inject the operator
+        # didn't author.
+        return [_system_bin('cmd'), '/c', cmd[len('cmd:'):]]
     return None
 
 
@@ -745,6 +1496,11 @@ def handle_command(cmd):
     None for fire-and-forget / control commands)."""
     if not cmd:
         return None
+    # A non-string command from the server used to raise AttributeError on the
+    # first `.startswith` below (swallowed nowhere → the heartbeat loop logged an
+    # error and dropped the whole batch). Coerce defensively.
+    if not isinstance(cmd, str):
+        return {'cmd': str(cmd), 'output': 'malformed command (not a string)', 'rc': 1}
     if _audit_mode():   # v4.10.0: read-only agent refuses every command
         return {'cmd': cmd, 'output': 'refused: agent is in audit (read-only) mode', 'rc': 126}
     if cmd.startswith('poll_interval:'):
@@ -760,18 +1516,27 @@ def handle_command(cmd):
         _uninstall()
         return None
     if cmd == 'update':
-        # Minimal agent: signed self-update is a later phase; just acknowledge.
-        return {'cmd': cmd, 'output': 'self-update not supported by the minimal agent yet', 'rc': 0}
+        return _self_update()
+    # v6.1.3: service control + process kill + file ops report their own output.
+    if cmd.startswith('svc:'):
+        return _run_service_action_win(cmd)
+    if cmd.startswith('kill:'):
+        return _run_process_kill_win(cmd)
+    if cmd.startswith('files:'):
+        return _handle_file_op_win(cmd)
     argv = command_argv(cmd)
     if argv is None:
         return {'cmd': cmd, 'output': f'unsupported command: {cmd}', 'rc': 1}
     try:
         is_exec = cmd.startswith('exec:')
+        # ps:/cmd: are operator scripts too — give them the exec timeout budget,
+        # not the 30s control-command default.
+        is_script = is_exec or cmd.startswith('ps:') or cmd.startswith('cmd:')
         # W6-32: Windows Update installs are slow — give them a wide timeout.
         is_upgrade = cmd == 'upgrade' or cmd.startswith('upgrade:')
         _to = _exec_timeout_override(cmd) if is_exec else (1800 if is_upgrade else None)
         r = subprocess.run(argv, capture_output=True, text=True,
-                           timeout=_to or (EXEC_TIMEOUT if is_exec else 30))
+                           timeout=_to or (EXEC_TIMEOUT if is_script else 30))
         out = ((r.stdout or '') + (r.stderr or '')).strip()[:MAX_OUTPUT]
         return {'cmd': cmd, 'output': out or '(no output)', 'rc': r.returncode}
     except subprocess.TimeoutExpired:
@@ -783,7 +1548,7 @@ def handle_command(cmd):
 def _uninstall():
     """Best-effort: remove the scheduled task and creds. Idempotent."""
     try:
-        subprocess.run(['schtasks', '/delete', '/tn', 'RemotePowerAgent', '/f'],
+        subprocess.run([_system_bin('schtasks'), '/delete', '/tn', 'RemotePowerAgent', '/f'],
                        capture_output=True, timeout=30)
     except Exception:
         pass
@@ -948,6 +1713,17 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     # sysinfo on a slower cadence (every ~12 polls), like the Linux agent.
     if poll_count <= 1 or poll_count % 12 == 0:
         payload['sysinfo'] = collect_sysinfo()
+        # v6.1.3: top processes + proc_names (the latter unblocks the server-side
+        # `process` custom-check type, which read sysinfo.proc_names — empty on
+        # Windows until now, so every process check reported 'unknown').
+        try:
+            top, names = get_top_processes()
+            if top:
+                payload['sysinfo']['top_processes'] = top
+            if names:
+                payload['sysinfo']['proc_names'] = names
+        except Exception:
+            pass
         journal = get_event_log_journal()      # Event Log tail → Logs page
         if journal:
             payload['journal'] = journal
@@ -968,6 +1744,14 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     if _secrets_cfg.get('on') and (poll_count <= 1 or poll_count % SECRETS_SCAN_EVERY == 0):
         try:
             payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
+        except Exception:
+            pass
+    # v6.1.3: watched-service states, on the same slower cadence as sysinfo.
+    if _watched_services and (poll_count <= 1 or poll_count % 12 == 0):
+        try:
+            svcs = get_services(_watched_services)
+            if svcs:
+                payload['services'] = svcs
         except Exception:
             pass
     if pending_output:
@@ -1018,22 +1802,29 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['on'] = bool(resp.get('secrets_scan_enabled'))
         _ssp = resp.get('secrets_scan_paths')
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
+        # v6.1.3: watched services pushed by the server (parity with Linux).
+        global _watched_services
+        _sw = resp.get('services_watched')
+        if isinstance(_sw, list):
+            _watched_services = [str(s) for s in _sw if str(s).strip()][:50]
     return resp, new_pending
 
 
 def run():
+    _init_logging()
+    log.info(f'RemotePower Windows agent v{VERSION} starting')
     poll_count = 0
     pending = None
     while True:
         creds = load_creds()
         if not creds.get('device_id'):
-            sys.stderr.write('[remotepower] not enrolled — run with --enroll first\n')
+            log.error('not enrolled — run with --enroll first')
             return 1
         poll_count += 1
         try:
             _resp, pending = heartbeat_once(creds, poll_count, pending)
         except Exception as e:
-            sys.stderr.write(f'[remotepower] heartbeat error: {e}\n')
+            log.warning(f'heartbeat error: {e}')
         time.sleep(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))
 
 

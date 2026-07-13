@@ -503,6 +503,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Platforms | Linux, Windows, macOS *(v4.0.0)*; macOS loadavg + fd% + Windows NVIDIA GPU parity *(v4.8.0)* |
+| Windows agent parity | Service control (`Get-Service` + start/stop/restart), process list + kill, file manager, **reboot-required** detection, signed self-update, Security-log + Event-ID Event Log with a RecordId cursor, explicit `ps:`/`cmd:` interpreters, disk-I/O metrics, and a rotating-file log. System binaries resolved by absolute path (SYSTEM PATH-hijack fix). *(v6.1.3)* |
 | Self-update | SHA-256-verified, atomic replace, no SSH; hash-driven decision *(v3.3.0)* |
 | Signed updates | Detached GPG signature; pinned-key agents refuse unsigned/invalid; opt-in fail-closed `require-signed-updates`; Admin → Release Signing server-side key gen/sign + distribution + refused-agent list *(v3.4.2 / v3.8.0)* |
 | App-self SBOM + SLSA | `make sbom-self` → CycloneDX of the control plane's own Python deps; release images carry SLSA build provenance *(v5.5.0)* |

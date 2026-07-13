@@ -1,0 +1,132 @@
+"""v6.1.3 — server-side support for the Windows agent parity buildout.
+
+Covers the pieces that live in api.py rather than the agent:
+  * the Windows agent self-update endpoints (version / download / signature)
+  * OS-aware service-name validation (Windows names allow spaces/parens; the
+    systemd regex would reject legitimate services)
+  * the endpoints are auth-exempt like their Linux siblings (the agent polls
+    them token-free during self-update)
+"""
+
+import importlib.util
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_CGI = Path(__file__).resolve().parent.parent / "server" / "cgi-bin"
+sys.path.insert(0, str(_CGI))
+
+
+def _fresh_api():
+    d = tempfile.mkdtemp(prefix="rp-v613-winsrv-")
+    os.environ["RP_DATA_DIR"] = d
+    spec = importlib.util.spec_from_file_location("api_v613_winsrv", _CGI / "api.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestServiceValidationIsOsAware(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.api = _fresh_api()
+
+    def test_windows_service_names_with_spaces_and_parens_pass(self):
+        win = {"os": "Windows 11 (Build 22631)"}
+        for name in ("wuauserv", "MSSQL$SQLEXPRESS", "W3SVC",
+                     "Windows Update", "SQL Server (MSSQLSERVER)"):
+            self.assertTrue(self.api._valid_service_unit_for(name, win), name)
+
+    def test_windows_rejects_shell_metacharacters(self):
+        win = {"os": "Windows Server 2022"}
+        # `;` `|` `&` backtick `>` `<` quotes are excluded. `$` and `()` are NOT —
+        # they are needed for real names (MSSQL$INSTANCE, "SQL Server (X)") and are
+        # harmless because the agent passes the name as a single-quoted PowerShell
+        # literal (no interpolation), so `$(x)` is inert even though it validates.
+        for bad in ("a;rm -rf", "a|b", "a&b", "a`b`", "a>b", "a<b", 'a"b', "a'b"):
+            self.assertFalse(self.api._valid_service_unit_for(bad, win), bad)
+
+    def test_linux_still_uses_the_systemd_validator(self):
+        lin = {"os": "Ubuntu 22.04"}
+        self.assertTrue(self.api._valid_service_unit_for("nginx.service", lin))
+        # A space is legal in a Windows name but NOT a systemd unit.
+        self.assertFalse(self.api._valid_service_unit_for("Windows Update", lin))
+
+
+class TestWinAgentUpdateEndpoints(unittest.TestCase):
+    def setUp(self):
+        self.api = _fresh_api()
+        self.captured = {}
+
+        def _respond(status, data=None):
+            self.captured = {"status": status, "data": data}
+            raise self.api.HTTPError(status, data)
+
+        self.api.respond = _respond
+        self.api.require_auth = lambda *a, **k: "agent"
+
+    def _call(self, fn):
+        self.captured = {}
+        try:
+            fn()
+        except self.api.HTTPError:
+            pass
+        return self.captured
+
+    def test_version_returns_nulls_when_no_windows_agent_published(self):
+        # A server that only ships Linux must not error the Windows agent's poll —
+        # it just never updates.
+        r = self._call(self.api.handle_win_agent_version)
+        self.assertEqual(r["status"], 200)
+        self.assertIsNone(r["data"]["sha256"])
+
+    def test_version_advertises_sha_when_published(self):
+        # Point the served-agent path at a temp file (the default /var/www path
+        # isn't writable in the test env).
+        tmp = Path(tempfile.mkdtemp()) / "remotepower-agent-win.py"
+        tmp.write_text("VERSION = '6.1.3'\nprint('hi')\n")
+        orig = self.api._AGENT_WIN_PATH
+        self.api._AGENT_WIN_PATH = tmp
+        try:
+            r = self._call(self.api.handle_win_agent_version)
+            self.assertEqual(r["status"], 200)
+            self.assertTrue(r["data"]["sha256"])          # a real hash
+            self.assertEqual(r["data"]["version"], "6.1.3")
+        finally:
+            self.api._AGENT_WIN_PATH = orig
+
+    def test_signature_404s_when_unsigned(self):
+        r = self._call(self.api.handle_win_agent_signature)
+        self.assertEqual(r["status"], 404)
+
+    def test_the_update_endpoints_are_auth_exempt_like_linux(self):
+        # The agent polls these token-free during self-update, exactly like
+        # /api/agent/version. Both must be in the IP-allowlist exempt set.
+        exempt = self.api._IP_ALLOWLIST_EXEMPT_PATHS
+        self.assertIn("/api/agent/win/version", exempt)
+        self.assertIn("/api/agent/win/download", exempt)
+        self.assertIn("/api/agent/version", exempt)       # sanity: the sibling
+
+
+class TestWinUpgradeCommandRouting(unittest.TestCase):
+    """The class that started all this: a Windows host must never be sent a bash
+    upgrade script (fixed in the prior commit; re-assert it still holds)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api = _fresh_api()
+
+    def test_windows_gets_the_bare_upgrade_verb_not_a_bash_script(self):
+        cmd = self.api._upgrade_command_for({"os": "Windows 11"})
+        self.assertEqual(cmd, "upgrade")
+        self.assertNotIn("exec:", cmd)
+
+    def test_linux_gets_the_exec_script(self):
+        cmd = self.api._upgrade_command_for({"os": "Ubuntu 22.04"})
+        self.assertTrue(cmd.startswith("exec:"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -4361,6 +4361,8 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/enroll/token',
     '/api/agent/version',
     '/api/agent/download',
+    '/api/agent/win/version',      # v6.1.3: Windows agent self-update (token-free, like Linux)
+    '/api/agent/win/download',
     '/api/agent/install',
     '/api/csp-report',
     '/api/health',
@@ -19778,11 +19780,26 @@ def _valid_service_unit(u):
     return bool(u) and len(u) <= 128 and bool(_SVC_UNIT_RE.match(u))
 
 
+_WIN_SVC_NAME_RE = re.compile(r'^[A-Za-z0-9 ()._+@:$-]{1,256}$')   # Windows service Name
+
+
+def _valid_service_unit_for(unit, dev):
+    """Unit-name validation for the target OS. systemd names and Windows service
+    names have different legal charsets (Windows allows spaces + parentheses), so
+    the systemd-only `_valid_service_unit` regex would reject legitimate Windows
+    services. Both remain injection-safe on the agent (Linux uses argv; the
+    Windows agent passes the name as a single-quoted PowerShell literal)."""
+    if _device_os_family(dev) == 'windows':
+        return bool(_WIN_SVC_NAME_RE.match((unit or '').strip()))
+    return _valid_service_unit(unit)
+
+
 def handle_service_action(dev_id):
     """POST /api/devices/{id}/service-action {unit, action: restart|start|stop}.
-    Runs a fixed `systemctl <action> <unit>` argv on the agent (no shell). Unit is
-    strictly validated. Gated on `command`, audited, quarantine/audit-mode-aware
-    via _queue_command (which responds)."""
+    Queues `svc:<action>:<unit>`. The agent runs it as a fixed systemd argv
+    (Linux) or Start/Stop/Restart-Service with the name as a single-quoted PS
+    literal (Windows) — no shell either way. Gated on `command`, audited,
+    quarantine/maintenance/audit-mode-aware via _queue_command (which responds)."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -19796,7 +19813,8 @@ def handle_service_action(dev_id):
     action = str(body.get('action', '')).strip().lower()
     if action not in ('restart', 'start', 'stop'):
         respond(400, {'error': "action must be 'restart', 'start' or 'stop'"})
-    if not _valid_service_unit(unit):
+    dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+    if not _valid_service_unit_for(unit, dev):
         respond(400, {'error': 'invalid unit name'})
     audit_log(actor, 'service_action', detail=f'device={dev_id} {action} {unit}'[:200])
     _queue_command(dev_id, f'svc:{action}:{unit}', actor)   # responds 200 + exits
@@ -26983,6 +27001,77 @@ def handle_agent_download():
     data = agent_path.read_bytes()
     print("Status: 200 OK"); print("Content-Type: application/octet-stream")
     print("Content-Disposition: attachment; filename=remotepower-agent")
+    print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store"); print()
+    sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
+
+
+# ── v6.1.3: Windows agent self-update ─────────────────────────────────────────
+# The Windows agent is a .py SCRIPT, not a compiled binary — but the update
+# CONTRACT is identical to Linux's: advertise the canonical sha256 + version, let
+# the agent compare its own file's hash, serve the bytes, and the agent verifies
+# the sha (and an optional detached signature) before swapping its own file. It
+# is served from the SAME agent directory as the Linux binary, so a release drop
+# that ships remotepower-agent-win.py alongside remotepower-agent gets self-update
+# for Windows for free.
+_AGENT_WIN_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-win.py'
+_AGENT_WIN_SIG_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-win.py.asc'
+
+
+def handle_win_agent_version():
+    """GET /api/agent/win/version — canonical identity of the served WINDOWS agent.
+
+    Same shape as /api/agent/version: sha256 is the update trigger, version is
+    informational. Returns nulls (not 404) when no Windows agent is published, so
+    an agent polling a server that only ships Linux simply never updates rather
+    than erroring every poll.
+    """
+    # Auth-exempt, exactly like /api/agent/version — the agent polls this
+    # token-free before every self-update decision, and the agent source is not a
+    # secret (it ships to every managed host). Registered in the IP-allowlist
+    # exempt list alongside its Linux sibling.
+    sha = _sha256_file(_AGENT_WIN_PATH)
+    if sha is None:
+        respond(200, {'version': None, 'sha256': None, 'size': None})
+    try:
+        size = _AGENT_WIN_PATH.stat().st_size
+    except OSError:
+        size = None
+    cfg = load(CONFIG_FILE)
+    respond(200, {
+        'version': _read_agent_version(_AGENT_WIN_PATH) or cfg.get('agent_version', 'unknown'),
+        'sha256':  sha,
+        'size':    size,
+        'signed':  _AGENT_WIN_SIG_PATH.exists(),
+        'key_fingerprint': (cfg.get('release_key_fingerprint') or '').upper(),
+    })
+
+
+def handle_win_agent_signature():
+    """GET /api/agent/win/signature — detached signature over the Windows agent."""
+    require_auth()
+    if not _AGENT_WIN_SIG_PATH.exists():
+        respond(404, {'error': 'windows agent release is not signed'})
+    try:
+        sig = _AGENT_WIN_SIG_PATH.read_text()
+    except OSError:
+        respond(404, {'error': 'windows agent release is not signed'})
+    respond(200, {'signature': sig,
+                  'key_fingerprint': (load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
+
+
+def handle_win_agent_download():
+    """GET /api/agent/win/download — the raw Windows agent .py bytes.
+
+    Auth-exempt like the Linux binary download: the bytes are the agent source,
+    already present on every managed host, and the agent fetches them token-free
+    during self-update. The sha256 (from win/version) + the optional detached
+    signature are what make the download trustworthy, not access control.
+    """
+    if not _AGENT_WIN_PATH.exists():
+        respond(404, {'error': 'windows agent not found'})
+    data = _AGENT_WIN_PATH.read_bytes()
+    print("Status: 200 OK"); print("Content-Type: application/octet-stream")
+    print("Content-Disposition: attachment; filename=remotepower-agent-win.py")
     print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store"); print()
     sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
 
@@ -60918,6 +61007,9 @@ def _build_exact_routes():
         ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
         ('GET', '/api/agent/signature'): handle_agent_signature,
+        ('GET', '/api/agent/win/version'): handle_win_agent_version,     # v6.1.3
+        ('GET', '/api/agent/win/signature'): handle_win_agent_signature,  # v6.1.3
+        ('GET', '/api/agent/win/download'): handle_win_agent_download,   # v6.1.3
         ('GET', '/api/signing/status'): handle_signing_status,
         ('POST', '/api/signing/generate'): handle_signing_generate,
         ('POST', '/api/signing/sign'): handle_signing_sign,

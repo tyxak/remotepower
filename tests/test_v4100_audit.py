@@ -53,13 +53,38 @@ class TestAuditModeLinuxAgent(unittest.TestCase):
 
 class TestAuditModeWinMacParity(unittest.TestCase):
     def test_parity(self):
+        # The Win/Mac agents expose _audit_mode() and report it in sysinfo.
         for src, name in ((WIN, 'win'), (MAC, 'mac')):
             self.assertIn('def _audit_mode():', src, name)
             self.assertIn("'audit_mode': _audit_mode()", src, name)
-            h = src.index('def handle_command(cmd):')
-            head = src[h:h + 400]
-            self.assertIn('_audit_mode()', head, name)
-            self.assertIn('audit (read-only) mode', head, name)
+
+    def test_handle_command_refuses_in_audit_mode(self):
+        """v6.1.3: DRIVEN, not grepped.
+
+        This used to slice handle_command's source [def : def+400] and assert
+        '_audit_mode()' appeared inside it. A defensive non-string guard added to
+        the Windows handler (with its explanatory comment) pushed the audit check
+        past the 400-char window — the behaviour was unchanged, the source WINDOW
+        moved. That is the fixed-size-source-window fragility again: drive the
+        handler instead of pinning where a string sits.
+        """
+        import importlib.util
+        import os
+        import tempfile
+        for rel, modname in (('client/remotepower-agent-win.py', 'rp_win_audit'),
+                             ('client/remotepower-agent-mac.py', 'rp_mac_audit')):
+            os.environ['RP_DATA_DIR'] = tempfile.mkdtemp(prefix='rp-v4100-agent-audit-')
+            spec = importlib.util.spec_from_file_location(modname, ROOT / rel)
+            ag = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ag)
+            # Stub the marker check (each agent's own suite covers the marker
+            # mechanism; the win/mac data-dir conventions differ). The behaviour
+            # under test is: audit mode ON → handle_command REFUSES, not runs.
+            ag._audit_mode = lambda: True
+            r = ag.handle_command('exec:whoami')
+            self.assertIsInstance(r, dict, modname)
+            self.assertEqual(r.get('rc'), 126, modname)
+            self.assertIn('audit', (r.get('output') or '').lower(), modname)
 
 
 class TestAuditModeServer(unittest.TestCase):

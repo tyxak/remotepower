@@ -8,6 +8,63 @@ Closing named gaps against comparable RMM products, built on signals RemotePower
 was *already collecting* but never acting on. Three new tripwires, an answer to
 the most universal ops question there is, and a second opinion on your hardware.
 
+### Windows agent — parity buildout
+
+The Windows agent was, by its own docstring, "the minimal agent" — roughly a
+tenth of the Linux agent, missing service control, process management, file
+transfer, reboot-required detection, and a working self-update. This closes most
+of that gap, and fixes two real bugs found on the way.
+
+- **Self-update no longer reports a false success.** The `update` command
+  returned `rc=0` ("not supported by the minimal agent yet"), so a fleet-wide
+  agent-update rollout recorded **success on every Windows host** while nothing
+  was installed. There is now a real, **signed** self-update with the same
+  fail-closed trust model as Linux: SHA-256-drift trigger, hash verification, and
+  — when a `release.pub` is pinned — a mandatory detached-GPG-signature check
+  before the file is swapped and the scheduled task relaunched. New server
+  endpoints `/api/agent/win/{version,download,signature}` serve the Windows agent.
+- **System binaries are resolved by absolute path (SYSTEM-level hijack fix).** The
+  agent runs as SYSTEM and invoked `powershell`, `winget`, `shutdown`, `icacls`,
+  `schtasks` by bare name through `%PATH%` — any writable PATH directory was a
+  privilege-escalation vector (drop a `powershell.exe`, run it as SYSTEM). Every
+  fixed tool is now pinned to its real `%SystemRoot%` location.
+- **reboot-required detection.** The Windows updater installs with `-IgnoreReboot`
+  and the resulting pending-reboot state was **never reported** — a silent hole
+  the server has 35 references to on the Linux side. The agent now reads the three
+  canonical registry signals (Component Based Servicing, Windows Update, and
+  PendingFileRenameOperations) and feeds the existing `reboot_required` alert +
+  auto-resolve + risk pipeline.
+- **Service control.** `Get-Service` enumeration into the existing Services page /
+  baselines / flap detection, and `svc:` start/stop/restart via Start/Stop/
+  Restart-Service (the name passed as a single-quoted PowerShell literal, no
+  shell). Windows has no systemd "failed" state, so a stopped watched service is
+  reported as a *warning*, never the fabricated critical.
+- **Process list + kill.** `top_processes` + `proc_names` in sysinfo — the latter
+  finally makes the server-side `process` custom-check work on Windows (it read
+  `sysinfo.proc_names`, empty until now, so every process check reported
+  "unknown"). `kill:` maps the server's POSIX signal to a `taskkill`, refusing
+  system PIDs.
+- **File manager.** The `files:` channel (list/read/write/mkdir/delete/upload)
+  ported with Windows path semantics: an operator-overridable root allowlist
+  (never the OS roots), a realpath re-check against traversal, and audit-mode
+  refusing every mutation.
+- **Explicit interpreters.** `exec:` on Windows silently reinterpreted a bash or
+  cmd body as PowerShell. New `ps:` and `cmd:` verbs make the interpreter
+  deterministic instead of a function of which OS the command landed on.
+- **Event Log, properly.** Was a 100-line System+Application tail on every poll
+  with no bookmark (duplicates across polls, bursts of >100 events silently lost)
+  and the Security log never read. Now: a persisted RecordId **cursor** per
+  channel (each event reported once), the **Security** channel (logon failures,
+  lockouts), and the **Event ID in every line** so a `log_watch` rule can key on
+  it (e.g. match `[4625]` to alert on failed logons).
+- **Disk I/O metrics, and a real logger.** Aggregate disk read/write bytes/sec
+  (the throughput signal Windows didn't send), and — for the first time — an
+  actual rotating-file logger. The agent previously had none, so a broken
+  collector was indistinguishable from a host with nothing to report.
+- **Docs.** `docs/windows-client.md` was substantially wrong (documented an NSSM
+  service, `wevtutil`, and CLI sub-commands the agent never had). Rewritten to
+  match the shipping agent.
+
 ### Added — detection
 
 - **Privileged-group tripwire.** Someone landing in `sudo`/`wheel` (Linux) or
