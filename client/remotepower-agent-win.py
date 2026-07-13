@@ -39,7 +39,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '6.1.2'
+VERSION = '6.1.3'
 DEFAULT_POLL = 60
 
 # Prime the non-blocking CPU sampler once at import so the first heartbeat's
@@ -226,6 +226,81 @@ def windows_update_pending():
                 'upgradable_names': titles[:50]}
     except Exception:
         return None
+
+
+# PowerShell: Windows Defender posture. Pipe-delimited so parsing needs no JSON
+# (Get-MpComputerStatus emits a huge object; we want five fields).
+#   RealTimeProtectionEnabled | AntivirusSignatureAge(days) | QuickScanEndTime |
+#   FullScanEndTime | (threat count from Get-MpThreatDetection)
+_DEFENDER_PS = (
+    "$ErrorActionPreference='Stop';"
+    "$s=Get-MpComputerStatus;"
+    "$t=@(Get-MpThreatDetection -ErrorAction SilentlyContinue).Count;"
+    "$q=if($s.QuickScanEndTime){[int][double]::Parse((Get-Date $s.QuickScanEndTime -UFormat %s))}else{0};"
+    "$f=if($s.FullScanEndTime){[int][double]::Parse((Get-Date $s.FullScanEndTime -UFormat %s))}else{0};"
+    "Write-Output "
+    "\"$($s.RealTimeProtectionEnabled)|$($s.AntivirusSignatureAge)|$q|$f|$t\""
+)
+
+
+def _parse_defender(out):
+    """Parse the pipe-delimited Defender line into the server's `av` tool shape.
+    Pure — unit-testable without Windows.
+
+    Returns None when the line is unusable. `realtime_enabled` is a real bool
+    because the server treats it as TRI-state: absent means "this tool has no
+    real-time concept" (ClamAV/rkhunter), and must NOT read as "protection off".
+    """
+    line = (out or '').strip().splitlines()
+    if not line:
+        return None
+    parts = line[-1].strip().split('|')
+    if len(parts) < 5:
+        return None
+    rt, age, quick, full, threats = (p.strip() for p in parts[:5])
+
+    def _int(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+
+    # The agent must never invent a posture. If PowerShell gave us something
+    # that isn't a bool, we report the tool WITHOUT realtime_enabled rather than
+    # guessing — a wrong `False` here pages the operator for nothing, a wrong
+    # `True` hides a genuinely unprotected host.
+    tool = {'installed': True,
+            'db_age_days': _int(age),
+            'infected': _int(threats)}
+    if rt.lower() in ('true', 'false'):
+        tool['realtime_enabled'] = (rt.lower() == 'true')
+    last_scan = max(_int(quick), _int(full))
+    if last_scan > 0:
+        tool['last_scan_ts'] = last_scan
+    return tool
+
+
+def get_defender_status():
+    """Windows Defender posture → the server's existing `av` payload shape.
+
+    Rides the SAME server pipeline as ClamAV/rkhunter (_ingest_av → av_status
+    .json → attention items → av_infected/av_warning/av_clean), plus the
+    Windows-only av_realtime_off signal. Returns {} when Defender isn't present
+    (third-party AV installed, or a stripped image) — feature-invisible, like
+    the Linux agent's AV collector on a host with no ClamAV.
+    """
+    if not sys.platform.startswith('win'):
+        return {}
+    try:
+        r = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', _DEFENDER_PS],
+            capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return {}
+        tool = _parse_defender(r.stdout)
+        return {'defender': tool} if tool else {}
+    except Exception:
+        return {}
 
 
 def _port_scope(ip):
@@ -798,6 +873,12 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         gpus = get_gpu_status()                 # NVIDIA GPU telemetry → fleet GPU page
         if gpus:
             payload['gpus'] = gpus
+        # v6.1.3: Defender AV posture. TOP-LEVEL 'av' (not sysinfo) — the server
+        # ingests it via _ingest_av, which is not part of the safe_si sysinfo
+        # whitelist. Rides the slow sysinfo cadence: the WMI/COM call is not free.
+        av = get_defender_status()
+        if av:
+            payload['av'] = av
     # v3.14.0 #35: opt-in secrets scan on its own ~6h cadence (config from the
     # previous heartbeat response, stashed in _secrets_cfg by heartbeat_once).
     if _secrets_cfg.get('on') and (poll_count <= 1 or poll_count % SECRETS_SCAN_EVERY == 0):

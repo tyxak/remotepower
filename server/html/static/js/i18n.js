@@ -262,6 +262,9 @@
     'Thermal':     { fr: 'Température', de: 'Temperatur', zh: '温度', hi: 'तापीय', es: 'Térmico', ar: 'الحرارة' },
     'Power':       { fr: 'Alimentation', de: 'Strom', zh: '电源', hi: 'पावर', es: 'Energía', ar: 'الطاقة' },
     'Predictive health': { fr: 'Santé prédictive', de: 'Vorausschauender Zustand', zh: '预测健康', hi: 'पूर्वानुमानित स्वास्थ्य', es: 'Salud predictiva', ar: 'الصحة التنبؤية' },
+    // v6.1.3
+    'Hosts likely to fail': { fr: 'Hôtes susceptibles de tomber en panne', de: 'Hosts mit wahrscheinlichem Ausfall', zh: '可能故障的主机', hi: 'विफल होने की संभावना वाले होस्ट', es: 'Hosts con probabilidad de fallo', ar: 'مضيفات مرشحة للفشل' },
+    'Disk-usage explorer': { fr: 'Explorateur d\'utilisation disque', de: 'Speicherplatz-Explorer', zh: '磁盘使用浏览器', hi: 'डिस्क-उपयोग एक्सप्लोरर', es: 'Explorador de uso de disco', ar: 'مستكشف استخدام القرص' },
     'Software policy': { fr: 'Politique logicielle', de: 'Software-Richtlinie', zh: '软件策略', hi: 'सॉफ़्टवेयर नीति', es: 'Política de software', ar: 'سياسة البرامج' },
     'Risk':        { fr: 'Risque', de: 'Risiko', zh: '风险', hi: 'जोखिम', es: 'Riesgo', ar: 'المخاطر' },
     'Audit':       { fr: 'Audit', de: 'Audit', zh: '审计', hi: 'ऑडिट', es: 'Auditoría', ar: 'التدقيق' },

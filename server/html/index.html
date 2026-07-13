@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.1.2">
+<link rel="stylesheet" href="static/css/styles.css?v=6.1.3">
 
 </head>
 <body>
@@ -2280,6 +2280,12 @@
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
+            <div class="section-title mt-16">Disk-usage explorer</div>
+            <p class="hint">Disk-fill forecasting tells you <em>when</em> a mount runs out; this tells you <em>what to delete</em>. When enabled, agents run a bounded <code>du</code> over the paths below (~12h cadence, never crossing a filesystem boundary) and report the biggest space consumers. The results appear in each host's <strong>System Info</strong> drawer panel, under the mounts table, with a <em>Scan disk usage</em> button for an on-demand run. <strong>Off by default</strong> — it walks the filesystem.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-du-scan-enabled"> Enable disk-usage scanning (~12h cadence)</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-du-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
+              <textarea id="cfg-du-scan-paths" class="form-input" rows="3" placeholder="/var&#10;/home&#10;/opt&#10;/srv"></textarea></div>
+
             <div class="section-title mt-16">Canary files (honeytokens)</div>
             <p class="hint">Agents plant a decoy file at each absolute path below (never over an existing file) with realistic-but-fake credentials, then watch it. Any access — a read, a change, or deletion — raises a <strong>critical</strong> <code>canary_accessed</code> alert. A tripwire on your own hosts; decoys are removed when the agent uninstalls. One path per line; blank = off.</p>
             <div class="settings-row"><label class="form-label" for="cfg-canary-paths">Canary file paths (one absolute path per line)</label>
@@ -3518,7 +3524,24 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.1.2 afterglowmatters afterglow bugfix alert mute health score needs attention trivy container image cve scan now force postgres 500 lockbusy lock busy retry 503 billing rate card delete wrong row restore drill sort opnsense console runbook dead code optional modules minimal homelab disable alerts tickets billing knowledge base compliance pentest kill switch advanced performance attention cache heartbeat sweeps scheduler otlp deepcopy monitor history schema ddl">
+          <details class="doc-card" open data-keywords="release notes changelog v6.1.3 sentinelmatters sentinel privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint">
+            <summary><strong>What's new — v6.1.3 &ldquo;SentinelMatters&rdquo;</strong> — closing competitive gaps using signals RemotePower already collected but never acted on: a privileged-group tripwire (someone lands in sudo/wheel/Administrators), Windows Defender AV posture including real-time-protection-off, a USB physical-access tripwire, a host-wide disk-usage explorer (&ldquo;disk 94% — of <em>what</em>?&rdquo;), and a composite device-reliability prediction.</summary>
+            <div class="doc-body">
+              <p>Almost everything in v6.1.3 is built on telemetry the agents were <em>already sending</em>. The work was the baseline, the diff, and the honesty about what the stored data can and cannot support.</p>
+              <p><strong>Three new tripwires</strong></p>
+              <ul>
+                <li><strong>Privileged-group change</strong> — someone landing in <code>sudo</code>/<code>wheel</code> (Linux) or <code>Administrators</code> (Windows) raises <code>priv_group_added</code>. Both agents always reported the membership; nothing ever diffed it. First contact baselines silently, and removals deliberately do not fire — an event that cries wolf is one you mute, and a muted event catches no real escalation.</li>
+                <li><strong>Windows Defender</strong> joins the AV pipeline as its own engine (never masquerading as ClamAV). The new signal is <strong>real-time protection switched OFF</strong> — which makes every other AV number on that host meaningless. It fires even on first contact and auto-resolves when protection returns.</li>
+                <li><strong>USB device connected</strong> — a physical-access signal, read from sysfs so it works in the containerized agent. Detection only; it lands in the inbox but does not page by default (on a desktop, this is a phone charger).</li>
+              </ul>
+              <p><strong>Disk-usage explorer</strong></p>
+              <p>Disk-fill forecasting already told you <em>when</em> a mount runs out. Nothing told you what to delete. An opt-in, bounded <code>du</code> now reports the biggest space consumers per path, in the device drawer under the mounts table, with a Scan-now button. Off by default.</p>
+              <p><strong>Reliability prediction</strong></p>
+              <p>A per-host failure likelihood (0–100) with an explainable breakdown, on <strong>Monitoring → Predictive health</strong>. Deliberately separate from the risk score: risk = &ldquo;how exposed is this host&rdquo;, reliability = &ldquo;how likely is it to break&rdquo;. A fully-patched server with a dying disk is low-risk <em>and</em> low-reliability, and you need to see both. Built from SMART trends (reallocated sectors <em>growing</em>, not merely present), ECC errors, reboot churn, health trajectory and thermals — all already stored.</p>
+              <p><strong>Also fixed:</strong> the fleet-risk cache busted on <code>devices.json</code>, which every heartbeat rewrites — so on any real fleet it never hit, and the whole-fleet risk computation re-ran on every single dashboard poll.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v6.1.2 afterglowmatters afterglow bugfix alert mute health score needs attention trivy container image cve scan now force postgres 500 lockbusy lock busy retry 503 billing rate card delete wrong row restore drill sort opnsense console runbook dead code optional modules minimal homelab disable alerts tickets billing knowledge base compliance pentest kill switch advanced performance attention cache heartbeat sweeps scheduler otlp deepcopy monitor history schema ddl">
             <summary><strong>What's new — v6.1.2 &ldquo;AfterglowMatters&rdquo;</strong> — a correctness-and-fit release: muting an alert now actually lifts the health score, the trivy image-CVE scan can finally be triggered (it could never run), <code>POST /api/cve/scan</code> no longer 500s on PostgreSQL, a sweep of frontend defects (including Billing deleting the wrong row), the first wave of performance work, and optional modules you can switch off for a minimal homelab.</summary>
             <div class="doc-body">
               <p>v6.1.2 fixes three reported bugs — two of which meant a shipped feature simply did not work — plus a sweep of frontend defects, the first wave of performance work, and module switches for minimal setups. No breaking API changes; every new switch defaults to today's behaviour.</p>
@@ -3569,25 +3592,8 @@
               <p class="hint">See <code>docs/v6.1.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v6.1.0 runt1mematters enterprise single-node postgres default wsgi gunicorn flask app server scheduler out-of-band scanner satellite pentest security co-located install-server docker-compose cgi fcgiwrap scgi retired production topology bootstrap migration">
-            <summary><strong>What's new — v6.1.0 &ldquo;Runt1meMatters&rdquo;</strong> — the enterprise-productization release: Postgres + the out-of-band scheduler + a co-located scanner satellite are now the single-node default, and the server runs entirely on gunicorn + Flask (CGI/fcgiwrap and the SCGI worker are retired). No breaking API changes.</summary>
-            <div class="doc-body">
-              <p>v6.1.0 productizes the existing enterprise/scale stack as the default topology and finishes the app-server migration to gunicorn + Flask.</p>
-              <p><strong>Single-node enterprise defaults</strong></p>
-              <ul>
-                <li><strong>Postgres, the out-of-band scheduler, and a co-located scanner satellite</strong> are now installed and enabled by default via <code>install-server.sh</code> and <code>docker-compose.yml</code> — one command stands up the full topology. <code>--no-postgres</code> / <code>--no-scheduler</code> / <code>--no-scanner</code> opt back down.</li>
-                <li>Bootstrap data (the initial admin user, the scanner's token) is migrated into Postgres automatically on first boot — no manual storage-backend step for a fresh install.</li>
-              </ul>
-              <p><strong>App server</strong></p>
-              <ul>
-                <li><strong>gunicorn + Flask is now the only server.</strong> The CGI entry point and the SCGI prefork worker are removed; every shipped nginx config proxies straight to gunicorn.</li>
-                <li>Fixed a latent bug: the <code>/install</code> one-line agent installer used to read the server hostname/token from the wrong place under a persistent server, silently generating a broken installer. Now correct.</li>
-              </ul>
-              <p><strong>Under the hood</strong> — the read-only public demo now runs its own dedicated app-server process; the guided self-update restarts the correct service; documentation refreshed across the board. See <a href="docs/wsgi.md" class="c-accent">docs/wsgi.md</a> and <a href="docs/scaling.md" class="c-accent">docs/scaling.md</a>.</p>
-            </div>
-          </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v6.0.1 and earlier</summary>
+            <summary><strong>Older releases</strong> &mdash; v6.1.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the three most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
@@ -6584,6 +6590,25 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
         </div><!-- /restarting hosts card -->
+        <!-- v6.1.3: composite per-host failure likelihood. Distinct from the Risk
+             page: risk = "how exposed is this host" (CVEs/ports/policy/EOL);
+             reliability = "how likely is it to BREAK". A fully-patched server with
+             a dying disk is low-risk and low-reliability — you need to see both. -->
+        <div class="dash-card">
+        <div class="section-title">Hosts likely to fail <span id="reliability-sub" class="hint"></span></div>
+        <div class="toolbar">
+          <input type="text" class="form-input page-filter" placeholder="Filter host…" data-input="filterRows" data-input-el="1" data-filter-target="#reliability-tbody tr" aria-label="Filter host">
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="reliability-thead"><tr>
+              <th scope="col" data-col="score">Score</th><th scope="col" data-col="device">Device</th>
+              <th scope="col" data-col="signals">Why</th>
+            </tr></thead>
+            <tbody id="reliability-tbody"><tr><td colspan="3" class="hint">—</td></tr></tbody>
+          </table>
+        </div>
+        </div><!-- /reliability card -->
       </div>
 
       <!-- ── v3.11.0: Fleet Software Policy ─────────────────────────────── -->
@@ -9487,45 +9512,45 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.1.2"></script>
+<script defer src="static/js/app.js?v=6.1.3"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.1.2"></script>
-<script defer src="static/js/app-cmdb.js?v=6.1.2"></script>
-<script defer src="static/js/app-containers.js?v=6.1.2"></script>
-<script defer src="static/js/app-network.js?v=6.1.2"></script>
+<script defer src="static/js/app-calendar.js?v=6.1.3"></script>
+<script defer src="static/js/app-cmdb.js?v=6.1.3"></script>
+<script defer src="static/js/app-containers.js?v=6.1.3"></script>
+<script defer src="static/js/app-network.js?v=6.1.3"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.1.2"></script>
-<script defer src="static/js/app-compliance.js?v=6.1.2"></script>
-<script defer src="static/js/app-integrations.js?v=6.1.2"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.1.3"></script>
+<script defer src="static/js/app-compliance.js?v=6.1.3"></script>
+<script defer src="static/js/app-integrations.js?v=6.1.3"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.1.2"></script>
-<script defer src="static/js/app-dns.js?v=6.1.2"></script>
-<script defer src="static/js/app-drift.js?v=6.1.2"></script>
-<script defer src="static/js/app-dmarc.js?v=6.1.2"></script>
-<script defer src="static/js/app-cve.js?v=6.1.2"></script>
-<script defer src="static/js/app-firewall.js?v=6.1.2"></script>
-<script defer src="static/js/app-backups.js?v=6.1.2"></script>
-<script defer src="static/js/app-iac.js?v=6.1.2"></script>
-<script defer src="static/js/app-provisioning.js?v=6.1.2"></script>
-<script defer src="static/js/app-tuning.js?v=6.1.2"></script>
-<script defer src="static/js/app-kb.js?v=6.1.2"></script>
-<script defer src="static/js/app-rollouts.js?v=6.1.2"></script>
-<script defer src="static/js/app-power.js?v=6.1.2"></script>
-<script defer src="static/js/app-gpu.js?v=6.1.2"></script>
-<script defer src="static/js/app-proxmox.js?v=6.1.2"></script>
-<script defer src="static/js/wg-access.js?v=6.1.2"></script>
-<script defer src="static/js/app-billing.js?v=6.1.2"></script>
-<script defer src="static/js/app-virt.js?v=6.1.2"></script>
+<script defer src="static/js/app-ai.js?v=6.1.3"></script>
+<script defer src="static/js/app-dns.js?v=6.1.3"></script>
+<script defer src="static/js/app-drift.js?v=6.1.3"></script>
+<script defer src="static/js/app-dmarc.js?v=6.1.3"></script>
+<script defer src="static/js/app-cve.js?v=6.1.3"></script>
+<script defer src="static/js/app-firewall.js?v=6.1.3"></script>
+<script defer src="static/js/app-backups.js?v=6.1.3"></script>
+<script defer src="static/js/app-iac.js?v=6.1.3"></script>
+<script defer src="static/js/app-provisioning.js?v=6.1.3"></script>
+<script defer src="static/js/app-tuning.js?v=6.1.3"></script>
+<script defer src="static/js/app-kb.js?v=6.1.3"></script>
+<script defer src="static/js/app-rollouts.js?v=6.1.3"></script>
+<script defer src="static/js/app-power.js?v=6.1.3"></script>
+<script defer src="static/js/app-gpu.js?v=6.1.3"></script>
+<script defer src="static/js/app-proxmox.js?v=6.1.3"></script>
+<script defer src="static/js/wg-access.js?v=6.1.3"></script>
+<script defer src="static/js/app-billing.js?v=6.1.3"></script>
+<script defer src="static/js/app-virt.js?v=6.1.3"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.1.2"></script>
-<script defer src="static/js/app-checks.js?v=6.1.2"></script>
-<script defer src="static/js/app-logs.js?v=6.1.2"></script>
-<script defer src="static/js/app-remote.js?v=6.1.2"></script>
-<script defer src="static/js/app-tickets.js?v=6.1.2"></script>
+<script defer src="static/js/app-alerts.js?v=6.1.3"></script>
+<script defer src="static/js/app-checks.js?v=6.1.3"></script>
+<script defer src="static/js/app-logs.js?v=6.1.3"></script>
+<script defer src="static/js/app-remote.js?v=6.1.3"></script>
+<script defer src="static/js/app-tickets.js?v=6.1.3"></script>
 
-<script defer src="static/js/sw-register.js?v=6.1.2"></script>
+<script defer src="static/js/sw-register.js?v=6.1.3"></script>
 </body>
 </html>

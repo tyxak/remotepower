@@ -184,6 +184,9 @@ async function loadDiskHealth() {
   if (!tbody) return;
   tableCtl.wireSortOnly('disk-health-thead', 'diskhealth', () => _renderDiskHealth());
   tableCtl.wireSortOnly('unstable-thead', 'unstablehosts', () => _renderUnstableHosts());
+  // v6.1.3: eager wire-up — BEFORE the fetch, so the sort indicators exist even
+  // while the data is still loading (the repo's sortable-table rule).
+  tableCtl.wireSortOnly('reliability-thead', 'reliability', () => _renderReliability());
   tbody.innerHTML = _skeletonRows(6);
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
@@ -192,4 +195,51 @@ async function loadDiskHealth() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
+  // v6.1.3: the composite failure-likelihood table. Loaded separately so a
+  // failure here can never blank the disk table above it.
+  try {
+    _reliabilityResp = await api('GET', '/reliability');
+    _renderReliability();
+  } catch (e) {
+    const rb = document.getElementById('reliability-tbody');
+    if (rb) rb.innerHTML = `<tr><td colspan="3" class="hint">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+
+// v6.1.3: per-host failure likelihood (0-100, higher = more likely to fail).
+let _reliabilityResp = null;
+
+function _renderReliability() {
+  const tbody = document.getElementById('reliability-tbody');
+  const sub = document.getElementById('reliability-sub');
+  if (!tbody) return;
+  const rows = (_reliabilityResp?.devices || []).filter(r => r.score > 0);
+  if (sub) {
+    const c = _reliabilityResp?.counts || {};
+    sub.textContent = rows.length
+      ? `${c.critical || 0} critical · ${c.high || 0} high · ${c.medium || 0} medium`
+      : '';
+  }
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="hint">No host is showing failure signals.</td></tr>`;
+    return;
+  }
+  const sorted = tableCtl.sortRows('reliability', rows, r => ({
+    score: r.score,
+    device: r.name,
+    signals: (r.factors || []).length,
+  }));
+  const color = lvl => lvl === 'critical' ? 'c-red' : lvl === 'high' ? 'c-amber' : 'c-muted';
+  tbody.innerHTML = sorted.map(r => {
+    // Show every factor: the score alone is a number nobody can act on — the
+    // point of the feature is WHY the host is expected to fail.
+    const why = (r.factors || []).map(f =>
+      `<div class="fs-11"><span class="c-muted">+${f.points}</span> ${escHtml(f.detail)}</div>`
+    ).join('') || '<span class="c-muted">—</span>';
+    return `<tr>
+      <td class="fw-600 ${color(r.level)}">${r.score}</td>
+      <td class="fw-500">${escHtml(r.name)}</td>
+      <td>${why}</td>
+    </tr>`;
+  }).join('');
 }

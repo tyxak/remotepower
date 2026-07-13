@@ -32,7 +32,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '6.1.2'
+VERSION      = '6.1.3'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -1002,6 +1002,95 @@ def _load_secrets_scan_ts() -> float:
 
 def _save_secrets_scan_ts(ts: float) -> None:
     _safe_state_write(SECRETS_SCAN_TS_FILE, str(int(ts)))
+
+
+# v6.1.3: host-wide disk-usage explorer ("disk 94% — of WHAT?").
+# Slow + opt-in, on the same persisted-timestamp cadence as the scans above:
+# walking a big filesystem is expensive, and a poll_count % N cadence would
+# silently never fire on a restart-churny host.
+DU_SCAN_INTERVAL_S = 12 * 3600
+DU_SCAN_TS_FILE    = 'du_scan_last'
+_DU_DEFAULT_PATHS  = ['/var', '/home', '/opt', '/srv', '/usr', '/tmp']
+_DU_TOP_N          = 20      # per path — enough to explain a full disk
+
+
+def _load_du_scan_ts() -> float:
+    raw = _safe_state_read(DU_SCAN_TS_FILE)
+    try:
+        return float((raw or '').strip())
+    except ValueError:
+        return 0.0
+
+
+def _save_du_scan_ts(ts: float) -> None:
+    _safe_state_write(DU_SCAN_TS_FILE, str(int(ts)))
+
+
+def _parse_du(out, root):
+    """Parse `du -x --block-size=1 --max-depth=1` output into sorted entries.
+
+    Pure — unit-testable without touching a filesystem. `du` prints the total
+    for the root itself as the LAST line; we drop it (it's the sum, not a child)
+    and return the children biggest-first.
+    """
+    rows = []
+    for line in (out or '').splitlines():
+        parts = line.split('\t', 1)
+        if len(parts) != 2:
+            continue
+        try:
+            size = int(parts[0].strip())
+        except ValueError:
+            continue
+        path = parts[1].strip()
+        if not path or path.rstrip('/') == root.rstrip('/'):
+            continue            # the root's own total, not a child
+        rows.append({'path': unhost_path(path), 'bytes': size})
+    rows.sort(key=lambda r: r['bytes'], reverse=True)
+    return rows[:_DU_TOP_N]
+
+
+def collect_disk_usage(paths=None, time_budget=45.0):
+    """Top space consumers per configured path — the missing half of disk-fill
+    forecasting. RemotePower has always been able to say WHEN a mount fills up;
+    this says WHAT to delete.
+
+    Shells out to `du` deliberately rather than walking in Python: du is C-fast
+    and already solves hardlink double-counting, sparse files and bind mounts —
+    the traps a hand-rolled os.walk + st_blocks summer gets subtly wrong. The
+    server's existing AI disk diagnostic already shells the same idioms.
+
+    Bounded three ways, because this runs unattended on someone's NAS:
+      * `-x`          — never cross a filesystem boundary (no walking into /proc,
+                        a NFS mount, or a 40TB media array hung off /srv)
+      * --max-depth=1 — one level; we want "/var/lib is 80G", not every file
+      * per-path timeout + an overall wall-clock budget
+    Feature-invisible when `du` is absent (returns {}), like trivy/lynis.
+    """
+    if not _which('du'):
+        return {}
+    out = {}
+    started = time.time()
+    for p in (paths or _DU_DEFAULT_PATHS):
+        if time.time() - started > time_budget:
+            break
+        root = host_path(p)
+        if not os.path.isdir(root):
+            continue
+        remaining = max(5.0, time_budget - (time.time() - started))
+        try:
+            r = subprocess.run(
+                ['du', '-x', '--block-size=1', '--max-depth=1', root],
+                capture_output=True, text=True,
+                timeout=min(30.0, remaining))
+        except Exception:
+            continue            # timeout / permission / vanished — skip this path
+        # du exits non-zero on *any* unreadable subdir but still prints the rest,
+        # so a partial answer is normal and useful — parse stdout regardless.
+        entries = _parse_du(r.stdout, root)
+        if entries:
+            out[unhost_path(root)] = entries
+    return out
 
 
 def _load_image_scan_ts() -> float:
@@ -5594,6 +5683,52 @@ def get_ssh_hostkeys():
     return out
 
 
+def get_usb_devices():
+    """v6.1.3: enumerate connected USB devices from sysfs.
+
+    A USB device appearing on a server is a physical-access signal: the rubber-
+    ducky / mass-storage-exfil class, or (far more often, and still worth
+    knowing) somebody plugged a disk into the rack and forgot about it.
+
+    Read from /sys/bus/usb/devices rather than shelling `lsusb`: sysfs is
+    bind-mounted read-only into the containerized agent (docker-compose.agent.yml
+    mounts /sys:/host/sys), whereas usbutils is NOT in the agent image — so
+    lsusb would silently return nothing there. Same reason get_hardware_inventory()
+    reads /proc/mdstat directly.
+
+    Keyed by VID:PID (stable across replug and reboot; the kernel's bus/port path
+    is NOT — the same stick in a different port would read as a new device and
+    cry wolf). Value is a human label. Hubs and root hubs are skipped: they are
+    fixed silicon, not somebody plugging something in.
+    """
+    out = {}
+    try:
+        base = host_path('/sys/bus/usb/devices')
+        if not os.path.isdir(base):
+            return {}                      # no USB subsystem (VM, container, some ARM)
+        for entry in sorted(os.listdir(base))[:256]:
+            # Interfaces look like "1-1:1.0"; we want DEVICES ("1-1", "usb1").
+            if ':' in entry:
+                continue
+            d = os.path.join(base, entry)
+            vid = _safe_read(os.path.join(d, 'idVendor'), 16).strip()
+            pid = _safe_read(os.path.join(d, 'idProduct'), 16).strip()
+            if not vid or not pid:
+                continue
+            # bDeviceClass 09 == hub (incl. the root hubs). Not a plug-in event.
+            if _safe_read(os.path.join(d, 'bDeviceClass'), 8).strip() == '09':
+                continue
+            vendor = _safe_read(os.path.join(d, 'manufacturer'), 128).strip()
+            product = _safe_read(os.path.join(d, 'product'), 128).strip()
+            label = ' '.join(x for x in (vendor, product) if x) or 'unknown device'
+            out[f'{vid}:{pid}'] = label[:96]
+            if len(out) >= 32:
+                break
+    except Exception:
+        return {}
+    return out
+
+
 def get_autoupdate_posture():
     """v6.1.2: does this host patch ITSELF?
 
@@ -8602,6 +8737,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     force_image_scan = False
     last_image_scan_ts = _load_image_scan_ts()   # v6.1.2: survives agent restarts
     last_secrets_scan_ts = _load_secrets_scan_ts()   # v6.1.2: same restart fix
+    # v6.1.3: host-wide disk-usage explorer — opt-in, slow (~12h), server-pushed
+    # paths, same persisted-timestamp cadence (never poll_count % N).
+    du_scan_on = False
+    du_scan_paths = None
+    force_du_scan = False
+    last_du_scan_ts = _load_du_scan_ts()
     # v6.1.2: mDNS LAN browse — server-pushed opt-in, same shape as image_scan_on.
     mdns_on = False
     # v3.0.0: IaC collection request from server
@@ -8895,6 +9036,22 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'secrets scan error: {e}')
             force_secrets_scan = False
 
+        # v6.1.3: host-wide disk-usage explorer. Opt-in, ~12h, or on demand.
+        _du_due = (time.time() - last_du_scan_ts) >= DU_SCAN_INTERVAL_S
+        if du_scan_on and (_du_due or force_du_scan):
+            try:
+                _du = collect_disk_usage(du_scan_paths)
+                if _du:
+                    payload['disk_usage'] = _du
+                log.debug(f'du scan: {len(_du)} path(s)')
+                # Stamp on every real ATTEMPT (not only on success): a host whose
+                # /srv takes 40s to walk must not retry it on every single poll.
+                last_du_scan_ts = time.time()
+                _save_du_scan_ts(last_du_scan_ts)
+            except Exception as e:
+                log.debug(f'du scan error: {e}')
+            force_du_scan = False
+
         # W6-34: container-image CVE scan (trivy) — opt-in, slow (~24h) cadence.
         # Only images of RUNNING containers; feature-invisible without trivy.
         #
@@ -9149,6 +9306,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['ssh_hostkeys'] = hk
             except Exception as e:
                 log.debug(f'ssh hostkey probe error: {e}')
+            try:
+                # v6.1.3: USB inventory → the usb_device_added tripwire. MUST be
+                # written here (inside `if send_sysinfo:`, AFTER `sysinfo = {...}`)
+                # — the v6.1.2 batch-A bug put four collectors in the earlier
+                # container-cadence block, where `sysinfo` is not yet bound, so
+                # every one raised a swallowed UnboundLocalError and was silently
+                # never sent. tests/test_v612_agent_sysinfo_scope.py guards this.
+                usb = get_usb_devices()
+                if usb:
+                    sysinfo['usb'] = usb
+            except Exception as e:
+                log.debug(f'usb probe error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # W3-8: sample outbound peer connections every ~15 polls so the
@@ -9310,6 +9479,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_secrets_scan'):
                 force_secrets_scan = True
                 log.info('Server requested a secrets scan')
+            # v6.1.3: disk-usage explorer opt-in + paths + one-shot force.
+            du_scan_on = bool(resp.get('du_scan_enabled'))
+            _dsp = resp.get('du_scan_paths')
+            du_scan_paths = _dsp if isinstance(_dsp, list) and _dsp else None
+            if resp.get('force_du_scan'):
+                force_du_scan = True
+                log.info('Server requested a disk-usage scan')
             # W6-34: container-image CVE scan (trivy), opt-in + force.
             image_scan_on = bool(resp.get('image_scan_enabled'))
             mdns_on = bool(resp.get('mdns_enabled'))   # v6.1.2

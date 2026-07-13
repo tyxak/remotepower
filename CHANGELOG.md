@@ -2,6 +2,70 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.1.3 — "SentinelMatters" — unreleased (test)
+
+Closing named gaps against comparable RMM products, built on signals RemotePower
+was *already collecting* but never acting on. Three new tripwires, an answer to
+the most universal ops question there is, and a second opinion on your hardware.
+
+### Added — detection
+
+- **Privileged-group tripwire.** Someone landing in `sudo`/`wheel` (Linux) or
+  `Administrators` (Windows) now raises an edge-triggered `priv_group_added`
+  alert. Both agents have always reported the membership — the Linux agent parses
+  `/etc/group`, the Windows agent runs `Get-LocalGroupMember` — but nothing ever
+  diffed it, so the classic post-compromise persistence step (and the equally
+  classic nobody-told-me change) was invisible. First contact baselines silently;
+  removals deliberately do not fire.
+- **Windows Defender AV posture.** Defender joins the existing AV pipeline as a
+  distinct `defender` engine — signature age, threat count, last scan — rather
+  than masquerading as ClamAV, which would have misled every webhook consumer.
+  The genuinely new signal is **real-time protection switched OFF**
+  (`av_realtime_off`): "AV installed but disabled" has no equivalent among the
+  on-demand Linux scanners, and it makes every other AV number on that host
+  meaningless. It is a *condition*, not an event, so it fires even on first
+  contact — a host that enrols already unprotected is exactly the one you need to
+  hear about — and auto-resolves when protection returns.
+- **USB device tripwire.** A USB device appearing on a host is a physical-access
+  signal → `usb_device_added`. Read from sysfs, not `lsusb` (which is not in the
+  containerized agent's image and would have returned nothing there, silently,
+  forever), and keyed by VID:PID so the same stick in a different port does not
+  re-fire. Detection only — peripheral *enforcement* is deliberately out of scope
+  for an audit-first product. It lands in the inbox but does not page by default:
+  on a homelab desktop this is a phone charger, and an event that pings you at 3am
+  for a phone charger is one you mute — losing the one that mattered.
+
+### Added — visibility
+
+- **Host-wide disk-usage explorer.** "Disk 94% — of *what*?" Disk-fill
+  forecasting has always been able to say *when* a mount fills up; nothing said
+  what to delete. An opt-in, bounded `du` over configurable roots (never crossing
+  a filesystem boundary, depth-1, time-budgeted) now reports the biggest space
+  consumers per path, in the device drawer directly under the mounts table, with
+  an on-demand **Scan disk usage** button.
+- **Device reliability prediction.** A composite per-host failure likelihood
+  (0–100) with an explainable factor breakdown, derived entirely from telemetry
+  already stored: SMART trends (reallocated sectors *growing*, not merely
+  present), pending sectors, wear, NVMe spare, ECC errors, reboot churn,
+  health-score trajectory, thermals, recent OOM. Deliberately a *separate* number
+  from the risk score — risk answers "how exposed is this host", reliability
+  answers "how likely is it to break", and a fully-patched server with a dying
+  disk is low-risk and low-reliability. On **Monitoring → Predictive health**;
+  high/critical hosts raise a muteable Needs-Attention card. `GET /api/reliability`.
+
+### Fixed
+
+- **The fleet-risk cache never hit on a real fleet.** `_fleet_risk_cached` busted
+  whenever `devices.json` changed — but every heartbeat rewrites it, so on any
+  fleet whose hosts collectively beat faster than the 10-second TTL the cache was
+  dead on arrival and the O(fleet) risk computation re-ran on every single poll of
+  `/api/risk` *and* `/api/home`. It now fingerprints the operator-controlled inputs
+  only, the same fix the v6.1.2 sweep applied to the Needs-Attention digest.
+- **AV alerts lost the name of the engine that fired them.** `av_infected` and
+  `av_warning` have set a `tool` field since v5.1.0, but it was never in the
+  `_record_alert` payload whitelist, so the stored alert silently dropped it and
+  the inbox could not say which scanner found the malware.
+
 ## v6.1.2 — "AfterglowMatters" — unreleased (test)
 
 A correctness-and-fit release: three reported bugs (two of which made a shipped

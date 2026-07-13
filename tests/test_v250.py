@@ -285,10 +285,11 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        # Widened again in v6.1.2 (time-based trivy image-scan cadence). This
-        # fixed-size source window is inherently brittle: anything added to
-        # heartbeat() ABOVE this marker eventually pushes it out of range.
-        block = self.agent[idx: idx + 46000]
+        # Widened again in v6.1.3 (the disk-usage scan block + its heartbeat-
+        # response config). This fixed-size source window is inherently brittle:
+        # anything added to heartbeat() ABOVE this marker eventually pushes it
+        # out of range — which is exactly what happened, again.
+        block = self.agent[idx: idx + 50000]
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):

@@ -128,6 +128,10 @@ ENTITY_FILES = {
     # a single device's rollup chart parsed the entire fleet to answer for one
     # host. As an entity file, both become one row.
     'metrics_rollup.json',
+    # v6.1.3: disk_usage.json — per-device du report (top space consumers).
+    # Born an ENTITY file, so it needs no _COLD_TO_ENTITY_* migration wave:
+    # there is no pre-existing cold blob to split.
+    'disk_usage.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

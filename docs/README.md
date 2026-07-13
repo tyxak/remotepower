@@ -87,6 +87,13 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.1.3.md](v6.1.3.md)** — "SentinelMatters": closing named competitive gaps
+ using signals RemotePower already collected but never acted on — a
+ privileged-group tripwire (sudo/wheel/Administrators), Windows Defender AV
+ posture (incl. real-time-protection-off), a USB physical-access tripwire, a
+ host-wide disk-usage explorer ("disk 94% — of *what*?"), and a composite
+ device-reliability prediction. Plus a fleet-risk cache that never actually hit
+ on a real fleet. No breaking API changes.
 - **[v6.1.2.md](v6.1.2.md)** — "AfterglowMatters": a correctness-and-fit release
  — muting an alert now actually lifts the health score, the trivy image-CVE scan
  can finally be triggered (it could never run), `POST /api/cve/scan` no longer
@@ -100,13 +107,8 @@ The three most recent per-release notes are kept here:
  per-package pinned patch enforcement, invoice PDFs + payment-webhook
  reconciliation, a fleet query engine, distributed tracing, and more. No
  breaking API changes.
-- **[v6.1.0.md](v6.1.0.md)** — "Runt1meMatters": the enterprise-productization
- release — Postgres + the out-of-band scheduler + a co-located scanner satellite
- are now the single-node default (`install-server.sh`/`docker-compose.yml`), and
- the server runs entirely on **gunicorn + Flask** (CGI/fcgiwrap and the SCGI
- worker are retired). No breaking API changes.
 
-Older release notes (v6.0.1 and earlier) live in
+Older release notes (v6.1.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

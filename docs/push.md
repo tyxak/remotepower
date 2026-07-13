@@ -1,9 +1,12 @@
 # Agent push channel — near-instant command dispatch
 
-**Status: opt-in, off by default.** This is a genuine, working
+**Status: opt-in, off by default.** The daemon itself is *installed* by
+default (`install-server.sh`; pass `--no-push` to skip it), but the channel
+stays off until an admin flips the Settings toggle — nothing connects out
+of the box. This is a genuine, working
 implementation, but it has not been load-tested against a real fleet with
-hundreds of concurrently-connected agents (docs/master-improvement-scoping-
-internal.md #1 records why: no environment to spin that up in). Turn it on
+hundreds of concurrently-connected agents (there has been no environment
+to spin that up in). Turn it on
 for a small/medium fleet you can watch, and report back before relying on
 it at real scale. Use the **Test daemon connection** button next to the
 toggle (Settings → Advanced) for a quick reachability check, and see

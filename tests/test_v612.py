@@ -32,18 +32,30 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
+    """v6.1.2's pins, LOOSENED to regex now that v6.1.3 is the current version.
+
+    Per the version-bump checklist: the current release's test file carries the
+    strict pins (see test_v613.py); older files assert only that the surfaces
+    stay CONSISTENT with each other and never regress below this release.
+    """
+
     V = "6.1.2"
 
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
+    def test_server_version_is_at_least_this_release(self):
+        self.assertRegex(api.SERVER_VERSION, r"^\d+\.\d+\.\d+$")
+        self.assertGreaterEqual(
+            tuple(int(x) for x in api.SERVER_VERSION.split(".")),
+            tuple(int(x) for x in self.V.split(".")),
+        )
 
-    def test_agent_versions(self):
+    def test_agent_versions_track_the_server(self):
+        v = api.SERVER_VERSION
         self.assertIn(
-            f"VERSION      = '{self.V}'",
+            f"VERSION      = '{v}'",
             (_ROOT / "client/remotepower-agent.py").read_text(),
         )
         for rel in ("client/remotepower-agent-win.py", "client/remotepower-agent-mac.py"):
-            self.assertIn(f"VERSION = '{self.V}'", (_ROOT / rel).read_text(), rel)
+            self.assertIn(f"VERSION = '{v}'", (_ROOT / rel).read_text(), rel)
 
     def test_agent_extensionless_in_sync(self):
         self.assertEqual(
@@ -51,18 +63,16 @@ class TestVersionBumps(unittest.TestCase):
             (_ROOT / "client/remotepower-agent").read_bytes(),
         )
 
-    def test_sw_and_cachebust(self):
+    def test_sw_and_cachebust_track_the_server(self):
+        v = api.SERVER_VERSION
         self.assertIn(
-            f"remotepower-shell-v{self.V}", (_ROOT / "server/html/sw.js").read_text()
+            f"remotepower-shell-v{v}", (_ROOT / "server/html/sw.js").read_text()
         )
-        self.assertIn(f"?v={self.V}", _html())
+        self.assertIn(f"?v={v}", _html())
 
     def test_no_stale_cachebust(self):
+        # History check — 6.1.1's cache-bust must never come back.
         self.assertNotIn("?v=6.1.1", _html())
-
-    def test_readme_and_changelog(self):
-        self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
-        self.assertIn(f"v{self.V}", (_ROOT / "CHANGELOG.md").read_text()[:2000])
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{self.V}.md").exists())
@@ -71,12 +81,8 @@ class TestVersionBumps(unittest.TestCase):
         vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))
         self.assertEqual(len(vdocs), 3, f"expected exactly 3 version docs, got {vdocs}")
 
-    def test_whats_new_card_present(self):
-        self.assertIn(f"What's new — v{self.V}", _html())
-
-    def test_changelog_header_is_afterglowmatters(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.1.2 — "AfterglowMatters"', head)
+    def test_changelog_still_records_afterglowmatters(self):
+        self.assertIn('## v6.1.2 — "AfterglowMatters"', (_ROOT / "CHANGELOG.md").read_text())
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -84,7 +90,6 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "AfterglowMatters"'))
 
 
 class TestFeaturesDocStaysTablesOnly(unittest.TestCase):

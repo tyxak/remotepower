@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.1.2'
+SERVER_VERSION = '6.1.3'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -392,6 +392,8 @@ CMDB_SSH_PORT_MAX     = 65535
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
+DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.1.3: du top-consumers per host
+_DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
@@ -1482,6 +1484,24 @@ EVENT_REGISTRY = {
     'rogue_uid0_cleared': dict(
         label='No unexpected UID 0 accounts remain (recovered)', kind='accounts',
         resolves=('rogue_uid0',)),
+    # v6.1.3: someone gained sudo/wheel (Linux) or Administrators (Windows).
+    # The classic post-compromise persistence step, and the classic
+    # nobody-told-me change. Edge-triggered per user, like rogue_uid0.
+    # There is deliberately NO recover event: a privilege grant is an EVENT,
+    # not an ongoing condition — an auto-resolving alert would let a real
+    # escalation vanish from the inbox the moment the attacker cleaned up.
+    # Removals do not fire (they are not a security signal, and crying wolf
+    # on them would get the event muted — the hostkey_changed lesson).
+    'priv_group_added': dict(
+        label='A user gained privileged-group membership (sudo/wheel/Administrators)',
+        kind='accounts', title='Privileged Group Membership Added',
+        severity='high', priority=5, tags='rotating_light,bust_in_silhouette'),
+    # v6.1.3: a USB device appeared on a host — physical access. Medium, not
+    # high: on a homelab desktop this is somebody plugging in a phone, and an
+    # event that pages at 3am for a phone charger gets muted within a week.
+    'usb_device_added': dict(
+        label='A USB device was connected to a host', kind='usb',
+        title='USB Device Connected', severity='medium', tags='warning,electric_plug'),
     'process_alert': dict(
         label='A watched process exceeded its CPU/memory threshold', kind='process',
         title='Watched Process Threshold', severity='medium'),
@@ -1538,6 +1558,17 @@ EVENT_REGISTRY = {
     'av_clean': dict(
         label='Antivirus / rootkit scan clean again (recovered)', kind='av_posture',
         resolves=('av_infected', 'av_warning')),
+    # v6.1.3: Windows Defender real-time protection. "AV installed but switched
+    # off" has no ClamAV equivalent (those are on-demand scanners), so it needs
+    # its own event — a clean scan report from a host whose protection is
+    # DISABLED is not good news, and av_clean must not be read as covering it.
+    'av_realtime_off': dict(
+        label='Real-time malware protection is disabled on a host', kind='av_posture',
+        title='Real-Time Protection Off', severity='high',
+        tags='rotating_light,shield'),
+    'av_realtime_on': dict(
+        label='Real-time malware protection re-enabled (recovered)', kind='av_posture',
+        resolves=('av_realtime_off',)),
     'vpn_client_connected': dict(
         label='A WG Access VPN client connected', kind='vpn',
         title='WG Access Client Connected',
@@ -7011,6 +7042,8 @@ CHANNEL_KIND_DEFS = (
     ('oom', 'Out-of-memory kills', 'operational'),
     ('cert_files', 'Local certificate expiry', 'operational'),
     ('accounts', 'Local account audit', 'operational'),
+    ('usb', 'USB device connected', 'operational'),  # v6.1.3
+    ('reliability', 'Predicted hardware failure', 'operational'),  # v6.1.3
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
@@ -7101,6 +7134,13 @@ CHANNEL_KIND_DEFAULTS = {
     # point of watching a repo) but don't page — webhook/push/needs_attention
     # stay off until an operator opts in via Settings → Notifications.
     'github_issue': {'needs_attention': False, 'webhook': False},
+    # v6.1.3: a USB plug-in is a real signal on a rack server and pure noise on
+    # a homelab desktop (phone chargers, keyboards, a yubikey). Default it to
+    # the Alerts inbox + Recent Activity — visible, dated, searchable — but do
+    # NOT page and do NOT drag the health score down: a connected USB device is
+    # not a HEALTH problem, and an event that pings ntfy at 3am for a phone gets
+    # muted within the week, which is how you lose the one that mattered.
+    'usb': {'needs_attention': False, 'webhook': False},
 }
 
 
@@ -8595,6 +8635,11 @@ def _record_alert(event, payload):
                     'label', 'target', 'source_ip', 'count',
                     'user', 'fingerprint', 'proto', 'port', 'process',
                     'age_hours', 'vm_name', 'snap_name', 'days_old',
+                    # v6.1.3: which AV engine fired (clamav/rkhunter/defender).
+                    # av_infected/av_warning have set this since v5.1.0 but it
+                    # was never whitelisted, so the STORED alert lost it and the
+                    # inbox couldn't say which scanner found the malware.
+                    'tool',
                     # v3.3.4: image-update events — image/tag identify the
                     # alert so image_updated can auto-resolve it.
                     'image', 'tag', 'registry', 'hosts_count',
@@ -16947,6 +16992,14 @@ def handle_heartbeat():
                     _sanitize_str(str(k), 32): _sanitize_str(str(v), 64)
                     for k, v in list(_hk.items())[:12]
                 }
+            # v6.1.3: USB inventory {VID:PID -> label}. Same whitelist rule — drop
+            # it here and the usb_device_added tripwire can never fire.
+            _usb = si.get('usb')
+            if isinstance(_usb, dict):
+                safe_si['usb'] = {
+                    _sanitize_str(str(k), 16): _sanitize_str(str(v), 96)
+                    for k, v in list(_usb.items())[:32]
+                }
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
             if 'packages' in si and isinstance(si['packages'], dict):
@@ -17644,6 +17697,10 @@ def handle_heartbeat():
         if dev.get('force_secrets_scan'):
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
+        # v6.1.3: one-shot "explain my disk now" — same one-shot contract.
+        if dev.get('force_du_scan'):
+            saved_dev['force_du_scan'] = True
+            dev.pop('force_du_scan', None)
         # v3.0.0: IaC collection request — also one-shot
         if dev.get('force_iac_collect'):
             saved_dev['force_iac_collect'] = dev['force_iac_collect']
@@ -18408,8 +18465,13 @@ def handle_heartbeat():
     # no detected firewall, no timers, no recent login) would otherwise never reach
     # _ingest_posture_v3110 and its readonly_fs / mailq_high / mount_issue checks
     # never fire — exactly the "silent outage on any host" the feature targets.
+    # v6.1.3: 'usb' MUST be in this gate. It is the same class as the v6.0.1 note
+    # above — a host reporting none of the other keys would never reach
+    # _ingest_posture_v3110, so the usb_device_added tripwire could never fire.
+    # (ssh_hostkeys rides in only because virtually every host also reports
+    # `mounts`; that is luck, not design, and not something to lean on twice.)
     if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth',
-                                'mounts', 'mailq', 'mount_issues')):
+                                'mounts', 'mailq', 'mount_issues', 'usb')):
         try:
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
         except Exception as e:
@@ -18472,6 +18534,13 @@ def handle_heartbeat():
                                     body['secret_findings'])
         except Exception as e:
             sys.stderr.write(f"[remotepower] secrets ingest failed dev={dev_id}: {e}\n")
+
+    # v6.1.3: host-wide disk-usage report (opt-in du scan).
+    if 'disk_usage' in body and isinstance(body['disk_usage'], dict):
+        try:
+            _ingest_disk_usage(dev_id, body['disk_usage'], now)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] disk usage ingest failed dev={dev_id}: {e}\n")
 
     # W6-34: container-image CVE summaries (opt-in trivy scan).
     if 'image_cves' in body and isinstance(body['image_cves'], list):
@@ -18594,6 +18663,13 @@ def handle_heartbeat():
         _sec_paths = _sec_cfg.get('secrets_scan_paths') or []
         if _sec_paths:
             common_resp['secrets_scan_paths'] = _sec_paths
+    # v6.1.3: opt-in host-wide disk-usage scan. Same shape as the secrets scan —
+    # advertised only when enabled, custom paths override the agent's defaults.
+    if _sec_cfg.get('du_scan_enabled'):
+        common_resp['du_scan_enabled'] = True
+        _du_paths = _sec_cfg.get('du_scan_paths') or []
+        if _du_paths:
+            common_resp['du_scan_paths'] = _du_paths
     # W6-34: opt-in container-image CVE scan (trivy). Off by default; the agent
     # only runs trivy once advertised, and it's feature-invisible without trivy.
     if _sec_cfg.get('image_scan_enabled'):
@@ -18674,6 +18750,11 @@ def handle_heartbeat():
     # just above — the agent honoured it, the server never set it.
     if saved_dev.get('force_secrets_scan'):
         common_resp['force_secrets_scan'] = True
+    # v6.1.3: one-shot disk-usage scan ("Explain disk" button). Without this the
+    # only trigger would be the 12h cadence — which is the exact "feature that
+    # can never fire on demand" shape the v6.1.2 trivy bug taught us to avoid.
+    if saved_dev.get('force_du_scan'):
+        common_resp['force_du_scan'] = True
     # v3.0.0: one-shot IaC collection request — fires once on the heartbeat
     # right after the operator clicked Generate IaC.
     if saved_dev.get('force_iac_collect'):
@@ -22291,6 +22372,9 @@ def handle_config_get():
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
+    # v6.1.3: host-wide disk-usage explorer — opt-in (it walks the filesystem).
+    safe.setdefault('du_scan_enabled', False)
+    safe.setdefault('du_scan_paths', [])
     safe.setdefault('push_enabled', False)          # v6.1.1 #1
     safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('portal_enabled', False)       # W6-28 customer portal
@@ -23339,6 +23423,17 @@ def handle_config_save():
             if ps and ps not in paths:
                 paths.append(ps)
         cfg['secrets_scan_paths'] = paths
+    # v6.1.3: disk-usage explorer — opt-in + custom roots.
+    if 'du_scan_enabled' in body:
+        cfg['du_scan_enabled'] = bool(body['du_scan_enabled'])
+    if 'du_scan_paths' in body:
+        raw_dp = body['du_scan_paths'] if isinstance(body['du_scan_paths'], list) else []
+        dpaths = []
+        for p in raw_dp[:20]:
+            ps = _sanitize_str(str(p), 256).strip()
+            if ps and ps not in dpaths:
+                dpaths.append(ps)
+        cfg['du_scan_paths'] = dpaths
     # v3.14.0 (#24 P2): tenant isolation enforcement (opt-in, default off).
     if 'tenancy_enforced' in body:
         cfg['tenancy_enforced'] = bool(body['tenancy_enforced'])
@@ -29458,6 +29553,41 @@ def handle_image_cve_scan():
                              'No hosts with running containers to scan.'})
 
 
+def handle_disk_usage(dev_id):
+    """GET /api/devices/<id>/disk-usage — the du report for one host.
+
+    Read-only telemetry, so require_auth (a viewer may look at what is filling a
+    disk). Scope/tenant is enforced by main()'s _enforce_device_scope() pre-dispatch
+    for every /api/devices/<id>/… path.
+    """
+    require_auth()
+    rec = _entity_read_one(DISK_USAGE_FILE, dev_id, None) or {}
+    respond(200, {'ok': True, 'disk_usage': rec})
+
+
+def handle_disk_usage_scan(dev_id):
+    """POST /api/devices/<id>/disk-usage/scan — "explain this disk now".
+
+    Mutating (queues work on the host), so require_write_role, NOT require_auth:
+    a bare require_auth() admits the read-only roles (viewer/mcp/auditor/finance),
+    which is the recurring write-gate bug class in this codebase.
+    """
+    actor = require_write_role('exec')
+    if not _config_ro().get('du_scan_enabled'):
+        respond(400, {'error': 'Disk-usage scanning is off — enable it in '
+                               'Settings → Security first.'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if not dev:
+            respond(404, {'error': 'device not found'})
+        if dev.get('agentless'):
+            respond(400, {'error': 'agentless devices cannot run a disk scan'})
+        dev['force_du_scan'] = True
+    audit_log(actor, 'disk_usage_scan_queued', detail=f'device={dev_id}')
+    respond(200, {'ok': True, 'message': 'Disk-usage scan queued — the agent runs '
+                                         'it on the next heartbeat.'})
+
+
 def handle_secrets_scan_now():
     """POST /api/secrets-scan/scan — queue a one-shot secrets-on-disk scan.
 
@@ -29552,6 +29682,37 @@ def handle_mdns_services():
                  key=lambda s: (s.get('address') or '', s.get('type') or ''))
     respond(200, {'ok': True, 'services': out,
                   'enabled': bool(_config_ro().get('mdns_enabled'))})
+
+
+def _ingest_disk_usage(dev_id, usage, now):
+    """v6.1.3: persist the agent's du report — top space consumers per path.
+
+    This is the other half of disk-fill forecasting: the forecast has always been
+    able to say WHEN a mount fills, and nothing said WHAT to delete.
+
+    CARRY-FORWARD matters here. The scan runs ~12-hourly, so the report is absent
+    from ~99% of heartbeats; without carrying the previous value the drawer panel
+    would render empty almost always (the same reason `docker_df` carries forward).
+    """
+    clean = {}
+    if isinstance(usage, dict):
+        for path, entries in list(usage.items())[:12]:
+            if not isinstance(entries, list):
+                continue
+            rows = []
+            for e in entries[:_DU_MAX_ENTRIES]:
+                if not isinstance(e, dict):
+                    continue
+                b = e.get('bytes')
+                if not isinstance(b, (int, float)) or not (0 <= b < 1e18):
+                    continue
+                rows.append({'path': _sanitize_str(str(e.get('path', '')), 256),
+                             'bytes': int(b)})
+            if rows:
+                clean[_sanitize_str(str(path), 256)] = rows
+    if not clean:
+        return                       # nothing usable this beat — keep the old rec
+    _entity_write_one(DISK_USAGE_FILE, dev_id, {'paths': clean, 'ts': int(now)})
 
 
 def _ingest_secret_findings(dev_id, dev_name, findings):
@@ -29907,6 +30068,33 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                                'neither, treat this as a possible MITM'),
                 })
         new['ssh_hostkeys'] = cur_hk
+
+    # ── v6.1.3: USB device tripwire ────────────────────────────────
+    # A USB device appearing on a server is a physical-access signal. Keyed by
+    # VID:PID, so the same stick moved to another port does NOT re-fire (the
+    # kernel's bus/port path would have — and an event that cries wolf gets muted).
+    #
+    # Only ADDITIONS fire. A removal is not a security signal, and there is
+    # deliberately no recover event: "a USB device was plugged in" is an EVENT,
+    # not a condition — an auto-resolving alert would let the exfil stick vanish
+    # from the inbox the moment it was unplugged, which is precisely backwards.
+    #
+    # first_seen never fires: enrolling a host with a dongle already attached is
+    # not a plug-in event, and paging on every existing keyboard/UPS cable would
+    # bury the one that matters.
+    usb = si.get('usb')
+    if isinstance(usb, dict):
+        cur_usb = {str(k): str(v) for k, v in usb.items()}
+        p_usb = prev.get('usb')
+        if not first_seen and isinstance(p_usb, dict):
+            for key in sorted(set(cur_usb) - set(p_usb)):
+                _fire('usb_device_added', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'detail': (f'USB device {cur_usb[key]} ({key}) was connected '
+                               '— if nobody was at the machine, treat this as '
+                               'physical access'),
+                })
+        new['usb'] = cur_usb
 
     # ── host firewall drift ────────────────────────────────────────
     # v3.12.0: gated by the same `port_audit_enabled` host-audit toggle as the
@@ -37174,6 +37362,14 @@ def _smart_disk_failed(d):
 
 # ── v3.6.0: endpoint AV/malware posture ─────────────────────────────────────
 
+# v6.1.3: 'defender' joins the AV tools so a Windows host's AV posture rides the
+# SAME pipeline (ingest → av_status.json → attention items → av_infected /
+# av_warning / av_clean) as ClamAV/rkhunter. Deliberately a distinct tool key
+# rather than masquerading as 'clamav': a webhook consumer or an operator
+# reading "clamav infected=1" on a Windows box would be actively misled.
+_AV_TOOLS = ('clamav', 'rkhunter', 'defender')
+
+
 def _ingest_av(dev_id, av, now, dev_name=None):
     """Persist the agent's AV posture report. Sanitised, last-writer-wins per
     device. Drives the av-posture attention items AND fires av_infected (v5.1.0)
@@ -37188,9 +37384,14 @@ def _ingest_av(dev_id, av, now, dev_name=None):
             v = t.get(k)
             if isinstance(v, (int, float)):
                 out[k] = int(v)
+        # v6.1.3 (Defender): real-time protection state. TRI-STATE on purpose —
+        # absent means "this tool has no such concept" (ClamAV/rkhunter are
+        # on-demand scanners), which must not read as "protection is off".
+        if isinstance(t.get('realtime_enabled'), bool):
+            out['realtime_enabled'] = t['realtime_enabled']
         return out
     rec = {'collected_at': now}
-    for tool in ('clamav', 'rkhunter'):
+    for tool in _AV_TOOLS:
         c = _clean_tool(av.get(tool))
         if c is not None:
             rec[tool] = c
@@ -37203,7 +37404,7 @@ def _ingest_av(dev_id, av, now, dev_name=None):
     # direct fire_webhook is safe — no enclosing _DeviceUpdate lock.
     try:
         nm = dev_name or (device_get(dev_id) or {}).get('name') or dev_id
-        for tool in ('clamav', 'rkhunter'):
+        for tool in _AV_TOOLS:
             new_inf = int((rec.get(tool) or {}).get('infected') or 0)
             old_inf = int((prev.get(tool) or {}).get('infected') or 0)
             if new_inf > 0 and new_inf > old_inf:
@@ -37229,12 +37430,32 @@ def _ingest_av(dev_id, av, now, dev_name=None):
         # alert (av_clean clears av_infected + av_warning via _ALERT_RECOVER_EXTRA).
         new_bad = sum(int((rec.get(t) or {}).get('infected') or 0)
                       + int((rec.get(t) or {}).get('warnings') or 0)
-                      for t in ('clamav', 'rkhunter'))
+                      for t in _AV_TOOLS)
         old_bad = sum(int((prev.get(t) or {}).get('infected') or 0)
                       + int((prev.get(t) or {}).get('warnings') or 0)
-                      for t in ('clamav', 'rkhunter'))
+                      for t in _AV_TOOLS)
         if old_bad > 0 and new_bad == 0:
             fire_webhook('av_clean', {'device_id': dev_id, 'name': nm})
+
+        # v6.1.3: real-time protection switched OFF. Unlike priv_group_added (an
+        # EVENT), "AV is disabled" is an ongoing CONDITION — so it fires on FIRST
+        # sight too (a host that enrols with protection already off is exactly
+        # the host you need to hear about) and auto-resolves when it comes back.
+        # `is False` is load-bearing: absent means the tool has no realtime
+        # concept, and `not None` would report every ClamAV host as unprotected.
+        for tool in _AV_TOOLS:
+            new_rt = (rec.get(tool) or {}).get('realtime_enabled')
+            old_rt = (prev.get(tool) or {}).get('realtime_enabled')
+            if new_rt is False and old_rt is not False:
+                fire_webhook('av_realtime_off', {
+                    'device_id': dev_id, 'name': nm, 'tool': tool,
+                    'detail': (f'{tool}: real-time protection is OFF — the host '
+                               'is running without active malware protection'),
+                })
+            elif new_rt is True and old_rt is False:
+                fire_webhook('av_realtime_on', {
+                    'device_id': dev_id, 'name': nm, 'tool': tool,
+                })
     except Exception as e:
         sys.stderr.write(f"[remotepower] av_infected fire failed dev={dev_id}: {e}\n")
 
@@ -37572,6 +37793,28 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             # the open rogue_uid0 alert(s) for this host.
             events.append(('rogue_uid0_cleared', {'device_id': dev_id, 'name': dev_name}))
         rec['_uid0_alerted'] = sorted(rogue)
+
+        # v6.1.3: privileged-group membership tripwire. The agents ALREADY
+        # report this — Linux get_local_accounts() parses /etc/group for
+        # sudo/wheel/admin members, the Windows agent runs Get-LocalGroupMember
+        # -Group Administrators — and both set a['sudo']. Nothing ever diffed it.
+        #
+        # `_priv_users` ABSENT (not merely empty) means first contact for this
+        # host: baseline silently. Enrolling a device is not a privilege grant,
+        # and an upgrade must not page the operator for every existing admin.
+        # Only ADDITIONS fire (see the registry note).
+        cur_priv = {a['user'] for a in accts if a.get('sudo') and a.get('user')}
+        raw_priv = rec.get('_priv_users')
+        if raw_priv is not None:
+            for u in sorted(cur_priv - set(raw_priv)):
+                events.append(('priv_group_added', {
+                    'device_id': dev_id, 'name': dev_name, 'user': u,
+                    'detail': (f"'{u}' gained privileged-group membership "
+                               '(sudo/wheel/Administrators). If this was not an '
+                               'intentional grant, treat it as post-compromise '
+                               'persistence.'),
+                }))
+        rec['_priv_users'] = sorted(cur_priv)
 
     # ── v3.14.0: UPS / power ─────────────────────────────────────
     ups_critical_source = None   # (dev_id, ups_name, dev_name) if this heartbeat trips critical
@@ -39570,6 +39813,39 @@ def _compute_attention():
         if isinstance(rk.get('warnings'), int) and rk['warnings'] > 0:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'summary': f"rkhunter reported {rk['warnings']} warning(s)"})
+        # v6.1.3: Windows Defender. Infections mirror ClamAV; the NEW signal is
+        # real-time protection being OFF — critical, because every other AV
+        # number on this host ("0 threats") is meaningless while it is disabled.
+        dfd = av.get('defender') or {}
+        if isinstance(dfd.get('infected'), int) and dfd['infected'] > 0:
+            items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
+                          'summary': f"Defender reported {dfd['infected']} threat(s)"})
+        if dfd.get('realtime_enabled') is False:
+            items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
+                          'summary': 'Defender real-time protection is OFF'})
+        elif isinstance(dfd.get('db_age_days'), int) and dfd['db_age_days'] > 7:
+            items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
+                          'summary': f"Defender signatures are {dfd['db_age_days']}d old"})
+
+    # v6.1.3: predicted hardware failure. Only 'high' and above earns a card —
+    # a low bar here becomes noise, and a noisy predictor is one people learn to
+    # ignore, which is strictly worse than not having a predictor at all.
+    try:
+        for r in _fleet_reliability_cached():
+            if r['level'] not in ('high', 'critical'):
+                continue
+            dev = monitored.get(r['device_id'])
+            if not dev:
+                continue          # unmonitored/agentless — telemetry only, no alerting
+            top = r['factors'][0]['detail'] if r['factors'] else 'multiple failure signals'
+            items.append({
+                'severity': 'critical' if r['level'] == 'critical' else 'warning',
+                'kind': 'reliability',
+                'device': dev.get('name', r['device_id']),
+                'summary': f"Likely to fail (reliability {r['score']}/100) — {top}",
+            })
+    except Exception:
+        pass
 
     # v3.6.0: Proxmox per-guest backup recency. Reads the backup cache refreshed
     # opportunistically by the Proxmox list endpoint.
@@ -39998,6 +40274,14 @@ _NA_MUTE_EVENTS = {
     ('new_port',           'warning'):  ('new_port_detected', 'port_exposed_world'),
     ('hardware',           'critical'): ('smart_failure',),
     ('hardware',           'warning'):  ('temp_high',),
+    # v6.1.3: predicted failure. Muteable via the same events its top factors
+    # come from — an NA kind with NO _NA_MUTE_EVENTS row is UNMUTEABLE, and an
+    # unmuteable item permanently depresses the host's (and the fleet's) health
+    # score with no operator recourse.
+    ('reliability',        'critical'): ('smart_failure', 'disk_predict_fail',
+                                         'ecc_errors'),
+    ('reliability',        'warning'):  ('smart_failure', 'disk_predict_fail',
+                                         'ecc_errors'),
 }
 
 
@@ -40293,41 +40577,343 @@ def _fleet_risk_cache_file():
     return DATA_DIR / 'fleet_risk_cache.json'
 
 
-def _fleet_risk_cached(use_cache=True):
-    """File-backed 10s cache around ``_compute_fleet_risk`` — mirrors
-    ``_attention_payload``. CGI spawns a fresh process per request, so a file
-    cache is the only way to avoid recomputing the full-fleet risk (with its
-    per-device date parsing) on both ``/api/risk`` and the ``/api/home`` path
-    within the same few seconds. The cached value is the scope-independent full
-    fleet list; callers scope-filter afterwards, so it's safe to share.
+# ── v6.1.3: device reliability prediction ────────────────────────────────────
+#
+# "How likely is this host to BREAK?" — deliberately a SEPARATE score from the
+# risk score above, which answers "how EXPOSED is this host?" (CVEs, open ports,
+# policy, EOL). Merging them would make both unreadable: a fully-patched server
+# with a dying disk is low-risk and low-reliability, and an operator needs to see
+# exactly that.
+#
+# No new collection. Every input below is already stored:
+#   * SMART attributes  — smart_history.json, 185 daily samples/disk (~6 months),
+#                         with a least-squares trend already implemented
+#                         (_smart_trend). This is the strongest hardware-failure
+#                         predictor we have.
+#   * Health score      — health_history.json, 180 daily samples (~6 months).
+#   * Reboot churn      — uptime.json, last 500 online/offline transitions.
+#   * Thermals          — hardware.json (latest) + thermal_history.json (~24h).
+#   * ECC / OOM / flaps — latest values only (posture_state / sysinfo / services);
+#                         these have NO history, so they are scored as CURRENT
+#                         conditions, not trends. That is an honest limit of the
+#                         stored data, not an oversight.
+#
+# Higher = more likely to fail (same polarity as the risk score, opposite to the
+# health score — which is why they are three separate numbers, not one).
+_RELIABILITY_WEIGHTS = {
+    'smart_failing':      40,   # the drive says it is failing. Believe it.
+    'realloc_growing':    25,   # reallocated sectors trending UP = the disk is dying
+    'pending_sectors':    20,   # unreadable sectors awaiting remap
+    'wear_high':          15,   # SSD/NVMe endurance nearly spent
+    'spare_low':          20,   # NVMe available spare below threshold
+    'ecc_uncorrectable':  30,   # the DIMM could NOT fix it
+    'ecc_correctable':     8,
+    'reboot_churn':       12,   # unexplained returns-to-online in the window
+    'health_declining':   10,   # the host's own health score trending down
+    'overheating':        12,
+    'oom_recent':          8,
+}
+_RELIABILITY_CAPS = {
+    'reboot_churn': 24, 'ecc_correctable': 24, 'oom_recent': 8,
+}
+# A host is only flagged once it is genuinely likely to fail — this feeds an
+# alert and a Needs-Attention item, so a low bar here becomes noise, and a noisy
+# predictor is one people learn to ignore (which is worse than not having it).
+_RELIABILITY_LEVELS = ((70, 'critical'), (45, 'high'), (20, 'medium'))
+_REALLOC_GROWTH_PER_DAY = 0.05     # >1 new reallocated sector per ~3 weeks
+_WEAR_HIGH_PCT          = 85
+_REBOOT_CHURN_MIN       = 3        # returns-to-online in the window before it counts
+_HEALTH_DECLINE_PER_DAY = 0.5      # score points lost per day, averaged
 
-    Busted whenever any source file is newer than the cache (a heartbeat that
-    rewrote devices.json, a fresh CVE scan, a policy/inventory update)."""
-    cache_file = _fleet_risk_cache_file()
+
+def _reliability_level(score):
+    for threshold, name in _RELIABILITY_LEVELS:
+        if score >= threshold:
+            return name
+    return 'low'
+
+
+def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_rec,
+                        svc_rec, posture_rec, now):
+    """Composite failure-likelihood for ONE host, with an explainable factor list.
+
+    Returns {device_id, name, score, level, factors:[{kind, points, detail}]}.
+    Pure aggregation over already-stored data — safe to call on demand.
+    """
+    factors = []
+
+    def _add(kind, points, detail):
+        if points <= 0:
+            return
+        cap = _RELIABILITY_CAPS.get(kind)
+        if cap is not None:
+            points = min(points, cap)
+        factors.append({'kind': kind, 'points': int(points), 'detail': detail})
+
+    hw_rec = hw_rec or {}
+    si = dev.get('sysinfo') or {}
+
+    # ── disks: the single best predictor we have ──────────────────────────────
+    for d in (hw_rec.get('smart') or []):
+        if not isinstance(d, dict):
+            continue
+        disk = d.get('device') or d.get('model') or 'disk'
+        if _smart_disk_failed(d):
+            _add('smart_failing', _RELIABILITY_WEIGHTS['smart_failing'],
+                 f'{disk}: SMART reports the drive as failing')
+        if _nvme_spare_exhausted(d):
+            _add('spare_low', _RELIABILITY_WEIGHTS['spare_low'],
+                 f'{disk}: NVMe available spare is below its threshold')
+        # NB the RAW hardware dict uses long field names (wear_pct,
+        # pending_sectors, reallocated_sectors); only the HISTORY samples use the
+        # short ones (wear/pending/realloc). Getting this wrong scores every disk
+        # at zero, forever, and looks completely correct in review.
+        wear = d.get('wear_pct')
+        if isinstance(wear, (int, float)) and wear >= _WEAR_HIGH_PCT:
+            _add('wear_high', _RELIABILITY_WEIGHTS['wear_high'],
+                 f'{disk}: {int(wear)}% of rated write endurance consumed')
+        pending = d.get('pending_sectors')
+        if isinstance(pending, (int, float)) and pending > 0:
+            _add('pending_sectors', _RELIABILITY_WEIGHTS['pending_sectors'],
+                 f'{disk}: {int(pending)} sector(s) pending remap')
+        # The TREND is what makes this predictive rather than reactive: a disk
+        # with 4 reallocated sectors that has had 4 for a year is fine; one that
+        # went 0 → 4 this month is on its way out.
+        samples = ((smart_hist or {}).get(_disk_key(d)) or {}).get('samples') or []
+        slope, latest = _smart_trend(samples, 'realloc')
+        if slope > _REALLOC_GROWTH_PER_DAY and (latest or 0) > 0:
+            _add('realloc_growing', _RELIABILITY_WEIGHTS['realloc_growing'],
+                 f'{disk}: reallocated sectors growing (~{slope:.2f}/day, now {int(latest)})')
+
+    # ── memory: ECC. Latest counters only — no history is stored, so this is a
+    # CURRENT-condition score, not a trend. An uncorrectable error means the DIMM
+    # could not fix it; that is a different universe from a corrected one.
+    ecc = si.get('ecc') or (posture_rec or {}).get('ecc') or {}
+    if isinstance(ecc, dict):
+        ue = ecc.get('ue')
+        ce = ecc.get('ce')
+        if isinstance(ue, (int, float)) and ue > 0:
+            _add('ecc_uncorrectable', _RELIABILITY_WEIGHTS['ecc_uncorrectable'],
+                 f'{int(ue)} uncorrectable ECC error(s) — the DIMM could not fix them')
+        if isinstance(ce, (int, float)) and ce > 0:
+            _add('ecc_correctable', _RELIABILITY_WEIGHTS['ecc_correctable'] * min(3, int(ce)),
+                 f'{int(ce)} correctable ECC error(s)')
+
+    # ── churn: a box that keeps coming back has been going away ───────────────
+    events = (uptime_rec or {}).get('events') or []
+    win = now - 7 * 86400
+    prev_online, returns = None, 0
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+        online = bool(e.get('online'))
+        if prev_online is False and online and int(e.get('ts', 0)) >= win:
+            returns += 1
+        prev_online = online
+    if returns >= _REBOOT_CHURN_MIN:
+        _add('reboot_churn', _RELIABILITY_WEIGHTS['reboot_churn'] * (returns - _REBOOT_CHURN_MIN + 1),
+             f'came back online {returns}x in 7 days — unexplained restarts')
+
+    # ── trajectory: is this host getting worse? ───────────────────────────────
+    pts = [(s.get('ts'), s.get('score')) for s in (health_series or [])
+           if isinstance(s, dict) and isinstance(s.get('score'), (int, float))
+           and isinstance(s.get('ts'), (int, float))]
+    if len(pts) >= 3:
+        t0 = pts[0][0]
+        xs = [(t - t0) / 86400.0 for t, _v in pts]
+        ys = [float(v) for _t, v in pts]
+        try:
+            slope, _ = forecast.linear_fit(xs, ys)
+        except Exception:
+            slope = 0.0
+        if slope < -_HEALTH_DECLINE_PER_DAY:
+            _add('health_declining', _RELIABILITY_WEIGHTS['health_declining'],
+                 f'health score trending down (~{abs(slope):.1f} points/day)')
+
+    # ── heat kills hardware ───────────────────────────────────────────────────
+    temps = [t.get('current_c') for t in (hw_rec.get('temps') or [])
+             if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))]
+    if temps and max(temps) >= THERMAL_CRIT_C:
+        _add('overheating', _RELIABILITY_WEIGHTS['overheating'],
+             f'running at {int(max(temps))}°C')
+
+    if isinstance(si.get('last_oom_ts'), (int, float)) and (now - si['last_oom_ts']) < 86400:
+        _add('oom_recent', _RELIABILITY_WEIGHTS['oom_recent'],
+             'the OOM killer fired in the last 24h')
+
+    # DELIBERATELY NOT SCORED: unit flapping.
+    #
+    # services.json stores `restarts` as systemd's CUMULATIVE NRestarts counter,
+    # and only the *latest* value — the flap DELTA that `unit_flapping` fires on
+    # is computed in-flight in process_service_report() and never persisted. So
+    # there is nothing here to derive a flap rate from: a long-lived host that
+    # restarted a unit once during a deploy two years ago carries restarts=1
+    # forever, and scoring on `restarts > 0` would mark half a healthy fleet as
+    # failing while a genuinely crash-looping unit that reset its counter scores
+    # zero. Persisting a daily delta would make this a real factor — until then
+    # an honest omission beats a confidently wrong number.
+    # (`svc_rec` stays in the signature for exactly that follow-up.)
+
+    score = min(100, sum(f['points'] for f in factors))
+    factors.sort(key=lambda f: -f['points'])
+    return {'device_id': dev_id, 'name': dev.get('name', dev_id),
+            'score': score, 'level': _reliability_level(score), 'factors': factors}
+
+
+def _compute_fleet_reliability():
+    """Reliability for every monitored device. Loads each store ONCE."""
+    devices = load(DEVICES_FILE) or {}
+    hw = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
+    smart_hist = (load(SMART_HIST_FILE) or {}) if backend_exists(SMART_HIST_FILE) else {}
+    health_hist = (load(HEALTH_HIST_FILE) or {}) if backend_exists(HEALTH_HIST_FILE) else {}
+    uptime = (load(UPTIME_FILE) or {}) if backend_exists(UPTIME_FILE) else {}
+    svcs = (load(SERVICES_FILE) or {}) if backend_exists(SERVICES_FILE) else {}
+    posture = (load(POSTURE_STATE_FILE) or {}) if backend_exists(POSTURE_STATE_FILE) else {}
+    per_dev_health = (health_hist.get('devices') or {}) if isinstance(health_hist, dict) else {}
+    now = int(time.time())
+    out = []
+    for dev_id, dev in devices.items():
+        if dev.get('agentless') or dev.get('decommissioned'):
+            continue        # no agent telemetry to predict from
+        out.append(_device_reliability(
+            dev_id, dev, hw.get(dev_id), smart_hist.get(dev_id),
+            per_dev_health.get(dev_id), uptime.get(dev_id),
+            svcs.get(dev_id), posture.get(dev_id), now))
+    out.sort(key=lambda r: -r['score'])
+    return out
+
+
+def _reliability_cache_file():
+    return DATA_DIR / 'fleet_reliability_cache.json'
+
+
+def _reliability_fingerprint():
+    """Operator-controlled inputs only — NEVER DEVICES_FILE/HARDWARE_FILE.
+
+    See _fleet_risk_cached: every heartbeat rewrites those, so a cache that busts
+    on their mtime never hits on a real fleet and the O(fleet) compute re-runs on
+    every poll. Telemetry may be up to the TTL stale in a rollup; that IS the
+    contract of a short-TTL cache.
+    """
+    parts = [_device_set_fingerprint()]
+    for src in (ALERT_MUTES_FILE, CONFIG_FILE):
+        try:
+            parts.append(str(backend_mtime(src)))
+        except Exception:
+            parts.append('-')
+    return '|'.join(parts)
+
+
+def _fleet_reliability_cached(use_cache=True):
+    cache_file = _reliability_cache_file()
+    fp = _reliability_fingerprint()
     if use_cache:
         try:
             if backend_exists(cache_file):
-                cache_mtime = backend_mtime(cache_file)
-                if (time.time() - cache_mtime) < _FLEET_RISK_CACHE_TTL:
-                    fresher = False
-                    for src in (DEVICES_FILE, CMDB_FILE, CVE_FINDINGS_FILE,
-                                SOFTWARE_VIOLATIONS_FILE, HARDWARE_FILE,
-                                CVE_IGNORE_FILE, CONFIG_FILE, PACKAGES_FILE):
-                        try:
-                            if backend_mtime(src) > cache_mtime:
-                                fresher = True
-                                break
-                        except Exception:
-                            pass
-                    if not fresher:
-                        cached = load(cache_file)
-                        if isinstance(cached, dict) and isinstance(cached.get('devices'), list):
-                            return cached['devices']
+                cached = load(cache_file)
+                if (isinstance(cached, dict)
+                        and isinstance(cached.get('devices'), list)
+                        and cached.get('fp') == fp
+                        and (time.time() - float(cached.get('ts') or 0)) < _FLEET_RISK_CACHE_TTL):
+                    return cached['devices']
+        except Exception:
+            pass
+    out = _compute_fleet_reliability()
+    try:
+        save(cache_file, {'devices': out, 'fp': fp, 'ts': int(time.time())})
+    except Exception:
+        pass
+    return out
+
+
+def handle_reliability_overview():
+    """GET /api/reliability — per-host failure-likelihood with an explainable
+    factor breakdown. Read-only; built entirely from already-stored telemetry."""
+    require_auth()
+    rows = _fleet_reliability_cached()
+    scope = _caller_scope()
+    _tgate = _tenant_gate()
+    if scope is not None or _tgate is not None:
+        # _scope_filter_devices folds in BOTH role scope and tenant isolation —
+        # a tenant admin resolves to scope=None but must not see another
+        # tenant's hosts (the v6.1.1 fleet-aggregate leak class).
+        devs = _scope_filter_devices(load(DEVICES_FILE) or {})
+        rows = [r for r in rows if r['device_id'] in devs]
+    counts = {'low': 0, 'medium': 0, 'high': 0, 'critical': 0}
+    for r in rows:
+        counts[r['level']] = counts.get(r['level'], 0) + 1
+    respond(200, {'devices': rows, 'counts': counts, 'total': len(rows)})
+
+
+def _device_set_fingerprint():
+    """A hash of the device ID SET — not of devices.json's mtime.
+
+    This is the distinction that makes a short-TTL fleet cache both correct and
+    actually useful. devices.json is rewritten by EVERY heartbeat, so keying a
+    cache on its mtime means the cache never hits on any real fleet. But the
+    thing an operator expects to see reflected IMMEDIATELY is a device being
+    added or removed — and that changes the device *key set*, while a heartbeat
+    does not.
+
+    So: bust on membership, tolerate ≤TTL-stale telemetry. Cheap — `load()` is
+    memoised per request, and the expensive part of these rollups is the
+    per-device CVE/date work, not the read.
+    """
+    try:
+        ids = sorted((load(DEVICES_FILE) or {}).keys())
+    except Exception:
+        return '-'
+    return hashlib.sha256('|'.join(ids).encode()).hexdigest()[:16]
+
+
+def _risk_fingerprint():
+    """v6.1.3: fingerprint of the OPERATOR-CONTROLLED inputs to the risk score,
+    plus the device SET (see _device_set_fingerprint).
+
+    Deliberately EXCLUDES devices.json / hardware.json MTIME — see
+    _fleet_risk_cached. Mirrors _attention_fingerprint.
+    """
+    parts = [_device_set_fingerprint()]
+    for src in (CVE_IGNORE_FILE, SOFTWARE_VIOLATIONS_FILE, CMDB_FILE, CONFIG_FILE):
+        try:
+            parts.append(str(backend_mtime(src)))
+        except Exception:
+            parts.append('-')
+    return '|'.join(parts)
+
+
+def _fleet_risk_cached(use_cache=True):
+    """File-backed 10s cache around ``_compute_fleet_risk``.
+
+    v6.1.3 (PERF — the same bug the v6.1.2 sweep fixed in _attention_payload):
+    this cache used to ALSO bust whenever DEVICES_FILE / HARDWARE_FILE mtime
+    advanced. But EVERY heartbeat rewrites devices.json, so on any fleet whose
+    hosts collectively beat faster than the 10s TTL the cache NEVER hit and the
+    O(fleet) risk compute (per-device CVE joins + date parsing) re-ran on every
+    single poll of /api/risk AND /api/home. A 20-host fleet at a 60s poll
+    interval rewrites devices.json every ~3s — so the cache was dead on arrival
+    for exactly the fleets big enough to need it.
+
+    Fixed the same way: honour the full TTL, and bust on a fingerprint over the
+    OPERATOR-changed inputs only (ignored CVEs, policy violations, CMDB, config).
+    Accepting ≤10s-stale telemetry in a rollup IS the contract of a 10s cache.
+    """
+    cache_file = _fleet_risk_cache_file()
+    fp = _risk_fingerprint()
+    if use_cache:
+        try:
+            if backend_exists(cache_file):
+                cached = load(cache_file)
+                if (isinstance(cached, dict)
+                        and isinstance(cached.get('devices'), list)
+                        and cached.get('fp') == fp
+                        and (time.time() - float(cached.get('ts') or 0)) < _FLEET_RISK_CACHE_TTL):
+                    return cached['devices']
         except Exception:
             pass
     out = _compute_fleet_risk()
     try:
-        save(cache_file, {'devices': out})
+        save(cache_file, {'devices': out, 'fp': fp, 'ts': int(time.time())})
     except Exception:
         pass
     return out
@@ -40385,8 +40971,12 @@ def handle_risk_overview():
     # fleet_risk_cache.json, bumped exactly when the underlying data actually
     # changed) — a poller re-fetching this dashboard endpoint every N seconds
     # gets a bodyless 304 on every call where nothing changed.
+    # v6.1.3: key the ETag on the risk FINGERPRINT, not the cache file's mtime.
+    # The fingerprint changes exactly when the cached content would (device set +
+    # operator inputs), so it can't collide the way a coarse-granularity mtime
+    # can when a write lands in the same second as the previous one.
     try:
-        etag_source = (backend_mtime(_fleet_risk_cache_file()), scope, _tgate)
+        etag_source = (_risk_fingerprint(), scope, _tgate)
     except Exception:
         etag_source = None
     if etag_source is not None:
@@ -59701,6 +60291,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/fail2ban-action', 'handle_device_fail2ban_action', "pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/av-scan', 'handle_av_scan', "pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/av', 'handle_av_status', "pi.startswith('/api/devices/') and pi.endswith('/av') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/disk-usage/scan', 'handle_disk_usage_scan', "pi.startswith('/api/devices/') and pi.endswith('/disk-usage/scan') and m == 'POST'"),   # v6.1.3
+    ('pat', ('GET',), '/api/devices/', '/disk-usage', 'handle_disk_usage', "pi.startswith('/api/devices/') and pi.endswith('/disk-usage') and m == 'GET'"),   # v6.1.3
     ('pat', ('PUT',), '/api/sites/', '', 'handle_site_update', "pi.startswith('/api/sites/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/sites/', '', 'handle_site_delete', "pi.startswith('/api/sites/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/backup-jobs/', '/run', 'handle_backup_job_run', "pi.startswith('/api/backup-jobs/') and pi.endswith('/run') and m == 'POST'"),
@@ -59883,6 +60475,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/fleet/health/history', '', 'handle_fleet_health_history', "pi == '/api/fleet/health/history' and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/health', '', 'handle_fleet_health', "pi == '/api/fleet/health' and m == 'GET'"),
     ('eq', ('GET',), '/api/risk', '', 'handle_risk_overview', "pi == '/api/risk' and m == 'GET'"),
+    ('eq', ('GET',), '/api/reliability', '', 'handle_reliability_overview', "pi == '/api/reliability' and m == 'GET'"),   # v6.1.3
     ('eq', ('GET',), '/api/fleet/sla', '', 'handle_fleet_sla', "pi == '/api/fleet/sla' and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/sla-targets', '', 'handle_sla_targets_get', "pi == '/api/fleet/sla-targets' and m == 'GET'"),
     ('eq', ('PUT',), '/api/fleet/sla-targets', '', 'handle_sla_targets_put', "pi == '/api/fleet/sla-targets' and m == 'PUT'"),

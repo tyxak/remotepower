@@ -3652,6 +3652,13 @@ async function loadSettings() {
     const sp = document.getElementById('cfg-secrets-scan-paths');
     if (sp) sp.value = (data.secrets_scan_paths || []).join('\n');
   }
+  // v6.1.3: disk-usage explorer
+  const _duEn = document.getElementById('cfg-du-scan-enabled');
+  if (_duEn) {
+    _duEn.checked = !!data.du_scan_enabled;
+    const dp = document.getElementById('cfg-du-scan-paths');
+    if (dp) dp.value = (data.du_scan_paths || []).join('\n');
+  }
   // W3-38: canary files
   { const cf = document.getElementById('cfg-canary-paths');
     if (cf) cf.value = (data.canary_files || []).map(c => c.path).join('\n'); }
@@ -4213,6 +4220,13 @@ async function saveSettings(btn) {
   if (_secSaveEn) {
     payload.secrets_scan_enabled = _secSaveEn.checked;
     payload.secrets_scan_paths = (document.getElementById('cfg-secrets-scan-paths')?.value || '')
+      .split('\n').map(s => s.trim()).filter(Boolean);
+  }
+  // v6.1.3: disk-usage explorer
+  const _duSaveEn = document.getElementById('cfg-du-scan-enabled');
+  if (_duSaveEn) {
+    payload.du_scan_enabled = _duSaveEn.checked;
+    payload.du_scan_paths = (document.getElementById('cfg-du-scan-paths')?.value || '')
       .split('\n').map(s => s.trim()).filter(Boolean);
   }
   const _caEn = document.getElementById('cfg-change-approval-enabled');
@@ -6766,6 +6780,18 @@ async function restoreBackup() {
 }
 
 // ── v3.12.0: storage backend (JSON <-> SQLite) ───────────────────────────────
+// v6.1.3: queue a one-shot host-wide disk-usage scan ("disk 94% — of what?").
+// The id is re-stringified on the way in: the global data-action dispatcher runs
+// `!isNaN(v) ? Number(v) : v`, so a numeric-LOOKING device id (hex ids qualify —
+// '1e5' parses as 100000, and '1e5000000000' becomes Infinity) would arrive
+// silently corrupted. See the frontend-id-coercion note in CLAUDE.md.
+async function duScan(devId) {
+  const id = String(devId);
+  const r = await api('POST', `/devices/${id}/disk-usage/scan`, {});
+  if (!r?.ok) { toast(r?.error || 'Failed to queue scan', 'error'); return; }
+  toast(r.message || 'Disk-usage scan queued', 'success');
+}
+
 function _fmtBytes(n) {
   if (!n && n !== 0) return '?';
   if (n < 1024) return n + ' B';
@@ -14791,6 +14817,7 @@ const EVENT_CLASS = {
   // v5.6.x: host-condition recover events (auto-resolve) → green "ok" dots.
   'kernel_current': 'ok', 'smart_recovered': 'ok', 'cert_file_renewed': 'ok',
   'rogue_uid0_cleared': 'ok', 'av_clean': 'ok', 'reboot_cleared': 'ok',
+  'av_realtime_on': 'ok',   // v6.1.3: protection restored
   'containers_current': 'ok', 'port_unexposed': 'ok',
 };
 
@@ -16291,6 +16318,10 @@ function _renderHomeActivity(fleetEvents) {
     'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
+    // v6.1.3: someone gained sudo/wheel/Administrators on a host
+    'priv_group_added',
+    // v6.1.3: a USB device was connected to a host (physical access)
+    'usb_device_added',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
@@ -16314,6 +16345,8 @@ function _renderHomeActivity(fleetEvents) {
     'av_warning',
     // v5.6.x: clean AV scan recovers av_infected + av_warning
     'av_clean',
+    // v6.1.3: Windows Defender real-time protection switched off / restored
+    'av_realtime_off', 'av_realtime_on',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
@@ -16520,6 +16553,8 @@ function _homeActivityAttrs(event, p) {
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
+    // v6.1.3: privileged-group grant / USB plug-in → open the affected host.
+    case 'priv_group_added': case 'usb_device_added':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
     case 'process_alert': case 'process_recovered':
@@ -16553,6 +16588,8 @@ function _homeActivityAttrs(event, p) {
     // v5.1.0: malware/rootkit detection → the affected host's drawer
     // v5.4.1: av_warning (rkhunter warnings / stale AV DB) routes the same way
     case 'av_infected': case 'av_warning': case 'av_clean':
+    // v6.1.3: Defender real-time protection off/on → the affected host's drawer
+    case 'av_realtime_off': case 'av_realtime_on':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
@@ -19274,6 +19311,12 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/sysinfo`);
         const si   = data?.sysinfo || {};
         const jrnl = data?.journal || [];
+        // v6.1.3: the du report lives in its own store (it is written ~12-hourly,
+        // not on the sysinfo cadence). Best-effort — a host that has never run a
+        // scan simply has no panel, and a failed fetch must not blank System Info.
+        let duRec = null;
+        try { duRec = (await api('GET', `/devices/${id}/disk-usage`))?.disk_usage || null; }
+        catch (e) { duRec = null; }
         if (!si.uptime && !jrnl.length) {
           body.innerHTML = '<div class="c-muted">No sysinfo yet — agent reports every ~10 min.</div>';
           return;
@@ -19413,6 +19456,35 @@ async function _loadAuditSection(key) {
                    <td class="isl-630 ${pct>85?'c-red': pct>70?'c-amber': ''}">${pct!=null?pct+'%':'—'}</td>
                    <td class="ta-center ${ino>90?'c-red': ino>80?'c-amber': 'c-muted'}">${ino!=null?ino+'%':'—'}</td></tr>`;
             }).join('') + `</tbody></table></div>`;
+          // v6.1.3: "disk 94% — of WHAT?". Sits directly under the mounts table,
+          // which is exactly where the operator is standing when they ask.
+          // Disk-fill forecasting already says WHEN a mount fills; this says what
+          // to delete. Rendered only when a scan has actually run.
+          const duPaths = (duRec && duRec.paths) ? duRec.paths : null;
+          h += `<div class="section-title mt-12">Disk usage</div>`;
+          if (duPaths && Object.keys(duPaths).length) {
+            const rows = [];
+            for (const [root, entries] of Object.entries(duPaths)) {
+              for (const e of (entries || [])) {
+                rows.push({root, path: e.path, bytes: e.bytes});
+              }
+            }
+            rows.sort((a, b) => b.bytes - a.bytes);
+            h += `<div class="scrollable-table-wrap audit-scroll"><table>
+              <thead><tr class="c-muted"><th>Path</th><th class="ta-center">Size</th></tr></thead>
+              <tbody>` + rows.slice(0, 60).map(r =>
+                `<tr><td><code>${escHtml(r.path)}</code></td>
+                     <td class="ta-center">${escHtml(_fmtBytes(r.bytes))}</td></tr>`
+              ).join('') + `</tbody></table></div>`;
+            if (duRec.ts) {
+              h += `<div class="fs-11 c-muted mt-4">Scanned ${escHtml(_fmtTs(duRec.ts))}</div>`;
+            }
+          } else {
+            h += `<div class="c-muted fs-12">No disk-usage scan yet. Enable it in
+                  Settings → Security, then scan on demand.</div>`;
+          }
+          h += `<button class="btn btn-sm mt-4" data-action="duScan" data-arg="${escAttr(id)}">
+                  Scan disk usage</button>`;
         }
         // v3.13.0: per-host storage / RAID health (ZFS / mdadm / btrfs).
         // Previously only on the fleet Storage page — surface this host's own

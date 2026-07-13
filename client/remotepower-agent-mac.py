@@ -26,7 +26,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '6.1.2'
+VERSION = '6.1.3'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300

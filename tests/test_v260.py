@@ -334,7 +334,9 @@ class TestAgent(unittest.TestCase):
 
     def test_heartbeat_loop_applies_desired(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 22000]   # widened: v5.8.0 W3 agent-wave payload additions
+        # v6.1.3: widened again for the disk-usage scan block. Same brittleness
+        # note as test_v250 — a fixed-size source window over heartbeat().
+        block = self.agent[idx: idx + 26000]
         self.assertIn('apply_host_config', block)
         self.assertIn('host_config_desired', block)
 

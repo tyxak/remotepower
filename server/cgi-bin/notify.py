@@ -745,6 +745,13 @@ def _webhook_message(event, payload):
             f'{name}: account {payload.get("user","?")} has UID 0 '
             f"(root-equivalent) — verify it is expected"
         )
+    elif event == "priv_group_added":
+        return (
+            f'{name}: {payload.get("user","?")} gained privileged-group '
+            f"membership (sudo/wheel/Administrators) — verify it was intentional"
+        )
+    elif event == "usb_device_added":
+        return f'{name}: {payload.get("detail", "a USB device was connected")}'
     elif event == "integration_down":
         # Integrations carry no device name — title off the integration label,
         # else the message fell through to "integration_down: unknown".
