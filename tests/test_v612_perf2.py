@@ -182,14 +182,53 @@ class TestConditionalNavCounts(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertIsNotNone(body)
 
-    def test_the_etag_is_scoped_and_tenanted(self):
-        """Two callers with different visibility must never share a 304 — that is
-        the v6.1.1 nav-counts cache-key bug, in ETag form."""
+    def test_the_etag_is_content_based_not_mtime_based(self):
+        """v6.1.2 fix: the ETag hashes the actual payload, NOT the source-store
+        mtimes. An mtime ETag is WRONG here — the offline/monitors-down counts are
+        wall-clock-derived (a device crosses the offline TTL with no store write),
+        so a store-mtime ETag couldn't detect the transition and would serve a
+        stale 304 (a dead device still shown "online" on a small idle fleet).
+        Content-hashing also inherently separates callers with different counts,
+        so no explicit scope/tenant term is needed in the source."""
         src = (CGI / 'api.py').read_text()
-        i = src.index('_nc_etag_src = (')
-        block = src[i:i + 400]
-        self.assertIn('_caller_scope()', block)
-        self.assertIn('_tenant_gate()', block)
+        i = src.index('def handle_nav_counts')
+        body = src[i:i + 11000]        # the fresh-path respond is ~9200 chars in
+        self.assertIn('_respond_with_etag(out, out)', body,
+                      'the fresh path must hash the payload itself')
+        self.assertIn('_respond_with_etag(_c, _c)', body,
+                      'the cached path must hash the payload itself')
+        self.assertNotIn('_nc_etag_src', body,
+                         'the old mtime-based ETag source must be gone')
+
+    def test_an_offline_transition_busts_the_etag(self):
+        """The concrete staleness fix: an all-online fleet and an all-offline fleet
+        must NOT share an ETag, even though a store-mtime ETag might (an offline
+        state that arose from wall-clock, not a write, is mtime-invisible).
+
+        Two fresh instances rather than an in-place last_seen edit: in production a
+        device goes offline by `now` advancing past a FROZEN last_seen, never by
+        rewriting last_seen backward — and the last_seen regression guard blocks
+        the backward write anyway. Fresh instances model the real state cleanly."""
+        import time
+        now = int(time.time())
+        online = _fresh_api()
+        online.require_auth = lambda *a, **k: 'admin'
+        online._env = lambda k, d='': ''
+        online.save(online.DEVICES_FILE,
+                    {'d1': {'name': 'a', 'monitored': True, 'last_seen': now}})
+        offline = _fresh_api()
+        offline.require_auth = lambda *a, **k: 'admin'
+        offline._env = lambda k, d='': ''
+        offline.save(offline.DEVICES_FILE,
+                     {'d1': {'name': 'a', 'monitored': True, 'last_seen': now - 10 ** 6}})
+
+        def etag(api):
+            try:
+                api.handle_nav_counts()
+            except api.HTTPError as e:
+                return dict(getattr(e, 'headers', None) or []).get('ETag')
+        self.assertNotEqual(etag(online), etag(offline),
+                            'the offline count differs — the ETag must differ too')
 
 
 class TestLoadRo(unittest.TestCase):

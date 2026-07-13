@@ -1153,6 +1153,17 @@ const _etagCache = new Map();          // url -> {etag, body}
 
 function _clearEtagCache() { _etagCache.clear(); }
 
+// The cache holds a PRISTINE copy and every caller gets its OWN copy, so a
+// consumer that mutates the returned data (sorts it in place, tags rows, etc.)
+// can't corrupt what the next 304 serves. This is what makes {etag:true} safe to
+// enable on multi-consumer endpoints (/devices, /home) without auditing each
+// caller for read-only treatment — the audit was the fragile part. structuredClone
+// of an in-memory object is far cheaper than the network round-trip + JSON.parse
+// of a full body that the 304 avoids; on browsers without it we skip caching for
+// that call (correctness over the optimisation).
+const _canClone = typeof structuredClone === 'function';
+function _cloneBody(v) { return _canClone ? structuredClone(v) : v; }
+
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
@@ -1195,12 +1206,17 @@ async function api(method, path, body, extra) {
       const hit = _etagCache.get(_ekey);
       // A 304 with nothing cached should be impossible (we only send
       // If-None-Match when we HAVE a body), but if it happens, fall through to
-      // the normal path rather than handing the caller an undefined.
-      if (hit) return hit.body;
+      // the normal path rather than handing the caller an undefined. Return a
+      // fresh copy so the caller can't mutate the cached master.
+      if (hit) return _cloneBody(hit.body);
     } else if (r.ok) {
       const et = r.headers.get('ETag');
       const parsed = await r.json().catch(() => null);
-      if (et && parsed !== null) _etagCache.set(_ekey, {etag: et, body: parsed});
+      // Only cache when we can hold an independent copy — otherwise a mutating
+      // caller would corrupt the cache and a later 304 would serve bad data.
+      if (et && parsed !== null && _canClone) {
+        _etagCache.set(_ekey, {etag: et, body: structuredClone(parsed)});
+      }
       return parsed;
     }
   }

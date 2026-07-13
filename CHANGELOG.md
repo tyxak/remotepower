@@ -77,6 +77,24 @@ homelabs — the ability to switch off the enterprise modules you don't use.
 - PostgreSQL no longer re-runs the full schema DDL (~9 catalog round-trips) on
   every new connection.
 
+### Performance — wave 4
+
+- **Conditional requests for the sidebar poll, corrected to content-based.** The
+  `/api/nav-counts` ETag introduced in an earlier wave was keyed on the source
+  stores' write-times — which is subtly wrong here, because the offline and
+  monitors-down counts are derived from the wall clock (a device crosses the
+  offline threshold with no store write). On a small, idle fleet that could show a
+  dead device as still "online" indefinitely. The ETag now hashes the actual
+  counts, so it revalidates exactly when a count changes. The browser also keeps an
+  independent copy of each cached response, so a screen that re-sorts or annotates
+  the data in place can't corrupt what the next revalidation serves.
+- **`/api/devices` and `/api/home` skip the fleet-dict deep copy.** Both build their
+  response by projecting each device into a fresh row and never modify the loaded
+  data, so they now read it through the copy-free `_load_ro` path — the same change
+  already applied to nav-counts. (They are deliberately NOT given a conditional
+  request: their rows carry a live "minutes since last seen" counter that ticks
+  every minute, so revalidation would never save anything.)
+
 ### Performance — wave 2
 
 - **The DB backends wrote every metric sample twice.** Each heartbeat appended one

@@ -10826,7 +10826,10 @@ def handle_devices_list():
     require_auth()
     _scope   = _caller_scope()   # v3.4.2 RBAC: filter roster to role scope
     _tgate   = _tenant_gate()    # v3.14.0 P2: tenant isolation (None = off / superadmin)
-    devices  = load(DEVICES_FILE)
+    # v6.1.2 (perf #7): read-only — the loop below projects each device into a
+    # fresh `row` dict and never mutates `devices`, so skip load()'s per-call
+    # deepcopy of the whole fleet. This is a 60s poll on every open Devices page.
+    devices  = _load_ro(DEVICES_FILE)
     now      = int(time.time())
     # v3.3.0: ?slim=1 omits the heavy fields (sysinfo, listening_ports,
     # snmp metrics, brute_force_active). Used by Home + nav loaders that
@@ -40341,7 +40344,10 @@ def handle_home():
     # Inline the slim flag the same way ?slim=1 does in handle_devices_list,
     # but we can't call that handler directly (it calls respond() which
     # exits). Reproduce the slim path here.
-    devices_raw = load(DEVICES_FILE)
+    # v6.1.2 (perf #7): read-only — every reader below only .get()s from
+    # devices_raw and never mutates it, so use the deepcopy-skipping view. /home
+    # is polled every 60s per open tab.
+    devices_raw = _load_ro(DEVICES_FILE)
     now = int(time.time())
     devices = []
     try:
@@ -48203,19 +48209,15 @@ def handle_nav_counts():
     except Exception:
         _nc_skey += '_t0'
     _nc_cache = DATA_DIR / f'nav_counts_cache_{_nc_skey}.json'
-    # v6.1.2 (perf #6): the ETag source. These are the SAME source mtimes the
-    # file cache below already stats, so it costs nothing extra — plus the scope
-    # and tenant, without which two callers with different visibility would share
-    # a 304 and see each other's counts (the v6.1.1 cache-key bug, in ETag form).
-    try:
-        _nc_etag_src = (
-            tuple(backend_mtime(_s) for _s in (
-                DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE, ALERTS_FILE,
-                CONFIRMATIONS_FILE, CMDS_FILE, TICKETS_FILE)),
-            repr(_caller_scope()), _tenant_gate())
-    except Exception:
-        _nc_etag_src = None
-
+    # v6.1.2 (perf #6): CONTENT-based ETag — the source IS the response payload.
+    # An mtime-based ETag would be WRONG here: the offline/monitors-down counts are
+    # wall-clock-derived (a device crosses the online→offline TTL with NO store
+    # write), so a store-mtime ETag can't detect the transition and would serve a
+    # stale 304 (a dead device still shown "online" on a small idle fleet — the
+    # homelab case). Hashing the actual counts busts exactly when a count changes.
+    # The payload is a handful of ints, so it's cheap to hash and stable between
+    # real transitions; scope/tenant are already baked into the counts. It stays
+    # within the existing 15s cache staleness, which is the accepted status quo.
     try:
         if backend_exists(_nc_cache):
             _cmt = backend_mtime(_nc_cache)
@@ -48233,8 +48235,7 @@ def handle_nav_counts():
                 if _fresh:
                     _c = load(_nc_cache)
                     if isinstance(_c, dict):
-                        if _nc_etag_src is not None:
-                            _respond_with_etag(_c, _nc_etag_src)
+                        _respond_with_etag(_c, _c)   # content-based
                         respond(200, _c)
                         return
     except Exception:
@@ -48361,8 +48362,7 @@ def handle_nav_counts():
         save(_nc_cache, out)
     except Exception:
         pass
-    if _nc_etag_src is not None:
-        _respond_with_etag(out, _nc_etag_src)
+    _respond_with_etag(out, out)   # content-based (see the note above)
     respond(200, out)
 
 
