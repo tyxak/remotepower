@@ -271,9 +271,11 @@ def _host_checks(
     # not on a counter a long-lived host accumulated months ago.
     nics = si.get("network_io")
     if isinstance(nics, list):
-        bad = [n for n in nics
-               if isinstance(n, dict) and isinstance(n.get("err_delta"), int)
-               and n["err_delta"] > 0]
+        bad = [
+            n
+            for n in nics
+            if isinstance(n, dict) and isinstance(n.get("err_delta"), int) and n["err_delta"] > 0
+        ]
         if bad:
             worst = max(bad, key=lambda n: n["err_delta"])
             add(
