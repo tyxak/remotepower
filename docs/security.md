@@ -31,11 +31,12 @@ clean) plus a structured, independently-verified multi-agent code review of the
 whole diff — the new single-node Postgres/gunicorn+Flask/scheduler/scanner
 default topology got particular attention as new attack surface — held to the
 bar — **no Critical, High, or Medium finding ships** — see
-[security-review-6.1.1.md](security-review-6.1.1.md) (the finalize sweep
-closed a High cross-tenant alerts-isolation gap and two Mediums before ship).
-It builds on **v6.1.0** (see [security-review-6.1.0.md](security-review-6.1.0.md))
-and **v6.0.1** (see [security-review-6.0.1.md](security-review-6.0.1.md)), which
-underwent the same review. The v4.10.0
+[security-review-6.1.2.md](security-review-6.1.2.md) (the latest pass surfaced
+collected-but-unalerted failure signals and promoted a supply-chain tamper signal
+to the alert path). It builds on **v6.1.1** (see
+[security-review-6.1.1.md](security-review-6.1.1.md), which closed a High
+cross-tenant alerts-isolation gap and two Mediums) and **v6.1.0** (see
+[security-review-6.1.0.md](security-review-6.1.0.md)), which underwent the same review. The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
 construction: every edit is **server-validated against a strict character
@@ -153,7 +154,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.1.1.md](security-review-6.1.1.md).
+summarised in the latest, [security-review-6.1.2.md](security-review-6.1.2.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -330,7 +331,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-6.1.1.md](security-review-6.1.1.md)).
+  [security-review-6.1.2.md](security-review-6.1.2.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
   semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

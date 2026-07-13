@@ -55,13 +55,20 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.1.1.md](security-review-6.1.1.md)** — Latest review: the
- v6.1.1 "HardenMatters" finalize sweep — full SAST stack (CodeQL 0, Bandit/
- gitleaks clean) plus a six-threat-class independently-verified review and a
- live read-only probe of a running instance; no Critical/High/Medium ships. A
- High cross-tenant alerts-isolation gap and two Mediums (a per-tenant badge-count
- cache collision, an integration credential in the diagnostics bundle) were
- closed, plus Low/defense-in-depth hardening.
+- **[security-review-6.1.2.md](security-review-6.1.2.md)** — Latest review: the
+ v6.1.2 "AfterglowMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
+ gitleaks clean) plus undefined-name analysis on the agents and the property/fuzz
+ suites; no Critical/High/Medium ships. Closed a username-validation guard that
+ never executed, promoted a refused-agent-self-update tamper signal to the alert
+ path, and wired two silent hardware-failure signals (NVMe spare exhaustion, NIC
+ errors) into the verdict.
+- **[security-review-6.1.1.md](security-review-6.1.1.md)** — the v6.1.1
+ "HardenMatters" finalize sweep — full SAST stack (CodeQL 0, Bandit/gitleaks clean)
+ plus a six-threat-class independently-verified review and a live read-only probe of
+ a running instance; no Critical/High/Medium ships. A High cross-tenant
+ alerts-isolation gap and two Mediums (a per-tenant badge-count cache collision, an
+ integration credential in the diagnostics bundle) were closed, plus
+ Low/defense-in-depth hardening.
 - **[security-review-6.1.0.md](security-review-6.1.0.md)** — the
  v6.1.0 "Runt1meMatters" enterprise-productization line (Postgres/gunicorn+Flask/
  scheduler/scanner as the single-node default, CGI/SCGI fully retired) plus the
@@ -72,12 +79,6 @@ holds long-form docs that don't fit there.
  volume resets, a default Postgres password shipped enabled-by-default, a Flask
  method-routing gap, and a response-capture proxy that could be silently defeated
  by stdout reassignment).
-- **[security-review-6.0.1.md](security-review-6.0.1.md)** — A prior review: the
- v6.0.1 "RefineMatters" review: a whole-project SAST run (CodeQL, Bandit, gitleaks
- — all clean), DAST scanners and a live authenticated API pentest — no Critical/
- High/Medium ships; two Medium alert-resolution correctness fixes and Low
- defense-in-depth hardening (no-redirect vuln-DB lookups, mandatory SSRF-safe
- image-registry opener, a read-only-role ticket-badge write gate).
 
 ## Release notes
 
@@ -123,8 +124,9 @@ Older release notes (v6.0.1 and earlier) live in
  (DNSBL) checks.
 - **[time-billing.md](time-billing.md)** — Time-tracking &amp; billing: billable
  hours, weekly timesheet, per-customer invoices, rate card / VAT, the finance role.
-- **[wsgi.md](wsgi.md)** — The persistent WSGI app server + out-of-band scheduler
- (the v5.5.0 keystone) — when and how to run them.
+- **[wsgi.md](wsgi.md)** — The gunicorn/Flask app server + out-of-band scheduler:
+ the only server since v6.1.0, installed and enabled by default. Tuning workers,
+ threads and the scheduler.
 - **[mcp.md](mcp.md)** — MCP server setup, Claude Desktop config, the
  14 read + 4 guarded write tools, security model, troubleshooting.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run
@@ -234,3 +236,58 @@ Older release notes (v6.0.1 and earlier) live in
  dashboard JSON for the `/api/metrics` exposition (import → pick your
  Prometheus datasource).
 - **screenshots/** — UI screenshots referenced from the main README.
+
+## Page guides
+
+One page of the UI, one guide. (These existed but were never linked from this
+index — a doc nobody can find is a doc nobody reads.)
+
+### Fleet & inventory
+- **[dashboard.md](dashboard.md)** — The home dashboard: widgets, what each one
+ counts, and how to customise the layout.
+- **[sites.md](sites.md)** — Sites and the fleet world map.
+- **[links.md](links.md)** — Per-device quick links to your other tools.
+- **[timeline.md](timeline.md)** — The fleet activity timeline.
+- **[status-board.md](status-board.md)** — The public/NOC status board.
+
+### Monitoring & health
+- **[checks.md](checks.md)** — The per-host Checks engine: every monitored signal
+ as OK / WARN / CRIT, custom checks, and muting.
+- **[alerts.md](alerts.md)** — The Alerts inbox: severities, acknowledge/resolve,
+ correlation (root cause vs symptom), mutes.
+- **[trends.md](trends.md)** — Metric history and trend charts.
+- **[thermal.md](thermal.md)** — Temperatures and thermal health.
+- **[power.md](power.md)** — Power draw, energy, and UPS status.
+- **[gpus.md](gpus.md)** — GPU inventory and utilisation.
+- **[disk-health.md](disk-health.md)** — SMART disk health, wear, NVMe spare
+ reserve and failure prediction.
+- **[services.md](services.md)** — Watched systemd services and baselines.
+- **[log-watch.md](log-watch.md)** — The rolling log buffer and log alert rules.
+- **[reports.md](reports.md)** — Scheduled and on-demand fleet reports.
+
+### Security & compliance
+- **[risk.md](risk.md)** — The fleet risk score and what moves it.
+- **[exposure.md](exposure.md)** — World-exposed listening ports.
+- **[patches.md](patches.md)** — Pending patches, per-package pinning, patch SLA.
+- **[auto-patch.md](auto-patch.md)** — Automatic patching policies and staged
+ (canary → wave → rest) patch rings.
+- **[patch-snapshots.md](patch-snapshots.md)** — Freeze the fleet's package versions
+ into a named snapshot, diff two, promote one as a tag's reference state, and see
+ which hosts have drifted from it.
+- **[software-policy.md](software-policy.md)** — Allowed/forbidden software policy.
+
+### Automation & operations
+- **[schedule.md](schedule.md)** — Scheduled jobs.
+- **[cron.md](cron.md)** — Managing host crontabs and systemd timers.
+- **[tasks.md](tasks.md)** — The task list.
+- **[calendar.md](calendar.md)** — The operations calendar and on-call rotation.
+- **[maintenance.md](maintenance.md)** — Maintenance windows and alert suppression.
+- **[rollouts.md](rollouts.md)** — Health-gated staged rollouts.
+- **[command-library.md](command-library.md)** — Saved commands and scripts.
+- **[app-catalog.md](app-catalog.md)** — One-click app deployment.
+- **[fleet-query.md](fleet-query.md)** — The Data explorer: predicate queries across
+ devices, CVEs and drift; saved query templates.
+
+### For contributors
+- **[testing-deep.md](testing-deep.md)** — Property-based and fuzz testing
+ (Hypothesis), and how to run the deeper suite.

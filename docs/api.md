@@ -1,6 +1,30 @@
 # API reference
 
-All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
+> **This page is a curated tour of the most-used endpoints, not the full surface.**
+> RemotePower exposes **576 paths**. The complete, always-current reference is
+> generated from the live route table — browse it interactively at
+> **`/swagger.html`**, or fetch the OpenAPI 3.1 document at
+> **`/api/openapi.json`**. Anything shipped is in there; this page is hand-written
+> and covers roughly the first ninety you're likely to reach for.
+
+All authenticated endpoints require: `X-Token: <session_token_or_api_key>`.
+Every route is also reachable under the permanent `/api/v1/...` alias.
+
+## Behaviour that applies to every endpoint
+
+- **Request bodies are validated.** A malformed body returns **400** with the
+  offending field, before the handler runs.
+- **A disabled module 404s its whole API prefix.** Switching a module off under
+  Settings → Advanced → Optional modules (Alerts, Tickets, Billing, Knowledge base,
+  Compliance, Pentest) makes every route under its prefix return **404** at the
+  dispatcher — e.g. all of `/api/tickets/*` with Tickets off. The module is
+  genuinely off, not merely hidden from the sidebar.
+- **Tenant isolation.** Where tenancy is enforced, a device id belonging to another
+  tenant returns **404** (not 403 — a 403 would confirm the id exists), and every
+  fleet-wide aggregate is filtered to your tenant.
+- **Write contention returns a retryable 503**, never a 500. Back off and retry.
+- **Conditional GET.** Some read endpoints honour `If-None-Match` and answer **304**
+  when nothing changed.
 
 ### Devices
 | Method | Endpoint | Auth | Description |
@@ -64,7 +88,7 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | `GET` | `/api/users` | | List admin users (with role) |
-| `POST` | `/api/users` | admin | Create user (pass `role`: admin\|viewer) |
+| `POST` | `/api/users` | admin | Create user (pass `role` — a built-in role or any custom role you've defined) |
 | `DELETE` | `/api/users/:name` | admin | Delete user |
 | `POST` | `/api/users/passwd` | | Change password |
 

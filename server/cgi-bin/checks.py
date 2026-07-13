@@ -263,6 +263,28 @@ def _host_checks(
             f"{gw.get('ip','?')}: "
             + ("unreachable" if reach is False else "unknown" if reach is None else "reachable"),
         )
+    # NIC errors/drops. The agent has always reported these and they were rendered
+    # in the device drawer and nowhere else — no check, no event — so a NIC shedding
+    # packets (a failing cable, a dirty SFP, a dying switch port) was invisible to
+    # every fleet-wide view and could not page anyone. `err_delta` is computed at
+    # ingest against the previous heartbeat, so this fires on errors accruing NOW,
+    # not on a counter a long-lived host accumulated months ago.
+    nics = si.get("network_io")
+    if isinstance(nics, list):
+        bad = [n for n in nics
+               if isinstance(n, dict) and isinstance(n.get("err_delta"), int)
+               and n["err_delta"] > 0]
+        if bad:
+            worst = max(bad, key=lambda n: n["err_delta"])
+            add(
+                "nic_errors",
+                "NIC errors / drops",
+                "network",
+                "warning",
+                f"{worst.get('iface', '?')}: +{worst['err_delta']} since last check"
+                + (f" (+{len(bad) - 1} more)" if len(bad) > 1 else ""),
+            )
+
     lo = si.get("last_oom_ts")
     if isinstance(lo, (int, float)) and lo > 0:
         recent = (now - lo) < 86400

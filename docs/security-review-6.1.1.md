@@ -124,4 +124,4 @@ The durable, always-current security posture — architecture, controls, the SAS
 configuration and the triaged false-positive list — lives in
 [`security.md`](security.md). This file is the point-in-time record for v6.1.1;
 the previous passes are [`security-review-6.1.0.md`](security-review-6.1.0.md) and
-[`security-review-6.0.1.md`](security-review-6.0.1.md).
+the earlier reviews, retained in `CHANGELOG.md` and the release history.

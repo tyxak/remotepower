@@ -17000,6 +17000,17 @@ def handle_heartbeat():
             # v3.14.0 #37: per-interface bandwidth (bytes/sec rates + totals).
             if 'network_io' in si and isinstance(si['network_io'], list):
                 safe_io = []
+                # Previous counters, per interface, so we can turn the agent's
+                # cumulative-since-boot error/drop totals into a DELTA. The absolute
+                # number is nearly useless — a box up for a year has collected a few
+                # errors and that is not news; a NIC accumulating them *now* is a
+                # dying cable/port/SFP. Same rule as the ECC counters: alert on an
+                # increase, and treat a counter going backwards (a reboot, or the
+                # driver reloading) as a fresh baseline rather than a negative delta.
+                _prev_io = {}
+                for _p in ((dev.get('sysinfo') or {}).get('network_io') or []):
+                    if isinstance(_p, dict) and _p.get('iface'):
+                        _prev_io[_p['iface']] = _p
                 for nio in si['network_io'][:20]:
                     if not isinstance(nio, dict):
                         continue
@@ -17011,6 +17022,15 @@ def handle_heartbeat():
                         v = nio.get(k)
                         if isinstance(v, (int, float)) and 0 <= v < 1e15:
                             ent[k] = int(v)
+                    _p = _prev_io.get(ent['iface']) or {}
+                    _cur_bad = sum(ent.get(k, 0) for k in
+                                   ('rx_err', 'tx_err', 'rx_drop', 'tx_drop'))
+                    _prev_bad = sum(_p.get(k, 0) for k in
+                                    ('rx_err', 'tx_err', 'rx_drop', 'tx_drop'))
+                    # Carry the running total forward so a single heartbeat's worth of
+                    # errors isn't lost the moment the next clean beat arrives.
+                    _delta = _cur_bad - _prev_bad if _cur_bad >= _prev_bad else 0
+                    ent['err_delta'] = _delta
                     safe_io.append(ent)
                 safe_si['network_io'] = safe_io
             # Metrics — legacy three (root-mount disk, cpu, memory) plus
@@ -37085,16 +37105,56 @@ MAX_ACCOUNTS    = 1024
 MAX_UPS         = 8
 
 
+def _nvme_spare_exhausted(d):
+    """True when an NVMe drive's available spare has fallen to (or below) the
+    drive's OWN threshold.
+
+    This is not a heuristic — it is the drive's self-assessment. The NVMe spec
+    defines `available_spare < available_spare_threshold` as a critical warning:
+    the remap reserve is gone and the drive is about to go read-only. We collected
+    both numbers and used neither, so a drive actively telling us it was done for
+    still scored `risk=low` and never raised a thing.
+
+    Guarded: a threshold of 0 (or a missing/!int value) means the drive doesn't
+    report one, and `spare_pct == 0` with no threshold is not evidence on its own.
+    """
+    if not isinstance(d, dict):
+        return False
+    spare = d.get('spare_pct')
+    thresh = d.get('spare_threshold_pct')
+    if not isinstance(spare, (int, float)) or not isinstance(thresh, (int, float)):
+        return False
+    if thresh <= 0:                     # drive reports no threshold — nothing to compare
+        return False
+    return spare <= thresh
+
+
+def _smart_selftest_failed(d):
+    """True when the drive's last self-test explicitly FAILED.
+
+    smartctl reports things like "Completed without error", "Completed: read
+    failure", "Completed: electrical failure", "Aborted by host", "Interrupted",
+    "never run". Only an explicit failure counts — "never run" and an aborted or
+    interrupted test are NOT failures and must not alert (that is the difference
+    between a useful signal and one the operator learns to mute).
+    """
+    if not isinstance(d, dict):
+        return False
+    res = str(d.get('selftest_result') or '').lower()
+    return 'failure' in res or 'failed' in res
+
+
 def _smart_disk_failed(d):
     """The single source of truth for "is this disk failing?" — used by the
     alert (smart_failure event), the home Needs-Attention digest, and the
     device-card badge so all three agree.
 
     A disk counts as failed when SMART explicitly says so (any health that
-    isn't PASSED / OK / UNKNOWN / empty) OR it has non-zero pre-fail sector
-    counts. **UNKNOWN is NOT a failure** — it means smartctl couldn't assess
-    the drive (USB bridge, virtual disk, no SMART support), which is common and
-    must not raise an alert or a Needs-Attention card.
+    isn't PASSED / OK / UNKNOWN / empty), OR it has non-zero pre-fail sector
+    counts, OR an NVMe drive has burned through its spare reserve, OR its last
+    self-test explicitly failed. **UNKNOWN is NOT a failure** — it means smartctl
+    couldn't assess the drive (USB bridge, virtual disk, no SMART support), which
+    is common and must not raise an alert or a Needs-Attention card.
     """
     if not isinstance(d, dict):
         return False
@@ -37105,6 +37165,10 @@ def _smart_disk_failed(d):
         v = d.get(k)
         if isinstance(v, (int, float)) and v > 0:
             return True
+    if _nvme_spare_exhausted(d):
+        return True
+    if _smart_selftest_failed(d):
+        return True
     return False
 
 
@@ -37838,7 +37902,12 @@ def _maybe_sample_smart(dev_id, disks, now):
                     'realloc': d.get('reallocated_sectors'),
                     'pending': d.get('pending_sectors'),
                     'wear': d.get('wear_pct'),
-                    'temp': d.get('temperature_c')}
+                    'temp': d.get('temperature_c'),
+                    # Interface CRC errors. Tracked here (not just rendered) because
+                    # only the TREND is meaningful — a cable that glitched once is
+                    # noise; one accumulating errors daily is a cable about to take
+                    # the disk offline. Without a sample there is nothing to trend.
+                    'crc': d.get('crc_errors')}
             s = disk['samples']
             if s and s[-1].get('date') == day:
                 s[-1] = snap
@@ -37892,6 +37961,30 @@ def _disk_health_view():
             if d.get('failed') or str(d.get('health', '')).upper() not in ('PASSED', 'OK', 'UNKNOWN', ''):
                 risk = 'critical'
                 reasons.append('SMART reports failed/pre-fail')
+
+            # The drive's own verdicts. These were collected and then ignored, so a
+            # drive whose spare reserve was gone — the NVMe spec's "about to go
+            # read-only" signal — scored `low` and never showed up here at all.
+            if _nvme_spare_exhausted(d):
+                risk = 'critical'
+                reasons.append(f"NVMe spare {int(d.get('spare_pct'))}% at/below "
+                               f"threshold {int(d.get('spare_threshold_pct'))}%")
+            if _smart_selftest_failed(d):
+                if risk == 'low':
+                    risk = 'high'
+                reasons.append(f"self-test failed ({d.get('selftest_result')})")
+
+            # CRC errors are an INTERFACE fault (a bad SATA cable / loose connector),
+            # not a dying platter — so they must not be scored as drive failure or
+            # you send someone to replace a perfectly healthy disk. Surface them as
+            # their own medium-risk reason instead, and only when they are growing:
+            # a cable that glitched once a year ago is not news.
+            crc_slope, crc_latest = _smart_trend(samples, 'crc')
+            if crc_latest and crc_latest > 0 and crc_slope and crc_slope > 0:
+                if risk == 'low':
+                    risk = 'medium'
+                reasons.append(f'interface CRC errors = {int(crc_latest)} '
+                               f'(+{crc_slope:.1f}/day — check the cable)')
 
             # Predictive: growing bad sectors.
             for fld, label in (('realloc', 'reallocated'), ('pending', 'pending')):

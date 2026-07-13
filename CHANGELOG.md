@@ -38,6 +38,38 @@ homelabs — the ability to switch off the enterprise modules you don't use.
   retry budget, the handler handles contention explicitly, and an uncaught
   `LockBusy` anywhere renders as a retryable **503** rather than an opaque 500.
 
+### Added — signals that were collected but could never alert
+
+- **NVMe spare exhaustion now counts as disk failure.** The agent reported an NVMe
+  drive's available-spare percentage *and* the drive's own threshold, and neither
+  fed the SMART verdict — so a drive whose remap reserve was gone (the NVMe spec's
+  "about to go read-only" signal) scored `risk=low` and raised nothing. A drive at
+  or below its own spare threshold, and an explicitly failed self-test, now count as
+  failing everywhere the verdict is used.
+- **NIC errors/drops now raise a check.** `rx_err/tx_err/rx_drop/tx_drop` were shown
+  in the device drawer and nowhere else — no check, no event — so a failing cable,
+  dirty SFP or dying switch port was invisible to every fleet-wide view. There is now
+  a `nic_errors` check on the per-host Checks page. It reasons about the
+  per-heartbeat delta, not the cumulative-since-boot total, so a long-lived host's
+  historical count can't raise a false alarm; interface CRC errors are surfaced as
+  their own "check the cable" reason rather than mistaken for drive failure.
+- **A refused agent self-update now reaches Needs-Attention.** When an agent declines
+  an unsigned or tampered self-update it reports the refusal, but it only ever
+  appeared as a table on the agent-signing settings page — never in Needs-Attention,
+  so it never moved the health score and could not page anyone. It is now a critical
+  Needs-Attention item.
+- **The gateway latency the agent already measures is now shown.** The device drawer
+  shows the current gateway RTT and, once there's enough history, the rolling
+  average — so a saturated uplink or a dying switch port shows as the current value
+  pulling away from the average long before the gateway goes fully unreachable.
+
+### Fixed — the AI could not see local certificate expiry
+
+- The RAG live-state corpus read local TLS certificate inventory from the wrong
+  place (`sysinfo`, where it never lives) instead of the hardware record, so the
+  facet was always empty and the AI advisor never saw local cert expiry despite
+  being documented to. Now reads the hardware store.
+
 ### Fixed — found in a static sweep of the agent
 
 - **Host-config apply silently did nothing whenever it managed users.** The

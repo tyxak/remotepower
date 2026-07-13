@@ -216,6 +216,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Patch catalog | Pending updates aggregated by package across hosts; third-party (flatpak/snap/pip/npm) *(v3.4.2)* |
 | Post-deploy verification | Confirm the pending count actually dropped (ok/stalled/pending) *(v3.4.2)* |
 | Auto-patch | Cron-scheduled updates across a single device / group / tag / site / whole fleet, respecting maintenance windows; optional staged rings *(v3.6.0, single-device v6.0.1)* |
+| Package snapshots | Freeze the fleet's current package versions into a named snapshot; diff two snapshots; promote one as a tag's **reference state** and report which devices have drifted from it; admin-only **enforce** to queue a return to the reference. Read-only reporting — it does not change what auto-patch installs. `GET/POST /api/patch-snapshots`, `…/diff`, `…/{id}/promote`, `…/{id}/drift`, `…/{id}/enforce` |
 | Patch report | Fleet-wide per-device pending-update detail, filterable by group/device, with a per-device drill-down and re-check; export the filtered report as CSV / XML / browser-PDF. `GET /api/patch-report`, `…/csv`, `…/xml`, `…/device/{id}` *(PDF v6.0.1)* |
 | On-demand package scan | One-shot **Scan packages** now — fresh inventory + patch count *(v2.4.5)* |
 | Software metering | Named-software install counts vs allowance, over-deployment flagged; aliases + reclamation *(v3.4.2)* |
