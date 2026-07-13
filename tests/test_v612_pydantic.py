@@ -168,6 +168,42 @@ class TestConvertedHandlersKeepBehaviour(unittest.TestCase):
         self.assertEqual(self.cap['s'], 200)
 
 
+class TestSweepCoverageAndExclusions(unittest.TestCase):
+    """The full-adoption sweep wired request_models.validate() into the body-reading
+    handlers, with a SMALL, DELIBERATE exclusion set. These pins stop a future sweep
+    from (a) regressing coverage or (b) re-adding an excluded handler and
+    reintroducing a real bug."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api_src = (CGI / 'api.py').read_text()
+
+    def test_broad_coverage(self):
+        """A floor, not an exact count (new handlers keep landing). The sweep wired
+        200+ handlers; if this drops far below, the sweep was reverted."""
+        n = self.api_src.count('request_models.validate(')
+        self.assertGreater(n, 200, f'only {n} validate() call sites — sweep regressed?')
+
+    def test_non_dict_body_handlers_are_NOT_validated(self):
+        """These legitimately accept a bare JSON array/string (or any non-dict) body;
+        a dict-expecting model would 400 a request they accept. Must stay unwired."""
+        for fn in ('handle_favorites_set', 'handle_drift_policies_set',
+                   'handle_syslog_in', 'handle_snmp_trap_in'):
+            i = self.api_src.index('def ' + fn + '(')
+            nxt = self.api_src.find('\ndef ', i + 1)
+            block = self.api_src[i:nxt]
+            self.assertNotIn('request_models.validate(', block,
+                             f'{fn} accepts a non-dict body — must not be validated')
+
+    def test_heartbeat_is_not_validated(self):
+        """The hottest path (every agent, every interval), a 39-field agent-controlled
+        body already run through safe_si — validating it pre-auth is cost with ~no
+        value. Deliberately unwired."""
+        i = self.api_src.index('def handle_heartbeat(')
+        nxt = self.api_src.find('\ndef ', i + 1)
+        self.assertNotIn('request_models.validate(', self.api_src[i:nxt])
+
+
 class TestPydanticIsInstalledEverywhere(unittest.TestCase):
     """It is installed by default (request validation depends on it running), so it
     must be declared everywhere the other runtime deps (flask/gunicorn) are — the

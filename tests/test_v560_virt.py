@@ -273,10 +273,10 @@ class TestRouteWiring(unittest.TestCase):
                          ('handle_virt_snapshots', 'require_auth'),
                          ('handle_virt_power', 'require_admin_auth'),
                          ('handle_virt_snapshot_action', 'require_admin_auth')):
-            seg = _API[_API.index('def ' + fn): _API.index('def ' + fn) + 900]
+            seg = _API[_API.index('def ' + fn): _API.index('def ' + fn) + 1150]
             self.assertIn(gate, seg)
         for fn in ('handle_virt_power', 'handle_virt_snapshot_action'):
-            seg = _API[_API.index('def ' + fn): _API.index('def ' + fn) + 900]
+            seg = _API[_API.index('def ' + fn): _API.index('def ' + fn) + 1150]
             self.assertIn('audit_log', seg)
 
 

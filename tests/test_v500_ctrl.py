@@ -783,7 +783,7 @@ class TestAgentCompat(unittest.TestCase):
 
     def test_update_handler_gates(self):
         i = API_SRC.index("def handle_update_device(")
-        block = API_SRC[i:i + 900]
+        block = API_SRC[i:i + 1150]  # widened for pydantic validate() pre-check
         self.assertIn("_agent_compat(", block)
         self.assertIn("body.get('force')", block)
         self.assertIn("'incompatible': True", block)

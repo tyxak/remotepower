@@ -148,12 +148,12 @@ class TestHandlers(unittest.TestCase):
 
     def test_validate_rejects_nul_bytes(self):
         idx = self.api.find('def _validate_host_config_section(')
-        block = self.api[idx: idx + 1200]
+        block = self.api[idx: idx + 1450]  # widened for pydantic validate() pre-check
         self.assertIn('\\x00', block)
 
     def test_validate_rejects_oversized(self):
         idx = self.api.find('def _validate_host_config_section(')
-        block = self.api[idx: idx + 1200]
+        block = self.api[idx: idx + 1450]  # widened for pydantic validate() pre-check
         self.assertIn('MAX_HOST_CONFIG_SECTION_SIZE', block)
 
     def test_sudoers_validated_with_visudo(self):
@@ -193,9 +193,10 @@ class TestHandlers(unittest.TestCase):
 
     def test_put_handler_audit_logs(self):
         idx = self.api.find('def handle_device_host_config_put(')
-        # window widened in v3.7.0 (the handler grew an `enforce` field); the
-        # assertion — the PUT handler audit-logs — is unchanged.
-        block = self.api[idx: idx + 1600]
+        # window widened in v3.7.0 (the handler grew an `enforce` field) and again
+        # for the v6.1.2 pydantic validate() pre-check; the assertion — the PUT
+        # handler audit-logs — is unchanged.
+        block = self.api[idx: idx + 1850]
         self.assertIn('audit_log', block)
 
 

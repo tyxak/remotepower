@@ -7978,6 +7978,10 @@ def handle_portal_session():
     _portal_gate()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PortalSessionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     nonce = str(get_json_obj().get('token', '')).strip()
     if not nonce:
         respond(400, {'error': 'token required'})
@@ -8077,6 +8081,9 @@ def handle_portal_tickets():
     if not site:
         respond(400, {'error': 'Your contact is not linked to a site.'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PortalTicketsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     subject = _sanitize_str(str(body.get('subject', '')), 200).strip()
     message = _sanitize_str(str(body.get('message', '')), 8000).strip()
     if not subject:
@@ -8121,6 +8128,9 @@ def handle_portal_ticket_queue_decide(qid):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PortalTicketQueueDecideRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     decision = str(body.get('decision', '')).strip().lower()
     if decision not in ('approve', 'reject'):
         respond(400, {'error': "decision must be 'approve' or 'reject'"})
@@ -8159,6 +8169,10 @@ def handle_portal_ticket(number):
     if is_reply:
         if method() != 'POST':
             respond(405, {'error': 'Method not allowed'})
+        body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.PortalTicketRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         message = _sanitize_str(str(get_json_obj().get('message', '')), 8000).strip()
         if not message:
             respond(400, {'error': 'message required'})
@@ -8265,6 +8279,9 @@ def handle_kb():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.KbRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     title = _sanitize_str(str(body.get('title', '')), 200).strip()
     if not title:
         respond(400, {'error': 'title required'})
@@ -8316,6 +8333,9 @@ def handle_kb_article(aid):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.KbArticleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     now = int(time.time())
     ok = False
     with _LockedUpdate(KB_FILE) as store:
@@ -10657,6 +10677,9 @@ def handle_login():
     if not _ip_ratelimit('login', client_ip, 20, window=60):
         respond(429, {'error': 'Too many login attempts from this address'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.LoginRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     username = _sanitize_str(body.get('username', ''), 32)
     password = body.get('password', '')
 
@@ -11149,6 +11172,9 @@ def handle_devices_bulk_delete():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
+    _ok, _err = request_models.validate(request_models.DevicesBulkDeleteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ids = body.get('device_ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
@@ -11171,6 +11197,9 @@ def handle_device_tags(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
+    _ok, _err = request_models.validate(request_models.DeviceTagsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     tags = body.get('tags', [])
     if not isinstance(tags, list):
         respond(400, {'error': 'tags must be a list'})
@@ -11196,6 +11225,9 @@ def handle_devices_bulk_tags():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
+    _ok, _err = request_models.validate(request_models.DevicesBulkTagsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ids = body.get('device_ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
@@ -11227,6 +11259,10 @@ def handle_device_notes(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceNotesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     notes = _sanitize_str(get_json_obj().get('notes', ''), MAX_NOTES_LEN)
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -11259,6 +11295,9 @@ def handle_device_save_bulk(dev_id):
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceSaveBulkRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         if not isinstance(body, dict):
             respond(400, {'error': 'body must be a JSON object'})
 
@@ -11500,6 +11539,9 @@ def handle_device_metric_thresholds(dev_id):
         respond(405, {'error': 'Method not allowed'})
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceMetricThresholdsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     overrides = dev.get('metric_thresholds') or {}
 
     # Percentage thresholds (1-99 — 0 and 100 don't make sense as alerts)
@@ -11660,6 +11702,9 @@ def handle_device_profiles():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceProfilesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(str(body.get('name', '')), 64).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -11687,6 +11732,9 @@ def handle_device_profile(pid):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceProfileRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     fields = _validate_device_profile(body)
     with _LockedUpdate(DEVICE_PROFILES_FILE) as profs:
         p = profs.get(pid)
@@ -11714,6 +11762,9 @@ def handle_device_profile_apply(pid):
     if not isinstance(profile, dict):
         respond(404, {'error': 'profile not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceProfileApplyRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ids = body.get('device_ids')
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
@@ -11833,6 +11884,9 @@ def handle_smart_groups():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SmartGroupsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = re.sub(r'[^a-z0-9_-]', '', str(body.get('name', '')).lower())[:48]
     if not name:
         respond(400, {'error': 'name required (lowercase letters/digits/-/_)'})
@@ -11870,6 +11924,10 @@ def handle_smart_group(name):
         audit_log(actor, 'smart_group_delete', detail=f'name={name}')
         respond(200, {'ok': True})
     if method() == 'PATCH':
+        body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.SmartGroupRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         rules = _validate_smart_rules(get_json_obj().get('rules') or {})
         if not rules:
             respond(400, {'error': 'at least one rule is required'})
@@ -11950,6 +12008,9 @@ def handle_racks():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.RacksRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(str(body.get('name', '')), 64).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -11993,6 +12054,9 @@ def handle_rack(rid):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.RackRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     with _LockedUpdate(RACKS_FILE) as racks:
         r = racks.get(rid)
         if not isinstance(r, dict):
@@ -12134,6 +12198,9 @@ def handle_ipam_subnets():
         respond(405, {'error': 'Method not allowed'})
     import ipaddress as _ipa
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IpamSubnetsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     try:
         cidr = str(_ipa.ip_network(str(body.get('cidr', '')), strict=False))
     except ValueError:
@@ -12169,6 +12236,9 @@ def handle_ipam_subnet(sid):
         respond(405, {'error': 'Method not allowed'})
     import ipaddress as _ipa
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IpamSubnetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     with _LockedUpdate(SUBNETS_FILE) as subnets:
         s = subnets.get(sid)
         if not isinstance(s, dict):
@@ -12602,6 +12672,9 @@ def handle_time_entry_update(eid):
             deleted = True
         else:
             body = get_json_obj()
+            _ok, _err = request_models.validate(request_models.TimeEntryUpdateRequest, body)
+            if not _ok:
+                respond(400, {'error': _err})
             if 'hours' in body:
                 h = billing_mod.quantize_hours(body.get('hours'))
                 if h <= 0:
@@ -12707,6 +12780,9 @@ def handle_timesheet_watchers():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TimesheetWatchersRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     watcher = _sanitize_str(body.get('watcher', ''), 64).strip()
     scope = str(body.get('scope', '')).strip()
     value = _sanitize_str(body.get('value', ''), 64).strip()
@@ -12787,6 +12863,9 @@ def handle_billing_config():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.BillingConfigRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cfg = _billing_cfg()
     if 'currency' in body:
         cfg['currency'] = billing_mod.currency({'currency': body.get('currency')})
@@ -12919,6 +12998,9 @@ def handle_invoices():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.InvoicesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     site = str(body.get('site_id') or '').strip()
     sites = load(SITES_FILE) or {}
     if not site or site not in sites:
@@ -13035,6 +13117,9 @@ def handle_invoice_update(iid):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.InvoiceUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     new_status = str(body.get('status') or '').strip().lower()
     if new_status not in INVOICE_STATUSES:
         respond(400, {'error': f'status must be one of {", ".join(INVOICE_STATUSES)}'})
@@ -13502,6 +13587,10 @@ def handle_site_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SiteCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(get_json_obj().get('name', ''), MAX_SITE_NAME_LEN)
     name = name.strip()
     if not name:
@@ -13532,6 +13621,9 @@ def handle_site_update(site_id):
     if site_id not in sites:
         respond(404, {'error': 'site not found'})
     _body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SiteUpdateRequest, _body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(_body.get('name', ''), MAX_SITE_NAME_LEN).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -13818,6 +13910,9 @@ def handle_tenant_update(tid):
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TenantUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     with _LockedUpdate(TENANTS_FILE) as tenants:
         if tid not in tenants or tid == DEFAULT_TENANT:
             respond(404, {'error': 'tenant not found'} if tid != DEFAULT_TENANT
@@ -13900,6 +13995,9 @@ def handle_tenant_branding(tid):
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TenantBrandingRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     with _LockedUpdate(TENANTS_FILE) as tenants:
         if tid not in tenants:
             respond(404, {'error': 'tenant not found'})
@@ -13919,6 +14017,10 @@ def handle_device_site(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceSiteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     site_id = str(get_json_obj().get('site', '') or '').strip()
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -13961,6 +14063,9 @@ def handle_device_user_action(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('ssh', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceUserActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = str(body.get('action', '')).strip()
     username = str(body.get('username', '')).strip()
     if not _SAFE_UNIX_USER.match(username):
@@ -14012,6 +14117,9 @@ def handle_device_firewall_action(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceFirewallActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     backend = str(body.get('backend', 'ufw')).strip().lower()
     action = str(body.get('action', '')).strip().lower()
     proto = str(body.get('proto', 'tcp')).strip().lower()
@@ -14151,6 +14259,9 @@ def handle_device_firewall_rule(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceFirewallRuleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     backend = str(body.get('backend', '')).strip().lower()
     op = str(body.get('op', '')).strip().lower()
     if backend not in ('nftables', 'iptables', 'ufw', 'firewalld'):
@@ -14284,6 +14395,9 @@ def handle_device_files(dev_id):
             respond(400, {'error': 'GET supports op=list or op=read'})
     elif m == 'POST':
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceFilesRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         op = str(body.get('op', '')).strip().lower()
         path = str(body.get('path', '')).strip()
         content = body.get('content')
@@ -14411,6 +14525,9 @@ def handle_files_archive_start(dev_id):
     roots = [str(r) for r in (fm.get('roots') or [])
              if isinstance(r, str) and r.startswith('/')] or list(_FILE_MGR_DEFAULT_ROOTS)
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.FilesArchiveStartRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     path = str(body.get('path', '')).strip()
     if not _valid_abs_path(path):
         respond(400, {'error': 'path must be an absolute path with no ".." segment'})
@@ -14461,6 +14578,9 @@ def handle_files_archive_cancel(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.FilesArchiveCancelRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     job_id = str(body.get('job_id', '')).strip()
     spool = None
     with _LockedUpdate(FILE_ARCHIVE_JOBS_FILE) as jobs:
@@ -14519,6 +14639,9 @@ def handle_files_archive_chunk(dev_id):
     if not _validate_id(dev_id):
         respond(403, {'error': 'Unauthorized device'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.FilesArchiveChunkRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_token = str(body.get('token', '')).strip()
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
@@ -14625,6 +14748,9 @@ def handle_device_cron_action(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceCronActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     op = str(body.get('op', '')).strip().lower()
     if op in ('set', 'del'):
         user = str(body.get('user', 'root')).strip()
@@ -14697,6 +14823,9 @@ def handle_device_storage_action(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceStorageActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     kind = str(body.get('kind', '')).strip().lower()
     action = str(body.get('action', '')).strip().lower()
     target = str(body.get('target', '')).strip()
@@ -14854,6 +14983,9 @@ def handle_device_storage_provision(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceStorageProvisionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     recipe = str(body.get('recipe', '')).strip()
     params = body.get('params') if isinstance(body.get('params'), dict) else {}
     try:
@@ -14882,6 +15014,9 @@ def handle_device_fail2ban_action(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceFail2banActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = str(body.get('action', '')).strip().lower()
     jail = str(body.get('jail', '')).strip()
     if action not in ('ban', 'unban', 'enable', 'disable'):
@@ -15083,6 +15218,9 @@ def handle_autopatch_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AutopatchCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 80).strip()
     cron = _sanitize_str(body.get('cron', ''), 64).strip()
     target = body.get('target') or {}
@@ -15129,6 +15267,9 @@ def handle_autopatch_update(pol_id):
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AutopatchUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     data = _autopatch_load()
     pol = next((p for p in data['policies'] if p['id'] == pol_id), None)
     if not pol:
@@ -15372,6 +15513,9 @@ def handle_ansible_playbook_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AnsiblePlaybookCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 80).strip()
     content = body.get('content', '')
     if not name or not isinstance(content, str) or not content.strip():
@@ -15396,6 +15540,9 @@ def handle_ansible_playbook_update(pb_id):
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AnsiblePlaybookUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     data = _ansible_load()
     pb = next((p for p in data['playbooks'] if p['id'] == pb_id), None)
     if not pb:
@@ -15445,6 +15592,9 @@ def handle_ansible_playbook_run(pb_id):
     if not pb:
         respond(404, {'error': 'playbook not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AnsiblePlaybookRunRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target = body.get('target') or {}
     ids = _resolve_targets({'device_ids': body.get('device_ids')} if body.get('device_ids')
                            else ({target.get('type', 'all'): target.get('value', '')}
@@ -15689,6 +15839,10 @@ def handle_device_group(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceGroupRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     raw = _sanitize_str(get_json_obj().get('group', ''), MAX_GROUP_LEN)
     # Allow alphanumeric, hyphen, underscore, forward-slash for namespaces
     group = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)[:MAX_GROUP_LEN]
@@ -15706,6 +15860,10 @@ def handle_device_poll_interval(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     try:
+        body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DevicePollIntervalRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         interval = int(get_json_obj().get('poll_interval', 60))
     except (TypeError, ValueError):
         respond(400, {'error': 'poll_interval must be an integer'})
@@ -15755,6 +15913,10 @@ def handle_device_icon(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceIconRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     icon = _sanitize_str(get_json_obj().get('icon', ''), 32)
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -15770,6 +15932,9 @@ def handle_device_monitored(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceMonitoredRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     monitored = bool(body.get('monitored', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -15803,6 +15968,10 @@ def handle_device_decommission(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     _scope_block_device(dev_id)
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceDecommissionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dc = bool(get_json_obj().get('decommissioned', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -15839,6 +16008,9 @@ def handle_device_require_confirmation(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceRequireConfirmationRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     require = bool(body.get('require_confirmation', True))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -15860,6 +16032,9 @@ def handle_device_compose_enabled(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceComposeEnabledRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     enabled = bool(body.get('compose_enabled', False))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -16111,6 +16286,9 @@ def handle_webterm_auth():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebtermAuthRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = str(body.get('device_id', '')).strip()
     admin_password = str(body.get('admin_password', ''))
 
@@ -16200,6 +16378,9 @@ def handle_webterm_session_audit():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebtermSessionAuditRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
 
     # Daemon authenticates with a shared secret rather than session
     # tokens — the daemon doesn't have a session token, it's a system
@@ -16284,6 +16465,9 @@ def handle_enroll_register():
     if not _ip_ratelimit('enroll', _get_client_ip(), 10, window=60):
         respond(429, {'error': 'Too many enrollment attempts — retry in a minute'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.EnrollRegisterRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
 
     # v1.11.10: enrollment can use either a 6-digit PIN (interactive) OR
     # a long pre-shared one-time-use token (non-interactive — Ansible,
@@ -19114,6 +19298,9 @@ def handle_device_pdu(dev_id):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DevicePduRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     kind = str(body.get('kind', '')).strip().lower()
     host = str(body.get('host', '')).strip()
     outlet = str(body.get('outlet', '')).strip()
@@ -19144,6 +19331,9 @@ def handle_device_power_control(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DevicePowerControlRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = str(body.get('action', '')).strip().lower()
     if action not in ('on', 'off', 'cycle'):
         respond(400, {'error': 'action must be on, off or cycle'})
@@ -19189,6 +19379,9 @@ def handle_service_action(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ServiceActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     unit = str(body.get('unit', '')).strip()
     action = str(body.get('action', '')).strip().lower()
     if action not in ('restart', 'start', 'stop'):
@@ -19208,6 +19401,9 @@ def handle_process_kill(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ProcessKillRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     pid = str(body.get('pid', '')).strip()
     sig = str(body.get('signal', 'TERM')).strip().upper()
     if not re.fullmatch(r'\\d{1,7}', pid) or int(pid) <= 1:
@@ -19414,6 +19610,9 @@ def handle_device_ups_dependency(dev_id):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceUpsDependencyRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     source_id = str(body.get('source_device_id', '')).strip()
     ups_name = _sanitize_str(str(body.get('ups_name', '')), 64)
     if source_id and not _validate_id(source_id):
@@ -19710,6 +19909,10 @@ def handle_agent_compat():
 
 def handle_update_device():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.UpdateDeviceRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('patch', ids)
@@ -20125,6 +20328,9 @@ def handle_wol():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WolRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = str(body.get('device_id', '')).strip()
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
@@ -21268,6 +21474,9 @@ def handle_integrations_save():
     re-enter it."""
     actor = require_admin_auth()
     body = get_json_obj()   # coerce non-dict body → {} (a top-level JSON array must not 500)
+    _ok, _err = request_models.validate(request_models.IntegrationsSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     new_list = body.get('integrations')
     if not isinstance(new_list, list):
         respond(400, {'error': 'integrations must be a list'})
@@ -21336,6 +21545,9 @@ def handle_integration_test():
     stored secret matched by id). Returns {ok, status, detail, version?}."""
     require_admin_auth()
     raw = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IntegrationTestRequest, raw)
+    if not _ok:
+        respond(400, {'error': _err})
     typ = str(raw.get('type', '')).strip()
     if typ not in integrations_mod.CONNECTORS:
         respond(400, {'error': f'unknown integration type: {typ}'})
@@ -21424,6 +21636,9 @@ def handle_virt_power(integration_id):
     actor = require_admin_auth()
     inst = _virt_inst(integration_id)
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.VirtPowerRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     vm_id = _sanitize_str(str(body.get('vm_id', '')), 256)
     action = str(body.get('action', '')).strip().lower()
     if not vm_id:
@@ -21455,6 +21670,9 @@ def handle_virt_snapshot_action(integration_id):
     actor = require_admin_auth()
     inst = _virt_inst(integration_id)
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.VirtSnapshotActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     vm_id = _sanitize_str(str(body.get('vm_id', '')), 256)
     action = str(body.get('action', '')).strip().lower()
     if not vm_id:
@@ -21535,6 +21753,9 @@ def handle_monitor_pause():
     """
     actor = require_write_role('exec')
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MonitorPauseRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     label = _sanitize_str(str(body.get('label', '')), 128)
     if not label:
         respond(400, {'error': 'label is required'})
@@ -22328,6 +22549,10 @@ def handle_config_get():
 def handle_config_save():
     _cfg_actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ConfigSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     body = get_json_obj(); cfg = load(CONFIG_FILE)   # coerce non-dict body → {} (a top-level JSON array must not 500)
     _cfg_before = dict(cfg or {})   # v5.4.1 (D4): snapshot for the change-audit diff
 
@@ -24376,6 +24601,9 @@ def handle_query_batch():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.QueryBatchRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     queries = body.get('queries')
     if not isinstance(queries, list) or not queries:
         respond(400, {'error': 'queries must be a non-empty list'})
@@ -24442,6 +24670,9 @@ def handle_query_template_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.QueryTemplateCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 80)
     entity = str(body.get('entity', '')).strip()
     if not name:
@@ -24630,6 +24861,9 @@ def handle_scim_users_collection():
                             'itemsPerPage': len(items), 'Resources': items})
     if m == 'POST':
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.ScimUsersCollectionRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         username = _sanitize_str(str(body.get('userName', '')), 32).strip()
         if not username or not re.match(r'^[a-zA-Z0-9_.\-@]{2,64}$', username):
             _scim_error(400, 'invalid userName')
@@ -24676,6 +24910,9 @@ def handle_scim_user(username):
         respond(204, None)
     if m in ('PUT', 'PATCH'):
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.ScimUserRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         desired_active = None
         if m == 'PUT':
             desired_active = bool(body.get('active', True))
@@ -24768,6 +25005,9 @@ def handle_scim_group(role):
         _scim_respond(200, _scim_group_resource(role))
     if m in ('PUT', 'PATCH'):
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.ScimGroupRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         # Collect (op, [usernames]) — support PATCH PatchOp members add/remove
         # and a PUT that replaces the full members list.
         add, remove, replace = [], [], None
@@ -24975,6 +25215,9 @@ def handle_user_update(username):
     if not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(404, {'error': 'User not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.UserUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     new_role = (body.get('role') or '').strip().lower()
     if not _assignable_role(new_role):
         respond(400, {'error': 'role must be admin, viewer, or a defined custom role'})
@@ -25063,6 +25306,9 @@ def handle_role_update(name):
     actor = require_admin_auth()
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.RoleUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     body['name'] = name   # name comes from the path; not renamable
     clean, err = _clean_role_body(body)
     if err: respond(400, {'error': err})
@@ -25096,6 +25342,9 @@ def handle_user_passwd():
     requester = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.UserPasswdRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     username = _sanitize_str(body.get('username', requester), 32)
     old_pw   = body.get('old_password', '')
     new_pw   = body.get('new_password', '')
@@ -25440,6 +25689,9 @@ def handle_me_lang():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MeLangRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     lang = (body.get('lang') if isinstance(body, dict) else None) or ''
     if lang not in SUPPORTED_LANGS:
         respond(400, {'error': f'lang must be one of {", ".join(SUPPORTED_LANGS)}'})
@@ -25519,6 +25771,9 @@ def handle_totp_confirm():
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TotpConfirmRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     code = str(body.get('code', '')).strip()
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
@@ -25546,6 +25801,9 @@ def handle_totp_regenerate_codes():
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TotpRegenerateCodesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
     if not users[username].get('totp_secret'):
@@ -25564,6 +25822,9 @@ def handle_totp_disable():
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TotpDisableRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     password = body.get('password', '')
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
@@ -25897,6 +26158,9 @@ def handle_signing_sign():
     # — re-verify the admin password, mirroring handle_signing_toggle. Externally
     # authenticated admins (OIDC/LDAP, no local hash) are exempt but audited.
     _body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SigningSignRequest, _body)
+    if not _ok:
+        respond(400, {'error': _err})
     _stored = ((load(USERS_FILE) or {}).get(actor) or {}).get('password_hash') or ''
     if _stored and not verify_password(str(_body.get('password') or ''), _stored):
         respond(403, {'error': 'password required to sign the agent release'})
@@ -25940,6 +26204,9 @@ def handle_signing_toggle():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SigningToggleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     enabled = bool(body.get('enabled'))
     if not enabled:
         urec = (load(USERS_FILE) or {}).get(actor) or {}
@@ -27003,6 +27270,9 @@ def handle_tls_gen_self_signed():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TlsGenSelfSignedRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     raw = body.get('hosts')
     if isinstance(raw, str):
         raw = re.split(r'[,\s]+', raw)
@@ -27033,6 +27303,9 @@ def handle_tls_import_p12():
         respond(405, {'error': 'Method not allowed'}); return
     import base64
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TlsImportP12Request, body)
+    if not _ok:
+        respond(400, {'error': _err})
     b64 = body.get('p12') or body.get('p12_b64') or ''
     password = body.get('password') or ''
     try:
@@ -27261,6 +27534,9 @@ def handle_storage_backend_migrate():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.StorageBackendMigrateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target = body.get('target')
     if target not in STORAGE_BACKENDS:
         respond(400, {'error': "target must be 'json', 'sqlite' or 'postgres'"}); return
@@ -27780,6 +28056,9 @@ def handle_sla_targets_put():
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SlaTargetsPutRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     clean = {}
     d = _as_pct(body.get('default'))
     if d is not None:
@@ -28166,6 +28445,9 @@ def handle_schedule_add():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body    = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScheduleAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id  = str(body.get('device_id', '')).strip()
     command = str(body.get('command', '')).strip()
     run_at  = body.get('run_at', 0)
@@ -28219,6 +28501,9 @@ def handle_schedule_update(job_id):
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(job_id): respond(404, {'error': 'Job not found'})
     body    = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScheduleUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id  = str(body.get('device_id', '')).strip()
     command = str(body.get('command', '')).strip()
     run_at  = body.get('run_at', 0)
@@ -28375,6 +28660,9 @@ def process_schedule():
 def handle_custom_cmd():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body    = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CustomCmdRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cmd_str = str(body.get('cmd', '')).strip()
     if not cmd_str: respond(400, {'error': 'cmd required'})
     if len(cmd_str) > 512: respond(400, {'error': 'cmd too long (max 512 chars)'})
@@ -28569,6 +28857,9 @@ def handle_proxmox_test() -> None:
     cfg = load(CONFIG_FILE)
     pc = proxmox_client.config_from(cfg)
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ProxmoxTestRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     # Allow testing un-saved values straight from the form.
     for k in ('proxmox_host', 'proxmox_node', 'proxmox_token_id'):
         if body.get(k):
@@ -28607,6 +28898,9 @@ def handle_proxmox_lifecycle() -> None:
         respond(403, {'error': 'Proxmox VM lifecycle actions are disabled. '
                                'Enable them in Settings → Proxmox first.'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ProxmoxLifecycleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     guest_type = str(body.get('guest_type', '')).strip()
     action = str(body.get('action', '')).strip()
     vmid = body.get('vmid')
@@ -28649,6 +28943,9 @@ def handle_cloud_import():
     cfg = load(CONFIG_FILE) or {}
     accounts = cfg.get('cloud_accounts') or []
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CloudImportRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     want_p = str(body.get('provider', '')).strip().lower()
     want_r = str(body.get('region', '')).strip()
     targets = [a for a in accounts if isinstance(a, dict)
@@ -29107,6 +29404,9 @@ def handle_image_cve_scan():
     """
     actor = require_write_role('exec')
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ImageCveScanRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target = str(body.get('device_id') or '').strip()
     if target and not _validate_id(target):
         respond(400, {'error': 'Invalid device_id'})
@@ -29148,6 +29448,9 @@ def handle_secrets_scan_now():
     """
     actor = require_write_role('exec')
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SecretsScanNowRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target = str(body.get('device_id') or '').strip()
     if target and not _validate_id(target):
         respond(400, {'error': 'Invalid device_id'})
@@ -30145,6 +30448,9 @@ def handle_proxmox_lxc_create() -> None:
     if supplied, is passed straight to Proxmox and never logged or stored."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ProxmoxLxcCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cfg = load(CONFIG_FILE)
     pc = proxmox_client.config_from(cfg)
     if not (pc['enabled'] and proxmox_client.is_configured(pc)):
@@ -30197,6 +30503,9 @@ def handle_proxmox_qemu_create() -> None:
     """POST /api/proxmox/qemu/create — create a QEMU VM. Admin-only, audited."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ProxmoxQemuCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cfg = load(CONFIG_FILE)
     pc = proxmox_client.config_from(cfg)
     if not (pc['enabled'] and proxmox_client.is_configured(pc)):
@@ -30303,6 +30612,9 @@ def handle_proxmox_snapshot_action() -> None:
     """
     require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ProxmoxSnapshotActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     guest_type = body.get('type')
     action = body.get('action')
     name = (body.get('name') or '').strip()
@@ -30605,6 +30917,9 @@ def handle_device_compose_action(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceComposeActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = str(body.get('action', '')).strip().lower()
     project_dir = str(body.get('dir', '')).strip()
 
@@ -30676,6 +30991,9 @@ def handle_device_container_action(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceContainerActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = str(body.get('action', '')).strip().lower()
     container_id = str(body.get('container_id', '')).strip()
     runtime = str(body.get('runtime', '')).strip().lower() or 'docker'
@@ -31040,6 +31358,9 @@ def handle_dmarc_imap_save() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DmarcImapSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     host = _no_ctrl(_sanitize_str(body.get('host', ''), 255)).strip()
     try:
         port = int(body.get('port') or 993)
@@ -31113,6 +31434,9 @@ def handle_mailflow_save() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MailflowSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     to_addr = _no_ctrl(_sanitize_str(body.get('to_address', ''), 255)).strip()
     imap_host = _no_ctrl(_sanitize_str(body.get('imap_host', ''), 255)).strip()
     try:
@@ -31455,6 +31779,9 @@ def handle_resolver_health_add() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ResolverHealthAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     name = str(body.get('name', '')).strip()
@@ -32173,6 +32500,9 @@ def handle_agentless_create() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AgentlessCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
 
     name = _sanitize_str(body.get('name', ''), 64, allow_empty=False)
     if not name:
@@ -32244,6 +32574,9 @@ def handle_device_connected_to(dev_id: str) -> None:
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceConnectedToRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
         if target == dev_id:
             respond(400, {'error': 'a device cannot connect to itself'})
@@ -32270,6 +32603,9 @@ def handle_device_depends_on(dev_id: str) -> None:
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceDependsOnRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         raw = body.get('depends_on') or []
         if not isinstance(raw, list):
             respond(400, {'error': 'depends_on must be a list of device ids'})
@@ -32321,6 +32657,9 @@ def handle_reboot_plan():
         respond(405, {'error': 'Method not allowed'})
     require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.RebootPlanRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     devices = load(DEVICES_FILE) or {}
     scope = body.get('scope') or {}
     st = scope.get('type')
@@ -32388,6 +32727,9 @@ def handle_device_live_sample(dev_id):
     devices = load(DEVICES_FILE) or {}
     dev = devices.get(dev_id)
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceLiveSampleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     tok = str(body.get('token') or '') or (get_token_from_request() or '')
     if not dev or not _device_token_ok(dev, tok):
         respond(403, {'error': 'invalid device token'})
@@ -32553,6 +32895,9 @@ def handle_dependency_suggestions():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DependencySuggestionsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     did = str(body.get('device_id') or '').strip()
     up = str(body.get('upstream_id') or '').strip()
     action = str(body.get('action') or '').strip()
@@ -32636,6 +32981,9 @@ def handle_lldp_suggestions():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.LldpSuggestionsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     did = str(body.get('device_id') or '').strip()
     peer = str(body.get('peer_id') or '').strip()
     action = str(body.get('action') or '').strip()
@@ -32866,6 +33214,9 @@ def handle_network_positions() -> None:
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.NetworkPositionsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     positions = body.get('positions')
     if not isinstance(positions, list):
         respond(400, {'error': 'positions must be a list'})
@@ -32946,6 +33297,9 @@ def handle_tunnel_add() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.TunnelAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ends = body.get('endpoints') or []
     if not (isinstance(ends, list) and len(ends) == 2):
         respond(400, {'error': 'endpoints must be a list of exactly 2 device IDs'})
@@ -33173,6 +33527,10 @@ def handle_device_allowlist(dev_id):
     if method() == 'GET':
         respond(200, {'allowed_commands': devices[dev_id].get('allowed_commands', [])})
     if method() == 'POST':
+        body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceAllowlistRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         body = get_json_obj(); cmds_input = body.get('allowed_commands', [])
         if not isinstance(cmds_input, list): respond(400, {'error': 'allowed_commands must be a list'})
         cmds_clean = [str(c)[:512] for c in cmds_input[:50] if str(c).strip()]
@@ -33193,6 +33551,9 @@ def handle_cmd_library_add():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CmdLibraryAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 64)
     cmd  = _sanitize_str(body.get('cmd', ''), 512)
     desc = _sanitize_str(body.get('description', ''), 256)
@@ -33211,6 +33572,9 @@ def handle_cmd_library_update(snippet_id):
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(snippet_id): respond(404, {'error': 'Snippet not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CmdLibraryUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 64)
     cmd  = _sanitize_str(body.get('cmd', ''), 512)
     desc = _sanitize_str(body.get('description', ''), 256)
@@ -33375,6 +33739,9 @@ def handle_scripts_add():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScriptsAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), MAX_SCRIPT_NAME, allow_empty=False)
     desc = _sanitize_str(body.get('description', ''), MAX_SCRIPT_DESC)
     script_body = _sanitize_script_body(body.get('body', ''))
@@ -33414,6 +33781,9 @@ def handle_scripts_update(script_id):
     if not _validate_id(script_id):
         respond(404, {'error': 'Script not found'})
     body = get_json_body()
+    _ok, _err = request_models.validate(request_models.ScriptsUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     data = load(SCRIPTS_FILE)
     scripts = data.get('scripts', [])
     for s in scripts:
@@ -33510,6 +33880,9 @@ def handle_exec_batch():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ExecBatchRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     script_id = str(body.get('script_id', '')).strip()
     if not _validate_id(script_id):
         respond(400, {'error': 'valid script_id required'})
@@ -33980,6 +34353,9 @@ def handle_ai_config_set():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiConfigSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
 
     # v4.6.0 (SECURITY): reject an admin-set base_url that targets cloud
     # metadata / link-local (SSRF). Loopback is allowed only for the local
@@ -35027,6 +35403,9 @@ def handle_ai_rag_index_migrate():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiRagIndexMigrateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target = str(body.get('target', '')).strip()
     if target not in ('json', 'postgres'):
         respond(400, {'error': "target must be 'json' or 'postgres'"})
@@ -35125,6 +35504,9 @@ def handle_ai_rag_search():
     if not (cfg.get('rag') or {}).get('enabled'):
         respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiRagSearchRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     query = str(body.get('query', '') or '').strip()
     if not query:
         respond(400, {'error': 'query is required'})
@@ -35181,6 +35563,9 @@ def handle_ai_chat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiChatRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
         respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
@@ -35446,6 +35831,9 @@ def handle_device_netscan(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceNetscanRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     subnet = str(body.get('subnet', '')).strip()
     cmd = 'netscan'
     if subnet:
@@ -35522,6 +35910,9 @@ def handle_netscan_schedules():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.NetscanSchedulesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = str(body.get('device_id', '')).strip()
     subnet = str(body.get('subnet', '')).strip()
     if not _validate_id(dev_id) or dev_id not in (load(DEVICES_FILE) or {}):
@@ -35666,6 +36057,9 @@ def handle_device_quarantine(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceQuarantineRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     on = bool(body.get('quarantined', False))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -35698,6 +36092,9 @@ def handle_device_runbook(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceRunbookRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     trigger = str(body.get('trigger', '')).strip()
     if not trigger:
         respond(400, {'error': 'trigger is required'})
@@ -35756,6 +36153,9 @@ def handle_ai_cron():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiCronRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     desc = str(body.get('description', '')).strip()
     if not desc:
         respond(400, {'error': 'description is required'})
@@ -36555,6 +36955,9 @@ def handle_mailwatch_set(dev_id):
         respond(400, {'error': 'invalid device id'})
         return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MailwatchSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     raw_paths = body.get('paths')
     if not isinstance(raw_paths, list):
         respond(400, {'error': 'paths must be a list'})
@@ -37832,6 +38235,9 @@ def handle_monitoring_profiles():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MonitoringProfilesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(str(body.get('name', '')), 64).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -37875,6 +38281,9 @@ def handle_monitoring_profile_apply():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MonitoringProfileApplyRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     pid = str(body.get('profile_id', ''))
     device_ids = [str(x) for x in (body.get('device_ids') or []) if _validate_id(str(x))][:500]
     if not device_ids:
@@ -37933,6 +38342,9 @@ def handle_custom_script_create():
     """POST /api/custom-scripts — create a new script definition (admin)."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CustomScriptCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     scripts = _load_custom_scripts()
 
     if len(scripts) >= MAX_CUSTOM_SCRIPTS:
@@ -37988,6 +38400,9 @@ def handle_custom_script_update(script_id):
     """PUT /api/custom-scripts/:id — update name, body, description, or assignments."""
     actor = require_admin_auth()
     body = get_json_body()
+    _ok, _err = request_models.validate(request_models.CustomScriptUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     scripts = _load_custom_scripts()
     s = scripts.get(script_id)
     if not s:
@@ -38450,6 +38865,9 @@ def handle_checks_toggle():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ChecksToggleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
     chk = _sanitize_str(str(body.get('check', '')), 128).strip()
     enabled = bool(body.get('enabled'))
@@ -38487,6 +38905,9 @@ def handle_custom_checks_save():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CustomChecksSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ctype = body.get('type')
     if ctype not in CUSTOM_CHECK_TYPES:
         respond(400, {'error': f'type must be one of {", ".join(CUSTOM_CHECK_TYPES)}'})
@@ -40723,6 +41144,9 @@ def handle_dashboard_kinds_set():
     can replace a whole row by sending all 4 channels)."""
     require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DashboardKindsSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     incoming = body.get('channel_routing') or body
     if not isinstance(incoming, dict):
         respond(400, {'error': 'channel_routing must be a dict'})
@@ -40933,6 +41357,9 @@ def handle_incidents():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IncidentsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     title = _sanitize_str(str(body.get('title', '')), 160).strip()
     if not title:
         respond(400, {'error': 'title required'})
@@ -40977,6 +41404,9 @@ def handle_incident_update(iid):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IncidentUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     now = int(time.time())
     new_status = str(body.get('status', '')).strip().lower()
     if new_status and new_status not in _INCIDENT_STATUSES:
@@ -41222,6 +41652,9 @@ def handle_status_token():
     Body {"enabled": false} clears it, disabling the status endpoint."""
     require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.StatusTokenRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     with _LockedUpdate(CONFIG_FILE) as cfg:
         if body.get('enabled') is False:
             cfg.pop('status_token', None)
@@ -41554,6 +41987,9 @@ def handle_drift_profiles():
     if m == 'POST':
         actor = require_admin_auth()
         body = get_json_obj()   # coerce non-dict body → {} (a JSON array must not 500)
+        _ok, _err = request_models.validate(request_models.DriftProfilesRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         name = _sanitize_str(body.get('name', ''), 80).strip()
         if not name:
             respond(400, {'error': 'name is required'})
@@ -41582,6 +42018,9 @@ def handle_drift_profile_edit(pid):
     m = method()
     if m == 'PUT':
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DriftProfileEditRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         with _LockedUpdate(CONFIG_FILE) as cfg:
             dr = cfg.setdefault('drift', {})
             profs = dr.setdefault('profiles', [])
@@ -41624,6 +42063,9 @@ def handle_drift_assign():
     profile_id clears the assignment for that scope."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DriftAssignRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     st = _sanitize_str(body.get('scope_type', ''), 16)
     sv = _sanitize_str(body.get('scope_value', ''), 128).strip()
     pid = body.get('profile_id')
@@ -41744,6 +42186,9 @@ def handle_drift_ignore(dev_id):
         respond(400, {'error': 'invalid device id'})
         return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DriftIgnoreRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     path = (body.get('path') or '').strip()
     if not path:
         respond(400, {'error': 'path is required'})
@@ -41795,6 +42240,9 @@ def handle_device_drift_baseline(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceDriftBaselineRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target_paths = body.get('paths')
     target_all = bool(body.get('all'))
 
@@ -41925,6 +42373,9 @@ def handle_drift_fetch_content(dev_id):
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DriftFetchContentRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     paths = body.get('paths') or []
     if not isinstance(paths, list):
         respond(400, {'error': 'paths must be a list'})
@@ -42105,6 +42556,9 @@ def handle_revoke_sessions():
     requester = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.RevokeSessionsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target_user = _sanitize_str(body.get('username', ''), 32)
     tokens = load(TOKENS_FILE)
     if target_user:
@@ -42174,6 +42628,9 @@ def handle_satellites_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SatellitesCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 64)
     if not name:
         respond(400, {'error': 'name required'})
@@ -42318,6 +42775,9 @@ def handle_satellite_monitor_results():
         respond(405, {'error': 'Method not allowed'})
     sid = require_satellite()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SatelliteMonitorResultsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     raw = body.get('results')
     if not isinstance(raw, list):
         respond(400, {'error': 'results must be a list'})
@@ -42463,6 +42923,9 @@ def handle_scans_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScansCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
     st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
     # Profile + tool first — the allowed tool set is profile-dependent.
@@ -42795,6 +43258,9 @@ def handle_scan_results(scan_id):
         respond(405, {'error': 'Method not allowed'})
     sid_sat = require_satellite_scanner()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScanResultsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     raw = body.get('findings')
     if raw is not None and not isinstance(raw, list):
         respond(400, {'error': 'findings must be a list'})
@@ -43152,6 +43618,9 @@ def handle_scan_schedules_create():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScanSchedulesCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
     st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
     tool = _sanitize_str(str(body.get('tool', 'nuclei')), 32) or 'nuclei'
@@ -43287,6 +43756,9 @@ def handle_client_error():
     if not _ip_ratelimit('clienterr', _get_client_ip(), 30, window=60):
         respond(429, {'error': 'rate limited'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ClientErrorRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     def _int(v):
         return v if isinstance(v, int) and 0 <= v < 10_000_000 else 0
     entry = {
@@ -43444,6 +43916,9 @@ def handle_apikeys_update(kid):
     apikeys = load(APIKEYS_FILE)
     if kid not in apikeys: respond(404, {'error': 'API key not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ApikeysUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     rec = apikeys[kid]
     if 'name' in body:
         name = _sanitize_str(body.get('name', ''), 64)
@@ -43607,6 +44082,9 @@ def handle_longpoll_exec():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body    = get_json_obj()
+    _ok, _err = request_models.validate(request_models.LongpollExecRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id  = str(body.get('device_id', '')).strip()
     cmd_str = str(body.get('cmd', '')).strip()
 
@@ -44395,6 +44873,9 @@ def handle_compliance_remediate():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ComplianceRemediateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
     check_id = _sanitize_str(str(body.get('check_id', '')), 40)
     devices = load(DEVICES_FILE) or {}
@@ -44550,6 +45031,9 @@ def handle_scap_scan():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScapScanRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ids = _resolve_targets(body)
     if not ids:
         respond(400, {'error': 'No valid device targets'})
@@ -44571,6 +45055,9 @@ def handle_scap_report():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ScapReportRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
@@ -45265,6 +45752,9 @@ def handle_patch_snapshots():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PatchSnapshotsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 80).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -45323,6 +45813,9 @@ def handle_patch_snapshot_promote(sid):
     if not _validate_id(sid):
         respond(404, {'error': 'Snapshot not found'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PatchSnapshotPromoteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     tag = _sanitize_str(body.get('tag', ''), 64).strip() or None
     with _LockedUpdate(PATCH_SNAPSHOTS_FILE) as snaps:
         s = snaps.get(sid)
@@ -45473,6 +45966,9 @@ def handle_patch_snapshot_enforce(sid):
         respond(400, {'error': 'this snapshot is not promoted to a tag — '
                                'promote it first so enforcement has a target scope'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PatchSnapshotEnforceRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     only_device = str(body.get('device_id') or '').strip()
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     devices = {k: v for k, v in devices.items() if tag in (v.get('tags') or [])}
@@ -46096,6 +46592,9 @@ def handle_report_schedule_set():
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ReportScheduleSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     enabled = bool(body.get('enabled'))
     cron = str(body.get('cron', '')).strip()
     if enabled and not _valid_cron(cron):
@@ -46636,6 +47135,9 @@ def handle_webauthn_register_complete():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebauthnRegisterCompleteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(str(body.get('name', 'passkey')), 64) or 'passkey'
     challenge = _webauthn_take_challenge(user, 'reg')
     if not challenge:
@@ -46715,6 +47217,9 @@ def handle_webauthn_login_complete():
         time.sleep(0.5)
         respond(429, {'error': 'Too many attempts — wait a minute'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebauthnLoginCompleteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     username = _sanitize_str(str(body.get('username', '')), 64)
     cred = body.get('credential') or {}
     challenge = _webauthn_take_challenge(username, 'auth')
@@ -47667,6 +48172,9 @@ def handle_alert_ack(alert_id):
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AlertAckRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     acked_alert = None
@@ -47886,6 +48394,9 @@ def handle_alert_resolve(alert_id):
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AlertResolveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     try:
@@ -47952,6 +48463,9 @@ def handle_alert_mutes():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AlertMutesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     device_id = _sanitize_str(body.get('device_id', ''), 64).strip()
     event = _sanitize_str(body.get('event', ''), 64).strip()
     device_name = _sanitize_str(body.get('device_name', ''), 128).strip()
@@ -48099,6 +48613,9 @@ def handle_alerts_bulk_resolve():
     user = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AlertsBulkResolveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ids = body.get('ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'ids list required'})
@@ -48135,6 +48652,9 @@ def handle_alerts_bulk_ack():
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AlertsBulkAckRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ids = body.get('ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'ids list required'})
@@ -48884,6 +49404,9 @@ def handle_inbound_webhook(token_str):
         respond(400, {'error': f'this token is a {match.get("kind")} token — use the corresponding URL'})
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.InboundWebhookRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         _log_inbound('alert', match.get('id'), match.get('label'),
                      '400', 'body must be JSON object')
@@ -49013,6 +49536,9 @@ def handle_inbound_webhooks_create():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.InboundWebhooksCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     label = _sanitize_str(body.get('label', ''), 64)
     if not label:
         respond(400, {'error': 'label required'})
@@ -49078,6 +49604,9 @@ def handle_inbound_webhook_toggle(token_id):
     actor = require_admin_auth()
     if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.InboundWebhookToggleRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     found = False
     changes = []
     try:
@@ -49831,6 +50360,9 @@ def handle_confirmation_reject(conf_id):
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ConfirmationRejectRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     devs = load(DEVICES_FILE) or {}
@@ -50869,6 +51401,9 @@ def handle_image_ignore_add():
     """
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ImageIgnoreAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ref = _sanitize_str(body.get('ref', ''), 600, allow_empty=False)
     reason = _sanitize_str(body.get('reason', ''), 256)
     if not ref or not _IMAGE_REF_RE.match(ref):
@@ -50892,6 +51427,9 @@ def handle_image_ignore_remove():
     """DELETE /api/image-updates/ignore — stop ignoring an image. Body: {ref}."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ImageIgnoreRemoveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ref = _sanitize_str(body.get('ref', ''), 600, allow_empty=False)
     ignores = load(IMAGE_IGNORE_FILE) or {}
     if ref in ignores:
@@ -51000,6 +51538,9 @@ def handle_app_catalog_custom_add():
     a slugified id derived from the name (re-adding updates the entry)."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AppCatalogCustomAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 64, allow_empty=False)
     yaml = body.get('yaml', '')
     if not isinstance(yaml, str) or 'services:' not in yaml:
@@ -51033,6 +51574,10 @@ def handle_app_catalog_custom_delete():
     """POST /api/app-catalog/custom/delete {id} — remove a custom app (admin only).
     Curated apps cannot be removed."""
     actor = require_admin_auth()
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AppCatalogCustomDeleteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     app_id = _sanitize_str(get_json_obj().get('id', ''), 64, allow_empty=False)
     if app_id in _APP_CATALOG_BY_ID:
         respond(400, {'error': 'built-in catalog apps cannot be removed'})
@@ -51052,6 +51597,9 @@ def handle_app_catalog_deploy():
     compose_deploy command path."""
     actor = require_perm('containers')
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AppCatalogDeployRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     app_id = _sanitize_str(body.get('app_id', ''), 64)
     device_id = _sanitize_str(body.get('device_id', ''), 64, allow_empty=False)
     tpl = _app_by_id(app_id)
@@ -51124,6 +51672,9 @@ def handle_compose_stack_create():
     """POST /api/compose/stacks — create a stack {name, device_id, yaml}."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ComposeStackCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(body.get('name', ''), 64).lower()
     device_id = _sanitize_str(body.get('device_id', ''), 64, allow_empty=False)
     yaml = body.get('yaml', '')
@@ -51172,6 +51723,9 @@ def handle_compose_stack_action(stack_id):
     """POST /api/compose/stacks/<id>/action {action} — queue up/down/redeploy."""
     actor = require_perm('containers')   # v3.12.0 RBAC: was admin-only
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ComposeStackActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = _sanitize_str(body.get('action', ''), 16).lower()
     if action not in _COMPOSE_ACTIONS:
         respond(400, {'error': f'action must be one of {_COMPOSE_ACTIONS}'})
@@ -51202,6 +51756,9 @@ def handle_compose_fetch():
     stack's YAML with its device token. Kept off the command queue so the
     compose file never lands in the command log."""
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ComposeFetchRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     device_id = str(body.get('device_id', '')).strip()
     token = str(body.get('token', '')).strip()
     stack_id = str(body.get('stack_id', '')).strip()
@@ -51280,6 +51837,9 @@ def handle_device_routeros(dev_id):
     elif m == 'PATCH':
         actor = require_admin_auth()
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceRouterosRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             rc = dict(dev.get('routeros') or {})
@@ -51382,6 +51942,9 @@ def handle_device_routeros_action(dev_id):
     if not tgt:
         respond(403, {'error': 'RouterOS not enabled/configured on this device'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceRouterosActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     act = _sanitize_str(body.get('action', ''), 32)
     arg = _sanitize_str(str(body.get('arg', '')), 128) or None
     host, user, password, verify = tgt
@@ -51507,6 +52070,9 @@ def handle_device_opnsense(dev_id):
     elif m == 'PATCH':
         actor = require_admin_auth()
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceOpnsenseRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             oc = dict(dev.get('opnsense') or {})
@@ -51572,6 +52138,9 @@ def handle_device_opnsense_action(dev_id):
     if not tgt:
         respond(403, {'error': 'OPNsense not enabled/configured on this device'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceOpnsenseActionRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     act = _sanitize_str(body.get('action', ''), 32)
     arg = _sanitize_str(str(body.get('arg', '')), 64) or None
     host, key, secret, verify = tgt
@@ -51644,6 +52213,9 @@ def handle_device_ssh(dev_id):
     elif m == 'PATCH':
         actor = require_admin_auth()
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceSshRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             sc = dict(dev.get('ssh') or {})
@@ -51744,6 +52316,9 @@ def handle_device_snmp(dev_id):
     elif m == 'PATCH':
         actor = require_admin_auth()
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.DeviceSnmpRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         if 'community' in body:
             c = str(body['community'])
             if any(ws in c for ws in (' ', '\t', '\n', '\r')):
@@ -51962,6 +52537,9 @@ def handle_webhook_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebhookTestRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target_id = (body.get('id') or '').strip() or None
     cfg = load(CONFIG_FILE)
     legacy_url = cfg.get('webhook_url', '').strip()
@@ -52390,6 +52968,9 @@ def handle_webhook_dlq_retry():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebhookDlqRetryRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     want_all = bool(body.get('all'))
     one_id = str(body.get('id', '')).strip()
     if not want_all and not one_id:
@@ -52441,6 +53022,9 @@ def handle_webhook_replay():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.WebhookReplayRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     ev = str(body.get('event', '')).strip()
     try:
         ts = int(body.get('ts', 0))
@@ -52471,6 +53055,10 @@ def handle_smtp_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SmtpTestRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE)
     override_recipient = _sanitize_str(body.get('recipient', ''), 320)
@@ -52548,6 +53136,9 @@ def handle_ldap_test_user():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.LdapTestUserRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     username = _sanitize_str(body.get('username', ''), 64)
     password = body.get('password', '')
     if not username or not isinstance(password, str):
@@ -52622,6 +53213,9 @@ def handle_packages_submit():
         respond(405, {'error': 'Method not allowed'})
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PackagesSubmitRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
@@ -52818,6 +53412,9 @@ def handle_software_policy():
     elif m == 'POST':
         require_admin_auth()
         body = get_json_obj()
+        _ok, _err = request_models.validate(request_models.SoftwarePolicyRequest, body)
+        if not _ok:
+            respond(400, {'error': _err})
         rules_in = body.get('rules')
         if not isinstance(rules_in, list):
             respond(400, {'error': 'rules must be a list'})
@@ -52912,6 +53509,9 @@ def handle_exposure_mute():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ExposureMuteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     action = body.get('action', 'add')
     if action not in ('add', 'remove'):
         respond(400, {'error': "action must be 'add' or 'remove'"}); return
@@ -53280,6 +53880,9 @@ def handle_secrets_mute():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SecretsMuteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     fp = _sanitize_str(str(body.get('fingerprint', '')), 32).strip()
     if not fp:
         respond(400, {'error': 'fingerprint required'})
@@ -53305,6 +53908,9 @@ def handle_secrets_host_mute():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.SecretsHostMuteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
     if not did:
         respond(400, {'error': 'device_id required'})
@@ -53737,6 +54343,10 @@ def handle_cve_scan():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CveScanRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     target = body.get('device_id')
     if target is not None:
@@ -53970,6 +54580,9 @@ def handle_cve_campaigns():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CveCampaignsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(str(body.get('name', '')), 120).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -54012,6 +54625,9 @@ def handle_cve_campaign(cid):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CveCampaignRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     found = False
     with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
         camp = next((c for c in (store.get('campaigns') or []) if c.get('id') == cid), None)
@@ -54079,6 +54695,9 @@ def handle_my_notify_prefs():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MyNotifyPrefsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     existing = prefs_all.get(user) or {}
     out = {'enabled': bool(body.get('enabled'))}
     # webhook_url: blank keeps the existing one; explicit clear via clear_webhook
@@ -54153,6 +54772,9 @@ def handle_import_monitors():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ImportMonitorsRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     content = str(body.get('content') or '')
     if not content.strip():
         respond(400, {'error': 'content is required'})
@@ -54489,6 +55111,9 @@ def handle_cve_ignore_add():
         respond(405, {'error': 'Method not allowed'})
 
     body     = get_json_obj()
+    _ok, _err = request_models.validate(request_models.CveIgnoreAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     vuln_id  = _sanitize_str(body.get('vuln_id', ''), 64, allow_empty=False)
     reason   = _sanitize_str(body.get('reason', ''), 256)
     scope    = _sanitize_str(body.get('scope', 'global'), 64)
@@ -54865,6 +55490,9 @@ def handle_metrics_push_set():
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MetricsPushSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     enabled = bool(body.get('enabled'))
     url = _sanitize_str(str(body.get('url', '')).strip(), 512)
     if enabled and not url:
@@ -55097,6 +55725,9 @@ def handle_gitops_set():
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.GitopsSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     enabled = bool(body.get('enabled'))
     url = _sanitize_str(str(body.get('url', '')).strip(), 512)
     if enabled and not url:
@@ -55358,6 +55989,9 @@ def handle_maintenance_add():
         respond(405, {'error': 'Method not allowed'})
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MaintenanceAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     reason = _sanitize_str(body.get('reason', ''), 128)
     scope  = _sanitize_str(body.get('scope', 'device'), 16).lower()
     target = _sanitize_str(body.get('target', ''), 128)
@@ -56627,6 +57261,9 @@ def handle_services_config(dev_id):
         })
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ServicesConfigRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     raw = body.get('services_watched') or []
     if not isinstance(raw, list):
         respond(400, {'error': 'services_watched must be a list'})
@@ -56741,6 +57378,9 @@ def handle_log_submit():
         respond(405, {'error': 'Method not allowed'})
 
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.LogSubmitRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
@@ -59991,6 +60631,9 @@ def handle_device_host_config_put(dev_id):
     """PUT /api/devices/:id/host-config — save desired host configuration."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DeviceHostConfigPutRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         respond(400, {'error': 'Expected JSON object'})
 
@@ -60059,6 +60702,9 @@ def handle_host_config_collect_all():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.HostConfigCollectAllRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     target = body.get('target') or {'type': 'all', 'value': ''}
     targets = _autopatch_target_devices(target)   # resolves type/value, skips quarantined
     devices = load(DEVICES_FILE) or {}
@@ -60146,6 +60792,9 @@ def handle_debug_log_post():
     of UI events + server activity for diagnosing issues like this one."""
     require_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DebugLogPostRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     entries = body.get('entries') or []
     if not isinstance(entries, list):
         respond(400, {'error': 'entries must be a list'})
@@ -60218,6 +60867,9 @@ def handle_iac_request():
         respond(405, {'error': 'Method not allowed'})
         return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IacRequestRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     dev_id     = str(body.get('device_id', '')).strip()
     categories = body.get('categories') or []
 
@@ -60409,6 +61061,9 @@ def handle_iac_generate():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IacGenerateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(body.get('request_id', '')))[:64]
     fmt = str(body.get('output_format', '')).strip()
     user_instructions = _sanitize_str(str(body.get('user_instructions', '') or ''), 2000)
@@ -60691,6 +61346,9 @@ def handle_ai_prompts_save():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiPromptsSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     key  = str(body.get('key', '')).strip()
     text = body.get('text', '')
     if key not in ai_provider.SYSTEM_PROMPTS:
@@ -60782,6 +61440,9 @@ def handle_ignored_add():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IgnoredAddRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cat  = str(body.get('category', '')).strip()
     if cat not in ('needs_attention', 'stale_containers', 'devices'):
         respond(400, {'error': 'invalid category'}); return
@@ -60862,6 +61523,9 @@ def handle_ignored_remove():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.IgnoredRemoveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     cat  = str(body.get('category', '')).strip()
     if cat not in ('needs_attention', 'stale_containers', 'devices'):
         respond(400, {'error': 'invalid category'}); return
@@ -60979,6 +61643,9 @@ def handle_ai_params_save():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AiParamsSaveRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     key  = str(body.get('key', '')).strip()
     if key not in _AI_PROMPT_LABELS:
         respond(400, {'error': f'unknown prompt key: {key}'}); return
@@ -61321,6 +61988,9 @@ def handle_acme_dns_credentials_set():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AcmeDnsCredentialsSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     provider = str(body.get('provider', '')).strip()
     if provider not in ACME_DNS_CREDENTIAL_FIELDS:
         respond(400, {'error': f'unknown provider {provider!r}'})
@@ -61509,6 +62179,9 @@ def handle_dns_vault_creds_set():
         respond(409, {'error': 'invalid vault key — unlock the vault',
                       'code': 'vault_locked'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsVaultCredsSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     provider = str(body.get('provider', '')).strip()
@@ -61618,6 +62291,9 @@ def handle_dns_import_from_agent():
     'Import from config' to encrypt them into the vault and drop the plaintext."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsImportFromAgentRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     dev_id = str(body.get('device_id', '')).strip()
@@ -61656,6 +62332,9 @@ def handle_dns_vault_import():
     if not cmdb_vault.verify_key(key, meta):
         respond(409, {'error': 'invalid vault key — unlock the vault', 'code': 'vault_locked'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsVaultImportRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     provider = str(body.get('provider', '')).strip()
@@ -61760,6 +62439,9 @@ def handle_dns_record_create():
     """POST /api/dns/records — create a record. Admin-only, audit-logged."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsRecordCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     prov, zone, zone_name = _dns_target(body)
@@ -61778,6 +62460,9 @@ def handle_dns_record_update():
     """POST /api/dns/records/update — edit a record. Admin-only, audit-logged."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsRecordUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     prov, zone, zone_name = _dns_target(body)
@@ -61799,6 +62484,9 @@ def handle_dns_record_delete():
     """POST /api/dns/records/delete — delete a record. Admin-only, audit-logged."""
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.DnsRecordDeleteRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     if not isinstance(body, dict):
         body = {}
     prov, zone, zone_name = _dns_target(body)
@@ -62117,6 +62805,9 @@ def handle_acme_issue(dev_id):
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'}); return
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.AcmeIssueRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     domain = (body.get('domain') or '').strip().lower()
     if not _acme_validate_domain(domain):
         respond(400, {'error': 'invalid primary domain'}); return
@@ -62747,6 +63438,9 @@ def handle_mitigate_investigate(dev_id):
     # any custom role whose scope doesn't include this device.
     require_perm('mitigate', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MitigateInvestigateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)
     diag, _fix, _prompt, _dest = _mitigate_build_command(kind, target)
@@ -62771,6 +63465,9 @@ def handle_mitigate_fix(dev_id):
     # any custom role whose scope doesn't include this device.
     require_perm('mitigate', [dev_id])
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.MitigateFixRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)
     cmd = str(body.get('command', '')).strip()

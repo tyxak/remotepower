@@ -1062,7 +1062,7 @@ class TestV342ReviewFixes(unittest.TestCase):
 
     def test_disable_signing_requires_password(self):
         idx = self.API.find('def handle_signing_toggle')
-        body = self.API[idx:idx + 900]
+        body = self.API[idx:idx + 1150]   # widened for the pydantic validate() pre-check
         self.assertIn('verify_password', body)
         self.assertIn('if not enabled:', body)
         # Frontend prompts for the password on disable.

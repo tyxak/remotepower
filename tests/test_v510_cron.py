@@ -56,7 +56,7 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn("('GET', '/api/cron'): handle_cron_overview", src)
         self.assertIn("pi.endswith('/cron-action') and m == 'POST'", src)
         h = src[src.index('def handle_device_cron_action'):
-                src.index('def handle_device_cron_action') + 2200]
+                src.index('def handle_device_cron_action') + 2450]
         self.assertIn("require_perm('command'", h)
         self.assertIn("audit_log(actor, 'host_cron'", h)
         self.assertIn("_queue_command(dev_id, command, actor)", h)
