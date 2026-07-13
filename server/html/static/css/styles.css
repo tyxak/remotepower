@@ -534,7 +534,7 @@
   /* v6: the brand lives in the sidebar (chosen-design .brand) */
   .sidebar .brand { display: flex; align-items: center; gap: 9px; padding: 6px 8px 10px; }
   .sidebar .brand .logo-img { width: 24px; height: 24px; border-radius: 6px; }
-  .sidebar .brand .logo-text { font-size: 14px; color: var(--text); letter-spacing: -0.01em; }
+  .sidebar .brand .logo-text { font-size: 13px; color: var(--text); letter-spacing: -0.01em; }
   .brand-v {
     margin-left: auto; font-family: var(--font-mono); font-size: 9.5px;
     color: var(--muted); border: 1px solid var(--hair); padding: 2px 6px;
@@ -1332,7 +1332,7 @@
   .devices-grid.dens-compact .device-card { padding: 12px 14px; border-radius: 10px; }
   .devices-grid.dens-compact .device-header { margin-bottom: 8px; }
   .devices-grid.dens-compact .device-icon { width: 32px; height: 32px; border-radius: 7px; }
-  .devices-grid.dens-compact .device-name { font-size: 14px; }
+  .devices-grid.dens-compact .device-name { font-size: 13.5px; }
   .devices-grid.dens-compact .device-hostname { font-size: 11px; }
   .devices-grid.dens-compact .device-meta { gap: 6px; }
   .devices-grid.dens-compact .device-meta .meta-label { font-size: 10px; }
@@ -1542,7 +1542,7 @@
     cursor: pointer;
   }
   .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
-  .device-name     { font-size: 14px; font-weight: 600; }
+  .device-name     { font-size: 13.5px; font-weight: 600; }
   .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: var(--font-mono); }
   .status-badge {
     display: flex;
@@ -4793,7 +4793,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-365 { font-size: 13px; font-weight: 600; margin-bottom: 8px }
 .isl-366 { font-size: 12px; color: var(--muted); margin-bottom: 12px }
 .isl-367 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px }
-.isl-368 { font-family: var(--font-mono); font-size: 14px; letter-spacing: 2px; color: var(--accent); word-break: break-all; background: var(--surface2); padding: 10px; border-radius: 6px; cursor: pointer }
+.isl-368 { font-family: var(--font-mono); font-size: 13px; letter-spacing: 2px; color: var(--accent); word-break: break-all; background: var(--surface2); padding: 10px; border-radius: 6px; cursor: pointer }
 .isl-369 { max-width: 200px; text-align: center; font-size: 16px; letter-spacing: 4px }
 .isl-370 { font-size: 11px; font-family: var(--font-mono); color: var(--muted); margin-top: 2px }
 .isl-371 { padding: 4px 6px; font-size: 11px }
@@ -5715,13 +5715,13 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .status-wrap h1 { font-size: 28px; margin: 0 0 24px; }
 .status-score { text-align: center; margin-bottom: 24px; }
 .status-num { font-size: 64px; font-weight: 800; line-height: 1; }
-.status-grade { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; }
+.status-grade { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; }
 .status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 28px; }
 .status-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
 .status-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .status-v { font-size: 28px; font-weight: 700; margin-top: 4px; }
-.status-h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px; }
-.status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.status-h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px; }
+.status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
 .status-pill { display: inline-block; min-width: 48px; text-align: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
 .status-pill.ok { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid #22c55e; }
 .status-pill.down { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid var(--red); }
@@ -5754,7 +5754,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-dev:hover { border-color: var(--accent); }
 .hh-dev-name { color: var(--text); font-size: 13px; font-weight: 500; }
 .hh-dev-meta { display: flex; gap: 4px; }
-.hh-dev-score { font-weight: 700; font-size: 14px; min-width: 28px; text-align: right; }
+.hh-dev-score { font-weight: 700; font-size: 13px; min-width: 28px; text-align: right; }
 /* "Why is this host unhealthy?" expander — the worst-device row is now a
    <details>; its <summary> reuses .hh-dev, the body lists the NA reasons. */
 .hh-why { width: 100%; }
@@ -5846,7 +5846,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
     color: #111 !important;
     background: #fff !important;
     padding: 0;
-    font-size: 14px;
+    font-size: 13.5px;
   }
   #print-report * { color: #111 !important; background: transparent !important;
     border-color: #ccc !important; }

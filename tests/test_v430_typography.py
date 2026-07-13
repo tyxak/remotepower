@@ -27,7 +27,11 @@ CSS = (Path(__file__).parent.parent / "server" / "html" / "static" / "css"
 # ints = the original scale; halves = v6 Clarity stops adopted so far
 # (sidebar: 12.5 nav rows, 9.5 eyebrows/count pills; topbar: 11.5 health;
 #  frame: 13.5 body, 19 page title — 28 stays for display numerals).
-CANONICAL = {28, 19, 16, 14, 13.5, 13, 12.5, 12, 11.5, 11, 10, 9.5}
+# 14 was a legacy stop that predated the v6 scale (whose body anchor is 13.5). It
+# lingered on ~9 selectors — device names, the status board, a mono code, a score
+# numeral — so 13.5px body text sat next to 14px body text. Folded onto the scale
+# (body → 13.5, headings/chrome/numerals → 13) and dropped here so it can't creep back.
+CANONICAL = {28, 19, 16, 13.5, 13, 12.5, 12, 11.5, 11, 10, 9.5}
 
 # Deliberate display-size exceptions: size → max occurrences.
 # .status-num 64 / .hh-num 48 (big stat digits), .pin-code 36 (enrollment PIN),
