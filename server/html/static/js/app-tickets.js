@@ -917,7 +917,7 @@ async function saveTicketSla() {
 }
 function _tkTestResult(msg, ok) {
   const el = document.getElementById('tkimap-test-result');
-  if (el) { el.textContent = msg; el.classList.toggle('c-danger', !ok); el.classList.toggle('c-accent', !!ok); }
+  if (el) { el.textContent = msg; el.classList.toggle('c-red', !ok); el.classList.toggle('c-accent', !!ok); }
 }
 async function testTicketImap() {
   const v = id => document.getElementById(id)?.value;

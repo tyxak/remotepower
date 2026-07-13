@@ -66,6 +66,20 @@ def _ssl_ctx():
     return ctx
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx: _api posts the satellite TOKEN, so a redirect (open-redirect,
+    misconfig, or an https→http downgrade hop) must never replay it to another
+    host. Every other RemotePower component that carries a credential does this
+    (the agent's _OPENER, the relay satellite); the scanner was the lone outlier."""
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _opener():
+    return urllib.request.build_opener(
+        _NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
+
+
 def _api(method, path, body=None):
     """Call the RemotePower API authenticated as a scanner satellite."""
     url = f'{SERVER}{path}'
@@ -73,7 +87,7 @@ def _api(method, path, body=None):
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header('X-RP-Satellite', TOKEN)
     req.add_header('Content-Type', 'application/json')
-    with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx()) as r:
+    with _opener().open(req, timeout=60) as r:
         return json.loads(r.read().decode() or '{}')
 
 

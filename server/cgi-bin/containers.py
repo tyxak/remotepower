@@ -90,23 +90,33 @@ def _str(value: Any, cap: int) -> str:
 
 
 def _int_or_zero(value: Any) -> int:
-    """Coerce to non-negative int. Anything weird becomes 0."""
+    """Coerce to non-negative int. Anything weird becomes 0.
+
+    NB: int(float('inf')) raises OverflowError, not ValueError — and json.loads
+    parses non-standard `Infinity`/`NaN` by default, so a buggy/hostile agent CAN
+    send them. Catch OverflowError too, or the whole container normaliser crashes.
+    """
     try:
         n = int(value)
         return n if n >= 0 else 0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
 def _float_or_zero(value: Any) -> float:
-    """v6.1.2: coerce to a non-negative float. Anything weird becomes 0 (which
-    is docker's own encoding of "no limit", so a bad value degrades to the
-    truthful 'unlimited' rather than inventing a cap that isn't there)."""
+    """v6.1.2: coerce to a non-negative FINITE float. Anything weird — including
+    inf/nan (which json.loads accepts as Infinity/NaN) — becomes 0, which is
+    docker's own encoding of "no limit", so a bad value degrades to the truthful
+    'unlimited' rather than passing inf through as a nonsensical cap."""
     try:
         n = float(value)
-        return n if n >= 0 else 0.0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.0
+    # inf and nan are not sane limits. `n == n` is False only for nan; the
+    # inequalities reject the infinities. Avoids importing math for one check.
+    if n != n or n in (float('inf'), float('-inf')) or n < 0:
+        return 0.0
+    return n
 
 
 def _pct_or_none(value: Any):

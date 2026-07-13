@@ -983,6 +983,26 @@ IMAGE_SCAN_EVERY   = 1440           # ~24h at the 60s default poll (W6-34, legac
 IMAGE_SCAN_INTERVAL_S = 24 * 3600
 IMAGE_SCAN_TS_FILE    = 'image_scan_last'
 
+# v6.1.2: same restart-survival fix as the image scan (below) applied to the
+# secrets-on-disk scan, which still used a poll_count % N cadence that reset on
+# every agent restart — so a restart-churny host (agent self-update is common)
+# with the feature enabled never actually scanned, and there was no manual
+# trigger either. Persist the last-run epoch instead.
+SECRETS_SCAN_INTERVAL_S = 6 * 3600
+SECRETS_SCAN_TS_FILE    = 'secrets_scan_last'
+
+
+def _load_secrets_scan_ts() -> float:
+    raw = _safe_state_read(SECRETS_SCAN_TS_FILE)
+    try:
+        return float((raw or '').strip())
+    except ValueError:
+        return 0.0
+
+
+def _save_secrets_scan_ts(ts: float) -> None:
+    _safe_state_write(SECRETS_SCAN_TS_FILE, str(int(ts)))
+
 
 def _load_image_scan_ts() -> float:
     """Epoch of the last trivy image scan (0 if never / unreadable)."""
@@ -8581,6 +8601,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     image_scan_on = False
     force_image_scan = False
     last_image_scan_ts = _load_image_scan_ts()   # v6.1.2: survives agent restarts
+    last_secrets_scan_ts = _load_secrets_scan_ts()   # v6.1.2: same restart fix
     # v6.1.2: mDNS LAN browse — server-pushed opt-in, same shape as image_scan_on.
     mdns_on = False
     # v3.0.0: IaC collection request from server
@@ -8862,11 +8883,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
         # v3.14.0 #35: secrets-on-disk scan — opt-in, bounded, redacting. Only
         # runs once the server has enabled it; every ~6h or on a force request.
-        if secrets_scan_on and (poll_count % SECRETS_SCAN_EVERY == 0
-                                or force_secrets_scan):
+        # v6.1.2: monotonic due-time (survives restarts), not poll_count % N.
+        _sec_due = (time.time() - last_secrets_scan_ts) >= SECRETS_SCAN_INTERVAL_S
+        if secrets_scan_on and (_sec_due or force_secrets_scan):
             try:
                 payload['secret_findings'] = collect_secret_findings(secrets_scan_paths)
                 log.debug(f'secrets scan: {len(payload["secret_findings"])} finding(s)')
+                last_secrets_scan_ts = time.time()
+                _save_secrets_scan_ts(last_secrets_scan_ts)
             except Exception as e:
                 log.debug(f'secrets scan error: {e}')
             force_secrets_scan = False
@@ -8967,7 +8991,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # is EXPENSIVE (docker walks the whole layer store, and `-v` walks
             # every volume), so it rides its own much slower cadence rather than
             # the container listing's. Disk usage doesn't change by the minute.
-            if poll_count % DOCKER_DF_EVERY == 0:
+            # v6.1.2: also on the FIRST heartbeat (poll_count==1), so a host that
+            # restarts its agent more often than DOCKER_DF_EVERY still reports it —
+            # the same restart-churn gap the hardware block above already guards.
+            if poll_count == 1 or poll_count % DOCKER_DF_EVERY == 0:
                 try:
                     df = get_docker_disk_usage()
                     if df:
@@ -9005,7 +9032,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # Only when the server asks for it (mdns_enabled), because browsing
             # the LAN from every host in the fleet would be redundant noise: one
             # agent per segment sees the same advertisements as all of them.
-            if mdns_on and poll_count % DOCKER_DF_EVERY == 0:
+            if mdns_on and (poll_count == 1 or poll_count % DOCKER_DF_EVERY == 0):
                 try:
                     svcs = get_mdns_services()
                     if svcs:

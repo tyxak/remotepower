@@ -17491,6 +17491,12 @@ def handle_heartbeat():
         if dev.get('force_image_scan'):
             saved_dev['force_image_scan'] = True
             dev.pop('force_image_scan', None)
+        # v6.1.2: one-shot "scan for secrets on disk now". The agent honoured
+        # force_secrets_scan but the server never set it (dead escape hatch);
+        # same delivery contract as force_image_scan.
+        if dev.get('force_secrets_scan'):
+            saved_dev['force_secrets_scan'] = True
+            dev.pop('force_secrets_scan', None)
         # v3.0.0: IaC collection request — also one-shot
         if dev.get('force_iac_collect'):
             saved_dev['force_iac_collect'] = dev['force_iac_collect']
@@ -18517,6 +18523,10 @@ def handle_heartbeat():
     # the agent's now time-based cadence) is what makes the feature reachable.
     if saved_dev.get('force_image_scan'):
         common_resp['force_image_scan'] = True
+    # v6.1.2: one-shot secrets-on-disk scan. Same dead-flag fix as force_image_scan
+    # just above — the agent honoured it, the server never set it.
+    if saved_dev.get('force_secrets_scan'):
+        common_resp['force_secrets_scan'] = True
     # v3.0.0: one-shot IaC collection request — fires once on the heartbeat
     # right after the operator clicked Generate IaC.
     if saved_dev.get('force_iac_collect'):
@@ -29183,6 +29193,44 @@ def handle_image_cve_scan():
                               'the next heartbeat; results appear within a few minutes.')
                              if queued else
                              'No hosts with running containers to scan.'})
+
+
+def handle_secrets_scan_now():
+    """POST /api/secrets-scan/scan — queue a one-shot secrets-on-disk scan.
+
+    Body: {device_id} for one host, or {} for every agent host. Sets the
+    per-device one-shot `force_secrets_scan` flag the agent already honours (the
+    escape hatch that had no server set-site until v6.1.2); the agent runs the
+    bounded, redacting scan on its next heartbeat.
+    """
+    actor = require_write_role('exec')
+    body = get_json_obj()
+    target = str(body.get('device_id') or '').strip()
+    if target and not _validate_id(target):
+        respond(400, {'error': 'Invalid device_id'})
+    if not _config_ro().get('secrets_scan_enabled'):
+        respond(400, {'error': 'Secrets-on-disk scanning is off — enable it in '
+                               'Settings → Security first.'})
+    queued = []
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if target:
+            if target not in devices:
+                respond(404, {'error': 'device not found'})
+            targets = [target]
+        else:
+            # Any host with an agent (secrets scan isn't container-specific);
+            # skip agentless devices, which can't run it.
+            targets = [d for d, dev in devices.items() if not dev.get('agentless')]
+        for d in targets:
+            if not _tenant_visible(devices[d]):
+                continue
+            devices[d]['force_secrets_scan'] = True
+            queued.append(d)
+    audit_log(actor, 'secrets_scan_queued', detail=f'devices={len(queued)}')
+    respond(200, {'ok': True, 'queued': len(queued),
+                  'message': (f'Secrets scan queued on {len(queued)} host(s) — the agent '
+                              'runs it on the next heartbeat.') if queued else
+                             'No agent hosts to scan.'})
 
 
 MDNS_FILE = DATA_DIR / 'mdns.json'   # v6.1.2: LAN service advertisements
@@ -46286,11 +46334,23 @@ def _audit_chain_walk(entries):
     The first chained entry is the trusted anchor (its predecessor may have been
     trimmed/archived); every later entry is recomputed from its predecessor."""
     checked, broken_at, prev = 0, None, None
+    seen_chained = False
     for i, e in enumerate(entries):
         h = e.get('_hash')
         if h is None:
-            prev = None   # pre-chain (legacy) entry — reset the anchor
+            # A `_hash`-less entry is legitimate ONLY as a legacy pre-chain record,
+            # which can exist only at the HEAD (before chaining was introduced).
+            # Once ANY chained entry has been seen, a missing `_hash` means someone
+            # DELETED a hash to reset the anchor and then edited the following entry
+            # freely — the verify would otherwise treat that next entry as a fresh
+            # trusted anchor and report the tampered log as clean (a confirmed
+            # bypass, fixed v6.1.2). Treat it as tampering.
+            if seen_chained:
+                broken_at = i
+                break
+            prev = None   # genuine legacy head entry
             continue
+        seen_chained = True
         if prev is not None:
             checked += 1
             if not hmac.compare_digest(_audit_entry_hash(prev, e), h):
@@ -58479,6 +58539,7 @@ def _build_exact_routes():
         ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
         ('GET', '/api/image-cves'): handle_image_cves,   # W6-34
         ('POST', '/api/image-cves/scan'): handle_image_cve_scan,   # v6.1.2
+        ('POST', '/api/secrets-scan/scan'): handle_secrets_scan_now,   # v6.1.2
         ('GET', '/api/wan'): handle_wan_status,                    # v6.1.2
         ('GET', '/api/mdns'): handle_mdns_services,               # v6.1.2
         ('GET', '/api/deadman'): handle_deadman_jobs,             # v6.1.2

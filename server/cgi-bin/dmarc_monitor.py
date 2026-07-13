@@ -198,17 +198,16 @@ def parse_aggregate_report(xml_bytes):
     if not xml_bytes:
         return None
     import xml.etree.ElementTree as ET
-    # v5.5.0 (M1): scan the WHOLE buffer, not just the first 4 KB. expat expands
-    # internal entities, so a DOCTYPE/ENTITY pushed past a 4 KB window (e.g. behind
-    # a large leading comment) would slip the guard → billion-laughs DoS on a
-    # report deliverable by any unauthenticated sender (RUA addresses are public).
-    # The buffer is already size-capped at ingestion; a full scan is cheap.
-    _head = xml_bytes.lower()
-    if b'<!doctype' in _head or b'<!entity' in _head:
-        return None
+    import safe_xml
+    # v5.5.0 (M1): DMARC reports are deliverable by any unauthenticated sender
+    # (RUA addresses are public), so a billion-laughs (internal entity expansion)
+    # DoS is a real threat. safe_xml scans the WHOLE buffer for a DTD/entity and
+    # refuses it before parsing — the shared guard (v6.1.2) that also fixed the
+    # 4 KB-window bypass in cloud_import; the buffer is already size-capped at
+    # ingestion.
     try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError:
+        root = safe_xml.fromstring(xml_bytes)
+    except (ET.ParseError, ValueError):
         return None
     if root.tag.rsplit('}', 1)[-1] != 'feedback':
         return None

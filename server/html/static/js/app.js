@@ -23575,6 +23575,16 @@ function _homeNavAction(btn) {
     case 'integrations':
       showPage('integrations', document.querySelector('.nav-btn[data-page="integrations"]'));
       break;
+    // v6.1.2: network events (wan_ip_changed/wan_down/wan_up/mac_conflict/
+    // ping_missed/ping_recovered) route to the Network Map; ip_conflict routes to
+    // Sites. _homeActivityAttrs emits these, but the switch had no case, so they
+    // silently fell through to `default` (the Devices page). Found in the sweep.
+    case 'netmap':
+      showPage('netmap', document.querySelector('.nav-btn[data-page="netmap"]'));
+      break;
+    case 'sites':
+      showPage('sites', document.querySelector('.nav-btn[data-page="sites"]'));
+      break;
     // v5.1.0: fail2ban ban → the fleet Firewall & fail2ban page
     case 'firewall':
       showPage('firewall', document.querySelector('.nav-btn[data-page="firewall"]'));

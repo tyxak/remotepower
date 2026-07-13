@@ -19,6 +19,7 @@ import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import safe_xml
 
 
 # ── AWS Signature Version 4 ──────────────────────────────────────────────────
@@ -90,13 +91,13 @@ def parse_ec2_instances(xml_text):
     # entity declarations. Refuse any that do before parsing, so a tampered or
     # MITM'd response can't drive entity expansion (XXE / billion-laughs) through
     # xml.etree. (ET doesn't fetch external entities, but this also caps the DoS.)
-    _probe = (xml_text[:4096].decode('utf-8', 'replace')
-              if isinstance(xml_text, (bytes, bytearray)) else (xml_text or '')[:4096]).upper()
-    if '<!DOCTYPE' in _probe or '<!ENTITY' in _probe:
-        return out
+    # safe_xml scans the WHOLE buffer for a DTD/entity (billion-laughs guard). The
+    # previous inline check only looked at the first 4 KB — a DOCTYPE hidden behind
+    # a larger leading comment slipped it (the exact bypass dmarc_monitor's M1 note
+    # warns about). Centralised so the three XML call sites can't drift again.
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
+        root = safe_xml.fromstring(xml_text)
+    except (ET.ParseError, ValueError):
         return out
 
     def _f(el, tag):

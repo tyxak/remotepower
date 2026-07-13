@@ -44,7 +44,7 @@ async function _renderVirtPlatformBar() {
   bar.innerHTML = btns.map(b => {
     const on = b.kind === window._virtActive.kind &&
                String(b.id) === String(window._virtActive.id || '');
-    return `<button class="btn-icon${on ? ' is-active' : ''}" data-action="virtSelectPlatform"` +
+    return `<button class="btn-icon${on ? ' active' : ''}" data-action="virtSelectPlatform"` +
            ` data-arg="${escAttr(b.kind)}" data-arg2="${escAttr(b.id)}" data-arg3="${escAttr(b.type)}">` +
            `${escHtml(b.label)}</button>`;
   }).join('');
@@ -55,7 +55,7 @@ function virtSelectPlatform(kind, id, type) {
   document.querySelectorAll('#virt-platform-bar button').forEach(b => {
     const on = b.getAttribute('data-arg') === kind &&
                (b.getAttribute('data-arg2') || '') === String(id || '');
-    b.classList.toggle('is-active', on);
+    b.classList.toggle('active', on);
   });
   const sb = document.getElementById('virt-search');
   if (sb) sb.value = '';

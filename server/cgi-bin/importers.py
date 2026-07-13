@@ -18,6 +18,7 @@ reason, never silently dropped.
 import json
 import re
 import xml.etree.ElementTree as ET
+import safe_xml
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -194,8 +195,10 @@ def _parse_nagios(text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]
 def _parse_zabbix(text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     monitors, unmapped = [], []
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError as e:
+        # safe_xml rejects a DTD/entity declaration (billion-laughs DoS guard) —
+        # this path had NO guard before, and the import content is user-supplied.
+        root = safe_xml.fromstring(text)
+    except (ET.ParseError, ValueError) as e:
         return [], [{'name': 'parse', 'reason': f'invalid XML: {e}'}]
     for host in root.iter('host'):
         # NB: an ElementTree Element with no children is falsy, so `find(..) or
@@ -226,9 +229,17 @@ def parse(text: str, fmt: Optional[str] = None) -> Dict[str, Any]:
     ValueError on an unrecognised / unparseable format."""
     fmt = fmt or detect_format(text)
     if fmt == 'remotepower':
-        mons, un = _parse_remotepower(json.loads(text))
+        doc = json.loads(text)
+        # A JSON array/scalar for a dict-shaped format would AttributeError on the
+        # .get() below (an UNHANDLED type the caller's `except ValueError` misses →
+        # a 500). Reject it as the documented ValueError instead. Found by fuzzing.
+        if not isinstance(doc, dict):
+            raise ValueError('a RemotePower monitor export must be a JSON object')
+        mons, un = _parse_remotepower(doc)
     elif fmt == 'kuma':
         doc = json.loads(text)
+        if not isinstance(doc, dict):
+            raise ValueError('an Uptime Kuma export must be a JSON object')
         mons, un = _parse_kuma(doc)
     elif fmt == 'nagios':
         mons, un = _parse_nagios(text)
