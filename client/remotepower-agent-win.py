@@ -16,9 +16,14 @@ at parity with Linux:
     services (→ Services page), top processes + proc_names (→ process checks),
     local users + privileged-group tripwire, reboot-required detection
 
-Still Linux-only (not yet ported): SMART, hardware inventory, containers/compose,
-drift apply, OpenSCAP. Kept as a separate file from the Linux agent so it can't
-destabilise it; converging over time.
+As of the v6.1.3 second wave it also reports SMART disk health, hardware inventory
+(WMI), config drift (file hashing), containers (docker CLI), a Windows security-
+posture set for the Checks catalog (BitLocker / firewall / Defender / WU service),
+and evaluates agent-side custom checks incl. a `windows_service` type.
+
+Still Linux-only, and honestly so: OpenSCAP (`oscap` is a Linux tool with Linux
+SCAP content — the server-side CIS baseline is the cross-platform path). Kept as a
+separate file from the Linux agent so it can't destabilise it; converging over time.
 
 Stdlib only (urllib/json/socket/subprocess/platform/hashlib/winreg/logging).
 `psutil` is used for richer metrics + the process list when present, but the
@@ -612,6 +617,7 @@ def _handle_file_op_win(cmd):
 # the server escalates to CRITICAL — a stopped watched service is a warning, which
 # is the honest severity.
 _watched_services = []          # updated from each heartbeat response
+_watched_files = []             # v6.1.3: drift — updated from each heartbeat response
 _WIN_SVC_STATE = {
     'running': 'active', 'startpending': 'activating', 'stoppending': 'activating',
     'stopped': 'inactive', 'paused': 'inactive', 'pausepending': 'inactive',
@@ -1011,15 +1017,20 @@ _EVENTLOG_CURSOR_FILE = 'eventlog_cursor.json'
 # JSON-per-line so we get RecordId + Id + level structurally, not by re-parsing text.
 # Security events have no Level filter that's useful (most are Information), so we
 # take that channel unfiltered; System/Application stay Critical/Error/Warning.
+# NOTE: built with str.replace(), NOT str.format() — so the PowerShell hash/
+# scriptblock braces are SINGLE (`@{ }` / `{ }`); only the {CHANNEL}/{LEVEL}/
+# {MAX}/{SINCE} tokens are substituted. (A prior version doubled the braces as if
+# for .format() and PowerShell rejected `@{{…}}` — caught by parsing it with the
+# real pwsh, which is why the agent's PS is now parse-validated in tests.)
 _EVENTLOG_PS_TMPL = (
     "$ErrorActionPreference='SilentlyContinue';"
-    "$f=@{{LogName='{CHANNEL}'{LEVEL}}};"
-    "Get-WinEvent -FilterHashtable $f -MaxEvents {MAX} | Where-Object {{ $_.RecordId -gt {SINCE} }} | "
-    "ForEach-Object {{ [pscustomobject]@{{"
+    "$f=@{LogName='{CHANNEL}'{LEVEL}};"
+    "Get-WinEvent -FilterHashtable $f -MaxEvents {MAX} | Where-Object { $_.RecordId -gt {SINCE} } | "
+    "ForEach-Object { [pscustomobject]@{"
     "  rid=$_.RecordId; id=$_.Id; lvl=$_.LevelDisplayName; prov=$_.ProviderName;"
     "  t=$_.TimeCreated.ToString('MMM dd HH:mm:ss');"
     "  msg=($_.Message -replace '\\s+',' ')"
-    "}} | ConvertTo-Json -Compress }}"
+    "} | ConvertTo-Json -Compress }"
 )
 
 
@@ -1253,6 +1264,21 @@ def collect_sysinfo():
         # by Windows, so the -IgnoreReboot updater left a silent pending-reboot.
         'reboot_required': _reboot_required(),
     }
+    # v6.1.3: Windows security posture → the Checks catalog (BitLocker, firewall,
+    # Defender real-time + signature age, Windows Update service).
+    try:
+        wp = get_win_posture()
+        if wp:
+            info['win_posture'] = wp
+    except Exception:
+        pass
+    # v6.1.3: agent-side custom checks — evaluate the server-pushed set on-host
+    # and report the results (parity with the Linux agent).
+    if _watched_agent_checks:
+        try:
+            info['custom_check_results'] = eval_agent_checks(_watched_agent_checks)
+        except Exception:
+            pass
     pkgs = windows_update_pending()
     if pkgs is not None:
         info['packages'] = pkgs                # Windows Update pending → Patches page
@@ -1700,6 +1726,413 @@ def get_gpu_status():
     return gpus
 
 
+# ── v6.1.3: SMART disk health (parity with the Linux agent) ───────────────────
+#
+# Windows exposes disk health through the Storage subsystem, not smartctl:
+# Get-PhysicalDisk gives the drive's own HealthStatus + identity, and
+# Get-StorageReliabilityCounter gives the SMART-derived counters (wear,
+# temperature, power-on hours, read/write error totals). Projected onto the SAME
+# `smart[]` shape the server's _ingest_hardware already consumes, so failure
+# prediction, wear tracking and the daily SMART trend all light up on Windows
+# with zero server change.
+_SMART_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "Get-PhysicalDisk | ForEach-Object {"
+    "  $d=$_; $rc=$d | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue;"
+    "  [pscustomobject]@{"
+    "    device=$d.DeviceId; model=$d.FriendlyName; serial=$d.SerialNumber;"
+    "    health=$d.HealthStatus.ToString();"
+    "    wear=($(if($rc){$rc.Wear}else{$null}));"
+    "    temperature_c=($(if($rc){$rc.Temperature}else{$null}));"
+    "    power_on_hours=($(if($rc){$rc.PowerOnHours}else{$null}));"
+    "    read_errors=($(if($rc){$rc.ReadErrorsTotal}else{$null}))"
+    "  } | ConvertTo-Json -Compress"
+    "}"
+)
+# Windows HealthStatus → the server's PASSED|FAILED|UNKNOWN vocabulary. A
+# 'Warning' (degraded) drive maps to FAILED so it ALERTS — a disk the OS already
+# flags as degraded is exactly what disk-failure prediction exists to catch.
+_SMART_HEALTH = {'healthy': 'PASSED', 'unhealthy': 'FAILED', 'warning': 'FAILED'}
+
+
+def _num_or_none(v):
+    try:
+        if v is None:
+            return None
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+def get_smart_status():
+    """Per-physical-disk SMART health, or []. Off-Windows []."""
+    if not sys.platform.startswith('win'):
+        return []
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', _SMART_PS],
+                           capture_output=True, text=True, timeout=45,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    return _parse_smart(r.stdout)
+
+
+def _parse_smart(stdout):
+    """JSON-per-line → the server's smart[] entry shape. Pure/unit-testable."""
+    disks = []
+    for raw in (stdout or '').splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            o = json.loads(raw)
+        except Exception:
+            continue
+        entry: dict = {
+            'device': str(o.get('device') or '')[:64],
+            'model':  str(o.get('model') or '')[:64],
+            'serial': str(o.get('serial') or '')[:64],
+            'health': _SMART_HEALTH.get(str(o.get('health') or '').lower(), 'UNKNOWN'),
+        }
+        temp = _num_or_none(o.get('temperature_c'))
+        if temp is not None:
+            entry['temperature_c'] = temp
+        poh = _num_or_none(o.get('power_on_hours'))
+        if poh is not None:
+            entry['power_on_hours'] = poh
+        wear = _num_or_none(o.get('wear'))
+        if wear is not None and 0 <= wear <= 100:
+            entry['wear_pct'] = wear
+        # Windows' ReadErrorsTotal is the closest analogue to the reallocated/
+        # pending trend the server predicts on — surface it as crc_errors (a
+        # counter the server already trends) rather than inventing a new field.
+        rerr = _num_or_none(o.get('read_errors'))
+        if rerr is not None:
+            entry['crc_errors'] = rerr
+        disks.append(entry)
+    return disks
+
+
+# ── v6.1.3: hardware inventory via WMI (parity) ───────────────────────────────
+_HWINV_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "$cs=Get-CimInstance Win32_ComputerSystem;"
+    "$bios=Get-CimInstance Win32_BIOS;"
+    "$mem=@(Get-CimInstance Win32_PhysicalMemory | ForEach-Object {"
+    "  @{locator=$_.DeviceLocator;"
+    "    size=(''+[math]::Round($_.Capacity/1GB)+' GB');"
+    "    speed=(''+$_.Speed+' MHz');"
+    "    serial=$_.SerialNumber; manufacturer=$_.Manufacturer}});"
+    "[pscustomobject]@{"
+    "  manufacturer=$cs.Manufacturer; product=$cs.Model;"
+    "  serial=$bios.SerialNumber; memory=$mem"
+    "} | ConvertTo-Json -Compress -Depth 4"
+)
+
+
+def get_hardware_inventory():
+    """{system:{manufacturer,product,serial}, memory:[...]} via WMI, or {}.
+
+    Temps/RAID are deliberately omitted — MSAcpi_ThermalZoneTemperature is absent
+    on most desktops and Storage-Spaces RAID is niche; better to send nothing than
+    a flaky half-signal. Off-Windows {}."""
+    if not sys.platform.startswith('win'):
+        return {}
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', _HWINV_PS],
+                           capture_output=True, text=True, timeout=30,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return {}
+    if r.returncode != 0:
+        return {}
+    return _parse_hwinv(r.stdout)
+
+
+def _parse_hwinv(stdout):
+    """The WMI JSON → the server's hardware shape. Pure/unit-testable."""
+    try:
+        o = json.loads((stdout or '').strip() or '{}')
+    except Exception:
+        return {}
+    if not isinstance(o, dict):
+        return {}
+    hw = {}
+    system = {k: str(o.get(sk) or '')[:128] for k, sk in
+              (('manufacturer', 'manufacturer'), ('product', 'product'), ('serial', 'serial'))
+              if o.get(sk)}
+    if system:
+        hw['system'] = system
+    mem = o.get('memory')
+    # ConvertTo-Json emits a single DIMM as an object, not a one-element array.
+    if isinstance(mem, dict):
+        mem = [mem]
+    if isinstance(mem, list):
+        dimms = []
+        for d in mem[:64]:
+            if not isinstance(d, dict):
+                continue
+            dimms.append({k: str(v)[:64] for k, v in d.items()
+                          if k in ('locator', 'size', 'type', 'speed', 'serial', 'manufacturer') and v})
+        if dimms:
+            hw['memory'] = dimms
+    return hw
+
+
+# ── v6.1.3: agent-side custom checks (parity — the Windows agent had NONE) ────
+#
+# The server pushes `agent_checks` in the heartbeat response; the agent evaluates
+# them read-only and reports {id: {status, output}} in sysinfo.custom_check_results.
+# The Windows agent never did this, so every file/job/log/service custom check
+# silently reported "unknown" on Windows. Portable types (file_present/absent,
+# job_fresh) work as-is; `windows_service` is the Windows analogue of systemd_unit;
+# `log_errors` matches against the Event Log in Python (never passing the operator
+# regex into PowerShell).
+_watched_agent_checks = []      # pushed by the server each heartbeat
+
+
+def _eval_one_agent_check_win(c):
+    ctype = c.get('type')
+    param = str(c.get('param', ''))
+    if ctype in ('file_present', 'file_absent'):
+        try:
+            exists = os.path.exists(param)
+        except Exception:
+            return 'unknown', 'stat failed'
+        if ctype == 'file_present':
+            return ('ok', 'present') if exists else ('critical', 'missing')
+        return ('critical', 'present (should be absent)') if exists else ('ok', 'absent')
+    if ctype == 'job_fresh':
+        try:
+            max_age = int(c.get('max_age_hours', 24)) * 3600
+        except (TypeError, ValueError):
+            max_age = 24 * 3600
+        try:
+            age = time.time() - os.stat(param).st_mtime
+        except FileNotFoundError:
+            return 'critical', 'file missing'
+        except Exception:
+            return 'unknown', 'stat failed'
+        hrs = age / 3600.0
+        return ('ok', f'updated {hrs:.1f}h ago') if age <= max_age \
+            else ('critical', f'stale: {hrs:.1f}h old (max {max_age // 3600}h)')
+    if ctype == 'windows_service':
+        # Read-only Get-Service; the name is a single-quoted PS literal (no shell,
+        # nothing to inject). Running → ok, Start/StopPending → warning, else crit.
+        if not param.strip():
+            return 'unknown', 'no service'
+        ps = (f"$ErrorActionPreference='SilentlyContinue';"
+              f"$s=Get-Service -Name {_ps_single_quote(param)};"
+              f"if($s){{$s.Status.ToString()}}else{{'NotFound'}}")
+        try:
+            r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', ps],
+                               capture_output=True, text=True, timeout=20,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            state = (r.stdout or '').strip().lower()
+        except Exception:
+            return 'unknown', 'query failed'
+        if state == 'running':
+            return 'ok', 'running'
+        if state in ('startpending', 'continuepending'):
+            return 'warning', state
+        if state == 'notfound' or not state:
+            return 'critical', 'not found'
+        return 'critical', state
+    if ctype == 'log_errors':
+        # Match an operator regex against the recent Event Log. The regex is
+        # applied in PYTHON (re) over JSON events, never interpolated into
+        # PowerShell — so there is nothing to inject through the pattern.
+        if not param:
+            return 'unknown', 'no pattern'
+        try:
+            window = int(c.get('window_min', 15))
+            warn = int(c.get('warn', 1))
+            crit = int(c.get('crit', 10))
+        except (TypeError, ValueError):
+            window, warn, crit = 15, 1, 10
+        ps = ("$ErrorActionPreference='SilentlyContinue';"
+              f"Get-WinEvent -FilterHashtable @{{LogName='System','Application';"
+              f" StartTime=(Get-Date).AddMinutes(-{window})}} -MaxEvents 5000 | "
+              "ForEach-Object { ($_.Message -replace '\\s+',' ') }")
+        try:
+            r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', ps],
+                               capture_output=True, text=True, timeout=30,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except Exception:
+            return 'unknown', 'query failed'
+        try:
+            rx = re.compile(param)
+        except re.error:
+            return 'unknown', 'bad pattern'
+        n = sum(1 for ln in (r.stdout or '').splitlines() if ln.strip() and rx.search(ln))
+        status = 'critical' if n >= crit else 'warning' if n >= warn else 'ok'
+        return status, f'{n} match(es) in {window}min'
+    # systemd_unit and anything else is not applicable on Windows.
+    return 'unknown', 'not applicable on Windows'
+
+
+def eval_agent_checks(checks):
+    """Evaluate every server-pushed agent-side check → {id: {status, output}}."""
+    out = {}
+    for c in checks or []:
+        if not isinstance(c, dict) or not c.get('id'):
+            continue
+        try:
+            status, output = _eval_one_agent_check_win(c)
+        except Exception:
+            status, output = 'unknown', 'error'
+        out[c['id']] = {'status': status, 'output': str(output)[:200]}
+    return out
+
+
+# ── v6.1.3: Windows security posture → the Checks catalog ─────────────────────
+#
+# The RMM check-library staples that have no Linux equivalent, gathered into one
+# sysinfo sub-dict so the server's Checks engine can render them as first-class
+# check rows (BitLocker, Windows Firewall per profile, Defender real-time +
+# signature age, the Windows Update service). One PowerShell call; the whole
+# projection is parse- and shape-validated against the real pwsh in tests.
+_WIN_POSTURE_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "$fw=@(Get-NetFirewallProfile | ForEach-Object { @{name=$_.Name; enabled=[bool]$_.Enabled} });"
+    "$bl=@(Get-BitLockerVolume | Where-Object { $_.VolumeType -eq 'OperatingSystem' } | "
+    "  ForEach-Object { @{mount=$_.MountPoint; status=$_.ProtectionStatus.ToString()} });"
+    "$def=Get-MpComputerStatus;"
+    "$wu=Get-Service -Name wuauserv;"
+    "[pscustomobject]@{"
+    "  firewall=$fw; bitlocker=$bl;"
+    "  defender_realtime=[bool]$def.RealTimeProtectionEnabled;"
+    "  defender_sig_age_days=[int]$def.AntivirusSignatureAge;"
+    "  wu_service=$wu.Status.ToString()"
+    "} | ConvertTo-Json -Compress -Depth 4"
+)
+
+
+def get_win_posture():
+    """Windows security-posture signals for the Checks catalog, or {}. Off-Win {}."""
+    if not sys.platform.startswith('win'):
+        return {}
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', _WIN_POSTURE_PS],
+                           capture_output=True, text=True, timeout=45,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return {}
+    if r.returncode != 0:
+        return {}
+    return _parse_win_posture(r.stdout)
+
+
+def _parse_win_posture(stdout):
+    """The posture JSON → a compact, sanitized sysinfo sub-dict. Pure/testable."""
+    try:
+        o = json.loads((stdout or '').strip() or '{}')
+    except Exception:
+        return {}
+    if not isinstance(o, dict):
+        return {}
+    out = {}
+    fw = o.get('firewall')
+    if isinstance(fw, dict):        # single profile → object, not array
+        fw = [fw]
+    if isinstance(fw, list):
+        out['firewall'] = [{'name': str(p.get('name') or '')[:32], 'enabled': bool(p.get('enabled'))}
+                           for p in fw if isinstance(p, dict)][:8]
+    bl = o.get('bitlocker')
+    if isinstance(bl, dict):
+        bl = [bl]
+    if isinstance(bl, list):
+        out['bitlocker'] = [{'mount': str(v.get('mount') or '')[:8], 'status': str(v.get('status') or '')[:24]}
+                            for v in bl if isinstance(v, dict)][:8]
+    if 'defender_realtime' in o:
+        out['defender_realtime'] = bool(o.get('defender_realtime'))
+    age = o.get('defender_sig_age_days')
+    if isinstance(age, (int, float)) and 0 <= age < 100000:
+        out['defender_sig_age_days'] = int(age)
+    if o.get('wu_service'):
+        out['wu_service'] = str(o.get('wu_service'))[:24]
+    return out
+
+
+# ── v6.1.3: config drift — watched-file hashing (parity, OS-agnostic) ─────────
+MAX_DRIFT_FILES = 200
+
+
+def compute_drift_report(paths):
+    """sha256 each watched file → {path: {hash, size, mtime, exists}}. Identical
+    contract to the Linux agent; pure file I/O, so it is genuinely OS-agnostic."""
+    out = {}
+    for p in (paths or [])[:MAX_DRIFT_FILES]:
+        try:
+            st = os.stat(p)
+        except FileNotFoundError:
+            out[p] = {'hash': None, 'size': None, 'mtime': None, 'exists': False}
+            continue
+        except OSError:
+            out[p] = {'hash': None, 'size': None, 'mtime': None, 'exists': False}
+            continue
+        try:
+            h = hashlib.sha256()
+            with open(p, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    h.update(chunk)
+            out[p] = {'hash': 'sha256:' + h.hexdigest(),
+                      'size': st.st_size, 'mtime': int(st.st_mtime), 'exists': True}
+        except OSError:
+            out[p] = {'hash': None, 'size': st.st_size,
+                      'mtime': int(st.st_mtime), 'exists': False}
+    return out
+
+
+# ── v6.1.3: containers via the docker CLI (parity) ────────────────────────────
+def get_containers():
+    """`docker ps` listing (Docker Desktop / Windows containers), or []. The
+    server's containers.normalize_listing consumes the raw `{{json .}}` lines, so
+    this just needs to produce them. Feature-invisible when docker isn't present."""
+    docker = _winshell_which('docker')
+    if not docker:
+        return []
+    try:
+        r = subprocess.run([docker, 'ps', '--no-trunc', '--format', '{{json .}}'],
+                           capture_output=True, text=True, timeout=15,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+        if len(out) >= 100:
+            break
+    return out
+
+
+def _winshell_which(name):
+    """Absolute path to a PATH tool (docker) via the absolute where.exe, or None.
+    Same hijack-safe resolution as _winget_bin, but returns None when absent so a
+    collector can cheaply no-op rather than invoking a bare name."""
+    try:
+        r = subprocess.run([_system_bin('where'), name],
+                           capture_output=True, text=True, timeout=10,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        for line in (r.stdout or '').splitlines():
+            cand = line.strip()
+            if cand and os.path.exists(cand):
+                return cand
+    except Exception:
+        pass
+    return None
+
+
 def build_heartbeat(creds, poll_count, pending_output=None):
     """Assemble the heartbeat payload. Pure (no network) — unit-testable."""
     payload = {
@@ -1730,6 +2163,27 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         accounts = get_local_accounts()        # local users → account audit card
         if accounts:
             payload['accounts'] = accounts
+        # v6.1.3: SMART + hardware inventory (parity) — feed the existing
+        # _ingest_hardware pipeline (failure prediction, wear trend, asset page).
+        try:
+            smart = get_smart_status()
+            if smart:
+                payload['smart'] = smart
+        except Exception:
+            pass
+        try:
+            hw = get_hardware_inventory()
+            if hw:
+                payload['hardware'] = hw
+        except Exception:
+            pass
+        # v6.1.3: containers (Docker Desktop / Windows containers), if present.
+        try:
+            containers = get_containers()
+            if containers:
+                payload['containers'] = containers
+        except Exception:
+            pass
         gpus = get_gpu_status()                 # NVIDIA GPU telemetry → fleet GPU page
         if gpus:
             payload['gpus'] = gpus
@@ -1752,6 +2206,14 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             svcs = get_services(_watched_services)
             if svcs:
                 payload['services'] = svcs
+        except Exception:
+            pass
+    # v6.1.3: config-drift report — hash the watched files on the sysinfo cadence.
+    if _watched_files and (poll_count <= 1 or poll_count % 12 == 0):
+        try:
+            drift = compute_drift_report(_watched_files)
+            if drift:
+                payload['drift'] = drift
         except Exception:
             pass
     if pending_output:
@@ -1803,10 +2265,18 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _ssp = resp.get('secrets_scan_paths')
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
         # v6.1.3: watched services pushed by the server (parity with Linux).
-        global _watched_services
+        global _watched_services, _watched_files, _watched_agent_checks
         _sw = resp.get('services_watched')
         if isinstance(_sw, list):
             _watched_services = [str(s) for s in _sw if str(s).strip()][:50]
+        # v6.1.3: watched files for drift (parity with the Linux agent).
+        _wf = resp.get('watched_files')
+        if isinstance(_wf, list):
+            _watched_files = [str(f) for f in _wf if str(f).strip()][:MAX_DRIFT_FILES]
+        # v6.1.3: agent-side custom checks pushed by the server.
+        _ac = resp.get('agent_checks')
+        if isinstance(_ac, list):
+            _watched_agent_checks = [c for c in _ac if isinstance(c, dict) and c.get('id')][:100]
     return resp, new_pending
 
 

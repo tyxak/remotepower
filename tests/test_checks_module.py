@@ -50,7 +50,8 @@ class TestPurity(unittest.TestCase):
                          ('process', 'port_open', 'port_closed'))
         self.assertEqual(checks.AGENT_CHECK_TYPES,
                          ('file_present', 'file_absent', 'log_errors',
-                          'job_fresh', 'systemd_unit'))
+                          'job_fresh', 'systemd_unit',
+                          'windows_service'))   # v6.1.3: Windows parity
 
 
 class TestEngine(unittest.TestCase):

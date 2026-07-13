@@ -118,6 +118,18 @@ def _host_checks(
             lvl("cpu:"),
             f"load {la:.2f} (ratio {la / (cc or 1):.2f}, {cc} cores)",
         )
+    elif isinstance(si.get("cpu_percent"), (int, float)):
+        # v6.1.3: Windows/macOS report cpu_percent, not a loadavg. Surface the same
+        # CPU check row from that so the resources group isn't empty on Windows.
+        # Thresholds mirror the metric engine's default busy/overloaded bands.
+        cpu = si["cpu_percent"]
+        add(
+            "cpu",
+            "CPU load",
+            "resources",
+            "critical" if cpu >= 95 else "warning" if cpu >= 85 else "ok",
+            f"{cpu:.0f}% busy",
+        )
     for key, name, field in (
         ("memory", "Memory", "mem_percent"),
         ("swap", "Swap", "swap_percent"),
@@ -356,6 +368,81 @@ def _host_checks(
             "critical" if bad else "ok",
             f"{len(bad)} pool(s) degraded" if bad else f"{len(pools)} pool(s) healthy",
         )
+    # ── v6.1.3: Windows security-posture checks (from sysinfo.win_posture) ──
+    # These render ONLY when the Windows agent reported posture, so a Linux host
+    # never shows an empty "BitLocker" row. Classic RMM check-library staples that
+    # have no Linux analogue.
+    wp = si.get("win_posture")
+    if isinstance(wp, dict):
+        # Windows Defender real-time protection. AV that is installed but switched
+        # off is the single highest-signal endpoint-protection failure.
+        if "defender_realtime" in wp:
+            rt = bool(wp["defender_realtime"])
+            add(
+                "win_av_realtime",
+                "Defender real-time protection",
+                "security",
+                "ok" if rt else "critical",
+                "enabled" if rt else "DISABLED",
+            )
+        # Signature age — stale definitions blind the scanner.
+        age = wp.get("defender_sig_age_days")
+        if isinstance(age, (int, float)):
+            add(
+                "win_av_signatures",
+                "Defender signature age",
+                "security",
+                "critical" if age >= 7 else "warning" if age >= 3 else "ok",
+                f"{int(age)} day(s) old",
+            )
+        # BitLocker on the OS volume.
+        bl = wp.get("bitlocker")
+        if isinstance(bl, list):
+            unprot = [
+                v
+                for v in bl
+                if isinstance(v, dict)
+                and str(v.get("status", "")).lower() not in ("on", "encrypted")
+            ]
+            add(
+                "win_bitlocker",
+                "BitLocker (OS drive)",
+                "security",
+                "warning" if (unprot or not bl) else "ok",
+                (
+                    f"{len(unprot)} volume(s) unprotected"
+                    if unprot
+                    else "encrypted" if bl else "no OS volume reported"
+                ),
+            )
+        # Windows Firewall — per-profile enabled state.
+        fw = wp.get("firewall")
+        if isinstance(fw, list) and fw:
+            off = [p.get("name") for p in fw if isinstance(p, dict) and not p.get("enabled")]
+            add(
+                "win_firewall",
+                "Windows Firewall",
+                "security",
+                "warning" if off else "ok",
+                (
+                    f"{', '.join(str(n) for n in off if n)} profile(s) OFF"
+                    if off
+                    else "all profiles on"
+                ),
+            )
+        # Windows Update service — if it's not running, the host silently stops
+        # patching, and every other patch signal quietly goes stale.
+        wu = wp.get("wu_service")
+        if wu:
+            running = str(wu).lower() == "running"
+            add(
+                "win_update_service",
+                "Windows Update service",
+                "patch",
+                "ok" if running else "warning",
+                "running" if running else f"{wu} (not running)",
+            )
+
     # v4.1.0: operator-defined custom checks (process/port), scoped to this host.
     if custom_defs:
         out.extend(_custom_checks_for(dev_id, dev, custom_defs, disabled))
@@ -388,7 +475,16 @@ def _host_checks(
 # evaluated on-host, and reported back in sysinfo['custom_check_results'].
 SERVER_CHECK_TYPES = ("process", "port_open", "port_closed")
 
-AGENT_CHECK_TYPES = ("file_present", "file_absent", "log_errors", "job_fresh", "systemd_unit")
+AGENT_CHECK_TYPES = (
+    "file_present",
+    "file_absent",
+    "log_errors",
+    "job_fresh",
+    "systemd_unit",
+    # v6.1.3: the Windows analogue of systemd_unit — is a named
+    # Windows service Running? Evaluated on-host via Get-Service.
+    "windows_service",
+)
 
 
 def _custom_check_applies(cdef, dev_id, dev):

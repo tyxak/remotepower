@@ -65,6 +65,39 @@ of that gap, and fixes two real bugs found on the way.
   service, `wevtutil`, and CLI sub-commands the agent never had). Rewritten to
   match the shipping agent.
 
+- **Getting off "Linux-only" — SMART, hardware, drift, containers.** Four
+  collectors that were ports, not Windows limitations: **SMART** disk health via
+  `Get-PhysicalDisk` + `Get-StorageReliabilityCounter` (a degraded drive maps to
+  the server's FAILED, so failure prediction/wear/trends all light up); **hardware
+  inventory** via WMI (`Win32_ComputerSystem`/`Win32_BIOS`/`Win32_PhysicalMemory`);
+  **config-drift** (watched-file hashing — genuinely OS-agnostic); and
+  **containers** via the `docker` CLI (Docker Desktop / Windows containers,
+  feature-invisible when absent). All feed the existing server pipelines with zero
+  server change. (Still Linux-only, and honestly so: **OpenSCAP** — `oscap` is a
+  Linux tool with Linux SCAP content; the Windows-native equivalent is a different
+  product. The server-side **CIS baseline** scoring is already cross-platform.)
+
+- **Check catalog — Windows compliance.** The per-host Checks engine grew Windows
+  security-posture rows from a new one-shot posture collector: **Defender
+  real-time protection** (off = critical), **Defender signature age**, **BitLocker**
+  on the OS volume, **Windows Firewall** per profile, and the **Windows Update
+  service**. The CPU check now renders from `cpu_percent` where there's no loadavg
+  (Windows/macOS). The Windows agent also — for the first time — **evaluates
+  agent-side custom checks** (it reported "unknown" for every file/job/service
+  check before): `file_present`/`absent`/`job_fresh`/`log_errors` work, and a new
+  **`windows_service`** check type (the analogue of `systemd_unit`) answers "is
+  service X Running?" via `Get-Service`. The ready-made **Check catalog** gained a
+  Windows section (~25 templates: Windows Update / Defender / Firewall / RDP /
+  WinRM / IIS / SQL Server / AD / Hyper-V / Exchange / Docker Desktop, plus the
+  standard port checks).
+
+- **Validated against real PowerShell.** The agent's PowerShell is now
+  parse-checked against a real `pwsh` in the test suite — which immediately caught
+  a `@{{…}}` double-brace bug in the Event Log query (built with `str.replace`, not
+  `str.format`) that would have failed on every Windows host. SMART and posture
+  projections are additionally run end-to-end with mocked cmdlets to prove the JSON
+  shape matches what the server ingests.
+
 ### Added — detection
 
 - **Privileged-group tripwire.** Someone landing in `sudo`/`wheel` (Linux) or

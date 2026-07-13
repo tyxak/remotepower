@@ -6,6 +6,7 @@ assembly) are exercised here on Linux — no Windows needed. Network calls are
 monkeypatched.
 """
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -437,6 +438,230 @@ class TestWinAgentUndefinedNames(unittest.TestCase):
                 if n not in mod_globals and n not in _dunders
                 and not hasattr(builtins, n)}
         self.assertEqual(real, set(), f"undefined names in win agent: {sorted(real)}")
+
+
+# ── v6.1.3 wave 2: SMART / hardware / drift / containers / posture / checks ──
+
+class TestSmart(unittest.TestCase):
+    def test_warning_maps_to_failed(self):
+        # A Windows 'Warning' disk is degraded → the server's FAILED (alerts),
+        # never left as PASSED.
+        out = agent._parse_smart(json.dumps(
+            {"device": "1", "model": "WD", "serial": "W", "health": "Warning",
+             "wear": 12, "temperature_c": 40, "power_on_hours": 9000, "read_errors": 2}))
+        self.assertEqual(out[0]["health"], "FAILED")
+        self.assertEqual(out[0]["wear_pct"], 12)
+        self.assertEqual(out[0]["temperature_c"], 40)
+        self.assertEqual(out[0]["crc_errors"], 2)   # read errors → the trended counter
+
+    def test_healthy_maps_to_passed(self):
+        out = agent._parse_smart(json.dumps(
+            {"device": "0", "model": "S", "serial": "x", "health": "Healthy"}))
+        self.assertEqual(out[0]["health"], "PASSED")
+
+    def test_off_windows_empty(self):
+        self.assertEqual(agent.get_smart_status(), [])
+
+    def test_garbage_lines_skipped(self):
+        self.assertEqual(agent._parse_smart("not json\n"), [])
+
+
+class TestHardwareInventory(unittest.TestCase):
+    def test_shape_matches_server(self):
+        hw = agent._parse_hwinv(json.dumps(
+            {"manufacturer": "Dell", "product": "OptiPlex", "serial": "ABC",
+             "memory": [{"locator": "DIMM0", "size": "16 GB", "speed": "3200 MHz"}]}))
+        self.assertEqual(hw["system"]["manufacturer"], "Dell")
+        self.assertEqual(hw["memory"][0]["locator"], "DIMM0")
+
+    def test_single_dimm_object_is_wrapped(self):
+        # ConvertTo-Json renders a single DIMM as an object, not a 1-element array.
+        hw = agent._parse_hwinv(json.dumps(
+            {"manufacturer": "X", "memory": {"locator": "DIMM0", "size": "8 GB"}}))
+        self.assertEqual(len(hw["memory"]), 1)
+
+    def test_off_windows_empty(self):
+        self.assertEqual(agent.get_hardware_inventory(), {})
+
+
+class TestDrift(unittest.TestCase):
+    def test_hashes_existing_and_flags_missing(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "f.txt")
+        open(p, "w").write("hello")
+        rep = agent.compute_drift_report([p, os.path.join(d, "gone")])
+        self.assertTrue(rep[p]["exists"])
+        self.assertTrue(rep[p]["hash"].startswith("sha256:"))
+        self.assertFalse(rep[os.path.join(d, "gone")]["exists"])
+
+    def test_bounded(self):
+        d = tempfile.mkdtemp()
+        paths = []
+        for i in range(agent.MAX_DRIFT_FILES + 50):
+            p = os.path.join(d, f"f{i}")
+            open(p, "w").write("x")
+            paths.append(p)
+        self.assertLessEqual(len(agent.compute_drift_report(paths)), agent.MAX_DRIFT_FILES)
+
+
+class TestWinPosture(unittest.TestCase):
+    def test_parse_shape(self):
+        wp = agent._parse_win_posture(json.dumps({
+            "firewall": [{"name": "Public", "enabled": False}],
+            "bitlocker": [{"mount": "C:", "status": "On"}],
+            "defender_realtime": False, "defender_sig_age_days": 9,
+            "wu_service": "Running"}))
+        self.assertEqual(wp["defender_realtime"], False)
+        self.assertEqual(wp["defender_sig_age_days"], 9)
+        self.assertEqual(wp["firewall"][0]["enabled"], False)
+
+    def test_single_firewall_profile_object_wrapped(self):
+        wp = agent._parse_win_posture(json.dumps(
+            {"firewall": {"name": "Domain", "enabled": True}}))
+        self.assertEqual(len(wp["firewall"]), 1)
+
+    def test_off_windows_empty(self):
+        self.assertEqual(agent.get_win_posture(), {})
+
+
+class TestAgentSideChecks(unittest.TestCase):
+    """The Windows agent evaluated NO agent-side checks before v6.1.3 — every
+    file/job/service custom check silently reported 'unknown' on Windows."""
+
+    def test_file_present_absent(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "x")
+        open(p, "w").write("x")
+        r = agent.eval_agent_checks([
+            {"id": "a", "type": "file_present", "param": p},
+            {"id": "b", "type": "file_present", "param": os.path.join(d, "nope")},
+            {"id": "c", "type": "file_absent", "param": p},
+        ])
+        self.assertEqual(r["a"]["status"], "ok")
+        self.assertEqual(r["b"]["status"], "critical")
+        self.assertEqual(r["c"]["status"], "critical")
+
+    def test_job_fresh(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "stamp")
+        open(p, "w").write("x")
+        r = agent.eval_agent_checks([{"id": "j", "type": "job_fresh", "param": p, "max_age_hours": 24}])
+        self.assertEqual(r["j"]["status"], "ok")
+
+    def test_systemd_unit_is_not_applicable_on_windows(self):
+        r = agent.eval_agent_checks([{"id": "u", "type": "systemd_unit", "param": "nginx.service"}])
+        self.assertEqual(r["u"]["status"], "unknown")
+
+    def test_windows_service_check_off_windows_reports_cleanly(self):
+        # Off-Windows the PowerShell call fails → 'unknown', never a crash.
+        r = agent.eval_agent_checks([{"id": "s", "type": "windows_service", "param": "wuauserv"}])
+        self.assertIn(r["s"]["status"], ("unknown", "critical"))
+
+    def test_log_errors_bad_pattern(self):
+        r = agent.eval_agent_checks([{"id": "l", "type": "log_errors", "param": "(unclosed"}])
+        # An invalid regex reports 'unknown' rather than raising.
+        self.assertEqual(r["l"]["status"], "unknown")
+
+
+_PWSH = None
+for _cand in ("/home/jaove/.claude/jobs/2bd1277d/tmp/pwsh/pwsh", "pwsh"):
+    import shutil as _sh
+    _p = _cand if os.path.exists(_cand) else _sh.which(_cand)
+    if _p:
+        _PWSH = _p
+        break
+
+
+@unittest.skipUnless(_PWSH, "PowerShell not available to parse-validate the agent's PS")
+class TestPowerShellSnippetsParse(unittest.TestCase):
+    """Validate every PowerShell string the agent builds actually PARSES, using a
+    real pwsh. This caught a `@{{…}}` double-brace bug in the Event Log template
+    (str.replace, not str.format) that would have failed on every Windows host."""
+
+    def _parses(self, ps_text):
+        import subprocess
+        # PARSE ONLY — never execute. The snippet path travels via an env var so
+        # it can't be interpreted as a trailing command (which would run it).
+        f = tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False)
+        f.write(ps_text)
+        f.close()
+        script = (
+            "$e=$null;$t=$null;"
+            "$null=[System.Management.Automation.Language.Parser]::ParseInput("
+            "[System.IO.File]::ReadAllText($env:RP_PS_FILE),[ref]$t,[ref]$e);"
+            "if($e.Count){'ERR:'+$e[0].Message}else{'OK'}"
+        )
+        out = subprocess.run([_PWSH, "-NoProfile", "-Command", script],
+                             capture_output=True, text=True, timeout=60,
+                             env=dict(os.environ, RP_PS_FILE=f.name))
+        return (out.stdout or "").strip()
+
+    def test_all_agent_ps_snippets_parse(self):
+        snippets = {
+            "_SMART_PS": agent._SMART_PS,
+            "_HWINV_PS": agent._HWINV_PS,
+            "_SVC_PS": agent._SVC_PS.replace("{NAMES}", "@()"),
+            "_WU_PS": agent._WU_PS,
+            "_DEFENDER_PS": agent._DEFENDER_PS,
+            "_LOCAL_USERS_PS": agent._LOCAL_USERS_PS,
+            "_WIN_POSTURE_PS": agent._WIN_POSTURE_PS,
+            "_EVENTLOG_PS_TMPL(System)": (agent._EVENTLOG_PS_TMPL
+                .replace("{CHANNEL}", "System").replace("{LEVEL}", ";Level=1,2,3")
+                .replace("{MAX}", "10").replace("{SINCE}", "0")),
+            "_EVENTLOG_PS_TMPL(Security)": (agent._EVENTLOG_PS_TMPL
+                .replace("{CHANNEL}", "Security").replace("{LEVEL}", "")
+                .replace("{MAX}", "10").replace("{SINCE}", "5")),
+        }
+        for name, ps in snippets.items():
+            with self.subTest(snippet=name):
+                self.assertEqual(self._parses(ps), "OK", f"{name} did not parse")
+
+
+class TestWinPostureChecks(unittest.TestCase):
+    """The check-catalog rows derived from win_posture (server-side checks.py)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
+        import checks
+        self.checks = checks
+
+    def _rows(self, wp, extra_si=None):
+        si = {"win_posture": wp}
+        si.update(extra_si or {})
+        import time
+        dev = {"last_seen": time.time(), "sysinfo": si}
+        return {r["key"]: r for r in self.checks._host_checks("d1", dev)}
+
+    def test_defender_off_is_critical(self):
+        rows = self._rows({"defender_realtime": False})
+        self.assertEqual(rows["win_av_realtime"]["status"], "critical")
+
+    def test_stale_signatures_escalate(self):
+        self.assertEqual(self._rows({"defender_sig_age_days": 9})["win_av_signatures"]["status"], "critical")
+        self.assertEqual(self._rows({"defender_sig_age_days": 1})["win_av_signatures"]["status"], "ok")
+
+    def test_firewall_profile_off_warns(self):
+        rows = self._rows({"firewall": [{"name": "Public", "enabled": False}]})
+        self.assertEqual(rows["win_firewall"]["status"], "warning")
+
+    def test_bitlocker_unprotected_warns(self):
+        rows = self._rows({"bitlocker": [{"mount": "C:", "status": "Off"}]})
+        self.assertEqual(rows["win_bitlocker"]["status"], "warning")
+
+    def test_update_service_stopped_warns(self):
+        rows = self._rows({"wu_service": "Stopped"})
+        self.assertEqual(rows["win_update_service"]["status"], "warning")
+
+    def test_cpu_percent_fallback_on_windows(self):
+        # Windows has no loadavg; the CPU check must still render from cpu_percent.
+        rows = self._rows({}, {"cpu_percent": 97.0})
+        self.assertEqual(rows["cpu"]["status"], "critical")
+
+    def test_linux_host_gets_no_windows_rows(self):
+        import time
+        dev = {"last_seen": time.time(), "sysinfo": {"loadavg_1m": 0.2, "cpu_count": 4}}
+        keys = {r["key"] for r in self.checks._host_checks("d1", dev)}
+        self.assertFalse(keys & {"win_av_realtime", "win_bitlocker", "win_firewall"})
 
 
 if __name__ == "__main__":

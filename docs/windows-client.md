@@ -59,6 +59,13 @@ Parity with the Linux agent for the core management surface (v6.1.3 buildout):
 | Listening ports | yes | yes |
 | Secrets-on-disk scan | yes | yes |
 | **Signed self-update** | yes (fail-closed GPG gate) | yes (fail-closed GPG gate) *(v6.1.3)* |
+| **SMART** disk health | smartctl | `Get-PhysicalDisk` + reliability counters *(v6.1.3)* |
+| **Hardware inventory** | dmidecode | WMI (system + memory) *(v6.1.3)* |
+| **Config drift** (file hashing) | yes | yes *(v6.1.3)* |
+| **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) *(v6.1.3)* |
+| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type *(v6.1.3)* |
+| Security posture → Checks | (n/a) | BitLocker, Firewall, Defender real-time + sig age, WU service *(v6.1.3)* |
+| Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline) |
 | Read-only audit mode | `/etc/remotepower/audit-mode` | `%ProgramData%\RemotePower\audit-mode` |
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)

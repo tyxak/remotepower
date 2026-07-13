@@ -40139,8 +40139,10 @@ def handle_custom_checks_save():
     # v5.6.0: wire a systemd_unit host check to the Services page — also add the
     # unit to that device's watch-list so it shows there too. Done AFTER the
     # CONFIG_FILE lock so the device lock never nests (SQLite shares one conn).
+    # v6.1.3: windows_service behaves identically (the watch-list is OS-agnostic;
+    # the Windows agent reports service state under the same services_watched key).
     watched_ok = False
-    if ctype == 'systemd_unit' and tk == 'host' and body.get('watch_service') and tv:
+    if ctype in ('systemd_unit', 'windows_service') and tk == 'host' and body.get('watch_service') and tv:
         try:
             with _LockedUpdate(DEVICES_FILE) as devices:
                 d = devices.get(tv)

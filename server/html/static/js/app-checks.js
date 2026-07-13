@@ -91,12 +91,13 @@ const _CC_PARAM_LABELS = {
   process: 'Process name', port_open: 'Port', port_closed: 'Port',
   file_present: 'File path', file_absent: 'File path', job_fresh: 'File path',
   log_errors: 'Pattern (regex)', systemd_unit: 'Unit name',
+  windows_service: 'Service name',
 };
 const _CC_PARAM_PH = {
   process: 'nginx', port_open: '443', port_closed: '23',
   file_present: '/etc/myapp.conf', file_absent: '/etc/nologin',
   job_fresh: '/var/backups/last-run.stamp', log_errors: 'error|fail|panic',
-  systemd_unit: 'nginx.service',
+  systemd_unit: 'nginx.service', windows_service: 'wuauserv',
 };
 // v5.6.0: Check catalog — ready-made check templates. Picking one pre-fills the
 // form (name/type/param). {c:category, l:picker label, t:type, p:param, n:name}.
@@ -190,6 +191,39 @@ const CHECK_CATALOG = [
   { c: 'RemotePower (self-infra)', l: 'PostgreSQL (RP database)', t: 'process', p: 'postgres', n: 'RemotePower DB (PostgreSQL) running' },
   { c: 'RemotePower (self-infra)', l: 'nginx (RP web)', t: 'process', p: 'nginx', n: 'RemotePower web (nginx) running' },
   { c: 'RemotePower (self-infra)', l: 'fcgiwrap (CGI host)', t: 'process', p: 'fcgiwrap', n: 'fcgiwrap running' },
+  // ── v6.1.3: Windows ─────────────────────────────────────────────────────
+  // windows_service = the Windows analogue of systemd_unit (Get-Service Status).
+  // process/port checks work cross-platform on Windows too (the agent reports
+  // proc_names + listening_ports). Service NAMES here are the short Name, not the
+  // display name (what Restart-Service / Get-Service -Name expects).
+  { c: 'Windows — core', l: 'Windows Update service', t: 'windows_service', p: 'wuauserv', n: 'Windows Update service running' },
+  { c: 'Windows — core', l: 'Windows Defender service', t: 'windows_service', p: 'WinDefend', n: 'Defender service running' },
+  { c: 'Windows — core', l: 'Windows Firewall service', t: 'windows_service', p: 'MpsSvc', n: 'Windows Firewall running' },
+  { c: 'Windows — core', l: 'Windows Event Log', t: 'windows_service', p: 'EventLog', n: 'Event Log service running' },
+  { c: 'Windows — core', l: 'Task Scheduler', t: 'windows_service', p: 'Schedule', n: 'Task Scheduler running' },
+  { c: 'Windows — core', l: 'Remote Desktop (TermService)', t: 'windows_service', p: 'TermService', n: 'RDP service running' },
+  { c: 'Windows — core', l: 'WinRM (remote mgmt)', t: 'windows_service', p: 'WinRM', n: 'WinRM running' },
+  { c: 'Windows — core', l: 'BITS (bg transfer)', t: 'windows_service', p: 'BITS', n: 'BITS running' },
+  { c: 'Windows — core', l: 'DHCP client', t: 'windows_service', p: 'Dhcp', n: 'DHCP client running' },
+  { c: 'Windows — core', l: 'DNS client', t: 'windows_service', p: 'Dnscache', n: 'DNS client running' },
+  { c: 'Windows — core', l: 'Pending reboot flag', t: 'file_absent', p: 'C:\\Windows\\WinSxS\\pending.xml', n: 'No servicing pending reboot' },
+  // Windows server roles / apps
+  { c: 'Windows — roles', l: 'IIS (W3SVC)', t: 'windows_service', p: 'W3SVC', n: 'IIS running' },
+  { c: 'Windows — roles', l: 'IIS worker (w3wp)', t: 'process', p: 'w3wp', n: 'IIS worker running' },
+  { c: 'Windows — roles', l: 'SQL Server (MSSQLSERVER)', t: 'windows_service', p: 'MSSQLSERVER', n: 'SQL Server running' },
+  { c: 'Windows — roles', l: 'SQL Server port 1433', t: 'port_open', p: '1433', n: 'MSSQL :1433 open' },
+  { c: 'Windows — roles', l: 'Active Directory DS', t: 'windows_service', p: 'NTDS', n: 'AD DS running' },
+  { c: 'Windows — roles', l: 'DNS Server role', t: 'windows_service', p: 'DNS', n: 'DNS Server running' },
+  { c: 'Windows — roles', l: 'Print Spooler', t: 'windows_service', p: 'Spooler', n: 'Print Spooler running' },
+  { c: 'Windows — roles', l: 'Hyper-V (vmms)', t: 'windows_service', p: 'vmms', n: 'Hyper-V management running' },
+  { c: 'Windows — roles', l: 'Exchange transport', t: 'windows_service', p: 'MSExchangeTransport', n: 'Exchange transport running' },
+  { c: 'Windows — roles', l: 'RDP port 3389', t: 'port_open', p: '3389', n: 'RDP :3389 open' },
+  { c: 'Windows — roles', l: 'SMB port 445', t: 'port_open', p: '445', n: 'SMB :445 open' },
+  { c: 'Windows — roles', l: 'WinRM port 5985', t: 'port_open', p: '5985', n: 'WinRM :5985 open' },
+  { c: 'Windows — apps', l: 'Docker Desktop service', t: 'windows_service', p: 'com.docker.service', n: 'Docker Desktop running' },
+  { c: 'Windows — apps', l: 'PostgreSQL (Windows)', t: 'windows_service', p: 'postgresql-x64-16', n: 'PostgreSQL running' },
+  { c: 'Windows — apps', l: 'Apache (Windows)', t: 'windows_service', p: 'Apache2.4', n: 'Apache running' },
+  { c: 'Windows — apps', l: 'nginx (Windows)', t: 'process', p: 'nginx', n: 'nginx running' },
 ];
 // v5.6.0: searchable catalog picker. A custom dropdown (not a native <select>,
 // which can't be fully styled across browsers — its option text rendered blue on
@@ -264,8 +298,9 @@ function ccTypeChanged() {
   if (inp) inp.placeholder = _CC_PARAM_PH[t] || '';
   document.getElementById('cc-log-grp')?.classList.toggle('hidden', t !== 'log_errors');
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
-  // systemd_unit: offer to also watch the unit on the Services page.
-  document.getElementById('cc-svc-grp')?.classList.toggle('hidden', t !== 'systemd_unit');
+  // systemd_unit / windows_service: offer to also watch it on the Services page.
+  document.getElementById('cc-svc-grp')?.classList.toggle(
+    'hidden', t !== 'systemd_unit' && t !== 'windows_service');
 }
 let _ccCache = [];
 let _ccEditId = null;

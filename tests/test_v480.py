@@ -264,10 +264,27 @@ class TestWinAgentGpu(unittest.TestCase):
             self.assertIn(key, self.WIN, f"win GPU entry missing {key}")
 
     def test_win_gpu_is_slow_cadence(self):
-        # Must ride the existing slow gate (poll_count % 12), not every heartbeat.
-        i = self.WIN.index("payload['gpus']")
-        window = self.WIN[max(0, i - 1200):i]
-        self.assertIn("poll_count % 12", window)
+        # v6.1.3: DRIVEN, not grepped. This used to search the 1200 chars before
+        # `payload['gpus']` for "poll_count % 12"; the v6.1.3 wave-2 collectors
+        # (SMART/hardware/containers) landed in the same slow-cadence block and
+        # pushed the gate past that window — the behaviour was unchanged, the
+        # source window moved. So drive build_heartbeat: every slow collector,
+        # gpus included, is gated by the `sysinfo` cadence, which fires on poll 1
+        # and every 12th, never on an in-between poll.
+        import importlib.util
+        import os
+        import tempfile
+        os.environ['RP_DATA_DIR'] = tempfile.mkdtemp(prefix='rp-v480-wingpu-')
+        spec = importlib.util.spec_from_file_location(
+            'rp_win_gpu', _ROOT / 'client' / 'remotepower-agent-win.py')
+        ag = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ag)
+        creds = {'device_id': 'd', 'token': 't'}
+        # sysinfo (which gates gpus + all slow collectors) present on 1 and 12…
+        self.assertIn('sysinfo', ag.build_heartbeat(creds, 1))
+        self.assertIn('sysinfo', ag.build_heartbeat(creds, 12))
+        # …and absent on an in-between poll, so gpus can't ride every heartbeat.
+        self.assertNotIn('sysinfo', ag.build_heartbeat(creds, 5))
 
 
 class TestMacAgentParity(unittest.TestCase):
