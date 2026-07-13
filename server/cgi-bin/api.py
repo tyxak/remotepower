@@ -34692,6 +34692,11 @@ def _rag_build_corpus(cfg):
             cve = load(CVE_FINDINGS_FILE) or {}
             containers = load(CONTAINERS_FILE) or {}
             snmp = load(SNMP_DATA_FILE) or {}
+            # cert_files is written to HARDWARE_FILE by _ingest_hardware — it is NOT
+            # a sysinfo field. This block used to read it off dev['sysinfo'], which
+            # never has it, so `cert_expiry` was never populated and the AI never
+            # saw local cert expiry despite the comment below promising it.
+            hardware = load(HARDWARE_FILE) or {}
             # v4.3.0: index the live OPERATIONAL state the AI most needs to answer
             # "what's wrong with the fleet" — open alerts (grouped per device +
             # a fleet rollup), watched-service up/down, and local cert expiry.
@@ -34727,8 +34732,10 @@ def _rag_build_corpus(cfg):
                     f['open_alerts'] = open_alerts_by_dev[dev_id]
                 # (watched-service up/down is already indexed inline by the
                 # corpus builder from dev['services'] — don't duplicate it.)
-                # Local TLS cert files + expiry (from the agent's cert inventory).
-                certs = (d.get('sysinfo') or {}).get('cert_files')
+                # Local TLS cert files + expiry (from the agent's cert inventory,
+                # which _ingest_hardware stores in HARDWARE_FILE — not in sysinfo).
+                hw_rec = hardware.get(dev_id) if isinstance(hardware, dict) else None
+                certs = (hw_rec or {}).get('cert_files')
                 if certs:
                     f['cert_expiry'] = certs
                 if f:
