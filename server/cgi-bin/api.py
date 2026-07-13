@@ -27400,6 +27400,11 @@ def handle_version_check():
         'release_url': 'https://github.com/tyxak/remotepower/releases/latest',
         # v5.0.0: whether a guided self-update script is configured (Settings → Install).
         'self_update_configured': bool((cfg.get('self_update_command') or '').strip()),
+        # v6.1.2: whether the scoped restart script is installed (drives the
+        # "Restart server" button — hidden in a container / when not set up).
+        'restart_available': (Path(RESTART_SCRIPT).exists()
+                              and not Path('/.dockerenv').exists()
+                              and os.environ.get('RP_IN_CONTAINER') != '1'),
     })
 
 
@@ -27421,15 +27426,72 @@ def handle_server_self_update():
     if not p.is_absolute() or not p.exists():
         respond(400, {'error': f'update script not found or not an absolute path: {cmd}'}); return
     audit_log(actor, 'server_self_update', detail=f'cmd={cmd}')
+    # NB: respond() raises HTTPError (an Exception subclass), so it MUST stay
+    # outside the try — a success respond() inside `except Exception` gets caught
+    # and rewritten to a 500 (a real bug this handler shipped with since v5.0.0,
+    # found while adding the restart endpoint below).
     try:
         proc = subprocess.run([cmd], capture_output=True, text=True, timeout=600)
-        out = (proc.stdout + proc.stderr)[-4000:]
-        respond(200, {'ok': proc.returncode == 0, 'returncode': proc.returncode, 'output': out})
     except subprocess.TimeoutExpired:
         respond(200, {'ok': False, 'error': 'update timed out after 10 min — it may still '
-                                            'be running; check the server logs'})
+                                            'be running; check the server logs'}); return
     except Exception as e:
-        respond(500, {'error': str(e)})
+        respond(500, {'error': str(e)}); return
+    out = (proc.stdout + proc.stderr)[-4000:]
+    respond(200, {'ok': proc.returncode == 0, 'returncode': proc.returncode, 'output': out})
+
+
+# The scoped restart script (packaging/remotepower-server-restart.sh, installed to
+# this path). It re-execs itself under passwordless sudo scoped to ONLY this path,
+# so the enable gate is the sudoers drop-in — no operator input reaches a shell.
+# Overridable for a non-standard install location.
+RESTART_SCRIPT = os.environ.get('RP_RESTART_SCRIPT', '/usr/local/sbin/remotepower-server-restart')
+
+
+def handle_server_restart():
+    """POST /api/server/restart — restart the app-server service (Settings →
+    Install). Admin-only, audited. Runs the fixed, root-owned restart script via
+    passwordless sudo scoped to that one path; the script detaches the actual
+    `systemctl restart` so it survives its own worker being killed, after a short
+    delay that lets THIS response flush first.
+
+    This grants no privilege an admin doesn't already have — self-update also
+    restarts the service — and the scoped sudoers rule is the enable gate: absent
+    it, the script fails fast and we surface a clear setup message. In a container
+    there is no systemd; restart the container instead (the script says so)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    if Path('/.dockerenv').exists() or os.environ.get('RP_IN_CONTAINER') == '1':
+        respond(400, {'error': 'this instance runs in a container — restart the '
+                               'container via your orchestrator, not from here',
+                      'containerized': True}); return
+    p = Path(RESTART_SCRIPT)
+    if not p.exists():
+        respond(400, {'error': 'restart is not set up on this host — install the '
+                               'scoped restart script + sudoers drop-in '
+                               '(packaging/remotepower-server-restart.sh header)',
+                      'configured': False}); return
+    audit_log(actor, 'server_restart', detail=f'script={RESTART_SCRIPT}')
+    # respond() raises HTTPError (an Exception) — keep it OUTSIDE the try, or a
+    # success respond() gets caught by `except Exception` and rewritten to a 500.
+    try:
+        # The script itself detaches the restart, so this call returns promptly
+        # with "scheduled". A short timeout guards against a hung sudo prompt (the
+        # script uses `sudo -n`, so it can't actually prompt — belt and braces).
+        proc = subprocess.run([RESTART_SCRIPT], capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        respond(200, {'ok': True, 'message': 'Restart command dispatched.'}); return
+    except Exception as e:
+        respond(500, {'error': str(e)}); return
+    out = (proc.stdout + proc.stderr)[-2000:]
+    if proc.returncode != 0:
+        respond(400, {'ok': False, 'returncode': proc.returncode, 'output': out,
+                      'error': 'restart could not be scheduled — is the sudoers '
+                               'drop-in installed? See the script header.'}); return
+    respond(200, {'ok': True, 'output': out,
+                  'message': 'Restart scheduled — the server will be briefly '
+                             'unavailable, then this page will reconnect.'})
 
 
 def _record_uptime(dev_id, name, is_online):
@@ -58714,6 +58776,7 @@ def _build_exact_routes():
         ('POST', '/api/roles'): handle_role_create,
         ('GET', '/api/version'): handle_version_check,
         ('POST', '/api/server/self-update'): handle_server_self_update,   # v5.0.0
+        ('POST', '/api/server/restart'): handle_server_restart,           # v6.1.2
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
         ('GET', '/api/agent-compat'): handle_agent_compat,                # v5.0.0 #F4

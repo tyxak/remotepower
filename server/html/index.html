@@ -1454,6 +1454,19 @@
                 <pre id="self-update-output" class="ff-mono fs-12 mt-8 scroll-cap d-none"></pre>
               </div>
             </details>
+            <!-- v6.1.2: restart the app-server service (scoped-sudo systemctl).
+                 Hidden until loadSettings confirms restart_available (script
+                 installed, not a container). -->
+            <details class="mt-12 d-none" id="server-restart-details">
+              <summary class="fw-600 pointer">Restart server</summary>
+              <div class="mt-8">
+                <p class="hint">Restarts the app-server service — for picking up a manual code change or clearing in-memory state without an SSH session. The page will briefly disconnect, then reconnect. Grant the API user scoped passwordless sudo to the restart script (<code>packaging/remotepower-server-restart.sh</code>, its header has the two commands); the button is hidden until that's set up, and disabled in a container (restart the container instead).</p>
+                <div class="mt-8">
+                  <button class="btn-shutdown" data-action="restartServer" id="restart-server-btn" title="Restart the app-server service now">Restart server</button>
+                  <span id="restart-server-status" class="hint ml-8"></span>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
 

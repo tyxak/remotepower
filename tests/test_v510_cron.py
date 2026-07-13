@@ -66,6 +66,12 @@ class TestAgentCronOps(unittest.TestCase):
     def setUp(self):
         self.m = _load_agent()
         self.calls = []
+        # _patch_run replaces the GLOBAL subprocess.run (self.m.subprocess is the
+        # real subprocess module). Without restoring it, the stub leaks into every
+        # later test in the process — it broke test_v612_server_restart's real-exec
+        # tests. Capture + restore.
+        self._orig_subprocess_run = self.m.subprocess.run
+        self.addCleanup(setattr, self.m.subprocess, 'run', self._orig_subprocess_run)
 
     def _patch_run(self, rc=0, capture_file=False):
         store = {}

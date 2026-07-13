@@ -3332,6 +3332,14 @@ async function loadUpdatePanel() {
     const inp = document.getElementById('self-update-cmd');
     if (inp && cfg) inp.value = cfg.self_update_command || '';
   } catch (e) {}
+  // v6.1.2: show the "Restart server" section only where it's actually set up
+  // (scoped restart script installed, not a container) — otherwise the button
+  // would just error.
+  try {
+    const s = await api('GET', '/version').catch(() => null);
+    const box = document.getElementById('server-restart-details');
+    if (box) box.classList.toggle('d-none', !(s && s.restart_available));
+  } catch (e) {}
 }
 
 async function saveSelfUpdateCmd() {
@@ -3355,6 +3363,54 @@ async function runSelfUpdate() {
   if (out) { out.classList.remove('d-none'); out.textContent = (r.output || r.error || '(no output)'); }
   if (r.ok) toast('Update script completed', 'success');
   else toast(r.error || `Update exited with code ${r.returncode}`, 'error');
+}
+
+// v6.1.2: restart the app-server service (scoped-sudo systemctl).
+async function restartServer() {
+  if (!await uiConfirm('Restart the app-server now? Everyone on this dashboard will '
+                       + 'briefly disconnect while it comes back up.')) return;
+  const btn = document.getElementById('restart-server-btn');
+  const st = document.getElementById('restart-server-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+  if (st) st.textContent = '';
+  let r;
+  try {
+    r = await api('POST', '/server/restart');
+  } catch (_) {
+    // The restart can tear the connection down before the response arrives —
+    // that's success, not failure. Treat a network error here as "it restarted".
+    r = { ok: true, message: 'Restart dispatched — reconnecting…' };
+  }
+  if (!r) { if (btn) { btn.disabled = false; btn.textContent = 'Restart server'; } return; }
+  if (r.ok) {
+    if (st) st.textContent = r.message || 'Restarting…';
+    toast('Restart scheduled', 'success');
+    // Poll /self/status until the server answers again, then reload so the app
+    // reconnects cleanly instead of sitting on a stale page.
+    _awaitServerBack();
+  } else {
+    if (btn) { btn.disabled = false; btn.textContent = 'Restart server'; }
+    if (st) st.textContent = r.error || 'Restart failed';
+    toast(r.error || 'Restart failed', 'error');
+  }
+}
+
+async function _awaitServerBack() {
+  // Give the service a moment to go down (the script waits ~2s), then probe.
+  let tries = 0;
+  const probe = async () => {
+    tries++;
+    try {
+      const r = await fetch('/api/self/status', { headers: { 'X-Token': getToken() } });
+      if (r.ok) { location.reload(); return; }
+    } catch (_) { /* still down */ }
+    if (tries < 40) setTimeout(probe, 1500);   // up to ~60s
+    else {
+      const st = document.getElementById('restart-server-status');
+      if (st) st.textContent = 'Still restarting — reload the page in a moment.';
+    }
+  };
+  setTimeout(probe, 4000);
 }
 
 function renderEventToggleTable(events, descriptions, emailEvents) {

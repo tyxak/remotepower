@@ -98,6 +98,28 @@ if [[ -f "$SCRIPT_DIR/packaging/remotepower-wg-apply" ]]; then
     rm -f "$_wg_sudoers"
 fi
 
+# v6.1.2: "Restart server" scoped helper + sudoers. Same single-script NOPASSWD
+# model as the WG helper above — the API user may run ONLY this one script as
+# root, and the script re-execs itself under `sudo -n` to `systemctl restart` the
+# app-server unit. Grants no privilege an admin doesn't already have via
+# self-update. The button stays hidden in the UI until this is present.
+if [[ -f "$SCRIPT_DIR/packaging/remotepower-server-restart.sh" ]]; then
+    info "Deploying server-restart helper + scoped sudoers..."
+    if getent passwd http >/dev/null 2>&1; then WEB_USER=http; else WEB_USER=www-data; fi
+    install -d -m 755 -o root -g root /usr/local/sbin
+    install -m 755 -o root -g root "$SCRIPT_DIR/packaging/remotepower-server-restart.sh" \
+        /usr/local/sbin/remotepower-server-restart
+    _rst_sudoers="$(mktemp)"
+    printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/remotepower-server-restart\n' "$WEB_USER" > "$_rst_sudoers"
+    if visudo -cf "$_rst_sudoers" >/dev/null 2>&1; then
+        install -m 440 -o root -g root "$_rst_sudoers" /etc/sudoers.d/remotepower-self-restart
+        echo "      → /usr/local/sbin/remotepower-server-restart (+ sudoers for $WEB_USER)"
+    else
+        echo "      ! server-restart sudoers validation failed — skipped"
+    fi
+    rm -f "$_rst_sudoers"
+fi
+
 info "Deploying static HTML files..."
 # Auto-discovers index.html plus any sibling pages (swagger.html in v1.10.0,
 # whatever future pages get added) — no need to edit this script when adding

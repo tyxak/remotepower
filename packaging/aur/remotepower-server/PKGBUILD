@@ -85,6 +85,15 @@ package() {
     > "$pkgdir/etc/sudoers.d/remotepower-wg"
   chmod 440 "$pkgdir/etc/sudoers.d/remotepower-wg"
 
+  # ── "Restart server" helper (v6.1.2): same single-script NOPASSWD model. The
+  #    app server runs this one root-owned script to `systemctl restart` itself;
+  #    it grants no privilege the admin doesn't already have via self-update. ──
+  install -Dm755 packaging/remotepower-server-restart.sh \
+    "$pkgdir/usr/local/sbin/remotepower-server-restart"
+  printf 'http ALL=(root) NOPASSWD: /usr/local/sbin/remotepower-server-restart\n' \
+    > "$pkgdir/etc/sudoers.d/remotepower-self-restart"
+  chmod 440 "$pkgdir/etc/sudoers.d/remotepower-self-restart"
+
   # ── nginx: shared locations snippet (works as-is with /var/www/remotepower). ──
   install -Dm644 server/conf/remotepower-locations.conf \
     "$pkgdir/etc/nginx/snippets/remotepower-locations.conf"
