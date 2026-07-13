@@ -15472,12 +15472,37 @@ def _autopatch_queue(pol, actor):
         for ring in pol['rings']:
             covered.update(_rollout_resolve_ring(ring.get('selector'), devices))
         return len(covered)
-    cmd = (f'exec:{_SCHED_UPGRADE_REBOOT_CMD}' if pol.get('reboot')
-           else f'exec:{_SCHED_UPGRADE_CMD}')
     targets = _autopatch_target_devices(pol.get('target'))
     if not targets:
         return 0
-    _queue_command_batch(targets, cmd, actor)
+    # v6.1.3 (BUG): this queued ONE bash command for every target, so a Windows
+    # or macOS host in an auto-patch scope was sent a shell script. Split by OS
+    # family and queue each family its own command.
+    #
+    # Two batches rather than _queue_command_map, deliberately: that helper
+    # derives the four-eyes approval KIND from the first command in the map, and
+    # `exec:<bash>` (kind 'exec') and bare `upgrade` (kind 'upgrade') are
+    # different kinds with different gating. A mixed map would gate every device
+    # on whichever family happened to sort first.
+    devices = load(DEVICES_FILE)
+    reboot = bool(pol.get('reboot'))
+    linux, native = [], []
+    for d in targets:
+        (native if _device_os_family(devices.get(d)) in ('windows', 'darwin')
+         else linux).append(d)
+    if linux:
+        _queue_command_batch(
+            linux,
+            f'exec:{_SCHED_UPGRADE_REBOOT_CMD}' if reboot else f'exec:{_SCHED_UPGRADE_CMD}',
+            actor)
+    if native:
+        # The Windows and macOS agents never auto-reboot on `upgrade` (Windows
+        # passes -IgnoreReboot; brew has no such concept), so a reboot-on-patch
+        # policy needs the reboot queued explicitly. Commands are executed in
+        # queue order, so it lands after the upgrade completes.
+        _queue_command_batch(native, 'upgrade', actor)
+        if reboot:
+            _queue_command_batch(native, 'reboot', actor)
     return len(targets)
 
 
@@ -17022,7 +17047,15 @@ def handle_heartbeat():
                 tp = pkg.get('third_party')
                 if isinstance(tp, dict):
                     safe_tp = {}
-                    for mgr in ('flatpak', 'snap', 'pip', 'npm'):
+                    # v6.1.3: 'winget' joins the third-party sources. This tuple is
+                    # a WHITELIST — a manager missing here is silently dropped at
+                    # ingest, so the agent could report winget updates forever and
+                    # nothing downstream would ever see them. (The patch-catalog
+                    # rollup below is already manager-agnostic; this was the only
+                    # gate.) NB winget is the first third-party source with a real
+                    # REMEDIATION path — `winget upgrade --id <x>` — where
+                    # flatpak/snap/pip/npm are detection-only.
+                    for mgr in ('flatpak', 'snap', 'pip', 'npm', 'winget'):
                         ent = tp.get(mgr)
                         if isinstance(ent, dict):
                             cnt = ent.get('count')
@@ -19310,6 +19343,16 @@ def _command_kind(command):
         return 'service'
     if s.startswith('kill:'):
         return 'process'
+    # v6.1.3 (SECURITY): the Windows/macOS agents take a BARE `upgrade` /
+    # `upgrade:<pkg>` (the Linux path sends `exec:<bash>` instead). Without these
+    # two branches a bare `upgrade` classified as 'other' — which is NOT in
+    # _APPROVAL_GATED_KINDS — so an auto-patch policy covering a Windows host
+    # would have queued a fleet-wide patch run with the four-eyes gate silently
+    # bypassed. 'upgrade' IS in the default gated set; map onto it.
+    if s == 'upgrade' or s.startswith('upgrade:'):
+        return 'upgrade'
+    if s.startswith('winget:'):
+        return 'upgrade'      # third-party app patching is still patching
     if s in ('reboot', 'shutdown', 'update', 'uninstall', 'scan'):
         return s
     return 'other'
@@ -20088,6 +20131,45 @@ def handle_uninstall_agent(dev_id):
 # For apt: writes a one-line apt config to a tempfile and exports APT_CONFIG,
 # so every apt-get call in the chain inherits APT::Sandbox::User=root and
 # skips the seteuid(_apt) drop that fails under systemd hardening.
+def _device_os_family(dev):
+    """'windows' | 'darwin' | 'linux' from the device's reported OS string.
+
+    v6.1.3. There was no such helper, and its absence was a live bug: EVERY
+    upgrade path queued the bash `_UPGRADE_CMD` unconditionally, so a Windows
+    host received a shell script that its agent then handed to PowerShell. The
+    Windows and macOS agents have BOTH implemented the bare `upgrade` /
+    `upgrade:<name>` command since v6.0.0 — and the server never emitted it, so
+    the shipped "Windows / macOS patch execution" feature could never run.
+
+    `dev['os']` is free text from the agent ("Windows 11 (Build 22631)",
+    "macOS 14.5 (23F79)", "Ubuntu 22.04"), so match loosely and default to
+    linux — the overwhelmingly common case, and the one the bash command fits.
+    """
+    os_str = str((dev or {}).get('os') or '').lower()
+    if 'windows' in os_str or os_str.startswith('win'):
+        return 'windows'
+    if 'macos' in os_str or 'mac os' in os_str or 'darwin' in os_str:
+        return 'darwin'
+    return 'linux'
+
+
+def _upgrade_command_for(dev, package=''):
+    """The upgrade command string to queue for THIS device.
+
+    Linux  → `exec:<bash>`  (self-detects apt/dnf/yum/zypper/pacman at runtime)
+    Windows→ `upgrade`      (agent: PSWindowsUpdate, else the Microsoft.Update COM API)
+    macOS  → `upgrade`      (agent: `brew upgrade --formula`; casks untouched)
+
+    The per-package form (`upgrade:<name>`) is honoured by the Windows and macOS
+    agents; Linux package-specific installs go through handle_package_action.
+    """
+    fam = _device_os_family(dev)
+    if fam in ('windows', 'darwin'):
+        pkg = _sanitize_str(str(package or ''), 200).strip()
+        return f'upgrade:{pkg}' if pkg else 'upgrade'
+    return f'exec:{_UPGRADE_CMD}'
+
+
 _UPGRADE_CMD = (
     'set -e; '
     'if command -v apt-get >/dev/null 2>&1; then '
@@ -20174,7 +20256,6 @@ def handle_upgrade_device():
     actor = require_perm('patch', ids)   # v3.4.2 RBAC
 
     devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}; dev_updates = {}
-    queued_str = f'exec:{_UPGRADE_CMD}'
     _gate = _needs_approval('upgrade')   # v3.14.0: 4-eyes — park upgrades for a second admin
     for dev_id in ids:
         if not _validate_id(dev_id):
@@ -20182,6 +20263,13 @@ def handle_upgrade_device():
         dev = devices.get(dev_id)
         if not dev:
             results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+        # v6.1.3 (BUG): this was hoisted OUT of the loop as a single bash
+        # `exec:{_UPGRADE_CMD}` with no OS branch — so a Windows or macOS host
+        # was sent a shell script, which its agent dutifully handed to
+        # PowerShell / sh. Both agents have implemented the bare `upgrade`
+        # command since v6.0.0; the server simply never emitted it, so the
+        # shipped "Windows / macOS patch execution" feature was dead on arrival.
+        queued_str = _upgrade_command_for(dev)
         if _gate:
             cid = _park_for_approval(dev_id, queued_str, actor, 'upgrade')
             results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}; continue
@@ -28711,10 +28799,23 @@ def process_schedule():
                     cmds = load(CMDS_FILE)
                     if dev_id not in cmds: cmds[dev_id] = []
                     # Translate named commands to exec: strings.
+                    # v6.1.3: OS-aware. A scheduled upgrade on a Windows/macOS
+                    # host used to queue a BASH script (see _upgrade_command_for);
+                    # both agents implement the bare `upgrade` command instead.
+                    _queue_after = None      # v6.1.3: appended AFTER `queued`
                     if command == 'upgrade_packages':
-                        queued = f'exec:{_SCHED_UPGRADE_CMD}'
+                        queued = _upgrade_command_for(devices.get(dev_id))
                     elif command == 'upgrade_and_reboot':
-                        queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
+                        if _device_os_family(devices.get(dev_id)) in ('windows', 'darwin'):
+                            # Neither agent auto-reboots on `upgrade` (Windows
+                            # passes -IgnoreReboot; brew has no such concept), so
+                            # the reboot must be queued separately. It has to land
+                            # AFTER the upgrade — appending it here would put it
+                            # FIRST in the queue and reboot the box before patching.
+                            queued = 'upgrade'
+                            _queue_after = 'reboot'
+                        else:
+                            queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
                     elif is_script:
                         sid = command[7:]
                         scripts_data = load(SCRIPTS_FILE)
@@ -28759,6 +28860,10 @@ def process_schedule():
                     else:
                         queued = command
                     if queued not in cmds[dev_id]: cmds[dev_id].append(queued)
+                    # v6.1.3: the Windows/macOS reboot half of upgrade_and_reboot,
+                    # appended AFTER the upgrade so it runs in the right order.
+                    if _queue_after and _queue_after not in cmds[dev_id]:
+                        cmds[dev_id].append(_queue_after)
                     save(CMDS_FILE, cmds)
                     log_command(f"scheduler({job['actor']})", dev_id, job['device_name'], command)
             if job.get('recurring'):

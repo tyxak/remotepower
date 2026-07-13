@@ -222,10 +222,77 @@ def windows_update_pending():
         if r.returncode != 0:
             return None
         titles = _parse_wu_titles(r.stdout)
-        return {'manager': 'windows-update', 'upgradable': len(titles),
-                'upgradable_names': titles[:50]}
+        out = {'manager': 'windows-update', 'upgradable': len(titles),
+               'upgradable_names': titles[:50]}
+        # v6.1.3: third-party APPLICATION updates via winget, in the same
+        # `third_party: {mgr: {count, names}}` shape the Linux agent uses for
+        # flatpak/snap/pip/npm. Windows Update covers the OS; winget covers
+        # Chrome, 7-Zip, VLC, Notepad++ … which is where the actual CVEs live.
+        tp = get_winget_updates()
+        if tp:
+            out['third_party'] = {'winget': tp}
+        return out
     except Exception:
         return None
+
+
+# A winget package Id: reverse-DNS-ish, e.g. "Google.Chrome", "7zip.7zip".
+_WINGET_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$')
+
+
+def _parse_winget(stdout):
+    """Parse `winget upgrade` table output into (count, names). Pure.
+
+    winget prints a fixed-width table with a header and a dashed rule; the Id
+    column is what `winget upgrade --id <x>` takes. Deliberately tolerant: the
+    table's exact columns shift between winget versions, so key off the header
+    row's 'Id' offset rather than splitting on whitespace (app names contain
+    spaces, which is precisely what breaks a naive split).
+    """
+    lines = [ln.rstrip() for ln in (stdout or '').splitlines() if ln.strip()]
+    hdr_i = next((i for i, ln in enumerate(lines)
+                  if 'Name' in ln and 'Id' in ln and 'Version' in ln), None)
+    if hdr_i is None:
+        return 0, []
+    hdr = lines[hdr_i]
+    id_start = hdr.index('Id')
+    ver_start = hdr.index('Version')
+    names = []
+    for ln in lines[hdr_i + 1:]:
+        if set(ln.strip()) <= {'-', '─'}:      # the dashed rule
+            continue
+        if len(ln) < id_start:
+            continue
+        pkg_id = ln[id_start:ver_start].strip()
+        # Trailing summary lines ("3 upgrades available.") have no Id column.
+        if not pkg_id or ' ' in pkg_id:
+            continue
+        names.append(pkg_id)
+        if len(names) >= 100:
+            break
+    return len(names), names
+
+
+def get_winget_updates():
+    """Pending third-party app updates from winget, or {} when winget is absent.
+
+    Feature-invisible without winget (Server SKUs and older Windows 10 builds
+    don't ship it) — same contract as the Linux agent's flatpak/snap/pip/npm
+    probes, which return nothing when the tool isn't installed.
+    """
+    if not sys.platform.startswith('win'):
+        return {}
+    try:
+        r = subprocess.run(
+            ['winget', 'upgrade', '--accept-source-agreements'],
+            capture_output=True, text=True, timeout=120)
+        # winget exits non-zero when there is nothing to upgrade; parse anyway.
+        count, names = _parse_winget(r.stdout)
+        return {'count': count, 'names': names} if count else {}
+    except FileNotFoundError:
+        return {}          # winget not installed — not an error
+    except Exception:
+        return {}
 
 
 # PowerShell: Windows Defender posture. Pipe-delimited so parsing needs no JSON
@@ -634,6 +701,23 @@ def command_argv(cmd):
         title = cmd[len('upgrade:'):].strip() if cmd.startswith('upgrade:') else ''
         return ['powershell', '-NoProfile', '-NonInteractive', '-Command',
                 _win_update_install_ps(title)]
+    # v6.1.3: third-party APP patching via winget. `winget:` upgrades everything,
+    # `winget:<id>` one package. Kept as its own command rather than overloading
+    # `upgrade:<title>` — that one filters Windows *Update* titles, and a package
+    # id ("Google.Chrome") is not a title. No shell: argv is passed directly, and
+    # the id is charset-validated below, so there is nothing to inject into.
+    if isinstance(cmd, str) and cmd.startswith('winget:'):
+        pkg = cmd[len('winget:'):].strip()
+        base = ['winget', 'upgrade', '--accept-source-agreements',
+                '--accept-package-agreements', '--disable-interactivity',
+                '--silent']
+        if not pkg:
+            return base + ['--all']
+        # A winget Id is [A-Za-z0-9.+_-] — refuse anything else rather than pass
+        # an operator-supplied string through to a subprocess.
+        if not _WINGET_ID_RE.match(pkg):
+            return None
+        return base + ['--id', pkg, '--exact']
     if isinstance(cmd, str) and cmd.startswith('exec:'):
         body = cmd[len('exec:'):]
         # v5.0.0 (#F3): strip the optional "to=<seconds>:" per-command timeout prefix.

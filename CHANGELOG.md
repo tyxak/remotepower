@@ -35,6 +35,13 @@ the most universal ops question there is, and a second opinion on your hardware.
   on a homelab desktop this is a phone charger, and an event that pings you at 3am
   for a phone charger is one you mute — losing the one that mattered.
 
+- **Windows third-party app patching (winget).** Windows Update covers the OS;
+  the CVEs live in Chrome, 7-Zip and VLC. Pending third-party app updates now flow
+  into the existing patch catalog under the same `third_party` structure Linux
+  uses for flatpak/snap/pip/npm — and unlike those (which are detection-only),
+  winget can *remediate*: `winget:<id>` upgrades one package, `winget:` upgrades
+  all. argv-only, package-id charset-validated, never through a shell.
+
 ### Added — visibility
 
 - **Host-wide disk-usage explorer.** "Disk 94% — of *what*?" Disk-fill
@@ -55,6 +62,18 @@ the most universal ops question there is, and a second opinion on your hardware.
 
 ### Fixed
 
+- **Windows and macOS patch execution never worked.** Both agents have
+  implemented the `upgrade` / `upgrade:<name>` command since v6.0.0 — and the
+  server never emitted it. Every server-side upgrade path (on-demand
+  `handle_upgrade_device`, auto-patch policies, scheduled jobs) queued
+  `exec:<bash script>` with **no OS branch anywhere**, and commands are delivered
+  to agents verbatim. So a Windows host was sent a shell script, which its agent
+  dutifully handed to PowerShell. The shipped feature was dead end to end: fully
+  wired on the agent, never triggered by the server. All three paths are now
+  OS-aware. Fixing it surfaced a second, security-relevant bug: `_command_kind`
+  did not recognise `upgrade`, so the bare command classified as `other` — which
+  is *not* in the approval-gated set — meaning an auto-patch policy covering a
+  Windows host would have run with the four-eyes gate silently bypassed.
 - **The fleet-risk cache never hit on a real fleet.** `_fleet_risk_cached` busted
   whenever `devices.json` changed — but every heartbeat rewrites it, so on any
   fleet whose hosts collectively beat faster than the 10-second TTL the cache was
