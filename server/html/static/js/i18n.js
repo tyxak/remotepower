@@ -214,7 +214,8 @@
     'Integrations': { fr: 'Intégrations', de: 'Integrationen', zh: '集成', hi: 'एकीकरण', es: 'Integraciones', ar: 'التكاملات' },
     'GPUs':        { fr: 'GPU', de: 'GPUs', zh: '显卡', hi: 'जीपीयू', es: 'GPU', ar: 'وحدات معالجة الرسومات' },
     'Every monitored signal on every host as OK / WARN / CRIT / UNKNOWN, with output. Sort and filter; toggle a check off to silence it on a host.':
-        {de: 'Jedes überwachte Signal auf jedem Host als OK / WARN / CRIT / UNKNOWN, mit Ausgabe. Sortierbar und filterbar; einen Check abschalten, um ihn auf einem Host stummzuschalten.',  zh: '每台主机的每个受监控信号，以 OK / WARN / CRIT / UNKNOWN 显示并附带输出。可排序和筛选；关闭某项检查即可在该主机上将其静音。',
+        {fr: 'Chaque signal surveillé sur chaque hôte en OK / WARN / CRIT / UNKNOWN, avec sa sortie. Triez et filtrez ; désactivez un contrôle pour le mettre en sourdine sur un hôte.',
+          de: 'Jedes überwachte Signal auf jedem Host als OK / WARN / CRIT / UNKNOWN, mit Ausgabe. Sortierbar und filterbar; einen Check abschalten, um ihn auf einem Host stummzuschalten.',  zh: '每台主机的每个受监控信号，以 OK / WARN / CRIT / UNKNOWN 显示并附带输出。可排序和筛选；关闭某项检查即可在该主机上将其静音。',
           hi: 'हर host पर हर निगरानी किए गए signal को OK / WARN / CRIT / UNKNOWN के रूप में, output सहित। क्रमबद्ध करें और filter करें; किसी check को बंद करके उसे उस host पर म्यूट करें।',
           es: 'Cada señal monitorizada de cada host como OK / WARN / CRIT / UNKNOWN, con su salida. Ordena y filtra; desactiva una comprobación para silenciarla en un host.',
           ar: 'كل إشارة مراقَبة على كل مضيف بصيغة OK / WARN / CRIT / UNKNOWN مع المُخرَج. الترتيب والتصفية؛ عطِّل فحصًا لكتمه على مضيف.' },
@@ -317,7 +318,8 @@
     // ── My Account: language card ──
     'Language':    { fr: 'Langue', de: 'Sprache', zh: '语言', hi: 'भाषा', es: 'Idioma', ar: 'اللغة' },
     'Choose the interface language. Saved to your account and synced across devices.':
-      {de: 'Oberflächensprache wählen. Wird im Konto gespeichert und geräteübergreifend synchronisiert.',  zh: '选择界面语言。已保存到您的账户并在设备间同步。',
+      {fr: "Choisissez la langue de l'interface. Enregistrée dans votre compte et synchronisée entre vos appareils.",
+        de: 'Oberflächensprache wählen. Wird im Konto gespeichert und geräteübergreifend synchronisiert.',  zh: '选择界面语言。已保存到您的账户并在设备间同步。',
         hi: 'इंटरफ़ेस भाषा चुनें। आपके खाते में सहेजी जाती है और सभी डिवाइसों में सिंक होती है।',
         es: 'Elija el idioma de la interfaz. Se guarda en su cuenta y se sincroniza entre dispositivos.',
         ar: 'اختر لغة الواجهة. تُحفظ في حسابك وتُزامن عبر الأجهزة.' },
@@ -393,19 +395,22 @@
     //    these render as clean text nodes so the engine picks them up) ──
     // Firewall page
     'No firewall data reported yet. Agents must be on v3.12.0+.':
-      {de: 'Noch keine Firewall-Daten gemeldet. Agents benötigen mindestens v3.12.0.',  zh: '尚未报告防火墙数据。代理需为 v3.12.0 及以上版本。',
+      {fr: "Aucune donnée de pare-feu remontée pour l'instant. Les agents doivent être en v3.12.0 ou ultérieure.",
+        de: 'Noch keine Firewall-Daten gemeldet. Agents benötigen mindestens v3.12.0.',  zh: '尚未报告防火墙数据。代理需为 v3.12.0 及以上版本。',
         hi: 'अभी तक कोई फ़ायरवॉल डेटा रिपोर्ट नहीं हुआ। एजेंट v3.12.0+ होने चाहिए।',
         es: 'Aún no se han reportado datos del cortafuegos. Los agentes deben ser v3.12.0 o posterior.',
         ar: 'لم يتم الإبلاغ عن بيانات جدار الحماية بعد. يجب أن تكون الوكلاء بإصدار v3.12.0 أو أحدث.' },
     'Loading rules…':          { fr: 'Chargement des règles…', de: 'Regeln werden geladen…', zh: '正在加载规则…', hi: 'नियम लोड हो रहे हैं…', es: 'Cargando reglas…', ar: 'جارٍ تحميل القواعد…' },
     'No detail available.':    { fr: 'Aucun détail disponible.', de: 'Keine Details verfügbar.', zh: '无可用详情。', hi: 'कोई विवरण उपलब्ध नहीं।', es: 'No hay detalles disponibles.', ar: 'لا توجد تفاصيل متاحة.' },
     'No rules listed (or not readable without root).':
-      {de: 'Keine Regeln aufgeführt (oder ohne root nicht lesbar).',  zh: '未列出规则（或在无 root 权限下不可读）。',
+      {fr: 'Aucune règle listée (ou illisible sans les droits root).',
+        de: 'Keine Regeln aufgeführt (oder ohne root nicht lesbar).',  zh: '未列出规则（或在无 root 权限下不可读）。',
         hi: 'कोई नियम सूचीबद्ध नहीं (या root के बिना पठनीय नहीं)।',
         es: 'No hay reglas listadas (o no son legibles sin root).',
         ar: 'لا توجد قواعد مدرجة (أو غير قابلة للقراءة بدون صلاحية root).' },
     'No firewall backends present on this host.':
-      {de: 'Auf diesem Host sind keine Firewall-Backends vorhanden.',  zh: '此主机上没有防火墙后端。',
+      {fr: 'Aucun backend de pare-feu présent sur cet hôte.',
+        de: 'Auf diesem Host sind keine Firewall-Backends vorhanden.',  zh: '此主机上没有防火墙后端。',
         hi: 'इस होस्ट पर कोई फ़ायरवॉल बैकएंड मौजूद नहीं है।',
         es: 'No hay backends de cortafuegos presentes en este host.',
         ar: 'لا توجد خلفيات جدار حماية على هذا المضيف.' },
@@ -417,7 +422,8 @@
     'Disable':                 { fr: 'Désactiver', de: 'Deaktivieren', zh: '禁用', hi: 'अक्षम करें', es: 'Desactivar', ar: 'تعطيل' },
     // Reputation / DMARC page
     'No IPs monitored yet. Add one to watch its blocklist status.':
-      {de: 'Noch keine IPs überwacht. Fügen Sie eine hinzu, um ihren Sperrlisten-Status zu beobachten.',  zh: '尚未监控任何 IP。添加一个以监视其黑名单状态。',
+      {fr: "Aucune IP surveillée pour l'instant. Ajoutez-en une pour suivre son statut dans les listes de blocage.",
+        de: 'Noch keine IPs überwacht. Fügen Sie eine hinzu, um ihren Sperrlisten-Status zu beobachten.',  zh: '尚未监控任何 IP。添加一个以监视其黑名单状态。',
         hi: 'अभी तक कोई IP निगरानी में नहीं। इसकी ब्लॉकलिस्ट स्थिति देखने के लिए एक जोड़ें।',
         es: 'Aún no se supervisa ninguna IP. Añada una para vigilar su estado en las listas de bloqueo.',
         ar: 'لا توجد عناوين IP مُراقَبة بعد. أضف واحداً لمتابعة حالته في قوائم الحظر.' },
@@ -426,7 +432,8 @@
     'never':                   { fr: 'jamais', de: 'nie', zh: '从不', hi: 'कभी नहीं', es: 'nunca', ar: 'أبداً' },
     // Alerts / MTTR
     'No resolved alerts in this window.':
-      {de: 'Keine aufgelösten Alarme in diesem Zeitfenster.',  zh: '此时间窗口内没有已解决的告警。',
+      {fr: 'Aucune alerte résolue dans cette fenêtre.',
+        de: 'Keine aufgelösten Alarme in diesem Zeitfenster.',  zh: '此时间窗口内没有已解决的告警。',
         hi: 'इस विंडो में कोई हल किए गए अलर्ट नहीं।',
         es: 'No hay alertas resueltas en esta ventana.',
         ar: 'لا توجد تنبيهات محلولة في هذه النافذة الزمنية.' },
@@ -455,7 +462,7 @@
     "Fleet at a glance": { "fr": "Le parc en un coup d'œil", "de": "Flotte auf einen Blick", "zh": "设备群概览", "hi": "फ़्लीट एक नज़र में", "es": "Flota de un vistazo", "ar": "الأسطول في لمحة" },
     "Free-form chat against the configured provider. Local-model stats when running Ollama or LocalAI.": { fr: "Discussion libre avec le fournisseur configuré. Statistiques de modèle local avec Ollama ou LocalAI.",de: 'Freier Chat gegen den konfigurierten Anbieter. Lokale Modellstatistiken bei Ollama oder LocalAI.',  "zh": "面向已配置提供方的自由对话。运行 Ollama 或 LocalAI 时显示本地模型统计。", "hi": "कॉन्फ़िगर किए गए प्रोवाइडर के साथ मुक्त-रूप चैट। Ollama या LocalAI चलाने पर local-model आँकड़े।", "es": "Chat libre con el proveedor configurado. Estadísticas de modelo local al usar Ollama o LocalAI.", "ar": "محادثة حرّة مع المزوّد المُهيّأ. إحصاءات النموذج المحلي عند تشغيل Ollama أو LocalAI." },
     "Grant exactly the actions this role may take. Hover for what each covers.": { "fr": "Accordez exactement les actions que ce rôle peut effectuer. Survolez pour voir ce que chacune couvre.", "de": "Gewähren Sie genau die Aktionen, die diese Rolle ausführen darf. Fahren Sie mit der Maus darüber, um zu sehen, was jede abdeckt.", "zh": "精确授予该角色可执行的操作。悬停查看各项涵盖范围。", "hi": "इस भूमिका को ठीक वही कार्य प्रदान करें जो वह कर सकती है। प्रत्येक क्या कवर करता है, यह देखने के लिए hover करें।", "es": "Concede exactamente las acciones que puede realizar este rol. Pasa el cursor para ver qué cubre cada una.", "ar": "امنح بالضبط الإجراءات المسموح بها لهذا الدور. مرّر المؤشر لمعرفة ما يغطّيه كلٌّ منها." },
-    "Hosts seen by agents that ran a LAN scan (device drawer → Health &amp; Hardware → Scan LAN) and that aren't enrolled in RemotePower.": {de: 'Hosts, die von Agents bei einem LAN-Scan gesehen wurden (Geräte-Detailansicht → Health &amp; Hardware → LAN scannen) und nicht in RemotePower registriert sind.',  "zh": "代理执行 LAN 扫描（设备抽屉 → Health &amp; Hardware → Scan LAN）时发现、但未注册到 RemotePower 的主机。", "hi": "LAN scan चलाने वाले agents द्वारा देखे गए hosts (device drawer → Health &amp; Hardware → Scan LAN) जो RemotePower में नामांकित नहीं हैं।", "es": "Hosts detectados por agentes que ejecutaron un escaneo de LAN (panel del dispositivo → Salud y hardware → Escanear LAN) y que no están inscritos en RemotePower.", "ar": "المضيفون الذين رصدتهم الوكلاء أثناء مسح الشبكة المحلية (درج الجهاز ← Health &amp; Hardware ← Scan LAN) وغير المُسجَّلين في RemotePower." },
+    "Hosts seen by agents that ran a LAN scan (device drawer → Health &amp; Hardware → Scan LAN) and that aren't enrolled in RemotePower.": {fr: "Hôtes détectés par les agents ayant lancé une analyse du réseau local (panneau de l'appareil → Santé &amp; Matériel → Analyser le LAN) et qui ne sont pas enrôlés dans RemotePower.", de: 'Hosts, die von Agents bei einem LAN-Scan gesehen wurden (Geräte-Detailansicht → Health &amp; Hardware → LAN scannen) und nicht in RemotePower registriert sind.',  "zh": "代理执行 LAN 扫描（设备抽屉 → Health &amp; Hardware → Scan LAN）时发现、但未注册到 RemotePower 的主机。", "hi": "LAN scan चलाने वाले agents द्वारा देखे गए hosts (device drawer → Health &amp; Hardware → Scan LAN) जो RemotePower में नामांकित नहीं हैं।", "es": "Hosts detectados por agentes que ejecutaron un escaneo de LAN (panel del dispositivo → Salud y hardware → Escanear LAN) y que no están inscritos en RemotePower.", "ar": "المضيفون الذين رصدتهم الوكلاء أثناء مسح الشبكة المحلية (درج الجهاز ← Health &amp; Hardware ← Scan LAN) وغير المُسجَّلين في RemotePower." },
     "Hosts whose latest memory / swap / disk reading deviates sharply from their own recent baseline (statistical, model-free).": { fr: "Hôtes dont la dernière mesure de mémoire / swap / disque s'écarte fortement de leur propre référence récente (statistique, sans modèle).",de: 'Hosts, deren letzte Speicher-/Swap-/Festplattenwerte stark von ihrer eigenen jüngsten Baseline abweichen (statistisch, modellfrei).',  "zh": "最新内存 / swap / 磁盘读数与自身近期基线明显偏离的主机（统计法，无需模型）。", "hi": "वे hosts जिनकी नवीनतम memory / swap / disk रीडिंग अपनी ही हालिया baseline से तेज़ी से विचलित होती है (सांख्यिकीय, model-free)।", "es": "Hosts cuya última lectura de memoria / swap / disco se desvía notablemente de su propia línea base reciente (estadístico, sin modelo).", "ar": "المضيفون الذين تنحرف أحدث قراءات الذاكرة / swap / القرص لديهم انحرافًا حادًّا عن خط أساسهم الحديث (إحصائي، دون نموذج)." },
     "How to use RemotePower — quick reference for the common tasks": { "fr": "Comment utiliser RemotePower — référence rapide pour les tâches courantes", "de": "RemotePower verwenden — Kurzreferenz für die gängigen Aufgaben", "zh": "RemotePower 使用方法——常见任务快速参考", "hi": "RemotePower का उपयोग कैसे करें — सामान्य कार्यों के लिए त्वरित संदर्भ", "es": "Cómo usar RemotePower: referencia rápida para las tareas habituales", "ar": "كيفية استخدام RemotePower — مرجع سريع للمهام الشائعة" },
     "IaC Generator": { "fr": "Générateur IaC", "de": "IaC-Generator", "zh": "IaC 生成器", "hi": "IaC जनरेटर", "es": "Generador de IaC", "ar": "مولّد IaC" },
@@ -477,7 +484,7 @@
     "Power &amp; energy": { "fr": "Alimentation &amp; énergie", "de": "Strom &amp; Energie", "zh": "电源 &amp; 能耗", "hi": "Power &amp; ऊर्जा", "es": "Potencia y energía", "ar": "الطاقة &amp; الاستهلاك" },
     "Probes, device metrics, ports, and custom health checks": { "fr": "Sondes, métriques d'appareil, ports et contrôles de santé personnalisés", "de": "Prüfsonden, Gerätemetriken, Ports und benutzerdefinierte Zustandsprüfungen", "zh": "探针、设备指标、端口及自定义健康检查", "hi": "Probes, device मेट्रिक्स, ports, और कस्टम health जाँच", "es": "Sondas, métricas de dispositivo, puertos y comprobaciones de salud personalizadas", "ar": "المجسّات، ومقاييس الأجهزة، والمنافذ، وفحوص الصحة المخصّصة" },
     "Proxmox guest backups": { "fr": "Sauvegardes des invités Proxmox", "de": "Proxmox-Gastsicherungen", "zh": "Proxmox 客户机备份", "hi": "Proxmox अतिथि बैकअप", "es": "Copias de seguridad de invitados de Proxmox", "ar": "النسخ الاحتياطية لضيوف Proxmox" },
-    "Virtual machines across your hypervisors — Proxmox VE plus any VMware or OpenShift Virtualization platform configured under Settings → Virtualization. List, power and snapshot actions call each platform's API directly from the RemotePower server.": {de: 'Virtuelle Maschinen über Ihre Hypervisoren — Proxmox VE sowie jede unter Einstellungen → Virtualisierung konfigurierte VMware- oder OpenShift-Virtualization-Plattform. Auflisten, Ein-/Ausschalten und Snapshot-Aktionen rufen die API jeder Plattform direkt vom RemotePower-Server auf.',  "zh": "跨管理程序的虚拟机 —— Proxmox VE，以及在“设置 → 虚拟化”中配置的任何 VMware 或 OpenShift Virtualization 平台。列表、电源和快照操作由 RemotePower 服务器直接调用各平台的 API。", "hi": "आपके सभी hypervisors की virtual machines — Proxmox VE के साथ-साथ Settings → Virtualization में कॉन्फ़िगर किया गया कोई भी VMware या OpenShift Virtualization प्लेटफ़ॉर्म। सूची, पावर और snapshot क्रियाएँ प्रत्येक प्लेटफ़ॉर्म की API को RemotePower server से सीधे कॉल करती हैं।", "es": "Máquinas virtuales de todos tus hipervisores: Proxmox VE más cualquier plataforma VMware u OpenShift Virtualization configurada en Ajustes → Virtualización. Las acciones de lista, encendido y snapshot llaman a la API de cada plataforma directamente desde el servidor de RemotePower.", "ar": "الأجهزة الافتراضية عبر جميع مُشرفاتك الافتراضية — Proxmox VE بالإضافة إلى أي منصة VMware أو OpenShift Virtualization مُهيأة ضمن الإعدادات → المحاكاة الافتراضية. تستدعي إجراءات القائمة والتشغيل واللقطات واجهة برمجة تطبيقات كل منصة مباشرةً من خادم RemotePower." },
+    "Virtual machines across your hypervisors — Proxmox VE plus any VMware or OpenShift Virtualization platform configured under Settings → Virtualization. List, power and snapshot actions call each platform's API directly from the RemotePower server.": {fr: "Machines virtuelles de tous vos hyperviseurs — Proxmox VE ainsi que toute plateforme VMware ou OpenShift Virtualization configurée dans Paramètres → Virtualisation. Les actions de liste, d'alimentation et d'instantané appellent l'API de chaque plateforme directement depuis le serveur RemotePower.", de: 'Virtuelle Maschinen über Ihre Hypervisoren — Proxmox VE sowie jede unter Einstellungen → Virtualisierung konfigurierte VMware- oder OpenShift-Virtualization-Plattform. Auflisten, Ein-/Ausschalten und Snapshot-Aktionen rufen die API jeder Plattform direkt vom RemotePower-Server auf.',  "zh": "跨管理程序的虚拟机 —— Proxmox VE，以及在“设置 → 虚拟化”中配置的任何 VMware 或 OpenShift Virtualization 平台。列表、电源和快照操作由 RemotePower 服务器直接调用各平台的 API。", "hi": "आपके सभी hypervisors की virtual machines — Proxmox VE के साथ-साथ Settings → Virtualization में कॉन्फ़िगर किया गया कोई भी VMware या OpenShift Virtualization प्लेटफ़ॉर्म। सूची, पावर और snapshot क्रियाएँ प्रत्येक प्लेटफ़ॉर्म की API को RemotePower server से सीधे कॉल करती हैं।", "es": "Máquinas virtuales de todos tus hipervisores: Proxmox VE más cualquier plataforma VMware u OpenShift Virtualization configurada en Ajustes → Virtualización. Las acciones de lista, encendido y snapshot llaman a la API de cada plataforma directamente desde el servidor de RemotePower.", "ar": "الأجهزة الافتراضية عبر جميع مُشرفاتك الافتراضية — Proxmox VE بالإضافة إلى أي منصة VMware أو OpenShift Virtualization مُهيأة ضمن الإعدادات → المحاكاة الافتراضية. تستدعي إجراءات القائمة والتشغيل واللقطات واجهة برمجة تطبيقات كل منصة مباشرةً من خادم RemotePower." },
     "Queue shutdown or reboot at a specific time": { "fr": "Planifier un arrêt ou un redémarrage à une heure précise", "de": "Herunterfahren oder Neustart zu einer bestimmten Zeit einreihen", "zh": "在指定时间排队执行关机或重启", "hi": "किसी विशिष्ट समय पर shutdown या reboot कतारबद्ध करें", "es": "Programa el apagado o reinicio a una hora concreta", "ar": "جدولة الإيقاف أو إعادة التشغيل في وقت محدّد" },
     "Quick Actions": { "fr": "Actions rapides", "de": "Schnellaktionen", "zh": "快捷操作", "hi": "त्वरित क्रियाएँ", "es": "Acciones rápidas", "ar": "إجراءات سريعة" },
     "Recent commands": { "fr": "Commandes récentes", "de": "Aktuelle Befehle", "zh": "近期命令", "hi": "हाल के कमांड", "es": "Comandos recientes", "ar": "الأوامر الأخيرة" },

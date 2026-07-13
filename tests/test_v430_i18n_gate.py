@@ -18,7 +18,11 @@ _ROOT = Path(__file__).parent.parent
 INDEX = (_ROOT / "server" / "html" / "index.html").read_text()
 I18N = (_ROOT / "server" / "html" / "static" / "js" / "i18n.js").read_text()
 
-LANGS = ('zh', 'hi', 'es', 'ar', 'de')
+# Every non-English language the UI ships. `fr` was added to i18n.js but NOT to
+# this tuple, so the completeness gates below silently never checked it — which is
+# how 9 DICT entries shipped with no French at all (they render English for a French
+# user). Adding a language to i18n.js means adding it HERE too, or it is unguarded.
+LANGS = ('zh', 'hi', 'es', 'ar', 'de', 'fr')
 
 
 def _dict_entries():
@@ -44,6 +48,13 @@ def _htmldict_entries():
     HTMLDICT is the separate object that translates whole `.page-subtitle`
     innerHTML strings (keys are the normalized English HTML, double-quoted).
     Each line is one entry: `    "<en html>": { "zh": ..., "hi": ..., ... },`
+
+    Language keys appear BOTH quoted (`"de":`) and bare (`fr:`) — the file mixes
+    styles. Matching only the quoted form (as this did) silently reports every
+    bare-keyed language as MISSING, which is a false failure, not a coverage gap.
+    Mirror _dict_entries and accept both. (A `https:` inside an href can also match;
+    harmless — the gates assert LANGS is a SUBSET of what's present, so a spurious
+    extra name can never mask a genuinely absent language.)
     """
     m = re.search(r'var HTMLDICT = \{(.*?)\n  \};', I18N, re.S)
     assert m, "HTMLDICT block not found in i18n.js"
@@ -51,7 +62,7 @@ def _htmldict_entries():
     for em in re.finditer(r'^\s{4}"((?:[^"\\]|\\.)*)":\s*\{([^}]*)\}', m.group(1), re.M):
         # Unescape the JS string-literal key into the runtime innerHTML it matches.
         key = em.group(1).replace('\\"', '"').replace('\\\\', '\\')
-        langs = set(re.findall(r'"(\w+)":', em.group(2)))
+        langs = set(re.findall(r'["\']?(\w+)["\']?\s*:', em.group(2)))
         entries[key] = langs
     return entries
 
@@ -164,7 +175,7 @@ class TestChromeTranslationCoverage(unittest.TestCase):
         self.assertEqual(missing, [],
                          f"page titles with no DICT entry: {missing}")
 
-    def test_dict_entries_carry_all_four_languages(self):
+    def test_dict_entries_carry_all_six_languages(self):
         incomplete = {k: sorted(set(LANGS) - langs)
                       for k, langs in self.dict_entries.items()
                       if not set(LANGS) <= langs}
@@ -174,8 +185,8 @@ class TestChromeTranslationCoverage(unittest.TestCase):
 
 class TestSubtitleTranslationCoverage(unittest.TestCase):
     """Every `.page-subtitle` must have a translation entry in DICT or
-    HTMLDICT carrying all five non-English languages, or it renders
-    English-only in zh/hi/es/ar. The original v4.3.0 gate only checked
+    HTMLDICT carrying all six non-English languages, or it renders
+    English-only in zh/hi/es/ar/de/fr. The original v4.3.0 gate only checked
     page-*titles*; leaf-page subtitles slipped through (the gap this closes)."""
 
     def setUp(self):
@@ -197,7 +208,7 @@ class TestSubtitleTranslationCoverage(unittest.TestCase):
                          "page subtitles with no DICT/HTMLDICT entry (new page "
                          f"shipped without a subtitle translation?): {missing}")
 
-    def test_htmldict_entries_carry_all_four_languages(self):
+    def test_htmldict_entries_carry_all_six_languages(self):
         incomplete = {k: sorted(set(LANGS) - langs)
                       for k, langs in self.htmldict_entries.items()
                       if not set(LANGS) <= langs}
@@ -207,8 +218,8 @@ class TestSubtitleTranslationCoverage(unittest.TestCase):
 
 class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
     """Static `.section-title` headings and static `<button>` labels must
-    carry a DICT entry in all five non-English languages, or they render
-    English-only in zh/hi/es/ar. This closed a coverage gap an audit found:
+    carry a DICT entry in all six non-English languages, or they render
+    English-only in zh/hi/es/ar/de/fr. This closed a coverage gap an audit found:
     leaf-page section titles and clear-verb buttons had decayed to English."""
 
     # Proper nouns (never translated) and dynamic/glyph-only labels that have
