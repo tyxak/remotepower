@@ -52,9 +52,9 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex((_ROOT / 'server/html/index.html').read_text(),
                          r'\?v=\d+\.\d+\.\d+')
 
-    def test_doc_set_keeps_five_versions(self):
+    def test_doc_set_keeps_three_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / 'docs').glob('v[0-9]*.md'))
-        self.assertEqual(len(vdocs), 5, f'expected exactly 5 version docs, got {vdocs}')
+        self.assertEqual(len(vdocs), 3, f'expected exactly 3 version docs, got {vdocs}')
 
     def test_oldest_version_doc_rotated_out(self):
         self.assertFalse((_ROOT / 'docs/v4.0.0.md').exists(),
@@ -67,10 +67,10 @@ class TestVersionBumps(unittest.TestCase):
                       if '-internal' not in p.name)
         self.assertEqual(len(revs), 3, f'expected exactly 3 security reviews, got {revs}')
 
-    def test_whats_new_cards_capped_at_five(self):
+    def test_whats_new_cards_capped_at_three(self):
         idx = (_ROOT / 'server/html/index.html').read_text()
         cards = re.findall(r"What's new — v[0-9.]+", idx)
-        self.assertEqual(len(cards), 5, f'expected exactly 5 What\'s-new cards, got {cards}')
+        self.assertEqual(len(cards), 3, f'expected exactly 3 What\'s-new cards, got {cards}')
 
 
 class TestNoDanglingReviewLinks(unittest.TestCase):

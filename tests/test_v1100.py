@@ -58,6 +58,9 @@ class _StdinShim:
         self.buffer = io.BytesIO(data)
 
 
+_REAL_RESPOND = api.respond
+
+
 def _capture_respond(target):
     def fake_respond(status, data):
         raise _Captured(status, data)
@@ -86,11 +89,19 @@ def _set_request(method, path, body=None, headers=None, query=""):
 
 
 def _call(handler, *args, **kwargs):
+    # Restore the real respond() afterwards: leaving the stub installed leaks into
+    # every later test in the process (it silently turned the HTTPError test below
+    # into a false green). Also capture HTTPError directly — _respond_with_etag
+    # raises it without going through respond(), so the stub never sees those.
     _capture_respond(api)
     try:
         handler(*args, **kwargs)
     except _Captured as c:
         return c.status, c.body
+    except api.HTTPError as e:
+        return e.status, e.body
+    finally:
+        api.respond = _REAL_RESPOND
     raise AssertionError(f"handler {handler.__name__} did not call respond()")
 
 

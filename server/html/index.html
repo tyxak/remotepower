@@ -3586,61 +3586,10 @@
               <p><strong>Under the hood</strong> — the read-only public demo now runs its own dedicated app-server process; the guided self-update restarts the correct service; documentation refreshed across the board. See <a href="docs/wsgi.md" class="c-accent">docs/wsgi.md</a> and <a href="docs/scaling.md" class="c-accent">docs/scaling.md</a>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v6.0.1 refinematters refine polish hardening sidebar reorg virtualization containers fleet integrations monitoring app catalog automation alphabetical sort world map sites real coastline auto-patch single device target service baselines card patch report pdf export button sizing consistent certificate expiry alert readonly read-only remount filesystem mail queue mailq backlog alert process storage recovered resolution fix ssrf cve scanner image registry ticket badge performance heartbeat typography spacing security review pentest">
-            <summary><strong>What's new — v6.0.1 &ldquo;RefineMatters&rdquo;</strong> — a refinement release: a broad polish, hardening and correctness pass. Sidebar reorganised (Virtualization/Containers under Fleet, Integrations under Monitoring, App catalog under Automation; sub-menus sorted A–Z), a real world map, single-device auto-patch targets, a Service-baselines card, PDF patch-report export, and consistent button sizing — plus a certificate-expiry alert and two new alerts (read-only remount, mail-queue backlog). No breaking changes.</summary>
+          <details class="doc-card" data-keywords="release notes changelog older versions history v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+            <summary><strong>Older releases</strong> &mdash; v6.0.1 and earlier</summary>
             <div class="doc-body">
-              <p>v6.0.1 refines v6 across the board. Hard-reload once after upgrading (cache <code>remotepower-shell-v6.0.1</code>).</p>
-              <p><strong>Fleet &amp; interface</strong></p>
-              <ul>
-                <li>Sidebar reorganised — <strong>Virtualization</strong> and <strong>Containers</strong> under Fleet, <strong>Integrations</strong> under Monitoring, the <strong>App catalog</strong> under Automation; every sub-menu is sorted alphabetically.</li>
-                <li>A <strong>real world map</strong> on the Sites page (actual coastlines), <strong>single-device auto-patch</strong> targets, a dedicated <strong>Service baselines</strong> card on the Services page, and a <strong>PDF</strong> patch-report export.</li>
-                <li>Consistent button sizing (no full-width buttons), tidier table actions, and aligned Server-status value columns.</li>
-              </ul>
-              <p><strong>Alerts</strong></p>
-              <ul>
-                <li><strong>Certificate expiry</strong> now raises an alert by default (coalesced per host), with an opt-out in Settings.</li>
-                <li>New alerts: <strong>read-only remount</strong> (a filesystem the kernel flips read-only — a silent data-loss outage) and <strong>mail-queue backlog</strong>.</li>
-                <li>Fixed two cases where recovering one watched process / storage pool cleared the still-open alerts for the others on the same host.</li>
-              </ul>
-              <p><strong>Under the hood</strong> — extra defense-in-depth on outbound vulnerability-database and image-registry lookups, faster heartbeats, standardised typography/spacing, and a published <a href="docs/security-review-6.0.1.md" class="c-accent">security review</a>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion twelve 12 domains settings left-nav left nav auto-hide autohide watermark always-on modules tickets billing provisioning file manager knowledge base documentation typography headers buttons tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
-            <summary><strong>What's new — v6.0.0 &ldquo;ClarityMatters&rdquo;</strong> — the v6 interface overhaul: one flat UI (the New-UI/Old-UI toggle is gone), a 12-domain sidebar accordion, left-nav Settings, always-on standard modules, an optional auto-hide sidebar and per-page documentation links — folding in built-in TLS/DANE expiry scheduling, SNMPv3 polling and a GitHub Issues connector (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v6.0.0 is the ClarityMatters interface overhaul, folding in the accumulated backend work below. Hard-reload once after upgrading (cache <code>remotepower-shell-v6.0.0</code>).</p>
-              <p><strong>Interface</strong></p>
-              <ul>
-                <li><strong>One flat interface.</strong> The Industrial New-UI/Old-UI toggle is gone — a single flat design with hairline panels, system fonts and accent-soft active states. Colour themes and the accent picker live under My Account &rarr; Appearance.</li>
-                <li><strong>12-domain sidebar</strong> (one group open at a time) and a <strong>left-nav Settings</strong> layout.</li>
-                <li><strong>Standard modules on by default</strong> — Tickets, Billing, Provisioning, the host File manager and the Knowledge base (server-side Terraform execution stays an explicit admin-only switch).</li>
-                <li><strong>Optional auto-hide sidebar</strong> (on by default; revealed whenever alerts are open), a faint per-page icon watermark, and consistent headings, buttons and typography throughout.</li>
-                <li><strong>Every page links its own documentation.</strong></li>
-              </ul>
-              <p><strong>Fixed</strong></p>
-              <ul>
-                <li><strong>TLS/DANE expiry checks run on schedule now.</strong> Periodic probing of the TLS watchlist previously required an optional cron entry the installer only suggested — and that runner couldn't see the watchlist on the SQLite/Postgres backends. The server now re-probes every target about every 6 hours on its own maintenance cadence (bounded per pass) and fires <code>tls_expiry</code> alerts on warn/critical crossings using each target's own thresholds. Nothing to configure; an existing cron entry is now redundant.</li>
-              </ul>
-              <p><strong>Added</strong></p>
-              <ul>
-                <li><strong>SNMPv3 (USM) polling</strong>: agentless SNMP devices can use v3 instead of a v2c community — per-device user, MD5/SHA-1/SHA-2 authentication and AES-128 privacy (noAuthNoPriv / authNoPriv / authPriv), optional context. Engine discovery and time-window resync are automatic, responses are authenticated, and passwords are write-only. DES is deliberately unsupported (broken cipher — use AES). Configure it in the device drawer → Settings → SNMP polling.</li>
-                <li><strong>GitHub issue monitor</strong> (Settings → Integrations → <em>GitHub Issues</em>): watch repositories — <code>owner/repo</code>, several per instance — and get a <code>github_new_issue</code> alert in the Alerts inbox when a new issue is opened. Pull requests are ignored and the first poll only baselines, so attaching a repo never floods with its backlog. The token is optional (private repos / rate limit); GitHub Enterprise API roots work. Webhook/push routing for the new <em>GitHub new issues</em> kind is off by default — enable it under Settings → Notifications to page on it.</li>
-                <li><strong>10 more homelab connectors</strong>: Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, and a <strong>RemotePower (peer instance)</strong> connector that shows another RemotePower's device/offline/alert counts via a viewer API key (off-site visibility, not federation) — 40 connectors in total.</li>
-                <li><strong>"Fix" button on the Alerts page</strong>: alerts whose event has a remediation playbook (reboot, service down, disk, drift, failed unit, CVE, container, CPU/memory/swap, AV, backup, SSH key, new port, log, patches) now open the guided diagnostic → AI → fix runner directly — previously only reachable from the dashboard's needs-attention feed.</li>
-                <li><strong>Patch rings</strong>: an auto-patch policy can patch in staged rings (canary → wave → rest) — it spawns a health-gated rollout that verifies each ring before promoting to the next and auto-halts on a health drop, with optional per-ring reboot.</li>
-                <li><strong>Standalone-container Update</strong>: the Containers view gets an Update button on running non-compose containers — the agent pulls the latest image and recreates the container with the same config (compose-managed ones update via their stack).</li>
-                <li><strong>3-2-1 backup score</strong> on the device drawer's Backups panel: 3 fresh copies / 2 distinct targets / 1 off-site, inferred from watched-backup data. Informational — the stale/verify alerts still page.</li>
-                <li><strong>Calendar on-call rotation</strong> (Settings → Notifications): a rotation start date makes "who's on call this week" deterministic, with dated overrides for handoffs and an upcoming-handoffs view.</li>
-                <li><strong>SCIM Groups + discovery</strong>: <code>/scim/v2/Groups</code> maps IdP group membership to RemotePower roles, plus the ServiceProviderConfig / ResourceTypes / Schemas discovery endpoints.</li>
-              </ul>
-              <p><strong>Also</strong>: enrollment PINs are stored hashed at rest; maintenance windows suppress more predictable churn (metrics, drift, failed units, reboots, container restarts, stale backups); a first-run empty Devices page shows an "add your first device" prompt; and a new <code>docs/cookbook.md</code> collects step-by-step recipes.
-              <p class="hint">See <code>docs/v6.0.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v5.6.0 and earlier</summary>
-            <div class="doc-body">
-              <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
+              <p>Per-release notes for the three most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
           </details>
 

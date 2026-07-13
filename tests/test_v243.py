@@ -26,6 +26,12 @@ _ROOT    = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
 
+# Importing api.py runs ensure_default_user() at module scope, which writes to
+# DATA_DIR. Without this, TestMailwatchServer's exec_module targets the REAL
+# /var/lib/remotepower — it only ever passed because another test module set the
+# var first, and on a box where that dir is writable it would clobber a live install.
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
+
 # The agent file has no .py extension — load it via SourceFileLoader.
 _agent_loader = importlib.machinery.SourceFileLoader(
     'rp_agent_v243', str(_ROOT / 'client' / 'remotepower-agent'))

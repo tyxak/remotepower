@@ -48,9 +48,9 @@ class TestVersionBumps(unittest.TestCase):
                          r'remotepower-shell-v\d+\.\d+\.\d+')
         self.assertRegex(_HTML, r'\?v=\d+\.\d+\.\d+')
 
-    def test_doc_set_keeps_five_versions(self):
+    def test_doc_set_keeps_three_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / 'docs').glob('v[0-9]*.md'))
-        self.assertEqual(len(vdocs), 5, f'expected exactly 5 version docs, got {vdocs}')
+        self.assertEqual(len(vdocs), 3, f'expected exactly 3 version docs, got {vdocs}')
 
 
 class TestFeaturePresence(unittest.TestCase):

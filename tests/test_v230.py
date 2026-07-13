@@ -27,6 +27,12 @@ _ROOT    = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
 
+# Importing api.py runs ensure_default_user() at module scope, which writes to
+# DATA_DIR. Without this, TestProxmoxApiWiring's exec_module targets the REAL
+# /var/lib/remotepower — it only ever passed because another test module set the
+# var first, and on a box where that dir is writable it would clobber a live install.
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
+
 _spec = importlib.util.spec_from_file_location("proxmox_v230", _CGI_BIN / "proxmox_client.py")
 px = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(px)
@@ -194,6 +200,14 @@ class TestProxmoxApiWiring(unittest.TestCase):
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
         self.api.CONFIG_FILE = self._tmp / 'config.json'
+        # respond() raises HTTPError (it used to sys.exit). Tests below stub it to
+        # raise SystemExit; restore the real one afterwards so the stub can't leak
+        # into a later test — the two save tests used to *depend* on that leak and
+        # broke the moment they ran first.
+        self._real_respond = self.api.respond
+
+    def tearDown(self):
+        self.api.respond = self._real_respond
 
     def test_config_get_masks_token_secret(self):
         api = self.api
@@ -253,7 +267,7 @@ class TestProxmoxApiWiring(unittest.TestCase):
         api.get_json_body = lambda: body
         try:
             api.handle_config_save()
-        except SystemExit:
+        except (SystemExit, api.HTTPError):
             pass
         cfg = api.load(api.CONFIG_FILE)
         self.assertTrue(cfg['proxmox_enabled'])
@@ -271,7 +285,7 @@ class TestProxmoxApiWiring(unittest.TestCase):
         api.get_json_body = lambda: {'proxmox_host': 'newhost'}
         try:
             api.handle_config_save()
-        except SystemExit:
+        except (SystemExit, api.HTTPError):
             pass
         self.assertEqual(api.load(api.CONFIG_FILE)['proxmox_token_secret'],
                          'original')
@@ -279,7 +293,7 @@ class TestProxmoxApiWiring(unittest.TestCase):
         api.get_json_body = lambda: {'proxmox_token_secret': ''}
         try:
             api.handle_config_save()
-        except SystemExit:
+        except (SystemExit, api.HTTPError):
             pass
         self.assertNotIn('proxmox_token_secret', api.load(api.CONFIG_FILE))
 

@@ -44,9 +44,9 @@ class TestVersionBumps(unittest.TestCase):
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{self.V}.md").exists())
 
-    def test_doc_set_keeps_five_versions(self):
+    def test_doc_set_keeps_three_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))
-        self.assertEqual(len(vdocs), 5, f"expected exactly 5 version docs, got {vdocs}")
+        self.assertEqual(len(vdocs), 3, f"expected exactly 3 version docs, got {vdocs}")
 
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}",

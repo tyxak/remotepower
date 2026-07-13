@@ -8302,7 +8302,7 @@ def apply_host_config(desired):
             # v5.6.0 pentest: validate the username (POSIX) so a name like "-Mx"
             # can't be read by useradd/usermod as an option; also pass it after a
             # `--` end-of-options guard. shell follows `-s` so it's never an option.
-            if not _re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', name):
+            if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', name):
                 errs.append(f'{name}: invalid username')
                 continue
             try:

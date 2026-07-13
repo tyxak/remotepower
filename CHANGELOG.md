@@ -38,6 +38,21 @@ homelabs — the ability to switch off the enterprise modules you don't use.
   retry budget, the handler handles contention explicitly, and an uncaught
   `LockBusy` anywhere renders as a retryable **503** rather than an opaque 500.
 
+### Fixed — found in a static sweep of the agent
+
+- **Host-config apply silently did nothing whenever it managed users.** The
+  username validation in the agent's `apply_host_config` called `_re.fullmatch(...)`,
+  but the agent imports `re` — `_re` was never defined at module scope. Any desired
+  host config carrying a `users` entry therefore raised `NameError` on the first
+  user, and the heartbeat's `except Exception` wrapper swallowed it: the apply
+  aborted, and every section ordered after `users` (groups, sudoers, motd,
+  logrotate, cron) never ran either. Nothing surfaced the failure beyond a warning
+  line in the agent log. The guard now uses the real `re` module, so usernames are
+  validated (and rejected) as documented. A new static guardrail
+  (`tests/test_v612_agent_undefined_names.py`) fails the build on *any* undefined
+  name in any of the three agents — the existing tests for this code path are all
+  source-text greps, which see the line present and pass without ever running it.
+
 ### Fixed — found in a full sweep of the frontend modules
 
 - **Billing: deleting a rate-card row or a recurring fee could remove the wrong
@@ -352,6 +367,22 @@ homelabs — the ability to switch off the enterprise modules you don't use.
   page themselves through ntfy or Discord and don't want a queue to curate.
   (v6.0.0 had made tickets/billing/KB "standard, always-on" and deleted their
   toggles; this restores them, as opt-outs.)
+
+### Docs & housekeeping
+
+- **Per-release notes now keep the last three versions, not five.** `docs/` had
+  accumulated five `vX.Y.Z.md` files and the in-app "What's new" cards mirrored
+  them; both now keep three (v6.1.0, v6.1.1, v6.1.2) and point everything older at
+  `CHANGELOG.md`, which remains the complete history. The docs index and the
+  in-app release cards were trimmed in step, so nothing links to a rotated-out file.
+- **Test isolation.** Three test modules loaded `api.py` without pointing
+  `RP_DATA_DIR` at a temp directory first, so importing it ran `ensure_default_user()`
+  against the real data directory — they only passed because another test module
+  happened to set the variable first, and on a box where `/var/lib/remotepower` is
+  writable, running the suite could have overwritten a live install's admin user.
+  Two `respond()` stubs were also left installed after the tests that set them,
+  which leaked into later tests in the same process and turned two assertions into
+  false greens. Both classes are fixed.
 
 ## v6.1.1 — "HardenMatters" — 2026-07-12
 

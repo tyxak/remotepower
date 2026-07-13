@@ -104,19 +104,7 @@ The five most recent per-release notes are kept here:
  are now the single-node default (`install-server.sh`/`docker-compose.yml`), and
  the server runs entirely on **gunicorn + Flask** (CGI/fcgiwrap and the SCGI
  worker are retired). No breaking API changes.
-- **[v6.0.1.md](v6.0.1.md)** — "RefineMatters": a refinement release — sidebar
- reorg (Virtualization/Containers → Fleet, Integrations → Monitoring, App catalog →
- Automation; sub-menus sorted A–Z), a real world map, single-device auto-patch, a
- Service-baselines card, PDF patch export, a certificate-expiry alert and two new
- alerts (read-only remount, mail-queue backlog), plus hardening, perf and docs work.
-- **[v6.0.0.md](v6.0.0.md)** — "ClarityMatters": the v6 UI
- overhaul — one flat interface (the New/Old toggle is gone), a 12-domain sidebar
- accordion, left-nav Settings, always-on standard modules, an optional auto-hide
- sidebar and per-page documentation links — plus the accumulated backend work
- (built-in TLS/DANE expiry schedule, SNMPv3/USM polling, the GitHub Issues
- connector). No breaking API changes.
-
-Older release notes (v6.0.0 and earlier) live in
+Older release notes (v6.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
