@@ -21,6 +21,6 @@ reportlab       # PDF report export
 webauthn        # passkey / WebAuthn MFA
 pysaml2         # SAML 2.0 SSO (with the system xmlsec1 binary)
 psycopg         # Postgres storage backend (JSON/SQLite need nothing extra)
-pydantic        # v6.1.1 (#5): request-body validation pilot (request_models.py,
-                # 3 handlers) -- absent, those handlers fall back to their
-                # existing hand-rolled validation unchanged, nothing degrades
+pydantic        # request-body validation (request_models.py) -- full adoption in
+                # v6.1.2: 243 handlers. Absent, validate() short-circuits and the
+                # handlers' hand-rolled validation runs unchanged, nothing degrades

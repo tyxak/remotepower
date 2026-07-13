@@ -20,6 +20,10 @@ holds long-form docs that don't fit there.
  safely, …).
 - **[architecture.md](architecture.md)** — How the pieces fit together,
  the heartbeat → command → response cycle, file layout on disk.
+- **[internals.md](internals.md)** — Under the hood: the engineering tour of
+ *how it's built* — the table-driven router, the one-API/three-backend storage
+ layer, the maintenance sweeps, request validation, the no-build frontend, and
+ the defensive-security posture. For the curious and for contributors.
 - **[deployment.md](deployment.md)** — Install-everything map: server, agents
  (Linux/Windows/macOS), satellites, app nodes, load balancer, Postgres/HA —
  which script installs each and when you need it.
