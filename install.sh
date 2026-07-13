@@ -276,6 +276,14 @@ _install_deps() {
   command -v gunicorn >/dev/null 2>&1 && { [ -x /usr/bin/gunicorn ] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn; } \
     || step_no "gunicorn install failed — the app server cannot run"
   python3 -c "import bcrypt" 2>/dev/null || pip3 install bcrypt --break-system-packages 2>/dev/null || pip install bcrypt 2>/dev/null || true
+  # v6.1.2: pydantic — required, request-body validation depends on it (api.py).
+  python3 -c "import pydantic" 2>/dev/null || \
+    { case "$PKG_MGR" in
+        apt) apt-get install -y --no-install-recommends python3-pydantic 2>/dev/null || pip3 install pydantic --break-system-packages 2>/dev/null || pip3 install pydantic 2>/dev/null;;
+        dnf) dnf install -y -q python3-pydantic 2>/dev/null || pip3 install pydantic 2>/dev/null;;
+        pacman) pacman -S --noconfirm python-pydantic 2>/dev/null || pip install pydantic 2>/dev/null;;
+      esac; }
+  python3 -c "import pydantic" 2>/dev/null || step_no "pydantic install failed — request validation cannot run"
 }
 _copy_files() {
   local SRC="$1" f

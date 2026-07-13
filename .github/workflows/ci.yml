@@ -44,7 +44,7 @@ jobs:
       - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn
+          pip install bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic
 
       - name: Run test suite
         env:

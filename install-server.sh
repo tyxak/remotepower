@@ -257,6 +257,23 @@ command -v gunicorn >/dev/null 2>&1 || die "gunicorn install failed — the app 
 [[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
 success "gunicorn installed"
 
+# ── pydantic (v6.1.2: required — request-body validation depends on it) ──────
+if python3 -c "import pydantic" 2>/dev/null; then
+    success "pydantic already available"
+else
+    case $PKG_MGR in
+      apt)    apt-get install -y --no-install-recommends python3-pydantic 2>/dev/null \
+                || pip3 install pydantic --break-system-packages 2>/dev/null \
+                || pip3 install pydantic || die "pydantic install failed — request validation cannot run" ;;
+      dnf)    dnf install -y -q python3-pydantic 2>/dev/null \
+                || pip3 install pydantic || die "pydantic install failed — request validation cannot run" ;;
+      pacman) pacman -S --noconfirm python-pydantic 2>/dev/null \
+                || pip install pydantic || die "pydantic install failed — request validation cannot run" ;;
+    esac
+    python3 -c "import pydantic" 2>/dev/null || die "pydantic install failed — request validation cannot run"
+    success "pydantic installed"
+fi
+
 # ── Nginx user (differs by distro) ──────────────────────────────────────────────
 case $PKG_MGR in
   apt)    NGINX_USER=www-data ;;

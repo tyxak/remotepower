@@ -9,7 +9,7 @@ license=('MIT')
 # Hard deps are all in the official repos. The two AUR-only Python libs
 # (webauthn, pysaml2) are optdepends so they never block a plain install.
 depends=('nginx' 'python' 'python-bcrypt' 'python-cryptography' 'python-dnspython'
-         'python-flask' 'gunicorn' 'iputils')
+         'python-flask' 'python-pydantic' 'gunicorn' 'iputils')
 optdepends=(
   'python-reportlab: PDF report export'
   'python-webauthn: passkey / WebAuthn MFA (AUR)'
