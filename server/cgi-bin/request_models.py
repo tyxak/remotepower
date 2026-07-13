@@ -141,6 +141,28 @@ if _AVAILABLE:
                 raise ValueError('must be a number')
         return _coerce
 
+    def _coerce_dict_loose(v):
+        """Matches `body.get(field) or {}` -- any falsy value becomes {}. A truthy
+        non-dict is rejected here (old code did `x or {}` then `x.get(...)`, which
+        AttributeError'd -> a 500 on a truthy non-dict; a 400 is strictly better and
+        never rejects a body the old code actually accepted -- a non-dict never was)."""
+        if not v:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError('must be an object')
+        return v
+
+    def _require_list(v):
+        """Matches `raw = get(field); if not isinstance(raw, list): respond(400)`
+        -- None and any non-list are a 400, a list passes. Pair with a required
+        field (no default) so an ABSENT key is a 400 too, exactly like the old
+        `isinstance(None, list)` check. Never str->list coercion (pydantic's
+        default would iterate a string into chars -- accepting input old code
+        rejected)."""
+        if not isinstance(v, list):
+            raise ValueError('must be a list')
+        return v
+
     class UserCreateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')
         username: str = ''
@@ -240,6 +262,77 @@ if _AVAILABLE:
         _v_scope = field_validator('scope', mode='before')(_coerce_str_loose)
         _v_confirm = field_validator('confirm', mode='before')(_coerce_str_loose)
 
+    # ── v6.1.2 full-adoption sweep ───────────────────────────────────────────
+    # Every body-reading handler gets a superset model (all-optional loose
+    # coercers matching the handler's own str()/bool()/int() dance, extra='ignore').
+    # A model here NEVER rejects a body the handler accepted; it only turns a body
+    # the handler would 500 on (a non-dict where a dict is required) into a clean
+    # 400, and documents the accepted shape. Ordered to match api.py.
+
+    class MaintenanceModeSetRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore')
+        enabled: bool = False
+        reason: str = ''
+        _v_enabled = field_validator('enabled', mode='before')(_coerce_bool_loose)
+        _v_reason = field_validator('reason', mode='before')(_coerce_str_loose)
+
+    class StepUpVerifyRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore')
+        password: str = ''
+        totp_code: str = ''
+        _v_str = field_validator('password', 'totp_code', mode='before')(_coerce_str_loose)
+
+    class ServiceBaselinesRequest(BaseModel):
+        """handle_service_baselines — `raw = get('baselines'); if not
+        isinstance(raw, list): 400`. Required list (absent/non-list = 400)."""
+        model_config = ConfigDict(extra='ignore')
+        baselines: list
+        _v_baselines = field_validator('baselines', mode='before')(_require_list)
+
+    class PushSubscribeRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore')
+        subscription: dict = {}
+        _v_sub = field_validator('subscription', mode='before')(_coerce_dict_loose)
+
+    class PushUnsubscribeRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore')
+        endpoint: str = ''
+        _v_endpoint = field_validator('endpoint', mode='before')(_coerce_str_loose)
+
+    class ContactCreateRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore')
+        name: str = ''
+        role: str = ''
+        company: str = ''
+        email: str = ''
+        phone: str = ''
+        notes: str = ''
+        site: str = ''
+        portal_enabled: bool = False
+        _v_str = field_validator('name', 'role', 'company', 'email', 'phone',
+                                 'notes', 'site', mode='before')(_coerce_str_loose)
+        _v_portal = field_validator('portal_enabled', mode='before')(_coerce_bool_loose)
+
+    class ContactUpdateRequest(BaseModel):
+        """PATCH — every field is `if 'x' in body: c[x] = ...`, so all optional."""
+        model_config = ConfigDict(extra='ignore')
+        name: str = ''
+        role: str = ''
+        company: str = ''
+        email: str = ''
+        phone: str = ''
+        notes: str = ''
+        site: str = ''
+        portal_enabled: bool = False
+        _v_str = field_validator('name', 'role', 'company', 'email', 'phone',
+                                 'notes', 'site', mode='before')(_coerce_str_loose)
+        _v_portal = field_validator('portal_enabled', mode='before')(_coerce_bool_loose)
+
+    class PortalMagicLinkRequest(BaseModel):
+        model_config = ConfigDict(extra='ignore')
+        email: str = ''
+        _v_email = field_validator('email', mode='before')(_coerce_str_loose)
+
 else:
     # Placeholders so `request_models.UserCreateRequest` etc. always resolve as
     # an attribute at call sites -- validate() short-circuits on `_AVAILABLE`
@@ -252,6 +345,14 @@ else:
     TenantCreateRequest = None
     DeadmanCreateRequest = None
     DockerPruneRequest = None
+    MaintenanceModeSetRequest = None
+    StepUpVerifyRequest = None
+    ServiceBaselinesRequest = None
+    PushSubscribeRequest = None
+    PushUnsubscribeRequest = None
+    ContactCreateRequest = None
+    ContactUpdateRequest = None
+    PortalMagicLinkRequest = None
 
 
 def validate(model_cls, body):

@@ -2559,6 +2559,9 @@ def handle_maintenance_mode_set():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
+    _ok, _err = request_models.validate(request_models.MaintenanceModeSetRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     enabled = bool(body.get('enabled'))
     reason = _sanitize_str(body.get('reason', ''), 200, allow_empty=True) or ''
     cfg = load(CONFIG_FILE) or {}
@@ -4992,6 +4995,9 @@ def handle_step_up_verify():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.StepUpVerifyRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     users = load(USERS_FILE)
     user = users.get(username)
     if not user:
@@ -5255,7 +5261,11 @@ def handle_service_baselines():
         respond(200, {'baselines': _config_ro().get('service_baselines', [])})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    raw = get_json_obj().get('baselines')
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ServiceBaselinesRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    raw = body.get('baselines')
     if not isinstance(raw, list):
         respond(400, {'error': 'baselines must be a list'})
     clean = []
@@ -6494,6 +6504,9 @@ def handle_push_subscribe():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PushSubscribeRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     sub = body.get('subscription') or {}
     endpoint = str(sub.get('endpoint') or '').strip()
     keys = sub.get('keys') or {}
@@ -6517,7 +6530,11 @@ def handle_push_unsubscribe():
     user = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    endpoint = str((get_json_obj()).get('endpoint') or '').strip()
+    body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PushUnsubscribeRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
+    endpoint = str(body.get('endpoint') or '').strip()
     with _LockedUpdate(PUSH_SUBS_FILE) as store:
         store[user] = [s for s in (store.get(user) or []) if s.get('endpoint') != endpoint]
         if not store[user]:
@@ -7651,6 +7668,9 @@ def handle_contacts():
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ContactCreateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     name = _sanitize_str(str(body.get('name', '')), 120).strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -7696,6 +7716,9 @@ def handle_contact_update(cid):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.ContactUpdateRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     now = int(time.time())
     ok = False
     with _LockedUpdate(CONTACTS_FILE) as store:
@@ -7893,6 +7916,9 @@ def handle_portal_magic_link():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
+    _ok, _err = request_models.validate(request_models.PortalMagicLinkRequest, body)
+    if not _ok:
+        respond(400, {'error': _err})
     email = _sanitize_str(str(body.get('email', '')), 200).strip()
     ip = _get_client_ip()
     _CONSTANT = {'ok': True, 'message': 'If that email is registered, a link is on its way.'}
