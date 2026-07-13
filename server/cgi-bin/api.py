@@ -39542,14 +39542,29 @@ def _compute_attention():
     # the canonical published build on the current version (tamper / partial
     # update / corruption). Critical: it's a security signal.
     _canonical_agent_sha = _get_agent_sha256()
-    if _canonical_agent_sha:
-        for dev_id, dev in monitored.items():
-            if dev.get('agentless'):
-                continue
-            if _agent_integrity_status(dev, _canonical_agent_sha, SERVER_VERSION) == 'mismatch':
-                items.append({'severity': 'critical', 'kind': 'agent_integrity',
-                              'device': dev.get('name', dev_id),
-                              'summary': 'Agent binary hash does not match the published build'})
+    for dev_id, dev in monitored.items():
+        if dev.get('agentless'):
+            continue
+        # The hash comparison needs the canonical build to compare against; if we
+        # can't compute it there is simply nothing to say.
+        if (_canonical_agent_sha
+                and _agent_integrity_status(dev, _canonical_agent_sha,
+                                            SERVER_VERSION) == 'mismatch'):
+            items.append({'severity': 'critical', 'kind': 'agent_integrity',
+                          'device': dev.get('name', dev_id),
+                          'summary': 'Agent binary hash does not match the published build'})
+        # An agent that REFUSED a self-update (bad/missing signature) is the same
+        # class of tamper signal as a hash mismatch, but it only ever surfaced as a
+        # table on the agent-signing settings page — so it never reached
+        # Needs-Attention, never moved the health score, and could not page anyone.
+        # This is deliberately NOT gated on the canonical hash: the agent already
+        # made the judgement, and whether the server can hash its own copy of the
+        # build has no bearing on whether that refusal is worth looking at.
+        _rejected = dev.get('agent_update_rejected')
+        if _rejected:
+            items.append({'severity': 'critical', 'kind': 'agent_integrity',
+                          'device': dev.get('name', dev_id),
+                          'summary': f'Agent refused a self-update: {_rejected}'})
 
     # v3.4.2: after-hours activity (fleet-level security signal, last 24h). No
     # device_id, so it shows in NA without dinging any single device's health.

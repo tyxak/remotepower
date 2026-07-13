@@ -1,21 +1,22 @@
 # Built-in ticket system (helpdesk)
 
-RemotePower ships an **opt-in ticket system** — a lightweight helpdesk that lives
+RemotePower ships a **built-in ticket system** — a lightweight helpdesk that lives
 right next to your fleet, so the alert you just saw and the work you do about it
-stay in one place. It is **off by default**; turn it on under **Settings →
-Advanced → Tickets**.
+stay in one place. It is **on by default**; switch it off under **Settings →
+Advanced → Optional modules → Tickets** if you don't want it.
 
 Tickets are deliberately simple: no separate tool to run, no per-seat licence, no
 data leaving your server. If you already use Jira / ServiceNow / Zendesk, those
 integrations still exist (see [webhooks.md](webhooks.md)) — the built-in system is
 for teams who'd rather not.
 
-## Turning it on
+## Turning it off
 
-**Settings → Advanced → Tickets** has the master switch. While it is off there is
-no Tickets page, no nav item and every ticket API route returns 404 — nothing
-runs. Switch it on and a **Tickets** item appears in the sidebar with a live
-open-count badge.
+**Settings → Advanced → Optional modules → Tickets** is the master switch, and it
+is **on by default**. Switch it off and the **Tickets** nav item disappears *and*
+every `/api/tickets/*` route returns 404 at the dispatcher — the module is
+genuinely off, not merely hidden. Nothing is deleted: switch it back on and your
+tickets are where you left them.
 
 ## What a ticket is
 

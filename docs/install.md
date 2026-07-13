@@ -192,7 +192,7 @@ This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):
 
 ```bash
-docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :4.8.0
+docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :6.1.2
 docker run -d --name remotepower -p 8085:8080 -v remotepower-data:/var/lib/remotepower \
   ghcr.io/tyxak/remotepower:latest
 ```

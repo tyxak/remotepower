@@ -39,9 +39,10 @@ Two facts drive everything below:
    threads with no per-request fork/startup cost — which is *great* for
    horizontal scaling (any node can serve any request) and means **throughput
    is bounded by `--workers` × `--threads`, not process spawn cost.**
-2. **All shared state lives in the storage backend.** With the default JSON
-   backend that's flat files guarded by per-file locks — fine at small scale,
-   a contention point under concurrent writes. The backend is pluggable
+2. **All shared state lives in the storage backend.** **PostgreSQL is the
+   single-node default since v6.1.0.** With the flat-JSON backend
+   (`--no-postgres`) that's files guarded by per-file locks — fine at small
+   scale, a contention point under concurrent writes. The backend is pluggable
    (`json` → `sqlite` → `postgres`); **Postgres is what makes concurrent writes
    and multiple app nodes possible.**
 

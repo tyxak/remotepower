@@ -18,6 +18,12 @@ _ROOT    = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))
 
+# Importing api.py runs ensure_default_user() at module scope, which writes to
+# DATA_DIR. Without this the import targets the REAL /var/lib/remotepower — it
+# only passed because another test module set the var first, and on a box where
+# that dir is writable it would clobber a live install.
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
+
 
 class _ApiCase(unittest.TestCase):
 
@@ -135,6 +141,42 @@ class TestAttentionDigest(_ApiCase):
                                            'last_seen': now}})
         cap = self._capture(api.handle_attention)
         self.assertEqual(cap['body']['total'], 0)
+
+    def test_refused_agent_self_update_reaches_needs_attention(self):
+        """An agent that refused an unsigned/tampered self-update is a tamper
+        signal. It used to be stored and shown ONLY as a table on the agent-signing
+        settings page — never in Needs-Attention, so it never moved the health score
+        and could not page anyone. It must now surface as a critical NA item."""
+        api = self.api
+        api.get_online_ttl = lambda: 180
+        now = int(__import__('time').time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'id': 'd1', 'name': 'web01', 'last_seen': now,
+                   'agent_update_rejected': 'signature verification failed'},
+        })
+        cap = self._capture(api.handle_attention)
+        items = cap['body']['items']
+        hits = [i for i in items if i['kind'] == 'agent_integrity']
+        self.assertTrue(hits, f'refused self-update produced no NA item: {items}')
+        self.assertEqual(hits[0]['severity'], 'critical')
+        self.assertIn('refused a self-update', hits[0]['summary'])
+        self.assertIn('signature verification failed', hits[0]['summary'])
+
+    def test_refused_update_item_does_not_depend_on_the_canonical_agent_hash(self):
+        """The refusal is the agent's own judgement. Whether the SERVER can hash its
+        copy of the build has no bearing on it, so the item must not be gated behind
+        _get_agent_sha256() (it used to sit inside that `if`)."""
+        api = self.api
+        api.get_online_ttl = lambda: 180
+        api._get_agent_sha256 = lambda: None      # server can't hash its own build
+        now = int(__import__('time').time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'id': 'd1', 'name': 'web01', 'last_seen': now,
+                   'agent_update_rejected': 'bad signature'},
+        })
+        cap = self._capture(api.handle_attention)
+        kinds = [i['kind'] for i in cap['body']['items']]
+        self.assertIn('agent_integrity', kinds)
 
     def test_unmonitored_device_excluded(self):
         # A device with monitored:false must not surface in the digest,

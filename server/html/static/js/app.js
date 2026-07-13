@@ -19245,6 +19245,21 @@ function _onAuditToggle(key, el) {
   _loadAuditSection(key);
 }
 
+// Rolling-average suffix for the drawer's Gateway pill. `history` is the server's
+// ~1h series of [ts, ms] samples. Only worth showing once there are a few samples
+// (a single point IS the average, which says nothing) and only when it actually
+// differs from the current reading — an unchanging "· 2ms (avg 2ms)" is noise.
+function _gwAvgSuffix(gw) {
+  const hist = Array.isArray(gw && gw.history) ? gw.history : [];
+  const vals = hist.map(p => Array.isArray(p) ? p[1] : null)
+                   .filter(v => typeof v === 'number' && isFinite(v));
+  if (vals.length < 5) return '';
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const cur = gw.latency_ms;
+  if (typeof cur === 'number' && Math.abs(cur - avg) < 0.5) return '';
+  return ` (avg ${avg.toFixed(1)}ms)`;
+}
+
 async function _loadAuditSection(key) {
   const id   = _drawerDeviceId;
   const body = document.getElementById(`audit-body-${key}`);
@@ -19321,8 +19336,16 @@ async function _loadAuditSection(key) {
           ['Clock',     si.clock ? (si.clock.synced === false ? 'NOT synced'
                           : (si.clock.skewed ? 'skewed' : 'synced'))
                           + (si.clock.offset_ms != null ? ` (${si.clock.offset_ms}ms)` : '') : null],
+          // The agent has always measured the gateway RTT and the server keeps a
+          // ~1h rolling series of it, but nothing rendered either — so the check
+          // could only ever say up/down. Show the current RTT plus the rolling
+          // average: a saturated uplink or a dying switch port shows up as the
+          // current value pulling away from the average long before the gateway
+          // goes unreachable, which is the whole reason the series is stored.
           ['Gateway',   si.gateway ? (si.gateway.reachable === false ? 'unreachable' : 'reachable')
-                          + (si.gateway.ip ? ` · ${si.gateway.ip}` : '') : null],
+                          + (si.gateway.ip ? ` · ${si.gateway.ip}` : '')
+                          + (si.gateway.latency_ms != null ? ` · ${si.gateway.latency_ms}ms` : '')
+                          + _gwAvgSuffix(si.gateway) : null],
           ['Mail queue', si.mailq != null ? `${si.mailq} queued` : null],
           ['Last OOM',  si.last_oom_ts ? new Date(si.last_oom_ts*1000).toLocaleString()
                           + (si.last_oom_proc ? ` (${si.last_oom_proc})` : '') : null],

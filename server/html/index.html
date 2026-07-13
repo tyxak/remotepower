@@ -3739,7 +3739,7 @@
           <details class="doc-card" data-keywords="backup restore disaster recovery data files">
             <summary><strong>Backup &amp; restore</strong></summary>
             <div class="doc-body">
-              <p>All state lives in <code>/var/lib/remotepower/</code> as JSON files. To back up:</p>
+              <p>All state lives in the data directory <code>/var/lib/remotepower/</code> — <strong>PostgreSQL by default</strong> since v6.1.0 (flat JSON files with <code>--no-postgres</code>, or a single SQLite database). To back up:</p>
               <pre><code>sudo tar czf rp-backup-$(date +%F).tar.gz /var/lib/remotepower/</code></pre>
               <p>To restore: stop nginx briefly so no writes interleave, untar, restart.</p>
               <p>v1.12.1+ keeps a rolling <code>.bak</code> next to each file. If a file ever ends up corrupted, <code>load()</code> automatically falls back to the .bak with a warning to the nginx error log. The dashboard keeps working with last-known-good data.</p>
@@ -4571,7 +4571,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="cache performance load json mtime">
             <summary><strong>Per-request load() cache</strong> — performance under the hood (v3.0.2)</summary>
             <div class="doc-body">
-              <p>CGI gives a fresh interpreter per request, so the cache lives only as long as one handler. Within that handler though, <code>CONFIG_FILE</code> was being parsed up to 4× per heartbeat and <code>LONGPOLL_FILE</code> 3× in <code>handle_longpoll_exec</code>. The cache deduplicates redundant reads.</p>
+              <p>The load cache is request-scoped, so it lives only as long as one handler even on the persistent gunicorn/Flask server. Within that handler though, <code>CONFIG_FILE</code> was being parsed up to 4× per heartbeat and <code>LONGPOLL_FILE</code> 3× in <code>handle_longpoll_exec</code>. The cache deduplicates redundant reads.</p>
               <p>Two safety properties: deep-copy on every load() so caller mutations don't corrupt the cache, and explicit invalidation in <code>_LockedUpdate.__exit__</code> when the save aborts due to exception — otherwise the next load would return uncommitted in-flight changes.</p>
             </div>
           </details>

@@ -53,6 +53,23 @@ homelabs — the ability to switch off the enterprise modules you don't use.
   name in any of the three agents — the existing tests for this code path are all
   source-text greps, which see the line present and pass without ever running it.
 
+### Community contributions (shipped earlier, recorded here)
+
+Two contributions from **@tbouquet** reached production through the small-PR path,
+which merges straight to prod and skips the release checklist — so they were never
+written up. Both have been live since v5.1.1; recording them properly now.
+
+- **The service worker could re-cache a stale app shell.** Pre-caching the shell
+  went through the browser's HTTP cache, so a `CACHE_NAME` bump could faithfully
+  re-store the *old* files it had just been told to replace — leaving the client on
+  a stale UI until a second reload. It now fetches with `cache: 'reload'`, bypassing
+  the HTTP cache. (#14)
+- **Security: the WireGuard hub's private key was handed to an unprivileged
+  caller.** The `wg-apply` helper returned the hub interface's config verbatim, and
+  line 0 of that config carries the interface `PrivateKey` — the one secret that
+  compromises the entire tunnel. It is now redacted before the config crosses the
+  privilege boundary. (#16)
+
 ### Fixed — found in a full sweep of the frontend modules
 
 - **Billing: deleting a rate-card row or a recurring fee could remove the wrong

@@ -84,7 +84,7 @@ holds long-form docs that don't fit there.
 The full release history — every version, newest first — lives in
 [`CHANGELOG.md`](../CHANGELOG.md) at the repository root.
 
-The five most recent per-release notes are kept here:
+The three most recent per-release notes are kept here:
 
 - **[v6.1.2.md](v6.1.2.md)** — "AfterglowMatters": a correctness-and-fit release
  — muting an alert now actually lifts the health score, the trivy image-CVE scan
@@ -104,6 +104,7 @@ The five most recent per-release notes are kept here:
  are now the single-node default (`install-server.sh`/`docker-compose.yml`), and
  the server runs entirely on **gunicorn + Flask** (CGI/fcgiwrap and the SCGI
  worker are retired). No breaking API changes.
+
 Older release notes (v6.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
@@ -164,7 +165,7 @@ Older release notes (v6.0.1 and earlier) live in
  rate limiting, nginx config for slow local models.
 - **[rag.md](rag.md)** — How the AI assistant retrieves your runbooks,
  CMDB docs and live state to ground its answers.
-- **[ticket-system.md](ticket-system.md)** — The built-in opt-in helpdesk:
+- **[ticket-system.md](ticket-system.md)** — The built-in helpdesk (on by default):
  ticket types/priorities/SLA, ownership/teams/groups, master & sub-tickets,
  alert↔ticket linkage, and email in/out.
 - **[contacts.md](contacts.md)** — The internal team contact directory.
