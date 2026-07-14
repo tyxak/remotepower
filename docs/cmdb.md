@@ -226,6 +226,27 @@ asset, the credential label, and the source IP. If you need to know
 who looked at the IPMI password last Thursday, the answer is in the
 audit log.
 
+### JIT credential checkout *(v6.1.3)*
+
+Opt-in (`vault_checkout_required`, **default off**). When enabled, *"who **can**
+reveal this credential"* becomes *"who has **active, justified, expiring** access
+to it right now"* — the useful half of PAM without becoming a PAM.
+
+With it on, revealing a credential first requires **checking it out** with a
+reason. A grant is scoped to **one credential and one person**, bounded (15 min –
+24 h), and lapses on its own — expiry is evaluated at *read* time, so a lapsed
+grant is dead the moment it lapses, no sweep required. Who currently holds live
+access, and why, is visible to admins **and auditors** (`GET
+/api/cmdb/vault/checkouts`).
+
+It is a **floor, not a ceiling**: a credential flagged `break_glass` still needs
+its two-person approval as well — the checkout gate sits *after* the break-glass
+check, never instead of it.
+
+Note the server never holds the vault key (the browser supplies it on every
+operation), so a checkout is an **authorization** grant that gates the reveal
+handler — not a key lease. `POST /api/cmdb/vault/checkout`.
+
 ### SSH from a credential *(v1.10.0)*
 
 Each credential row has two extra buttons: **SSH** opens an

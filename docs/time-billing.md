@@ -47,6 +47,21 @@ Under **Admin → Billing**:
    View / **print to PDF**, **export CSV**, or **email** to the customer.
    A payment webhook (below) can also move an invoice through
    **partially_paid → paid** automatically as payments come in.
+4. **Quotes** *(v6.1.3)* — the mirror image of an invoice. An invoice looks
+   *backward* (derived from logged hours); a quote looks *forward* (hand-authored
+   line items) and, once the customer **accepts**, becomes an invoice. Lifecycle:
+   draft → sent → accepted / declined. The rules all protect the customer, and
+   each is enforced server-side:
+   - **Converts exactly once** — the claim is stamped under the same lock that
+     checks it, so a double-click can't bill twice.
+   - **Only an accepted quote converts** — invoicing a draft or declined quote
+     bills someone for work they never agreed to.
+   - **The invoice snapshots the agreed numbers** — a VAT change or rate-card edit
+     between acceptance and invoicing can't re-price a done deal.
+   - **Expiry is evaluated at read time**, so a lapsed quote is expired the moment
+     it lapses and can't be accepted; an *accepted* quote is terminal and never
+     expires out from under the customer.
+   `GET/POST /api/quotes`, `POST /api/quotes/{id}/convert`.
 
 ### Payment webhook *(v6.1.1)*
 

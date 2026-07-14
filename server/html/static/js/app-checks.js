@@ -111,7 +111,16 @@ const CHECK_CATALOG = [
   { c: 'Web / proxy', l: 'HAProxy', t: 'process', p: 'haproxy', n: 'HAProxy running' },
   { c: 'Web / proxy', l: 'HTTP port 80 open', t: 'port_open', p: '80', n: 'HTTP :80 open' },
   { c: 'Web / proxy', l: 'HTTPS port 443 open', t: 'port_open', p: '443', n: 'HTTPS :443 open' },
-  // Databases
+  // Databases — cross-platform (port checks read the agent's own listening
+  // sockets, which BOTH the Linux and Windows agents report — so one check
+  // covers a database on either OS). This is the simplest "is the DB up?" check.
+  { c: 'Databases (any OS)', l: 'PostgreSQL is listening (5432)', t: 'port_open', p: '5432', n: 'PostgreSQL up (:5432)' },
+  { c: 'Databases (any OS)', l: 'MySQL / MariaDB is listening (3306)', t: 'port_open', p: '3306', n: 'MySQL/MariaDB up (:3306)' },
+  { c: 'Databases (any OS)', l: 'SQL Server is listening (1433)', t: 'port_open', p: '1433', n: 'SQL Server up (:1433)' },
+  { c: 'Databases (any OS)', l: 'Redis is listening (6379)', t: 'port_open', p: '6379', n: 'Redis up (:6379)' },
+  { c: 'Databases (any OS)', l: 'MongoDB is listening (27017)', t: 'port_open', p: '27017', n: 'MongoDB up (:27017)' },
+  { c: 'Databases (any OS)', l: 'Oracle is listening (1521)', t: 'port_open', p: '1521', n: 'Oracle up (:1521)' },
+  // Databases — Linux process/service specifics
   { c: 'Databases', l: 'PostgreSQL (process)', t: 'process', p: 'postgres', n: 'PostgreSQL running' },
   { c: 'Databases', l: 'PostgreSQL port 5432', t: 'port_open', p: '5432', n: 'PostgreSQL :5432 open' },
   { c: 'Databases', l: 'MySQL / MariaDB', t: 'process', p: 'mariadbd', n: 'MySQL/MariaDB running' },

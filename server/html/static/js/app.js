@@ -2683,24 +2683,38 @@ async function generateQuickInstall() {
   }
   const token = (data && data.token) || '';
   const server = window.location.origin;
-  const cmd = `wget -qO- "${server}/install?t=${token}" | sudo sh`;
   box.textContent = '';
-  const hint = document.createElement('div');
-  hint.className = 'hint mb-6';
-  hint.textContent = 'Run on the target host (as root). Downloads the signed agent, verifies it, enrols, and the host appears by its hostname. One-time token, expires in 24h.';
-  const pre = document.createElement('pre');
-  pre.id = 'enroll-quick-pre';
-  pre.className = 'ff-mono fs-12 enroll-docker-pre';
-  pre.textContent = cmd;
-  pre.dataset.rawText = cmd;
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'btn-secondary mt-12';
-  copyBtn.textContent = 'Copy command';
-  copyBtn.dataset.action = 'copyQuickEnroll';
-  box.appendChild(hint); box.appendChild(pre); box.appendChild(copyBtn);
+  // v6.1.3: one-time token, one line per OS. Each downloads the agent from this
+  // server, verifies its checksum, enrols, and the host appears by hostname.
+  const linux = `wget -qO- "${server}/install?t=${token}" | sudo sh`;
+  const win = `powershell -ExecutionPolicy Bypass -Command "iwr '${server}/install.ps1?t=${token}' -UseBasicParsing | iex"`;
+
+  const block = (label, hint, cmd, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-12';
+    const h = document.createElement('div');
+    h.className = 'form-label'; h.textContent = label;
+    const sub = document.createElement('div');
+    sub.className = 'hint mb-6'; sub.textContent = hint;
+    const pre = document.createElement('pre');
+    pre.id = 'enroll-quick-pre-' + idx;
+    pre.className = 'ff-mono fs-12 enroll-docker-pre';
+    pre.textContent = cmd; pre.dataset.rawText = cmd;
+    const btn = document.createElement('button');
+    btn.className = 'btn-secondary mt-6'; btn.textContent = 'Copy';
+    btn.dataset.action = 'copyQuickEnroll'; btn.dataset.arg = String(idx);
+    wrap.appendChild(h); wrap.appendChild(sub); wrap.appendChild(pre); wrap.appendChild(btn);
+    return wrap;
+  };
+  box.appendChild(block('Linux / macOS', 'Run on the target host as root.', linux, 0));
+  box.appendChild(block('Windows', 'Run in an elevated PowerShell (Win+X → Terminal (Admin)). Needs Python 3.8+.', win, 1));
+  const foot = document.createElement('div');
+  foot.className = 'hint mt-6';
+  foot.textContent = 'One-time token, expires in 24h. Downloads the agent from this server, verifies its checksum, enrols, and the host appears by its hostname.';
+  box.appendChild(foot);
 }
-function copyQuickEnroll() {
-  const pre = document.getElementById('enroll-quick-pre');
+function copyQuickEnroll(idx) {
+  const pre = document.getElementById('enroll-quick-pre-' + (idx == null ? 0 : idx));
   if (!pre) return;
   navigator.clipboard.writeText(pre.dataset.rawText || pre.textContent || '');
   toast('Command copied to clipboard', 'success');

@@ -6,16 +6,33 @@ optional dependency that unlocks the richer metric set (CPU/memory/disk/network,
 disk I/O, the process list). It runs as a **Scheduled Task** (`RemotePowerAgent`),
 not a service — no third-party service wrapper is involved.
 
-## Install (PowerShell, as Administrator)
+## Install
+
+### One-liner (recommended)
+
+In the dashboard: **Add device → Quick install command** copies a one-liner with a
+one-time token baked in. On the target host, in an **elevated** PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr 'https://rp.example.com/install.ps1?t=<token>' -UseBasicParsing | iex"
+```
+
+It downloads the agent from the server, **verifies its SHA-256**, best-effort
+installs `psutil`, enrolls, and registers the `RemotePowerAgent` scheduled task
+(runs `--run` at startup as SYSTEM). Needs Python 3.8+ on PATH. Self-checks for
+elevation and Python with clear messages if either is missing.
+
+### Scripted / offline
+
+The `install-windows.ps1` script is the scripted equivalent (uses the agent from
+beside it if present, else downloads + verifies it from the server):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install-windows.ps1 `
   -Server https://rp.example.com -Token <enrollment-token> -Name HostA
+# self-signed CA:  -CaFingerprint AA:BB:..
+# remove:          -Uninstall
 ```
-
-The installer copies the agent into the install dir, best-effort installs
-`psutil`, enrolls the host, and registers the `RemotePowerAgent` scheduled task
-that runs `remotepower-agent-win.py --run` at startup.
 
 ## Command-line
 

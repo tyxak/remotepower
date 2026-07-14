@@ -27,11 +27,20 @@ Let's Encrypt cert when you give a public domain. Open the printed URL and log i
 *Add device → Quick install command*, then on the target host:
 
 ```bash
+# Linux / macOS (run as root)
 wget -qO- "https://your-server/install?t=<token>" | sudo sh
 ```
 
-It downloads the **signed** agent, verifies its checksum, enrols with the baked
-one-time token, and the host appears **by its hostname** within ~60 seconds.
+```powershell
+# Windows — in an elevated PowerShell (needs Python 3.8+)
+powershell -ExecutionPolicy Bypass -Command "iwr 'https://your-server/install.ps1?t=<token>' -UseBasicParsing | iex"
+```
+
+Either downloads the **signed** agent, verifies its checksum, enrols with the
+baked one-time token, and the host appears **by its hostname** within ~60 seconds.
+The dashboard's *Add device → Quick install command* hands you both lines with a
+fresh token. (Windows details, service control, and the offline
+`install-windows.ps1` script: [windows-client.md](windows-client.md).)
 
 **Push to many hosts over SSH at once.** From the server checkout, name the hosts
 to enrol:

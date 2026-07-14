@@ -217,8 +217,10 @@ breaking change. Faithfulness to existing behavior beats theoretical strictness.
 
 ## The agent: a polite polling daemon
 
-The client (`client/remotepower-agent.py`, with byte-identical Windows and macOS
-siblings) is a small Python daemon that POSTs to `/api/heartbeat` every N seconds
+The client (`client/remotepower-agent.py`, with a byte-identical extensionless
+copy, plus separate `remotepower-agent-win.py` / `remotepower-agent-mac.py`
+implementations that speak the same protocol) is a small Python daemon that POSTs
+to `/api/heartbeat` every N seconds
 (default 60). The heartbeat is the whole protocol: the agent sends telemetry, the
 server's response carries any pending command (`shutdown`, `reboot`,
 `exec:<cmd>`, `poll_interval:<n>`, …). Expensive facts are sent on slower

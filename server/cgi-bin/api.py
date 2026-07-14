@@ -4363,6 +4363,7 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/agent/download',
     '/api/agent/win/version',      # v6.1.3: Windows agent self-update (token-free, like Linux)
     '/api/agent/win/download',
+    '/api/agent/win/install',      # v6.1.3: Windows onboarding one-liner (baked one-time token)
     '/api/agent/install',
     '/api/csp-report',
     '/api/health',
@@ -27200,6 +27201,111 @@ def handle_agent_install():
     body = _render_agent_install(getattr(_RCTX, 'environ', None) or os.environ).encode()
     print("Status: 200 OK")
     print("Content-Type: text/x-shellscript; charset=utf-8")
+    print(f"Content-Length: {len(body)}")
+    print("Cache-Control: no-store")
+    print()
+    sys.stdout.flush(); sys.stdout.buffer.write(body); sys.stdout.buffer.flush(); sys.exit(0)
+
+
+# v6.1.3: the Windows onboarding one-liner. Parity with the Linux /install shell
+# script — the operator runs ONE command in an elevated PowerShell and the host
+# enrols itself. Server URL + one-time token are baked in per request, so:
+#   powershell -ExecutionPolicy Bypass -Command "iwr '<server>/install.ps1?t=<tok>' -UseBasicParsing | iex"
+# The served script self-checks for elevation and Python (with human error
+# messages — this is onboarding), downloads the agent from THIS server, verifies
+# its sha256, enrols with the baked token, and registers the scheduled task. No
+# secret is embedded beyond the one-time token, so it stays auth-exempt like the
+# Linux installer and the agent download it pulls.
+_AGENT_INSTALL_PS1 = r'''# RemotePower Windows agent installer  ·  served by @@SERVER@@
+# Run in an ELEVATED PowerShell:
+#   powershell -ExecutionPolicy Bypass -Command "iwr '@@SERVER@@/install.ps1?t=<token>' -UseBasicParsing | iex"
+$ErrorActionPreference = 'Stop'
+$Server = '@@SERVER@@'
+$Token  = '@@TOKEN@@'
+
+$admin = ([Security.Principal.WindowsPrincipal] `
+  [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltinRole]::Administrator)
+if (-not $admin) {
+  Write-Host 'RemotePower installer must run as Administrator.' -ForegroundColor Red
+  Write-Host 'Open PowerShell as Administrator (Win+X -> Terminal (Admin)) and paste the command again.'
+  return
+}
+if (-not $Token) {
+  Write-Host 'This install link has no enrollment token. Use "Add device -> Quick install" to get a fresh one.' -ForegroundColor Red
+  return
+}
+$py = Get-Command python -ErrorAction SilentlyContinue
+if (-not $py) {
+  Write-Host 'Python 3.8+ was not found on PATH.' -ForegroundColor Red
+  Write-Host 'Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH"), then paste the command again.'
+  return
+}
+
+$installDir = Join-Path $env:ProgramFiles 'RemotePower'
+$dataDir    = Join-Path $env:ProgramData 'RemotePower'
+New-Item -ItemType Directory -Force -Path $installDir, $dataDir | Out-Null
+
+Write-Host "Downloading the RemotePower agent from $Server ..."
+$agent = Join-Path $installDir 'remotepower-agent-win.py'
+$want = ''
+try { $want = (Invoke-RestMethod -Uri "$Server/api/agent/win/version" -UseBasicParsing).sha256 } catch {}
+Invoke-WebRequest -Uri "$Server/api/agent/win/download" -OutFile $agent -UseBasicParsing
+if ($want) {
+  $got = (Get-FileHash -Path $agent -Algorithm SHA256).Hash.ToLower()
+  if ($got -ne $want.ToLower()) {
+    Remove-Item $agent -Force -ErrorAction SilentlyContinue
+    Write-Host "Agent checksum mismatch - refusing to install (expected $want, got $got)." -ForegroundColor Red
+    return
+  }
+  Write-Host 'Agent checksum verified.' -ForegroundColor Green
+}
+
+try { & python -m pip install --quiet --disable-pip-version-check psutil } catch {
+  Write-Warning 'psutil install failed - the agent will report a reduced metric set.'
+}
+
+& python $agent --enroll --server $Server --token $Token --name $env:COMPUTERNAME
+if ($LASTEXITCODE -ne 0) { Write-Host 'Enrollment failed.' -ForegroundColor Red; return }
+
+$pyw = Get-Command pythonw -ErrorAction SilentlyContinue
+$exe = if ($pyw) { $pyw.Source } else { (Get-Command python).Source }
+$action  = New-ScheduledTaskAction -Execute $exe -Argument "`"$agent`" --run"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'RemotePowerAgent' -Action $action -Trigger $trigger `
+  -Principal $principal -Settings $settings -Force | Out-Null
+Start-ScheduledTask -TaskName 'RemotePowerAgent'
+Write-Host 'RemotePower Windows agent installed, enrolled, and started. It will appear on the dashboard within a minute.' -ForegroundColor Green
+'''
+
+
+def _render_win_install(environ):
+    """Build the Windows PowerShell installer with server URL + baked token from
+    the request. Pure — unit-testable. Mirrors _render_agent_install."""
+    host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
+    host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]
+    proto = (environ.get('HTTP_X_FORWARDED_PROTO')
+             or environ.get('REQUEST_SCHEME')
+             or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
+    if proto not in ('http', 'https'):
+        proto = 'https'
+    qs = urllib.parse.parse_qs(environ.get('QUERY_STRING', ''))
+    token = (qs.get('t') or qs.get('token') or [''])[0]
+    token = re.sub(r'[^A-Za-z0-9._\-]', '', token)[:128]
+    return (_AGENT_INSTALL_PS1
+            .replace('@@SERVER@@', f"{proto}://{host}")
+            .replace('@@TOKEN@@', token))
+
+
+def handle_win_install():
+    """GET /install.ps1 (and /api/agent/win/install) — the Windows onboarding
+    one-liner installer with this server's URL + one-time token baked in.
+    Auth-exempt for the same reason as the Linux /install."""
+    body = _render_win_install(getattr(_RCTX, 'environ', None) or os.environ).encode()
+    print("Status: 200 OK")
+    print("Content-Type: text/plain; charset=utf-8")
     print(f"Content-Length: {len(body)}")
     print("Cache-Control: no-store")
     print()
@@ -61007,6 +61113,7 @@ def _build_exact_routes():
         ('GET', '/api/dns/import-from-agent/status'): handle_dns_import_status,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
+        ('GET', '/api/agent/win/install'): handle_win_install,   # v6.1.3 Windows one-liner
         ('GET', '/api/agent/version'): handle_agent_version,
         ('GET', '/api/agent/signature'): handle_agent_signature,
         ('GET', '/api/agent/win/version'): handle_win_agent_version,     # v6.1.3

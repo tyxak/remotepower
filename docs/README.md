@@ -87,13 +87,14 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
-- **[v6.1.3.md](v6.1.3.md)** — "SentinelMatters": closing named competitive gaps
- using signals RemotePower already collected but never acted on — a
- privileged-group tripwire (sudo/wheel/Administrators), Windows Defender AV
- posture (incl. real-time-protection-off), a USB physical-access tripwire, a
- host-wide disk-usage explorer ("disk 94% — of *what*?"), and a composite
- device-reliability prediction. Plus a fleet-risk cache that never actually hit
- on a real fleet. No breaking API changes.
+- **[v6.1.3.md](v6.1.3.md)** — "SentinelMatters": closing named competitive gaps.
+ Detection tripwires (privileged-group sudo/wheel/Administrators, Windows Defender
+ real-time-off, USB), a disk-usage explorer, device-reliability prediction; then a
+ **governed AI executor** (proposes, never executes), a **regulated-data (PII)
+ scan**, **EDR coverage** gaps, **DNS-blocker control**, **quotes**, and **JIT
+ credential checkout**; plus a full **Windows agent parity** buildout (services,
+ processes, file manager, SMART/hardware, signed self-update, Event Log, the check
+ catalog, and a one-line PowerShell installer). No breaking API changes.
 - **[v6.1.2.md](v6.1.2.md)** — "AfterglowMatters": a correctness-and-fit release
  — muting an alert now actually lifts the health score, the trivy image-CVE scan
  can finally be triggered (it could never run), `POST /api/cve/scan` no longer
@@ -125,7 +126,18 @@ Older release notes (v6.1.0 and earlier) live in
 - **[dmarc.md](dmarc.md)** — DMARC/SPF/DKIM email-posture monitor + IP reputation
  (DNSBL) checks.
 - **[time-billing.md](time-billing.md)** — Time-tracking &amp; billing: billable
- hours, weekly timesheet, per-customer invoices, rate card / VAT, the finance role.
+ hours, weekly timesheet, per-customer invoices, **quotes** *(v6.1.3)*, rate card /
+ VAT, the finance role.
+- **[ai-executor.md](ai-executor.md)** — The governed AI executor *(v6.1.3)*: it
+ proposes a remediation from a catalog of your own scripts, a human approves, and
+ what you approve is what runs. Off by default.
+- **[pii-scan.md](pii-scan.md)** — Regulated-data (PII) scan *(v6.1.3)*: where your
+ emails / card numbers / national IDs live, reported by file — never the values.
+- **[edr-coverage.md](edr-coverage.md)** — EDR coverage *(v6.1.3)*: Wazuh /
+ CrowdStrike / SentinelOne connectors cross-referenced to name the hosts with no
+ EDR at all.
+- **[dns-control.md](dns-control.md)** — DNS-blocker control *(v6.1.3)*: pause
+ Pi-hole / AdGuard blocking for a bounded, self-restoring window.
 - **[wsgi.md](wsgi.md)** — The gunicorn/Flask app server + out-of-band scheduler:
  the only server since v6.1.0, installed and enabled by default. Tuning workers,
  threads and the scheduler.

@@ -80,8 +80,8 @@ sudo bash client/install-macos.sh https://remote.example.com 123456
 ```
 
 Each enrolls with a 6-digit **PIN** (or an enrollment token) from
-**Devices → + Add device**, then runs as a service (systemd / launchd / Windows
-service) and appears in the dashboard within ~60 s. Agents verify the server's
+**Devices → + Add device**, then runs supervised (systemd / launchd / a Windows
+Scheduled Task) and appears in the dashboard within ~60 s. Agents verify the server's
 TLS cert; for an **internal CA**, set `RP_CA_BUNDLE=/path/to/ca.crt` in the
 agent's environment (no verification weakening).
 

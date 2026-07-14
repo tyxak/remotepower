@@ -128,5 +128,44 @@ class TestWinUpgradeCommandRouting(unittest.TestCase):
         self.assertTrue(cmd.startswith("exec:"))
 
 
+class TestWindowsOneLineInstaller(unittest.TestCase):
+    """The Windows onboarding one-liner (parity with the Linux /install)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api = _fresh_api()
+
+    def test_render_bakes_server_and_token(self):
+        env = {"HTTP_HOST": "rp.example.com", "HTTP_X_FORWARDED_PROTO": "https",
+               "QUERY_STRING": "t=abc123DEF"}
+        ps = self.api._render_win_install(env)
+        self.assertIn("https://rp.example.com", ps)
+        self.assertIn("$Token  = 'abc123DEF'", ps)
+
+    def test_token_is_sanitized(self):
+        # A hostile token must not break out of the PS single-quoted literal or
+        # inject a command.
+        env = {"HTTP_HOST": "rp.example.com", "QUERY_STRING": "t=a;rm -rf/ '"}
+        ps = self.api._render_win_install(env)
+        line = [l for l in ps.splitlines() if l.startswith("$Token")][0]
+        self.assertNotIn(";", line)
+        self.assertNotIn("'", line.split("=", 1)[1].strip()[1:-1])  # inner value clean
+
+    def test_download_is_from_the_server(self):
+        env = {"HTTP_HOST": "rp.example.com", "QUERY_STRING": ""}
+        ps = self.api._render_win_install(env)
+        self.assertIn("/api/agent/win/download", ps)
+        self.assertIn("/api/agent/win/version", ps)   # checksum source
+        self.assertIn("Get-FileHash", ps)             # verifies before install
+
+    def test_requires_elevation(self):
+        ps = self.api._render_win_install({"HTTP_HOST": "h", "QUERY_STRING": ""})
+        self.assertIn("Administrator", ps)
+
+    def test_route_is_auth_exempt(self):
+        self.assertIn("/api/agent/win/install", self.api._IP_ALLOWLIST_EXEMPT_PATHS)
+        self.assertTrue(hasattr(self.api, "handle_win_install"))
+
+
 if __name__ == "__main__":
     unittest.main()

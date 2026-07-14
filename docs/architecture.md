@@ -83,12 +83,14 @@ Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
                  └─ sends cpu/mem/disk metrics (if psutil installed)
 
 Windows client (Windows 10/11, Server 2019+)
-  └─ NSSM service: RemotePowerAgent
+  └─ Scheduled Task: RemotePowerAgent (runs `--run` at startup, as SYSTEM)
        └─ Python script (remotepower-agent-win.py)
             └─ Same heartbeat protocol as Linux agent
                  ├─ shutdown/reboot via shutdown.exe /s /r
-                 ├─ patch info via Windows Update COM API
-                 ├─ journal via wevtutil (System event log)
+                 ├─ patch info via Windows Update COM API + winget (third-party)
+                 ├─ services/processes/SMART/hardware via PowerShell + WMI
+                 ├─ event log via Get-WinEvent (System/Application/Security, Event IDs)
+                 ├─ signed self-update, file manager, config drift, containers
                  └─ metrics via psutil (optional)
 
 macOS client (macOS 12+)
@@ -108,7 +110,7 @@ remotepower/
 ├── .dockerignore
 ├── install-server.sh
 ├── install-client.sh              # Linux client installer
-├── install-client.ps1             # Windows client installer
+├── install-windows.ps1            # Windows client installer
 ├── deploy-server.sh
 ├── docker/
 │   ├── nginx-docker.conf          # Nginx config for Docker

@@ -8,6 +8,36 @@ Closing named gaps against comparable RMM products, built on signals RemotePower
 was *already collecting* but never acting on. Three new tripwires, an answer to
 the most universal ops question there is, and a second opinion on your hardware.
 
+### Onboarding, checks, docs
+
+- **Windows onboarding is now a one-liner, like Linux.** `Add device → Quick
+  install` hands you a command for **each OS**; the Windows one is a single
+  elevated-PowerShell line (`iwr <server>/install.ps1?t=<token> | iex`) that
+  downloads the agent from the server, **verifies its SHA-256**, installs Python's
+  psutil, enrols with the baked one-time token, and registers the scheduled task —
+  nothing else to configure. The served installer self-checks for elevation and
+  Python with human error messages. The standalone `install-windows.ps1` gained an
+  elevation check, self-download-from-server (so it works without the agent file
+  beside it), and `-Uninstall`.
+- **A simple "is the database up?" check that works on both Linux and Windows.**
+  New cross-platform catalog entries (Postgres / MySQL / SQL Server / Redis /
+  MongoDB / Oracle) — port-based, so one check covers a database on either OS,
+  since both agents report their listening sockets. Plus a Windows section of ~25
+  ready-made service/port templates.
+- **Windows security-posture checks.** BitLocker, Windows Firewall (per profile),
+  Defender real-time protection and signature age, and the Windows Update service
+  now render as first-class Checks rows.
+- **`windows_service` check type.** The Windows analogue of `systemd_unit` — "is
+  service X running?" via `Get-Service` — and the Windows agent now evaluates
+  agent-side checks at all (file/job/log checks reported "unknown" on Windows
+  before).
+- **Docs.** Dedicated guides for the governed AI executor, the PII scan, EDR
+  coverage and DNS-blocker control; quotes folded into the billing guide and JIT
+  checkout into the CMDB guide; the Windows one-liner added to the install guide;
+  and three stale references fixed (NSSM/wevtutil/"byte-identical" in
+  architecture / deployment / internals). The agent's PowerShell is now
+  parse-validated against a real `pwsh` in the test suite.
+
 ### Windows agent — parity buildout
 
 The Windows agent was, by its own docstring, "the minimal agent" — roughly a
