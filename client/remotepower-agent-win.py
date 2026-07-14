@@ -2,7 +2,7 @@
 """RemotePower — Windows agent.
 
 A standalone agent that speaks the same server contract as the Linux agent
-(client/remotepower-agent.py). As of v6.1.3 it covers the core management surface
+(client/remotepower-agent.py). As of v6.2.0 it covers the core management surface
 at parity with Linux:
 
   * enroll (PIN or enrollment token); heartbeat loop with core sysinfo
@@ -16,7 +16,7 @@ at parity with Linux:
     services (→ Services page), top processes + proc_names (→ process checks),
     local users + privileged-group tripwire, reboot-required detection
 
-As of the v6.1.3 second wave it also reports SMART disk health, hardware inventory
+As of the v6.2.0 second wave it also reports SMART disk health, hardware inventory
 (WMI), config drift (file hashing), containers (docker CLI), a Windows security-
 posture set for the Checks catalog (BitLocker / firewall / Defender / WU service),
 and evaluates agent-side custom checks incl. a `windows_service` type.
@@ -48,7 +48,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.1.3'
+VERSION = '6.2.0'
 DEFAULT_POLL = 60
 
 
@@ -159,7 +159,7 @@ EXEC_TIMEOUT = 300
 MAX_OUTPUT = 32 * 1024
 
 
-# ── v6.1.3: a real logger (the agent had NONE — collectors swallowed every
+# ── v6.2.0: a real logger (the agent had NONE — collectors swallowed every
 # exception silently, so a broken collector was indistinguishable from a host
 # that simply has nothing to report). Rotating file in ProgramData\RemotePower
 # plus stderr, so the scheduled task's failures are diagnosable after the fact.
@@ -221,7 +221,7 @@ def save_creds(creds):
     # Strip inheritance and grant only SYSTEM + Administrators. Best-effort
     # (icacls ships with Windows).
     #
-    # v6.1.3 (BUG): two things made this lock the file out of even SYSTEM — the
+    # v6.2.0 (BUG): two things made this lock the file out of even SYSTEM — the
     # account the agent's own service runs as — so `--run` read no creds and
     # logged "not enrolled" forever:
     #   1. `(OI)(CI)` are DIRECTORY-only inheritance flags. icacls REJECTS them on
@@ -303,7 +303,7 @@ def self_sha256():
         return ''
 
 
-# ── v6.1.3: signed self-update (parity with the Linux agent's fail-closed gate) ─
+# ── v6.2.0: signed self-update (parity with the Linux agent's fail-closed gate) ─
 #
 # The Windows agent is a .py script, so "swap the binary" = replace this file and
 # re-launch the scheduled task. The trust model is IDENTICAL to Linux:
@@ -505,7 +505,7 @@ def _self_update():
     return {'cmd': 'update', 'output': f'updated to v{remote_ver} ({remote_sha[:12]}…); relaunching', 'rc': 0}
 
 
-# ── v6.1.3: Windows file manager (files:) ─────────────────────────────────────
+# ── v6.2.0: Windows file manager (files:) ─────────────────────────────────────
 #
 # Parity with the Linux file manager so the existing browser UI works against a
 # Windows host. Same command wire-format (`files:<op>:<b64path>[:<b64content>]`)
@@ -645,7 +645,7 @@ def _handle_file_op_win(cmd):
     return {'cmd': cmd, 'rc': rc, 'output': json.dumps(res)}
 
 
-# ── v6.1.3: Windows services (enumerate + control) ────────────────────────────
+# ── v6.2.0: Windows services (enumerate + control) ────────────────────────────
 #
 # Parity with the Linux agent's watched-service reporting and svc: command.
 # The server pushes `watched_services` (a list of service names) in the heartbeat
@@ -658,7 +658,7 @@ def _handle_file_op_win(cmd):
 # the server escalates to CRITICAL — a stopped watched service is a warning, which
 # is the honest severity.
 _watched_services = []          # updated from each heartbeat response
-_watched_files = []             # v6.1.3: drift — updated from each heartbeat response
+_watched_files = []             # v6.2.0: drift — updated from each heartbeat response
 _WIN_SVC_STATE = {
     'running': 'active', 'startpending': 'activating', 'stoppending': 'activating',
     'stopped': 'inactive', 'paused': 'inactive', 'pausepending': 'inactive',
@@ -752,7 +752,7 @@ def _run_service_action_win(cmd):
         return {'cmd': cmd, 'output': f'{type(e).__name__}: {e}', 'rc': 1}
 
 
-# ── v6.1.3: Windows processes (list + kill) ───────────────────────────────────
+# ── v6.2.0: Windows processes (list + kill) ───────────────────────────────────
 def get_top_processes(limit=15):
     """Top processes by memory (RSS). Returns (top_list, name_set) where top_list
     is [{pid, name, cpu, mem_mb}] and name_set is the deduped names for the
@@ -764,7 +764,7 @@ def get_top_processes(limit=15):
         return [], []
     procs = []
     names = set()
-    # v6.1.3: emit the SAME {pid,name,cpu,mem} shape (cpu% + memory PERCENT) the
+    # v6.2.0: emit the SAME {pid,name,cpu,mem} shape (cpu% + memory PERCENT) the
     # Linux agent sends — the server sanitizer keeps `cpu`/`mem`, not `mem_mb`, so
     # a Windows-specific `mem_mb` key was silently dropped and the drawer rendered
     # every process at 0% memory. cpu_percent(None) is non-blocking (unprimed here,
@@ -835,7 +835,7 @@ def windows_update_pending():
         titles = _parse_wu_titles(r.stdout)
         out = {'manager': 'windows-update', 'upgradable': len(titles),
                'upgradable_names': titles[:50]}
-        # v6.1.3: third-party APPLICATION updates via winget, in the same
+        # v6.2.0: third-party APPLICATION updates via winget, in the same
         # `third_party: {mgr: {count, names}}` shape the Linux agent uses for
         # flatpak/snap/pip/npm. Windows Update covers the OS; winget covers
         # Chrome, 7-Zip, VLC, Notepad++ … which is where the actual CVEs live.
@@ -1041,7 +1041,7 @@ def collect_listening_ports():
     return ports[:80]
 
 
-# v6.1.3: Event Log with a RecordId CURSOR + the Security channel + Event IDs.
+# v6.2.0: Event Log with a RecordId CURSOR + the Security channel + Event IDs.
 #
 # The old collector re-fetched the newest 100 System+Application events EVERY
 # poll with no bookmark, so lines were duplicated across polls and any burst of
@@ -1258,7 +1258,7 @@ def _audit_mode():
 
 
 def _reboot_required():
-    """v6.1.3: Windows pending-reboot detection → sysinfo.reboot_required (bool).
+    """v6.2.0: Windows pending-reboot detection → sysinfo.reboot_required (bool).
 
     Parity with the Linux agent's /run/reboot-required. This is THE gap the
     Windows updater created: it installs updates with -IgnoreReboot and used to
@@ -1313,12 +1313,12 @@ def collect_sysinfo():
         'kernel':   platform.version(),       # Windows build string
         'hostname': socket.gethostname(),
         'audit_mode': _audit_mode(),          # v4.10.0: read-only agent flag
-        # v6.1.3: pending-reboot state — the server edge-triggers a reboot_required
+        # v6.2.0: pending-reboot state — the server edge-triggers a reboot_required
         # alert + auto-resolves it, and feeds the risk score. Previously never sent
         # by Windows, so the -IgnoreReboot updater left a silent pending-reboot.
         'reboot_required': _reboot_required(),
     }
-    # v6.1.3: Windows security posture → the Checks catalog (BitLocker, firewall,
+    # v6.2.0: Windows security posture → the Checks catalog (BitLocker, firewall,
     # Defender real-time + signature age, Windows Update service).
     try:
         wp = get_win_posture()
@@ -1326,7 +1326,7 @@ def collect_sysinfo():
             info['win_posture'] = wp
     except Exception:
         pass
-    # v6.1.3: agent-side custom checks — evaluate the server-pushed set on-host
+    # v6.2.0: agent-side custom checks — evaluate the server-pushed set on-host
     # and report the results (parity with the Linux agent).
     if _watched_agent_checks:
         try:
@@ -1488,7 +1488,7 @@ def command_argv(cmd):
         title = cmd[len('upgrade:'):].strip() if cmd.startswith('upgrade:') else ''
         return [_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command',
                 _win_update_install_ps(title)]
-    # v6.1.3: third-party APP patching via winget. `winget:` upgrades everything,
+    # v6.2.0: third-party APP patching via winget. `winget:` upgrades everything,
     # `winget:<id>` one package. Kept as its own command rather than overloading
     # `upgrade:<title>` — that one filters Windows *Update* titles, and a package
     # id ("Google.Chrome") is not a title. No shell: argv is passed directly, and
@@ -1516,7 +1516,7 @@ def command_argv(cmd):
         # who needs a DIFFERENT interpreter — because `exec:` silently ran their
         # bash/cmd body as PowerShell — uses the explicit ps:/cmd: verbs below.
         return [_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', body]
-    # v6.1.3: EXPLICIT interpreter selection. The old failure: a script written for
+    # v6.2.0: EXPLICIT interpreter selection. The old failure: a script written for
     # bash or cmd, queued as exec:, was reinterpreted as PowerShell with no error
     # (it just did the wrong thing). These verbs make the interpreter deterministic
     # instead of a function of which OS the command happened to land on.
@@ -1566,7 +1566,7 @@ def handle_command(cmd):
         return None
     if cmd == 'update':
         return _self_update()
-    # v6.1.3: service control + process kill + file ops report their own output.
+    # v6.2.0: service control + process kill + file ops report their own output.
     if cmd.startswith('svc:'):
         return _run_service_action_win(cmd)
     if cmd.startswith('kill:'):
@@ -1764,7 +1764,7 @@ def get_gpu_status():
     return gpus
 
 
-# ── v6.1.3: SMART disk health (parity with the Linux agent) ───────────────────
+# ── v6.2.0: SMART disk health (parity with the Linux agent) ───────────────────
 #
 # Windows exposes disk health through the Storage subsystem, not smartctl:
 # Get-PhysicalDisk gives the drive's own HealthStatus + identity, and
@@ -1853,7 +1853,7 @@ def _parse_smart(stdout):
     return disks
 
 
-# ── v6.1.3: hardware inventory via WMI (parity) ───────────────────────────────
+# ── v6.2.0: hardware inventory via WMI (parity) ───────────────────────────────
 _HWINV_PS = (
     "$ErrorActionPreference='SilentlyContinue';"
     "$cs=Get-CimInstance Win32_ComputerSystem;"
@@ -1919,7 +1919,7 @@ def _parse_hwinv(stdout):
     return hw
 
 
-# ── v6.1.3: agent-side custom checks (parity — the Windows agent had NONE) ────
+# ── v6.2.0: agent-side custom checks (parity — the Windows agent had NONE) ────
 #
 # The server pushes `agent_checks` in the heartbeat response; the agent evaluates
 # them read-only and reports {id: {status, output}} in sysinfo.custom_check_results.
@@ -2025,7 +2025,7 @@ def eval_agent_checks(checks):
     return out
 
 
-# ── v6.1.3: Windows security posture → the Checks catalog ─────────────────────
+# ── v6.2.0: Windows security posture → the Checks catalog ─────────────────────
 #
 # The RMM check-library staples that have no Linux equivalent, gathered into one
 # sysinfo sub-dict so the server's Checks engine can render them as first-class
@@ -2094,7 +2094,7 @@ def _parse_win_posture(stdout):
     return out
 
 
-# ── v6.1.3: config drift — watched-file hashing (parity, OS-agnostic) ─────────
+# ── v6.2.0: config drift — watched-file hashing (parity, OS-agnostic) ─────────
 MAX_DRIFT_FILES = 200
 
 
@@ -2124,7 +2124,7 @@ def compute_drift_report(paths):
     return out
 
 
-# ── v6.1.3: containers via the docker CLI (parity) ────────────────────────────
+# ── v6.2.0: containers via the docker CLI (parity) ────────────────────────────
 def get_containers():
     """`docker ps` listing (Docker Desktop / Windows containers), or []. The
     server's containers.normalize_listing consumes the raw `{{json .}}` lines, so
@@ -2184,7 +2184,7 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     # sysinfo on a slower cadence (every ~12 polls), like the Linux agent.
     if poll_count <= 1 or poll_count % 12 == 0:
         payload['sysinfo'] = collect_sysinfo()
-        # v6.1.3: top processes + proc_names (the latter unblocks the server-side
+        # v6.2.0: top processes + proc_names (the latter unblocks the server-side
         # `process` custom-check type, which read sysinfo.proc_names — empty on
         # Windows until now, so every process check reported 'unknown').
         try:
@@ -2201,7 +2201,7 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         accounts = get_local_accounts()        # local users → account audit card
         if accounts:
             payload['accounts'] = accounts
-        # v6.1.3: SMART + hardware inventory (parity) — feed the existing
+        # v6.2.0: SMART + hardware inventory (parity) — feed the existing
         # _ingest_hardware pipeline (failure prediction, wear trend, asset page).
         try:
             smart = get_smart_status()
@@ -2215,7 +2215,7 @@ def build_heartbeat(creds, poll_count, pending_output=None):
                 payload['hardware'] = hw
         except Exception:
             pass
-        # v6.1.3: containers (Docker Desktop / Windows containers), if present.
+        # v6.2.0: containers (Docker Desktop / Windows containers), if present.
         try:
             containers = get_containers()
             if containers:
@@ -2225,7 +2225,7 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         gpus = get_gpu_status()                 # NVIDIA GPU telemetry → fleet GPU page
         if gpus:
             payload['gpus'] = gpus
-        # v6.1.3: Defender AV posture. TOP-LEVEL 'av' (not sysinfo) — the server
+        # v6.2.0: Defender AV posture. TOP-LEVEL 'av' (not sysinfo) — the server
         # ingests it via _ingest_av, which is not part of the safe_si sysinfo
         # whitelist. Rides the slow sysinfo cadence: the WMI/COM call is not free.
         av = get_defender_status()
@@ -2238,7 +2238,7 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
         except Exception:
             pass
-    # v6.1.3: watched-service states, on the same slower cadence as sysinfo.
+    # v6.2.0: watched-service states, on the same slower cadence as sysinfo.
     if _watched_services and (poll_count <= 1 or poll_count % 12 == 0):
         try:
             svcs = get_services(_watched_services)
@@ -2246,7 +2246,7 @@ def build_heartbeat(creds, poll_count, pending_output=None):
                 payload['services'] = svcs
         except Exception:
             pass
-    # v6.1.3: config-drift report — hash the watched files on the sysinfo cadence.
+    # v6.2.0: config-drift report — hash the watched files on the sysinfo cadence.
     if _watched_files and (poll_count <= 1 or poll_count % 12 == 0):
         try:
             drift = compute_drift_report(_watched_files)
@@ -2302,23 +2302,23 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['on'] = bool(resp.get('secrets_scan_enabled'))
         _ssp = resp.get('secrets_scan_paths')
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
-        # v6.1.3: watched services pushed by the server (parity with Linux).
+        # v6.2.0: watched services pushed by the server (parity with Linux).
         global _watched_services, _watched_files, _watched_agent_checks
         _sw = resp.get('services_watched')
         if isinstance(_sw, list):
             _watched_services = [str(s) for s in _sw if str(s).strip()][:50]
-        # v6.1.3: watched files for drift (parity with the Linux agent).
+        # v6.2.0: watched files for drift (parity with the Linux agent).
         _wf = resp.get('watched_files')
         if isinstance(_wf, list):
             _watched_files = [str(f) for f in _wf if str(f).strip()][:MAX_DRIFT_FILES]
-        # v6.1.3: agent-side custom checks pushed by the server.
+        # v6.2.0: agent-side custom checks pushed by the server.
         _ac = resp.get('agent_checks')
         if isinstance(_ac, list):
             _watched_agent_checks = [c for c in _ac if isinstance(c, dict) and c.get('id')][:100]
     return resp, new_pending
 
 
-# ── v6.1.3: run as a real Windows service (services.msc) ──────────────────────
+# ── v6.2.0: run as a real Windows service (services.msc) ──────────────────────
 # Preferred over the scheduled task: the Service Control Manager restarts the
 # agent on ANY exit (self-update, crash), it's visible/controllable in
 # services.msc, and self-update becomes "just exit — SCM relaunches with the new
@@ -2577,7 +2577,7 @@ def main(argv=None):
     ap.add_argument('--run', action='store_true')
     ap.add_argument('--once', action='store_true')
     ap.add_argument('--version', action='store_true')
-    # v6.1.3: Windows-service lifecycle (services.msc).
+    # v6.2.0: Windows-service lifecycle (services.msc).
     ap.add_argument('--service-run', action='store_true',
                     help=argparse.SUPPRESS)        # SCM entry point (internal)
     ap.add_argument('--install-service', action='store_true')

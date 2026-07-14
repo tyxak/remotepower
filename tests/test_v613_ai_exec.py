@@ -1,4 +1,4 @@
-"""v6.1.3 — governed AI executor, PHASE 0 (gap items #1 + #2).
+"""v6.2.0 — governed AI executor, PHASE 0 (gap items #1 + #2).
 
 The competitive pitch being answered here is the "autonomous AI operator". We take
 the opposite bet from it: **assume the model is fully prompt-injected by a hostile
@@ -254,7 +254,7 @@ class TestTheSharedCommandGate(_Case):
     mode — so an approved confirmation could fire at a host mid-drain. One shared
     predicate now serves both paths.
 
-    v6.1.3 bug hunt: a block reason (maintenance / quarantine / audit) is a
+    v6.2.0 bug hunt: a block reason (maintenance / quarantine / audit) is a
     TRANSIENT host state, so it must NOT burn the confirmation. Approve now
     returns 503 (retryable) and LEAVES the confirmation 'pending', instead of the
     old 500-that-marked-it-'failed' which forced a whole new maker-checker

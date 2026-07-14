@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.1.3 bug hunt: fleet scan-now endpoints must honour ROLE SCOPE, not just
+"""v6.2.0 bug hunt: fleet scan-now endpoints must honour ROLE SCOPE, not just
 tenant isolation.
 
 handle_secrets_scan_now / handle_pii_scan_now / handle_image_cve_scan (the

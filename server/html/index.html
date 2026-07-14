@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.1.3">
+<link rel="stylesheet" href="static/css/styles.css?v=6.2.0">
 
 </head>
 <body>
@@ -3535,10 +3535,11 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.1.3 sentinelmatters sentinel privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint ai executor governed propose approve confirmations catalog saved scripts playbook prompt injection ai-exec pii regulated data gdpr pci luhn credit card national id ssn iban email scan compliance edr coverage wazuh crowdstrike falcon sentinelone uncovered hosts stale agent dns blocker control pihole adguard pause blocking quotes quote invoice convert accepted expired vat snapshot jit credential checkout vault_checkout_required winget third party patching">
-            <summary><strong>What's new — v6.1.3 &ldquo;SentinelMatters&rdquo;</strong> — closing competitive gaps using signals RemotePower already collected but never acted on: three new tripwires (privileged-group change, Windows Defender real-time-protection-off, USB), a disk-usage explorer, reliability prediction, EDR coverage gaps, a regulated-data (PII) scan, DNS-blocker control, quotes, JIT credential checkout — and a <strong>governed AI executor</strong> that proposes but never executes.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.2.0 daem0nmatters daemon windows service services.msc pywin32 launchd systemd supervised auto-restart cross-platform install-service privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint ai executor governed propose approve confirmations catalog saved scripts playbook prompt injection ai-exec pii regulated data gdpr pci luhn credit card national id ssn iban email scan compliance edr coverage wazuh crowdstrike falcon sentinelone uncovered hosts stale agent dns blocker control pihole adguard pause blocking quotes quote invoice convert accepted expired vat snapshot jit credential checkout vault_checkout_required winget third party patching">
+            <summary><strong>What's new — v6.2.0 &ldquo;Daem0nMatters&rdquo;</strong> — the agent now runs as a first-class <strong>supervised service on every OS</strong> (a Windows service in services.msc, a launchd daemon on macOS, systemd on Linux), all auto-restarting and installed by one elevated one-liner. Plus a wave of gap-closing features built on signals already collected: three new tripwires (privileged-group change, Windows Defender real-time-protection-off, USB), a disk-usage explorer, reliability prediction, EDR coverage gaps, a regulated-data (PII) scan, DNS-blocker control, quotes, JIT credential checkout — and a <strong>governed AI executor</strong> that proposes but never executes.</summary>
             <div class="doc-body">
-              <p>Almost everything in v6.1.3 is built on telemetry the agents were <em>already sending</em>. The work was the baseline, the diff, and the honesty about what the stored data can and cannot support.</p>
+              <p><strong>The daemon grows up.</strong> The Windows agent went from "the minimal agent" to a real Windows service — the Service Control Manager restarts it on any exit, so a self-update just exits and relaunches, and it's controllable from services.msc like anything else. macOS runs the same way under launchd (KeepAlive), Linux under systemd. A single elevated one-liner installs Python + the service on a bare box.</p>
+              <p>Almost everything else in v6.2.0 is built on telemetry the agents were <em>already sending</em>. The work was the baseline, the diff, and the honesty about what the stored data can and cannot support.</p>
               <p><strong>Three new tripwires</strong></p>
               <ul>
                 <li><strong>Privileged-group change</strong> — someone landing in <code>sudo</code>/<code>wheel</code> (Linux) or <code>Administrators</code> (Windows) raises <code>priv_group_added</code>. Both agents always reported the membership; nothing ever diffed it. First contact baselines silently, and removals deliberately do not fire — an event that cries wolf is one you mute, and a muted event catches no real escalation.</li>
@@ -4719,7 +4720,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="compliance-body"><div class="c-muted">Loading…</div></div>
 
-        <!-- v6.1.3: regulated-data (PII) inventory. Deliberately a REPORT, not an
+        <!-- v6.2.0: regulated-data (PII) inventory. Deliberately a REPORT, not an
              alert: PII sitting in /srv/data is the expected state of a business,
              and an event per finding would be pure alert fatigue. The matched
              values are never sent, stored, or hashed — see _ingest_pii_findings. -->
@@ -5992,7 +5993,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="cmdb-breakglass-body" class="scroll-cap"></div>
         </div>
 
-        <!-- v6.1.3: JIT credential checkout — who holds live access, and why.
+        <!-- v6.2.0: JIT credential checkout — who holds live access, and why.
              Hidden until a checkout exists (and when the feature is off). -->
         <div class="dash-card mt-16 d-none" id="cmdb-checkouts-card">
           <div class="row-8-center mb-8"><div class="section-title">Credential checkouts</div></div>
@@ -6474,7 +6475,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
 
-        <!-- v6.1.3: EDR coverage. The connectors report which hosts each EDR
+        <!-- v6.2.0: EDR coverage. The connectors report which hosts each EDR
              PROTECTS; this cross-references that against the real fleet. A
              console reading "EDR: healthy" while three servers are uncovered is
              worse than no console — it is reassuring. Hidden entirely until an
@@ -6660,7 +6661,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
         </div><!-- /restarting hosts card -->
-        <!-- v6.1.3: composite per-host failure likelihood. Distinct from the Risk
+        <!-- v6.2.0: composite per-host failure likelihood. Distinct from the Risk
              page: risk = "how exposed is this host" (CVEs/ports/policy/EOL);
              reliability = "how likely is it to BREAK". A fully-patched server with
              a dying disk is low-risk and low-reliability — you need to see both. -->
@@ -9582,45 +9583,45 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.1.3"></script>
+<script defer src="static/js/app.js?v=6.2.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.1.3"></script>
-<script defer src="static/js/app-cmdb.js?v=6.1.3"></script>
-<script defer src="static/js/app-containers.js?v=6.1.3"></script>
-<script defer src="static/js/app-network.js?v=6.1.3"></script>
+<script defer src="static/js/app-calendar.js?v=6.2.0"></script>
+<script defer src="static/js/app-cmdb.js?v=6.2.0"></script>
+<script defer src="static/js/app-containers.js?v=6.2.0"></script>
+<script defer src="static/js/app-network.js?v=6.2.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.1.3"></script>
-<script defer src="static/js/app-compliance.js?v=6.1.3"></script>
-<script defer src="static/js/app-integrations.js?v=6.1.3"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.2.0"></script>
+<script defer src="static/js/app-compliance.js?v=6.2.0"></script>
+<script defer src="static/js/app-integrations.js?v=6.2.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.1.3"></script>
-<script defer src="static/js/app-dns.js?v=6.1.3"></script>
-<script defer src="static/js/app-drift.js?v=6.1.3"></script>
-<script defer src="static/js/app-dmarc.js?v=6.1.3"></script>
-<script defer src="static/js/app-cve.js?v=6.1.3"></script>
-<script defer src="static/js/app-firewall.js?v=6.1.3"></script>
-<script defer src="static/js/app-backups.js?v=6.1.3"></script>
-<script defer src="static/js/app-iac.js?v=6.1.3"></script>
-<script defer src="static/js/app-provisioning.js?v=6.1.3"></script>
-<script defer src="static/js/app-tuning.js?v=6.1.3"></script>
-<script defer src="static/js/app-kb.js?v=6.1.3"></script>
-<script defer src="static/js/app-rollouts.js?v=6.1.3"></script>
-<script defer src="static/js/app-power.js?v=6.1.3"></script>
-<script defer src="static/js/app-gpu.js?v=6.1.3"></script>
-<script defer src="static/js/app-proxmox.js?v=6.1.3"></script>
-<script defer src="static/js/wg-access.js?v=6.1.3"></script>
-<script defer src="static/js/app-billing.js?v=6.1.3"></script>
-<script defer src="static/js/app-virt.js?v=6.1.3"></script>
+<script defer src="static/js/app-ai.js?v=6.2.0"></script>
+<script defer src="static/js/app-dns.js?v=6.2.0"></script>
+<script defer src="static/js/app-drift.js?v=6.2.0"></script>
+<script defer src="static/js/app-dmarc.js?v=6.2.0"></script>
+<script defer src="static/js/app-cve.js?v=6.2.0"></script>
+<script defer src="static/js/app-firewall.js?v=6.2.0"></script>
+<script defer src="static/js/app-backups.js?v=6.2.0"></script>
+<script defer src="static/js/app-iac.js?v=6.2.0"></script>
+<script defer src="static/js/app-provisioning.js?v=6.2.0"></script>
+<script defer src="static/js/app-tuning.js?v=6.2.0"></script>
+<script defer src="static/js/app-kb.js?v=6.2.0"></script>
+<script defer src="static/js/app-rollouts.js?v=6.2.0"></script>
+<script defer src="static/js/app-power.js?v=6.2.0"></script>
+<script defer src="static/js/app-gpu.js?v=6.2.0"></script>
+<script defer src="static/js/app-proxmox.js?v=6.2.0"></script>
+<script defer src="static/js/wg-access.js?v=6.2.0"></script>
+<script defer src="static/js/app-billing.js?v=6.2.0"></script>
+<script defer src="static/js/app-virt.js?v=6.2.0"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.1.3"></script>
-<script defer src="static/js/app-checks.js?v=6.1.3"></script>
-<script defer src="static/js/app-logs.js?v=6.1.3"></script>
-<script defer src="static/js/app-remote.js?v=6.1.3"></script>
-<script defer src="static/js/app-tickets.js?v=6.1.3"></script>
+<script defer src="static/js/app-alerts.js?v=6.2.0"></script>
+<script defer src="static/js/app-checks.js?v=6.2.0"></script>
+<script defer src="static/js/app-logs.js?v=6.2.0"></script>
+<script defer src="static/js/app-remote.js?v=6.2.0"></script>
+<script defer src="static/js/app-tickets.js?v=6.2.0"></script>
 
-<script defer src="static/js/sw-register.js?v=6.1.3"></script>
+<script defer src="static/js/sw-register.js?v=6.2.0"></script>
 </body>
 </html>

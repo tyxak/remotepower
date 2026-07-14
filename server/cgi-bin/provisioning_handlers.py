@@ -167,7 +167,7 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
             continue
         cmds.setdefault(dev_id, [])
         if is_upgrade:
-            # v6.1.3 (BUG): this queued ONE bash `exec:<upgrade>` for every ring
+            # v6.2.0 (BUG): this queued ONE bash `exec:<upgrade>` for every ring
             # device, so a Windows/macOS host got a shell script (the same class
             # the auto-patch path fixed). Branch per device: Windows/macOS get the
             # bare `upgrade` verb (their agents self-detect), and — since those

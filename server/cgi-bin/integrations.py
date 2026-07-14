@@ -1660,7 +1660,7 @@ def _homebridge(inst, c):
     }
 
 
-# ── EDR / endpoint-protection connectors (v6.1.3) ─────────────────────────────
+# ── EDR / endpoint-protection connectors (v6.2.0) ─────────────────────────────
 # These are read-only *posture* connectors, but they exist for a reason the other
 # connectors don't have: besides their own health, each one reports the set of
 # hosts it PROTECTS (`edr_hosts`). api.py cross-references that against the actual
@@ -1840,7 +1840,7 @@ _STATS: dict = {
     "custom_probe": [
         ("http_status", "HTTP", "num"),
     ],
-    # v6.1.3 — EDR. "Protected" is the headline; "stale" is the one that bites.
+    # v6.2.0 — EDR. "Protected" is the headline; "stale" is the one that bites.
     "wazuh": [
         ("agents_active", "Protected", "int"),
         ("agents_stale", "Stale", "int"),
@@ -2122,7 +2122,7 @@ def _github(inst, c):
         raise IntegrationError("no valid repositories configured (owner/repo, comma-separated)")
     # Forgive the predictable URL mistake: the WEBSITE (github.com) instead of the
     # API root (api.github.com). The website answers /repos/... with HTML 404s, so
-    # every repo would "fail". v6.1.3 (BUG): the old code built an ABSOLUTE URL
+    # every repo would "fail". v6.2.0 (BUG): the old code built an ABSOLUTE URL
     # (https://api.github.com/repos/...) and passed it to the client — but the
     # SSRF-safe client REJECTS absolute paths (ValueError), so the autocorrect was
     # dead and every github.com-configured instance errored. Instead rewrite the

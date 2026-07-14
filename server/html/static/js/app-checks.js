@@ -199,7 +199,7 @@ const CHECK_CATALOG = [
   { c: 'RemotePower (self-infra)', l: 'Agent', t: 'systemd_unit', p: 'remotepower-agent.service', n: 'RemotePower agent active' },
   { c: 'RemotePower (self-infra)', l: 'PostgreSQL (RP database)', t: 'process', p: 'postgres', n: 'RemotePower DB (PostgreSQL) running' },
   { c: 'RemotePower (self-infra)', l: 'nginx (RP web)', t: 'process', p: 'nginx', n: 'RemotePower web (nginx) running' },
-  // ── v6.1.3: Windows ─────────────────────────────────────────────────────
+  // ── v6.2.0: Windows ─────────────────────────────────────────────────────
   // windows_service = the Windows analogue of systemd_unit (Get-Service Status).
   // process/port checks work cross-platform on Windows too (the agent reports
   // proc_names + listening_ports). Service NAMES here are the short Name, not the

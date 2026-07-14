@@ -34,7 +34,7 @@ COPY server/html/                   /var/www/remotepower/
 COPY server/cgi-bin/                /var/www/remotepower/cgi-bin/
 COPY server/remotepower-passwd      /var/www/remotepower/cgi-bin/remotepower-passwd
 COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
-# v6.1.3: the Windows + macOS agents are served at /api/agent/{win,mac}/download
+# v6.2.0: the Windows + macOS agents are served at /api/agent/{win,mac}/download
 # and drive the Windows /install.ps1 one-liner + cross-platform self-update.
 COPY client/remotepower-agent-win.py /var/www/remotepower/agent/remotepower-agent-win.py
 COPY client/remotepower-agent-mac.py /var/www/remotepower/agent/remotepower-agent-mac.py

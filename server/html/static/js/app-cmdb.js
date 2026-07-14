@@ -102,7 +102,7 @@ async function cmdbBreakGlassApprove(reqId) {
   loadBreakGlass();
 }
 
-// ── v6.1.3: JIT credential checkout ─────────────────────────────────────────
+// ── v6.2.0: JIT credential checkout ─────────────────────────────────────────
 // Standing credential access becomes ACTIVE, JUSTIFIED, EXPIRING access — and
 // this card is where that becomes visible. Never shows a secret: just who holds
 // a live grant on what, why, and for how much longer.
@@ -1172,7 +1172,7 @@ async function cmdbCredDelete(deviceId, credId) {
 // v5.0.0 (#C3): remember the open break-glass request per credential so the
 // requester's *second* reveal click carries the (now-approved) request id.
 let _cmdbBgReqs = {};
-// v6.1.3: one-shot guard so the checkout retry can never become a loop against a
+// v6.2.0: one-shot guard so the checkout retry can never become a loop against a
 // server that keeps answering checkout_required.
 let _cmdbCheckoutRetry = {};
 async function cmdbCredReveal(deviceId, credId) {
@@ -1191,7 +1191,7 @@ async function cmdbCredReveal(deviceId, credId) {
     if (typeof loadBreakGlass === 'function') loadBreakGlass();
     return;
   }
-  // v6.1.3: JIT checkout. The credential needs an active, reasoned grant before
+  // v6.2.0: JIT checkout. The credential needs an active, reasoned grant before
   // it can be revealed. Offer to take one out inline rather than sending the
   // operator off to hunt for a separate page — friction here is what makes
   // people turn the feature off.

@@ -1,4 +1,4 @@
-"""v6.1.3 — DNS-blocker control (gap item #11): the WRITE half of the Pi-hole /
+"""v6.2.0 — DNS-blocker control (gap item #11): the WRITE half of the Pi-hole /
 AdGuard connectors.
 
 The drivers are pure `fn(inst, client, ...)` over the SSRF-safe client, so they

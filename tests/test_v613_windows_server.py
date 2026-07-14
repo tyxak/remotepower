@@ -1,4 +1,4 @@
-"""v6.1.3 — server-side support for the Windows agent parity buildout.
+"""v6.2.0 — server-side support for the Windows agent parity buildout.
 
 Covers the pieces that live in api.py rather than the agent:
   * the Windows agent self-update endpoints (version / download / signature)
@@ -88,14 +88,14 @@ class TestWinAgentUpdateEndpoints(unittest.TestCase):
         # Point the served-agent path at a temp file (the default /var/www path
         # isn't writable in the test env).
         tmp = Path(tempfile.mkdtemp()) / "remotepower-agent-win.py"
-        tmp.write_text("VERSION = '6.1.3'\nprint('hi')\n")
+        tmp.write_text("VERSION = '6.2.0'\nprint('hi')\n")
         orig = self.api._AGENT_WIN_PATH
         self.api._AGENT_WIN_PATH = tmp
         try:
             r = self._call(self.api.handle_win_agent_version)
             self.assertEqual(r["status"], 200)
             self.assertTrue(r["data"]["sha256"])          # a real hash
-            self.assertEqual(r["data"]["version"], "6.1.3")
+            self.assertEqual(r["data"]["version"], "6.2.0")
         finally:
             self.api._AGENT_WIN_PATH = orig
 
@@ -109,7 +109,7 @@ class TestWinAgentUpdateEndpoints(unittest.TestCase):
         # (green signed-release badge) — it got 'unknown'/'mismatch'. The canonical
         # must be per-OS.
         import hashlib
-        content = b"VERSION = '6.1.3'\n# windows agent\n"
+        content = b"VERSION = '6.2.0'\n# windows agent\n"
         win_sha = hashlib.sha256(content).hexdigest()
         tmp = Path(tempfile.mkdtemp()) / "remotepower-agent-win.py"
         tmp.write_bytes(content)
@@ -117,22 +117,22 @@ class TestWinAgentUpdateEndpoints(unittest.TestCase):
         self.api._AGENT_WIN_PATH = tmp
         try:
             linux_canonical = "0" * 64   # deliberately NOT the windows hash
-            win_dev = {"os": "Windows 11 (Build 22631)", "version": "6.1.3",
+            win_dev = {"os": "Windows 11 (Build 22631)", "version": "6.2.0",
                        "agent_sha256": win_sha}
             # A Windows agent whose hash matches the WINDOWS canonical verifies,
             # even though it does not match the Linux canonical we pass in.
             self.assertEqual(
-                self.api._agent_integrity_status(win_dev, linux_canonical, "6.1.3"),
+                self.api._agent_integrity_status(win_dev, linux_canonical, "6.2.0"),
                 "verified")
             # A Windows agent reporting the LINUX hash (same version) is a mismatch.
             bad = dict(win_dev, agent_sha256=linux_canonical)
             self.assertEqual(
-                self.api._agent_integrity_status(bad, linux_canonical, "6.1.3"),
+                self.api._agent_integrity_status(bad, linux_canonical, "6.2.0"),
                 "mismatch")
             # Linux devices still compare against the passed-in Linux canonical.
-            lx = {"os": "Ubuntu 22.04", "version": "6.1.3", "agent_sha256": linux_canonical}
+            lx = {"os": "Ubuntu 22.04", "version": "6.2.0", "agent_sha256": linux_canonical}
             self.assertEqual(
-                self.api._agent_integrity_status(lx, linux_canonical, "6.1.3"),
+                self.api._agent_integrity_status(lx, linux_canonical, "6.2.0"),
                 "verified")
         finally:
             self.api._AGENT_WIN_PATH = orig
@@ -251,7 +251,7 @@ class TestWindowsOneLineInstaller(unittest.TestCase):
         self.assertIn("& $python $agent --enroll", ps)
 
     def test_installer_prefers_the_windows_service(self):
-        # v6.1.3: the one-liner installs pywin32 and registers a real Windows
+        # v6.2.0: the one-liner installs pywin32 and registers a real Windows
         # service, only falling back to the scheduled task when pywin32 is absent.
         ps = self.api._render_win_install({"HTTP_HOST": "h", "QUERY_STRING": ""})
         self.assertIn("pywin32", ps)

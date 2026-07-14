@@ -583,7 +583,7 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
         if not ok:
             A.respond(403, {'break_glass': True, 'error': why})
 
-    # v6.1.3: JIT checkout. When `vault_checkout_required` is on, revealing a
+    # v6.2.0: JIT checkout. When `vault_checkout_required` is on, revealing a
     # credential needs an active, reasoned, time-boxed grant held by THIS caller
     # — standing admin access becomes expiring, justified access.
     #

@@ -287,7 +287,7 @@ def iso_week_of(date_str):
     return "%04d-W%02d" % (y, w)
 
 
-# ── quotes (v6.1.3) ───────────────────────────────────────────────────────────
+# ── quotes (v6.2.0) ───────────────────────────────────────────────────────────
 # A quote is the mirror image of an invoice. An invoice looks BACKWARD and is
 # derived from time already logged; a quote looks FORWARD and is authored by
 # hand — labour estimate, hardware, licences. The money maths is identical

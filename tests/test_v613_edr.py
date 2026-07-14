@@ -1,4 +1,4 @@
-"""v6.1.3 — EDR connectors + coverage cross-reference (gap item #10).
+"""v6.2.0 — EDR connectors + coverage cross-reference (gap item #10).
 
 Three read-only EDR connectors (Wazuh, CrowdStrike Falcon, SentinelOne). Each is
 a pure parser over the SSRF-safe client, tested here with a fake client.

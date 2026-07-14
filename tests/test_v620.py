@@ -1,4 +1,4 @@
-"""v6.1.3 "SentinelMatters" — release pins.
+"""v6.2.0 "Daem0nMatters" — release pins.
 
 The CURRENT release carries the strict version pins (older test_vXYZ.py files
 have theirs loosened to regex). Feature behaviour is tested in the dedicated
@@ -26,7 +26,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.1.3"
+    V = "6.2.0"
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -76,13 +76,13 @@ class TestVersionBumps(unittest.TestCase):
         term. It is the surface a visible-text rename always misses (it shipped
         stale as 'vigilmatters' through v5.1.0)."""
         html = _html()
-        i = html.index("What's new — v6.1.3")
+        i = html.index("What's new — v6.2.0")
         card = html[max(0, i - 1200):i]
-        self.assertIn("sentinelmatters", card)
+        self.assertIn("daem0nmatters", card)
 
     def test_changelog_header(self):
         head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.1.3 — "SentinelMatters"', head)
+        self.assertIn('## v6.2.0 — "Daem0nMatters"', head)
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -90,7 +90,7 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "SentinelMatters"'))
+        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "Daem0nMatters"'))
 
 
 class TestNewEventsRegistered(unittest.TestCase):

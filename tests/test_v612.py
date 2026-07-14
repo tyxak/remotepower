@@ -32,7 +32,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    """v6.1.2's pins, LOOSENED to regex now that v6.1.3 is the current version.
+    """v6.1.2's pins, LOOSENED to regex now that v6.2.0 is the current version.
 
     Per the version-bump checklist: the current release's test file carries the
     strict pins (see test_v613.py); older files assert only that the surfaces

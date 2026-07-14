@@ -47,7 +47,7 @@ Under **Admin → Billing**:
    View / **print to PDF**, **export CSV**, or **email** to the customer.
    A payment webhook (below) can also move an invoice through
    **partially_paid → paid** automatically as payments come in.
-4. **Quotes** *(v6.1.3)* — the mirror image of an invoice. An invoice looks
+4. **Quotes** *(v6.2.0)* — the mirror image of an invoice. An invoice looks
    *backward* (derived from logged hours); a quote looks *forward* (hand-authored
    line items) and, once the customer **accepts**, becomes an invoice. Lifecycle:
    draft → sent → accepted / declined. The rules all protect the customer, and

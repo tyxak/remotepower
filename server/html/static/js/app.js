@@ -1724,7 +1724,7 @@ const MODULE_PAGES = {
   kb:         'kb',
   compliance: 'compliance',
   pentest:    'scans',
-  // v6.1.3: the AI executor gates an API prefix but owns NO page — its proposals
+  // v6.2.0: the AI executor gates an API prefix but owns NO page — its proposals
   // land in the existing Confirmations queue. `null` means "no nav to hide", and
   // it is spelled out rather than omitted so the map stays 1:1 with api._MODULES
   // (an omission would read as an oversight). Mapping it to 'confirmations' would
@@ -2684,7 +2684,7 @@ async function generateQuickInstall() {
   const token = (data && data.token) || '';
   const server = window.location.origin;
   box.textContent = '';
-  // v6.1.3: one-time token, one line per OS. Each downloads the agent from this
+  // v6.2.0: one-time token, one line per OS. Each downloads the agent from this
   // server, verifies its checksum, enrols, and the host appears by hostname.
   const linux = `wget -qO- "${server}/install?t=${token}" | sudo sh`;
   const win = `powershell -ExecutionPolicy Bypass -Command "iwr '${server}/install.ps1?t=${token}' -UseBasicParsing | iex"`;
@@ -3676,21 +3676,21 @@ async function loadSettings() {
     const sp = document.getElementById('cfg-secrets-scan-paths');
     if (sp) sp.value = (data.secrets_scan_paths || []).join('\n');
   }
-  // v6.1.3: disk-usage explorer
+  // v6.2.0: disk-usage explorer
   const _duEn = document.getElementById('cfg-du-scan-enabled');
   if (_duEn) {
     _duEn.checked = !!data.du_scan_enabled;
     const dp = document.getElementById('cfg-du-scan-paths');
     if (dp) dp.value = (data.du_scan_paths || []).join('\n');
   }
-  // v6.1.3: regulated-data (PII) scan
+  // v6.2.0: regulated-data (PII) scan
   const _piiEn = document.getElementById('cfg-pii-scan-enabled');
   if (_piiEn) {
     _piiEn.checked = !!data.pii_scan_enabled;
     const pp = document.getElementById('cfg-pii-scan-paths');
     if (pp) pp.value = (data.pii_scan_paths || []).join('\n');
   }
-  // v6.1.3: JIT credential checkout
+  // v6.2.0: JIT credential checkout
   const _coReq = document.getElementById('cfg-vault-checkout-required');
   if (_coReq) _coReq.checked = !!data.vault_checkout_required;
   // W3-38: canary files
@@ -4256,21 +4256,21 @@ async function saveSettings(btn) {
     payload.secrets_scan_paths = (document.getElementById('cfg-secrets-scan-paths')?.value || '')
       .split('\n').map(s => s.trim()).filter(Boolean);
   }
-  // v6.1.3: disk-usage explorer
+  // v6.2.0: disk-usage explorer
   const _duSaveEn = document.getElementById('cfg-du-scan-enabled');
   if (_duSaveEn) {
     payload.du_scan_enabled = _duSaveEn.checked;
     payload.du_scan_paths = (document.getElementById('cfg-du-scan-paths')?.value || '')
       .split('\n').map(s => s.trim()).filter(Boolean);
   }
-  // v6.1.3: regulated-data (PII) scan
+  // v6.2.0: regulated-data (PII) scan
   const _piiSaveEn = document.getElementById('cfg-pii-scan-enabled');
   if (_piiSaveEn) {
     payload.pii_scan_enabled = _piiSaveEn.checked;
     payload.pii_scan_paths = (document.getElementById('cfg-pii-scan-paths')?.value || '')
       .split('\n').map(s => s.trim()).filter(Boolean);
   }
-  // v6.1.3: JIT credential checkout
+  // v6.2.0: JIT credential checkout
   const _coSaveReq = document.getElementById('cfg-vault-checkout-required');
   if (_coSaveReq) payload.vault_checkout_required = _coSaveReq.checked;
   const _caEn = document.getElementById('cfg-change-approval-enabled');
@@ -6161,10 +6161,10 @@ async function loadRisk() {
   const s = document.getElementById('risk-summary');
   if (s) { const c = data.counts || {}; s.innerHTML = `${data.total} assets · avg ${data.avg} · critical <span class="${(c.critical||0) > 0 ? 'c-red fw-600' : ''}">${c.critical||0}</span> · high <span class="${(c.high||0) > 0 ? 'c-amber' : ''}">${c.high||0}</span> · medium ${c.medium||0}`; }
   _renderRisk();
-  loadEdrCoverage();   // v6.1.3
+  loadEdrCoverage();   // v6.2.0
 }
 
-// ── v6.1.3: EDR coverage ─────────────────────────────────────────────────────
+// ── v6.2.0: EDR coverage ─────────────────────────────────────────────────────
 // The EDR connectors know which hosts they protect. This names the ones they've
 // never heard of. The card stays hidden until an EDR integration is configured —
 // an empty "0 uncovered" table on a fleet with no EDR would read as an all-clear.
@@ -6885,7 +6885,7 @@ async function restoreBackup() {
 }
 
 // ── v3.12.0: storage backend (JSON <-> SQLite) ───────────────────────────────
-// v6.1.3: queue a one-shot host-wide disk-usage scan ("disk 94% — of what?").
+// v6.2.0: queue a one-shot host-wide disk-usage scan ("disk 94% — of what?").
 // The id is re-stringified on the way in: the global data-action dispatcher runs
 // `!isNaN(v) ? Number(v) : v`, so a numeric-LOOKING device id (hex ids qualify —
 // '1e5' parses as 100000, and '1e5000000000' becomes Infinity) would arrive
@@ -11594,7 +11594,7 @@ function _renderConfirmations(arr) {
       status === 'expired'  ? '<span class="sev-pill sev-low">expired</span>' :
       status === 'failed'   ? '<span class="sev-pill sev-critical">failed</span>' :
       `<span class="sev-pill sev-low">${_escapeHtml(status)}</span>`;
-    // v6.1.3: an ai_exec_action proposal must show WHICH catalog action (+ the
+    // v6.2.0: an ai_exec_action proposal must show WHICH catalog action (+ the
     // model's reason) it will run — otherwise the approver signs off blind. The
     // params carry the catalog label/id and reason (see handle_ai_exec_propose).
     const _p = c.params || {};
@@ -12003,14 +12003,14 @@ async function loadIntegrationsPage() {
       version: i.last_version, checked: i.last_checked, stats: i.last_stats || [],
       top_blocked: i.last_top_blocked || [], top_clients: i.last_top_clients || [],
     }));
-    // v6.1.3: which of these blockers we can actually CONTROL (server registry is
+    // v6.2.0: which of these blockers we can actually CONTROL (server registry is
     // authoritative — don't hard-code the type list in the client).
     let dnsCtl = null;
     try {
       const d = await api('GET', '/dns-control/blockers');
       if (d && d.ok) dnsCtl = d;
     } catch (e) { /* control is optional — the panels still render read-only */ }
-    _renderDnsBlockPanels(items, dnsCtl);   // v6.1.2, control v6.1.3
+    _renderDnsBlockPanels(items, dnsCtl);   // v6.1.2, control v6.2.0
     const order = { critical: 0, warning: 1, unknown: 2, ok: 3 };
     items.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.label || '').localeCompare(String(b.label || '')));
     wrap.innerHTML = _integrationTiles(items);
@@ -12104,7 +12104,7 @@ function _renderDnsBlockPanels(items, dnsCtl) {
   });
 }
 
-// ── v6.1.3: DNS-blocker control (Pi-hole / AdGuard) ──────────────────────────
+// ── v6.2.0: DNS-blocker control (Pi-hole / AdGuard) ──────────────────────────
 // "Something's broken — is it the ad-blocker?" was the one question the read-only
 // connectors made you leave RemotePower to answer. Disabling is always TIMED: the
 // blocker re-enables itself, so a debug session can't silently become a permanent
@@ -15046,7 +15046,7 @@ const EVENT_CLASS = {
   // v5.6.x: host-condition recover events (auto-resolve) → green "ok" dots.
   'kernel_current': 'ok', 'smart_recovered': 'ok', 'cert_file_renewed': 'ok',
   'rogue_uid0_cleared': 'ok', 'av_clean': 'ok', 'reboot_cleared': 'ok',
-  'av_realtime_on': 'ok',   // v6.1.3: protection restored
+  'av_realtime_on': 'ok',   // v6.2.0: protection restored
   'containers_current': 'ok', 'port_unexposed': 'ok',
 };
 
@@ -16547,9 +16547,9 @@ function _renderHomeActivity(fleetEvents) {
     'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
-    // v6.1.3: someone gained sudo/wheel/Administrators on a host
+    // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
-    // v6.1.3: a USB device was connected to a host (physical access)
+    // v6.2.0: a USB device was connected to a host (physical access)
     'usb_device_added',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
@@ -16574,7 +16574,7 @@ function _renderHomeActivity(fleetEvents) {
     'av_warning',
     // v5.6.x: clean AV scan recovers av_infected + av_warning
     'av_clean',
-    // v6.1.3: Windows Defender real-time protection switched off / restored
+    // v6.2.0: Windows Defender real-time protection switched off / restored
     'av_realtime_off', 'av_realtime_on',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
@@ -16782,7 +16782,7 @@ function _homeActivityAttrs(event, p) {
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
-    // v6.1.3: privileged-group grant / USB plug-in → open the affected host.
+    // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
@@ -16817,7 +16817,7 @@ function _homeActivityAttrs(event, p) {
     // v5.1.0: malware/rootkit detection → the affected host's drawer
     // v5.4.1: av_warning (rkhunter warnings / stale AV DB) routes the same way
     case 'av_infected': case 'av_warning': case 'av_clean':
-    // v6.1.3: Defender real-time protection off/on → the affected host's drawer
+    // v6.2.0: Defender real-time protection off/on → the affected host's drawer
     case 'av_realtime_off': case 'av_realtime_on':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
@@ -17724,7 +17724,7 @@ async function saveSshUsername() {
 // device's IP when known, else its hostname (the fallback the spec
 // asked for). Returns '' when there's neither — nothing to connect to.
 function sshLinkIcon(d) {
-  // v6.1.3: SSH is not the access path for Windows hosts (RDP/WinRM are) — don't
+  // v6.2.0: SSH is not the access path for Windows hosts (RDP/WinRM are) — don't
   // offer a quick-SSH link that would never connect.
   if (/windows/i.test(String(d.os || ''))) return '';
   const host = (d.ip || '').trim() || (d.hostname || '').trim();
@@ -19543,7 +19543,7 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/sysinfo`);
         const si   = data?.sysinfo || {};
         const jrnl = data?.journal || [];
-        // v6.1.3: the du report lives in its own store (it is written ~12-hourly,
+        // v6.2.0: the du report lives in its own store (it is written ~12-hourly,
         // not on the sysinfo cadence). Best-effort — a host that has never run a
         // scan simply has no panel, and a failed fetch must not blank System Info.
         let duRec = null;
@@ -19688,7 +19688,7 @@ async function _loadAuditSection(key) {
                    <td class="isl-630 ${pct>85?'c-red': pct>70?'c-amber': ''}">${pct!=null?pct+'%':'—'}</td>
                    <td class="ta-center ${ino>90?'c-red': ino>80?'c-amber': 'c-muted'}">${ino!=null?ino+'%':'—'}</td></tr>`;
             }).join('') + `</tbody></table></div>`;
-          // v6.1.3: "disk 94% — of WHAT?". Sits directly under the mounts table,
+          // v6.2.0: "disk 94% — of WHAT?". Sits directly under the mounts table,
           // which is exactly where the operator is standing when they ask.
           // Disk-fill forecasting already says WHEN a mount fills; this says what
           // to delete. Rendered only when a scan has actually run.
@@ -22653,10 +22653,10 @@ async function loadCompliance() {
   body.innerHTML = h;
   loadComplianceBaseline();
   loadScap();
-  loadPii();          // v6.1.3
+  loadPii();          // v6.2.0
 }
 
-// ── v6.1.3: regulated-data (PII) inventory ───────────────────────────────────
+// ── v6.2.0: regulated-data (PII) inventory ───────────────────────────────────
 // A REPORT, not an alert. The card renders counts and file paths only — the
 // server never stores a matched value, so there is none to render even by
 // accident.

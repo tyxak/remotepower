@@ -132,7 +132,7 @@ class TestV380Bugs(unittest.TestCase):
         self.assertIn('data-col="name"', seg)
 
     def test_makerchecker_rejects_deleted_or_quarantined_device(self):
-        """v6.1.3: DRIVEN, not grepped.
+        """v6.2.0: DRIVEN, not grepped.
 
         This used to slice api.py between `def _mcp_execute` and the first
         occurrence of `if action == 'reboot_device'`. A NEW helper introduced that

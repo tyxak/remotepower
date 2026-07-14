@@ -285,7 +285,7 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        # Widened again in v6.1.3 (the disk-usage scan block + its heartbeat-
+        # Widened again in v6.2.0 (the disk-usage scan block + its heartbeat-
         # response config). This fixed-size source window is inherently brittle:
         # anything added to heartbeat() ABOVE this marker eventually pushes it
         # out of range — which is exactly what happened, again.

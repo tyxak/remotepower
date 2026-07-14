@@ -59,7 +59,7 @@ class TestAuditModeWinMacParity(unittest.TestCase):
             self.assertIn("'audit_mode': _audit_mode()", src, name)
 
     def test_handle_command_refuses_in_audit_mode(self):
-        """v6.1.3: DRIVEN, not grepped.
+        """v6.2.0: DRIVEN, not grepped.
 
         This used to slice handle_command's source [def : def+400] and assert
         '_audit_mode()' appeared inside it. A defensive non-string guard added to
@@ -92,7 +92,7 @@ class TestAuditModeServer(unittest.TestCase):
         self.assertIn("safe_si['audit_mode'] = bool(si['audit_mode'])", API)
 
     def test_queue_command_refuses_audit_host(self):
-        """v6.1.3: DRIVEN, not grepped.
+        """v6.2.0: DRIVEN, not grepped.
 
         This used to assert the string "audit (read-only) mode" appeared within
         1400 chars of `def _queue_command(`. When the three command gates were

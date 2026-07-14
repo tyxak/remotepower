@@ -12,7 +12,7 @@ It is **stdlib-only** Python (3.8+); two pip packages sharpen it:
 
 Both are installed automatically by the installer.
 
-## How it runs: a Windows service (default) *(v6.1.3)*
+## How it runs: a Windows service (default) *(v6.2.0)*
 
 By default the agent installs as a **Windows service** named `RemotePowerAgent`
 ("RemotePower Agent" in `services.msc`), running as **LocalSystem**, start type
@@ -208,34 +208,34 @@ for the agent.
 
 ## What the Windows agent reports and does
 
-Parity with the Linux agent for the core management surface (v6.1.3 buildout):
+Parity with the Linux agent for the core management surface (v6.2.0 buildout):
 
 | Capability | Linux | Windows |
 |---|---|---|
 | Core metrics (CPU/mem/disk/net) | psutil | psutil (optional; reduced set without it) |
 | Reboot / shutdown | `systemctl` | `shutdown /r`/`/s` |
-| **reboot-required** detection | `/run/reboot-required` | registry (CBS / WindowsUpdate / PendingFileRenameOperations) *(v6.1.3)* |
-| Remote command | `exec:` (shell) | `exec:` (PowerShell); explicit **`ps:`** / **`cmd:`** verbs *(v6.1.3)* |
-| **Service** enumerate + control | systemd | `Get-Service` + Start/Stop/Restart-Service *(v6.1.3)* |
-| **Process** list + kill | `/proc` + signals | psutil + `taskkill` *(v6.1.3)* |
-| **File manager** (`files:`) | yes | yes, Windows-rooted allowlist *(v6.1.3)* |
+| **reboot-required** detection | `/run/reboot-required` | registry (CBS / WindowsUpdate / PendingFileRenameOperations) *(v6.2.0)* |
+| Remote command | `exec:` (shell) | `exec:` (PowerShell); explicit **`ps:`** / **`cmd:`** verbs *(v6.2.0)* |
+| **Service** enumerate + control | systemd | `Get-Service` + Start/Stop/Restart-Service *(v6.2.0)* |
+| **Process** list + kill | `/proc` + signals | psutil + `taskkill` *(v6.2.0)* |
+| **File manager** (`files:`) | yes | yes, Windows-rooted allowlist *(v6.2.0)* |
 | Patch detect | apt/dnf/… | Windows Update COM API |
 | Patch apply | package manager | PSWindowsUpdate → COM fallback (never auto-reboots) |
-| **Third-party patch** (winget) | flatpak/snap/pip/npm (detect) | `winget:` detect **and remediate** *(v6.1.3)* |
+| **Third-party patch** (winget) | flatpak/snap/pip/npm (detect) | `winget:` detect **and remediate** *(v6.2.0)* |
 | AV posture | ClamAV/rkhunter | Windows Defender (`Get-MpComputerStatus`) |
-| Event Log | journalctl | `Get-WinEvent` — System/Application **+ Security**, RecordId cursor that survives a **log clear** (no dup/loss), Event IDs in each line for alert rules *(v6.1.3)* |
-| Privileged-group tripwire | `sudo`/`wheel` | `Administrators` (`Get-LocalGroupMember`) *(v6.1.3)* |
+| Event Log | journalctl | `Get-WinEvent` — System/Application **+ Security**, RecordId cursor that survives a **log clear** (no dup/loss), Event IDs in each line for alert rules *(v6.2.0)* |
+| Privileged-group tripwire | `sudo`/`wheel` | `Administrators` (`Get-LocalGroupMember`) *(v6.2.0)* |
 | Listening ports | yes | yes |
 | Secrets-on-disk scan | yes | yes |
-| **Signed self-update** | yes (fail-closed GPG gate) | yes (fail-closed GPG gate) *(v6.1.3)* |
-| **SMART** disk health | smartctl | `Get-PhysicalDisk` + reliability counters *(v6.1.3)* |
-| **Hardware inventory** | dmidecode | WMI (system + memory) *(v6.1.3)* |
-| **Config drift** (file hashing) | yes | yes *(v6.1.3)* |
-| **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) *(v6.1.3)* |
-| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type *(v6.1.3)* |
-| Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service *(v6.1.3)* |
+| **Signed self-update** | yes (fail-closed GPG gate) | yes (fail-closed GPG gate) *(v6.2.0)* |
+| **SMART** disk health | smartctl | `Get-PhysicalDisk` + reliability counters *(v6.2.0)* |
+| **Hardware inventory** | dmidecode | WMI (system + memory) *(v6.2.0)* |
+| **Config drift** (file hashing) | yes | yes *(v6.2.0)* |
+| **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) *(v6.2.0)* |
+| **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type *(v6.2.0)* |
+| Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service *(v6.2.0)* |
 | Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline) |
-| Runs as | systemd service | **Windows service** (services.msc); scheduled-task fallback *(v6.1.3)* |
+| Runs as | systemd service | **Windows service** (services.msc); scheduled-task fallback *(v6.2.0)* |
 | Read-only audit mode | `/etc/remotepower/audit-mode` | `%ProgramData%\RemotePower\audit-mode` |
 
 ### Interpreter selection (`exec:` vs `ps:` vs `cmd:`)
@@ -284,7 +284,7 @@ The service/task runs as SYSTEM and can't read the credentials. Two causes:
    *virtualizes* filesystem writes, so `agent.json` landed in a per-user package
    cache, not the real `C:\ProgramData\RemotePower\`. **Fix:** re-enroll with the
    **machine** Python (`C:\Program Files\Python3xx\python.exe`).
-2. **The credential-file ACL locked SYSTEM out** (agents before the v6.1.3 fix).
+2. **The credential-file ACL locked SYSTEM out** (agents before the v6.2.0 fix).
    Reading `agent.json` as an admin returns *Access Denied*. **Fix:** grant SYSTEM
    + Administrators and restart:
    ```powershell
@@ -321,7 +321,7 @@ Almost always one of:
   Start-Service RemotePowerAgent
   ```
 - **Old agent build.** The prompt wait-hint + shutdown handling shipped in the
-  v6.1.3 hardening. If the box is on an older agent, reinstall the service with a
+  v6.2.0 hardening. If the box is on an older agent, reinstall the service with a
   current agent (`--uninstall-service` then `--install-service`, or re-run the
   installer).
 - **Stuck in STOP_PENDING / won't start again.** Delete and recreate:
@@ -340,7 +340,7 @@ or re-point the task at `C:\Program Files\Python3xx\pythonw.exe`.
 
 ### Went offline right after an agent update
 
-Fixed in v6.1.3. Older agents relaunched by killing their own scheduled task
+Fixed in v6.2.0. Older agents relaunched by killing their own scheduled task
 inline (which had no restart trigger). Bring it back with `schtasks /run /tn
 RemotePowerAgent`; switching to the service removes the failure mode entirely (the
 SCM restarts the agent after any self-update exit).
@@ -373,7 +373,7 @@ Start-Service RemotePowerAgent
 - Every fixed system binary (`powershell`, `winget`, `shutdown`, `icacls`,
   `schtasks`, `taskkill`, `cmd`, `sc`) is invoked by **absolute path**, never bare
   name — the agent runs as SYSTEM, so a writable `%PATH%` entry would otherwise be
-  a privilege-escalation vector *(v6.1.3)*.
+  a privilege-escalation vector *(v6.2.0)*.
 - The credential file (`agent.json`, holds the device token) has its ACL locked to
   **SYSTEM + Administrators** via locale-proof SIDs, inheritance stripped, written
   before the first token is stored.
@@ -392,7 +392,7 @@ Everything lives under `%ProgramData%\RemotePower\`:
 | File | Purpose |
 |---|---|
 | `agent.json` | credentials (server URL, device id, token) — ACL-locked |
-| `agent.log` | rotating agent log *(v6.1.3)* |
+| `agent.log` | rotating agent log *(v6.2.0)* |
 | `eventlog_cursor.json` | per-channel Event Log RecordId cursor |
 | `audit-mode` | marker: read-only mode (refuse write commands) |
 | `release.pub` | pinned release public key (enables signature enforcement) |

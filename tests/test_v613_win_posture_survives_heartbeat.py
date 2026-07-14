@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""v6.1.3 guardrail: sysinfo.win_posture must SURVIVE the heartbeat sanitizer.
+"""v6.2.0 guardrail: sysinfo.win_posture must SURVIVE the heartbeat sanitizer.
 
-The v6.1.3 Windows posture Checks rows (BitLocker / firewall / Windows Defender
+The v6.2.0 Windows posture Checks rows (BitLocker / firewall / Windows Defender
 realtime + signature age / Windows Update service) are derived server-side from
 `sysinfo.win_posture`. handle_heartbeat rebuilds sysinfo through a strict
 whitelist (`safe_si`); a field the agent sends but safe_si drops silently never
 reaches the Checks engine — the single most recurring bug class in this project
 (proc_names / mailq / custom_check_results all shipped broken this way, and
-win_posture itself was found DROPPED in the v6.1.3 bug hunt: four independent
+win_posture itself was found DROPPED in the v6.2.0 bug hunt: four independent
 finders flagged the Windows Checks rows as permanently blank).
 
 This is a FUNCTIONAL guardrail on purpose: it drives the REAL heartbeat handler

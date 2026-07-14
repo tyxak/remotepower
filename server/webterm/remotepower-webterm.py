@@ -146,7 +146,7 @@ class TicketStore:
     """Validate-and-delete the one-time webterm tickets the CGI's
     /api/webterm/auth issues.
 
-    v6.1.3 (BUG): the ticket store read `webterm_tickets.json` as a raw flat file.
+    v6.2.0 (BUG): the ticket store read `webterm_tickets.json` as a raw flat file.
     Under the default Postgres/SQLite backend (v6.1.0+) that file does NOT exist —
     the ticket lives in a DB row — so consume() read {} and EVERY web-terminal
     session was rejected ("Invalid or expired ticket"): the feature was 100% dead

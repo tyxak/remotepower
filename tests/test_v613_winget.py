@@ -1,4 +1,4 @@
-"""v6.1.3 — Windows/macOS patch execution actually works now (gap item #6).
+"""v6.2.0 — Windows/macOS patch execution actually works now (gap item #6).
 
 THE BUG (shipped since v6.0.0): `handle_upgrade_device` computed
 `queued_str = f'exec:{_UPGRADE_CMD}'` ONCE, outside the device loop, with no OS

@@ -184,7 +184,7 @@ async function loadDiskHealth() {
   if (!tbody) return;
   tableCtl.wireSortOnly('disk-health-thead', 'diskhealth', () => _renderDiskHealth());
   tableCtl.wireSortOnly('unstable-thead', 'unstablehosts', () => _renderUnstableHosts());
-  // v6.1.3: eager wire-up — BEFORE the fetch, so the sort indicators exist even
+  // v6.2.0: eager wire-up — BEFORE the fetch, so the sort indicators exist even
   // while the data is still loading (the repo's sortable-table rule).
   tableCtl.wireSortOnly('reliability-thead', 'reliability', () => _renderReliability());
   tbody.innerHTML = _skeletonRows(6);
@@ -195,7 +195,7 @@ async function loadDiskHealth() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
-  // v6.1.3: the composite failure-likelihood table. Loaded separately so a
+  // v6.2.0: the composite failure-likelihood table. Loaded separately so a
   // failure here can never blank the disk table above it.
   try {
     _reliabilityResp = await api('GET', '/reliability');
@@ -206,7 +206,7 @@ async function loadDiskHealth() {
   }
 }
 
-// v6.1.3: per-host failure likelihood (0-100, higher = more likely to fail).
+// v6.2.0: per-host failure likelihood (0-100, higher = more likely to fail).
 let _reliabilityResp = null;
 
 function _renderReliability() {

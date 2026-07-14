@@ -486,12 +486,12 @@ function billingTab(name) {
   document.querySelectorAll('#billing-tabs .settings-tab').forEach(b =>
     b.classList.toggle('active', b.dataset.arg === name));
   if (name === 'worksheet') _billingWorksheet();
-  else if (name === 'quotes') _billingQuotes();      // v6.1.3
+  else if (name === 'quotes') _billingQuotes();      // v6.2.0
   else if (name === 'invoices') _billingInvoices();
   else if (name === 'rates') _billingRates();
 }
 
-/* ── v6.1.3: quotes ─────────────────────────────────────────────────────────
+/* ── v6.2.0: quotes ─────────────────────────────────────────────────────────
    The mirror image of an invoice: an invoice looks BACKWARD (derived from logged
    hours), a quote looks FORWARD (hand-authored) and, once accepted, becomes one.
    The Convert button only appears on an accepted quote, and the server refuses a

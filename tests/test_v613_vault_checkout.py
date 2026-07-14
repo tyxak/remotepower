@@ -1,4 +1,4 @@
-"""v6.1.3 — JIT credential checkout (gap item #14, reframed).
+"""v6.2.0 — JIT credential checkout (gap item #14, reframed).
 
 Full PAM is out of scope. But "who CAN reveal this credential" → "who has ACTIVE,
 justified, EXPIRING access to it right now" is the useful half, and it is a small

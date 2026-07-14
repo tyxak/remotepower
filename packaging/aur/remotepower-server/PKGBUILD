@@ -73,7 +73,7 @@ package() {
 
   # Agent binary, served read-only for agent self-update (/api/agent/download).
   install -m755 client/remotepower-agent "$web/agent/remotepower-agent"
-  # v6.1.3: Windows + macOS agents, served at /api/agent/{win,mac}/download —
+  # v6.2.0: Windows + macOS agents, served at /api/agent/{win,mac}/download —
   # the Windows /install.ps1 one-liner and cross-platform self-update need them.
   install -m644 client/remotepower-agent-win.py "$web/agent/remotepower-agent-win.py"
   install -m644 client/remotepower-agent-mac.py "$web/agent/remotepower-agent-mac.py"

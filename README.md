@@ -4,17 +4,18 @@
 
 <img src="docs/screenshots/RP.png" alt="RemotePower" width="760">
 
-**The Swiss-army-knife control plane for your Linux fleet — or your homelab.**
-Monitoring, alerting, a CMDB, CVE scanning, patching, and remote management,
-all self-hosted in one place — with optional AI woven through it. Push-based
-agents, zero inbound ports. Up and running in five minutes.
+**The Swiss-army-knife control plane for your Linux fleet — Windows and macOS
+too — or your homelab.** Monitoring, alerting, a CMDB, CVE scanning, patching,
+and remote management, all self-hosted in one place — with optional AI woven
+through it. Push-based agents that run as a supervised service on every OS, zero
+inbound ports. Up and running in five minutes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://kernel.org)
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.1.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.2.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -166,7 +167,7 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.1.3 "SentinelMatters"** — closing gaps using signals already collected but
+- **v6.2.0 "Daem0nMatters"** — closing gaps using signals already collected but
   never acted on: a privileged-group tripwire (sudo/wheel/Administrators), Windows
   Defender AV posture (including real-time-protection-off), a USB physical-access
   tripwire, a host-wide disk-usage explorer ("disk 94% — of *what*?"), and a

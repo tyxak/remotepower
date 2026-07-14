@@ -32,7 +32,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '6.1.3'
+VERSION      = '6.2.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -1004,7 +1004,7 @@ def _save_secrets_scan_ts(ts: float) -> None:
     _safe_state_write(SECRETS_SCAN_TS_FILE, str(int(ts)))
 
 
-# v6.1.3: host-wide disk-usage explorer ("disk 94% — of WHAT?").
+# v6.2.0: host-wide disk-usage explorer ("disk 94% — of WHAT?").
 # Slow + opt-in, on the same persisted-timestamp cadence as the scans above:
 # walking a big filesystem is expensive, and a poll_count % N cadence would
 # silently never fire on a restart-churny host.
@@ -1241,7 +1241,7 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
     return findings
 
 
-# ── v6.1.3: PII / sensitive-data scan (GDPR/PCI "where is our regulated data?") ─
+# ── v6.2.0: PII / sensitive-data scan (GDPR/PCI "where is our regulated data?") ─
 #
 # Same bounded, opt-in, host_path()-aware walk as the secrets scan above. One
 # rule dominates the design:
@@ -5833,7 +5833,7 @@ def get_ssh_hostkeys():
 
 
 def get_usb_devices():
-    """v6.1.3: enumerate connected USB devices from sysfs.
+    """v6.2.0: enumerate connected USB devices from sysfs.
 
     A USB device appearing on a server is a physical-access signal: the rubber-
     ducky / mass-storage-exfil class, or (far more often, and still worth
@@ -8886,13 +8886,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     force_image_scan = False
     last_image_scan_ts = _load_image_scan_ts()   # v6.1.2: survives agent restarts
     last_secrets_scan_ts = _load_secrets_scan_ts()   # v6.1.2: same restart fix
-    # v6.1.3: host-wide disk-usage explorer — opt-in, slow (~12h), server-pushed
+    # v6.2.0: host-wide disk-usage explorer — opt-in, slow (~12h), server-pushed
     # paths, same persisted-timestamp cadence (never poll_count % N).
     du_scan_on = False
     du_scan_paths = None
     force_du_scan = False
     last_du_scan_ts = _load_du_scan_ts()
-    # v6.1.3: PII / sensitive-data scan — opt-in, slow (~24h), server-pushed paths,
+    # v6.2.0: PII / sensitive-data scan — opt-in, slow (~24h), server-pushed paths,
     # same persisted-timestamp cadence (never poll_count % N).
     pii_scan_on = False
     pii_scan_paths = None
@@ -9191,7 +9191,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'secrets scan error: {e}')
             force_secrets_scan = False
 
-        # v6.1.3: host-wide disk-usage explorer. Opt-in, ~12h, or on demand.
+        # v6.2.0: host-wide disk-usage explorer. Opt-in, ~12h, or on demand.
         _du_due = (time.time() - last_du_scan_ts) >= DU_SCAN_INTERVAL_S
         if du_scan_on and (_du_due or force_du_scan):
             try:
@@ -9207,7 +9207,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'du scan error: {e}')
             force_du_scan = False
 
-        # v6.1.3: PII / sensitive-data scan. Opt-in, ~24h, or on demand.
+        # v6.2.0: PII / sensitive-data scan. Opt-in, ~24h, or on demand.
         _pii_due = (time.time() - last_pii_scan_ts) >= PII_SCAN_INTERVAL_S
         if pii_scan_on and (_pii_due or force_pii_scan):
             try:
@@ -9276,7 +9276,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # starts None). The old unconditional poll_count==2 re-apply here was pure
         # redundancy: it re-applied what the response handler had already applied on
         # poll 1, forcing a second netplan/nmcli/service reload on every boot.
-        # Removed in the v6.1.3 bug hunt — the apply-on-change path is the single
+        # Removed in the v6.2.0 bug hunt — the apply-on-change path is the single
         # source of truth. Current state is NOT sent in the heartbeat; it is
         # collected on-demand via the host-config-collect exec command.
 
@@ -9474,7 +9474,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'ssh hostkey probe error: {e}')
             try:
-                # v6.1.3: USB inventory → the usb_device_added tripwire. MUST be
+                # v6.2.0: USB inventory → the usb_device_added tripwire. MUST be
                 # written here (inside `if send_sysinfo:`, AFTER `sysinfo = {...}`)
                 # — the v6.1.2 batch-A bug put four collectors in the earlier
                 # container-cadence block, where `sysinfo` is not yet bound, so
@@ -9646,14 +9646,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_secrets_scan'):
                 force_secrets_scan = True
                 log.info('Server requested a secrets scan')
-            # v6.1.3: disk-usage explorer opt-in + paths + one-shot force.
+            # v6.2.0: disk-usage explorer opt-in + paths + one-shot force.
             du_scan_on = bool(resp.get('du_scan_enabled'))
             _dsp = resp.get('du_scan_paths')
             du_scan_paths = _dsp if isinstance(_dsp, list) and _dsp else None
             if resp.get('force_du_scan'):
                 force_du_scan = True
                 log.info('Server requested a disk-usage scan')
-            # v6.1.3: PII / sensitive-data scan opt-in + paths + one-shot force.
+            # v6.2.0: PII / sensitive-data scan opt-in + paths + one-shot force.
             pii_scan_on = bool(resp.get('pii_scan_enabled'))
             _psp = resp.get('pii_scan_paths')
             pii_scan_paths = _psp if isinstance(_psp, list) and _psp else None

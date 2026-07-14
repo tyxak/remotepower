@@ -119,7 +119,7 @@ def _host_checks(
             f"load {la:.2f} (ratio {la / (cc or 1):.2f}, {cc} cores)",
         )
     elif isinstance(si.get("cpu_percent"), (int, float)):
-        # v6.1.3: Windows/macOS report cpu_percent, not a loadavg. Surface the same
+        # v6.2.0: Windows/macOS report cpu_percent, not a loadavg. Surface the same
         # CPU check row from that so the resources group isn't empty on Windows.
         # Thresholds mirror the metric engine's default busy/overloaded bands.
         cpu = si["cpu_percent"]
@@ -368,7 +368,7 @@ def _host_checks(
             "critical" if bad else "ok",
             f"{len(bad)} pool(s) degraded" if bad else f"{len(pools)} pool(s) healthy",
         )
-    # ── v6.1.3: Windows security-posture checks (from sysinfo.win_posture) ──
+    # ── v6.2.0: Windows security-posture checks (from sysinfo.win_posture) ──
     # These render ONLY when the Windows agent reported posture, so a Linux host
     # never shows an empty "BitLocker" row. Classic RMM check-library staples that
     # have no Linux analogue.
@@ -481,7 +481,7 @@ AGENT_CHECK_TYPES = (
     "log_errors",
     "job_fresh",
     "systemd_unit",
-    # v6.1.3: the Windows analogue of systemd_unit — is a named
+    # v6.2.0: the Windows analogue of systemd_unit — is a named
     # Windows service Running? Evaluated on-host via Get-Service.
     "windows_service",
 )

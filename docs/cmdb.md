@@ -226,7 +226,7 @@ asset, the credential label, and the source IP. If you need to know
 who looked at the IPMI password last Thursday, the answer is in the
 audit log.
 
-### JIT credential checkout *(v6.1.3)*
+### JIT credential checkout *(v6.2.0)*
 
 Opt-in (`vault_checkout_required`, **default off**). When enabled, *"who **can**
 reveal this credential"* becomes *"who has **active, justified, expiring** access

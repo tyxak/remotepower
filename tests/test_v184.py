@@ -312,8 +312,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'db_integrity_failed', 'mount_issue',
             'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line',  # v6.1.1 (#76)
             'cert_file_expiring', 'rogue_uid0',
-            'priv_group_added',                      # v6.1.3 sudo/wheel/Administrators grant
-            'usb_device_added',                      # v6.1.3 USB physical-access tripwire
+            'priv_group_added',                      # v6.2.0 sudo/wheel/Administrators grant
+            'usb_device_added',                      # v6.2.0 USB physical-access tripwire
             'process_alert', 'process_recovered',   # v3.14.0 #36
             'secret_exposed', 'canary_accessed',    # v3.14.0 #35 / W3-38
             'scan_finding',                          # v4.2.0 (B5)
@@ -327,7 +327,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'failed_unit',                           # v5.5.0 failed systemd unit
             'av_infected',                           # v5.1.0 endpoint AV/malware
             'av_warning',                            # v5.4.1 AV/rootkit scan warnings
-            'av_realtime_off',                       # v6.1.3 Defender real-time protection off
+            'av_realtime_off',                       # v6.2.0 Defender real-time protection off
             'vpn_client_connected', 'vpn_client_disconnected',  # v5.2.0 WG Access
             'vpn_handshake_stale',                   # v5.2.0 WG Access
             'ticket_sla_breached',
@@ -347,7 +347,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'cert_file_renewed',                     # ← cert_file_expiring
             'rogue_uid0_cleared',                    # ← rogue_uid0
             'av_clean',                              # ← av_infected (+ av_warning)
-            'av_realtime_on',                        # ← av_realtime_off (v6.1.3)
+            'av_realtime_on',                        # ← av_realtime_off (v6.2.0)
             'reboot_cleared',                        # ← reboot_required
             'containers_current',                    # ← containers_stale
             'port_unexposed',                        # ← port_exposed_world

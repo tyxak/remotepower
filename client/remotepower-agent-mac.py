@@ -27,7 +27,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.1.3'
+VERSION = '6.2.0'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
@@ -411,7 +411,7 @@ def _collect_net_io(psutil):
 # v3.14.0 #35: secrets-on-disk scanner (parity with the other agents). READ-ONLY
 # + REDACTING — never sends a secret's value, only rule/location/masked-preview/
 # sha256 fingerprint. Opt-in (server pushes secrets_scan_enabled); bounded hard.
-# v6.1.3 (BUG): the mac agent gated the secrets scan on `poll_count % 360`, which
+# v6.2.0 (BUG): the mac agent gated the secrets scan on `poll_count % 360`, which
 # is process-local and resets on every restart — macOS laptops sleep/restart
 # constantly, so a mac restarting more often than ~6h never scanned at all, and
 # the server's `force_secrets_scan` ("Scan now") flag was ignored entirely. Mirror
@@ -604,7 +604,7 @@ def handle_command(cmd):
             pass
         return None
     if cmd == 'update':
-        # v6.1.3 (BUG): this returned rc:0, so a fleet-wide agent-update rollout
+        # v6.2.0 (BUG): this returned rc:0, so a fleet-wide agent-update rollout
         # recorded SUCCESS on every mac while nothing installed. Report an honest
         # non-success until self-update is implemented for macOS.
         return {'cmd': cmd, 'output': 'self-update is not yet implemented on the macOS agent', 'rc': 1}

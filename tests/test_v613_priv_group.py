@@ -1,4 +1,4 @@
-"""v6.1.3 — privileged-group-change tripwire (competitive-gap item #8).
+"""v6.2.0 — privileged-group-change tripwire (competitive-gap item #8).
 
 Someone landing in sudo/wheel (Linux) or Administrators (Windows) is the classic
 post-compromise persistence step. Both agents ALREADY reported the membership —

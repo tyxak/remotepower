@@ -575,7 +575,7 @@ class TestMaintenanceMode(unittest.TestCase):
         api._block_if_maintenance("poll_interval:300")
 
     def test_queue_command_gated(self):
-        """v6.1.3: DRIVEN, not grepped.
+        """v6.2.0: DRIVEN, not grepped.
 
         This used to assert that the literal `_block_if_maintenance(command)`
         appeared in the first 400 chars of `_queue_command`'s source. When the

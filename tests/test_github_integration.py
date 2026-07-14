@@ -98,7 +98,7 @@ class TestConnector(unittest.TestCase):
 
     def test_website_url_autocorrected_to_api_root(self):
         # The predictable operator mistake: URL = the website (github.com), not the
-        # API root. v6.1.3: the connector must rewrite the client BASE to
+        # API root. v6.2.0: the connector must rewrite the client BASE to
         # api.github.com and keep the path RELATIVE — building an absolute URL was
         # a bug, because the real SSRF-safe client rejects absolute paths.
         c = FakeClient({'/repos/o/r/issues': [_issue(2)]})

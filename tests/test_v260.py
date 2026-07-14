@@ -333,9 +333,9 @@ class TestAgent(unittest.TestCase):
         self.assertIn('authorized_keys', block)
 
     def test_heartbeat_loop_applies_desired(self):
-        # v6.1.3: scan the WHOLE heartbeat() body (to the next top-level def)
+        # v6.2.0: scan the WHOLE heartbeat() body (to the next top-level def)
         # instead of a fixed-size char window. The old 26000-char window kept
-        # needing to be widened as heartbeat() grew, and the v6.1.3 bug hunt
+        # needing to be widened as heartbeat() grew, and the v6.2.0 bug hunt
         # removed the redundant poll==2 apply (leaving only the apply-on-change
         # path in the response handler, which sat just past the window) — the
         # fragile pin, not the code, was the problem.

@@ -96,7 +96,7 @@ class TestSpawn(_Base):
 class TestRebootDispatch(_Base):
     def test_upgrade_ring_uses_reboot_cmd_when_flagged(self):
         # Drive one ring dispatch and confirm the reboot command is queued.
-        # v6.1.3: the ACTUAL per-device command now lives in cmds[dev_id] (the
+        # v6.2.0: the ACTUAL per-device command now lives in cmds[dev_id] (the
         # dispatch is OS-aware — a Linux host, which d1 is by default, gets the
         # bash upgrade+reboot); `queued` is only a representative log label.
         api._autopatch_queue({
@@ -126,7 +126,7 @@ class TestRebootDispatch(_Base):
         self.assertNotIn('reboot', cmds['d1'])
 
     def test_windows_ring_gets_bare_upgrade_not_bash(self):
-        # v6.1.3: a Windows host in the ring must get the bare `upgrade` verb
+        # v6.2.0: a Windows host in the ring must get the bare `upgrade` verb
         # (its agent self-detects), never a bash exec: script, plus `reboot`
         # when the rollout is reboot-flagged (Windows agents never auto-reboot).
         devs = api.load(api.DEVICES_FILE)
@@ -156,7 +156,7 @@ class TestWiring(unittest.TestCase):
         self.assertIn('autopatch-rings', html)
 
     def test_dispatch_reboot_branch_in_source(self):
-        # v6.1.3: dispatch is OS-aware — the reboot command is chosen per device.
+        # v6.2.0: dispatch is OS-aware — the reboot command is chosen per device.
         src = (_CGI / 'provisioning_handlers.py').read_text()
         self.assertIn("_device_os_family(dev)", src)          # OS branch present
         self.assertIn("_SCHED_UPGRADE_REBOOT_CMD}' if reboot", src)  # linux reboot path

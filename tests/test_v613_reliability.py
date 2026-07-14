@@ -1,4 +1,4 @@
-"""v6.1.3 — device reliability prediction (competitive-gap item #23).
+"""v6.2.0 — device reliability prediction (competitive-gap item #23).
 
 "How likely is this host to BREAK?" — deliberately SEPARATE from the risk score,
 which answers "how EXPOSED is this host?" (CVEs, ports, policy, EOL). A fully

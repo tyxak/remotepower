@@ -1,4 +1,4 @@
-"""v6.1.3 — PII / regulated-data scan (gap item #13).
+"""v6.2.0 — PII / regulated-data scan (gap item #13).
 
 "Where is our regulated data?" — the GDPR/PCI question no amount of monitoring
 answers. Agent-side bounded walk (the secrets-scan pattern), server-side inventory.

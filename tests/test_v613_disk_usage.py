@@ -1,4 +1,4 @@
-"""v6.1.3 — host-wide disk-usage explorer (competitive-gap item #22).
+"""v6.2.0 — host-wide disk-usage explorer (competitive-gap item #22).
 
 "Disk 94% — of WHAT?" Disk-fill forecasting has always been able to say WHEN a
 mount fills up (forecast.forecast_mounts, 6 months of daily samples); nothing

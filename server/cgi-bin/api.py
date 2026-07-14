@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.1.3'
+SERVER_VERSION = '6.2.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -230,7 +230,7 @@ INVOICE_REMINDER_STATE_FILE = DATA_DIR / 'invoice_reminder_state.json'  # W1-30 
 INVOICE_REMINDER_INTERVAL = 6 * 3600         # W1-30: overdue-reminder sweep cadence
 MAX_INVOICES = 100000
 INVOICE_STATUSES = ('draft', 'sent', 'partially_paid', 'paid', 'void')
-QUOTES_FILE = DATA_DIR / 'quotes.json'   # v6.1.3: {quotes:[...], quote_seq:int}
+QUOTES_FILE = DATA_DIR / 'quotes.json'   # v6.2.0: {quotes:[...], quote_seq:int}
 MAX_QUOTES = 100000
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
@@ -394,9 +394,9 @@ CMDB_SSH_PORT_MAX     = 65535
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
-DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.1.3: du top-consumers per host
+DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
-PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.1.3: PII inventory (NO values — see _ingest_pii_findings)
+PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (NO values — see _ingest_pii_findings)
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
@@ -783,7 +783,7 @@ try:
 except Exception as _e:   # pragma: no cover - defensive
     sys.stderr.write(f'[remotepower] connector plugin load failed: {_e}\n')
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
-import dns_control as dns_control_mod  # v6.1.3: Pi-hole/AdGuard blocking control (pure)
+import dns_control as dns_control_mod  # v6.2.0: Pi-hole/AdGuard blocking control (pure)
 import notify as notify_mod    # notification-channel payload builders (pure)
 import checks as checks_mod    # per-host Checks engine (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
@@ -1488,7 +1488,7 @@ EVENT_REGISTRY = {
     'rogue_uid0_cleared': dict(
         label='No unexpected UID 0 accounts remain (recovered)', kind='accounts',
         resolves=('rogue_uid0',)),
-    # v6.1.3: someone gained sudo/wheel (Linux) or Administrators (Windows).
+    # v6.2.0: someone gained sudo/wheel (Linux) or Administrators (Windows).
     # The classic post-compromise persistence step, and the classic
     # nobody-told-me change. Edge-triggered per user, like rogue_uid0.
     # There is deliberately NO recover event: a privilege grant is an EVENT,
@@ -1500,7 +1500,7 @@ EVENT_REGISTRY = {
         label='A user gained privileged-group membership (sudo/wheel/Administrators)',
         kind='accounts', title='Privileged Group Membership Added',
         severity='high', priority=5, tags='rotating_light,bust_in_silhouette'),
-    # v6.1.3: a USB device appeared on a host — physical access. Medium, not
+    # v6.2.0: a USB device appeared on a host — physical access. Medium, not
     # high: on a homelab desktop this is somebody plugging in a phone, and an
     # event that pages at 3am for a phone charger gets muted within a week.
     'usb_device_added': dict(
@@ -1562,7 +1562,7 @@ EVENT_REGISTRY = {
     'av_clean': dict(
         label='Antivirus / rootkit scan clean again (recovered)', kind='av_posture',
         resolves=('av_infected', 'av_warning')),
-    # v6.1.3: Windows Defender real-time protection. "AV installed but switched
+    # v6.2.0: Windows Defender real-time protection. "AV installed but switched
     # off" has no ClamAV equivalent (those are on-demand scanners), so it needs
     # its own event — a clean scan report from a host whose protection is
     # DISABLED is not good news, and av_clean must not be read as covering it.
@@ -4361,9 +4361,9 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/enroll/token',
     '/api/agent/version',
     '/api/agent/download',
-    '/api/agent/win/version',      # v6.1.3: Windows agent self-update (token-free, like Linux)
+    '/api/agent/win/version',      # v6.2.0: Windows agent self-update (token-free, like Linux)
     '/api/agent/win/download',
-    '/api/agent/win/install',      # v6.1.3: Windows onboarding one-liner (baked one-time token)
+    '/api/agent/win/install',      # v6.2.0: Windows onboarding one-liner (baked one-time token)
     '/api/agent/install',
     '/api/csp-report',
     '/api/health',
@@ -7049,8 +7049,8 @@ CHANNEL_KIND_DEFS = (
     ('oom', 'Out-of-memory kills', 'operational'),
     ('cert_files', 'Local certificate expiry', 'operational'),
     ('accounts', 'Local account audit', 'operational'),
-    ('usb', 'USB device connected', 'operational'),  # v6.1.3
-    ('reliability', 'Predicted hardware failure', 'operational'),  # v6.1.3
+    ('usb', 'USB device connected', 'operational'),  # v6.2.0
+    ('reliability', 'Predicted hardware failure', 'operational'),  # v6.2.0
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
@@ -7141,7 +7141,7 @@ CHANNEL_KIND_DEFAULTS = {
     # point of watching a repo) but don't page — webhook/push/needs_attention
     # stay off until an operator opts in via Settings → Notifications.
     'github_issue': {'needs_attention': False, 'webhook': False},
-    # v6.1.3: a USB plug-in is a real signal on a rack server and pure noise on
+    # v6.2.0: a USB plug-in is a real signal on a rack server and pure noise on
     # a homelab desktop (phone chargers, keyboards, a yubikey). Default it to
     # the Alerts inbox + Recent Activity — visible, dated, searchable — but do
     # NOT page and do NOT drag the health score down: a connected USB device is
@@ -7842,14 +7842,14 @@ _MODULES = {
     'alerts':     ('alerts_enabled',         True,  ('/api/alerts', '/api/alert-mutes',
                                                      '/api/alert-tuning')),
     'tickets':    ('tickets_module_enabled', True,  ('/api/tickets',)),
-    # v6.1.3: '/api/quotes' MUST be listed here — a new route under a gated module
+    # v6.2.0: '/api/quotes' MUST be listed here — a new route under a gated module
     # that isn't in its prefix tuple silently escapes the kill switch entirely.
     'billing':    ('billing_enabled',        False, ('/api/billing', '/api/invoices',
                                                      '/api/quotes')),
     'kb':         ('kb_enabled',             False, ('/api/kb',)),
     'compliance': ('compliance_enabled',     True,  ('/api/compliance', '/api/scap')),
     'pentest':    ('pentest_enabled',        True,  ('/api/scans',)),
-    # v6.1.3: the governed AI executor. DEFAULT OFF, and off means 404 at the
+    # v6.2.0: the governed AI executor. DEFAULT OFF, and off means 404 at the
     # dispatcher — an enterprise that wants zero AI-initiated actions must be able
     # to make that structurally true, not merely a UI preference.
     'ai_exec':    ('ai_exec_enabled',        False, ('/api/ai-exec',)),
@@ -8639,7 +8639,7 @@ def _record_alert(event, payload):
                     'high', 'upgradable', 'pattern', 'level', 'days',
                     'detail',        # W1-33: patch_sla_violation breach summary
                     'container', 'script_name', 'value', 'source',
-                    # v6.1.3: dead-man's-switch job id — the ping_missed alert's
+                    # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
                     # B2: inbound webhooks set these
@@ -8652,7 +8652,7 @@ def _record_alert(event, payload):
                     'label', 'target', 'source_ip', 'count',
                     'user', 'fingerprint', 'proto', 'port', 'process',
                     'age_hours', 'vm_name', 'snap_name', 'days_old',
-                    # v6.1.3: which AV engine fired (clamav/rkhunter/defender).
+                    # v6.2.0: which AV engine fired (clamav/rkhunter/defender).
                     # av_infected/av_warning have set this since v5.1.0 but it
                     # was never whitelisted, so the STORED alert lost it and the
                     # inbox couldn't say which scanner found the malware.
@@ -8889,12 +8889,12 @@ def _auto_resolve_alerts(event, payload):
         sub_match['proto'] = p.get('proto')
         sub_match['port'] = p.get('port')
     elif event == 'ping_recovered':
-        # v6.1.3: a dead-man's-switch job checking in again clears the open
+        # v6.2.0: a dead-man's-switch job checking in again clears the open
         # ping_missed alert for THAT job. ping_missed has no device_id, so match
         # by job_id (which must also be in the _record_alert whitelist below).
         sub_match['job_id'] = p.get('job_id')
     elif event == 'wan_up':
-        # v6.1.3: internet-restored. wan_down/wan_up are a fleet singleton (no
+        # v6.2.0: internet-restored. wan_down/wan_up are a fleet singleton (no
         # device_id) — match on the fixed 'wan' target both now carry.
         sub_match['target'] = p.get('target')
     # Require either a device_id OR enough sub_match keys to identify
@@ -13137,7 +13137,7 @@ def handle_invoices():
                   'locked_entries': locked})
 
 
-# ── v6.1.3: quotes ────────────────────────────────────────────────────────────
+# ── v6.2.0: quotes ────────────────────────────────────────────────────────────
 # The mirror image of an invoice. An invoice looks BACKWARD (derived from logged
 # time); a quote looks FORWARD (hand-authored: labour estimate, hardware,
 # licences) and, when accepted, becomes one. The money maths is shared with
@@ -15735,7 +15735,7 @@ def _autopatch_queue(pol, actor):
     targets = _autopatch_target_devices(pol.get('target'))
     if not targets:
         return 0
-    # v6.1.3 (BUG): this queued ONE bash command for every target, so a Windows
+    # v6.2.0 (BUG): this queued ONE bash command for every target, so a Windows
     # or macOS host in an auto-patch scope was sent a shell script. Split by OS
     # family and queue each family its own command.
     #
@@ -17277,7 +17277,7 @@ def handle_heartbeat():
                     _sanitize_str(str(k), 32): _sanitize_str(str(v), 64)
                     for k, v in list(_hk.items())[:12]
                 }
-            # v6.1.3: USB inventory {VID:PID -> label}. Same whitelist rule — drop
+            # v6.2.0: USB inventory {VID:PID -> label}. Same whitelist rule — drop
             # it here and the usb_device_added tripwire can never fire.
             _usb = si.get('usb')
             if isinstance(_usb, dict):
@@ -17307,7 +17307,7 @@ def handle_heartbeat():
                 tp = pkg.get('third_party')
                 if isinstance(tp, dict):
                     safe_tp = {}
-                    # v6.1.3: 'winget' joins the third-party sources. This tuple is
+                    # v6.2.0: 'winget' joins the third-party sources. This tuple is
                     # a WHITELIST — a manager missing here is silently dropped at
                     # ingest, so the agent could report winget updates forever and
                     # nothing downstream would ever see them. (The patch-catalog
@@ -17666,7 +17666,7 @@ def handle_heartbeat():
                         'output': _sanitize_str(str(res.get('output', '')), 200),
                     }
                 safe_si['custom_check_results'] = safe_ccr
-            # v6.1.3: Windows security posture → the Checks engine reads
+            # v6.2.0: Windows security posture → the Checks engine reads
             # si['win_posture'] to emit the BitLocker / firewall / Defender / WU
             # rows. The whitelist dropped it, so those five check rows never
             # rendered — the classic "sanitizer must persist any sysinfo field a
@@ -18017,11 +18017,11 @@ def handle_heartbeat():
         if dev.get('force_secrets_scan'):
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
-        # v6.1.3: one-shot "find regulated data now" — same one-shot contract.
+        # v6.2.0: one-shot "find regulated data now" — same one-shot contract.
         if dev.get('force_pii_scan'):
             saved_dev['force_pii_scan'] = True
             dev.pop('force_pii_scan', None)
-        # v6.1.3: one-shot "explain my disk now" — same one-shot contract.
+        # v6.2.0: one-shot "explain my disk now" — same one-shot contract.
         if dev.get('force_du_scan'):
             saved_dev['force_du_scan'] = True
             dev.pop('force_du_scan', None)
@@ -18789,7 +18789,7 @@ def handle_heartbeat():
     # no detected firewall, no timers, no recent login) would otherwise never reach
     # _ingest_posture_v3110 and its readonly_fs / mailq_high / mount_issue checks
     # never fire — exactly the "silent outage on any host" the feature targets.
-    # v6.1.3: 'usb' MUST be in this gate. It is the same class as the v6.0.1 note
+    # v6.2.0: 'usb' MUST be in this gate. It is the same class as the v6.0.1 note
     # above — a host reporting none of the other keys would never reach
     # _ingest_posture_v3110, so the usb_device_added tripwire could never fire.
     # (ssh_hostkeys rides in only because virtually every host also reports
@@ -18859,7 +18859,7 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] secrets ingest failed dev={dev_id}: {e}\n")
 
-    # v6.1.3: PII / sensitive-data inventory (opt-in scan). Values never leave the
+    # v6.2.0: PII / sensitive-data inventory (opt-in scan). Values never leave the
     # host — see _ingest_pii_findings.
     if 'pii_findings' in body:
         try:
@@ -18867,7 +18867,7 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] pii ingest failed dev={dev_id}: {e}\n")
 
-    # v6.1.3: host-wide disk-usage report (opt-in du scan).
+    # v6.2.0: host-wide disk-usage report (opt-in du scan).
     if 'disk_usage' in body and isinstance(body['disk_usage'], dict):
         try:
             _ingest_disk_usage(dev_id, body['disk_usage'], now)
@@ -18995,14 +18995,14 @@ def handle_heartbeat():
         _sec_paths = _sec_cfg.get('secrets_scan_paths') or []
         if _sec_paths:
             common_resp['secrets_scan_paths'] = _sec_paths
-    # v6.1.3: opt-in host-wide disk-usage scan. Same shape as the secrets scan —
+    # v6.2.0: opt-in host-wide disk-usage scan. Same shape as the secrets scan —
     # advertised only when enabled, custom paths override the agent's defaults.
     if _sec_cfg.get('du_scan_enabled'):
         common_resp['du_scan_enabled'] = True
         _du_paths = _sec_cfg.get('du_scan_paths') or []
         if _du_paths:
             common_resp['du_scan_paths'] = _du_paths
-    # v6.1.3: opt-in PII / sensitive-data scan. Same shape again.
+    # v6.2.0: opt-in PII / sensitive-data scan. Same shape again.
     if _sec_cfg.get('pii_scan_enabled'):
         common_resp['pii_scan_enabled'] = True
         _pii_paths = _sec_cfg.get('pii_scan_paths') or []
@@ -19088,12 +19088,12 @@ def handle_heartbeat():
     # just above — the agent honoured it, the server never set it.
     if saved_dev.get('force_secrets_scan'):
         common_resp['force_secrets_scan'] = True
-    # v6.1.3: one-shot disk-usage scan ("Explain disk" button). Without this the
+    # v6.2.0: one-shot disk-usage scan ("Explain disk" button). Without this the
     # only trigger would be the 12h cadence — which is the exact "feature that
     # can never fire on demand" shape the v6.1.2 trivy bug taught us to avoid.
     if saved_dev.get('force_du_scan'):
         common_resp['force_du_scan'] = True
-    # v6.1.3: one-shot PII scan ("Scan now"). Same one-shot delivery contract.
+    # v6.2.0: one-shot PII scan ("Scan now"). Same one-shot delivery contract.
     if saved_dev.get('force_pii_scan'):
         common_resp['force_pii_scan'] = True
     # v3.0.0: one-shot IaC collection request — fires once on the heartbeat
@@ -19651,7 +19651,7 @@ def _command_kind(command):
         return 'service'
     if s.startswith('kill:'):
         return 'process'
-    # v6.1.3 (SECURITY): the Windows/macOS agents take a BARE `upgrade` /
+    # v6.2.0 (SECURITY): the Windows/macOS agents take a BARE `upgrade` /
     # `upgrade:<pkg>` (the Linux path sends `exec:<bash>` instead). Without these
     # two branches a bare `upgrade` classified as 'other' — which is NOT in
     # _APPROVAL_GATED_KINDS — so an auto-patch policy covering a Windows host
@@ -19883,7 +19883,7 @@ def handle_process_kill(dev_id):
 
 
 def _command_block_reason(dev, command):
-    """v6.1.3: the shared, NON-responding pre-flight for any path that queues a
+    """v6.2.0: the shared, NON-responding pre-flight for any path that queues a
     command on a host. Returns (status, message) when the command must not be
     queued, or None when it may.
 
@@ -20487,7 +20487,7 @@ def handle_uninstall_agent(dev_id):
 def _device_os_family(dev):
     """'windows' | 'darwin' | 'linux' from the device's reported OS string.
 
-    v6.1.3. There was no such helper, and its absence was a live bug: EVERY
+    v6.2.0. There was no such helper, and its absence was a live bug: EVERY
     upgrade path queued the bash `_UPGRADE_CMD` unconditionally, so a Windows
     host received a shell script that its agent then handed to PowerShell. The
     Windows and macOS agents have BOTH implemented the bare `upgrade` /
@@ -20616,7 +20616,7 @@ def handle_upgrade_device():
         dev = devices.get(dev_id)
         if not dev:
             results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
-        # v6.1.3 (BUG): this was hoisted OUT of the loop as a single bash
+        # v6.2.0 (BUG): this was hoisted OUT of the loop as a single bash
         # `exec:{_UPGRADE_CMD}` with no OS branch — so a Windows or macOS host
         # was sent a shell script, which its agent dutifully handed to
         # PowerShell / sh. Both agents have implemented the bare `upgrade`
@@ -22115,7 +22115,7 @@ def handle_integration_test():
                   'version': res.get('version'), 'metrics': res.get('metrics')})
 
 
-# ── v6.1.3: EDR coverage cross-reference ──────────────────────────────────────
+# ── v6.2.0: EDR coverage cross-reference ──────────────────────────────────────
 # The EDR connectors (wazuh / crowdstrike / sentinelone) each report the set of
 # hosts they PROTECT. On its own that is just another dashboard tile. The reason
 # they exist is this handler: cross-reference those sets against the ACTUAL fleet
@@ -22217,7 +22217,7 @@ def handle_edr_coverage():
     })
 
 
-# ── v6.1.3: DNS-blocker control (Pi-hole / AdGuard) ───────────────────────────
+# ── v6.2.0: DNS-blocker control (Pi-hole / AdGuard) ───────────────────────────
 # The write half of the read-only DNS connectors. Same shape as the virt
 # lifecycle below: the blocker is a saved integration instance, the client is the
 # same SSRF-guarded one every connector uses, and the per-product driver lives in
@@ -22997,13 +22997,13 @@ def handle_config_get():
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
-    # v6.1.3: host-wide disk-usage explorer — opt-in (it walks the filesystem).
+    # v6.2.0: host-wide disk-usage explorer — opt-in (it walks the filesystem).
     safe.setdefault('du_scan_enabled', False)
     safe.setdefault('du_scan_paths', [])
-    # v6.1.3: PII / sensitive-data scan — opt-in (it walks the filesystem).
+    # v6.2.0: PII / sensitive-data scan — opt-in (it walks the filesystem).
     safe.setdefault('pii_scan_enabled', False)
     safe.setdefault('pii_scan_paths', [])
-    # v6.1.3: JIT credential checkout. Default OFF — turning it on mid-flight
+    # v6.2.0: JIT credential checkout. Default OFF — turning it on mid-flight
     # would lock every admin out of every credential until they check one out,
     # which is a hell of a surprise for an upgrade.
     safe.setdefault('vault_checkout_required', False)
@@ -24055,10 +24055,10 @@ def handle_config_save():
             if ps and ps not in paths:
                 paths.append(ps)
         cfg['secrets_scan_paths'] = paths
-    # v6.1.3: JIT credential checkout.
+    # v6.2.0: JIT credential checkout.
     if 'vault_checkout_required' in body:
         cfg['vault_checkout_required'] = bool(body['vault_checkout_required'])
-    # v6.1.3: disk-usage explorer — opt-in + custom roots.
+    # v6.2.0: disk-usage explorer — opt-in + custom roots.
     if 'du_scan_enabled' in body:
         cfg['du_scan_enabled'] = bool(body['du_scan_enabled'])
     if 'du_scan_paths' in body:
@@ -24069,7 +24069,7 @@ def handle_config_save():
             if ps and ps not in dpaths:
                 dpaths.append(ps)
         cfg['du_scan_paths'] = dpaths
-    # v6.1.3: PII / sensitive-data scan — opt-in + custom roots.
+    # v6.2.0: PII / sensitive-data scan — opt-in + custom roots.
     if 'pii_scan_enabled' in body:
         cfg['pii_scan_enabled'] = bool(body['pii_scan_enabled'])
     if 'pii_scan_paths' in body:
@@ -26990,7 +26990,7 @@ def _agent_integrity_status(dev, canonical_sha, canonical_ver):
     - 'unknown': no reported hash yet, or the agent is on a different version
       (we only hold the canonical hash for the currently-published agent).
 
-    v6.1.3: the canonical hash is PER-OS. `canonical_sha` (the caller's value) is
+    v6.2.0: the canonical hash is PER-OS. `canonical_sha` (the caller's value) is
     the LINUX binary's hash; a Windows/macOS agent is a different file with a
     different hash, so comparing it against the Linux hash could NEVER verify — it
     showed no badge (or a false 'mismatch'). Resolve the OS-appropriate canonical
@@ -27054,7 +27054,7 @@ def handle_agent_download():
     sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
 
 
-# ── v6.1.3: Windows agent self-update ─────────────────────────────────────────
+# ── v6.2.0: Windows agent self-update ─────────────────────────────────────────
 # The Windows agent is a .py SCRIPT, not a compiled binary — but the update
 # CONTRACT is identical to Linux's: advertise the canonical sha256 + version, let
 # the agent compare its own file's hash, serve the bytes, and the agent verifies
@@ -27291,7 +27291,7 @@ def handle_agent_install():
     sys.stdout.flush(); sys.stdout.buffer.write(body); sys.stdout.buffer.flush(); sys.exit(0)
 
 
-# v6.1.3: the Windows onboarding one-liner. Parity with the Linux /install shell
+# v6.2.0: the Windows onboarding one-liner. Parity with the Linux /install shell
 # script — the operator runs ONE command in an elevated PowerShell and the host
 # enrols itself. Server URL + one-time token are baked in per request, so:
 #   powershell -ExecutionPolicy Bypass -Command "iwr '<server>/install.ps1?t=<tok>' -UseBasicParsing | iex"
@@ -29670,10 +29670,10 @@ def process_schedule():
                     cmds = load(CMDS_FILE)
                     if dev_id not in cmds: cmds[dev_id] = []
                     # Translate named commands to exec: strings.
-                    # v6.1.3: OS-aware. A scheduled upgrade on a Windows/macOS
+                    # v6.2.0: OS-aware. A scheduled upgrade on a Windows/macOS
                     # host used to queue a BASH script (see _upgrade_command_for);
                     # both agents implement the bare `upgrade` command instead.
-                    _queue_after = None      # v6.1.3: appended AFTER `queued`
+                    _queue_after = None      # v6.2.0: appended AFTER `queued`
                     if command == 'upgrade_packages':
                         queued = _upgrade_command_for(devices.get(dev_id))
                     elif command == 'upgrade_and_reboot':
@@ -29731,7 +29731,7 @@ def process_schedule():
                     else:
                         queued = command
                     if queued not in cmds[dev_id]: cmds[dev_id].append(queued)
-                    # v6.1.3: the Windows/macOS reboot half of upgrade_and_reboot,
+                    # v6.2.0: the Windows/macOS reboot half of upgrade_and_reboot,
                     # appended AFTER the upgrade so it runs in the right order.
                     if _queue_after and _queue_after not in cmds[dev_id]:
                         cmds[dev_id].append(_queue_after)
@@ -30516,7 +30516,7 @@ def handle_image_cve_scan():
             containers = load(CONTAINERS_FILE) or {}
             targets = [d for d in devices
                        if (containers.get(d) or {}).get('items')]
-        # v6.1.3 (BUG): this checked tenant visibility but NOT role scope, so a
+        # v6.2.0 (BUG): this checked tenant visibility but NOT role scope, so a
         # scoped operator could queue scans on out-of-scope hosts. _scope_filter_
         # devices folds in BOTH role scope and tenant.
         _scoped = _scope_filter_devices(dict(devices))
@@ -30597,7 +30597,7 @@ def handle_secrets_scan_now():
             # Any host with an agent (secrets scan isn't container-specific);
             # skip agentless devices, which can't run it.
             targets = [d for d, dev in devices.items() if not dev.get('agentless')]
-        # v6.1.3 (BUG): tenant-checked but not role-scoped — see image-scan note.
+        # v6.2.0 (BUG): tenant-checked but not role-scoped — see image-scan note.
         _scoped = _scope_filter_devices(dict(devices))
         for d in targets:
             if d not in _scoped:
@@ -30611,7 +30611,7 @@ def handle_secrets_scan_now():
                              'No agent hosts to scan.'})
 
 
-# ── v6.1.3: PII / sensitive-data inventory ────────────────────────────────────
+# ── v6.2.0: PII / sensitive-data inventory ────────────────────────────────────
 #
 # "Where is our regulated data?" — the GDPR/PCI question no amount of monitoring
 # answers. The agent walks opt-in paths and reports WHICH FILE holds WHAT KIND of
@@ -30742,7 +30742,7 @@ def handle_pii_scan_now():
             targets = [target]
         else:
             targets = [d for d, dev in devices.items() if not dev.get('agentless')]
-        # v6.1.3 (BUG): tenant-checked but not role-scoped — see image-scan note.
+        # v6.2.0 (BUG): tenant-checked but not role-scoped — see image-scan note.
         _scoped = _scope_filter_devices(dict(devices))
         for d in targets:
             if d not in _scoped:
@@ -30812,7 +30812,7 @@ def handle_mdns_services():
 
 
 def _ingest_disk_usage(dev_id, usage, now):
-    """v6.1.3: persist the agent's du report — top space consumers per path.
+    """v6.2.0: persist the agent's du report — top space consumers per path.
 
     This is the other half of disk-fill forecasting: the forecast has always been
     able to say WHEN a mount fills, and nothing said WHAT to delete.
@@ -31196,7 +31196,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 })
         new['ssh_hostkeys'] = cur_hk
 
-    # ── v6.1.3: USB device tripwire ────────────────────────────────
+    # ── v6.2.0: USB device tripwire ────────────────────────────────
     # A USB device appearing on a server is a physical-access signal. Keyed by
     # VID:PID, so the same stick moved to another port does NOT re-fire (the
     # kernel's bus/port path would have — and an event that cries wolf gets muted).
@@ -33478,7 +33478,7 @@ def run_wan_ip_check_if_due():
     outages = list(st.get('outages') or [])
     if was_up and not is_up:
         outages.append({'start': now, 'end': None})
-        # v6.1.3: carry a stable 'wan' target so wan_up can auto-resolve the open
+        # v6.2.0: carry a stable 'wan' target so wan_up can auto-resolve the open
         # wan_down alert (fleet singleton, no device_id — see _auto_resolve_alerts).
         events.append(('wan_down', {'target': 'wan'}))
     elif not was_up and is_up:
@@ -38491,7 +38491,7 @@ def _smart_disk_failed(d):
 
 # ── v3.6.0: endpoint AV/malware posture ─────────────────────────────────────
 
-# v6.1.3: 'defender' joins the AV tools so a Windows host's AV posture rides the
+# v6.2.0: 'defender' joins the AV tools so a Windows host's AV posture rides the
 # SAME pipeline (ingest → av_status.json → attention items → av_infected /
 # av_warning / av_clean) as ClamAV/rkhunter. Deliberately a distinct tool key
 # rather than masquerading as 'clamav': a webhook consumer or an operator
@@ -38513,7 +38513,7 @@ def _ingest_av(dev_id, av, now, dev_name=None):
             v = t.get(k)
             if isinstance(v, (int, float)):
                 out[k] = int(v)
-        # v6.1.3 (Defender): real-time protection state. TRI-STATE on purpose —
+        # v6.2.0 (Defender): real-time protection state. TRI-STATE on purpose —
         # absent means "this tool has no such concept" (ClamAV/rkhunter are
         # on-demand scanners), which must not read as "protection is off".
         if isinstance(t.get('realtime_enabled'), bool):
@@ -38566,7 +38566,7 @@ def _ingest_av(dev_id, av, now, dev_name=None):
         if old_bad > 0 and new_bad == 0:
             fire_webhook('av_clean', {'device_id': dev_id, 'name': nm})
 
-        # v6.1.3: real-time protection switched OFF. Unlike priv_group_added (an
+        # v6.2.0: real-time protection switched OFF. Unlike priv_group_added (an
         # EVENT), "AV is disabled" is an ongoing CONDITION — so it fires on FIRST
         # sight too (a host that enrols with protection already off is exactly
         # the host you need to hear about) and auto-resolves when it comes back.
@@ -38923,7 +38923,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             events.append(('rogue_uid0_cleared', {'device_id': dev_id, 'name': dev_name}))
         rec['_uid0_alerted'] = sorted(rogue)
 
-        # v6.1.3: privileged-group membership tripwire. The agents ALREADY
+        # v6.2.0: privileged-group membership tripwire. The agents ALREADY
         # report this — Linux get_local_accounts() parses /etc/group for
         # sudo/wheel/admin members, the Windows agent runs Get-LocalGroupMember
         # -Group Administrators — and both set a['sudo']. Nothing ever diffed it.
@@ -40431,7 +40431,7 @@ def handle_custom_checks_save():
     # v5.6.0: wire a systemd_unit host check to the Services page — also add the
     # unit to that device's watch-list so it shows there too. Done AFTER the
     # CONFIG_FILE lock so the device lock never nests (SQLite shares one conn).
-    # v6.1.3: windows_service behaves identically (the watch-list is OS-agnostic;
+    # v6.2.0: windows_service behaves identically (the watch-list is OS-agnostic;
     # the Windows agent reports service state under the same services_watched key).
     watched_ok = False
     if ctype in ('systemd_unit', 'windows_service') and tk == 'host' and body.get('watch_service') and tv:
@@ -40944,7 +40944,7 @@ def _compute_attention():
         if isinstance(rk.get('warnings'), int) and rk['warnings'] > 0:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'summary': f"rkhunter reported {rk['warnings']} warning(s)"})
-        # v6.1.3: Windows Defender. Infections mirror ClamAV; the NEW signal is
+        # v6.2.0: Windows Defender. Infections mirror ClamAV; the NEW signal is
         # real-time protection being OFF — critical, because every other AV
         # number on this host ("0 threats") is meaningless while it is disabled.
         dfd = av.get('defender') or {}
@@ -40958,7 +40958,7 @@ def _compute_attention():
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'summary': f"Defender signatures are {dfd['db_age_days']}d old"})
 
-    # v6.1.3: predicted hardware failure. Only 'high' and above earns a card —
+    # v6.2.0: predicted hardware failure. Only 'high' and above earns a card —
     # a low bar here becomes noise, and a noisy predictor is one people learn to
     # ignore, which is strictly worse than not having a predictor at all.
     try:
@@ -41405,7 +41405,7 @@ _NA_MUTE_EVENTS = {
     ('new_port',           'warning'):  ('new_port_detected', 'port_exposed_world'),
     ('hardware',           'critical'): ('smart_failure',),
     ('hardware',           'warning'):  ('temp_high',),
-    # v6.1.3: predicted failure. Muteable via the same events its top factors
+    # v6.2.0: predicted failure. Muteable via the same events its top factors
     # come from — an NA kind with NO _NA_MUTE_EVENTS row is UNMUTEABLE, and an
     # unmuteable item permanently depresses the host's (and the fleet's) health
     # score with no operator recourse.
@@ -41708,7 +41708,7 @@ def _fleet_risk_cache_file():
     return DATA_DIR / 'fleet_risk_cache.json'
 
 
-# ── v6.1.3: device reliability prediction ────────────────────────────────────
+# ── v6.2.0: device reliability prediction ────────────────────────────────────
 #
 # "How likely is this host to BREAK?" — deliberately a SEPARATE score from the
 # risk score above, which answers "how EXPOSED is this host?" (CVEs, open ports,
@@ -41998,7 +41998,7 @@ def _device_set_fingerprint():
 
 
 def _risk_fingerprint():
-    """v6.1.3: fingerprint of the OPERATOR-CONTROLLED inputs to the risk score,
+    """v6.2.0: fingerprint of the OPERATOR-CONTROLLED inputs to the risk score,
     plus the device SET (see _device_set_fingerprint).
 
     Deliberately EXCLUDES devices.json / hardware.json MTIME — see
@@ -42016,7 +42016,7 @@ def _risk_fingerprint():
 def _fleet_risk_cached(use_cache=True):
     """File-backed 10s cache around ``_compute_fleet_risk``.
 
-    v6.1.3 (PERF — the same bug the v6.1.2 sweep fixed in _attention_payload):
+    v6.2.0 (PERF — the same bug the v6.1.2 sweep fixed in _attention_payload):
     this cache used to ALSO bust whenever DEVICES_FILE / HARDWARE_FILE mtime
     advanced. But EVERY heartbeat rewrites devices.json, so on any fleet whose
     hosts collectively beat faster than the 10s TTL the cache NEVER hit and the
@@ -42102,7 +42102,7 @@ def handle_risk_overview():
     # fleet_risk_cache.json, bumped exactly when the underlying data actually
     # changed) — a poller re-fetching this dashboard endpoint every N seconds
     # gets a bodyless 304 on every call where nothing changed.
-    # v6.1.3: key the ETag on the risk FINGERPRINT, not the cache file's mtime.
+    # v6.2.0: key the ETag on the risk FINGERPRINT, not the cache file's mtime.
     # The fingerprint changes exactly when the cached content would (device set +
     # operator inputs), so it can't collide the way a coarse-granularity mtime
     # can when a write lands in the same second as the previous one.
@@ -51903,13 +51903,13 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
                   'ai_exec_action'):
         if device_id not in devs:
             return {'ok': False, 'error': 'device not found'}
-        # v6.1.3: was a bare quarantine check — it did NOT honour maintenance mode
+        # v6.2.0: was a bare quarantine check — it did NOT honour maintenance mode
         # or audit mode, so an approved confirmation could fire a command at a host
         # mid-drain, or at an agent that would refuse it locally anyway. Now shares
         # the one predicate with _queue_command rather than keeping its own subset.
         _blocked = _command_block_reason(devs[device_id], _mcp_command_preview(action, params))
         if _blocked:
-            # v6.1.3 (bug hunt): a block reason (maintenance/quarantine/audit mode)
+            # v6.2.0 (bug hunt): a block reason (maintenance/quarantine/audit mode)
             # is a TRANSIENT host state, not a bad request. Flag it so the approve
             # handler can leave the confirmation pending (retryable once the block
             # clears) instead of burning it to 'failed' — which forced the operator
@@ -51951,7 +51951,7 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
         })
 
     elif action == 'ai_exec_action':
-        # v6.1.3: the AI executor's approved action. The catalog id is re-resolved
+        # v6.2.0: the AI executor's approved action. The catalog id is re-resolved
         # from the LIVE store here — never a command string carried in the ledger,
         # so there is no point at which model output or ledger content becomes a
         # command.
@@ -52147,7 +52147,7 @@ def handle_mcp_force_acme_rescan():
     _mcp_handle('force_acme_rescan', destructive=False)
 
 
-# ── v6.1.3: governed AI executor — PHASE 0 (propose; a human always approves) ──
+# ── v6.2.0: governed AI executor — PHASE 0 (propose; a human always approves) ──
 #
 # The strategic bet of every "autonomous AI operator" pitch is that the model can
 # be trusted to act. We take the opposite bet: assume the model can be fully
@@ -52426,7 +52426,7 @@ def handle_confirmation_approve(conf_id):
         ai_prompt=entry.get('ai_prompt'),
     )
     if not result.get('ok'):
-        # v6.1.3 (bug hunt): a TRANSIENT block (host in maintenance/quarantine/
+        # v6.2.0 (bug hunt): a TRANSIENT block (host in maintenance/quarantine/
         # audit mode) must NOT burn the confirmation — revert it to 'pending' so
         # the same approval can be retried once the host drains, instead of forcing
         # a brand-new maker-checker request. A genuine failure still lands 'failed'.
@@ -60632,7 +60632,7 @@ def _trim_sysinfo(sysinfo) -> dict:
 
 
 
-# ─── v6.1.3: JIT credential checkout ────────────────────────────────────────
+# ─── v6.2.0: JIT credential checkout ────────────────────────────────────────
 #
 # "Who can reveal this credential?" becomes "who has ACTIVE, justified, expiring
 # access to it right now?" — the useful half of PAM without becoming a PAM.
@@ -60649,7 +60649,7 @@ def _trim_sysinfo(sysinfo) -> dict:
 #   checkout    = SELF-service, N-hour window, reusable within it, opt-in
 #                 fleet-wide via `vault_checkout_required`.
 # Break-glass creds still require break-glass; a checkout never substitutes for it.
-VAULT_CHECKOUTS_FILE = DATA_DIR / 'vault_checkouts.json'   # v6.1.3
+VAULT_CHECKOUTS_FILE = DATA_DIR / 'vault_checkouts.json'   # v6.2.0
 _CHECKOUT_MAX_HOURS = 24
 _CHECKOUT_DEFAULT_HOURS = 1
 
@@ -61324,12 +61324,12 @@ def _build_exact_routes():
         ('GET', '/api/dns/import-from-agent/status'): handle_dns_import_status,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
-        ('GET', '/api/agent/win/install'): handle_win_install,   # v6.1.3 Windows one-liner
+        ('GET', '/api/agent/win/install'): handle_win_install,   # v6.2.0 Windows one-liner
         ('GET', '/api/agent/version'): handle_agent_version,
         ('GET', '/api/agent/signature'): handle_agent_signature,
-        ('GET', '/api/agent/win/version'): handle_win_agent_version,     # v6.1.3
-        ('GET', '/api/agent/win/signature'): handle_win_agent_signature,  # v6.1.3
-        ('GET', '/api/agent/win/download'): handle_win_agent_download,   # v6.1.3
+        ('GET', '/api/agent/win/version'): handle_win_agent_version,     # v6.2.0
+        ('GET', '/api/agent/win/signature'): handle_win_agent_signature,  # v6.2.0
+        ('GET', '/api/agent/win/download'): handle_win_agent_download,   # v6.2.0
         ('GET', '/api/signing/status'): handle_signing_status,
         ('POST', '/api/signing/generate'): handle_signing_generate,
         ('POST', '/api/signing/sign'): handle_signing_sign,
@@ -61498,8 +61498,8 @@ def _build_exact_routes():
         ('GET', '/api/billing/worksheet'): handle_billing_worksheet,
         ('GET', '/api/invoices'): handle_invoices,
         ('POST', '/api/invoices'): handle_invoices,
-        ('GET', '/api/quotes'): handle_quotes,     # v6.1.3
-        ('POST', '/api/quotes'): handle_quotes,    # v6.1.3
+        ('GET', '/api/quotes'): handle_quotes,     # v6.2.0
+        ('POST', '/api/quotes'): handle_quotes,    # v6.2.0
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
@@ -61841,8 +61841,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/fail2ban-action', 'handle_device_fail2ban_action', "pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/av-scan', 'handle_av_scan', "pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/av', 'handle_av_status', "pi.startswith('/api/devices/') and pi.endswith('/av') and m == 'GET'"),
-    ('pat', ('POST',), '/api/devices/', '/disk-usage/scan', 'handle_disk_usage_scan', "pi.startswith('/api/devices/') and pi.endswith('/disk-usage/scan') and m == 'POST'"),   # v6.1.3
-    ('pat', ('GET',), '/api/devices/', '/disk-usage', 'handle_disk_usage', "pi.startswith('/api/devices/') and pi.endswith('/disk-usage') and m == 'GET'"),   # v6.1.3
+    ('pat', ('POST',), '/api/devices/', '/disk-usage/scan', 'handle_disk_usage_scan', "pi.startswith('/api/devices/') and pi.endswith('/disk-usage/scan') and m == 'POST'"),   # v6.2.0
+    ('pat', ('GET',), '/api/devices/', '/disk-usage', 'handle_disk_usage', "pi.startswith('/api/devices/') and pi.endswith('/disk-usage') and m == 'GET'"),   # v6.2.0
     ('pat', ('PUT',), '/api/sites/', '', 'handle_site_update', "pi.startswith('/api/sites/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/sites/', '', 'handle_site_delete', "pi.startswith('/api/sites/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/backup-jobs/', '/run', 'handle_backup_job_run', "pi.startswith('/api/backup-jobs/') and pi.endswith('/run') and m == 'POST'"),
@@ -62025,7 +62025,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/fleet/health/history', '', 'handle_fleet_health_history', "pi == '/api/fleet/health/history' and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/health', '', 'handle_fleet_health', "pi == '/api/fleet/health' and m == 'GET'"),
     ('eq', ('GET',), '/api/risk', '', 'handle_risk_overview', "pi == '/api/risk' and m == 'GET'"),
-    ('eq', ('GET',), '/api/reliability', '', 'handle_reliability_overview', "pi == '/api/reliability' and m == 'GET'"),   # v6.1.3
+    ('eq', ('GET',), '/api/reliability', '', 'handle_reliability_overview', "pi == '/api/reliability' and m == 'GET'"),   # v6.2.0
     ('eq', ('GET',), '/api/fleet/sla', '', 'handle_fleet_sla', "pi == '/api/fleet/sla' and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/sla-targets', '', 'handle_sla_targets_get', "pi == '/api/fleet/sla-targets' and m == 'GET'"),
     ('eq', ('PUT',), '/api/fleet/sla-targets', '', 'handle_sla_targets_put', "pi == '/api/fleet/sla-targets' and m == 'PUT'"),
@@ -62095,7 +62095,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('POST',), '/api/cmdb/vault/change', '', 'handle_cmdb_vault_change', "pi == '/api/cmdb/vault/change'  and m == 'POST'"),
     ('eq', ('GET',), '/api/cmdb/server-functions', '', 'handle_cmdb_server_functions', "pi == '/api/cmdb/server-functions' and m == 'GET'"),
     ('eq', ('GET',), '/api/cmdb/break-glass', '', 'handle_breakglass_list', "pi == '/api/cmdb/break-glass' and m == 'GET'"),
-    # v6.1.3: JIT credential checkout
+    # v6.2.0: JIT credential checkout
     ('eq', ('POST',), '/api/cmdb/vault/checkout', '', 'handle_vault_checkout', "pi == '/api/cmdb/vault/checkout' and m == 'POST'"),
     ('eq', ('GET',), '/api/cmdb/vault/checkouts', '', 'handle_vault_checkouts_list', "pi == '/api/cmdb/vault/checkouts' and m == 'GET'"),
     ('pat', ('DELETE',), '/api/cmdb/vault/checkouts/', '', 'handle_vault_checkout_revoke', "pi.startswith('/api/cmdb/vault/checkouts/') and m == 'DELETE'"),
@@ -62128,15 +62128,15 @@ _PATTERN_ROUTE_DEFS = (
     ('code', None, None, None, '_route_code_262', "pi.startswith('/api/proxmox/qemu/') and m == 'POST'"),
     ('code', None, None, None, '_route_code_263', "pi.startswith('/api/proxmox/lxc/') and m == 'POST'"),
     ('eq', ('POST',), '/api/proxmox/snapshot', '', 'handle_proxmox_snapshot_action', "pi == '/api/proxmox/snapshot' and m == 'POST'"),
-    # v6.1.3: governed AI executor (Phase 0 — proposes only; a human approves).
+    # v6.2.0: governed AI executor (Phase 0 — proposes only; a human approves).
     ('eq', ('GET',), '/api/ai-exec/catalog', '', 'handle_ai_exec_catalog', "pi == '/api/ai-exec/catalog' and m == 'GET'"),
     ('eq', ('POST',), '/api/ai-exec/propose', '', 'handle_ai_exec_propose', "pi == '/api/ai-exec/propose' and m == 'POST'"),
-    # v6.1.3: EDR coverage cross-reference (which hosts have no EDR at all).
+    # v6.2.0: EDR coverage cross-reference (which hosts have no EDR at all).
     ('eq', ('GET',), '/api/edr/coverage', '', 'handle_edr_coverage', "pi == '/api/edr/coverage' and m == 'GET'"),
-    # v6.1.3: PII / sensitive-data inventory (never stores a value — see _ingest_pii_findings).
+    # v6.2.0: PII / sensitive-data inventory (never stores a value — see _ingest_pii_findings).
     ('eq', ('GET',), '/api/pii', '', 'handle_pii_list', "pi == '/api/pii' and m == 'GET'"),
     ('eq', ('POST',), '/api/pii/scan', '', 'handle_pii_scan_now', "pi == '/api/pii/scan' and m == 'POST'"),
-    # v6.1.3: DNS-blocker control (Pi-hole / AdGuard) — the write half.
+    # v6.2.0: DNS-blocker control (Pi-hole / AdGuard) — the write half.
     ('eq', ('GET',), '/api/dns-control/blockers', '', 'handle_dns_blockers', "pi == '/api/dns-control/blockers' and m == 'GET'"),
     ('pat', ('GET',), '/api/dns-control/', '/blocking', 'handle_dns_blocking_get', "pi.startswith('/api/dns-control/') and pi.endswith('/blocking') and m == 'GET'"),
     ('pat', ('POST',), '/api/dns-control/', '/blocking', 'handle_dns_blocking_set', "pi.startswith('/api/dns-control/') and pi.endswith('/blocking') and m == 'POST'"),
@@ -62174,7 +62174,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PATCH', 'POST', 'DELETE'), '/api/cve/campaigns/', '', 'handle_cve_campaign', "pi.startswith('/api/cve/campaigns/') and m in ('PATCH', 'POST', 'DELETE')"),
     ('pat', ('GET',), '/api/invoices/', '', 'handle_invoice_get', "pi.startswith('/api/invoices/') and m == 'GET'"),
     ('pat', ('PATCH', 'POST'), '/api/invoices/', '', 'handle_invoice_update', "pi.startswith('/api/invoices/') and m in ('PATCH', 'POST')"),
-    # v6.1.3: quotes. /convert MUST precede the generic /api/quotes/{id} POST —
+    # v6.2.0: quotes. /convert MUST precede the generic /api/quotes/{id} POST —
     # first match wins, so the generic row would otherwise swallow the convert
     # path and hand the handler an id of "<id>/convert".
     ('pat', ('POST',), '/api/quotes/', '/convert', 'handle_quote_convert', "pi.startswith('/api/quotes/') and pi.endswith('/convert') and m == 'POST'"),

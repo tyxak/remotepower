@@ -2182,7 +2182,7 @@ if _AVAILABLE:
         _v0 = field_validator('command', 'confirmation', 'kind', 'target', mode='before')(_coerce_str_loose)
 
     class AiExecProposeRequest(BaseModel):
-        """handle_ai_exec_propose POST (v6.1.3). Both fields str-coerced to match
+        """handle_ai_exec_propose POST (v6.2.0). Both fields str-coerced to match
         the handler's `str(body.get(f) or '')`; the handler runs _validate_id on
         device_id and _sanitize_str on context.
 
@@ -2196,7 +2196,7 @@ if _AVAILABLE:
         _v0 = field_validator('device_id', 'context', mode='before')(_coerce_str_loose)
 
     class QuoteCreateRequest(BaseModel):
-        """handle_quotes POST (v6.1.3). site_id/notes are str-coerced; the handler
+        """handle_quotes POST (v6.2.0). site_id/notes are str-coerced; the handler
         validates site_id against SITES_FILE and requires >=1 line item itself.
 
         `line_items` is `Any`, not `list`: the handler does `body.get('line_items')
@@ -2212,7 +2212,7 @@ if _AVAILABLE:
         _v0 = field_validator('site_id', 'notes', mode='before')(_coerce_str_loose)
 
     class QuoteUpdateRequest(BaseModel):
-        """handle_quote_update POST (v6.1.3). The handler validates `status`
+        """handle_quote_update POST (v6.2.0). The handler validates `status`
         against its own allowed tuple, so no Literal here (the two can't drift)."""
         model_config = ConfigDict(extra='ignore')
         status: str = ''
@@ -2220,7 +2220,7 @@ if _AVAILABLE:
         _v0 = field_validator('status', mode='before')(_coerce_str_loose)
 
     class PiiScanNowRequest(BaseModel):
-        """handle_pii_scan_now POST (v6.1.3). device_id is str-coerced to match
+        """handle_pii_scan_now POST (v6.2.0). device_id is str-coerced to match
         `str(body.get('device_id') or '')`; the handler still runs _validate_id.
         Empty body == scan every agent host, so nothing may be required."""
         model_config = ConfigDict(extra='ignore')
@@ -2229,7 +2229,7 @@ if _AVAILABLE:
         _v0 = field_validator('device_id', mode='before')(_coerce_str_loose)
 
     class DnsBlockingSetRequest(BaseModel):
-        """handle_dns_blocking_set POST (v6.1.3). `enabled` is bool-coerced to
+        """handle_dns_blocking_set POST (v6.2.0). `enabled` is bool-coerced to
         match the handler's `bool(body.get(...))`.
 
         `seconds` is `Any`, NOT a bounded int: dns_control.clamp_seconds() already
@@ -2243,7 +2243,7 @@ if _AVAILABLE:
         _v0 = field_validator('enabled', mode='before')(_coerce_bool_loose)
 
     class VaultCheckoutRequest(BaseModel):
-        """handle_vault_checkout POST (v6.1.3). device_id/cred_id/reason are
+        """handle_vault_checkout POST (v6.2.0). device_id/cred_id/reason are
         str-coerced to match the handler's `str(body.get(f) or '')`; the handler
         still runs _validate_id + its own non-empty and reason checks.
 

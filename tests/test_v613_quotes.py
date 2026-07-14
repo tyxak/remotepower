@@ -1,4 +1,4 @@
-"""v6.1.3 — Quotes (gap item #16).
+"""v6.2.0 — Quotes (gap item #16).
 
 A quote is the mirror image of an invoice: an invoice looks BACKWARD (derived from
 logged time), a quote looks FORWARD (hand-authored) and, when accepted, becomes an

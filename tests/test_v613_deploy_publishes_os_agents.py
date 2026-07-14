@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v6.1.3 guardrail: EVERY server-deploy path must publish the Windows + macOS
+"""v6.2.0 guardrail: EVERY server-deploy path must publish the Windows + macOS
 agents, not just the Linux one.
 
 The server serves the OS agents at /api/agent/{win,mac}/download and bakes the

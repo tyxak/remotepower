@@ -1,4 +1,4 @@
-"""v6.1.3 — Windows Defender AV posture (competitive-gap item #7).
+"""v6.2.0 — Windows Defender AV posture (competitive-gap item #7).
 
 RemotePower alerted on ClamAV/rkhunter but a Windows box with real-time
 protection switched off was invisible. Defender now rides the SAME server

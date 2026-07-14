@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.1.3 — "SentinelMatters" — unreleased (test)
+## v6.2.0 — "Daem0nMatters" — unreleased (test)
 
 Closing named gaps against comparable RMM products, built on signals RemotePower
 was *already collecting* but never acting on. Three new tripwires, an answer to

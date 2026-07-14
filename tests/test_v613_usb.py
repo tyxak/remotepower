@@ -1,4 +1,4 @@
-"""v6.1.3 — USB device tripwire (competitive-gap item #12, reframed).
+"""v6.2.0 — USB device tripwire (competitive-gap item #12, reframed).
 
 Detection, NOT control. Peripheral *enforcement* is endpoint-management
 territory and clashes with the audit-first posture; "a USB device appeared on

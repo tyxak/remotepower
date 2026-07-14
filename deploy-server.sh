@@ -303,10 +303,10 @@ fi
 info "Publishing agent binary..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent
 
-# v6.1.3: also publish the Windows + macOS agents. The server serves these at
+# v6.2.0: also publish the Windows + macOS agents. The server serves these at
 # /api/agent/{win,mac}/download and bakes the Windows one-liner (/install.ps1)
 # and self-update around them. Publishing ONLY the Linux agent (as this script
-# did until v6.1.3) left those endpoints 404-ing and the Windows install
+# did until v6.2.0) left those endpoints 404-ing and the Windows install
 # one-liner dead on every deployed server — the served installer downloads the
 # agent from /api/agent/win/download, which needs this file present.
 for _rp_os_agent in remotepower-agent-win.py remotepower-agent-mac.py; do

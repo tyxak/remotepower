@@ -28,7 +28,7 @@ class TestVersion(unittest.TestCase):
 
 
 class TestWindowsService(unittest.TestCase):
-    """v6.1.3: the agent can run as a real Windows service (services.msc) instead
+    """v6.2.0: the agent can run as a real Windows service (services.msc) instead
     of a scheduled task — the SCM auto-restarts it on any exit, which fixes the
     self-update-goes-offline and scheduled-task fragility classes."""
 
@@ -250,7 +250,7 @@ class TestParityCollectors(unittest.TestCase):
             self.assertIn(p['scope'], ('world', 'lan', 'local'))
 
     def test_parse_eventlog(self):
-        # v6.1.3: JSON-per-line in → (entries, max_rid) where each entry is a
+        # v6.2.0: JSON-per-line in → (entries, max_rid) where each entry is a
         # (record_id, line) tuple. The Python-side cursor filter keys on
         # record_id; the line carries [EventID] so a log_watch rule can match.
         import json as _json
@@ -426,7 +426,7 @@ class TestCredsAndCommands(unittest.TestCase):
         self.assertEqual(creds['token'], 'tokX')
 
 
-# ── v6.1.3: Windows parity — the buildout that closed the "Windows, kind of" gap ─
+# ── v6.2.0: Windows parity — the buildout that closed the "Windows, kind of" gap ─
 
 class TestSelfUpdateIsHonest(unittest.TestCase):
     """The headline bug: the old `update` stub returned rc=0 ('not supported'),
@@ -612,7 +612,7 @@ class TestWinAgentUndefinedNames(unittest.TestCase):
         self.assertEqual(real, set(), f"undefined names in win agent: {sorted(real)}")
 
 
-# ── v6.1.3 wave 2: SMART / hardware / drift / containers / posture / checks ──
+# ── v6.2.0 wave 2: SMART / hardware / drift / containers / posture / checks ──
 
 class TestSmart(unittest.TestCase):
     def test_warning_maps_to_failed(self):
@@ -697,7 +697,7 @@ class TestWinPosture(unittest.TestCase):
 
 
 class TestAgentSideChecks(unittest.TestCase):
-    """The Windows agent evaluated NO agent-side checks before v6.1.3 — every
+    """The Windows agent evaluated NO agent-side checks before v6.2.0 — every
     file/job/service custom check silently reported 'unknown' on Windows."""
 
     def test_file_present_absent(self):

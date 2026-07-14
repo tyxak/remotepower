@@ -1,4 +1,4 @@
-"""DNS-blocker control — the write half of the Pi-hole / AdGuard connectors (v6.1.3).
+"""DNS-blocker control — the write half of the Pi-hole / AdGuard connectors (v6.2.0).
 
 The health connectors in ``integrations.py`` are read-only: they tell you the
 blocker is up and how much it blocked. The single most common thing an operator

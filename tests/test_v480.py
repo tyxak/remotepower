@@ -264,8 +264,8 @@ class TestWinAgentGpu(unittest.TestCase):
             self.assertIn(key, self.WIN, f"win GPU entry missing {key}")
 
     def test_win_gpu_is_slow_cadence(self):
-        # v6.1.3: DRIVEN, not grepped. This used to search the 1200 chars before
-        # `payload['gpus']` for "poll_count % 12"; the v6.1.3 wave-2 collectors
+        # v6.2.0: DRIVEN, not grepped. This used to search the 1200 chars before
+        # `payload['gpus']` for "poll_count % 12"; the v6.2.0 wave-2 collectors
         # (SMART/hardware/containers) landed in the same slow-cadence block and
         # pushed the gate past that window — the behaviour was unchanged, the
         # source window moved. So drive build_heartbeat: every slow collector,

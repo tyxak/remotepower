@@ -87,7 +87,9 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
-- **[v6.1.3.md](v6.1.3.md)** — "SentinelMatters": closing named competitive gaps.
+- **[v6.2.0.md](v6.2.0.md)** — "Daem0nMatters": the agent runs as a supervised
+ service on every OS (Windows service / launchd / systemd), plus a wave of
+ gap-closing features.
  Detection tripwires (privileged-group sudo/wheel/Administrators, Windows Defender
  real-time-off, USB), a disk-usage explorer, device-reliability prediction; then a
  **governed AI executor** (proposes, never executes), a **regulated-data (PII)
@@ -126,17 +128,17 @@ Older release notes (v6.1.0 and earlier) live in
 - **[dmarc.md](dmarc.md)** — DMARC/SPF/DKIM email-posture monitor + IP reputation
  (DNSBL) checks.
 - **[time-billing.md](time-billing.md)** — Time-tracking &amp; billing: billable
- hours, weekly timesheet, per-customer invoices, **quotes** *(v6.1.3)*, rate card /
+ hours, weekly timesheet, per-customer invoices, **quotes** *(v6.2.0)*, rate card /
  VAT, the finance role.
-- **[ai-executor.md](ai-executor.md)** — The governed AI executor *(v6.1.3)*: it
+- **[ai-executor.md](ai-executor.md)** — The governed AI executor *(v6.2.0)*: it
  proposes a remediation from a catalog of your own scripts, a human approves, and
  what you approve is what runs. Off by default.
-- **[pii-scan.md](pii-scan.md)** — Regulated-data (PII) scan *(v6.1.3)*: where your
+- **[pii-scan.md](pii-scan.md)** — Regulated-data (PII) scan *(v6.2.0)*: where your
  emails / card numbers / national IDs live, reported by file — never the values.
-- **[edr-coverage.md](edr-coverage.md)** — EDR coverage *(v6.1.3)*: Wazuh /
+- **[edr-coverage.md](edr-coverage.md)** — EDR coverage *(v6.2.0)*: Wazuh /
  CrowdStrike / SentinelOne connectors cross-referenced to name the hosts with no
  EDR at all.
-- **[dns-control.md](dns-control.md)** — DNS-blocker control *(v6.1.3)*: pause
+- **[dns-control.md](dns-control.md)** — DNS-blocker control *(v6.2.0)*: pause
  Pi-hole / AdGuard blocking for a bounded, self-restoring window.
 - **[wsgi.md](wsgi.md)** — The gunicorn/Flask app server + out-of-band scheduler:
  the only server since v6.1.0, installed and enabled by default. Tuning workers,
