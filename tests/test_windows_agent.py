@@ -114,8 +114,9 @@ class TestParityCollectors(unittest.TestCase):
             self.assertIn(p['scope'], ('world', 'lan', 'local'))
 
     def test_parse_eventlog(self):
-        # v6.1.3: JSON-per-line in → (lines, max_rid), each line carrying [EventID]
-        # so a server-side log_watch rule can key on it.
+        # v6.1.3: JSON-per-line in → (entries, max_rid) where each entry is a
+        # (record_id, line) tuple. The Python-side cursor filter keys on
+        # record_id; the line carries [EventID] so a log_watch rule can match.
         import json as _json
         raw = "\n".join([
             _json.dumps({"rid": 10, "id": 4625, "lvl": "Information",
@@ -125,17 +126,18 @@ class TestParityCollectors(unittest.TestCase):
                          "prov": "Service Control Manager", "t": "Jun 06 10:01:00",
                          "msg": "The Spooler service stopped"}),
         ])
-        lines, max_rid = agent._parse_eventlog(raw)
+        entries, max_rid = agent._parse_eventlog(raw)
         self.assertEqual(max_rid, 11)
-        self.assertIn("[4625]", lines[0])          # event id present → rules can match
-        self.assertIn("An account failed to log on", lines[0])
+        self.assertEqual(entries[0][0], 10)        # record_id preserved for cursor filter
+        self.assertIn("[4625]", entries[0][1])     # event id present → rules can match
+        self.assertIn("An account failed to log on", entries[0][1])
 
     def test_parse_eventlog_caps_line_length(self):
         import json as _json
         raw = _json.dumps({"rid": 1, "id": 1, "lvl": "Error", "prov": "P",
                            "t": "Jun 06 10:00:00", "msg": "x" * 2000})
-        lines, _ = agent._parse_eventlog(raw)
-        self.assertTrue(all(len(l) <= 512 for l in lines))
+        entries, _ = agent._parse_eventlog(raw)
+        self.assertTrue(all(len(line) <= 512 for _rid, line in entries))
 
     def test_parse_eventlog_ignores_garbage_lines(self):
         # A non-JSON line (a PowerShell warning that leaked to stdout) is skipped,

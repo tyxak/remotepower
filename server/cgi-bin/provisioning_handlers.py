@@ -148,18 +148,17 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
     ring = roll['rings'][idx]
     ids = A._rollout_resolve_ring(ring.get('selector'), devices)
     now = int(time.time())
-    if roll.get('action') == 'upgrade':
-        # v5.8.0 (B1.3 patch rings): a reboot-flagged rollout uses the
-        # upgrade+reboot command so each ring reboots as it patches (health-gated
-        # per ring). Default = bare upgrade, no reboot (unchanged).
-        queued = (f'exec:{A._SCHED_UPGRADE_REBOOT_CMD}' if roll.get('reboot')
-                  else f'exec:{A._UPGRADE_CMD}')
-    elif roll.get('action') == 'self-update':
+    is_upgrade = roll.get('action') == 'upgrade'
+    reboot = bool(roll.get('reboot'))
+    if roll.get('action') == 'self-update':
         queued = 'update'   # the agent's own hash-verified self-update command
     elif roll.get('action') == 'reboot':
         queued = 'reboot'   # W2-36: rolling reboot orchestrator (dependency-ordered waves)
-    else:
+    elif not is_upgrade:
         queued = f'exec:{roll.get("_script_body", "")}'
+    else:
+        queued = 'upgrade'   # representative label for the return value / logging;
+        # the ACTUAL command is computed per device below (OS-aware).
     dispatched = []
     actor = roll.get('created_by', 'system')
     for dev_id in ids:
@@ -167,7 +166,25 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
         if not dev or A._device_quarantined(dev):
             continue
         cmds.setdefault(dev_id, [])
-        if queued not in cmds[dev_id]:
+        if is_upgrade:
+            # v6.1.3 (BUG): this queued ONE bash `exec:<upgrade>` for every ring
+            # device, so a Windows/macOS host got a shell script (the same class
+            # the auto-patch path fixed). Branch per device: Windows/macOS get the
+            # bare `upgrade` verb (their agents self-detect), and — since those
+            # agents never auto-reboot on upgrade — a reboot-flagged rollout
+            # queues `reboot` after it; Linux gets the bash upgrade[+reboot].
+            fam = A._device_os_family(dev)
+            if fam in ('windows', 'darwin'):
+                if 'upgrade' not in cmds[dev_id]:
+                    cmds[dev_id].append('upgrade')
+                if reboot and 'reboot' not in cmds[dev_id]:
+                    cmds[dev_id].append('reboot')
+            else:
+                lin = (f'exec:{A._SCHED_UPGRADE_REBOOT_CMD}' if reboot
+                       else f'exec:{A._UPGRADE_CMD}')
+                if lin not in cmds[dev_id]:
+                    cmds[dev_id].append(lin)
+        elif queued not in cmds[dev_id]:
             cmds[dev_id].append(queued)
         if roll.get('action') == 'upgrade':
             dev['upgrade_queued_at'] = now

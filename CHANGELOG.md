@@ -311,6 +311,54 @@ of that gap, and fixes two real bugs found on the way.
   the opposite of the point. Admin-only and audit-logged with the window, so "who
   turned the ad-blocker off, when, and for how long" is answerable afterwards.
 
+### Fixed — bug hunt (exhaustive review)
+
+- **The Windows security-posture checks were dead on arrival.** The five posture
+  rows this release added (BitLocker / firewall / Defender real-time + signature
+  age / Windows Update) read `sysinfo.win_posture`, but the heartbeat sanitizer
+  (`safe_si`, a strict field whitelist) dropped it — so the field the agent sent
+  never reached the Checks engine and every one of those rows rendered blank. The
+  recurring "sanitizer must persist any sysinfo field a check reads" class
+  (proc_names / mailq / custom_check_results before it). Four independent finders
+  flagged it. Now whitelisted, with a functional guardrail that drives the real
+  heartbeat and asserts the field survives.
+- **Fleet scan-now endpoints honoured tenant isolation but not role scope.** The
+  "scan every host" form of the secrets / PII / container-image scans filtered
+  their target set by tenant only, so a scoped operator could queue a one-shot
+  scan on hosts outside their scope. Routed through `_scope_filter_devices` (role
+  scope **and** tenant), matching the v6.1.1 fleet-aggregate remediation.
+- **A transient host state burned an approved maker-checker confirmation.** When
+  an approved confirmation was blocked by a *transient* condition (the host in
+  maintenance mode, quarantine, or audit mode) the confirmation was marked
+  `failed` and could never be approved again — forcing a brand-new request once
+  the host drained. A block reason is now returned as retryable (HTTP 503) and
+  leaves the confirmation `pending`; only a genuine failure marks it `failed`.
+- **The Windows/macOS rollout dispatch sent a bash script too.** The ring-based
+  rollout orchestrator (`_rollout_dispatch_ring`) queued a single bash
+  `exec:<upgrade>` for every device in the ring — the same OS-blind bug the
+  auto-patch and on-demand upgrade paths had. It is now OS-aware per device:
+  Windows/macOS get the bare `upgrade` verb (plus `reboot` when the rollout is
+  reboot-flagged, since those agents never auto-reboot), Linux gets the bash
+  upgrade.
+- **The Linux agent applied desired host-config twice on every boot.** The
+  heartbeat re-applied `host_config_desired` unconditionally on the second poll,
+  duplicating the apply the response handler had already performed when the config
+  first arrived — a redundant second netplan/nmcli/service reload on each restart.
+  Removed; the apply-on-change path is the single source of truth.
+- **Two agent contract mismatches.** The Windows agent's top-processes emitted
+  `mem_mb`, which the server drops (it keeps `cpu`/`mem` percentages like Linux),
+  so Windows top-processes showed no memory; and its Event Log cursor filtered by
+  `RecordId` in PowerShell, so after a log **clear** (which resets RecordId to 1)
+  every new event stayed below the cursor forever. Both fixed — the cursor now
+  filters in Python and detects the clear to re-baseline.
+- **The GitHub Issues connector could never authenticate.** It built an absolute
+  `https://api.github.com/...` URL, which the SSRF-guarded integration client
+  rejects; switched to the provider-relative path every other connector uses.
+- **The web-terminal ticket store was dead on the default backend.** It read its
+  JSON file directly, which does not exist under the Postgres/SQLite backend
+  (the same class as the v6.1.1 push-daemon fix); now goes through the storage
+  backend.
+
 ### Fixed
 
 - **Windows and macOS patch execution never worked.** Both agents have

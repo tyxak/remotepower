@@ -97,13 +97,24 @@ class TestConnector(unittest.TestCase):
         self.assertNotIn('Authorization', c.calls[0][2])
 
     def test_website_url_autocorrected_to_api_root(self):
-        # The predictable operator mistake: URL = the website (github.com), not
-        # the API root. The connector must go absolute to api.github.com.
-        c = FakeClient({'https://api.github.com/repos/o/r/issues': [_issue(2)]})
+        # The predictable operator mistake: URL = the website (github.com), not the
+        # API root. v6.1.3: the connector must rewrite the client BASE to
+        # api.github.com and keep the path RELATIVE — building an absolute URL was
+        # a bug, because the real SSRF-safe client rejects absolute paths.
+        c = FakeClient({'/repos/o/r/issues': [_issue(2)]})
+        c.base = 'https://github.com'   # what _integration_client would set from url
         res = I.poll_instance(
             {'type': 'github', 'slug': 'o/r', 'url': 'https://github.com/'}, c)
         self.assertEqual(res['status'], I.OK)
         self.assertEqual(res['gh_state'], {'o/r': 2})
+        # The connector rewrote the base to the API root (relative paths from there).
+        self.assertEqual(c.base, 'https://api.github.com')
+
+    def test_absolute_path_is_rejected_by_the_real_client(self):
+        # Guardrail: prove the old approach (absolute path) would actually fail on
+        # the real SSRF-safe client, so this can't silently regress to false-green.
+        with self.assertRaises(ValueError):
+            I.HTTPClient('https://api.github.com')._full('https://api.github.com/x')
 
     def test_enterprise_api_root_untouched(self):
         c = FakeClient({'/repos/o/r/issues': [_issue(2)]})

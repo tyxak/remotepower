@@ -11594,9 +11594,20 @@ function _renderConfirmations(arr) {
       status === 'expired'  ? '<span class="sev-pill sev-low">expired</span>' :
       status === 'failed'   ? '<span class="sev-pill sev-critical">failed</span>' :
       `<span class="sev-pill sev-low">${_escapeHtml(status)}</span>`;
-    const actionLabel = c.action === 'run_saved_script' && c.script_name
-      ? `${_escapeHtml(c.action)} <span class="hint">(${_escapeHtml(c.script_name)})</span>`
-      : _escapeHtml(c.action || '');
+    // v6.1.3: an ai_exec_action proposal must show WHICH catalog action (+ the
+    // model's reason) it will run — otherwise the approver signs off blind. The
+    // params carry the catalog label/id and reason (see handle_ai_exec_propose).
+    const _p = c.params || {};
+    let actionLabel;
+    if (c.action === 'run_saved_script' && c.script_name) {
+      actionLabel = `${_escapeHtml(c.action)} <span class="hint">(${_escapeHtml(c.script_name)})</span>`;
+    } else if (c.action === 'ai_exec_action') {
+      const what = _p.label || _p.catalog_id || '';
+      const why = _p.reason ? ` — ${_escapeHtml(_p.reason)}` : '';
+      actionLabel = `AI remediation <span class="hint">(${_escapeHtml(what)})${why}</span>`;
+    } else {
+      actionLabel = _escapeHtml(c.action || '');
+    }
     let buttons = '';
     if (status === 'pending') {
       buttons = `<button class="btn-icon btn-xs c-success" data-action="approveConfirmation" data-arg="${c.id}">Approve</button> ` +

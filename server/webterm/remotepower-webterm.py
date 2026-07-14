@@ -119,42 +119,90 @@ log = logging.getLogger('webterm')
 # ─── Ticket store (shared with CGI via JSON file) ────────────────────────────
 
 
+def _find_cgi_bin():
+    """Locate the server's cgi-bin (storage.py) across dev + installed layouts —
+    the webterm daemon runs from server/webterm/ so cgi-bin is at ../cgi-bin in
+    the repo. Mirrors the push daemon's resolver."""
+    candidates = []
+    env = os.environ.get('RP_CGI_BIN', '').strip()
+    if env:
+        candidates.append(Path(env))
+    candidates += [
+        Path(__file__).resolve().parent.parent / 'cgi-bin',
+        Path('/var/www/remotepower/cgi-bin'),
+        Path('/usr/share/webapps/remotepower/cgi-bin'),
+        Path('/opt/remotepower/cgi-bin'),
+    ]
+    for c in candidates:
+        try:
+            if (c / 'storage.py').is_file():
+                return c
+        except OSError:
+            continue
+    return None
+
+
 class TicketStore:
-    """Reads/writes the ticket file the CGI's /api/webterm/auth populates.
+    """Validate-and-delete the one-time webterm tickets the CGI's
+    /api/webterm/auth issues.
 
-    The file is owned by the CGI user (rp-www) but readable by the daemon
-    (rp-webterm) — the deploy script puts both in the same group and
-    gives the file mode 640. The daemon never *creates* tickets, only
-    consumes them.
-
-    File format (JSON dict):
-        { "<ticket>": {actor, device_id, created, expires, used, source_ip} }
+    v6.1.3 (BUG): the ticket store read `webterm_tickets.json` as a raw flat file.
+    Under the default Postgres/SQLite backend (v6.1.0+) that file does NOT exist —
+    the ticket lives in a DB row — so consume() read {} and EVERY web-terminal
+    session was rejected ("Invalid or expired ticket"): the feature was 100% dead
+    on the default production backend. This is the exact class fixed for the push
+    daemon in v6.1.1. The store is now backend-aware (storage/storage_pg chosen
+    from the marker), with a flat-file fallback for the JSON backend. Because
+    consume() also DELETES the ticket, the backend write path matters, not just
+    the read.
     """
 
     def __init__(self, path: Path):
-        self.path = path
+        self.path = Path(path)
+        self.data_dir = self.path.parent
+        self.name = self.path.name
+        self._mod = None
+        try:
+            cgi = _find_cgi_bin()
+            if cgi is not None and str(cgi) not in sys.path:
+                sys.path.insert(0, str(cgi))
+            import storage as _st
+            marker = _st.read_marker(self.data_dir) or {}
+            backend = (marker.get('backend') or 'json').lower()
+            if backend == 'sqlite':
+                self._mod = _st
+            elif backend == 'postgres':
+                import storage_pg as _pg
+                _dsn = marker.get('dsn')
+                if _dsn and not os.environ.get('RP_PG_DSN'):
+                    _pg.configure_dsn(_dsn)
+                self._mod = _pg
+        except Exception as e:
+            log.warning("ticket_store: backend detection failed (%s) — "
+                        "falling back to flat-file reads", e)
+            self._mod = None
 
-    def consume(self, ticket: str):
-        """Validate-and-delete a ticket. Returns the metadata dict or None."""
-        if not ticket or len(ticket) > 256:
-            return None
+    def _load(self):
+        if self._mod is not None:
+            try:
+                return self._mod.load(self.data_dir / self.name) or {}
+            except Exception as e:
+                log.debug("ticket_store: storage.load failed: %s", e)
+                return {}
         try:
             with self.path.open('r') as f:
-                tickets = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return None
-        meta = tickets.get(ticket)
-        if not meta:
-            return None
-        now = int(time.time())
-        if meta.get('expires', 0) < now or meta.get('used'):
-            return None
-        # Mark used + persist. We delete entirely rather than just flagging
-        # because file growth would be unbounded otherwise.
-        del tickets[ticket]
-        # Best-effort write — if we can't persist, the ticket has still
-        # been consumed in our return, but a concurrent daemon process
-        # (shouldn't happen) might re-validate. Acceptable.
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return {}
+
+    def _save(self, tickets):
+        if self._mod is not None:
+            try:
+                self._mod.save(self.data_dir / self.name, tickets)
+                return
+            except Exception as e:
+                log.warning("ticket_store: storage.save failed: %s", e)
+                return
         try:
             tmp = self.path.with_suffix('.tmp')
             with tmp.open('w') as f:
@@ -162,6 +210,21 @@ class TicketStore:
             os.replace(tmp, self.path)
         except OSError as e:
             log.warning("ticket_store: persist failed: %s", e)
+
+    def consume(self, ticket: str):
+        """Validate-and-delete a ticket. Returns the metadata dict or None."""
+        if not ticket or len(ticket) > 256:
+            return None
+        tickets = self._load()
+        meta = tickets.get(ticket)
+        if not meta:
+            return None
+        now = int(time.time())
+        if meta.get('expires', 0) < now or meta.get('used'):
+            return None
+        # Delete entirely (not just a used-flag) so the store can't grow forever.
+        del tickets[ticket]
+        self._save(tickets)
         return meta
 
 

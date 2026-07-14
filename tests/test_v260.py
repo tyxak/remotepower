@@ -333,10 +333,15 @@ class TestAgent(unittest.TestCase):
         self.assertIn('authorized_keys', block)
 
     def test_heartbeat_loop_applies_desired(self):
+        # v6.1.3: scan the WHOLE heartbeat() body (to the next top-level def)
+        # instead of a fixed-size char window. The old 26000-char window kept
+        # needing to be widened as heartbeat() grew, and the v6.1.3 bug hunt
+        # removed the redundant poll==2 apply (leaving only the apply-on-change
+        # path in the response handler, which sat just past the window) — the
+        # fragile pin, not the code, was the problem.
         idx = self.agent.find('def heartbeat(')
-        # v6.1.3: widened again for the disk-usage scan block. Same brittleness
-        # note as test_v250 — a fixed-size source window over heartbeat().
-        block = self.agent[idx: idx + 26000]
+        end = self.agent.find('\ndef ', idx + 1)
+        block = self.agent[idx: end if end != -1 else len(self.agent)]
         self.assertIn('apply_host_config', block)
         self.assertIn('host_config_desired', block)
 

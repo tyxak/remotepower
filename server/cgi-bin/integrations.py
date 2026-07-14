@@ -1776,6 +1776,13 @@ def _crowdstrike(inst, c):
                     "last_seen": str(a.get("last_seen") or ""),
                     # Falcon marks a sensor 'normal' when healthy; anything else
                     # (containment, reduced functionality) is not full protection.
+                    # KNOWN LIMITATION: Falcon's `status` reflects containment
+                    # state, not reporting freshness — a sensor that fell offline
+                    # weeks ago can still read 'normal'. A last_seen-age staleness
+                    # heuristic was considered but deferred: last_seen formats
+                    # differ per provider and a wrong threshold would emit false
+                    # CRITs on healthy estates. Coverage cross-ref in api.py
+                    # (agent-not-seen) is the durable staleness signal instead.
                     "status": (
                         "active"
                         if str(a.get("status") or "").lower() in ("normal", "online", "")
@@ -2113,11 +2120,14 @@ def _github(inst, c):
     repos, bad = _gh_repos(inst)
     if not repos:
         raise IntegrationError("no valid repositories configured (owner/repo, comma-separated)")
-    # Forgive the predictable URL mistake: the WEBSITE (github.com) instead of
-    # the API root (api.github.com). The website answers /repos/... with HTML
-    # 404s, so every repo would "fail". Requests go absolute (the client allows
-    # that) to the real API root instead. GHE roots pass through untouched.
-    prefix = ""
+    # Forgive the predictable URL mistake: the WEBSITE (github.com) instead of the
+    # API root (api.github.com). The website answers /repos/... with HTML 404s, so
+    # every repo would "fail". v6.1.3 (BUG): the old code built an ABSOLUTE URL
+    # (https://api.github.com/repos/...) and passed it to the client — but the
+    # SSRF-safe client REJECTS absolute paths (ValueError), so the autocorrect was
+    # dead and every github.com-configured instance errored. Instead rewrite the
+    # client's BASE to the API root and keep paths relative. GHE roots pass through
+    # untouched. (api.github.com is public, so the SSRF connect-time guard is happy.)
     u = (inst.get("url") or "").strip().lower().rstrip("/")
     if u in (
         "https://github.com",
@@ -2125,7 +2135,7 @@ def _github(inst, c):
         "https://www.github.com",
         "http://www.github.com",
     ):
-        prefix = "https://api.github.com"
+        c.base = "https://api.github.com"
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if inst.get("secret"):
         headers.update(_hdr_token(inst, "Authorization", "Bearer "))
@@ -2134,7 +2144,7 @@ def _github(inst, c):
     for repo in repos:
         try:
             issues = c.get_json(
-                f"{prefix}/repos/{repo}/issues",
+                f"/repos/{repo}/issues",
                 headers=headers,
                 params={
                     "state": "open",

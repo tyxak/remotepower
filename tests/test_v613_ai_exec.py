@@ -253,7 +253,20 @@ class TestTheSharedCommandGate(_Case):
     _mcp_execute previously checked quarantine but NOT maintenance mode or audit
     mode — so an approved confirmation could fire at a host mid-drain. One shared
     predicate now serves both paths.
+
+    v6.1.3 bug hunt: a block reason (maintenance / quarantine / audit) is a
+    TRANSIENT host state, so it must NOT burn the confirmation. Approve now
+    returns 503 (retryable) and LEAVES the confirmation 'pending', instead of the
+    old 500-that-marked-it-'failed' which forced a whole new maker-checker
+    request once the host drained.
     """
+
+    def _conf_status(self, cid):
+        store = self.api.load(self.api.CONFIRMATIONS_FILE) or {}
+        for c in store.get("confirmations", []):
+            if c.get("id") == cid:
+                return c.get("status")
+        return None
 
     def test_maintenance_mode_blocks_an_approved_action(self):
         cid = self.propose()["data"]["confirmation_id"]
@@ -261,24 +274,30 @@ class TestTheSharedCommandGate(_Case):
             "ai_exec_enabled": True, "maintenance_mode": True,
             "maintenance_reason": "controller upgrade"})
         self.api._LOAD_CACHE.clear()
-        self.assertEqual(500, self.approve(cid)["status"])
+        r = self.approve(cid)
+        self.assertEqual(503, r["status"])
+        self.assertTrue(r["data"].get("transient"))
         self.assertEqual([], self.queued())
+        # Not burned — still approvable once maintenance ends.
+        self.assertEqual("pending", self._conf_status(cid))
 
     def test_audit_mode_blocks_an_approved_action(self):
         cid = self.propose()["data"]["confirmation_id"]
         self.api.save(self.api.DEVICES_FILE,
                       {"d1": {"name": "web01", "sysinfo": {"audit_mode": True}}})
         self.api._LOAD_CACHE.clear()
-        self.assertEqual(500, self.approve(cid)["status"])
+        self.assertEqual(503, self.approve(cid)["status"])
         self.assertEqual([], self.queued())
+        self.assertEqual("pending", self._conf_status(cid))
 
     def test_quarantine_blocks_an_approved_action(self):
         cid = self.propose()["data"]["confirmation_id"]
         self.api.save(self.api.DEVICES_FILE,
                       {"d1": {"name": "web01", "quarantined": True}})
         self.api._LOAD_CACHE.clear()
-        self.assertEqual(500, self.approve(cid)["status"])
+        self.assertEqual(503, self.approve(cid)["status"])
         self.assertEqual([], self.queued())
+        self.assertEqual("pending", self._conf_status(cid))
 
     def test_the_gate_is_one_predicate_shared_with_queue_command(self):
         """Not a second chokepoint — the same function, rendered two ways."""

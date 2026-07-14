@@ -410,8 +410,31 @@ def _collect_net_io(psutil):
 # v3.14.0 #35: secrets-on-disk scanner (parity with the other agents). READ-ONLY
 # + REDACTING — never sends a secret's value, only rule/location/masked-preview/
 # sha256 fingerprint. Opt-in (server pushes secrets_scan_enabled); bounded hard.
-SECRETS_SCAN_EVERY = 360
-_secrets_cfg = {'on': False, 'paths': None}
+# v6.1.3 (BUG): the mac agent gated the secrets scan on `poll_count % 360`, which
+# is process-local and resets on every restart — macOS laptops sleep/restart
+# constantly, so a mac restarting more often than ~6h never scanned at all, and
+# the server's `force_secrets_scan` ("Scan now") flag was ignored entirely. Mirror
+# the Linux agent: a PERSISTED wall-clock due-time plus a one-shot force flag.
+SECRETS_SCAN_INTERVAL_S = 6 * 3600
+_SECRETS_TS_FILE = 'secrets_scan_last'
+_secrets_cfg = {'on': False, 'paths': None, 'force': False}
+
+
+def _load_secrets_scan_ts():
+    try:
+        with open(os.path.join(_data_dir(), _SECRETS_TS_FILE), 'r', encoding='utf-8') as f:
+            return float((f.read() or '').strip())
+    except Exception:
+        return 0.0
+
+
+def _save_secrets_scan_ts(ts):
+    try:
+        p = os.path.join(_data_dir(), _SECRETS_TS_FILE)
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(str(int(ts)))
+    except Exception:
+        pass
 _SECRET_RULES = [
     ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
     ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
@@ -580,7 +603,10 @@ def handle_command(cmd):
             pass
         return None
     if cmd == 'update':
-        return {'cmd': cmd, 'output': 'self-update not supported by the minimal agent yet', 'rc': 0}
+        # v6.1.3 (BUG): this returned rc:0, so a fleet-wide agent-update rollout
+        # recorded SUCCESS on every mac while nothing installed. Report an honest
+        # non-success until self-update is implemented for macOS.
+        return {'cmd': cmd, 'output': 'self-update is not yet implemented on the macOS agent', 'rc': 1}
     argv = command_argv(cmd)
     if argv is None:
         # W6-32: an upgrade command with no brew installed → a clear message.
@@ -627,11 +653,14 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     }
     if poll_count <= 1 or poll_count % 12 == 0:
         payload['sysinfo'] = collect_sysinfo()
-    if _secrets_cfg.get('on') and (poll_count <= 1 or poll_count % SECRETS_SCAN_EVERY == 0):
+    _sec_due = (time.time() - _load_secrets_scan_ts()) >= SECRETS_SCAN_INTERVAL_S
+    if _secrets_cfg.get('on') and (_sec_due or _secrets_cfg.get('force')):
         try:
             payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
+            _save_secrets_scan_ts(time.time())
         except Exception:
             pass
+        _secrets_cfg['force'] = False
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')
@@ -676,6 +705,8 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['on'] = bool(resp.get('secrets_scan_enabled'))
         _ssp = resp.get('secrets_scan_paths')
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
+        if resp.get('force_secrets_scan'):
+            _secrets_cfg['force'] = True   # one-shot "Scan now" from the server
     return resp, new_pending
 
 

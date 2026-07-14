@@ -9271,16 +9271,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             payload['custom_script_results'] = dict(pending_script_results)
             pending_script_results.clear()
 
-        # v2.6.0: apply desired host config immediately when it changes.
-        # Current state is NOT sent in the heartbeat — it is collected
-        # on-demand when the admin clicks "⬇ Fetch current" in the UI,
-        # which queues a host-config-collect command via the exec channel.
-        if host_config_desired and poll_count == 2:
-            try:
-                apply_results = apply_host_config(host_config_desired)
-                log.info(f'Host config applied: {apply_results}')
-            except Exception as e:
-                log.warning(f'Host config apply error: {e}')
+        # v2.6.0: desired host config is applied by the response handler below
+        # the moment it changes (including its first arrival — host_config_desired
+        # starts None). The old unconditional poll_count==2 re-apply here was pure
+        # redundancy: it re-applied what the response handler had already applied on
+        # poll 1, forcing a second netplan/nmcli/service reload on every boot.
+        # Removed in the v6.1.3 bug hunt — the apply-on-change path is the single
+        # source of truth. Current state is NOT sent in the heartbeat; it is
+        # collected on-demand via the host-config-collect exec command.
 
         # v1.11.0: report containers/pods every CONTAINER_CHECK_EVERY polls.
         # Same cadence as services. Skipping the first heartbeat is fine —

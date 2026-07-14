@@ -8639,6 +8639,9 @@ def _record_alert(event, payload):
                     'high', 'upgradable', 'pattern', 'level', 'days',
                     'detail',        # W1-33: patch_sla_violation breach summary
                     'container', 'script_name', 'value', 'source',
+                    # v6.1.3: dead-man's-switch job id — the ping_missed alert's
+                    # match key for ping_recovered auto-resolve.
+                    'job_id',
                     # B2: inbound webhooks set these
                     'inbound_token_id', 'inbound_source',
                     # v3.2.3: payload keys for the newly-wired alerts —
@@ -8885,6 +8888,15 @@ def _auto_resolve_alerts(event, payload):
         # (a closed :5696 must not clear the open alert for :443).
         sub_match['proto'] = p.get('proto')
         sub_match['port'] = p.get('port')
+    elif event == 'ping_recovered':
+        # v6.1.3: a dead-man's-switch job checking in again clears the open
+        # ping_missed alert for THAT job. ping_missed has no device_id, so match
+        # by job_id (which must also be in the _record_alert whitelist below).
+        sub_match['job_id'] = p.get('job_id')
+    elif event == 'wan_up':
+        # v6.1.3: internet-restored. wan_down/wan_up are a fleet singleton (no
+        # device_id) — match on the fixed 'wan' target both now carry.
+        sub_match['target'] = p.get('target')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -17654,6 +17666,33 @@ def handle_heartbeat():
                         'output': _sanitize_str(str(res.get('output', '')), 200),
                     }
                 safe_si['custom_check_results'] = safe_ccr
+            # v6.1.3: Windows security posture → the Checks engine reads
+            # si['win_posture'] to emit the BitLocker / firewall / Defender / WU
+            # rows. The whitelist dropped it, so those five check rows never
+            # rendered — the classic "sanitizer must persist any sysinfo field a
+            # check reads" gotcha (same class as proc_names/custom_check_results
+            # above). Mirror _parse_win_posture's shape.
+            if isinstance(si.get('win_posture'), dict):
+                _wp = si['win_posture']
+                safe_wp = {}
+                if isinstance(_wp.get('firewall'), list):
+                    safe_wp['firewall'] = [
+                        {'name': _sanitize_str(str(p.get('name', '')), 32),
+                         'enabled': bool(p.get('enabled'))}
+                        for p in _wp['firewall'][:8] if isinstance(p, dict)]
+                if isinstance(_wp.get('bitlocker'), list):
+                    safe_wp['bitlocker'] = [
+                        {'mount': _sanitize_str(str(v.get('mount', '')), 8),
+                         'status': _sanitize_str(str(v.get('status', '')), 24)}
+                        for v in _wp['bitlocker'][:8] if isinstance(v, dict)]
+                if 'defender_realtime' in _wp:
+                    safe_wp['defender_realtime'] = bool(_wp['defender_realtime'])
+                if isinstance(_wp.get('defender_sig_age_days'), (int, float)):
+                    safe_wp['defender_sig_age_days'] = int(_wp['defender_sig_age_days'])
+                if _wp.get('wu_service'):
+                    safe_wp['wu_service'] = _sanitize_str(str(_wp['wu_service']), 24)
+                if safe_wp:
+                    safe_si['win_posture'] = safe_wp
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
@@ -30363,8 +30402,12 @@ def handle_image_cve_scan():
             containers = load(CONTAINERS_FILE) or {}
             targets = [d for d in devices
                        if (containers.get(d) or {}).get('items')]
+        # v6.1.3 (BUG): this checked tenant visibility but NOT role scope, so a
+        # scoped operator could queue scans on out-of-scope hosts. _scope_filter_
+        # devices folds in BOTH role scope and tenant.
+        _scoped = _scope_filter_devices(dict(devices))
         for d in targets:
-            if not _tenant_visible(devices[d]):
+            if d not in _scoped:
                 continue
             devices[d]['force_image_scan'] = True
             queued.append(d)
@@ -30440,8 +30483,10 @@ def handle_secrets_scan_now():
             # Any host with an agent (secrets scan isn't container-specific);
             # skip agentless devices, which can't run it.
             targets = [d for d, dev in devices.items() if not dev.get('agentless')]
+        # v6.1.3 (BUG): tenant-checked but not role-scoped — see image-scan note.
+        _scoped = _scope_filter_devices(dict(devices))
         for d in targets:
-            if not _tenant_visible(devices[d]):
+            if d not in _scoped:
                 continue
             devices[d]['force_secrets_scan'] = True
             queued.append(d)
@@ -30583,8 +30628,10 @@ def handle_pii_scan_now():
             targets = [target]
         else:
             targets = [d for d, dev in devices.items() if not dev.get('agentless')]
+        # v6.1.3 (BUG): tenant-checked but not role-scoped — see image-scan note.
+        _scoped = _scope_filter_devices(dict(devices))
         for d in targets:
-            if not _tenant_visible(devices[d]):
+            if d not in _scoped:
                 continue
             devices[d]['force_pii_scan'] = True
             queued.append(d)
@@ -33317,14 +33364,16 @@ def run_wan_ip_check_if_due():
     outages = list(st.get('outages') or [])
     if was_up and not is_up:
         outages.append({'start': now, 'end': None})
-        events.append(('wan_down', {}))
+        # v6.1.3: carry a stable 'wan' target so wan_up can auto-resolve the open
+        # wan_down alert (fleet singleton, no device_id — see _auto_resolve_alerts).
+        events.append(('wan_down', {'target': 'wan'}))
     elif not was_up and is_up:
         if outages and outages[-1].get('end') is None:
             outages[-1]['end'] = now
             dur = now - int(outages[-1].get('start') or now)
         else:
             dur = 0
-        events.append(('wan_up', {'duration_s': dur}))
+        events.append(('wan_up', {'duration_s': dur, 'target': 'wan'}))
     outages = outages[-50:]        # bounded — this is a log, not a time series
 
     # ── public IP changed ─────────────────────────────────────────────────
@@ -51746,7 +51795,12 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
         # the one predicate with _queue_command rather than keeping its own subset.
         _blocked = _command_block_reason(devs[device_id], _mcp_command_preview(action, params))
         if _blocked:
-            return {'ok': False, 'error': _blocked[1]}
+            # v6.1.3 (bug hunt): a block reason (maintenance/quarantine/audit mode)
+            # is a TRANSIENT host state, not a bad request. Flag it so the approve
+            # handler can leave the confirmation pending (retryable once the block
+            # clears) instead of burning it to 'failed' — which forced the operator
+            # to re-create the whole maker-checker request after a drain window.
+            return {'ok': False, 'error': _blocked[1], 'transient': True}
 
     if action == 'reboot_device':
         cmds = load(CMDS_FILE)
@@ -52258,25 +52312,45 @@ def handle_confirmation_approve(conf_id):
         ai_prompt=entry.get('ai_prompt'),
     )
     if not result.get('ok'):
-        # Roll back the status flag so the operator can see what failed
+        # v6.1.3 (bug hunt): a TRANSIENT block (host in maintenance/quarantine/
+        # audit mode) must NOT burn the confirmation — revert it to 'pending' so
+        # the same approval can be retried once the host drains, instead of forcing
+        # a brand-new maker-checker request. A genuine failure still lands 'failed'.
+        _transient = bool(result.get('transient'))
         with _LockedUpdate(CONFIRMATIONS_FILE) as store:
             for c in store.get('confirmations', []):
                 if c.get('id') == conf_id:
-                    c['status'] = 'failed'
-                    c['error'] = result.get('error', '')
+                    if _transient:
+                        c['status'] = 'pending'
+                        c.pop('decided_by', None)
+                        c.pop('decided_at', None)
+                        c['last_error'] = result.get('error', '')
+                    else:
+                        c['status'] = 'failed'
+                        c['error'] = result.get('error', '')
                     break
-        respond(500, {'ok': False, 'error': result.get('error', 'execution failed')})
+        respond(503 if _transient else 500,
+                {'ok': False, 'error': result.get('error', 'execution failed'),
+                 'transient': _transient})
     respond(200, {'ok': True, 'result': result})
 
 
 def handle_confirmations_clear():
-    """DELETE /api/confirmations — remove all resolved (non-pending) entries."""
+    """DELETE /api/confirmations — remove this tenant's resolved (non-pending)
+    entries. TENANT-SCOPED: the v6.1.1 tenant sweep gated list/approve/reject but
+    missed this bulk clear, so a tenant admin was wiping every OTHER tenant's
+    resolved confirmations too (their audit trail of what an AI/maker-checker
+    action did). Keep an entry if it is pending OR belongs to a device this caller
+    cannot see."""
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    devices = load(DEVICES_FILE) or {}
     removed = 0
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
         before = store.get('confirmations', [])
-        kept = [c for c in before if c.get('status') == 'pending']
+        kept = [c for c in before
+                if c.get('status') == 'pending'
+                or not _tenant_visible(devices.get(c.get('device_id')) or {})]
         removed = len(before) - len(kept)
         store['confirmations'] = kept
     audit_log(actor, 'mcp_confirmations_cleared', f'removed={removed}')

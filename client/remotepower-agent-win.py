@@ -6,7 +6,7 @@ A standalone agent that speaks the same server contract as the Linux agent
 at parity with Linux:
 
   * enroll (PIN or enrollment token); heartbeat loop with core sysinfo
-    (CPU / memory / disk / disk-I/O / uptime / network)
+    (CPU / memory / disk / uptime / network)
   * commands: reboot / shutdown / exec (PowerShell) / explicit ps: + cmd: /
     upgrade + winget / svc: (service control) / kill: (process) /
     files: (file manager) / poll-interval / uninstall / signed self-update
@@ -723,19 +723,23 @@ def get_top_processes(limit=15):
         return [], []
     procs = []
     names = set()
-    for p in psutil.process_iter(['pid', 'name', 'memory_info']):
+    # v6.1.3: emit the SAME {pid,name,cpu,mem} shape (cpu% + memory PERCENT) the
+    # Linux agent sends — the server sanitizer keeps `cpu`/`mem`, not `mem_mb`, so
+    # a Windows-specific `mem_mb` key was silently dropped and the drawer rendered
+    # every process at 0% memory. cpu_percent(None) is non-blocking (unprimed here,
+    # so first sample reads ~0 — acceptable for a top-N snapshot).
+    for p in psutil.process_iter(['pid', 'name', 'memory_percent', 'cpu_percent']):
         try:
             info = p.info
             nm = info.get('name') or ''
             if nm:
                 names.add(nm)
-            mem = info.get('memory_info')
-            rss = getattr(mem, 'rss', 0) if mem else 0
             procs.append({'pid': info.get('pid'), 'name': nm,
-                          'mem_mb': round(rss / (1024 * 1024), 1)})
+                          'cpu': round(info.get('cpu_percent') or 0, 1),
+                          'mem': round(info.get('memory_percent') or 0, 2)})
         except Exception:
             continue
-    procs.sort(key=lambda x: x.get('mem_mb') or 0, reverse=True)
+    procs.sort(key=lambda x: x.get('mem') or 0, reverse=True)
     return procs[:limit], sorted(names)
 
 
@@ -1022,10 +1026,14 @@ _EVENTLOG_CURSOR_FILE = 'eventlog_cursor.json'
 # {MAX}/{SINCE} tokens are substituted. (A prior version doubled the braces as if
 # for .format() and PowerShell rejected `@{{…}}` — caught by parsing it with the
 # real pwsh, which is why the agent's PS is now parse-validated in tests.)
+# We fetch the newest {MAX} events and filter by the cursor in PYTHON (not a
+# Where-Object here) so a log CLEAR — which resets RecordId to 1 — is detectable:
+# the newest RecordId then drops BELOW the cursor and the caller re-baselines,
+# instead of the server-side filter silently returning nothing forever.
 _EVENTLOG_PS_TMPL = (
     "$ErrorActionPreference='SilentlyContinue';"
     "$f=@{LogName='{CHANNEL}'{LEVEL}};"
-    "Get-WinEvent -FilterHashtable $f -MaxEvents {MAX} | Where-Object { $_.RecordId -gt {SINCE} } | "
+    "Get-WinEvent -FilterHashtable $f -MaxEvents {MAX} | "
     "ForEach-Object { [pscustomobject]@{"
     "  rid=$_.RecordId; id=$_.Id; lvl=$_.LevelDisplayName; prov=$_.ProviderName;"
     "  t=$_.TimeCreated.ToString('MMM dd HH:mm:ss');"
@@ -1060,12 +1068,16 @@ def _save_eventlog_cursor(cur):
 
 
 def _parse_eventlog(stdout):
-    """Parse the JSON-per-line output into (lines, max_rid).
+    """Parse the JSON-per-line output into (entries, max_rid), where entries is a
+    list of (record_id, line). Filtering by the cursor happens in the caller (in
+    Python, not PowerShell) so a log-CLEAR — which resets RecordId to 1 — can be
+    detected and the cursor reset, instead of the cursor sitting above every new
+    event forever.
 
     Each line: '<t> <LEVEL> <PROV>[<id>]: <msg>' — the '[<id>]' is what an alert
     rule keys on. Pure — unit-testable off-Windows with canned JSON lines.
     """
-    lines, max_rid = [], 0
+    entries, max_rid = [], 0
     for raw in (stdout or '').splitlines():
         raw = raw.strip()
         if not raw:
@@ -1081,8 +1093,8 @@ def _parse_eventlog(stdout):
         max_rid = max(max_rid, rid)
         line = (f"{o.get('t','')} {o.get('lvl','')} "
                 f"{o.get('prov','')}[{o.get('id','')}]: {o.get('msg','')}").strip()
-        lines.append(line[:512])
-    return lines, max_rid
+        entries.append((rid, line[:512]))
+    return entries, max_rid
 
 
 def get_event_log_journal():
@@ -1096,16 +1108,13 @@ def get_event_log_journal():
     for chan in _EVENTLOG_CHANNELS:
         since = cursor.get(chan)
         first_run = since is None
-        # First run: don't filter by RecordId (baseline to the newest few); after
-        # that, only events newer than the cursor.
         since_val = 0 if first_run else int(since or 0)
         level = '' if chan == 'Security' else ";Level=1,2,3"
         maxn = _EVENTLOG_BASELINE if first_run else _EVENTLOG_PER_POLL
         ps = (_EVENTLOG_PS_TMPL
               .replace('{CHANNEL}', chan)
               .replace('{LEVEL}', level)
-              .replace('{MAX}', str(maxn))
-              .replace('{SINCE}', str(since_val)))
+              .replace('{MAX}', str(maxn)))
         try:
             r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive', '-Command', ps],
                                capture_output=True, text=True, timeout=60,
@@ -1116,20 +1125,24 @@ def get_event_log_journal():
             # The Security channel needs elevation; a non-SYSTEM agent just skips it
             # rather than erroring the whole collection.
             continue
-        lines, max_rid = _parse_eventlog(r.stdout)
-        if lines:
-            all_lines.extend(lines)
-        # Advance the cursor to the newest RecordId we SAW (even beyond the cap),
-        # so a burst larger than the cap drops its oldest rather than re-fetching
-        # the same events forever.
-        if max_rid > since_val:
+        entries, max_rid = _parse_eventlog(r.stdout)
+        # Log CLEARED since last poll: RecordId resets to 1, so the newest event
+        # is now BELOW the cursor. Detect that (max_rid < cursor) and re-baseline
+        # to the newest few, instead of filtering out every event forever.
+        cleared = (not first_run) and max_rid and max_rid < since_val
+        if first_run or cleared:
+            # Baseline: emit the newest _EVENTLOG_BASELINE, set the cursor to the
+            # newest RecordId seen.
+            fresh = [ln for _rid, ln in entries[:_EVENTLOG_BASELINE]]
+            all_lines.extend(fresh)
             cursor[chan] = max_rid
             dirty = True
-        elif first_run:
-            # No events at all on first run — still set a cursor so we don't keep
-            # treating every future poll as a baseline.
-            cursor[chan] = since_val
-            dirty = True
+        else:
+            # Normal: emit only events newer than the cursor, advance to newest.
+            all_lines.extend(ln for rid, ln in entries if rid > since_val)
+            if max_rid > since_val:
+                cursor[chan] = max_rid
+                dirty = True
     if dirty:
         _save_eventlog_cursor(cursor)
     return all_lines[:200]
@@ -1342,42 +1355,11 @@ def collect_sysinfo():
                 info['network_io'] = nio
         except Exception:
             pass
-        # v6.1.3: aggregate disk I/O rate (bytes/sec), diffed across polls — the
-        # "% Disk Time"/throughput signal the Linux agent reports and Windows did
-        # not. Cheap (psutil counter, no PowerShell).
-        try:
-            dio = _collect_disk_io(psutil)
-            if dio:
-                info['disk_io'] = dio
-        except Exception:
-            pass
     except ImportError:
         info['psutil'] = False  # honest signal that metrics are limited
     except Exception:
         pass
     return info
-
-
-# v6.1.3: disk_io_counters are cumulative; diff for a bytes/sec rate.
-_prev_disk_io = {}   # 'read'/'write' cumulative bytes + monotonic ts
-
-def _collect_disk_io(psutil):
-    try:
-        c = psutil.disk_io_counters()
-    except Exception:
-        return None
-    if not c:
-        return None
-    now = time.monotonic()
-    prev = _prev_disk_io.get('v')
-    _prev_disk_io['v'] = (c.read_bytes, c.write_bytes, now)
-    if not prev:
-        return None
-    dt = now - prev[2]
-    if dt <= 0:
-        return None
-    return {'read_bps': int(max(0, c.read_bytes - prev[0]) / dt),
-            'write_bps': int(max(0, c.write_bytes - prev[1]) / dt)}
 
 
 # v3.14.0 #37: net_io_counters are cumulative; diff against the previous poll

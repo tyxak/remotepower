@@ -96,6 +96,9 @@ class TestSpawn(_Base):
 class TestRebootDispatch(_Base):
     def test_upgrade_ring_uses_reboot_cmd_when_flagged(self):
         # Drive one ring dispatch and confirm the reboot command is queued.
+        # v6.1.3: the ACTUAL per-device command now lives in cmds[dev_id] (the
+        # dispatch is OS-aware — a Linux host, which d1 is by default, gets the
+        # bash upgrade+reboot); `queued` is only a representative log label.
         api._autopatch_queue({
             'id': 'p', 'name': 'p', 'reboot': True, 'auto_promote': False,
             'rings': [{'name': 'r1', 'selector': {'type': 'tag', 'value': 'canary'}}],
@@ -104,9 +107,9 @@ class TestRebootDispatch(_Base):
         roll = self._rolls()[0]
         devices = api.load(api.DEVICES_FILE)
         cmds = {}
-        dispatched, queued = api._rollout_dispatch_ring(roll, 0, devices, cmds)
+        dispatched, _queued = api._rollout_dispatch_ring(roll, 0, devices, cmds)
         self.assertIn('d1', dispatched)
-        self.assertIn(api._SCHED_UPGRADE_REBOOT_CMD, queued)
+        self.assertIn(f'exec:{api._SCHED_UPGRADE_REBOOT_CMD}', cmds['d1'])
 
     def test_upgrade_ring_bare_when_no_reboot(self):
         api._autopatch_queue({
@@ -116,8 +119,31 @@ class TestRebootDispatch(_Base):
         }, 'tester')
         roll = self._rolls()[0]
         devices = api.load(api.DEVICES_FILE)
-        _d, queued = api._rollout_dispatch_ring(roll, 0, devices, {})
-        self.assertNotIn('reboot', queued)
+        cmds = {}
+        api._rollout_dispatch_ring(roll, 0, devices, cmds)
+        # Linux host: bare upgrade command, and no reboot appended.
+        self.assertIn(f'exec:{api._UPGRADE_CMD}', cmds['d1'])
+        self.assertNotIn('reboot', cmds['d1'])
+
+    def test_windows_ring_gets_bare_upgrade_not_bash(self):
+        # v6.1.3: a Windows host in the ring must get the bare `upgrade` verb
+        # (its agent self-detects), never a bash exec: script, plus `reboot`
+        # when the rollout is reboot-flagged (Windows agents never auto-reboot).
+        devs = api.load(api.DEVICES_FILE)
+        devs['d1']['os'] = 'Windows 11 (Build 22631)'
+        api.save(api.DEVICES_FILE, devs)
+        api._autopatch_queue({
+            'id': 'pw', 'name': 'pw', 'reboot': True, 'auto_promote': False,
+            'rings': [{'name': 'r1', 'selector': {'type': 'tag', 'value': 'canary'}}],
+            'health_gate': {'enabled': False, 'threshold': 70}, 'verify_minutes': 15,
+        }, 'tester')
+        roll = self._rolls()[0]
+        cmds = {}
+        api._rollout_dispatch_ring(roll, 0, api.load(api.DEVICES_FILE), cmds)
+        self.assertIn('upgrade', cmds['d1'])
+        self.assertIn('reboot', cmds['d1'])
+        self.assertFalse(any(c.startswith('exec:') for c in cmds['d1']),
+                         'a Windows host must never be sent a bash exec: script')
 
 
 class TestWiring(unittest.TestCase):
@@ -130,8 +156,10 @@ class TestWiring(unittest.TestCase):
         self.assertIn('autopatch-rings', html)
 
     def test_dispatch_reboot_branch_in_source(self):
+        # v6.1.3: dispatch is OS-aware — the reboot command is chosen per device.
         src = (_CGI / 'provisioning_handlers.py').read_text()
-        self.assertIn("_SCHED_UPGRADE_REBOOT_CMD}' if roll.get('reboot')", src)
+        self.assertIn("_device_os_family(dev)", src)          # OS branch present
+        self.assertIn("_SCHED_UPGRADE_REBOOT_CMD}' if reboot", src)  # linux reboot path
 
 
 if __name__ == '__main__':
