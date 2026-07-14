@@ -27274,35 +27274,68 @@ if (-not $Token) {
   Write-Host 'This install link has no enrollment token. Use "Add device -> Quick install" to get a fresh one.' -ForegroundColor Red
   return
 }
-function Install-PythonIfMissing {
-  if (Get-Command python -ErrorAction SilentlyContinue) { return }
-  Write-Host 'Python not found - installing it automatically ...'
-  $refresh = {
-    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
-                [Environment]::GetEnvironmentVariable('Path','User')
+# A machine-wide python the SYSTEM service can launch. The Microsoft Store /
+# "App Execution Alias" python (under ...\AppData\Local\Microsoft\WindowsApps\)
+# and any per-user install (under C:\Users\...) are NOT usable: the scheduled
+# task runs as SYSTEM and cannot access another profile, so registering the task
+# with such a path fails at boot with 0x80070780 (ERROR_CANT_ACCESS_FILE) and
+# the agent never runs. This is exactly the trap `Get-Command python` falls into
+# — it happily returns the WindowsApps alias — so we do NOT trust it.
+function Test-SystemUsablePython($p) {
+  if (-not $p) { return $false }
+  if ($p -match '\\WindowsApps\\') { return $false }        # Store app-exec alias
+  if ($p -match '(?i)\\Users\\') { return $false }          # any per-user profile
+  return (Test-Path -LiteralPath $p)
+}
+function Get-MachinePython {
+  # Return a machine-wide python.exe SYSTEM can launch, or $null. Scans the
+  # install roots directly rather than PATH (which surfaces the alias first).
+  $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ }
+  foreach ($r in $roots) {
+    $hits = Get-ChildItem -Path (Join-Path $r 'Python3*\python.exe') -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending
+    foreach ($h in $hits) { if (Test-SystemUsablePython $h.FullName) { return $h.FullName } }
   }
+  # The py launcher installs to C:\Windows (machine-wide, SYSTEM-accessible).
+  $pyl = Join-Path $env:SystemRoot 'py.exe'
+  if (Test-Path -LiteralPath $pyl) {
+    try {
+      $p = (& $pyl -3 -c "import sys;print(sys.executable)" 2>$null)
+      if (Test-SystemUsablePython $p) { return $p }
+    } catch {}
+  }
+  return $null
+}
+function Install-PythonIfMissing {
+  if (Get-MachinePython) { return }
+  Write-Host 'A machine-wide Python is required (a per-user or Microsoft Store Python cannot be run by the SYSTEM service) - installing it automatically ...'
   if (Get-Command winget -ErrorAction SilentlyContinue) {
     try {
       & winget install -e --id Python.Python.3.12 --silent --scope machine `
         --accept-source-agreements --accept-package-agreements | Out-Null
     } catch {}
-    & $refresh
-    if (Get-Command python -ErrorAction SilentlyContinue) { Write-Host 'Python installed (winget).' -ForegroundColor Green; return }
+    if (Get-MachinePython) { Write-Host 'Python installed (winget, all-users).' -ForegroundColor Green; return }
   }
   $ver = '3.12.7'
-  $exe = Join-Path $env:TEMP "python-$ver-amd64.exe"
+  $dl  = Join-Path $env:TEMP "python-$ver-amd64.exe"
   Write-Host "Downloading Python $ver ..."
-  Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe" -OutFile $exe -UseBasicParsing
-  Start-Process -FilePath $exe -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_pip=1' -Wait
-  Remove-Item $exe -Force -ErrorAction SilentlyContinue
-  & $refresh
-  if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host 'Automatic Python install failed. Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH") and re-run.' -ForegroundColor Red
+  Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe" -OutFile $dl -UseBasicParsing
+  Start-Process -FilePath $dl -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_pip=1' -Wait
+  Remove-Item $dl -Force -ErrorAction SilentlyContinue
+  if (-not (Get-MachinePython)) {
+    Write-Host 'Automatic Python install failed. Install it from https://www.python.org/downloads/ (choose "Install for all users") and re-run.' -ForegroundColor Red
     exit 1
   }
-  Write-Host 'Python installed.' -ForegroundColor Green
+  Write-Host 'Python installed (all-users).' -ForegroundColor Green
 }
 Install-PythonIfMissing
+
+# Resolve the machine python (and its windowless twin) up front — enroll, pip,
+# AND the SYSTEM task all use THIS interpreter, so psutil lands where the service
+# will look for it and the task launches a path SYSTEM can actually reach.
+$python = Get-MachinePython
+$pythonw = Join-Path (Split-Path -Parent $python) 'pythonw.exe'
+if (-not (Test-Path -LiteralPath $pythonw)) { $pythonw = $python }
 
 $installDir = Join-Path $env:ProgramFiles 'RemotePower'
 $dataDir    = Join-Path $env:ProgramData 'RemotePower'
@@ -27323,15 +27356,19 @@ if ($want) {
   Write-Host 'Agent checksum verified.' -ForegroundColor Green
 }
 
-try { & python -m pip install --quiet --disable-pip-version-check psutil } catch {
+try { & $python -m pip install --quiet --disable-pip-version-check psutil } catch {
   Write-Warning 'psutil install failed - the agent will report a reduced metric set.'
 }
 
-& python $agent --enroll --server $Server --token $Token --name $env:COMPUTERNAME
+& $python $agent --enroll --server $Server --token $Token --name $env:COMPUTERNAME
 if ($LASTEXITCODE -ne 0) { Write-Host 'Enrollment failed.' -ForegroundColor Red; return }
 
-$pyw = Get-Command pythonw -ErrorAction SilentlyContinue
-$exe = if ($pyw) { $pyw.Source } else { (Get-Command python).Source }
+# Final guard: never register a SYSTEM task with a path SYSTEM can't launch.
+if (-not (Test-SystemUsablePython $pythonw)) {
+  Write-Host "Refusing to register the service: '$pythonw' is a per-user or Store Python that the SYSTEM account cannot launch. Install a machine-wide Python (all users) and re-run." -ForegroundColor Red
+  exit 1
+}
+$exe = $pythonw
 $action  = New-ScheduledTaskAction -Execute $exe -Argument "`"$agent`" --run"
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest

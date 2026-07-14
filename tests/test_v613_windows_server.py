@@ -170,6 +170,30 @@ class TestWindowsOneLineInstaller(unittest.TestCase):
         self.assertIn("Python.Python.3.12", ps)          # winget path
         self.assertIn("python.org/ftp/python", ps)       # fallback path
 
+    def test_scheduled_task_uses_a_system_launchable_python(self):
+        # REGRESSION: the installer used `(Get-Command pythonw).Source`, which on
+        # a box whose only python is the Microsoft Store / App-Execution-Alias
+        # resolves to C:\Users\<u>\AppData\Local\Microsoft\WindowsApps\pythonw.exe
+        # — a PER-USER path the SYSTEM scheduled task cannot launch (fails at boot
+        # with 0x80070780, agent never runs). The task must be registered from a
+        # machine-wide python the SYSTEM account can reach.
+        ps = self.api._render_win_install({"HTTP_HOST": "h", "QUERY_STRING": ""})
+        # It resolves a machine python and rejects per-user / Store paths.
+        self.assertIn("Get-MachinePython", ps)
+        self.assertIn("Test-SystemUsablePython", ps)
+        self.assertIn("WindowsApps", ps)                 # the alias is explicitly rejected
+        self.assertIn("Users", ps)                       # any per-user profile rejected
+        # It must NOT bake the PATH-resolved alias straight into the task action.
+        self.assertNotIn("$pyw = Get-Command pythonw", ps)
+        self.assertNotIn("(Get-Command pythonw).Source", ps)
+        # The task action + pip + enroll all use the resolved machine interpreter.
+        self.assertIn("$exe = $pythonw", ps)
+        self.assertIn("New-ScheduledTaskAction -Execute $exe", ps)
+        self.assertIn("& $python -m pip install", ps)    # psutil into the machine python
+        self.assertIn("& $python $agent --enroll", ps)
+        # And it refuses to register a SYSTEM task with a path SYSTEM can't launch.
+        self.assertIn("Refusing to register the service", ps)
+
     def test_route_is_auth_exempt(self):
         self.assertIn("/api/agent/win/install", self.api._IP_ALLOWLIST_EXEMPT_PATHS)
         self.assertTrue(hasattr(self.api, "handle_win_install"))
