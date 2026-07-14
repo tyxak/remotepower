@@ -37,6 +37,8 @@ class TestWindowsService(unittest.TestCase):
 
         class _Res:
             returncode = 0
+            stdout = 'RUNNING'   # so _service_running() reports success
+            stderr = ''
         orig = agent.subprocess.run
         agent.subprocess.run = lambda argv, **kw: (calls.append([str(a) for a in argv]), _Res())[1]
         self.addCleanup(lambda: setattr(agent.subprocess, 'run', orig))

@@ -2357,10 +2357,14 @@ def _install_service():
     """Register + start the agent as a LocalSystem service with auto-start and
     SCM auto-restart on failure. Uses sc.exe (present on every Windows) for the
     registration; the service PROCESS speaks the SCM protocol via pywin32 in the
-    --service-run path. Returns rc."""
+    --service-run path. Prints operator-facing progress (this is a CLI command)
+    and returns rc."""
+    _init_logging()
     if not _pywin32_available():
-        log.error('pywin32 is not installed - cannot run as a service '
-                  '(pip install pywin32). Falling back to the scheduled task.')
+        msg = ('pywin32 is not installed - cannot run as a service '
+               '(run: python -m pip install pywin32).')
+        log.error(msg)
+        print(msg, file=sys.stderr)
         return 1
     # Prefer the windowless interpreter so the service never flashes a console.
     exe = sys.executable or 'python.exe'
@@ -2370,30 +2374,59 @@ def _install_service():
     script = os.path.abspath(__file__)
     bin_path = f'"{exe}" "{script}" --service-run'
     sc = _system_bin('sc')
+
+    def _sc(*args, timeout=30):
+        return subprocess.run([sc, *args], capture_output=True, text=True,
+                              timeout=timeout,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     try:
+        # Clean slate: a stale/broken registration would make `create` fail.
+        _sc('stop', SVC_NAME)
+        _sc('delete', SVC_NAME)
         # `binPath= ` etc. REQUIRE the trailing space before the value (sc.exe
         # quirk); pass each as a single token so subprocess keeps them intact.
-        subprocess.run([sc, 'create', SVC_NAME, f'binPath= {bin_path}',
-                        'start= auto', 'obj= LocalSystem', f'DisplayName= {SVC_DISPLAY}'],
-                       capture_output=True, timeout=30,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        subprocess.run([sc, 'description', SVC_NAME, SVC_DESC],
-                       capture_output=True, timeout=15,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        # Auto-restart: on any unexpected termination, wait 5s and restart; reset
+        cr = _sc('create', SVC_NAME, f'binPath= {bin_path}',
+                 'start= auto', 'obj= LocalSystem', f'DisplayName= {SVC_DISPLAY}')
+        if cr.returncode != 0:
+            msg = f'service registration failed: {(cr.stdout or cr.stderr or "").strip()}'
+            log.error(msg)
+            print(msg, file=sys.stderr)
+            return 1
+        _sc('description', SVC_NAME, SVC_DESC, timeout=15)
+        # Auto-restart on any unexpected termination: wait 5s and restart; reset
         # the failure counter after a day of health.
-        subprocess.run([sc, 'failure', SVC_NAME, 'reset= 86400',
-                        'actions= restart/5000/restart/5000/restart/5000'],
-                       capture_output=True, timeout=15,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        subprocess.run([sc, 'start', SVC_NAME],
-                       capture_output=True, timeout=30,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        _sc('failure', SVC_NAME, 'reset= 86400',
+            'actions= restart/5000/restart/5000/restart/5000', timeout=15)
+        st = _sc('start', SVC_NAME)
     except Exception as e:
         log.error(f'service install failed: {e}')
+        print(f'service install failed: {e}', file=sys.stderr)
         return 1
-    log.info('RemotePowerAgent service installed and started')
-    return 0
+    running = _service_running()
+    if running:
+        print('RemotePower service installed and RUNNING (visible in services.msc '
+              'as "RemotePower Agent").')
+        log.info('service installed and started')
+        return 0
+    detail = (st.stdout or st.stderr or '').strip()
+    msg = ('RemotePower service was registered but did not reach RUNNING. '
+           f'sc start said: {detail or "(no output)"}. If this mentions error 1053/'
+           'pywin32, run: python "<Python>\\Scripts\\pywin32_postinstall.py" -install '
+           'then re-run --install-service.')
+    log.error(msg)
+    print(msg, file=sys.stderr)
+    return 1
+
+
+def _service_running():
+    """True if the service is registered AND in the RUNNING state."""
+    try:
+        r = subprocess.run([_system_bin('sc'), 'query', SVC_NAME],
+                           capture_output=True, text=True, timeout=15,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return r.returncode == 0 and 'RUNNING' in (r.stdout or '')
+    except Exception:
+        return False
 
 
 def _uninstall_service():
@@ -2404,6 +2437,7 @@ def _uninstall_service():
                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         except Exception:
             pass
+    print('RemotePower service stopped and removed (if it was present).')
     return 0
 
 
