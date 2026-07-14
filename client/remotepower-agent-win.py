@@ -2383,10 +2383,13 @@ def _install_service():
         # Clean slate: a stale/broken registration would make `create` fail.
         _sc('stop', SVC_NAME)
         _sc('delete', SVC_NAME)
-        # `binPath= ` etc. REQUIRE the trailing space before the value (sc.exe
-        # quirk); pass each as a single token so subprocess keeps them intact.
-        cr = _sc('create', SVC_NAME, f'binPath= {bin_path}',
-                 'start= auto', 'obj= LocalSystem', f'DisplayName= {SVC_DISPLAY}')
+        # sc.exe wants each option as `key=` followed by its value as a SEPARATE
+        # token (`binPath= <value>`). Passing "binPath= <value>" as ONE argv token
+        # makes Windows subprocess quoting mangle the nested quotes in the value
+        # (the path + "--service-run"), so `create` silently failed. Keep the
+        # `key=` and the value as distinct list elements.
+        cr = _sc('create', SVC_NAME, 'binPath=', bin_path,
+                 'start=', 'auto', 'obj=', 'LocalSystem', 'DisplayName=', SVC_DISPLAY)
         if cr.returncode != 0:
             msg = f'service registration failed: {(cr.stdout or cr.stderr or "").strip()}'
             log.error(msg)
@@ -2395,8 +2398,8 @@ def _install_service():
         _sc('description', SVC_NAME, SVC_DESC, timeout=15)
         # Auto-restart on any unexpected termination: wait 5s and restart; reset
         # the failure counter after a day of health.
-        _sc('failure', SVC_NAME, 'reset= 86400',
-            'actions= restart/5000/restart/5000/restart/5000', timeout=15)
+        _sc('failure', SVC_NAME, 'reset=', '86400',
+            'actions=', 'restart/5000/restart/5000/restart/5000', timeout=15)
         st = _sc('start', SVC_NAME)
     except Exception as e:
         log.error(f'service install failed: {e}')
