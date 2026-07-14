@@ -220,11 +220,24 @@ def save_creds(creds):
     # so any non-admin user could read the token and impersonate this host.
     # Strip inheritance and grant only SYSTEM + Administrators. Best-effort
     # (icacls ships with Windows).
-    def _harden_acl(path):
+    #
+    # v6.1.3 (BUG): two things made this lock the file out of even SYSTEM — the
+    # account the agent's own service runs as — so `--run` read no creds and
+    # logged "not enrolled" forever:
+    #   1. `(OI)(CI)` are DIRECTORY-only inheritance flags. icacls REJECTS them on
+    #      a file ("The parameter is incorrect"), so the file's /grant failed and,
+    #      after /inheritance:r had already stripped inherited access, the file was
+    #      readable by nobody. Files get plain `F`, only directories get (OI)(CI)F.
+    #   2. Localized account NAMES ("SYSTEM"/"Administrators") don't resolve on a
+    #      non-English Windows, failing the grant the same way. Use locale-proof
+    #      SIDs: S-1-5-18 = LocalSystem, S-1-5-32-544 = BUILTIN\Administrators.
+    def _harden_acl(path, is_dir):
+        perm = '(OI)(CI)F' if is_dir else 'F'
         try:
             subprocess.run(
                 [_system_bin('icacls'), path, '/inheritance:r',
-                 '/grant:r', 'SYSTEM:(OI)(CI)F', '/grant:r', 'Administrators:(OI)(CI)F'],
+                 '/grant:r', f'*S-1-5-18:{perm}',
+                 '/grant:r', f'*S-1-5-32-544:{perm}'],
                 capture_output=True, timeout=15,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         except Exception:
@@ -233,12 +246,12 @@ def save_creds(creds):
     # v4.8.0 (SECURITY): lock the data dir down BEFORE the first token write so
     # the creds file inherits the restricted ACL from creation — closes the
     # window where the freshly-written token briefly carried Users-readable ACLs.
-    _harden_acl(d)
+    _harden_acl(d, is_dir=True)
     tmp = _creds_path() + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(creds, f)
     os.replace(tmp, _creds_path())
-    _harden_acl(_creds_path())
+    _harden_acl(_creds_path(), is_dir=False)
 
 
 # ─── host facts ────────────────────────────────────────────────────────────--
@@ -2295,7 +2308,7 @@ def run():
     while True:
         creds = load_creds()
         if not creds.get('device_id'):
-            log.error('not enrolled — run with --enroll first')
+            log.error('not enrolled - run with --enroll first')
             return 1
         poll_count += 1
         try:

@@ -270,6 +270,40 @@ class TestCredsAndCommands(unittest.TestCase):
         agent.handle_command('poll_interval:99999')
         self.assertLessEqual(agent.load_creds()['poll_interval'], 3600)
 
+    def test_creds_acl_is_system_readable_and_file_flags_are_valid(self):
+        # REGRESSION: save_creds hardened the creds file with `(OI)(CI)F` — a
+        # DIRECTORY-only inheritance flag that icacls rejects on a FILE — and with
+        # localized account NAMES. Both failure modes left agent.json unreadable
+        # by the SYSTEM service account, so `--run` logged "not enrolled" forever.
+        # The file must get plain `F`, the dir `(OI)(CI)F`, both via locale-proof
+        # SIDs (S-1-5-18 = LocalSystem, S-1-5-32-544 = Administrators).
+        calls = []
+
+        class _Res:
+            returncode = 0
+        orig = agent.subprocess.run
+        agent.subprocess.run = lambda argv, **kw: (calls.append(list(argv)), _Res())[1]
+        try:
+            agent.save_creds({'device_id': 'd1', 'token': 't'})
+        finally:
+            agent.subprocess.run = orig
+
+        icacls = [c for c in calls if any('icacls' in str(a) for a in c)]
+        self.assertTrue(icacls, 'save_creds did not invoke icacls to harden the ACL')
+        for argv in icacls:
+            joined = ' '.join(argv)
+            # Locale-proof SIDs, never localized names.
+            self.assertIn('*S-1-5-18:', joined)          # LocalSystem
+            self.assertIn('*S-1-5-32-544:', joined)      # Administrators
+            self.assertNotIn('SYSTEM:', joined)
+            self.assertNotIn('Administrators:', joined)
+        # The agent.json FILE grant must be plain F, not the directory-only (OI)(CI).
+        file_calls = [c for c in icacls if any(str(a).endswith('agent.json') for a in c)]
+        self.assertTrue(file_calls, 'the creds FILE was never ACL-hardened')
+        for argv in file_calls:
+            self.assertNotIn('(OI)(CI)', ' '.join(argv))
+            self.assertIn('*S-1-5-18:F', argv)
+
     def test_enroll_sends_contract_fields_and_saves(self):
         captured = {}
 
