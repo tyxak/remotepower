@@ -32,7 +32,7 @@ wget -qO- "https://your-server/install?t=<token>" | sudo sh
 ```
 
 ```powershell
-# Windows — in an elevated PowerShell (needs Python 3.8+)
+# Windows — in an elevated PowerShell (installs Python automatically if missing)
 powershell -ExecutionPolicy Bypass -Command "iwr 'https://your-server/install.ps1?t=<token>' -UseBasicParsing | iex"
 ```
 

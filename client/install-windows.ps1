@@ -63,10 +63,34 @@ Assert-Admin
 if (-not $Server) { throw 'Provide -Server https://<your-remotepower>' }
 if (-not $Pin -and -not $Token) { throw 'Provide -Token (from "Add device") or -Pin' }
 
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) {
-  throw 'Python 3.8+ not found on PATH. Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH") and re-run.'
+function Install-PythonIfMissing {
+  if (Get-Command python -ErrorAction SilentlyContinue) { return }
+  Write-Host 'Python not found - installing it automatically ...'
+  $refresh = {
+    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path','User')
+  }
+  if (Get-Command winget -ErrorAction SilentlyContinue) {
+    try {
+      & winget install -e --id Python.Python.3.12 --silent --scope machine `
+        --accept-source-agreements --accept-package-agreements | Out-Null
+    } catch {}
+    & $refresh
+    if (Get-Command python -ErrorAction SilentlyContinue) { Write-Host 'Python installed (winget).' -ForegroundColor Green; return }
+  }
+  $ver = '3.12.7'
+  $exe = Join-Path $env:TEMP "python-$ver-amd64.exe"
+  Write-Host "Downloading Python $ver ..."
+  Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe" -OutFile $exe -UseBasicParsing
+  Start-Process -FilePath $exe -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_pip=1' -Wait
+  Remove-Item $exe -Force -ErrorAction SilentlyContinue
+  & $refresh
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    throw 'Automatic Python install failed. Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH") and re-run.'
+  }
+  Write-Host 'Python installed.' -ForegroundColor Green
 }
+Install-PythonIfMissing
 
 New-Item -ItemType Directory -Force -Path $installDir, $dataDir | Out-Null
 

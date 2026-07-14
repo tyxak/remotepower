@@ -19,8 +19,9 @@ powershell -ExecutionPolicy Bypass -Command "iwr 'https://rp.example.com/install
 
 It downloads the agent from the server, **verifies its SHA-256**, best-effort
 installs `psutil`, enrolls, and registers the `RemotePowerAgent` scheduled task
-(runs `--run` at startup as SYSTEM). Needs Python 3.8+ on PATH. Self-checks for
-elevation and Python with clear messages if either is missing.
+(runs `--run` at startup as SYSTEM). **Python is installed automatically if it's
+missing** — via `winget` on modern Windows, else the official python.org silent
+installer — so the one-liner works on a bare box. Self-checks for elevation.
 
 ### Scripted / offline
 

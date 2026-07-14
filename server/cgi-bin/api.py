@@ -27235,12 +27235,35 @@ if (-not $Token) {
   Write-Host 'This install link has no enrollment token. Use "Add device -> Quick install" to get a fresh one.' -ForegroundColor Red
   return
 }
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) {
-  Write-Host 'Python 3.8+ was not found on PATH.' -ForegroundColor Red
-  Write-Host 'Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH"), then paste the command again.'
-  return
+function Install-PythonIfMissing {
+  if (Get-Command python -ErrorAction SilentlyContinue) { return }
+  Write-Host 'Python not found - installing it automatically ...'
+  $refresh = {
+    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path','User')
+  }
+  if (Get-Command winget -ErrorAction SilentlyContinue) {
+    try {
+      & winget install -e --id Python.Python.3.12 --silent --scope machine `
+        --accept-source-agreements --accept-package-agreements | Out-Null
+    } catch {}
+    & $refresh
+    if (Get-Command python -ErrorAction SilentlyContinue) { Write-Host 'Python installed (winget).' -ForegroundColor Green; return }
+  }
+  $ver = '3.12.7'
+  $exe = Join-Path $env:TEMP "python-$ver-amd64.exe"
+  Write-Host "Downloading Python $ver ..."
+  Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe" -OutFile $exe -UseBasicParsing
+  Start-Process -FilePath $exe -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_pip=1' -Wait
+  Remove-Item $exe -Force -ErrorAction SilentlyContinue
+  & $refresh
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host 'Automatic Python install failed. Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH") and re-run.' -ForegroundColor Red
+    exit 1
+  }
+  Write-Host 'Python installed.' -ForegroundColor Green
 }
+Install-PythonIfMissing
 
 $installDir = Join-Path $env:ProgramFiles 'RemotePower'
 $dataDir    = Join-Path $env:ProgramData 'RemotePower'

@@ -15,10 +15,12 @@ the most universal ops question there is, and a second opinion on your hardware.
   elevated-PowerShell line (`iwr <server>/install.ps1?t=<token> | iex`) that
   downloads the agent from the server, **verifies its SHA-256**, installs Python's
   psutil, enrols with the baked one-time token, and registers the scheduled task —
-  nothing else to configure. The served installer self-checks for elevation and
-  Python with human error messages. The standalone `install-windows.ps1` gained an
-  elevation check, self-download-from-server (so it works without the agent file
-  beside it), and `-Uninstall`.
+  nothing else to configure. The served installer self-checks for elevation, and
+  **installs Python automatically if it's missing** (winget on modern Windows,
+  else the official python.org silent installer) — so the one-liner works on a
+  bare box with no manual prerequisite. The standalone `install-windows.ps1`
+  gained the same auto-Python, an elevation check, self-download-from-server (so it
+  works without the agent file beside it), and `-Uninstall`.
 - **A simple "is the database up?" check that works on both Linux and Windows.**
   New cross-platform catalog entries (Postgres / MySQL / SQL Server / Redis /
   MongoDB / Oracle) — port-based, so one check covers a database on either OS,

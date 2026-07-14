@@ -162,6 +162,14 @@ class TestWindowsOneLineInstaller(unittest.TestCase):
         ps = self.api._render_win_install({"HTTP_HOST": "h", "QUERY_STRING": ""})
         self.assertIn("Administrator", ps)
 
+    def test_installs_python_if_missing(self):
+        # A bare Windows box (no Python) must not dead-end the one-liner — the
+        # installer installs Python (winget, else the official silent installer).
+        ps = self.api._render_win_install({"HTTP_HOST": "h", "QUERY_STRING": ""})
+        self.assertIn("Install-PythonIfMissing", ps)
+        self.assertIn("Python.Python.3.12", ps)          # winget path
+        self.assertIn("python.org/ftp/python", ps)       # fallback path
+
     def test_route_is_auth_exempt(self):
         self.assertIn("/api/agent/win/install", self.api._IP_ALLOWLIST_EXEMPT_PATHS)
         self.assertTrue(hasattr(self.api, "handle_win_install"))
