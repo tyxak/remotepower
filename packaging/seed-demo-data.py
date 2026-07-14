@@ -79,6 +79,8 @@ def _guard_demo_target(target, override=False):
     except Exception:
         resolved = str(target)
 
+    prod_path = resolved in PROTECTED_DATA_DIRS
+
     # 2. Real accounts present → always block, even with override or a marker.
     # A never-used default admin (must_change_password=True) does NOT count:
     # the app auto-creates exactly that the first time the demo vhost serves a
@@ -86,7 +88,14 @@ def _guard_demo_target(target, override=False):
     # instance un-seedable. A *real* admin (password changed, so no
     # must_change_password flag) still blocks — that's the production guard.
     users = target / 'users.json'
-    if users.exists():
+    # Path.exists() itself can raise PermissionError (Python 3.12+) when the
+    # target is a real, restrictive install dir (mode 0700 owned by another
+    # user) that we can't even stat — so guard the stat, not just the read.
+    try:
+        users_exist = users.exists()
+    except OSError:
+        users_exist = None
+    if users_exist:
         try:
             udata = json.loads(users.read_text() or '{}')
             real = sorted(
@@ -102,12 +111,17 @@ def _guard_demo_target(target, override=False):
         except (ValueError, OSError):
             return (False, f"{users} exists but is unreadable — refusing to "
                            f"risk overwriting a real data dir.")
+    elif users_exist is None and not prod_path:
+        # Can't even stat the dir (inaccessible real install), and it isn't a
+        # known production path we can name — refuse rather than crash or risk it.
+        return (False, f"{users} is present but not accessible — refusing to "
+                       f"risk overwriting a real data dir.")
 
     if override:
         return (True, 'override')
 
     # 1. Canonical production path.
-    if resolved in PROTECTED_DATA_DIRS:
+    if prod_path:
         return (False,
                 f"{resolved} is the production data dir. Seed the demo dir "
                 f"instead (default {DEFAULT_DATA_DIR}), or pass --data-dir.")

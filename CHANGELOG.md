@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.2.0 — "Daem0nMatters" — unreleased (test)
+## v6.2.0 — "Daem0nMatters" — 2026-07-14
 
 Closing named gaps against comparable RMM products, built on signals RemotePower
 was *already collecting* but never acting on. Three new tripwires, an answer to
@@ -461,7 +461,7 @@ of that gap, and fixes two real bugs found on the way.
   URI and copies the `mstsc /v:<host>` command. The full in-app RDP tunnel remains
   on the device drawer.
 
-## v6.1.2 — "AfterglowMatters" — unreleased (test)
+## v6.1.2 — "AfterglowMatters" — folded into v6.2.0 (no standalone release)
 
 A correctness-and-fit release: three reported bugs (two of which made a shipped
 feature simply not work), a set of frontend defects found in a full sweep of the
