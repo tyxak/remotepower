@@ -27,6 +27,43 @@ class TestVersion(unittest.TestCase):
         self.assertIn(f"VERSION = '{agent.VERSION}'", api_txt.replace('SERVER_', ''))
 
 
+class TestEnrollErrorUX(unittest.TestCase):
+    """A bad PIN/token at enroll must give a READABLE error, not a raw Python
+    traceback (which is what a live operator hit: HTTP 400 from passing a 6-digit
+    PIN to --token surfaced as a urllib stack trace)."""
+
+    def test_six_digit_token_is_caught_as_a_pin_hint(self):
+        import io
+        import contextlib
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = agent.main(['--enroll', '--server', 'https://h', '--token', '356177'])
+        self.assertEqual(rc, 2)                      # refused before any network call
+        self.assertIn('PIN', err.getvalue())
+        self.assertIn('--pin', err.getvalue())
+
+    def test_post_json_surfaces_server_error_message(self):
+        # _post_json must turn a 4xx into a RuntimeError carrying the server's
+        # {"error": "..."} text, not let the raw HTTPError traceback escape.
+        import io
+        import urllib.error
+
+        class _Opener:
+            def open(self, req, timeout=None):
+                raise urllib.error.HTTPError(
+                    req.full_url, 400, 'BAD REQUEST', {},
+                    io.BytesIO(json.dumps({'error': 'Invalid enrollment token format'}).encode()))
+
+        orig = agent._OPENER
+        agent._OPENER = _Opener()
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                agent._post_json('https://h/api/enroll/register', {'x': 1})
+            self.assertIn('Invalid enrollment token format', str(ctx.exception))
+        finally:
+            agent._OPENER = orig
+
+
 class TestCommandMapping(unittest.TestCase):
     def test_reboot_shutdown(self):
         self.assertEqual(agent.command_argv('reboot')[:3], ['shutdown', '/r', '/t'])

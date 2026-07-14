@@ -25,6 +25,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 
 VERSION = '6.1.3'
 DEFAULT_POLL = 60
@@ -637,8 +638,19 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
     req = urllib.request.Request(url, data=data, method='POST',
                                  headers={'Content-Type': 'application/json',
                                           'User-Agent': f'RemotePower-Mac/{VERSION}'})
-    with _OPENER.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode('utf-8'))
+    try:
+        with _OPENER.open(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        # Surface the server's JSON {"error": "..."} instead of a raw HTTPError
+        # traceback — enrollment 400/403s are operator-actionable.
+        detail = ''
+        try:
+            detail = (json.loads(e.read().decode('utf-8')) or {}).get('error', '')
+        except Exception:
+            pass
+        raise RuntimeError(f'server returned HTTP {e.code}'
+                           + (f': {detail}' if detail else '')) from None
 
 
 def build_heartbeat(creds, poll_count, pending_output=None):
@@ -743,7 +755,15 @@ def main(argv=None):
     if a.enroll:
         if not a.server or not (a.pin or a.token):
             ap.error('--enroll needs --server and --pin (or --token)')
-        r = enroll(a.server, pin=a.pin, token=a.token, name=a.name)
+        if a.token and not a.pin and re.fullmatch(r'\d{6}', a.token.strip()):
+            print('That looks like a 6-digit PIN, not an enrollment token — '
+                  'use --pin instead of --token.', file=sys.stderr)
+            return 2
+        try:
+            r = enroll(a.server, pin=a.pin, token=a.token, name=a.name)
+        except Exception as e:
+            print(f'Enrollment failed: {e}', file=sys.stderr)
+            return 1
         print(f'enrolled: device_id={r["device_id"]}')
         return 0
     if a.once:
