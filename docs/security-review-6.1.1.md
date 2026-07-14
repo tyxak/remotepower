@@ -123,5 +123,5 @@ no-redirect HTTPS and reads host facts through its host-path shim.
 The durable, always-current security posture — architecture, controls, the SAST
 configuration and the triaged false-positive list — lives in
 [`security.md`](security.md). This file is the point-in-time record for v6.1.1;
-the previous passes are [`security-review-6.1.0.md`](security-review-6.1.0.md) and
-the earlier reviews, retained in `CHANGELOG.md` and the release history.
+the earlier passes are retained in [`security.md`](security.md), `CHANGELOG.md`
+and the release history.

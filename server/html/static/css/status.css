@@ -1,13 +1,13 @@
 /* Public status page — page-specific styles only; base theming/vars come
  * from styles.css. Minimal industrial aesthetic (graphite/steel). Type scale
- * stays canonical: 28px title, 16px section heading, 14px body, 12px hints. */
+ * stays canonical: 28px title, 16px section heading, 13.5px body, 12px hints. */
 
 body.status-page {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font, 'Inter', system-ui, sans-serif);
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -172,5 +172,5 @@ body.status-page {
   color: var(--muted);
 }
 .status-loading, .status-message { color: var(--muted); }
-.status-message { padding: 24px 0; font-size: 14px; }
+.status-message { padding: 24px 0; font-size: 13.5px; }
 .status-empty { color: var(--muted); padding: 14px 16px; font-size: 13px; }

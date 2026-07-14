@@ -115,7 +115,7 @@ class TestMaintenanceTargetName(unittest.TestCase):
     def test_maintenance_list_resolves_target_name(self):
         api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         m = re.search(
-            r'def handle_maintenance_list\(.*?\n(?:.*?\n){0,30}',
+            r'def handle_maintenance_list\(.*?\n(?:.*?\n){0,55}',
             api, re.DOTALL)
         self.assertIsNotNone(m, 'handle_maintenance_list missing')
         self.assertIn('target_name', m.group(0),

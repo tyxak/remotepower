@@ -92,4 +92,4 @@ chown -R www-data:www-data /var/lib/remotepower
 systemctl start remotepower-wsgi nginx
 ```
 
-If the backup was created on a host with a different `RP_PROXMOX_TOKEN_SECRET` environment variable, re-set Settings → Proxmox → token secret. Same for SMTP / LDAP bind passwords if they were redacted (they always are in `config.json` exports).
+If the backup was created on a host with a different `RP_PROXMOX_TOKEN_SECRET` environment variable, re-set Settings → Virtualization → token secret. Same for SMTP / LDAP bind passwords if they were redacted (they always are in `config.json` exports).

@@ -23,7 +23,7 @@ out, nothing else.
 
 The portal reuses two things you already have:
 
-1. **The ticket system** (Advanced → `tickets_enabled`) — tickets are grouped by
+1. **The ticket system** (Advanced → Tickets module) — tickets are grouped by
    **site**, which is how the portal knows which tickets belong to which customer.
 2. **The Contacts directory** — a contact is the person who gets portal access.
 

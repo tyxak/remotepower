@@ -167,11 +167,15 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.2.0 "Daem0nMatters"** — closing gaps using signals already collected but
-  never acted on: a privileged-group tripwire (sudo/wheel/Administrators), Windows
-  Defender AV posture (including real-time-protection-off), a USB physical-access
-  tripwire, a host-wide disk-usage explorer ("disk 94% — of *what*?"), and a
-  composite device-reliability prediction.
+- **v6.2.0 "Daem0nMatters"** — the agent now runs as a first-class **supervised
+  service on every OS** — a Windows service (services.msc, SCM auto-restart via
+  pywin32), launchd `KeepAlive` on macOS, systemd on Linux — with full
+  Windows-agent parity. Plus a wave of gap-closing that acts on signals already
+  collected but never surfaced: a privileged-group tripwire
+  (sudo/wheel/Administrators), Windows Defender AV posture (including
+  real-time-protection-off), a USB physical-access tripwire, a host-wide
+  disk-usage explorer ("disk 94% — of *what*?"), and a composite
+  device-reliability prediction.
 - **v6.1.2 "AfterglowMatters"** — a correctness-and-fit release: muting an alert
   now actually lifts the health score, the trivy image-CVE scan can finally be
   triggered, `POST /api/cve/scan` no longer 500s on Postgres, a sweep of frontend

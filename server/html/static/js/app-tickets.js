@@ -632,7 +632,7 @@ async function openTicketThread(tid) {
   const el = (tag, style, txt) => { const e = doc.createElement(tag); if (style) Object.assign(e.style, style); if (txt != null) e.textContent = txt; return e; };
   const b = doc.body;
   Object.assign(b.style, { margin: '0', background: '#eef0f3', color: '#16181d',
-    font: '14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' });
+    font: '13.5px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' });
   // Toolbar (hidden when printing).
   const bar = el('div', { position: 'sticky', top: '0', display: 'flex', gap: '8px',
     alignItems: 'center', padding: '10px 16px', background: '#1f2430', color: '#fff' });
@@ -671,7 +671,7 @@ async function openTicketThread(tid) {
     const head2 = el('div', { fontSize: '12px', color: '#5b626d', marginBottom: '6px', fontWeight: '600' },
       `${label} — ${who}${m.to ? ' → ' + m.to : ''} · ${when}`);
     card.appendChild(head2);
-    card.appendChild(el('div', { whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '14px' }, m.body || ''));
+    card.appendChild(el('div', { whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13.5px' }, m.body || ''));
     (m.attachments || []).forEach(a => {
       card.appendChild(el('div', { fontSize: '12px', color: '#3b5bdb', marginTop: '6px' },
         `Attachment: ${a.filename || 'file'} (${_fmtBytes(a.size)})`));

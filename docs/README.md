@@ -55,8 +55,15 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.1.2.md](security-review-6.1.2.md)** — Latest review: the
- v6.1.2 "AfterglowMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
+- **[security-review-6.2.0.md](security-review-6.2.0.md)** — Latest review: the
+ v6.2.0 "Daem0nMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
+ gitleaks clean) plus an authorization audit of the new attack surface (the
+ supervised-service installers, governed AI executor, PII scan, EDR coverage,
+ DNS-blocker control, JIT vault checkout) and a prompt-injection analysis of the AI
+ executor (which cannot author commands — it may only pick a saved catalog action
+ by exact id); no Critical/High/Medium ships.
+- **[security-review-6.1.2.md](security-review-6.1.2.md)** — the v6.1.2
+ "AfterglowMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
  gitleaks clean) plus undefined-name analysis on the agents and the property/fuzz
  suites; no Critical/High/Medium ships. Closed a username-validation guard that
  never executed, promoted a refused-agent-self-update tamper signal to the alert
@@ -69,16 +76,6 @@ holds long-form docs that don't fit there.
  alerts-isolation gap and two Mediums (a per-tenant badge-count cache collision, an
  integration credential in the diagnostics bundle) were closed, plus
  Low/defense-in-depth hardening.
-- **[security-review-6.1.0.md](security-review-6.1.0.md)** — the
- v6.1.0 "Runt1meMatters" enterprise-productization line (Postgres/gunicorn+Flask/
- scheduler/scanner as the single-node default, CGI/SCGI fully retired) plus the
- full SAST stack (CodeQL, Bandit, gitleaks, Semgrep — all clean) and a structured,
- independently-verified multi-agent code review of the whole diff — no Critical/
- High/Medium ships; six pre-release findings fixed (client-IP resolution broken by
- the new proxy_pass transport, a Postgres migration data-loss risk on independent
- volume resets, a default Postgres password shipped enabled-by-default, a Flask
- method-routing gap, and a response-capture proxy that could be silently defeated
- by stdout reassignment).
 
 ## Release notes
 
@@ -301,8 +298,9 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[rollouts.md](rollouts.md)** — Health-gated staged rollouts.
 - **[command-library.md](command-library.md)** — Saved commands and scripts.
 - **[app-catalog.md](app-catalog.md)** — One-click app deployment.
-- **[fleet-query.md](fleet-query.md)** — The Data explorer: predicate queries across
- devices, CVEs and drift; saved query templates.
+- **[fleet-query.md](fleet-query.md)** — Fleet Query (device-only ANDed conditions)
+ and the Data explorer (nested AND/OR across devices, CVEs and drift); saved query
+ templates.
 
 ### For contributors
 - **[testing-deep.md](testing-deep.md)** — Property-based and fuzz testing

@@ -217,6 +217,12 @@ of that gap, and fixes two real bugs found on the way.
 
 ### Added — visibility
 
+- **Windows security posture in the device drawer.** BitLocker volume status,
+  Windows Defender real-time protection and signature age, the Windows Firewall
+  per-profile state, and the Windows Update service now render as at-a-glance pills
+  in the drawer's System Info section (they already drove Checks rows and alerts;
+  this surfaces the raw signals per host). Null — and therefore hidden — on
+  non-Windows hosts.
 - **Host-wide disk-usage explorer.** "Disk 94% — of *what*?" Disk-fill
   forecasting has always been able to say *when* a mount fills up; nothing said
   what to delete. An opt-in, bounded `du` over configurable roots (never crossing
@@ -428,6 +434,32 @@ of that gap, and fixes two real bugs found on the way.
   amber. The one badge that must never be missable was the only one nobody could
   see. (Found while adding the EDR-coverage table, which reached for the same
   class.)
+
+### Fixed — reported (live)
+
+- **Auto-patch for a single device returned 400.** The policy form offers a
+  "Single device" target, but the server's target-type allowlist only accepted
+  `all | group | tag | site` — so a device-scoped policy was rejected even though
+  the resolver already handled it. `device` is now accepted on create and update.
+- **Auto-patch-generated maintenance windows were unusable.** The sync that
+  mirrors a policy into a maintenance window wrote a partial record with no `id`,
+  `reason` or `scope`, so it rendered as "(no reason)" / "undefined" and could be
+  neither edited nor deleted. It now writes a complete window (with a stable,
+  non-numeric `ap_<id>` id and the policy's target mapped to a real scope), and
+  `GET /api/maintenance` backfills any pre-existing window that was missing an id
+  so previously-stuck windows become deletable.
+- **A scheduled job could become undeletable.** Job ids are `token_hex`, so an id
+  that happened to read as scientific notation (e.g. `1e5…`) was coerced to
+  `Infinity` by the `data-arg` dispatcher, and the delete hit
+  `/api/schedule/Infinity` → 404. The schedule and maintenance delete buttons now
+  pass the raw id through `data-action-btn`/`data-id` (never number-coerced).
+
+### Added — control
+
+- **Quick RDP for Windows hosts.** The device table's quick-connect icon is now
+  RDP on Windows rows (mirroring quick-SSH on Linux) — it hands off an `rdp://`
+  URI and copies the `mstsc /v:<host>` command. The full in-app RDP tunnel remains
+  on the device drawer.
 
 ## v6.1.2 — "AfterglowMatters" — unreleased (test)
 

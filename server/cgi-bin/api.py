@@ -15476,9 +15476,29 @@ def _autopatch_sync(pol, remove=False):
             wins[:] = [w for w in wins
                        if not (isinstance(w, dict) and w.get('autopatch_id') == pid)]
             if active:
+                # Map the policy target to the maintenance-window scope vocabulary
+                # (device | group | global). tag/site/all all suppress fleet-wide.
+                _tgt = pol.get('target') or {}
+                _tt = _tgt.get('type', 'all')
+                if _tt == 'device':
+                    _scope, _target = 'device', str(_tgt.get('value', ''))
+                elif _tt == 'group':
+                    _scope, _target = 'group', str(_tgt.get('value', ''))
+                else:
+                    _scope, _target = 'global', ''
+                # A COMPLETE window (id/reason/scope/target/… — the same shape
+                # handle_maintenance_add writes) so it renders, edits and deletes
+                # like any other. The id is prefixed ('ap_') so it's non-numeric
+                # by construction and can't be coerced to a Number in the data-arg
+                # dispatcher (the Infinity-id class). Re-synced idempotently by pid.
                 wins.append({
-                    'name': f"Auto-patch: {pol.get('name', '')}"[:120],
+                    'id': 'ap_' + str(pid),
+                    'reason': (f"Auto-patch: {pol.get('name', '')}".strip())[:128],
+                    'scope': _scope, 'target': _target,
+                    'start': '', 'end': '',
                     'cron': pol['cron'], 'duration': 3600,
+                    'events': [], 'gate_exec': False,
+                    'created_by': 'auto-patch', 'created_at': int(time.time()),
                     'autopatch_id': pid, 'auto': True,
                 })
     except Exception as e:
@@ -15533,8 +15553,8 @@ def handle_autopatch_create():
     tval = _sanitize_str(str(target.get('value', '')), 64)
     if not name:
         respond(400, {'error': 'name required'})
-    if ttype not in ('all', 'group', 'tag', 'site'):
-        respond(400, {'error': 'target.type must be all|group|tag|site'})
+    if ttype not in ('all', 'device', 'group', 'tag', 'site'):
+        respond(400, {'error': 'target.type must be all|device|group|tag|site'})
     if ttype != 'all' and not tval:
         respond(400, {'error': 'target.value required for this target type'})
     if not cron or not _valid_cron(cron):
@@ -15593,7 +15613,7 @@ def handle_autopatch_update(pol_id):
     if 'target' in body and isinstance(body['target'], dict):
         tt = str(body['target'].get('type', 'all'))
         tv = _sanitize_str(str(body['target'].get('value', '')), 64)
-        if tt in ('all', 'group', 'tag', 'site'):
+        if tt in ('all', 'device', 'group', 'tag', 'site'):
             pol['target'] = {'type': tt, 'value': tv}
     # v5.8.0 (B1.3): rings + gate. Passing an empty list clears staged mode.
     if 'rings' in body:
@@ -58081,10 +58101,32 @@ def log_suppression(event, payload, info):
 def handle_maintenance_list():
     """GET /api/maintenance — list all defined windows + currently active ones."""
     require_auth()
-    maint = load(MAINT_FILE)
-    windows = maint.get('windows') or []
     now = int(time.time())
     devices = load(DEVICES_FILE)
+    windows = (load(MAINT_FILE) or {}).get('windows') or []
+    # One-time repair (v6.2.0): windows created before the auto-patch sync wrote a
+    # full record (or any window persisted without an id/scope) rendered "(no
+    # reason)"/"undefined" and could not be deleted. Backfill a stable, NON-numeric
+    # id (so it can't be coerced to Infinity in the data-arg dispatcher) + a sane
+    # scope. Take the write lock only when a window actually needs it — never on
+    # the steady-state GET.
+    if any(isinstance(w, dict) and (not w.get('id') or not w.get('scope')) for w in windows):
+        try:
+            with _LockedUpdate(MAINT_FILE) as mw:
+                for w in (mw.get('windows') or []):
+                    if not isinstance(w, dict):
+                        continue
+                    if not w.get('id'):
+                        w['id'] = ('ap_' + str(w['autopatch_id'])) if w.get('autopatch_id') \
+                            else ('mw_' + secrets.token_hex(6))
+                    if not w.get('scope'):
+                        w['scope'] = 'global'
+                    if not w.get('reason') and w.get('name'):
+                        w['reason'] = w['name']
+            _invalidate_load_cache(MAINT_FILE)
+            windows = (load(MAINT_FILE) or {}).get('windows') or []
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] maint window id backfill: {e}\n')
     out = []
     for w in windows:
         entry = {**w, 'active': _window_active(w, now)}

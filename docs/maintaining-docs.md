@@ -16,9 +16,11 @@ effectively invisible, and a half-updated set of docs is worse than none.
 4. **"Did you know?" tips** — the `_DYK_TIPS` array in
    `server/html/static/js/app.js`. Add a one-line, capability-style tip for any
    feature a user would want to discover.
-5. **Full feature inventory** — `docs/features.md`. The detailed, grouped list
-   (a per-version section) that README's "Full feature inventory" link points
-   to; this is where a feature gets its longer write-up.
+5. **Full feature inventory** — `docs/features.md`. A tables-only reference
+   grouped by topic (Fleet visibility, Alerts, Commands, …) that README's "Full
+   feature inventory" link points to. A new feature gets **one row** in the
+   matching topical table — no per-version sections, no prose, no changelog
+   headers (that history lives in `CHANGELOG.md`).
 
 (The `CHANGELOG.md` entry is separate from these and should also be kept
 current.)

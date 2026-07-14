@@ -367,7 +367,7 @@ function renderNetmap() {
   const svg = document.getElementById('netmap-svg');
   if (!svg) return;
   if (!_netmapNodes.length) {
-    svg.innerHTML = '<text x="50%" y="50%" fill="currentColor" opacity="0.6" font-size="14" text-anchor="middle">No devices yet. Enroll an agent or add an agentless device.</text>';
+    svg.innerHTML = '<text x="50%" y="50%" fill="currentColor" opacity="0.6" font-size="13.5" text-anchor="middle">No devices yet. Enroll an agent or add an agentless device.</text>';
     return;
   }
   const lookup = Object.fromEntries(_netmapNodes.map(n => [n.id, n]));

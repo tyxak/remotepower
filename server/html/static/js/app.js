@@ -2465,7 +2465,7 @@ function _registerDevicesMinimalTable() {
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
         <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
         <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default>${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
-        <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
+        <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}${rdpLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
         <td class="dev-ip-cell mono-12">${escHtml(d.ip || '—')}</td>
@@ -5143,7 +5143,7 @@ function _registerScheduleTable() {
       const cmdCls   = isScript ? 'script' : j.command;
       const cmdLabel = isScript ? 'run script' : j.command;
       const jKey = _storeEvtData(j);
-      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon c-danger-outline" title="Delete" data-action="deleteJob" data-arg="${escAttr(j.id)}" >${_icon('trash',14)}</button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon c-danger-outline" title="Delete" data-action-btn="_deleteJobBtn" data-id="${escAttr(j.id)}" >${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
@@ -5328,7 +5328,11 @@ async function addScheduleJob() {
     closeModal('schedule-add-modal'); loadSchedule();
   } else toast(data?.error || 'Failed', 'error');
 }
-async function deleteJob(id) { const data = await api('DELETE', '/schedule/' + id); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
+// Delete via data-action-btn (raw dataset.id) NOT data-arg — a token_hex job id
+// that looks like a number in scientific notation ('1e5…') would otherwise be
+// coerced to Infinity by the data-arg dispatcher and the DELETE would 404.
+function _deleteJobBtn(btn) { return deleteJob(btn.dataset.id); }
+async function deleteJob(id) { id = String(id); const data = await api('DELETE', '/schedule/' + encodeURIComponent(id)); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
 function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
 // v3.3.0: schedule modal carries an editing id for in-place updates.
@@ -10695,7 +10699,7 @@ function _registerMaintTable() {
         <td class="fs-12">${when}</td>
         <td class="meta-sm-nm">${events}</td>
         <td class="ta-center">${status}</td>
-        <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editMaintenanceBtn" data-store-key="${winKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action="deleteMaintenance" data-arg="${escAttr(w.id)}" >${_icon('trash',14)}</button></div></td>
+        <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editMaintenanceBtn" data-store-key="${winKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action-btn="_deleteMaintenanceBtn" data-id="${escAttr(w.id)}" >${_icon('trash',14)}</button></div></td>
       </tr>`;
     },
     emptyMsg: 'No maintenance windows defined.',
@@ -10738,9 +10742,12 @@ async function loadMaintSuppressions() {
   </tr>`).join('');
 }
 
+// Raw dataset.id (not data-arg) so a hex window id can't be number-coerced to Infinity.
+function _deleteMaintenanceBtn(btn) { return deleteMaintenance(btn.dataset.id); }
 async function deleteMaintenance(winId) {
+  winId = String(winId);
   if (!await uiConfirm('Delete this maintenance window?')) return;
-  const result = await api('DELETE', `/maintenance/${winId}`);
+  const result = await api('DELETE', `/maintenance/${encodeURIComponent(winId)}`);
   if (result && result.ok) { toast('Window deleted', 'success'); loadMaintenance(); }
 }
 
@@ -17769,6 +17776,39 @@ function quickSsh(host) {
   }
 }
 
+// Render the quick-RDP icon for a device row — the Windows counterpart to
+// sshLinkIcon (v6.2.0). Shown ONLY for Windows hosts (where the SSH icon is
+// suppressed), so a row has exactly one quick-connect icon. The full in-app RDP
+// tunnel still lives on the device drawer's "RDP (Windows)" action (openRdp).
+function rdpLinkIcon(d) {
+  if (!/windows/i.test(String(d.os || ''))) return '';
+  const host = (d.ip || '').trim() || (d.hostname || '').trim();
+  if (!host) return '';
+  return ` <a href="#" title="Quick RDP" data-action="quickRdp" data-arg="${escAttr(host)}" data-prevent-default` +
+         ` class="isl-592">` +
+         `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" class="isl-593">` +
+         `<rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></a>`;
+}
+
+// Quick RDP action — the RDP mirror of quickSsh. A browser can't open an RDP
+// client itself; it can only hand off an rdp:// URI (works when the OS has a
+// handler registered) and copy the `mstsc /v:host` command, which works
+// everywhere. The default port (3389) is implicit.
+function quickRdp(host) {
+  host = String(host);
+  try {
+    window.location.href = `rdp://full%20address=s:${encodeURIComponent(host)}`;
+  } catch (_) { /* no handler — the copy fallback below still helps */ }
+  const cmd = `mstsc /v:${host}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd).then(
+      () => toast(`Copied: ${cmd}`, 'success'),
+      () => toast(`RDP command: ${cmd}`, 'info'));
+  } else {
+    toast(`RDP command: ${cmd}`, 'info');
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // v2.4.4 — Mailbox monitor configuration (Settings → Mailbox monitor)
 //
@@ -19624,6 +19664,19 @@ async function _loadAuditSection(key) {
           ['Mail queue', si.mailq != null ? `${si.mailq} queued` : null],
           ['Last OOM',  si.last_oom_ts ? new Date(si.last_oom_ts*1000).toLocaleString()
                           + (si.last_oom_proc ? ` (${si.last_oom_proc})` : '') : null],
+          // v6.2.0: Windows security posture (si.win_posture) was collected and
+          // surfaced as Checks rows, but never shown at-a-glance in the drawer.
+          // Every pill is null on a non-Windows host, so they only appear on Windows.
+          ['BitLocker', si.win_posture && (si.win_posture.bitlocker || []).length
+                          ? si.win_posture.bitlocker.map(v => `${v.mount} ${v.status}`).join(', ') : null],
+          ['Defender', (si.win_posture && 'defender_realtime' in si.win_posture)
+                          ? (si.win_posture.defender_realtime ? 'real-time on' : 'real-time OFF')
+                            + (si.win_posture.defender_sig_age_days != null
+                                ? ` · sigs ${si.win_posture.defender_sig_age_days}d old` : '')
+                          : null],
+          ['Windows Firewall', si.win_posture && (si.win_posture.firewall || []).length
+                          ? si.win_posture.firewall.map(p => `${p.name} ${p.enabled ? 'on' : 'OFF'}`).join(', ') : null],
+          ['Windows Update', (si.win_posture && si.win_posture.wu_service) || null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>
