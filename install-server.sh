@@ -400,6 +400,13 @@ fi
 # ── Agent binary for self-update ────────────────────────────────────────────────
 info "Publishing agent binary for self-update..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent
+# v6.1.3: publish the Windows + macOS agents too, or /api/agent/{win,mac}/download
+# 404s and the Windows /install.ps1 one-liner + self-update are dead on arrival.
+for _rp_os_agent in remotepower-agent-win.py remotepower-agent-mac.py; do
+    if [[ -f "$SCRIPT_DIR/client/$_rp_os_agent" ]]; then
+        install -m 644 "$SCRIPT_DIR/client/$_rp_os_agent" "/var/www/remotepower/agent/$_rp_os_agent"
+    fi
+done
 # Write initial version into config.json
 python3 - <<'PYEOF'
 import json, re
