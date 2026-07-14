@@ -2505,10 +2505,22 @@ def _service_run():
             self._stop_evt = win32event.CreateEvent(None, 0, 0, None)
 
         def SvcStop(self):
-            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            # Tell the SCM we're stopping and give it a generous wait hint, so
+            # services.msc / Stop-Service does NOT declare "could not stop in a
+            # timely fashion" if a heartbeat happens to be in flight. The poll
+            # sleep (where the agent spends ~all its time) is interruptible, so
+            # stop is usually immediate; a mid-heartbeat stop waits at most one
+            # HTTP timeout.
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING,
+                                     waitHint=(HTTP_TIMEOUT + 5) * 1000)
             win32event.SetEvent(self._stop_evt)
 
+        # A machine shutdown should stop the agent cleanly too.
+        SvcShutdown = SvcStop
+
         def SvcDoRun(self):
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+
             def _should_stop():
                 return win32event.WaitForSingleObject(self._stop_evt, 0) == win32event.WAIT_OBJECT_0
 

@@ -20,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v6.1.3';   // bump on every asset change
+const CACHE_NAME = 'remotepower-shell-v6.1.3-1';   // bump on every asset change
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.
@@ -146,27 +146,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets (JS, CSS, images) — cache-first for instant load.
+  // Static assets (JS, CSS, images) — STALE-WHILE-REVALIDATE. Serve the cached
+  // copy instantly (fast load), but ALWAYS refetch in the background and update
+  // the cache. This fixes the "F5 shows the old file, only a hard refresh gets
+  // the new one, then F5 reverts" trap: the served ?v=<hash> URLs are cache-first-
+  // stable, so on a SAME-VERSION redeploy (or any deploy that didn't rewrite the
+  // ?v=) a plain cache-first handler served the stale bundle forever. With SWR a
+  // changed asset reaches the client on the NEXT reload, no hard refresh needed —
+  // and a proper ?v= bump still short-circuits to a normal cache miss. Offline
+  // still works (we fall back to whatever is cached).
   event.respondWith(
     caches.match(request).then((cached) => {
-      if (cached) return cached;
-
-      // Not in cache — fetch from network and cache the response.
-      return fetch(request).then((response) => {
-        // Only cache successful, opaque-free responses.
-        if (!response || response.status !== 200 || response.type === 'error') {
-          return response;
+      const network = fetch(request).then((response) => {
+        if (response && response.status === 200 && response.type !== 'error') {
+          const toCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, toCache));
         }
-        const toCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, toCache));
         return response;
       }).catch(() => {
-        // Network failed and nothing in cache — return a minimal offline page
-        // only for navigation requests; let sub-resources fail naturally.
-        if (request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
+        // Offline: fall back to cache; for a navigation with nothing cached,
+        // the app shell.
+        if (cached) return cached;
+        if (request.mode === 'navigate') return caches.match('/index.html');
+        return undefined;
       });
+      // Cached first for speed; the background fetch refreshes the cache for next
+      // time. No cache yet → wait on the network.
+      return cached || network;
     })
   );
 });

@@ -40,6 +40,43 @@ the most universal ops question there is, and a second opinion on your hardware.
   architecture / deployment / internals). The agent's PowerShell is now
   parse-validated against a real `pwsh` in the test suite.
 
+### Windows: runs as a real service, and a live-deploy hardening sweep
+
+- **The Windows agent now installs as a real Windows service** (services.msc,
+  `RemotePowerAgent`, LocalSystem, auto-start) via pywin32, instead of a scheduled
+  task. The Service Control Manager restarts it on any exit — crash or a
+  self-update that simply exits — so there's no offline window, and self-update
+  stops having to babysit its own relaunch. Falls back to the SYSTEM scheduled
+  task only where pywin32 can't be installed. `--install-service` self-heals the
+  classic error-1053 (registers pywin32's service DLLs and retries), so it's a
+  hands-off default; it reports RUNNING or the real error. Stop/restart from
+  services.msc is honoured with a wait hint (no "could not stop"), and shutdown is
+  handled cleanly. Uninstall (dashboard, `-Uninstall`, or the manual steps in the
+  docs) removes both the service and the task.
+- **Onboarding hardening found on a live Windows box** (each a real dead-end,
+  fixed + guard-railed): the installer refused a per-user / Microsoft-Store
+  ("App Execution Alias") Python and installs an all-users one (a Store/per-user
+  interpreter can't be launched by SYSTEM — 0x80070780); the agent's credential
+  file (`agent.json`) is ACL'd to SYSTEM+Administrators with locale-proof SIDs and
+  valid file flags (the old `(OI)(CI)` directory flags on a file locked SYSTEM out
+  → "not enrolled" forever); self-update no longer kills its own scheduled task
+  before relaunching (the "offline after an agent update" bug); enrollment errors
+  print the server's message instead of a raw traceback, and a 6-digit value in
+  `--token` gets a "use --pin" hint; and every OS-agent (`win`/`mac`) is now
+  published by all four deploy paths (`deploy-server.sh`, `install-server.sh`,
+  Dockerfile, AUR) so `/api/agent/{win,mac}/download` and the whole Windows
+  onboarding actually work off a fresh install.
+- **Windows/macOS device icons** (four-pane flag / Apple mark) instead of the
+  terminal-block "unknown" glyph, and the signed-release **"verified" badge** now
+  works for Windows/mac agents (integrity is checked against the per-OS agent
+  hash, not the Linux binary). The quick-SSH row icon is hidden for Windows hosts
+  (they use RDP/WinRM).
+- **Service worker: stale-while-revalidate for static assets.** A changed
+  `app.js`/CSS now reaches the browser on the next reload instead of sticking to
+  the cached copy until a hard refresh (the "F5 shows the old file" trap on a
+  same-version redeploy). `deploy-server.sh`'s content-hash `?v=` busting still
+  short-circuits to a clean cache miss on a real release.
+
 ### Windows agent — parity buildout
 
 The Windows agent was, by its own docstring, "the minimal agent" — roughly a

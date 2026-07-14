@@ -76,7 +76,11 @@ model, or leave it off).
 
 Each host runs a small Python agent that polls the server over outbound
 HTTPS only — nothing opens on the client, ever. Enrolment is a 6-digit PIN,
-like pairing a controller.
+like pairing a controller. It runs supervised on every platform — a systemd
+service on Linux, a launchd agent on macOS, and a **Windows service**
+(services.msc, auto-restarting) on Windows, installed by a single elevated
+one-liner. See [docs/windows-client.md](docs/windows-client.md) for the Windows
+specifics.
 
 Deliberately small and readable: nginx + Python (gunicorn/Flask) on the
 server, plain vanilla JS in the browser — no React/Vue, no build step, no

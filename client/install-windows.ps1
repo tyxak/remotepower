@@ -51,11 +51,16 @@ $agent      = Join-Path $installDir 'remotepower-agent-win.py'
 if ($Uninstall) {
   Assert-Admin
   Write-Host 'Uninstalling the RemotePower Windows agent ...'
-  schtasks /end /tn RemotePowerAgent 2>$null | Out-Null
+  # Remove BOTH persistence mechanisms — a host may run the service (default) or
+  # the scheduled-task fallback.
+  Stop-Service RemotePowerAgent -ErrorAction SilentlyContinue
+  sc.exe stop   RemotePowerAgent 2>$null | Out-Null
+  sc.exe delete RemotePowerAgent 2>$null | Out-Null
+  schtasks /end    /tn RemotePowerAgent 2>$null | Out-Null
   schtasks /delete /tn RemotePowerAgent /f 2>$null | Out-Null
   Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
-  Write-Host 'Uninstalled. Remove the device from the dashboard to stop tracking it.' -ForegroundColor Green
+  Write-Host 'Uninstalled (service, task, files and data removed). Remove the device from the dashboard to stop tracking it.' -ForegroundColor Green
   return
 }
 
