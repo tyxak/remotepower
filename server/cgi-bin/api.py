@@ -26988,8 +26988,17 @@ def _agent_integrity_status(dev, canonical_sha, canonical_ver):
     - 'mismatch': the agent claims the current version but reports a DIFFERENT
       hash — tamper, corruption, or a partial update. A security signal.
     - 'unknown': no reported hash yet, or the agent is on a different version
-      (we only hold the canonical hash for the currently-published agent)."""
+      (we only hold the canonical hash for the currently-published agent).
+
+    v6.1.3: the canonical hash is PER-OS. `canonical_sha` (the caller's value) is
+    the LINUX binary's hash; a Windows/macOS agent is a different file with a
+    different hash, so comparing it against the Linux hash could NEVER verify — it
+    showed no badge (or a false 'mismatch'). Resolve the OS-appropriate canonical
+    for non-Linux devices."""
     reported = (dev.get('agent_sha256') or '').lower()
+    if _device_os_family(dev) in ('windows', 'darwin'):
+        canonical_sha = _canonical_agent_sha_for(dev)
+    canonical_sha = (canonical_sha or '').lower()
     if not reported or not canonical_sha:
         return 'unknown'
     if reported == canonical_sha:
@@ -27054,6 +27063,42 @@ def handle_agent_download():
 # that ships remotepower-agent-win.py alongside remotepower-agent gets self-update
 # for Windows for free.
 _AGENT_WIN_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-win.py'
+_AGENT_MAC_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-mac.py'
+
+
+def _sha256_file_cached(path):
+    """sha256 of `path`, cached to a `<name>.sha256` sidecar keyed on mtime —
+    the same trick as _get_agent_sha256(), for the OS-specific agent files so the
+    per-device integrity loop doesn't re-hash them on every request."""
+    if not path.exists():
+        return None
+    cache = path.with_suffix(path.suffix + '.sha256')
+    try:
+        if cache.exists() and cache.stat().st_mtime >= path.stat().st_mtime:
+            sha = cache.read_text().strip().lower()
+            if len(sha) == 64 and all(c in '0123456789abcdef' for c in sha):
+                return sha
+    except Exception:
+        pass
+    sha = _sha256_file(path)
+    if sha:
+        try:
+            cache.write_text(sha)
+        except Exception:
+            pass
+    return (sha or '').lower() or None
+
+
+def _canonical_agent_sha_for(dev):
+    """Canonical agent sha256 to compare a device against, PER OS family — the
+    Windows/macOS agents are distinct files with distinct hashes from the Linux
+    binary, so a single Linux canonical made their integrity un-verifiable."""
+    fam = _device_os_family(dev)
+    if fam == 'windows':
+        return _sha256_file_cached(_AGENT_WIN_PATH)
+    if fam == 'darwin':
+        return _sha256_file_cached(_AGENT_MAC_PATH)
+    return _get_agent_sha256()
 _AGENT_WIN_SIG_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-win.py.asc'
 
 

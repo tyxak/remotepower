@@ -10,12 +10,14 @@ Covers the pieces that live in api.py rather than the agent:
 
 import importlib.util
 import os
+import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-_CGI = Path(__file__).resolve().parent.parent / "server" / "cgi-bin"
+_ROOT = Path(__file__).resolve().parent.parent
+_CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
 
 
@@ -101,6 +103,40 @@ class TestWinAgentUpdateEndpoints(unittest.TestCase):
         r = self._call(self.api.handle_win_agent_signature)
         self.assertEqual(r["status"], 404)
 
+    def test_windows_agent_integrity_uses_the_windows_canonical(self):
+        # REGRESSION: _agent_integrity_status compared EVERY device against the
+        # Linux binary's hash, so a Windows agent could never show 'verified'
+        # (green signed-release badge) — it got 'unknown'/'mismatch'. The canonical
+        # must be per-OS.
+        import hashlib
+        content = b"VERSION = '6.1.3'\n# windows agent\n"
+        win_sha = hashlib.sha256(content).hexdigest()
+        tmp = Path(tempfile.mkdtemp()) / "remotepower-agent-win.py"
+        tmp.write_bytes(content)
+        orig = self.api._AGENT_WIN_PATH
+        self.api._AGENT_WIN_PATH = tmp
+        try:
+            linux_canonical = "0" * 64   # deliberately NOT the windows hash
+            win_dev = {"os": "Windows 11 (Build 22631)", "version": "6.1.3",
+                       "agent_sha256": win_sha}
+            # A Windows agent whose hash matches the WINDOWS canonical verifies,
+            # even though it does not match the Linux canonical we pass in.
+            self.assertEqual(
+                self.api._agent_integrity_status(win_dev, linux_canonical, "6.1.3"),
+                "verified")
+            # A Windows agent reporting the LINUX hash (same version) is a mismatch.
+            bad = dict(win_dev, agent_sha256=linux_canonical)
+            self.assertEqual(
+                self.api._agent_integrity_status(bad, linux_canonical, "6.1.3"),
+                "mismatch")
+            # Linux devices still compare against the passed-in Linux canonical.
+            lx = {"os": "Ubuntu 22.04", "version": "6.1.3", "agent_sha256": linux_canonical}
+            self.assertEqual(
+                self.api._agent_integrity_status(lx, linux_canonical, "6.1.3"),
+                "verified")
+        finally:
+            self.api._AGENT_WIN_PATH = orig
+
     def test_the_update_endpoints_are_auth_exempt_like_linux(self):
         # The agent polls these token-free during self-update, exactly like
         # /api/agent/version. Both must be in the IP-allowlist exempt set.
@@ -108,6 +144,28 @@ class TestWinAgentUpdateEndpoints(unittest.TestCase):
         self.assertIn("/api/agent/win/version", exempt)
         self.assertIn("/api/agent/win/download", exempt)
         self.assertIn("/api/agent/version", exempt)       # sanity: the sibling
+
+
+class TestOsIconsCoverWindowsAndMac(unittest.TestCase):
+    """The devices page fell back to the terminal-block 'unknown' glyph for
+    Windows/macOS hosts because getDistroIcon()'s probe order + DISTRO_ICONS map
+    had no entry for either. Assert both are present and probed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = (_ROOT / "server/html/static/js/app.js").read_text()
+
+    def test_distro_icons_has_windows_and_macos(self):
+        # Entries with a match list, inside DISTRO_ICONS.
+        self.assertRegex(self.js, r"windows:\s*\{\s*\n\s*match:\s*\[[^\]]*'windows'")
+        self.assertRegex(self.js, r"macos:\s*\{\s*\n\s*match:\s*\[[^\]]*('darwin'|'macos')")
+
+    def test_probe_order_includes_windows_and_macos(self):
+        m = re.search(r"const probeOrder = \[([^\]]*)\]", self.js)
+        self.assertIsNotNone(m)
+        order = m.group(1)
+        self.assertIn("'windows'", order)
+        self.assertIn("'macos'", order)
 
 
 class TestWinUpgradeCommandRouting(unittest.TestCase):

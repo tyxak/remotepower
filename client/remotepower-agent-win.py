@@ -450,18 +450,29 @@ def _self_update():
     except Exception as e:
         return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}
 
-    # Re-launch the scheduled task so the NEW file is running. The current process
-    # keeps running the old code until the task restarts it — schtasks /end then
-    # /run gives us a clean cutover without waiting for the next trigger.
+    # Re-launch the task so the NEW file runs. CRITICAL: the agent performing this
+    # update IS the RemotePowerAgent task, so calling `schtasks /end` INLINE kills
+    # THIS process before the `/run` on the next line executes → the task stops
+    # with no trigger to restart it (its only trigger is AtStartup), and the host
+    # goes offline until the next reboot. This was a real "went offline after an
+    # agent update" bug. Instead, hand the restart to a DETACHED helper that
+    # OUTLIVES our termination: it waits a few seconds (so this heartbeat can ship
+    # the update result), ends the task — a no-op if we've already exited — then
+    # runs it fresh with the swapped-in file. `ping` is the detached-safe sleep
+    # (`timeout /t` needs a console stdin that a detached process lacks).
+    _DETACHED = 0x00000008 | 0x00000200   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    _sch = _system_bin('schtasks')
+    _relaunch = (f'ping -n 6 127.0.0.1 >nul & '
+                 f'"{_sch}" /end /tn RemotePowerAgent & '
+                 f'ping -n 2 127.0.0.1 >nul & '
+                 f'"{_sch}" /run /tn RemotePowerAgent')
     try:
-        subprocess.run([_system_bin('schtasks'), '/end', '/tn', 'RemotePowerAgent'],
-                       capture_output=True, timeout=30,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        subprocess.run([_system_bin('schtasks'), '/run', '/tn', 'RemotePowerAgent'],
-                       capture_output=True, timeout=30,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        subprocess.Popen(['cmd', '/c', _relaunch],
+                         creationflags=_DETACHED | getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                         close_fds=True, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
-        pass   # the file is swapped; the next scheduled trigger picks it up regardless
+        pass   # the file is swapped; a crash-exit still restarts via RestartInterval
     return {'cmd': 'update', 'output': f'updated to v{remote_ver} ({remote_sha[:12]}…); relaunching', 'rc': 0}
 
 

@@ -14784,6 +14784,17 @@ const DISTRO_ICONS = {
     match: ['freebsd'],
     svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#AB2B28"><circle cx="12" cy="12" r="10"/><path d="M8 9l3 3-2 4 5-2 3 3-1-5 3-2-5-1-2-5-2 4-4 1z" fill="white"/></svg>'
   },
+  // Windows — the four-pane flag, Fluent blue. Both agents report "Windows …".
+  windows: {
+    match: ['windows', 'win32', 'microsoft', 'winnt'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#0078D4"><path d="M3 5.5l8-1.1v7.4H3V5.5zm0 7.6h8v7.4l-8-1.1v-6.3zm9-8.8 9-1.3v9H12V4.3zm0 9h9v9l-9-1.3v-7.7z"/></svg>'
+  },
+  // macOS — the Apple mark, monochrome (inherits text colour). The mac agent
+  // reports "macOS …"; darwin/apple/os x cover other shapes.
+  macos: {
+    match: ['macos', 'mac os', 'darwin', 'apple', 'os x'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M16 3c0 1.2-.5 2.3-1.3 3.1-.9.9-2 1.5-3.1 1.4-.1-1.2.5-2.4 1.2-3.1C13.6 3.5 14.9 3 16 3zm3.5 14.3c-.5 1.2-.8 1.7-1.5 2.7-1 1.5-2.4 3.3-4.1 3.3-1.5 0-1.9-1-4-1-2 0-2.5 1-4 1-1.7 0-3-1.7-4-3.1-2.7-3.9-3-8.5-1.3-11 1.2-1.7 3-2.7 4.8-2.7 1.8 0 2.9 1 4.4 1 1.4 0 2.3-1 4.4-1 1.6 0 3.3.9 4.5 2.4-3.9 2.2-3.3 7.9.3 9.4z"/></svg>'
+  },
   // Fallback: generic Linux penguin silhouette in muted accent
   linux: {
     match: ['linux'],
@@ -14804,8 +14815,8 @@ function getDistroIcon(osField) {
   const os = String(osField || '').toLowerCase();
   if (!os) return DISTRO_ICONS.unknown.svg;
   // Order matters: try the more specific matches first.
-  const probeOrder = ['cachy', 'ubuntu', 'debian', 'fedora', 'rhel',
-                      'suse', 'alpine', 'gentoo', 'nixos', 'raspbian',
+  const probeOrder = ['windows', 'macos', 'cachy', 'ubuntu', 'debian', 'fedora',
+                      'rhel', 'suse', 'alpine', 'gentoo', 'nixos', 'raspbian',
                       'arch', 'freebsd', 'linux'];
   for (const key of probeOrder) {
     const entry = DISTRO_ICONS[key];
