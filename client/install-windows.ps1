@@ -137,10 +137,16 @@ if (Test-Path $src) {
   }
 }
 
-# Best-effort psutil for the richer metric set (agent runs without it).
+# psutil (richer metrics) + pywin32 (real Windows service). Best-effort.
 try { & python -m pip install --quiet --disable-pip-version-check psutil } catch {
   Write-Warning 'psutil install failed - the agent will report a reduced metric set.'
 }
+$havePywin32 = $false
+try {
+  & python -m pip install --quiet --disable-pip-version-check pywin32 | Out-Null
+  & python -c "import win32serviceutil" 2>$null
+  if ($LASTEXITCODE -eq 0) { $havePywin32 = $true }
+} catch {}
 
 # ── Enroll ────────────────────────────────────────────────────────────────────
 $enrollArgs = @($agent, '--enroll', '--server', $Server, '--name', $Name)
@@ -149,15 +155,37 @@ if ($Token) { $enrollArgs += @('--token', $Token) }
 & python @enrollArgs
 if ($LASTEXITCODE -ne 0) { throw 'Enrollment failed.' }
 
-# ── Run at boot as SYSTEM via a scheduled task ────────────────────────────────
-$pyw = Get-Command pythonw -ErrorAction SilentlyContinue
-$exe = if ($pyw) { $pyw.Source } else { (Get-Command python).Source }
-$action  = New-ScheduledTaskAction -Execute $exe -Argument "`"$agent`" --run"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName 'RemotePowerAgent' -Action $action -Trigger $trigger `
-  -Principal $principal -Settings $settings -Force | Out-Null
+# ── Persistence: a real Windows service (preferred), else a SYSTEM task ────────
+schtasks /delete /tn RemotePowerAgent /f 2>$null | Out-Null
+sc.exe stop RemotePowerAgent 2>$null | Out-Null
+sc.exe delete RemotePowerAgent 2>$null | Out-Null
 
-Start-ScheduledTask -TaskName 'RemotePowerAgent'
-Write-Host 'RemotePower Windows agent installed, enrolled, and started. It will appear on the dashboard within a minute.' -ForegroundColor Green
+$installedAs = ''
+if ($havePywin32) {
+  & python $agent --install-service
+  Start-Sleep -Seconds 2
+  if ((sc.exe query RemotePowerAgent 2>$null) -match 'RUNNING|START_PENDING|STOPPED') { $installedAs = 'service' }
+}
+if (-not $installedAs) {
+  # Fallback scheduled task. Resolve a machine-wide interpreter SYSTEM can launch
+  # (a per-user / Microsoft Store Python fails under SYSTEM with 0x80070780).
+  $py = (Get-Command python).Source
+  if ($py -match '\\WindowsApps\\' -or $py -match '(?i)\\Users\\') {
+    $mp = Get-ChildItem "$env:ProgramFiles\Python3*\python.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+    if ($mp) { $py = $mp.FullName }
+  }
+  $pyw = Join-Path (Split-Path $py) 'pythonw.exe'
+  if (-not (Test-Path $pyw)) { $pyw = $py }
+  if ($pyw -match '\\WindowsApps\\' -or $pyw -match '(?i)\\Users\\') {
+    throw "Only a per-user/Store Python was found ($pyw); the SYSTEM task can't launch it. Install a machine-wide Python (all users) and re-run."
+  }
+  $action  = New-ScheduledTaskAction -Execute $pyw -Argument "`"$agent`" --run"
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+  Register-ScheduledTask -TaskName 'RemotePowerAgent' -Action $action -Trigger $trigger `
+    -Principal $principal -Settings $settings -Force | Out-Null
+  Start-ScheduledTask -TaskName 'RemotePowerAgent'
+  $installedAs = 'scheduled task'
+}
+Write-Host "RemotePower Windows agent installed as a $installedAs, enrolled, and started. It will appear on the dashboard within a minute." -ForegroundColor Green

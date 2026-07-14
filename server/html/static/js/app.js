@@ -17724,6 +17724,9 @@ async function saveSshUsername() {
 // device's IP when known, else its hostname (the fallback the spec
 // asked for). Returns '' when there's neither — nothing to connect to.
 function sshLinkIcon(d) {
+  // v6.1.3: SSH is not the access path for Windows hosts (RDP/WinRM are) — don't
+  // offer a quick-SSH link that would never connect.
+  if (/windows/i.test(String(d.os || ''))) return '';
   const host = (d.ip || '').trim() || (d.hostname || '').trim();
   if (!host) return '';
   // escAttr the host since it goes into an onclick attribute.

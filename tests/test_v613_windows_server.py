@@ -244,13 +244,21 @@ class TestWindowsOneLineInstaller(unittest.TestCase):
         # It must NOT bake the PATH-resolved alias straight into the task action.
         self.assertNotIn("$pyw = Get-Command pythonw", ps)
         self.assertNotIn("(Get-Command pythonw).Source", ps)
-        # The task action + pip + enroll all use the resolved machine interpreter.
-        self.assertIn("$exe = $pythonw", ps)
-        self.assertIn("New-ScheduledTaskAction -Execute $exe", ps)
+        # pip + enroll use the resolved machine interpreter; the FALLBACK task
+        # action launches $pythonw (validated as machine-wide above).
+        self.assertIn("New-ScheduledTaskAction -Execute $pythonw", ps)
         self.assertIn("& $python -m pip install", ps)    # psutil into the machine python
         self.assertIn("& $python $agent --enroll", ps)
-        # And it refuses to register a SYSTEM task with a path SYSTEM can't launch.
-        self.assertIn("Refusing to register the service", ps)
+
+    def test_installer_prefers_the_windows_service(self):
+        # v6.1.3: the one-liner installs pywin32 and registers a real Windows
+        # service, only falling back to the scheduled task when pywin32 is absent.
+        ps = self.api._render_win_install({"HTTP_HOST": "h", "QUERY_STRING": ""})
+        self.assertIn("pywin32", ps)
+        self.assertIn("--install-service", ps)
+        self.assertIn("$havePywin32", ps)
+        # The task branch is a fallback under `if (-not $installedAs)`.
+        self.assertIn("if (-not $installedAs)", ps)
 
     def test_route_is_auth_exempt(self):
         self.assertIn("/api/agent/win/install", self.api._IP_ALLOWLIST_EXEMPT_PATHS)

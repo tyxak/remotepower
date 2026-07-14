@@ -27,6 +27,78 @@ class TestVersion(unittest.TestCase):
         self.assertIn(f"VERSION = '{agent.VERSION}'", api_txt.replace('SERVER_', ''))
 
 
+class TestWindowsService(unittest.TestCase):
+    """v6.1.3: the agent can run as a real Windows service (services.msc) instead
+    of a scheduled task — the SCM auto-restarts it on any exit, which fixes the
+    self-update-goes-offline and scheduled-task fragility classes."""
+
+    def _capture_sc(self):
+        calls = []
+
+        class _Res:
+            returncode = 0
+        orig = agent.subprocess.run
+        agent.subprocess.run = lambda argv, **kw: (calls.append([str(a) for a in argv]), _Res())[1]
+        self.addCleanup(lambda: setattr(agent.subprocess, 'run', orig))
+        return calls
+
+    def test_install_service_registers_localsystem_autostart_with_restart(self):
+        orig_avail = agent._pywin32_available
+        agent._pywin32_available = lambda: True
+        self.addCleanup(lambda: setattr(agent, '_pywin32_available', orig_avail))
+        calls = self._capture_sc()
+        rc = agent._install_service()
+        self.assertEqual(rc, 0)
+        flat = [' '.join(c) for c in calls]
+        create = next((c for c in flat if 'create RemotePowerAgent' in c), '')
+        self.assertTrue(create, 'no sc create call')
+        self.assertIn('--service-run', create)          # binPath runs the SCM entry
+        self.assertIn('start= auto', create)
+        self.assertIn('obj= LocalSystem', create)
+        self.assertTrue(any('failure RemotePowerAgent' in c and 'restart' in c for c in flat),
+                        'no SCM auto-restart (sc failure ... restart) configured')
+        self.assertTrue(any('start RemotePowerAgent' in c and 'create' not in c for c in flat),
+                        'service is never started')
+
+    def test_install_service_refuses_without_pywin32(self):
+        orig_avail = agent._pywin32_available
+        agent._pywin32_available = lambda: False
+        self.addCleanup(lambda: setattr(agent, '_pywin32_available', orig_avail))
+        self.assertEqual(agent._install_service(), 1)     # caller falls back to the task
+
+    def test_uninstall_service_stops_then_deletes(self):
+        calls = self._capture_sc()
+        agent._uninstall_service()
+        flat = [' '.join(c) for c in calls]
+        self.assertTrue(any('stop RemotePowerAgent' in c for c in flat))
+        self.assertTrue(any('delete RemotePowerAgent' in c for c in flat))
+
+    def test_main_routes_service_flags(self):
+        seen = {}
+        for flag, fn in (('--install-service', '_install_service'),
+                         ('--uninstall-service', '_uninstall_service'),
+                         ('--service-run', '_service_run')):
+            orig = getattr(agent, fn)
+            setattr(agent, fn, lambda *_a, _k=flag: seen.__setitem__(_k, True) or 0)
+            self.addCleanup(lambda fn=fn, orig=orig: setattr(agent, fn, orig))
+        for flag in ('--install-service', '--uninstall-service', '--service-run'):
+            agent.main([flag])
+        self.assertEqual(set(seen), {'--install-service', '--uninstall-service', '--service-run'})
+
+    def test_run_loop_is_interruptible(self):
+        # A should_stop() that returns True must break the loop immediately — this
+        # is how the service's SvcStop halts the poll sleep promptly.
+        rc = agent.run(should_stop=lambda: True, wait=lambda s: None)
+        self.assertEqual(rc, 0)
+
+    def test_served_installer_prefers_the_service(self):
+        api_txt = (_ROOT / "server/cgi-bin/api.py").read_text()
+        # The one-liner installer template installs pywin32, tries the service,
+        # and only falls back to the scheduled task.
+        self.assertIn('--install-service', api_txt)
+        self.assertIn('pywin32', api_txt)
+
+
 class TestEnrollErrorUX(unittest.TestCase):
     """A bad PIN/token at enroll must give a READABLE error, not a raw Python
     traceback (which is what a live operator hit: HTTP 400 from passing a 6-digit

@@ -474,18 +474,34 @@ def _self_update():
     # runs it fresh with the swapped-in file. `ping` is the detached-safe sleep
     # (`timeout /t` needs a console stdin that a detached process lacks).
     _DETACHED = 0x00000008 | 0x00000200   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    _sch = _system_bin('schtasks')
-    _relaunch = (f'ping -n 6 127.0.0.1 >nul & '
-                 f'"{_sch}" /end /tn RemotePowerAgent & '
-                 f'ping -n 2 127.0.0.1 >nul & '
-                 f'"{_sch}" /run /tn RemotePowerAgent')
+    if _service_installed():
+        # Under the Windows service, restart via the SCM: a detached helper stops
+        # then starts the service (stop kills THIS process cleanly, start relaunches
+        # the swapped-in file). Detached so it outlives our own termination.
+        _sc = _system_bin('sc')
+        _relaunch = (f'ping -n 6 127.0.0.1 >nul & '
+                     f'"{_sc}" stop {SVC_NAME} & ping -n 2 127.0.0.1 >nul & '
+                     f'"{_sc}" start {SVC_NAME}')
+    else:
+        # Scheduled-task path. CRITICAL: the agent performing this update IS the
+        # RemotePowerAgent task, so calling `schtasks /end` INLINE kills THIS
+        # process before `/run` executes → the task stops with no trigger to
+        # restart it (only AtStartup), offline until reboot. Hand it to a DETACHED
+        # helper that outlives our termination: wait, /end (a no-op if we already
+        # exited), /run the swapped-in file. `ping` is the detached-safe sleep
+        # (`timeout /t` needs a console stdin a detached process lacks).
+        _sch = _system_bin('schtasks')
+        _relaunch = (f'ping -n 6 127.0.0.1 >nul & '
+                     f'"{_sch}" /end /tn RemotePowerAgent & '
+                     f'ping -n 2 127.0.0.1 >nul & '
+                     f'"{_sch}" /run /tn RemotePowerAgent')
     try:
         subprocess.Popen(['cmd', '/c', _relaunch],
                          creationflags=_DETACHED | getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                          close_fds=True, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
-        pass   # the file is swapped; a crash-exit still restarts via RestartInterval
+        pass   # the file is swapped; a crash-exit still restarts via SCM/RestartInterval
     return {'cmd': 'update', 'output': f'updated to v{remote_ver} ({remote_sha[:12]}…); relaunching', 'rc': 0}
 
 
@@ -1579,7 +1595,9 @@ def handle_command(cmd):
 
 
 def _uninstall():
-    """Best-effort: remove the scheduled task and creds. Idempotent."""
+    """Best-effort: remove the service AND the scheduled task (a host may have
+    either mechanism), then the creds. Idempotent."""
+    _uninstall_service()   # sc stop + delete (no-op if not installed)
     try:
         subprocess.run([_system_bin('schtasks'), '/delete', '/tn', 'RemotePowerAgent', '/f'],
                        capture_output=True, timeout=30)
@@ -2300,12 +2318,154 @@ def heartbeat_once(creds, poll_count, pending_output=None):
     return resp, new_pending
 
 
-def run():
+# ── v6.1.3: run as a real Windows service (services.msc) ──────────────────────
+# Preferred over the scheduled task: the Service Control Manager restarts the
+# agent on ANY exit (self-update, crash), it's visible/controllable in
+# services.msc, and self-update becomes "just exit — SCM relaunches with the new
+# file". Requires pywin32 (the installer pip-installs it); if it's unavailable
+# the installer falls back to the scheduled task, so this is purely additive.
+SVC_NAME = 'RemotePowerAgent'
+SVC_DISPLAY = 'RemotePower Agent'
+SVC_DESC = ('RemotePower fleet-monitoring agent: reports host telemetry and runs '
+            'authorized commands. Auto-restarts and self-updates.')
+_RUNNING_AS_SERVICE = False   # set True inside the SCM dispatch path
+
+
+def _pywin32_available():
+    try:
+        import win32serviceutil  # noqa: F401
+        import win32service       # noqa: F401
+        import win32event         # noqa: F401
+        import servicemanager     # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _service_installed():
+    """True if the RemotePowerAgent Windows service is registered."""
+    try:
+        r = subprocess.run([_system_bin('sc'), 'query', SVC_NAME],
+                           capture_output=True, timeout=15,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _install_service():
+    """Register + start the agent as a LocalSystem service with auto-start and
+    SCM auto-restart on failure. Uses sc.exe (present on every Windows) for the
+    registration; the service PROCESS speaks the SCM protocol via pywin32 in the
+    --service-run path. Returns rc."""
+    if not _pywin32_available():
+        log.error('pywin32 is not installed - cannot run as a service '
+                  '(pip install pywin32). Falling back to the scheduled task.')
+        return 1
+    # Prefer the windowless interpreter so the service never flashes a console.
+    exe = sys.executable or 'python.exe'
+    pyw = os.path.join(os.path.dirname(exe), 'pythonw.exe')
+    if os.path.exists(pyw):
+        exe = pyw
+    script = os.path.abspath(__file__)
+    bin_path = f'"{exe}" "{script}" --service-run'
+    sc = _system_bin('sc')
+    try:
+        # `binPath= ` etc. REQUIRE the trailing space before the value (sc.exe
+        # quirk); pass each as a single token so subprocess keeps them intact.
+        subprocess.run([sc, 'create', SVC_NAME, f'binPath= {bin_path}',
+                        'start= auto', 'obj= LocalSystem', f'DisplayName= {SVC_DISPLAY}'],
+                       capture_output=True, timeout=30,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        subprocess.run([sc, 'description', SVC_NAME, SVC_DESC],
+                       capture_output=True, timeout=15,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        # Auto-restart: on any unexpected termination, wait 5s and restart; reset
+        # the failure counter after a day of health.
+        subprocess.run([sc, 'failure', SVC_NAME, 'reset= 86400',
+                        'actions= restart/5000/restart/5000/restart/5000'],
+                       capture_output=True, timeout=15,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        subprocess.run([sc, 'start', SVC_NAME],
+                       capture_output=True, timeout=30,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception as e:
+        log.error(f'service install failed: {e}')
+        return 1
+    log.info('RemotePowerAgent service installed and started')
+    return 0
+
+
+def _uninstall_service():
+    sc = _system_bin('sc')
+    for args in (['stop', SVC_NAME], ['delete', SVC_NAME]):
+        try:
+            subprocess.run([sc, *args], capture_output=True, timeout=30,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except Exception:
+            pass
+    return 0
+
+
+def _service_run():
+    """SCM entry point (the service's binPath runs `--service-run`). Hosts the
+    service class in THIS process via the standalone servicemanager dispatch, so
+    no separate pythonservice.exe is needed."""
+    global _RUNNING_AS_SERVICE
+    _RUNNING_AS_SERVICE = True
+    import win32serviceutil
+    import win32service
+    import win32event
+    import servicemanager
+
+    class RemotePowerService(win32serviceutil.ServiceFramework):
+        _svc_name_ = SVC_NAME
+        _svc_display_name_ = SVC_DISPLAY
+        _svc_description_ = SVC_DESC
+
+        def __init__(self, args):
+            super().__init__(args)
+            self._stop_evt = win32event.CreateEvent(None, 0, 0, None)
+
+        def SvcStop(self):
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            win32event.SetEvent(self._stop_evt)
+
+        def SvcDoRun(self):
+            def _should_stop():
+                return win32event.WaitForSingleObject(self._stop_evt, 0) == win32event.WAIT_OBJECT_0
+
+            def _wait(seconds):
+                # Interruptible sleep: returns immediately when SvcStop signals.
+                win32event.WaitForSingleObject(self._stop_evt, int(seconds * 1000))
+            try:
+                run(should_stop=_should_stop, wait=_wait)
+            except Exception as e:   # never let the service crash without a trace
+                try:
+                    servicemanager.LogErrorMsg(f'RemotePower agent crashed: {e}')
+                except Exception:
+                    pass
+
+    servicemanager.Initialize()
+    servicemanager.PrepareToHostSingle(RemotePowerService)
+    servicemanager.StartServiceCtrlDispatcher()
+    return 0
+
+
+def run(should_stop=None, wait=None):
+    """The heartbeat loop. `should_stop()` (optional) is polled each iteration and
+    `wait(seconds)` (optional) replaces time.sleep — the Windows service passes an
+    event-backed wait so a service STOP interrupts the poll sleep promptly instead
+    of hanging up to a full interval."""
+    wait = wait or time.sleep
     _init_logging()
     log.info(f'RemotePower Windows agent v{VERSION} starting')
     poll_count = 0
     pending = None
     while True:
+        if should_stop and should_stop():
+            log.info('stop requested - exiting run loop')
+            return 0
         creds = load_creds()
         if not creds.get('device_id'):
             log.error('not enrolled - run with --enroll first')
@@ -2315,7 +2475,7 @@ def run():
             _resp, pending = heartbeat_once(creds, poll_count, pending)
         except Exception as e:
             log.warning(f'heartbeat error: {e}')
-        time.sleep(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))
+        wait(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))
 
 
 def main(argv=None):
@@ -2328,10 +2488,21 @@ def main(argv=None):
     ap.add_argument('--run', action='store_true')
     ap.add_argument('--once', action='store_true')
     ap.add_argument('--version', action='store_true')
+    # v6.1.3: Windows-service lifecycle (services.msc).
+    ap.add_argument('--service-run', action='store_true',
+                    help=argparse.SUPPRESS)        # SCM entry point (internal)
+    ap.add_argument('--install-service', action='store_true')
+    ap.add_argument('--uninstall-service', action='store_true')
     a = ap.parse_args(argv)
     if a.version:
         print(VERSION)
         return 0
+    if a.service_run:
+        return _service_run() or 0
+    if a.install_service:
+        return _install_service()
+    if a.uninstall_service:
+        return _uninstall_service()
     if a.enroll:
         if not a.server or not (a.pin or a.token):
             ap.error('--enroll needs --server and --pin (or --token)')
