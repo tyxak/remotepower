@@ -210,8 +210,13 @@ class TestPydanticIsInstalledEverywhere(unittest.TestCase):
     checklist the Flask cutover established and that a CI run missed once already."""
 
     def test_ci_installs_it(self):
-        ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
-        self.assertIn('pydantic', ci)
+        # `.github/` is a repo artifact, not shipped code — `make dist` excludes it
+        # from the release tarball, so this file is absent when the suite runs
+        # against the staged dist tree. Skip there rather than erroring the release.
+        wf = ROOT / '.github' / 'workflows' / 'ci.yml'
+        if not wf.exists():
+            self.skipTest('.github excluded from this tree (dist staging tree)')
+        self.assertIn('pydantic', wf.read_text())
 
     def test_the_installers_install_it(self):
         for f in ('install.sh', 'install-server.sh'):
