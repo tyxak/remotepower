@@ -2405,20 +2405,60 @@ def _install_service():
         log.error(f'service install failed: {e}')
         print(f'service install failed: {e}', file=sys.stderr)
         return 1
-    running = _service_running()
-    if running:
+    if _service_running():
         print('RemotePower service installed and RUNNING (visible in services.msc '
               'as "RemotePower Agent").')
         log.info('service installed and started')
         return 0
+    # Most common first-start failure is error 1053 — pywin32's service DLLs
+    # (pywintypesXX.dll / pythonservceXX.exe) aren't registered. Self-heal: run
+    # pywin32_postinstall once and retry, so the operator never has to. This is
+    # what makes the service the reliable DEFAULT rather than a step people give
+    # up on.
+    if _register_pywin32_service_dlls():
+        print('Registering pywin32 service support and retrying ...')
+        try:
+            st = _sc('start', SVC_NAME)
+        except Exception:
+            pass
+        if _service_running():
+            print('RemotePower service installed and RUNNING (visible in services.msc '
+                  'as "RemotePower Agent").')
+            log.info('service installed and started after pywin32 postinstall')
+            return 0
     detail = (st.stdout or st.stderr or '').strip()
     msg = ('RemotePower service was registered but did not reach RUNNING. '
-           f'sc start said: {detail or "(no output)"}. If this mentions error 1053/'
-           'pywin32, run: python "<Python>\\Scripts\\pywin32_postinstall.py" -install '
-           'then re-run --install-service.')
+           f'sc start said: {detail or "(no output)"}. Check '
+           r'C:\ProgramData\RemotePower\agent.log for a traceback.')
     log.error(msg)
     print(msg, file=sys.stderr)
     return 1
+
+
+def _register_pywin32_service_dlls():
+    """Run pywin32_postinstall.py -install, which copies pywin32's service DLLs
+    (pywintypes/pythoncom/pythonservice) where the SCM can load them — the fix for
+    the classic service error 1053. Best-effort; returns True if it ran."""
+    exe = sys.executable or 'python.exe'
+    cands = [
+        os.path.join(os.path.dirname(exe), 'Scripts', 'pywin32_postinstall.py'),
+        os.path.join(sys.prefix, 'Scripts', 'pywin32_postinstall.py'),
+    ]
+    script = next((p for p in cands if os.path.exists(p)), None)
+    try:
+        if script:
+            subprocess.run([exe, script, '-install', '-quiet'],
+                           capture_output=True, timeout=120,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        else:
+            # Fallback: invoke it as a module (works on newer pywin32).
+            subprocess.run([exe, '-m', 'pywin32_postinstall', '-install', '-quiet'],
+                           capture_output=True, timeout=120,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return True
+    except Exception as e:
+        log.warning(f'pywin32_postinstall failed: {e}')
+        return False
 
 
 def _service_running():

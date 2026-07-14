@@ -100,6 +100,31 @@ class TestWindowsService(unittest.TestCase):
         self.assertIn('--install-service', api_txt)
         self.assertIn('pywin32', api_txt)
 
+    def test_install_service_self_heals_error_1053(self):
+        # When the service registers but the first start fails (pywin32 service
+        # DLLs not registered = error 1053), _install_service must run
+        # pywin32_postinstall and retry — so the service is a hands-off default,
+        # not a step users abandon. Model: not-running the first check, running
+        # the second.
+        orig_avail = agent._pywin32_available
+        agent._pywin32_available = lambda: True
+        self.addCleanup(lambda: setattr(agent, '_pywin32_available', orig_avail))
+
+        states = iter([False, True])   # first _service_running() False, then True
+        orig_running = agent._service_running
+        agent._service_running = lambda: next(states, True)
+        self.addCleanup(lambda: setattr(agent, '_service_running', orig_running))
+
+        healed = {'called': False}
+        orig_reg = agent._register_pywin32_service_dlls
+        agent._register_pywin32_service_dlls = lambda: healed.__setitem__('called', True) or True
+        self.addCleanup(lambda: setattr(agent, '_register_pywin32_service_dlls', orig_reg))
+
+        self._capture_sc()
+        rc = agent._install_service()
+        self.assertEqual(rc, 0)
+        self.assertTrue(healed['called'], 'did not attempt the pywin32 DLL self-heal')
+
 
 class TestEnrollErrorUX(unittest.TestCase):
     """A bad PIN/token at enroll must give a READABLE error, not a raw Python

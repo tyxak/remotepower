@@ -145,7 +145,11 @@ $havePywin32 = $false
 try {
   & python -m pip install --quiet --disable-pip-version-check pywin32 | Out-Null
   & python -c "import win32serviceutil" 2>$null
-  if ($LASTEXITCODE -eq 0) { $havePywin32 = $true }
+  if ($LASTEXITCODE -eq 0) {
+    $havePywin32 = $true
+    $ppi = Join-Path (Split-Path (Get-Command python).Source) 'Scripts\pywin32_postinstall.py'
+    if (Test-Path $ppi) { & python $ppi -install -quiet 2>$null | Out-Null }
+  }
 } catch {}
 
 # ── Enroll ────────────────────────────────────────────────────────────────────
