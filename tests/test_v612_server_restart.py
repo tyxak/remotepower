@@ -31,7 +31,11 @@ def _fresh_api(restart_script=None):
 
 
 def _script(body):
-    p = Path(tempfile.mktemp(suffix='-restart.sh'))
+    # mkstemp (not mktemp) — creates the file atomically at mode 0600, no
+    # predictable-path TOCTOU window.
+    fd, path = tempfile.mkstemp(suffix='-restart.sh')
+    os.close(fd)
+    p = Path(path)
     p.write_text(body)
     p.chmod(p.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return str(p)
