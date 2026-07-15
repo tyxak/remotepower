@@ -12702,6 +12702,11 @@ async function saveSamlConfig() {
 
 // v4.1.0: per-sidebar-group "needs attention" count badges.
 async function refreshNavCounts() {
+  // v6.2.2 (perf): a backgrounded tab has nothing to paint, so don't poll from
+  // its timer — the badges are re-fetched on the visibilitychange back to
+  // foreground. Without this a tab left open in the background hit /nav-counts
+  // every 60s forever (the ETag made it a cheap 304, but still a round-trip).
+  if (document.hidden) return;
   try {
     // v6.1.2 (perf #6): conditional GET. This is the hottest poll in the product
     // — every open tab, every 60s, forever — and on an idle fleet the answer is
@@ -16807,6 +16812,8 @@ function _renderHomeActivity(fleetEvents) {
     'av_realtime_off', 'av_realtime_on',
     // v6.2.2: kernel modules hidden from the agent context / visible again
     'modules_hidden', 'modules_visible_restored',
+    // v6.2.2: NIC accruing errors/drops (failing cable/SFP/port) / cleared
+    'nic_errors', 'nic_errors_cleared',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
@@ -17012,6 +17019,8 @@ function _homeActivityAttrs(event, p) {
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_critical': case 'ups_on_line':
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
+    // v6.2.2: NIC errors/drops → the affected host's drawer
+    case 'nic_errors': case 'nic_errors_cleared':
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':

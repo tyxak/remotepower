@@ -41,6 +41,7 @@ body {
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .row-8 { display: flex; gap: 8px; align-items: center; }
 .portal-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+#ticket-list { max-height: 340px; overflow-y: auto; }
 .ticket-row {
   display: flex; justify-content: space-between; gap: 12px; padding: 10px 4px;
   border-top: 1px solid #eceef1; cursor: pointer;
@@ -50,7 +51,7 @@ body {
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #e7ebf0; color: #444; }
 .badge.ongoing { background: #dbeafe; color: #1e40af; }
 .badge.resolved, .badge.closed { background: #dcfce7; color: #166534; }
-.thread { margin: 12px 0; }
+.thread { margin: 12px 0; max-height: 62vh; overflow-y: auto; }
 .msg { padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; max-width: 80%; }
 .msg.you { background: #e8f0fe; margin-left: auto; }
 .msg.support { background: #f1f3f5; }

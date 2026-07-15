@@ -1472,6 +1472,19 @@ EVENT_REGISTRY = {
     'gateway_reachable': dict(
         label='Default gateway is reachable again', kind='network', title='Gateway Reachable',
         resolves=('gateway_unreachable',), tags='white_check_mark,globe_with_meridians'),
+    # v6.2.2: a NIC accruing errors/drops NOW (failing cable / dirty SFP / dying
+    # switch port). The agent always reported the counters and the Checks page
+    # got a row, but nothing fired — so it could never page. Edge-triggered per
+    # interface on the ingest-computed err_delta (increase only; a reboot resets
+    # the baseline), auto-resolved when the interface stops erroring.
+    'nic_errors': dict(
+        label='A network interface is accruing errors/drops', kind='network',
+        title='NIC Errors', severity='high', priority=4,
+        tags='rotating_light,electric_plug'),
+    'nic_errors_cleared': dict(
+        label='A network interface stopped erroring (recovered)', kind='network',
+        title='NIC Errors Cleared', resolves=('nic_errors',),
+        tags='white_check_mark,electric_plug'),
     'oom_detected': dict(
         label='The kernel OOM-killer terminated a process', kind='oom',
         title='Out Of Memory Kill', severity='high', tags='skull,brain'),
@@ -7611,6 +7624,11 @@ _ALERT_IDENTITY_FIELDS = (
     # process_recovered sub_match) resolved the wrong one or masked a still-bad one.
     'pool',
     'process',
+    # v6.2.2: nic_errors fires per INTERFACE — without iface here, eth0 and eth1
+    # erroring on one host coalesce into a single alert, so the per-iface
+    # recovery (nic_errors_cleared sub_match) resolves the wrong one / masks a
+    # still-erroring NIC. Same class as pool/process above.
+    'iface',
 )
 
 
@@ -8654,6 +8672,9 @@ def _record_alert(event, payload):
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
+                    # v6.2.2: NIC interface name — the nic_errors alert's
+                    # per-interface match key for nic_errors_cleared resolve.
+                    'iface',
                     # B2: inbound webhooks set these
                     'inbound_token_id', 'inbound_source',
                     # v3.2.3: payload keys for the newly-wired alerts —
@@ -8846,6 +8867,10 @@ def _auto_resolve_alerts(event, payload):
         # cleared every pool's open alert (and any scrub_overdue) on the host,
         # so a still-degraded second pool lost its alert. Match the pool.
         sub_match['pool'] = p.get('pool')
+    elif event == 'nic_errors_cleared':
+        # v6.2.2: nic_errors is edge-triggered per interface, so a recovery on
+        # eth0 must not clear a still-erroring eth1 on the same host. Match iface.
+        sub_match['iface'] = p.get('iface')
     elif event == 'snapshot_ok':
         # v6.1.2: same per-pool rule — snapshot_stale is edge-triggered per pool,
         # so a device-id-only recovery would clear a pool whose snapshots are
@@ -18866,7 +18891,7 @@ def handle_heartbeat():
     # value that matters is False (modules hidden), which is falsy and would be
     # skipped by exactly the check meant to let it in. Presence-test it instead.
     if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth',
-                                'mounts', 'mailq', 'mount_issues', 'usb')) \
+                                'mounts', 'mailq', 'mount_issues', 'usb', 'network_io')) \
             or _si.get('modules_visible') is not None:
         try:
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
@@ -31339,6 +31364,39 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                                'physical access'),
                 })
         new['usb'] = cur_usb
+
+    # ── v6.2.2: NIC errors/drops ───────────────────────────────────
+    # Edge-triggered per interface on the ingest-computed err_delta (see the
+    # network_io block in handle_heartbeat: a per-iface delta of rx/tx err+drop
+    # vs the previous beat, reset to a fresh baseline when the counter goes
+    # backwards). Fire nic_errors when an interface STARTS erroring, hold while
+    # it continues (don't re-fire every beat), and fire nic_errors_cleared when
+    # it stops. State = the set of currently-erroring ifaces, per device.
+    nio = si.get('network_io')
+    if isinstance(nio, list):
+        cur_bad = sorted({
+            _sanitize_str(str(n.get('iface', '')), 32)
+            for n in nio
+            if isinstance(n, dict) and isinstance(n.get('err_delta'), int)
+            and n['err_delta'] > 0 and n.get('iface')
+        })
+        prev_bad = set(prev.get('nic_err_ifaces') or [])
+        if not first_seen:
+            for _if in cur_bad:
+                if _if not in prev_bad:
+                    _worst = max((n for n in nio if n.get('iface') == _if),
+                                 key=lambda n: n.get('err_delta', 0), default={})
+                    _fire('nic_errors', {
+                        'iface': _if,
+                        'detail': (f'{_if}: +{_worst.get("err_delta", "?")} errors/'
+                                   'drops since the last heartbeat — a failing '
+                                   'cable, dirty SFP or dying switch port is the '
+                                   'usual cause'),
+                    })
+            for _if in sorted(prev_bad - set(cur_bad)):
+                _fire('nic_errors_cleared', {'iface': _if,
+                                             'detail': f'{_if}: errors stopped'})
+        new['nic_err_ifaces'] = cur_bad
 
     # ── v6.2.2: kernel-module visibility ───────────────────────────
     # Like av_realtime_off this is a CONDITION, not an edge: a host that

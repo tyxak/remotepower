@@ -340,6 +340,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew
             'gateway_unreachable', 'gateway_reachable',  # v4.1.0 gateway
+            'nic_errors', 'nic_errors_cleared',      # v6.2.2 NIC errors/drops
             'oom_detected',                          # v4.1.0 OOM-killer
             # v5.6.x: host-condition alerts now self-clear — each of these is the
             # recover event that auto-resolves its paired trigger alert.
