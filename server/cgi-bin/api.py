@@ -35924,6 +35924,9 @@ _AI_DEFAULTS = {
             'provisioning': True,
             'rollouts':     True,
             'network_map':  True,
+            # v6.2.2: internal contact directory (team phonebook). Grounds
+            # "who do I call about host X / vendor Y / this site?".
+            'contacts':     True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -36134,7 +36137,8 @@ def handle_ai_config_set():
                           'drift', 'compliance', 'metrics',
                           'firewall', 'integrations', 'backups', 'dns_email',
                           'posture', 'vpn', 'tickets', 'kb',
-                          'provisioning', 'rollouts', 'network_map'):
+                          'provisioning', 'rollouts', 'network_map',
+                          'contacts'):   # v6.2.2 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -36271,6 +36275,9 @@ def _rag_source_files(sources):
     # v5.6.0: knowledge base articles.
     if sources.get('kb'):
         files.append(KB_FILE)
+    # v6.2.2: internal contact directory.
+    if sources.get('contacts'):
+        files.append(CONTACTS_FILE)
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -36592,6 +36599,13 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_kb_corpus(load(KB_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: kb source failed: {e}\n')
+
+    # v6.2.2: internal contact directory (team phonebook).
+    if sources.get('contacts'):
+        try:
+            docs += rag_index.build_contacts_corpus(load(CONTACTS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: contacts source failed: {e}\n')
 
     # v5.6.0: provisioning blueprints (IaC coverage/status). Gated on the feature.
     if sources.get('provisioning') and _provisioning_enabled():

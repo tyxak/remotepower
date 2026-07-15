@@ -1352,6 +1352,57 @@ def build_kb_corpus(store, now=0):
     return docs
 
 
+def build_contacts_corpus(store, now=0):
+    """v6.2.2: the internal contact directory (team phonebook) for the RAG, so
+    the model can answer "who do I call about host X / vendor Y / this site?".
+    `store` is CONTACTS_FILE {'contacts': [...]} with fixed fields
+    (name/role/company/email/phone/notes/site). One doc per contact plus a
+    rollup index. Fields are structured (not free-form facets), so no cloud
+    secret can hide in a key name — but `notes` is operator free text, so it is
+    passed through the same _is_secret_key guard the CMDB/KB builders use."""
+    docs = []
+    contacts = (store or {}).get('contacts', []) if isinstance(store, dict) else []
+    if not isinstance(contacts, list) or not contacts:
+        return docs
+    index = []
+    for c in contacts:
+        if not isinstance(c, dict):
+            continue
+        cid = c.get('id') or ''
+        name = str(c.get('name') or 'Unnamed')
+        role = str(c.get('role') or '')
+        company = str(c.get('company') or '')
+        email = str(c.get('email') or '')
+        phone = str(c.get('phone') or '')
+        site = str(c.get('site') or '')
+        notes = str(c.get('notes') or '')[:2000]
+        if notes and _is_secret_key('notes'):   # defensive parity with other builders
+            notes = ''
+        lines = [f"Contact: {name}"]
+        if role:
+            lines.append(f"Role: {role}")
+        if company:
+            lines.append(f"Company: {company}")
+        if email:
+            lines.append(f"Email: {email}")
+        if phone:
+            lines.append(f"Phone: {phone}")
+        if site:
+            lines.append(f"Site: {site}")
+        if notes:
+            lines.append(f"Notes: {notes}")
+        docs.append(make_doc(
+            f"contacts/{cid}", 'contacts', 'contact', '\n'.join(lines),
+            title=f"Contact: {name[:80]}", ts=int(c.get('updated_at') or now)))
+        _bits = name + (f", {role}" if role else '') + (f" @ {company}" if company else '')
+        index.append(f"- {_bits[:100]}" + (f" [{site}]" if site else ''))
+    docs.append(make_doc(
+        'contacts/_index', 'contacts', 'contacts_index',
+        f"Contact directory: {len(index)} contact(s).\n" + '\n'.join(index[:300]),
+        title='Contact directory index', ts=now))
+    return docs
+
+
 def build_provisioning_corpus(store, now=0):
     """v5.6.0: infrastructure-provisioning blueprints (IaC) for the RAG. `store`
     is the PROVISION_FILE dict {'blueprints': [...]}. Each blueprint (Terraform /

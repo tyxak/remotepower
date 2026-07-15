@@ -77,6 +77,7 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-provisioning', rs.provisioning !== false);
   _setSrc('ai-rag-src-rollouts',     rs.rollouts !== false);
   _setSrc('ai-rag-src-networkmap',   rs.network_map !== false);
+  _setSrc('ai-rag-src-contacts',     rs.contacts !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -345,6 +346,7 @@ async function saveAISettings() {
         provisioning: !!document.getElementById('ai-rag-src-provisioning')?.checked,
         rollouts:     !!document.getElementById('ai-rag-src-rollouts')?.checked,
         network_map:  !!document.getElementById('ai-rag-src-networkmap')?.checked,
+        contacts:     !!document.getElementById('ai-rag-src-contacts')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
