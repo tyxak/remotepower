@@ -80,6 +80,15 @@ day.
 - **Patch-prioritisation advisor.** The AI Insights hub gains a fleet
   patch-prioritisation card — which pending updates to apply first across the
   fleet, security-flagged and CVE-fixing first, with which hosts need a reboot.
+- **More fleet knowledge for the assistant.** The AI's retrieval now also draws
+  on the internal contact directory ("who do I call about host X?"), your
+  status-page incident history, and maintenance windows ("is anything in
+  maintenance now?"). Each is a toggle under Settings → AI.
+
+### Dashboard
+
+- A **helpdesk open-tickets** count tile is available in the widget catalog,
+  distinct from the existing alerts inbox widget.
 
 ### Fixes
 

@@ -1403,6 +1403,84 @@ def build_contacts_corpus(store, now=0):
     return docs
 
 
+def build_maintenance_corpus(store, now=0):
+    """v6.2.2: maintenance windows for the RAG, so the model can answer "is
+    anything in maintenance now?", "what's scheduled?", "why is host X's alert
+    suppressed?". `store` is MAINT_FILE {'windows': [...]}. Each window has an
+    operator `reason`, a scope (match_type/pattern or all-fleet) and start/end
+    or a recurring cron. Defensive on shape (every field via .get). One doc per
+    window plus a rollup. Operator-authored scheduling text — no secrets."""
+    docs = []
+    windows = (store or {}).get('windows', []) if isinstance(store, dict) else []
+    if not isinstance(windows, list) or not windows:
+        return docs
+    index = []
+    for w in windows:
+        if not isinstance(w, dict):
+            continue
+        wid = w.get('id') or ''
+        reason = str(w.get('reason') or 'Maintenance window')
+        mtype = str(w.get('match_type') or 'all')
+        pattern = str(w.get('pattern') or '')
+        scope = 'whole fleet' if mtype == 'all' else f'{mtype} {pattern}'.strip()
+        cron = str(w.get('cron') or '')
+        start = w.get('start')
+        lines = [f"Maintenance window: {reason}", f"Scope: {scope}"]
+        if cron:
+            lines.append(f"Recurring: {cron}")
+        elif start:
+            lines.append(f"Starts: {start}")
+        if w.get('suppress_alerts'):
+            lines.append("Suppresses alerts while active.")
+        if w.get('block_commands'):
+            lines.append("Blocks command execution while active.")
+        docs.append(make_doc(
+            f"maintenance/{wid}", 'maintenance', 'maint_window', '\n'.join(lines),
+            title=f"Maintenance: {reason[:70]}", ts=int(w.get('created') or now)))
+        index.append(f"- {reason[:70]} ({scope})" + (f" cron:{cron}" if cron else ''))
+    docs.append(make_doc(
+        'maintenance/_index', 'maintenance', 'maintenance_index',
+        f"Maintenance windows: {len(index)} defined.\n" + '\n'.join(index[:300]),
+        title='Maintenance windows index', ts=now))
+    return docs
+
+
+def build_incidents_corpus(store, now=0):
+    """v6.2.2: operator-posted status-page incidents for the RAG, so the model
+    can answer "what incidents have we had?", "is anything ongoing?", "what was
+    the last major outage?". `store` is INCIDENTS_FILE {'incidents': [...]} with
+    id/title/impact/status and an updates timeline. One doc per incident (title,
+    impact, status, and the running update log) plus a rollup index. All
+    operator-authored public status text — no secrets by construction."""
+    docs = []
+    incidents = (store or {}).get('incidents', []) if isinstance(store, dict) else []
+    if not isinstance(incidents, list) or not incidents:
+        return docs
+    index = []
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        iid = inc.get('id') or ''
+        title = str(inc.get('title') or 'Incident')
+        impact = str(inc.get('impact') or 'minor')
+        status = str(inc.get('status') or '')
+        lines = [f"Status-page incident: {title}",
+                 f"Impact: {impact}", f"Status: {status}"]
+        for u in (inc.get('updates') or [])[:40]:
+            if isinstance(u, dict) and (u.get('body') or u.get('status')):
+                lines.append(f"- [{u.get('status', '')}] {str(u.get('body') or '')[:500]}")
+        docs.append(make_doc(
+            f"incidents/{iid}", 'incidents', 'incident', '\n'.join(lines),
+            title=f"Incident: {title[:80]}",
+            ts=int(inc.get('updated_at') or inc.get('created_at') or now)))
+        index.append(f"- {title[:80]} [{impact}/{status}]")
+    docs.append(make_doc(
+        'incidents/_index', 'incidents', 'incidents_index',
+        f"Status-page incidents: {len(index)} total.\n" + '\n'.join(index[:300]),
+        title='Incidents index', ts=now))
+    return docs
+
+
 def build_provisioning_corpus(store, now=0):
     """v5.6.0: infrastructure-provisioning blueprints (IaC) for the RAG. `store`
     is the PROVISION_FILE dict {'blueprints': [...]}. Each blueprint (Terraform /

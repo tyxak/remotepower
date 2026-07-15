@@ -481,7 +481,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Rate limiting | Per-user daily cap + per-response token cap |
 | Free-form chat | Multi-turn chat page with model picker + local history |
 | Local-model support | Ollama/LocalAI — no egress, no API key; shows loaded models + VRAM |
-| RAG over your fleet | Cited `<retrieved_context>` from device state, services, CVEs, containers, firewall/fail2ban, integrations, backups, DNS/email, security posture, CMDB, runbooks, commands, alerts, tickets, knowledge base, **provisioning blueprints, rollouts and network topology** *(v5.6.0)*, the **internal contact directory** *(v6.2.2)*, product docs; BM25 lexical + optional semantic (RRF); vault never indexed *(v3.4.0)* |
+| RAG over your fleet | Cited `<retrieved_context>` from device state, services, CVEs, containers, firewall/fail2ban, integrations, backups, DNS/email, security posture, CMDB, runbooks, commands, alerts, tickets, knowledge base, **provisioning blueprints, rollouts and network topology** *(v5.6.0)*, the **internal contact directory, status-page incidents and maintenance windows** *(v6.2.2)*, product docs; BM25 lexical + optional semantic (RRF); vault never indexed *(v3.4.0)* |
 
 ## MCP server *(v2.2.1)*
 

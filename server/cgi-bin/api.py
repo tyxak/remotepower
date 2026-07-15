@@ -35930,6 +35930,12 @@ _AI_DEFAULTS = {
             # v6.2.2: internal contact directory (team phonebook). Grounds
             # "who do I call about host X / vendor Y / this site?".
             'contacts':     True,
+            # v6.2.2: operator-posted status-page incident history. Grounds
+            # "what incidents have we had?", "is anything ongoing?".
+            'incidents':    True,
+            # v6.2.2: maintenance windows. Grounds "is anything in maintenance
+            # now?", "why is host X's alert suppressed?".
+            'maintenance':  True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -36141,7 +36147,7 @@ def handle_ai_config_set():
                           'firewall', 'integrations', 'backups', 'dns_email',
                           'posture', 'vpn', 'tickets', 'kb',
                           'provisioning', 'rollouts', 'network_map',
-                          'contacts'):   # v6.2.2 — miss this and the toggle never persists
+                          'contacts', 'incidents', 'maintenance'):   # v6.2.2 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -36281,6 +36287,12 @@ def _rag_source_files(sources):
     # v6.2.2: internal contact directory.
     if sources.get('contacts'):
         files.append(CONTACTS_FILE)
+    # v6.2.2: status-page incident history.
+    if sources.get('incidents'):
+        files.append(INCIDENTS_FILE)
+    # v6.2.2: maintenance windows.
+    if sources.get('maintenance'):
+        files.append(MAINT_FILE)
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -36609,6 +36621,20 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_contacts_corpus(load(CONTACTS_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: contacts source failed: {e}\n')
+
+    # v6.2.2: operator-posted status-page incidents.
+    if sources.get('incidents'):
+        try:
+            docs += rag_index.build_incidents_corpus(load(INCIDENTS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: incidents source failed: {e}\n')
+
+    # v6.2.2: maintenance windows.
+    if sources.get('maintenance'):
+        try:
+            docs += rag_index.build_maintenance_corpus(load(MAINT_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: maintenance source failed: {e}\n')
 
     # v5.6.0: provisioning blueprints (IaC coverage/status). Gated on the feature.
     if sources.get('provisioning') and _provisioning_enabled():
