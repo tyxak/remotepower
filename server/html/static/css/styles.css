@@ -4795,7 +4795,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-362 { background: #fff; padding: 8px; border-radius: 8px; flex-shrink: 0; min-width: 168px; min-height: 168px; display: flex; align-items: center; justify-content: center }
 .isl-363 { color: var(--muted); font-size: 12px }
 .isl-364 { flex: 1; min-width: 200px }
-.isl-365 { font-size: 13px; font-weight: 600; margin-bottom: 8px }
+.isl-365 { font-size: 13px; font-weight: 620; margin-bottom: 8px }
 .isl-366 { font-size: 12px; color: var(--muted); margin-bottom: 12px }
 .isl-367 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px }
 .isl-368 { font-family: var(--font-mono); font-size: 13px; letter-spacing: 2px; color: var(--accent); word-break: break-all; background: var(--surface2); padding: 10px; border-radius: 6px; cursor: pointer }
@@ -4808,7 +4808,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-375 { display: flex; gap: 4px; align-items: center }
 /* .isl-376 — dynamic colour, applied via data-color attribute */
 /* .isl-377 — dynamic colour, applied via data-color attribute */
-.isl-378 { font-size: 13px; font-weight: 600; margin: 16px 0 8px; color: var(--muted) }
+.isl-378 { font-size: 13px; font-weight: 620; margin: 16px 0 8px; color: var(--muted) }
 .isl-379 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px }
 .isl-380 { display: flex; justify-content: space-between; margin-bottom: 6px }
 .isl-381 { font-size: 12px; color: var(--accent) }
@@ -4860,11 +4860,11 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-426 { font-size: 12px; color: var(--amber) }
 .isl-427 { font-size: 12px; color: var(--muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis }
 .isl-428 { font-size: 10px; color: var(--muted); padding: 0 4px }
-.isl-429 { font-size: 11px; color: var(--muted); padding: 12px 4px; text-align: center; font-style: italic }
-.isl-430 { text-align: center; font-size: 12px; color: var(--muted) }
+.isl-429 { font-size: 13px; color: var(--muted); padding: 12px 4px; text-align: center; font-style: italic }
+.isl-430 { text-align: center; font-size: 13px; color: var(--muted) }
 .isl-431 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px }
 .isl-432 { padding: 10px 14px; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; user-select: none }
-.isl-433 { font-weight: 600; font-size: 13px }
+.isl-433 { font-weight: 620; font-size: 13px }
 .isl-434 { padding: 3px 8px; font-size: 11px }
 .isl-435 { padding: 3px 8px; font-size: 11px; color: var(--red); border-color: rgba(239,68,68,0.3) }
 .isl-436 { padding: 0 14px 14px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.55 }
@@ -4929,7 +4929,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-495 { display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px }
 .isl-496 { border-radius: 8px; padding: 12px 14px; background: var(--surface2); transition: background 0.1s; height: 100%; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; border: 1px solid var(--border) }
 .isl-497 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px }
-.isl-498 { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.isl-498 { font-weight: 620; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .isl-499 { font-family: var(--font-mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .isl-500 { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
 .isl-501 { text-decoration: none; color: inherit; display: block }
@@ -4947,8 +4947,8 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-513 { color: var(--red); white-space: pre-wrap }
 .isl-514 { background: var(--surface2); border: 1px solid var(--border); padding: 10px 12px; border-radius: 6px; overflow-x: auto; max-height: 360px; overflow-y: auto; font-size: 12px; margin: 8px 0; line-height: 1.5; font-family: var(--font-mono) }
 .isl-515 { background: var(--surface2); padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: var(--font-mono) }
-.isl-516 { font-size: 13px; font-weight: 600; margin: 10px 0 4px }
-.isl-517 { font-size: 13px; font-weight: 600; margin: 12px 0 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px }
+.isl-516 { font-size: 13px; font-weight: 620; margin: 10px 0 4px }
+.isl-517 { font-size: 13px; font-weight: 620; margin: 12px 0 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px }
 .isl-518 { font-size: 16px; font-weight: 700; margin: 14px 0 8px }
 .isl-519 { margin: 6px 0; padding-left: 22px }
 .isl-520 { border-left: 3px solid var(--border); padding: 2px 10px; color: var(--muted); margin: 6px 0 }
@@ -5001,7 +5001,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-567 { color: var(--red); font-weight: 600; margin-bottom: 4px }
 .isl-568 { font-family: var(--font-mono); font-size: 11px }
 .isl-569 { font-family: var(--font-mono); font-size: 11px; font-weight: 600 }
-.isl-570 { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0 }
+.isl-570 { cursor: pointer; font-size: 13px; font-weight: 620; color: var(--muted); padding: 4px 0 }
 .isl-571 { margin-top: 8px; max-height: 220px; overflow-y: auto }
 .isl-572 { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono) }
 .isl-573 { font-size: 11px; padding: 3px 10px; color: var(--amber); border-color: rgba(245,158,11,0.3) }
@@ -5088,7 +5088,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-650 { text-align: left; padding: 4px 6px }
 .isl-651 { padding: 4px 6px }
 .isl-652 { text-align: center }
-.isl-653 { text-align: center; color: var(--muted); font-size: 11px }
+.isl-653 { text-align: center; color: var(--muted); font-size: 13px }
 .isl-654 { font-size: 11px; overflow: auto; white-space: pre-wrap; max-height: 300px }
 /* v3.13.0: drawer/page table cap — ~15 rows then scroll internally. Pairs
  * with .scrollable-table-wrap (sticky header + styled scrollbar); declared
@@ -5266,7 +5266,7 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .isl-699 { font-weight: 500; font-size: 12px }
 .isl-700 { color: var(--amber); font-size: 11px; margin-left: 6px }
 .isl-701 { font-size: 11px; color: var(--muted); display: block; margin-top: 4px; word-break: break-all }
-.isl-702 { color: var(--muted); font-size: 12px; text-align: center; padding: 20px }
+.isl-702 { color: var(--muted); font-size: 13px; text-align: center; padding: 20px }
 .isl-703 { background: rgba(220,60,60,0.12); color: var(--red); border: 1px solid rgba(220,60,60,0.30); border-radius: 6px; padding: 10px; font-size: 12px }
 .isl-704 { background: rgba(255,170,40,0.10); color: var(--amber); border: 1px solid rgba(255,170,40,0.30); border-radius: 6px; padding: 10px; font-size: 12px }
 .isl-705 { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 12px }
