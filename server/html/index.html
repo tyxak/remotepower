@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.2.1">
+<link rel="stylesheet" href="static/css/styles.css?v=6.2.2">
 
 </head>
 <body>
@@ -3535,7 +3535,23 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.2.1 in1tmatters init initramfs initrd lvm volume group not found unbootable boot failure busybox rescue kernel modules update-initramfs mkinitramfs protectkernelmodules systemd unit hardening sandbox agent service patch window reboot gate lsinitramfs sanity check upgrade refuses lib modules dracut mkinitcpio wsl">
+          <details class="doc-card" open data-keywords="release notes changelog v6.2.2 pu1sematters pulse heartbeat delta sysinfo omitted unchanged inventory bandwidth keep-alive keepalive tls handshake reuse persistent connection kernel modules visible hidden modules_hidden check forced always on sandbox protectkernelmodules install-client upgrade in place re-enroll rp-old unit backup keyboard alert inbox j k ack resolve mute hover card quick peek device deep link tab copy link drawer chunked table streaming rows lazy modules first load skeleton loading metric prune index">
+            <summary><strong>What's new — v6.2.2 &ldquo;Pu1seMatters&rdquo;</strong> — a performance and polish release built around the heartbeat: agents skip re-sending unchanged inventory (<strong>delta sysinfo</strong>) and reuse one HTTPS connection instead of a TLS handshake per beat; a new <strong>always-on kernel-module visibility check</strong> flags the v6.2.1 failure class before patch day; re-running the installer now upgrades in place; and the UI gains a keyboard-driven alert inbox, device hover cards, tab-level device deep links and streaming large-fleet tables.</summary>
+            <div class="doc-body">
+              <p><strong>Kernel-module visibility check (always on).</strong> The Linux agent reports whether the running kernel's <code>/lib/modules</code> is visible from its own service context. Hidden modules mean the next package upgrade can build an unbootable, module-less initramfs — so the host gets a <strong>critical Checks row</strong> and a <code>modules_hidden</code> alert (firing on first contact too, and auto-resolving when fixed). This check deliberately cannot be disabled per host; hosts without initramfs tooling (WSL, containers) are never flagged.</p>
+              <p><strong>Performance</strong></p>
+              <ul>
+                <li><strong>Delta sysinfo</strong> — package lists, listening ports, interfaces, SSH host keys, USB and auto-update posture are omitted from the heartbeat when unchanged; the server merges its stored copy so nothing downstream ever sees a partial view. Fully negotiated: old agents and old servers keep exchanging full payloads, and either side can request full data at any time.</li>
+                <li><strong>Agent keep-alive</strong> — one HTTPS connection across heartbeats instead of a fresh TLS handshake per beat; same CA/mTLS verification, redirects still refused; proxied hosts and <code>RP_NO_KEEPALIVE=1</code> keep the old behavior.</li>
+                <li><strong>Streaming tables</strong> — Checks, Alerts (flat), Processes, Exposure and CMDB paint the first 300 rows instantly and stream the rest on scroll.</li>
+                <li><strong>Leaner first load</strong> — ten page modules now load on first visit instead of at boot.</li>
+              </ul>
+              <p><strong>Installer.</strong> Re-running <code>install-client.sh</code> on an enrolled host is now an in-place <strong>upgrade</strong>: binary + unit refreshed, enrollment kept, agent restarted into the new unit (a customized unit is backed up first). <code>--re-enroll</code> restores the old behavior.</p>
+              <p><strong>UX.</strong> Keyboard-driven alert inbox (<code>j</code>/<code>k</code>/<code>a</code>/<code>r</code>/<code>m</code>/<code>x</code>, <code>?</code> for the map) · device hover cards on Alerts/Checks/Exposure · tab-level device deep links (<code>#device/&lt;id&gt;/&lt;tab&gt;</code>) with a copy-link button in the drawer · skeleton loading on the last bare "Loading…" tables.</p>
+              <p class="hint">See <code>docs/v6.2.2.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v6.2.1 in1tmatters init initramfs initrd lvm volume group not found unbootable boot failure busybox rescue kernel modules update-initramfs mkinitramfs protectkernelmodules systemd unit hardening sandbox agent service patch window reboot gate lsinitramfs sanity check upgrade refuses lib modules dracut mkinitcpio wsl">
             <summary><strong>What's new — v6.2.1 &ldquo;In1tMatters&rdquo;</strong> — a critical fix for Linux hosts using initramfs (Debian/Ubuntu): the agent's systemd unit hardening could cause package upgrades run through RemotePower to rebuild the initramfs <strong>without kernel modules</strong>, leaving a host unable to find its root filesystem on its next reboot. The unit is fixed, the upgrade command now refuses to run in that situation, and scheduled patch-window reboots verify the initrd before firing.</summary>
             <div class="doc-body">
               <p><strong>What happened.</strong> The Linux agent's systemd unit set <code>ProtectKernelModules=yes</code>. Besides blocking module loading, that option hides <code>/usr/lib/modules</code> from the unit — and from every command the agent executes. When a package upgrade run through RemotePower triggered <code>update-initramfs</code>, the initrd was rebuilt with no kernel modules at all; the tooling only warns, the upgrade reports success, and the host boots into the initramfs shell (most visibly &ldquo;volume group not found&rdquo; on LVM roots) at its next reboot.</p>
@@ -3580,24 +3596,8 @@
               <p><strong>Also fixed:</strong> the fleet-risk cache busted on <code>devices.json</code>, which every heartbeat rewrites — so on any real fleet it never hit, and the whole-fleet risk computation re-ran on every single dashboard poll. The post-approval executor honoured neither maintenance mode nor audit mode. And <code>.patch-badge.crit</code> — the most severe badge in the product, used for <em>TAMPER DETECTED</em> — had no CSS rule at all, so it rendered as plain unstyled text.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v6.1.2 afterglowmatters afterglow bugfix alert mute health score needs attention trivy container image cve scan now force postgres 500 lockbusy lock busy retry 503 billing rate card delete wrong row restore drill sort opnsense console runbook dead code optional modules minimal homelab disable alerts tickets billing knowledge base compliance pentest kill switch advanced performance attention cache heartbeat sweeps scheduler otlp deepcopy monitor history schema ddl">
-            <summary><strong>What's new — v6.1.2 &ldquo;AfterglowMatters&rdquo;</strong> — a correctness-and-fit release: muting an alert now actually lifts the health score, the trivy image-CVE scan can finally be triggered (it could never run), <code>POST /api/cve/scan</code> no longer 500s on PostgreSQL, a sweep of frontend defects (including Billing deleting the wrong row), the first wave of performance work, and optional modules you can switch off for a minimal homelab.</summary>
-            <div class="doc-body">
-              <p>v6.1.2 fixes three reported bugs — two of which meant a shipped feature simply did not work — plus a sweep of frontend defects, the first wave of performance work, and module switches for minimal setups. No breaking API changes; every new switch defaults to today's behaviour.</p>
-              <p><strong>Reported bugs</strong></p>
-              <ul>
-                <li><strong>Muting an alert now lifts the health score.</strong> A mute is meant to silence the inbox <em>and</em> Needs-Attention, but only the alert-firing path ever checked the mute list — so the Needs-Attention item survived, and because fleet health is derived entirely from those signals, a muted alert depressed the host's (and the fleet's) score forever. Matching is per event <em>and</em> severity, so silencing <code>av_warning</code> does not also hide a critical <code>av_infected</code>.</li>
-                <li><strong>Container image CVEs (trivy) could never actually run.</strong> The agent has always honoured a <code>force_image_scan</code> flag, but nothing on the server ever set one — leaving the agent's <code>poll_count % 1440</code> cadence as the only trigger, and that counter resets on every agent restart. Any host restarting its agent more than daily never scanned. The cadence is now a persisted wall-clock interval, there's a <strong>Scan now</strong> button, and the empty state finally distinguishes "off" from "nothing reported yet" from "clean".</li>
-                <li><strong><code>POST /api/cve/scan</code> no longer 500s on PostgreSQL.</strong> Postgres was the only backend giving a contended non-blocking lock <em>zero</em> retry budget (JSON retries 100 ms; SQLite sets <code>busy_timeout=100</code>), so a routine collision with the detached scan runner raised an uncaught <code>LockBusy</code>. The backends now agree, and a lock conflict anywhere renders as a retryable <strong>503</strong>.</li>
-              </ul>
-              <p><strong>Frontend fixes</strong> — from a full review of the JS modules: <strong>Billing could delete the wrong rate-card row or fee</strong> (rows were addressed by a render-time index that went stale after any delete — and Save then persisted the damage); the backups <strong>Restore drill</strong> column showed a sort arrow but never sorted; saving <strong>OPNsense</strong> config from the console repainted the drawer instead; an unreachable runbook renderer and a few escaping/markup defects were cleaned up.</p>
-              <p><strong>Performance</strong> — the <strong>Needs-Attention cache was defeated on essentially every fleet</strong> (it invalidated on any <code>devices.json</code> write, which every heartbeat does, so it never hit and the O(fleet) digest recomputed on every poll); <strong>six maintenance sweeps</strong> ran on every heartbeat even when a dedicated scheduler was already doing that work; the OTLP hook deep-copied the whole config per beat to read one disabled boolean; the monitor sweep rewrote every configured monitor's history to record the few that ran; and PostgreSQL re-ran its full schema DDL on every new connection.</p>
-              <p><strong>Optional modules</strong> — <strong>Settings → Advanced</strong> can now switch off <strong>Alerts, Tickets, Billing, Knowledge base, Compliance and Pentest</strong>. A disabled module leaves the sidebar <em>and</em> its whole API prefix 404s — genuinely off, not merely hidden. Nothing is deleted. Turning <strong>Alerts</strong> off stops inbox rows while webhook/email notifications and the event history keep working — for operators who page themselves through ntfy or Discord and don't want a queue to curate.</p>
-              <p class="hint">See <code>docs/v6.1.2.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v6.1.0 and earlier</summary>
+          <details class="doc-card" data-keywords="release notes changelog older versions history v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+            <summary><strong>Older releases</strong> &mdash; v6.1.2 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the three most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
@@ -7238,6 +7238,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="drawer-device-name" id="drawer-device-name">Device</div>
         <div class="drawer-device-sub"  id="drawer-device-sub"></div>
       </div>
+      <button class="btn-icon isl-91" data-action="copyDrawerLink" title="Copy a direct link to this device view" aria-label="Copy link"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
       <button class="btn-icon isl-91" data-action="closeDeviceDrawer" title="Close" aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-b4990b7e"/></svg></button>
     </div>
 
@@ -9561,45 +9562,42 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.2.1"></script>
+<script defer src="static/js/app.js?v=6.2.2"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.2.1"></script>
-<script defer src="static/js/app-cmdb.js?v=6.2.1"></script>
-<script defer src="static/js/app-containers.js?v=6.2.1"></script>
-<script defer src="static/js/app-network.js?v=6.2.1"></script>
+<script defer src="static/js/app-calendar.js?v=6.2.2"></script>
+<script defer src="static/js/app-cmdb.js?v=6.2.2"></script>
+<script defer src="static/js/app-containers.js?v=6.2.2"></script>
+<script defer src="static/js/app-network.js?v=6.2.2"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.2.1"></script>
-<script defer src="static/js/app-compliance.js?v=6.2.1"></script>
-<script defer src="static/js/app-integrations.js?v=6.2.1"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.2.2"></script>
+<script defer src="static/js/app-compliance.js?v=6.2.2"></script>
+<script defer src="static/js/app-integrations.js?v=6.2.2"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.2.1"></script>
-<script defer src="static/js/app-dns.js?v=6.2.1"></script>
-<script defer src="static/js/app-drift.js?v=6.2.1"></script>
-<script defer src="static/js/app-dmarc.js?v=6.2.1"></script>
-<script defer src="static/js/app-cve.js?v=6.2.1"></script>
-<script defer src="static/js/app-firewall.js?v=6.2.1"></script>
-<script defer src="static/js/app-backups.js?v=6.2.1"></script>
-<script defer src="static/js/app-iac.js?v=6.2.1"></script>
-<script defer src="static/js/app-provisioning.js?v=6.2.1"></script>
-<script defer src="static/js/app-tuning.js?v=6.2.1"></script>
-<script defer src="static/js/app-kb.js?v=6.2.1"></script>
-<script defer src="static/js/app-rollouts.js?v=6.2.1"></script>
-<script defer src="static/js/app-power.js?v=6.2.1"></script>
-<script defer src="static/js/app-gpu.js?v=6.2.1"></script>
-<script defer src="static/js/app-proxmox.js?v=6.2.1"></script>
-<script defer src="static/js/wg-access.js?v=6.2.1"></script>
-<script defer src="static/js/app-billing.js?v=6.2.1"></script>
-<script defer src="static/js/app-virt.js?v=6.2.1"></script>
+<script defer src="static/js/app-ai.js?v=6.2.2"></script>
+<script defer src="static/js/app-dns.js?v=6.2.2"></script>
+<script defer src="static/js/app-drift.js?v=6.2.2"></script>
+<script defer src="static/js/app-cve.js?v=6.2.2"></script>
+<script defer src="static/js/app-firewall.js?v=6.2.2"></script>
+<script defer src="static/js/app-backups.js?v=6.2.2"></script>
+<script defer src="static/js/app-iac.js?v=6.2.2"></script>
+<script defer src="static/js/app-proxmox.js?v=6.2.2"></script>
+<script defer src="static/js/app-virt.js?v=6.2.2"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.2.1"></script>
-<script defer src="static/js/app-checks.js?v=6.2.1"></script>
-<script defer src="static/js/app-logs.js?v=6.2.1"></script>
-<script defer src="static/js/app-remote.js?v=6.2.1"></script>
-<script defer src="static/js/app-tickets.js?v=6.2.1"></script>
+<script defer src="static/js/app-alerts.js?v=6.2.2"></script>
+<script defer src="static/js/app-logs.js?v=6.2.2"></script>
+<script defer src="static/js/app-remote.js?v=6.2.2"></script>
+<script defer src="static/js/app-tickets.js?v=6.2.2"></script>
+<!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
+     _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
+     data-action dispatcher has a load-and-replay fallback for stray cross-page
+     buttons): app-checks, app-dmarc, app-gpu, app-kb, app-power, wg-access,
+     app-provisioning, app-rollouts, app-tuning, app-billing. Keep that map in
+     lockstep with this comment; a module BOTH here and there loads twice. -->
 
-<script defer src="static/js/sw-register.js?v=6.2.1"></script>
+
+<script defer src="static/js/sw-register.js?v=6.2.2"></script>
 </body>
 </html>

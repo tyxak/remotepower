@@ -103,9 +103,13 @@ class TestDeadRunbookCodeRemoved(unittest.TestCase):
 
 class TestContainerRenderFixes(unittest.TestCase):
     def test_loading_row_markup_is_well_formed(self):
+        # v6.2.2: the bare "Loading…" rows this pinned were replaced by the
+        # shared _skeletonRows placeholders. The original defect (a Loading row
+        # closed with a stray </tbody>) must stay gone; the durable assertion
+        # is that the loaders now use the skeleton helper.
         src = _src("app-containers.js")
         self.assertNotIn('Loading…</tbody>', src)
-        self.assertIn('Loading…</td></tr>', src)
+        self.assertIn('_skeletonRows(', src)
 
     def test_no_dead_ternary_with_identical_branches(self):
         src = _src("app-containers.js")

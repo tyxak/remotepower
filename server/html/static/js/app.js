@@ -472,7 +472,47 @@ const tableCtl = (() => {
     return _applySort(rows, prefs.sort || [], getColumns);
   }
 
-  return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage };
+  // v6.2.2: chunked rendering for the CUSTOM-renderer tables. The register/
+  // render contract above already paginates at 15 rows — but the wireSortOnly
+  // renderers (processes, exposure, patch catalog, Monitor, audit, …) build
+  // their whole tbody in one innerHTML: fine at 50 rows, a DOM bomb at 5,000
+  // on a real fleet. renderChunked() paints the first CHUNK rows immediately
+  // and appends the rest only as the sentinel row scrolls into view, so
+  // filter/sort interactivity stays instant regardless of fleet size.
+  const _CHUNK = 300;
+  function renderChunked(tbodyOrId, htmlRows, opts) {
+    const tbody = typeof tbodyOrId === 'string'
+      ? document.getElementById(tbodyOrId) : tbodyOrId;
+    if (!tbody) return;
+    if (tbody._chunkIO) { tbody._chunkIO.disconnect(); tbody._chunkIO = null; }
+    if (htmlRows.length <= _CHUNK) { tbody.innerHTML = htmlRows.join(''); return; }
+    let painted = _CHUNK;
+    tbody.innerHTML = htmlRows.slice(0, _CHUNK).join('');
+    const colspan = (opts && opts.colspan) || 9;
+    const sentinel = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = colspan;
+    cell.className = 'hint ta-center';
+    cell.textContent = `Showing ${painted} of ${htmlRows.length} — scroll for more`;
+    sentinel.appendChild(cell);
+    tbody.appendChild(sentinel);
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      sentinel.insertAdjacentHTML('beforebegin',
+        htmlRows.slice(painted, painted + _CHUNK).join(''));
+      painted += _CHUNK;
+      if (painted >= htmlRows.length) {
+        io.disconnect(); tbody._chunkIO = null; sentinel.remove();
+      } else {
+        cell.textContent = `Showing ${painted} of ${htmlRows.length} — scroll for more`;
+      }
+    });
+    io.observe(sentinel);
+    tbody._chunkIO = io;
+  }
+
+  return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage,
+           renderChunked };
 })();
 // v3.12.0: pager button handler (data-action="tblPage")
 function tblPage(name, delta) { tableCtl.goPage(name, delta); }
@@ -1825,11 +1865,80 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.body.classList.contains('kiosk')) exitKiosk();
 });
 
+// ── v6.2.2: lazy page-module loading ─────────────────────────────────────────
+// The clearly page-scoped JS modules ship OUT of the boot bundle and load on
+// first navigation (plus the data-action fallback in the click dispatcher).
+// ONLY modules with zero cross-page call-sites from app.js qualify — anything
+// the device drawer, dashboard widgets or Settings reaches into directly
+// (tickets/dns-acme/backups/cve/remote/proxmox/…) stays eager in index.html,
+// because a direct render-time call into an unloaded module dies silently at
+// runtime (the classic JS failure mode this repo documents).
+const _LAZY_PAGE_MODULES = {
+  checks: ['app-checks.js'],
+  dmarc: ['app-dmarc.js'],
+  gpus: ['app-gpu.js'],
+  kb: ['app-kb.js'],
+  thermal: ['app-power.js'],
+  power: ['app-power.js'],
+  'disk-health': ['app-power.js'],
+  risk: ['app-power.js'],           // reliability card renders from app-power
+  provisioning: ['app-provisioning.js'],
+  rollouts: ['app-rollouts.js'],
+  tuning: ['app-tuning.js'],
+  vpn: ['wg-access.js'],
+  timesheet: ['app-billing.js'],
+  billing: ['app-billing.js'],
+  users: ['app-billing.js'],        // loadTimesheetWatchers lives there
+};
+const _ALL_LAZY_MODULES = [...new Set(Object.values(_LAZY_PAGE_MODULES).flat())];
+const _loadedJsModules = new Set();
+const _jsModulePromises = new Map();
+
+function _jsBundleVersion() {
+  const s = document.querySelector('script[src*="static/js/app.js"]');
+  const m = s && /[?&]v=([^&]+)/.exec(s.src);
+  return m ? m[1] : '';
+}
+
+function _loadJsModule(file) {
+  if (_loadedJsModules.has(file)) return Promise.resolve();
+  if (_jsModulePromises.has(file)) return _jsModulePromises.get(file);
+  const p = new Promise((resolve) => {
+    const s = document.createElement('script');
+    const v = _jsBundleVersion();
+    s.src = 'static/js/' + file + (v ? '?v=' + v : '');
+    s.onload = () => { _loadedJsModules.add(file); resolve(); };
+    // Resolve (not reject) on error: showPage proceeds and the page shows its
+    // own load failure; the dispatcher fallback can retry on the next click.
+    s.onerror = () => { _jsModulePromises.delete(file); resolve(); };
+    document.head.appendChild(s);
+  });
+  _jsModulePromises.set(file, p);
+  return p;
+}
+
+function _pageJsReady(name) {
+  return (_LAZY_PAGE_MODULES[name] || []).every(f => _loadedJsModules.has(f));
+}
+function _loadPageJs(name) {
+  return Promise.all((_LAZY_PAGE_MODULES[name] || []).map(_loadJsModule));
+}
+function _loadAllLazyJs() {
+  return Promise.all(_ALL_LAZY_MODULES.map(_loadJsModule));
+}
+
 function showPage(name, btn) {
   // A disabled module's page must not be reachable by deep link / bookmark /
   // command palette either — the nav entry is gone, but the route isn't.
   if (_moduleOffFor(name)) {
     toast('That module is switched off (Settings → Advanced).', 'error');
+    return;
+  }
+  // v6.2.2 lazy JS: fetch this page's module on first visit, then re-enter.
+  // Early return BEFORE any DOM mutation, so the re-entry runs the whole
+  // (idempotent) body against a ready module.
+  if (!_pageJsReady(name)) {
+    _loadPageJs(name).then(() => showPage(name, btn));
     return;
   }
   // v5.6.x lazy pages: heavy, boot-safe pages ship as inert <template>s and
@@ -9055,14 +9164,127 @@ function _applyInitialViewHash() {
 // a cold load and a hash pasted/changed while the app is open.
 function _openDeviceFromHash() {
   try {
-    const m = (location.hash || '').match(/^#device\/(.+)$/);
+    // v6.2.2: the drawer link can now carry the TAB too — #device/<id>/<tab>
+    // (tab ∈ actions|audit) — so an alert email or runbook can land directly
+    // on a host's audit view, not just its drawer.
+    const m = (location.hash || '').match(/^#device\/([^/]+)(?:\/([a-z]+))?$/);
     if (!m) return false;
     const id = decodeURIComponent(m[1]);
-    if (_drawerDeviceId === id) return true;   // already showing it
+    const tab = (m[2] === 'audit' || m[2] === 'actions') ? m[2] : 'actions';
+    if (_drawerDeviceId === id) { switchDrawerTab(tab); return true; }
     showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
-    openDeviceDrawer(id, '');
+    openDeviceDrawer(id, '', tab);
     return true;
   } catch (_) { return false; }
+}
+
+// ── v6.2.2: device hover cards ───────────────────────────────────────────────
+// Hovering any element carrying data-dev-hover="<device id>" (alerts inbox,
+// Checks host chips, Exposure rows, …) shows a quick-peek card: status, OS,
+// group, IP. Fleet data comes from one cached /devices fetch (60 s TTL). The
+// card is a DIRECT CHILD OF <body> — never inside .container (the z-index:1
+// stacking-context trap that broke the drawer at narrow widths in v4.10.0) —
+// and is built with textContent/appendChild, never innerHTML.
+let _devHoverTimer = null;
+let _devHoverFleet = null;
+let _devHoverFleetTs = 0;
+
+function _devHoverCardEl() {
+  let el = document.getElementById('dev-hovercard');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'dev-hovercard';
+    el.setAttribute('role', 'tooltip');
+    el.hidden = true;
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+async function _devHoverData(id) {
+  const now = Date.now();
+  if (!_devHoverFleet || now - _devHoverFleetTs > 60000) {
+    _devHoverFleet = await api('GET', '/devices').catch(() => null);
+    _devHoverFleetTs = now;
+  }
+  return (_devHoverFleet || []).find(d => d.id === id) || null;
+}
+
+function _hideDevHoverCard() {
+  clearTimeout(_devHoverTimer);
+  _devHoverTimer = null;
+  const el = document.getElementById('dev-hovercard');
+  if (el) el.hidden = true;
+}
+
+async function _showDevHoverCard(anchor) {
+  const id = anchor.dataset.devHover;
+  if (!id || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return;
+  const d = await _devHoverData(id);
+  if (!d || !document.contains(anchor) || !anchor.matches(':hover')) return;
+  const card = _devHoverCardEl();
+  card.textContent = '';
+  const title = document.createElement('div');
+  title.className = 'dev-hovercard-title';
+  const dot = document.createElement('span');
+  dot.className = 'dev-hovercard-dot ' + (d.online ? 'online' : 'offline');
+  title.appendChild(dot);
+  title.appendChild(document.createTextNode(d.name || id));
+  card.appendChild(title);
+  const addRow = (label, value) => {
+    if (!value) return;
+    const row = document.createElement('div');
+    row.className = 'dev-hovercard-row';
+    const l = document.createElement('span');
+    l.className = 'dev-hovercard-label';
+    l.textContent = label;
+    row.appendChild(l);
+    row.appendChild(document.createTextNode(String(value)));
+    card.appendChild(row);
+  };
+  addRow('Status', d.online ? 'Online' : 'Offline');
+  addRow('OS', d.os);
+  addRow('Group', d.group);
+  addRow('IP', d.ip);
+  const hint = document.createElement('div');
+  hint.className = 'dev-hovercard-hint';
+  hint.textContent = '#device/' + id;
+  card.appendChild(hint);
+  const r = anchor.getBoundingClientRect();
+  card.hidden = false;
+  const cw = card.offsetWidth || 240;
+  const ch = card.offsetHeight || 120;
+  let left = Math.min(r.left, window.innerWidth - cw - 12);
+  let top = r.bottom + 8;
+  if (top + ch > window.innerHeight - 8) top = r.top - ch - 8;
+  card.style.left = Math.max(8, left) + 'px';
+  card.style.top = Math.max(8, top) + 'px';
+}
+
+document.addEventListener('mouseover', (e) => {
+  if (!(e.target instanceof Element)) return;
+  const el = e.target.closest('[data-dev-hover]');
+  if (!el) return;
+  clearTimeout(_devHoverTimer);
+  _devHoverTimer = setTimeout(() => _showDevHoverCard(el), 300);
+});
+document.addEventListener('mouseout', (e) => {
+  if (!(e.target instanceof Element)) return;
+  if (e.target.closest('[data-dev-hover]')) _hideDevHoverCard();
+});
+document.addEventListener('scroll', _hideDevHoverCard, true);
+
+// v6.2.2: drawer-header copy-link — puts the tab-level deep link on the
+// clipboard so it can be pasted into a ticket / runbook / chat.
+function copyDrawerLink() {
+  if (!_drawerDeviceId) return;
+  const url = location.origin + location.pathname + location.hash;
+  const done = () => toast('Link copied — opens straight to this device view', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done, () => toast(url, 'info'));
+  } else {
+    toast(url, 'info');   // http:// fallback: show it for manual copy
+  }
 }
 window.addEventListener('hashchange', () => { _openDeviceFromHash(); });
 let patchReportData = null;
@@ -13831,7 +14053,7 @@ function _renderExposure() {
   const hostMuted = new Set((_exposureResp.mutes || [])
     .filter(m => m && m.device_id && !m.process && !m.proto && m.port == null)
     .map(m => m.device_id));
-  tbody.innerHTML = rows.map(r => {
+  tableCtl.renderChunked(tbody, rows.map(r => {
     const proc = r.process || '';
     const isHostMuted = hostMuted.has(r.device_id);
     const procBtn = r.muted
@@ -13841,14 +14063,14 @@ function _renderExposure() {
       ? `<button class="btn-icon cell-sm" data-action="unmuteExposureHost" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Stop muting all exposure from ${escAttr(r.device)}">Unmute host</button>`
       : `<button class="btn-icon cell-sm" data-action="muteExposureHost" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Mute ALL exposure alerts from ${escAttr(r.device)}">Mute host</button>`;
     return `<tr${(r.muted || isHostMuted) ? ' class="muted-row"' : ''}>
-    <td class="fw-500">${escHtml(r.device)}</td>
+    <td class="fw-500"><span data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.device)}</span></td>
     <td class="hint">${escHtml(r.proto)}/${r.port}</td>
     <td>${escHtml(proc || '—')}${(r.muted || isHostMuted) ? ' <span class="pill" data-color="var(--muted)">muted</span>' : ''}</td>
     <td class="hint">${escHtml(r.addr || '—')}</td>
     <td>${badge(r.scope)}</td>
     <td class="exposure-actions">${r.scope === 'world' ? `<button class="btn-icon cell-sm" data-action="aiExposureAdvice" data-arg="${escAttr(r.device)}" data-arg2="${escAttr(r.proto + '/' + r.port)}" data-arg3="${escAttr(proc)}" title="AI: should this be exposed? how to lock it down">${_icon('sparkles', 12)}</button> ` : ''}${isHostMuted ? hostBtn : procBtn + ' ' + hostBtn}</td>
   </tr>`;
-  }).join('');
+  }), {colspan: 6});
 }
 
 // v3.12.0: surgical exposure mutes (by process) from the Exposure table.
@@ -16583,6 +16805,8 @@ function _renderHomeActivity(fleetEvents) {
     'av_clean',
     // v6.2.0: Windows Defender real-time protection switched off / restored
     'av_realtime_off', 'av_realtime_on',
+    // v6.2.2: kernel modules hidden from the agent context / visible again
+    'modules_hidden', 'modules_visible_restored',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
@@ -16826,6 +17050,8 @@ function _homeActivityAttrs(event, p) {
     case 'av_infected': case 'av_warning': case 'av_clean':
     // v6.2.0: Defender real-time protection off/on → the affected host's drawer
     case 'av_realtime_off': case 'av_realtime_on':
+    // v6.2.2: kernel-module visibility → the affected host's drawer
+    case 'modules_hidden': case 'modules_visible_restored':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
@@ -18332,13 +18558,13 @@ function _renderProcessesFiltered() {
   let rows = q ? _processRows.filter(r => r.name.toLowerCase().includes(q) || r.device.toLowerCase().includes(q)) : _processRows;
   rows = tableCtl.sortRows('processes', rows, r => ({ name: r.name.toLowerCase(), pid: r.pid, device: r.device.toLowerCase(), cpu: r.cpu, mem: r.mem }));
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No matches.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(r => `<tr>
+  tableCtl.renderChunked(tbody, rows.map(r => `<tr>
     <td class="fw-500">${escHtml(r.name)}</td>
     <td class="hint">${r.pid}</td>
     <td>${escHtml(r.device)}</td>
     <td class="ta-right">${r.cpu > 0 ? `<span class="${r.cpu > 50 ? 'c-red-bold' : r.cpu > 20 ? 'c-amber' : ''}">${r.cpu.toFixed(1)}%</span>` : '<span class="c-muted">—</span>'}</td>
     <td class="ta-right">${r.mem > 0 ? `<span class="${r.mem > 20 ? 'c-amber' : ''}">${r.mem.toFixed(1)}%</span>` : '<span class="c-muted">—</span>'}</td>
-  </tr>`).join('');
+  </tr>`), {colspan: 5});
 }
 
 // ── v2.8.1: Settings → Dashboard personalisation ─────────────────────────────
@@ -18835,6 +19061,14 @@ function switchDrawerTab(tab) {
     if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
     document.getElementById(`drawer-tab-btn-${t}`)?.classList.toggle('active', t === tab);
   });
+  // v6.2.2: keep the deep link tab-accurate (replaceState per the showPage
+  // convention — tab flips must not pile onto back-button history).
+  if (_drawerDeviceId) {
+    try {
+      history.replaceState(null, '',
+        '#device/' + encodeURIComponent(_drawerDeviceId) + '/' + tab);
+    } catch (_) {}
+  }
   if (tab === 'audit' && _drawerDeviceId) _renderDrawerAuditSections();
 }
 
@@ -24097,7 +24331,18 @@ document.addEventListener('click', e => {
   if (el.dataset.preventDefault) e.preventDefault();
 
   const fn = window[el.dataset.action];
-  if (!fn) return;
+  if (!fn) {
+    // v6.2.2 lazy JS: the handler may live in a module that hasn't loaded yet
+    // (e.g. a cross-page button naming a lazy module's function). Load the
+    // remaining modules once and replay the click — a second miss is a real
+    // missing function and stays silent exactly as before.
+    if (_ALL_LAZY_MODULES.some(f => !_loadedJsModules.has(f))) {
+      _loadAllLazyJs().then(() => {
+        if (window[el.dataset.action] && document.contains(el)) el.click();
+      });
+    }
+    return;
+  }
 
   // Collect positional args from data-arg, data-arg2 … data-arg5
   const coerce = v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(v) : v;

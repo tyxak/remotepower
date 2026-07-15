@@ -403,8 +403,10 @@ class TestV390Polish(unittest.TestCase):
 
     def test_close_buttons_have_aria_label(self):
         # The device-drawer close button is icon-only; it must be labelled.
-        seg = HTML[HTML.index('data-action="closeDeviceDrawer"'):]
-        seg = seg[:seg.index('</button>')]
+        # v6.2.2: anchor on the close BUTTON itself — the backdrop div carries
+        # the same data-action, and a copy-link button now precedes it.
+        i = HTML.index('<button class="btn-icon isl-91" data-action="closeDeviceDrawer"')
+        seg = HTML[i:HTML.index('</button>', i)]
         self.assertIn('aria-label="Close"', seg)
 
 

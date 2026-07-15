@@ -61,19 +61,20 @@ function renderChecks() {
     output: r.output.toLowerCase(),
   }));
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="hint">No checks match.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(r => {
+  // v6.2.2: chunked — fleet × ~20 checks is thousands of rows on a real fleet.
+  tableCtl.renderChunked(tbody, rows.map(r => {
     const arg = `${r.device_id}|${r.key}`;
     const toggle = r.enabled
       ? `<button class="btn-icon btn-xs" data-action="toggleHostCheck" data-arg="${escAttr(arg)}|0" title="Disable this check on ${escAttr(r.host)}">Disable</button>`
       : `<button class="btn-icon btn-xs" data-action="toggleHostCheck" data-arg="${escAttr(arg)}|1">Enable</button>`;
     return `<tr class="chk-row${r.enabled ? '' : ' disabled'}">
-      <td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(r.device_id)}">${escHtml(r.host)}</button></td>
+      <td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(r.device_id)}" data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.host)}</button></td>
       <td class="hint">${escHtml(r.group || '—')}</td>
       <td>${escHtml(r.check)}<div class="hint">${escHtml(r.cgroup)}</div></td>
       <td><span class="chk-pill chk-${r.status}">${r.status}</span></td>
       <td class="fs-12">${escHtml(r.output)}</td>
       <td class="nowrap">${toggle}</td></tr>`;
-  }).join('');
+  }), {colspan: 6});
 }
 async function toggleHostCheck(arg) {
   const [device_id, key, en] = String(arg).split('|');

@@ -2,6 +2,77 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.2.2 — "Pu1seMatters" — unreleased (test)
+
+A performance and polish release built around the agent heartbeat, plus a new
+always-on safety check that catches the v6.2.1 class of problem *before* patch
+day.
+
+### Kernel-module visibility health check (always on)
+
+- The Linux agent now reports whether the running kernel's `/lib/modules` is
+  visible from its own execution context. If a service sandbox (or anything
+  else) hides it, the host gets a **critical "Kernel modules visible" check**
+  on the Checks page and a `modules_hidden` alert — including on first contact,
+  so a freshly enrolled host with the problem is flagged immediately. The alert
+  auto-resolves once the modules are visible again. This check deliberately
+  cannot be disabled per host: an agent context that can't see kernel modules
+  can build an unbootable initramfs on its next package upgrade, and that
+  signal must never be mutable into invisibility. Hosts with no initramfs
+  tooling (WSL, minimal containers) don't report it and are never flagged.
+
+### Performance
+
+- **Delta sysinfo.** Agents now skip re-sending heavy, slow-moving inventory
+  fields (package lists, listening ports, network interfaces, SSH host keys,
+  USB inventory, auto-update posture) when nothing changed, cutting steady-state
+  heartbeat size dramatically on large fleets. Fully negotiated: the agent only
+  omits data after the server advertises support, the server merges its stored
+  copy so nothing downstream ever sees a partial view, and either side can fall
+  back to full payloads at any time (old agent + new server and new agent + old
+  server both keep working unchanged).
+- **HTTP keep-alive in the agent.** The agent reuses one HTTPS connection
+  across heartbeats instead of opening a fresh TLS handshake every beat — same
+  certificate verification, same mTLS client-cert support, and redirects remain
+  refused. Proxied environments and `RP_NO_KEEPALIVE=1` use the previous
+  per-request behavior. gunicorn now holds idle connections open (`--keep-alive
+  75`) to match.
+- **Large-fleet tables render instantly.** The Checks, Alerts (flat view),
+  Processes, Exposure and CMDB tables now paint the first 300 rows immediately
+  and stream the rest in as you scroll, instead of building thousands of DOM
+  rows up front.
+- **Leaner first load.** Ten page modules (checks, power/thermal/disk-health,
+  billing/timesheet, provisioning, rollouts, tuning, KB, GPUs, DMARC, WG
+  Access) now load on first visit to their page instead of at boot.
+- **Faster metric retention on PostgreSQL/SQLite.** Added the index the
+  retention sweep needed; pruning old metric samples no longer scans the whole
+  table.
+
+### Installer & agent
+
+- **Re-running `install-client.sh` on an enrolled host is now an in-place
+  upgrade**: the agent binary and systemd unit are refreshed, enrollment and
+  credentials are kept, and the agent is restarted into the new unit (a
+  customized unit file is backed up beside itself first). Use `--re-enroll` for
+  the old always-enroll behavior. The installer also detects when it's being
+  run *through* the agent's own exec channel and detaches the final restart so
+  it can't terminate itself mid-run.
+
+### UX
+
+- **Keyboard-driven alert inbox** — `j`/`k` move, `a` acknowledge, `r` resolve,
+  `m` mute, `x` select, `?` shows the map. Active only on the Alerts page and
+  never while typing in a field or a modal.
+- **Device hover cards** — hovering a hostname on the Alerts, Checks or
+  Exposure pages shows a quick-peek card (status, OS, group, IP) without
+  leaving the page.
+- **Tab-level device deep links** — `#device/<id>/<tab>` opens the drawer on a
+  specific tab, and a copy-link button in the drawer header puts the link on
+  the clipboard for tickets and runbooks.
+- **Skeleton loading everywhere** — the remaining tables that still flashed a
+  bare "Loading…" (containers, host-config results, network map) now use the
+  same skeleton placeholders as the rest of the app.
+
 ## v6.2.1 — "In1tMatters" — 2026-07-15
 
 **Critical fix for Linux hosts using initramfs (Debian/Ubuntu) — action needed

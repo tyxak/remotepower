@@ -28,7 +28,7 @@ async function loadImageUpdates() {
   // Eager sort wire-up so the ↕ indicators show before data arrives.
   _registerImageUpdatesTable();
   const tbody = document.getElementById('image-updates-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state-sm">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = _skeletonRows(7);   // v6.2.2: skeleton, not bare text
   const data = await api('GET', '/image-updates');
   _imageUpdates = (data && data.images) || [];
   _renderImageUpdatesMeta(data && data.summary);
@@ -191,7 +191,7 @@ let _composeStacks = [];
 async function loadComposeStacks() {
   _registerComposeStacksTable();
   const tbody = document.getElementById('compose-stacks-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = _skeletonRows(5);   // v6.2.2: skeleton, not bare text
   const data = await api('GET', '/compose/stacks');
   _composeStacks = (data && data.stacks) || [];
   renderComposeStacks();
@@ -347,7 +347,7 @@ function _fmtSize(bytes) {
 
 async function loadContainersOverview() {
   const tbody = document.getElementById('containers-tbody');
-  tbody.innerHTML = '<tr><td colspan="10" class="empty-state-sm">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(10);   // v6.2.2: skeleton, not bare text
   const data = await api('GET', '/containers');
   _containersOverview = Array.isArray(data) ? data : [];
   renderContainersOverview();

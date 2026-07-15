@@ -15,7 +15,7 @@ inbound ports. Up and running in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.2.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.2.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -167,6 +167,13 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.2.2 "Pu1seMatters"** — a performance and polish pass built around the
+  heartbeat: agents skip re-sending unchanged inventory data (delta sysinfo)
+  and reuse their HTTPS connection instead of a new TLS handshake per beat; a
+  new always-on health check catches an agent whose sandbox hides kernel
+  modules *before* patch day; re-running the installer now upgrades in place;
+  and the UI gains a keyboard-driven alert inbox, device hover cards,
+  tab-level device deep links and faster large-fleet tables.
 - **v6.2.1 "In1tMatters"** — a critical fix for Linux hosts using initramfs
   (Debian/Ubuntu): systemd unit hardening could make upgrades run through
   RemotePower rebuild the initramfs **without kernel modules**, leaving the host
@@ -190,10 +197,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 - **v6.1.1 "HardenMatters"** — a broad hardening pass: cross-tenant security
   fixes, step-up re-auth, litigation hold, a STRIDE threat model, a full
   WCAG AA accessibility pass, and real per-package patch pinning.
-- **v6.1.0 "Runt1meMatters"** — enterprise productization: Postgres, an
-  out-of-band scheduler and a scanner satellite are now the single-node
-  default; the server runs entirely on gunicorn + Flask (CGI retired).
-
 Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security

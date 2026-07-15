@@ -129,7 +129,10 @@ class TestFrontendWiring(unittest.TestCase):
         index = (_ROOT / 'server' / 'html' / 'index.html').read_text()
         self.assertIn('id="page-tuning"', index)
         self.assertIn('data-page="tuning"', index)
-        self.assertIn('app-tuning.js', index)
+        # v6.2.2: app-tuning.js is a LAZY page module — wired through app.js's
+        # _LAZY_PAGE_MODULES map (loaded on first navigation), not a boot tag.
+        appjs = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn("'app-tuning.js'", appjs)
         tun = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-tuning.js').read_text()
         for fn in ('function loadTuning', 'function silenceNoisy', 'function unmuteAlert'):
             self.assertIn(fn, tun)

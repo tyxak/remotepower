@@ -66,3 +66,7 @@ openclaw-workspace-state.json
 /HEARTBEAT.md
 /BOOTSTRAP.md
 /MEMORY.md
+
+# Test-suite artifact: the Windows agent test writes its literal C:\ProgramData
+# log path as a relative file on Linux. Never commit it.
+C:*

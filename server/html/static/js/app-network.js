@@ -728,7 +728,7 @@ async function enterTLS() {
 
 async function loadTLS() {
   const tbody = document.getElementById('tls-tbody');
-  tbody.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Loading…</tbody>';
+  tbody.innerHTML = _skeletonRows(8);   // v6.2.2: skeleton, not bare text (old line also had a broken </tbody> close)
   const data = await api('GET', '/tls/targets');
   _tlsTargets = Array.isArray(data) ? data : [];
   renderTLS();

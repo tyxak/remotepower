@@ -477,6 +477,11 @@ def _ensure_schema_ddl(conn):
             cpu    REAL, mem REAL, swap REAL, disk REAL
         );""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_metric_samples ON metric_samples(device, ts);")
+    # v6.2.2: metric_prune deletes by BARE ts (`WHERE ts < x`) — the composite
+    # (device, ts) index cannot serve that, so every retention sweep was a
+    # full-table scan over the largest table in the store. IF NOT EXISTS makes
+    # this a live, idempotent upgrade on existing installs.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_metric_samples_ts ON metric_samples(ts);")
     # v5.0.0: one-time cold-blob -> entity reclassification (see storage.py). Runs
     # only when crossing from an older schema (db_ver < 2).
     try:

@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.2.1'
+SERVER_VERSION = '6.2.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -1573,6 +1573,17 @@ EVENT_REGISTRY = {
     'av_realtime_on': dict(
         label='Real-time malware protection re-enabled (recovered)', kind='av_posture',
         resolves=('av_realtime_off',)),
+    # v6.2.2: kernel-module visibility from the agent's execution context. A
+    # sandbox that hides /lib/modules turns the next agent-run package upgrade
+    # into a module-less, unbootable initramfs. A CONDITION (fires on first
+    # contact too), auto-resolved when the modules become visible again.
+    'modules_hidden': dict(
+        label='Kernel modules are hidden from the agent context', kind='agent_sandbox',
+        title='Kernel Modules Hidden', severity='critical', priority=4,
+        tags='rotating_light,package'),
+    'modules_visible_restored': dict(
+        label='Kernel modules visible to the agent again (recovered)',
+        kind='agent_sandbox', resolves=('modules_hidden',)),
     'vpn_client_connected': dict(
         label='A WG Access VPN client connected', kind='vpn',
         title='WG Access Client Connected',
@@ -7051,6 +7062,7 @@ CHANNEL_KIND_DEFS = (
     ('accounts', 'Local account audit', 'operational'),
     ('usb', 'USB device connected', 'operational'),  # v6.2.0
     ('reliability', 'Predicted hardware failure', 'operational'),  # v6.2.0
+    ('agent_sandbox', 'Kernel modules hidden from the agent', 'operational'),  # v6.2.2
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
@@ -17046,6 +17058,17 @@ def _agent_mtls_ok(dev_id):
     return (True, '')
 
 
+# v6.2.2: delta sysinfo — the only sysinfo fields an agent may omit as
+# "unchanged" (body key `sysinfo_omitted`). The ingest merges this device's
+# previously stored value back into safe_si so every downstream consumer
+# still sees a complete dict; a field with no stored value to merge goes on
+# the response's `delta_resend` list and the agent ships it full next beat.
+# Server-side whitelist on purpose: an unknown/unsanitizable field named in
+# sysinfo_omitted is simply dropped (never merged, never trusted).
+_DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
+                         'ssh_hostkeys', 'usb', 'autoupdate')
+
+
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -17168,6 +17191,7 @@ def handle_heartbeat():
     # touches devices[dev_id] (guarded by tests/test_heartbeat_contract.py).
     # v4.8.0: metric_* webhooks are buffered inside the lock and fired below it.
     metric_pending = []
+    _delta_resend = []   # v6.2.2: omitted sysinfo fields we could not merge
     with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not dev or not _device_token_ok(dev, dev_token):
@@ -17288,6 +17312,13 @@ def handle_heartbeat():
                     'enabled': bool(_au.get('enabled')),
                     'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
                 }
+            # v6.2.2: kernel-module visibility from the agent's own execution
+            # context. safe_si is a WHITELIST — drop it here and the forced
+            # 'modules' check + the modules_hidden alert can never fire.
+            # Tri-state by absence: the agent omits the field entirely where no
+            # initramfs generator exists (WSL, minimal containers).
+            if isinstance(si.get('modules_visible'), bool):
+                safe_si['modules_visible'] = si['modules_visible']
             # v6.1.2 (#40): SSH host-key fingerprints. safe_si is a WHITELIST — a
             # field the agent sends but this drops never reaches the baseline check
             # or the UI, silently. {keytype: 'SHA256:…'}, both sides bounded.
@@ -17934,6 +17965,23 @@ def handle_heartbeat():
                     _sanitize_str(u, 64) for u in si['logged_in'][:50]
                     if isinstance(u, str)
                 ]
+            # v6.2.2: delta sysinfo — merge back the fields the agent omitted
+            # as unchanged, from THIS device's previously stored sysinfo, so
+            # checks/tripwires/UI always see a complete dict. A whitelisted
+            # field with nothing stored to merge (fresh server state, restored
+            # backup, or a busy-202 the agent couldn't know about) is queued
+            # for delta_resend — the response asks for it full next beat.
+            _omit = body.get('sysinfo_omitted')
+            if isinstance(_omit, dict) and _omit:
+                import copy as _copy
+                _prev_full = dev.get('sysinfo') or {}
+                for _f in list(_omit)[:16]:
+                    if _f not in _DELTA_SYSINFO_FIELDS or _f in safe_si:
+                        continue
+                    if _f in _prev_full:
+                        safe_si[_f] = _copy.deepcopy(_prev_full[_f])
+                    else:
+                        _delta_resend.append(_f)
             dev['sysinfo'] = safe_si
             # Cache the sanitised sysinfo for the post-lock consumers (port
             # audit, v3.4.0 daily metrics sampler). Without this, the
@@ -18814,8 +18862,12 @@ def handle_heartbeat():
     # _ingest_posture_v3110, so the usb_device_added tripwire could never fire.
     # (ssh_hostkeys rides in only because virtually every host also reports
     # `mounts`; that is luck, not design, and not something to lean on twice.)
+    # v6.2.2: 'modules_visible' can NOT ride the any()-truthy gate below — the
+    # value that matters is False (modules hidden), which is falsy and would be
+    # skipped by exactly the check meant to let it in. Presence-test it instead.
     if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth',
-                                'mounts', 'mailq', 'mount_issues', 'usb')):
+                                'mounts', 'mailq', 'mount_issues', 'usb')) \
+            or _si.get('modules_visible') is not None:
         try:
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
         except Exception as e:
@@ -18992,7 +19044,14 @@ def handle_heartbeat():
         'custom_scripts':   custom_scripts_for_device,
         # W3-38: canary/honeytoken files the agent plants + watches (fleet-wide).
         'canary_files':     _config_ro().get('canary_files') or [],
+        # v6.2.2: delta-sysinfo capability. The agent only starts omitting
+        # unchanged heavy fields AFTER seeing this — so a new agent against an
+        # old server (no flag) keeps sending full payloads, and a server
+        # downgrade heals itself on the very next beat.
+        'delta_ok':         True,
     }
+    if _delta_resend:
+        common_resp['delta_resend'] = sorted(set(_delta_resend))
     # W3-19: tell the agent to burst 1 s live samples if live mode is armed.
     try:
         _live_until = int(((load(LIVE_FILE) or {}).get(dev_id) or {}).get('until', 0))
@@ -31280,6 +31339,29 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                                'physical access'),
                 })
         new['usb'] = cur_usb
+
+    # ── v6.2.2: kernel-module visibility ───────────────────────────
+    # Like av_realtime_off this is a CONDITION, not an edge: a host that
+    # ENROLS with /lib/modules already hidden from the agent is exactly the
+    # host about to build an unbootable initramfs, so first contact fires
+    # too. Auto-resolves (modules_visible_restored) when the sandbox is
+    # fixed. `is False` is load-bearing — the agent omits the field where no
+    # initramfs generator exists, and that absence must never fire.
+    mv = si.get('modules_visible')
+    if isinstance(mv, bool):
+        p_mv = prev.get('modules_visible')
+        if mv is False and p_mv is not False:
+            _fire('modules_hidden', {
+                'detail': ('/lib/modules is not visible from the agent '
+                           'service context — a package upgrade run through '
+                           'the agent could rebuild the initramfs WITHOUT '
+                           'kernel modules and leave the host unbootable. '
+                           'Check the agent unit sandboxing '
+                           '(ProtectKernelModules must be off).'),
+            })
+        elif mv is True and p_mv is False:
+            _fire('modules_visible_restored', {})
+        new['modules_visible'] = mv
 
     # ── host firewall drift ────────────────────────────────────────
     # v3.12.0: gated by the same `port_audit_enabled` host-audit toggle as the

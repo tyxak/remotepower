@@ -75,7 +75,9 @@ class TestVersionBumps(unittest.TestCase):
         self.assertNotIn("?v=6.1.1", _html())
 
     def test_version_doc_exists(self):
-        self.assertTrue((_ROOT / f"docs/v{self.V}.md").exists())
+        # v6.2.2: docs/v6.1.2.md rotated out (keep-3) — the durable check is
+        # that the LIVE version's doc exists, not this release's.
+        self.assertTrue((_ROOT / f"docs/v{api.SERVER_VERSION}.md").exists())
 
     def test_doc_set_keeps_three_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))

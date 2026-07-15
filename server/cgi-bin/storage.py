@@ -385,6 +385,7 @@ def _ensure_schema(conn):
             disk   REAL
         );
         CREATE INDEX IF NOT EXISTS idx_metric_samples ON metric_samples(device, ts);
+        CREATE INDEX IF NOT EXISTS idx_metric_samples_ts ON metric_samples(ts);
         """
     )
     # v4.3.0 rollback safety: if the database was written by a NEWER server

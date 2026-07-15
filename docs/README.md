@@ -84,6 +84,12 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.2.2.md](v6.2.2.md)** — "Pu1seMatters": performance and polish around
+ the heartbeat — delta sysinfo (agents skip re-sending unchanged inventory),
+ agent HTTP keep-alive, streamed large-fleet tables and a leaner first load;
+ an always-on kernel-module visibility check that flags the v6.2.1 failure
+ class before patch day; an upgrade-in-place installer; keyboard-driven alert
+ inbox, device hover cards and tab-level device deep links.
 - **[v6.2.1.md](v6.2.1.md)** — "In1tMatters": a critical fix for Linux hosts
  booting via initramfs (Debian/Ubuntu) — agent-unit sandboxing could make
  upgrades run through RemotePower rebuild the initramfs without kernel modules
@@ -99,14 +105,7 @@ The three most recent per-release notes are kept here:
  credential checkout**; plus a full **Windows agent parity** buildout (services,
  processes, file manager, SMART/hardware, signed self-update, Event Log, the check
  catalog, and a one-line PowerShell installer). No breaking API changes.
-- **[v6.1.2.md](v6.1.2.md)** — "AfterglowMatters": a correctness-and-fit release
- — muting an alert now actually lifts the health score, the trivy image-CVE scan
- can finally be triggered (it could never run), `POST /api/cve/scan` no longer
- 500s on PostgreSQL, a sweep of frontend defects (including Billing deleting the
- wrong row), the first wave of the performance programme, and optional modules a
- minimal homelab can switch off. No breaking API changes.
-
-Older release notes (v6.1.0 and earlier) live in
+Older release notes (v6.1.2 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

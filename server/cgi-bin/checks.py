@@ -208,6 +208,29 @@ def _host_checks(
         )
     if si.get("reboot_required"):
         add("reboot", "Reboot required", "patch", "warning", si.get("reboot_reason") or "pending")
+    # v6.2.2: kernel-module visibility — FORCED (deliberately ignores the
+    # per-host disable list). An agent context that can't see /lib/modules
+    # builds module-less, unbootable initrds on the next package upgrade;
+    # that signal must not be muteable into invisibility. The agent omits
+    # the field where no initramfs generator exists → no row (tri-state).
+    if isinstance(si.get("modules_visible"), bool):
+        mv = si["modules_visible"]
+        out.append(
+            {
+                "key": "modules",
+                "name": "Kernel modules visible",
+                "group": "posture",
+                "status": "ok" if mv else "critical",
+                "output": (
+                    "/lib/modules readable from the agent context"
+                    if mv
+                    else "/lib/modules NOT visible from the agent context — a package "
+                    "upgrade could build an unbootable initramfs; check the agent "
+                    "service sandboxing"
+                ),
+                "enabled": True,
+            }
+        )
     up = (si.get("packages") or {}).get("upgradable")
     if isinstance(up, int):
         # v5.0.0: surface the distro's own SECURITY-flagged count. The vendor

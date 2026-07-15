@@ -236,7 +236,9 @@ class TestAgentHostHealth(unittest.TestCase):
                    # v4.10.0 fail2ban posture (jails + banned IPs)
                    'fail2ban',
                    # v5.1.0 host cron + systemd-timer management
-                   'cron'}
+                   'cron',
+                   # v6.2.2 kernel-module visibility (the forced Checks row)
+                   'modules_visible'}
         for k in result:
             self.assertIn(k, allowed, f'undocumented key {k!r}')
 

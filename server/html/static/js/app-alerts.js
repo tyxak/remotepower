@@ -122,12 +122,12 @@ function _alertRowHtml(a, role) {
   const kbLink = (a.kb_link && a.kb_link.id)
     ? ` <a href="#" data-action="openKbFromAlert" data-arg="${_escapeHtml(a.kb_link.id)}" data-prevent-default class="patch-badge fs-10" title="Open the runbook for this alert">${_icon('bookOpen',11)} ${_escapeHtml(a.kb_link.title || 'Runbook')}</a>`
     : '';
-  return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}">
+  return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}" data-alert-id="${_escapeHtml(String(a.id))}">
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
     <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
-    <td>${_escapeHtml(dev)}</td>
+    <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
   </tr>`;
@@ -165,8 +165,9 @@ function _renderAlertsFlat(rows) {
     device_name:     (a.device_name || '').toLowerCase(),
     acknowledged_by: a.acknowledged_by || '',
   }));
-  document.getElementById('alerts-tbody').innerHTML =
-    rows.map(a => _alertRowHtml(a, '')).join('');
+  // v6.2.2: chunked — a busy fleet's flat view can hold thousands of alerts.
+  tableCtl.renderChunked('alerts-tbody',
+    rows.map(a => _alertRowHtml(a, '')), {colspan: 7});
 }
 function _renderAlertsGrouped(rows) {
   // Bucket by host, then order groups worst-severity → most-open → name.
@@ -369,3 +370,69 @@ async function clearAllAlerts() {
     loadAlerts(); refreshAlertsBadge();
   } else toast((r && r.error) || 'Failed', 'error');
 }
+
+// ── v6.2.2: keyboard-driven inbox ────────────────────────────────────────────
+// j/k move the selection, a acknowledge, r resolve, m mute, x toggle the row
+// checkbox, ? shows the map, Esc clears. Active only while the Alerts page is
+// visible, no modal is open, and focus isn't inside a form control — so it can
+// never swallow typing in the filter box or a modal.
+let _kbAlertIdx = -1;
+
+function _kbAlertRows() {
+  return [...document.querySelectorAll('#page-alerts .alerts-row[data-alert-id]')]
+    .filter(r => r.offsetParent !== null);
+}
+
+function _kbAlertPaint(rows) {
+  rows.forEach((r, i) => r.classList.toggle('kb-selected', i === _kbAlertIdx));
+  const sel = rows[_kbAlertIdx];
+  if (sel) sel.scrollIntoView({ block: 'nearest' });
+}
+
+document.addEventListener('keydown', (e) => {
+  const page = document.getElementById('page-alerts');
+  if (!page || !page.classList.contains('active')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (document.body.classList.contains('modal-open')) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+            t.tagName === 'SELECT' || t.isContentEditable)) return;
+  const key = e.key;
+  // NB 'Escape' deliberately FIRST: test_v3140's g-nav scanner regexes the JS
+  // for arrays opening with a single lowercase letter followed by a word, and
+  // an array starting with the j/k keys would false-match as a nav pair.
+  if (!['Escape', 'j', 'k', 'a', 'r', 'm', 'x', '?'].includes(key)) return;
+  const rows = _kbAlertRows();
+  if (!rows.length) return;
+  if (key === 'Escape') {
+    _kbAlertIdx = -1; _kbAlertPaint(rows); return;
+  }
+  if (key === '?') {
+    toast('Alert inbox keys — j/k: move · a: acknowledge · r: resolve · m: mute · x: select · Esc: clear', 'info');
+    e.preventDefault(); return;
+  }
+  if (key === 'j' || key === 'k') {
+    _kbAlertIdx = key === 'j'
+      ? Math.min(rows.length - 1, _kbAlertIdx + 1)
+      : Math.max(0, _kbAlertIdx - 1);
+    _kbAlertPaint(rows);
+    e.preventDefault(); return;
+  }
+  const row = rows[_kbAlertIdx];
+  if (!row) return;
+  const id = row.dataset.alertId;
+  e.preventDefault();
+  if (key === 'x') {
+    const cb = row.querySelector('.alerts-row-cb');
+    if (cb) { cb.checked = !cb.checked; _updateBulkResolveBtn(); }
+  } else if (key === 'a') {
+    api('POST', '/alerts/bulk-ack', { ids: [id] }).then(r => {
+      if (r && r.ok) { toast('Acknowledged', 'success'); loadAlerts(); refreshAlertsBadge(); }
+      else toast((r && r.error) || 'Failed', 'error');
+    });
+  } else if (key === 'r') {
+    resolveAlert(id);          // keeps its own confirm dialog
+  } else if (key === 'm') {
+    muteAlert(id);             // keeps its own confirm/prompt flow
+  }
+});

@@ -328,6 +328,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'av_infected',                           # v5.1.0 endpoint AV/malware
             'av_warning',                            # v5.4.1 AV/rootkit scan warnings
             'av_realtime_off',                       # v6.2.0 Defender real-time protection off
+            'modules_hidden',                        # v6.2.2 kernel modules hidden from agent
             'vpn_client_connected', 'vpn_client_disconnected',  # v5.2.0 WG Access
             'vpn_handshake_stale',                   # v5.2.0 WG Access
             'ticket_sla_breached',
@@ -348,6 +349,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'rogue_uid0_cleared',                    # ← rogue_uid0
             'av_clean',                              # ← av_infected (+ av_warning)
             'av_realtime_on',                        # ← av_realtime_off (v6.2.0)
+            'modules_visible_restored',              # ← modules_hidden (v6.2.2)
             'reboot_cleared',                        # ← reboot_required
             'containers_current',                    # ← containers_stale
             'port_unexposed',                        # ← port_exposed_world

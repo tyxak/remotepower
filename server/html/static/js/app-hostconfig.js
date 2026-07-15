@@ -119,7 +119,7 @@ async function deleteProfile(id, name) {
 
 function renderCustomScriptsLoading() {
   const tbody = document.getElementById('cs-results-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = _skeletonRows(8);   // v6.2.2: skeleton, not bare text
 }
 
 function renderCustomScriptsPage() {

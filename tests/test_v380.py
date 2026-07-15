@@ -179,7 +179,10 @@ class TestV380Bind(unittest.TestCase):
     def test_failed_units_and_logged_in_persisted(self):
         # The sanitiser must now copy failed_units + logged_in into safe_si,
         # else the Fleet Query filter / cis-failed check / drawer stay dead.
-        seg = API[API.index("dev['sysinfo'] = safe_si") - 1200:API.index("dev['sysinfo'] = safe_si")]
+        # v6.2.2: window widened 1200 → 2400 — the delta-sysinfo merge block now
+        # sits between these writes and the assignment (the FLEET_EVENTS
+        # source-window class from CLAUDE.md).
+        seg = API[API.index("dev['sysinfo'] = safe_si") - 2400:API.index("dev['sysinfo'] = safe_si")]
         self.assertIn("safe_si['failed_units']", seg)
         self.assertIn("safe_si['logged_in']", seg)
 

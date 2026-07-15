@@ -27,7 +27,10 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.2.1"
+    # v6.2.2: loosened from the "6.2.1" literal to the live version, per the
+    # convention. Strict pins for the current release live in tests/test_v622.py;
+    # what stays valuable here is version-surface lockstep with SERVER_VERSION.
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -76,13 +79,15 @@ class TestVersionBumps(unittest.TestCase):
         """The data-keywords attribute embeds the codename as a lowercase search
         term — the surface a visible-text rename always misses."""
         html = _html()
-        i = html.index(f"What's new — v{self.V}")
+        i = html.index("What's new — v6.2.1")
         card = html[max(0, i - 1600):i]
         self.assertIn("in1tmatters", card)
 
     def test_changelog_header(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.2.1 — "In1tMatters"', head)
+        # v6.2.2: loosened from the [:400] head window (newer releases sit
+        # above this one now) — the entry itself must remain.
+        self.assertIn('## v6.2.1 — "In1tMatters"',
+                      (_ROOT / "CHANGELOG.md").read_text())
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -90,7 +95,8 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "In1tMatters"'))
+        # v6.2.2: codename dropped from the pin (the live top release owns it).
+        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "'))
 
 
 if __name__ == "__main__":

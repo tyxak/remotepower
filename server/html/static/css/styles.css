@@ -5461,6 +5461,23 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .sev-pill.sev-info     { background: rgba(59,130,246,0.15); color: var(--accent); border: 1px solid var(--accent); }
 .tl-dot.sev-info       { background: var(--accent); }
 .alerts-row.resolved   { opacity: 0.55; }
+/* v6.2.2: keyboard-inbox selection (j/k in app-alerts.js) */
+.alerts-row.kb-selected td { background: var(--accent-soft); }
+.alerts-row.kb-selected td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+/* v6.2.2: device hover card (body-level, above the drawer/sidebar) */
+#dev-hovercard {
+  position: fixed; z-index: 220; max-width: 280px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--hair);
+  border-radius: 11px; box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  font-size: 12.5px; pointer-events: none;
+}
+#dev-hovercard .dev-hovercard-title { font-weight: 620; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+#dev-hovercard .dev-hovercard-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+#dev-hovercard .dev-hovercard-dot.online  { background: var(--green); }
+#dev-hovercard .dev-hovercard-dot.offline { background: var(--red); }
+#dev-hovercard .dev-hovercard-row { display: flex; gap: 8px; margin: 2px 0; }
+#dev-hovercard .dev-hovercard-label { color: var(--muted); min-width: 46px; font-size: 12px; }
+#dev-hovercard .dev-hovercard-hint { color: var(--muted); font-size: 11px; margin-top: 6px; }
 /* v4.1.0: per-host alert grouping + root-cause folding */
 .alerts-group-row { background: var(--panel-2, rgba(127,127,127,0.06)); }
 .alerts-group-row td { border-top: 2px solid var(--border); }

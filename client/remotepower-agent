@@ -27,12 +27,13 @@ import threading
 import asyncio
 from pathlib import Path
 from urllib import request, error, parse as urlparse
+import http.client as _http_client
 
 CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '6.2.1'
+VERSION      = '6.2.2'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -525,15 +526,100 @@ def _strip_url_scheme(url: str) -> str:
 
 
 # ─── HTTP helpers ───────────────────────────────────────────────────────────────
+# v6.2.2: persistent HTTPS connections (keep-alive) for the POST hot path.
+# The agent used to open a fresh TCP + TLS handshake for EVERY heartbeat —
+# one full handshake per host per poll, fleet-wide. A per-thread
+# http.client.HTTPSConnection (same _SSL_CTX: CA bundle + mTLS client cert)
+# reuses the connection across beats. Deliberate properties:
+#   * http.client NEVER follows redirects, so the _NoRedirect guarantee is
+#     preserved by construction; any 3xx (and 4xx/5xx, mirroring urlopen)
+#     raises error.HTTPError exactly like the legacy opener did.
+#   * The hash-commit protocol above (delta sysinfo) and every caller see
+#     identical semantics — only the transport changed.
+#   * A stale kept-alive socket (server closed it between beats) gets ONE
+#     retry on a fresh connection; a fresh-connection failure propagates.
+#   * Proxied environments (urllib's ProxyHandler honours HTTPS_PROXY; a raw
+#     HTTPSConnection would silently bypass the proxy) and RP_NO_KEEPALIVE=1
+#     fall back to the legacy per-request opener.
+#   * Per-THREAD connections (threading.local) — http.client connections are
+#     not thread-safe, and the agent posts from more than one thread.
+_KA_LOCAL = threading.local()
+
+
+def _ka_proxied(url):
+    """True when an environment proxy applies to this URL's host — those
+    requests must keep going through _OPENER (its ProxyHandler)."""
+    try:
+        if not request.getproxies().get('https'):
+            return False
+        host = urlparse.urlsplit(url).hostname or ''
+        return not request.proxy_bypass(host)
+    except Exception:
+        return True   # can't tell → take the safe legacy path
+
+
+def _ka_drop():
+    conn = getattr(_KA_LOCAL, 'conn', None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _KA_LOCAL.conn = None
+    _KA_LOCAL.host = None
+
+
+def _ka_request(url, body, headers, timeout):
+    """POST over the per-thread persistent connection. Returns the raw body
+    bytes of a 2xx; raises error.HTTPError for any >=300 (no redirects,
+    matching _NoRedirect + urlopen semantics)."""
+    parts = urlparse.urlsplit(url)
+    host = parts.netloc
+    path = parts.path + (('?' + parts.query) if parts.query else '')
+    for attempt in (0, 1):
+        conn = getattr(_KA_LOCAL, 'conn', None)
+        reused = conn is not None and getattr(_KA_LOCAL, 'host', None) == host
+        if not reused:
+            _ka_drop()
+            conn = _http_client.HTTPSConnection(host, timeout=timeout,
+                                                context=_SSL_CTX)
+            _KA_LOCAL.conn = conn
+            _KA_LOCAL.host = host
+        else:
+            conn.timeout = timeout
+            if conn.sock is not None:
+                conn.sock.settimeout(timeout)
+        try:
+            conn.request('POST', path, body=body, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read(1024 * 1024)   # cap at 1 MB (as before)
+        except (_http_client.HTTPException, OSError):
+            _ka_drop()
+            if reused and attempt == 0:
+                continue   # stale keep-alive socket — one fresh-connection retry
+            raise
+        if not resp.isclosed():
+            _ka_drop()   # body exceeded the cap — never reuse a dirty connection
+        if resp.status >= 300:
+            _ka_drop()
+            import io as _io
+            raise error.HTTPError(url, resp.status, resp.reason,
+                                  resp.headers, _io.BytesIO(data))
+        return data
+    raise error.URLError('keep-alive retry exhausted')   # unreachable
+
+
 def http_post(url, data, timeout=10):
     if not url.startswith('https://'):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     body = json.dumps(data).encode()
-    req = request.Request(url, data=body,
-        headers={'Content-Type': 'application/json',
-                 'User-Agent': f'RemotePower-Agent/{VERSION}'})
-    with _OPENER.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read(1024 * 1024))  # cap at 1 MB
+    headers = {'Content-Type': 'application/json',
+               'User-Agent': f'RemotePower-Agent/{VERSION}'}
+    if os.environ.get('RP_NO_KEEPALIVE') == '1' or _ka_proxied(url):
+        req = request.Request(url, data=body, headers=headers)
+        with _OPENER.open(req, timeout=timeout) as resp:
+            return json.loads(resp.read(1024 * 1024))  # cap at 1 MB
+    return json.loads(_ka_request(url, body, headers, timeout))
 
 def http_get(url, timeout=10):
     if not url.startswith('https://'):
@@ -4628,6 +4714,24 @@ def get_host_health():
                 out['reboot_reason'] = ', '.join(names[:10])
         else:
             out['reboot_required'] = False
+    except Exception:
+        pass
+
+    # ── kernel-module visibility (v6.2.2) ────────────────────────────
+    # If this process can't see /lib/modules/<running kernel>, neither can
+    # anything it runs — and a package upgrade that rebuilds the initramfs
+    # from such a context produces an initrd with no kernel modules, which
+    # is unbootable. Only reported where an initramfs generator exists at
+    # all (WSL/containers without one are not flagged), mirroring the
+    # server-side upgrade guard so the two can never disagree.
+    try:
+        has_gen = (_which('update-initramfs') or _which('dracut')
+                   or _which('mkinitcpio'))
+        if has_gen and 'microsoft' not in os.uname().release.lower():
+            kv = os.uname().release
+            out['modules_visible'] = bool(
+                os.path.isdir(host_path('/lib/modules/' + kv))
+                or os.path.isdir(host_path('/usr/lib/modules/' + kv)))
     except Exception:
         pass
 
@@ -8818,6 +8922,23 @@ def compute_drift_report(paths):
 
 
 # ─── Heartbeat loop ─────────────────────────────────────────────────────────────
+# v6.2.2: delta sysinfo — the heavy, slow-moving sysinfo fields the agent may
+# OMIT from a heartbeat when their content is unchanged since the last full
+# send. The server merges its stored copy back in at ingest (so downstream
+# consumers always see a complete sysinfo) and lists anything it can't merge in
+# the response's delta_resend. Never omitted until the server has advertised
+# `delta_ok` — a new agent against an old server keeps sending full payloads.
+_DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
+                         'ssh_hostkeys', 'usb', 'autoupdate')
+
+
+def _stable_hash(value):
+    """Content hash for delta-sysinfo comparison (agent-local only — the server
+    never recomputes it, so the exact scheme is free to change)."""
+    blob = json.dumps(value, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 def heartbeat(creds, interval=POLL_INTERVAL):
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
     log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Device: {dev_id}")
@@ -8827,6 +8948,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v1.8.0: server pushes watched services + log rules in heartbeat response
     services_watched = []
     log_watch_rules  = []
+    # v6.2.2: delta sysinfo. delta_ok flips on when a heartbeat RESPONSE
+    # advertises it; delta_hashes maps field → content hash of the last value
+    # the server confirmed storing (updated only on a non-busy response, so a
+    # failed POST or a 202 can never leave the server holding stale data we
+    # then stop sending).
+    delta_ok = False
+    delta_hashes = {}
 
     # v6.1.1 (#1): push-channel wake nudge. wake_event is set by the
     # background listener thread (started lazily below, once, only if the
@@ -9022,6 +9150,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                    # v3.4.2: report our own binary's hash so the server can
                    # attest the running agent matches its canonical copy.
                    'agent_sha256': _agent_self_sha256()}
+        # v6.2.2: per-iteration — holds the delta-field hashes SENT FULL this
+        # beat, committed to delta_hashes only on a non-busy response. Reset
+        # here so a light (no-sysinfo) poll can never commit a prior beat's.
+        _delta_sent_full = {}
         # v3.4.2: surface a refused (unsigned/invalid) self-update so the server
         # can flag it. Cleared on the next successful update.
         _rej = _safe_state_read('update-rejected')
@@ -9487,6 +9619,28 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'usb probe error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
+            # v6.2.2: delta sysinfo — drop the heavy fields whose content is
+            # unchanged since the last send the server CONFIRMED (non-busy
+            # response). sysinfo_omitted names them so the server merges its
+            # stored copy back in; delta_hashes is only committed after the
+            # response below, so nothing is ever omitted on the strength of a
+            # send the server may have dropped.
+            if delta_ok:
+                _omitted = {}
+                for _f in _DELTA_SYSINFO_FIELDS:
+                    if _f not in sysinfo:
+                        continue
+                    try:
+                        _h = _stable_hash(sysinfo[_f])
+                    except Exception:
+                        continue
+                    if delta_hashes.get(_f) == _h:
+                        del sysinfo[_f]
+                        _omitted[_f] = _h
+                    else:
+                        _delta_sent_full[_f] = _h
+                if _omitted:
+                    payload['sysinfo_omitted'] = _omitted
             # W3-8: sample outbound peer connections every ~15 polls so the
             # server can suggest dependency edges. Cheap, private-IPs only.
             if poll_count == 2 or poll_count % 15 == 0:
@@ -9559,6 +9713,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 # Server stored this heartbeat's writes — the scan result is
                 # safely delivered, drop it from the retry queue.
                 _HOST_SCAN_OUTBOX.pop(0)
+            # v6.2.2: delta sysinfo bookkeeping. Commit this beat's full-sent
+            # hashes only when the server actually stored the beat (non-busy);
+            # (re)learn the capability from every response — a downgraded or
+            # restored-from-backup server that stops advertising delta_ok gets
+            # full payloads again from the very next beat; and drop the hash
+            # for anything it explicitly asks to be re-sent.
+            if resp.get('busy') is not True:
+                delta_hashes.update(_delta_sent_full)
+            delta_ok = bool(resp.get('delta_ok'))
+            for _f in (resp.get('delta_resend') or []):
+                delta_hashes.pop(_f, None)
             # v1.8.0: pick up server-pushed watch config
             # v1.8.3: log at info when it *changes* so ops can see config pushes
             if 'services_watched' in resp:

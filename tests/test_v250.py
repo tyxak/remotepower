@@ -285,11 +285,11 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        # Widened again in v6.2.0 (the disk-usage scan block + its heartbeat-
-        # response config). This fixed-size source window is inherently brittle:
+        # Widened again in v6.2.2 (the delta-sysinfo block landed above this
+        # marker). This fixed-size source window is inherently brittle:
         # anything added to heartbeat() ABOVE this marker eventually pushes it
-        # out of range — which is exactly what happened, again.
-        block = self.agent[idx: idx + 50000]
+        # out of range — which is exactly what happened, again (3rd time).
+        block = self.agent[idx: idx + 60000]
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):

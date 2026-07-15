@@ -187,7 +187,10 @@ class TestFrontendWiring(unittest.TestCase):
         index = (_ROOT / 'server' / 'html' / 'index.html').read_text()
         self.assertIn('id="nav-provisioning"', index)
         self.assertIn('id="page-provisioning"', index)
-        self.assertIn('app-provisioning.js', index)
+        # v6.2.2: app-provisioning.js is a LAZY page module — wired through
+        # app.js's _LAZY_PAGE_MODULES map, not a boot <script> tag.
+        _appjs_core = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn("'app-provisioning.js'", _appjs_core)
         appjs = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-provisioning.js').read_text()
         for fn in ('function loadProvisioning', 'function saveBlueprint',
                    'function renderBlueprint', 'function deleteBlueprint'):

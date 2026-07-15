@@ -370,7 +370,8 @@ function cmdbRenderTable(rows) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No matching assets.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  // v6.2.2: chunked — one row per asset, unbounded on a large CMDB.
+  tableCtl.renderChunked(tbody, rows.map(r => {
     const hyp = r.hypervisor_url
       ? `<a href="${_safeHttpHref(r.hypervisor_url)}" target="_blank" rel="noopener" class="c-accent-12">open ↗</a>`
       : '<span class="hint">—</span>';
@@ -406,7 +407,7 @@ function cmdbRenderTable(rows) {
       <td class="isl-430">${r.credential_count}</td>
       <td><button class="btn-icon" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}" >Open</button></td>
     </tr>`;
-  }).join('');
+  }), {colspan: 9});
 }
 
 async function cmdbLoadServerFunctions() {

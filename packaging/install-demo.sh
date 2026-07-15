@@ -318,7 +318,7 @@ Environment=RP_READ_ONLY=1
 # noticeably slow under Postgres until this was wired up.
 Environment=RP_EXTERNAL_SCHEDULER=1
 ExecStart=/usr/bin/gunicorn --workers 2 --threads 4 --timeout 120 \\
-          --bind 127.0.0.1:$DEMO_PORT wsgi:application
+          --keep-alive 75 --bind 127.0.0.1:$DEMO_PORT wsgi:application
 Restart=always
 RestartSec=2
 NoNewPrivileges=true

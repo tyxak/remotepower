@@ -3,11 +3,17 @@ the next bump (see tests/test_v520.py / test_v530.py for the loosened pattern).
 The v5.4.0 feature tests live in tests/test_v540_features.py.
 """
 import importlib.util
+import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
+# MUST be set before exec_module — api.py's import-time ensure_default_user()
+# writes into RP_DATA_DIR; without this the module targets the REAL
+# /var/lib/remotepower when this file runs solo (the test_v230/test_v243 class).
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v540-"))
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
@@ -82,8 +88,13 @@ class TestSurfaceWiring(unittest.TestCase):
         self.assertTrue((_ROOT / "server/html/static/js/app-billing.js").exists())
 
     def test_app_billing_script_included(self):
-        html = (_ROOT / "server/html/index.html").read_text()
-        self.assertIn("static/js/app-billing.js", html)
+        # v6.2.2: app-billing.js became a LAZY page module — wired through
+        # app.js's _LAZY_PAGE_MODULES map (loaded on first navigation) instead
+        # of a boot-time <script> tag in index.html.
+        js = (_ROOT / "server/html/static/js/app.js").read_text()
+        self.assertIn("'app-billing.js'", js)
+        for page in ("timesheet", "billing", "users"):
+            self.assertIn(f"{page}:", js.split("_LAZY_PAGE_MODULES")[1][:1200], page)
 
     def test_pages_present(self):
         html = (_ROOT / "server/html/index.html").read_text()

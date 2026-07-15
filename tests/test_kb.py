@@ -104,7 +104,10 @@ class TestFrontendWiring(unittest.TestCase):
         self.assertIn('id="nav-kb"', index)
         self.assertIn('id="page-kb"', index)
         self.assertIn('id="kb-edit-modal"', index)
-        self.assertIn('app-kb.js', index)
+        # v6.2.2: app-kb.js is a LAZY page module — wired through app.js's
+        # _LAZY_PAGE_MODULES map, not a boot <script> tag.
+        _appjs_core = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn("'app-kb.js'", _appjs_core)
         # v6.0.0: KB is an always-on module — the opt-in checkbox is GONE
         self.assertNotIn('cfg-kb-enabled', index)
         self.assertIn('<button class="nav-btn" id="nav-kb"', index)
