@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test test-fast format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo
+.PHONY: help test test-fast format lint typecheck bandit bandit-baseline codeql check pre-release ci-parity clean install-dev dist release version scan-demo
 
 PY      ?= python3
 PIP     ?= pip3
@@ -219,6 +219,41 @@ codeql:
 	tools/codeql-local.sh
 
 check: test-both lint
+
+# ── The PRE-PROD gate — run this BEFORE every prod tag/upload ────────────────
+# `make check` alone has THREE blind spots that each shipped a broken prod
+# release (v6.2.0): a test that reads a dist-excluded file passes in the source
+# tree but errors in the tarball; CodeQL default setup on prod ignores the
+# config and fires FP rules local never shows; and prod CI runs Python 3.12
+# with a fixed dep list while dev is 3.14. This target closes all three.
+#   make pre-release            # check + dist + CodeQL-parity + CI-3.12 parity
+# CodeQL parity uses PARITY=1 (simulates prod DEFAULT setup) UNLESS the advanced
+# codeql.yml workflow is active on prod — then a plain `tools/codeql-local.sh`
+# predicts prod and you can set PARITY=0.
+pre-release: check dist ci-parity
+	@echo ""
+	@echo "==> CodeQL prod-parity scan (simulates GitHub default setup)"
+	@PARITY=1 tools/codeql-local.sh
+	@echo ""
+	@echo "✓ pre-release gate passed: check + dist + CI-3.12 parity + CodeQL parity"
+
+# Reproduce prod CI's environment: Python 3.12 (dev is 3.14) with the EXACT
+# fixed dep list from .github/workflows/ci.yml, run against the release tree.
+# Catches a new hard runtime import (flask in 6.1.0, pydantic in 6.1.2) that
+# dev has but the CI dep list doesn't — the class that red-X'd prod CI on the
+# release push. Needs `uv` (falls back to a warning if absent).
+CI_PY := 3.12
+CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic hypothesis pytest
+ci-parity:
+	@command -v uv >/dev/null 2>&1 || { echo "⚠ uv not installed — skipping CI-$(CI_PY) parity (pip install uv). Prod CI runs $(CI_PY); dev is $$(python3 --version)."; exit 0; }
+	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list, against the current tree"
+	@uv python install $(CI_PY) >/dev/null 2>&1 || true
+	@rm -rf .ci-parity-venv
+	@uv venv --python $(CI_PY) .ci-parity-venv >/dev/null 2>&1
+	@. .ci-parity-venv/bin/activate && uv pip install --quiet $(CI_DEPS) >/dev/null 2>&1 && \
+		python -m pytest -q tests/ -x 2>&1 | tail -3
+	@rm -rf .ci-parity-venv
+	@echo "✓ CI-$(CI_PY) parity passed"
 
 # Release tarball. Builds a clean copy of the tree into a versioned
 # directory inside dist/, drops everything that has no business shipping

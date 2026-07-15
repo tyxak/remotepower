@@ -1,0 +1,65 @@
+# Advanced CodeQL setup — the DURABLE fix for the "local clean, prod flags 6
+# HIGH" problem (v6.2.0). GitHub's DEFAULT code-scanning setup IGNORES
+# .github/codeql/codeql-config.yml, so prod scanned tests/ and fired every
+# reviewed-FP rule that the config excludes — findings the local run never
+# showed. This workflow runs CodeQL in ADVANCED mode with `config-file:` set to
+# that same config, so prod honors the identical paths-ignore + query-filters as
+# tools/codeql-local.sh. Result: local predicts prod exactly, and the
+# per-release FP-dismissal churn ends.
+#
+# ── ONE-TIME ACTIVATION on the PROD repo (tyxak/remotepower) ──────────────────
+# Advanced and Default setup are mutually exclusive. To switch:
+#   1. Push this file to prod FIRST (via the SSH remote — the gh OAuth token
+#      lacks the `workflow` scope: `git push remotepower main` won't carry it,
+#      use the ssh git URL). Both setups may run briefly; that's harmless.
+#   2. On GitHub: prod repo → Settings → Code security → Code scanning →
+#      "CodeQL analysis" → switch from Default to Advanced (or disable Default).
+#      Now only this workflow runs, and it uses the config.
+#   3. Verify: the next push's "CodeQL" check should scan python + javascript
+#      and (with a clean tree) report 0 alerts, matching `tools/codeql-local.sh`.
+# Guarded to the prod repo, like release.yml — Actions is disabled on the test
+# repo (tyxak/claude-code) anyway, but this makes the intent explicit.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly-published CodeQL query can surface on an unchanged tree.
+    - cron: '30 2 * * 1'
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    if: github.repository == 'tyxak/remotepower'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # THE point of this workflow: honor the same config the local
+          # simulation uses (paths-ignore: tests/aur/…, reviewed-FP query
+          # excludes). Default setup ignores this file; advanced setup applies it.
+          config-file: ./.github/codeql/codeql-config.yml
+          # python + javascript are interpreted — no compile step.
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -1,5 +1,11 @@
-# CodeQL configuration — honored by GitHub "default setup" AND the local
-# tools/codeql-local.sh simulation. Scopes scanning to PRODUCTION source only.
+# CodeQL configuration — honored by the ADVANCED setup workflow
+# (.github/workflows/codeql.yml) AND the local tools/codeql-local.sh simulation.
+# NOTE: GitHub's DEFAULT code-scanning setup IGNORES this file — that mismatch
+# is exactly what surfaced 6 HIGH alerts on prod in v6.2.0 that local never
+# showed. Once prod is switched to the advanced workflow (see codeql.yml), prod
+# honors this config and local predicts prod. Until then, run
+# `PARITY=1 tools/codeql-local.sh` to see what default setup will flag.
+# Scopes scanning to PRODUCTION source only.
 name: "RemotePower CodeQL config"
 
 # Don't scan generated/duplicated trees or test fixtures — they aren't shipped
