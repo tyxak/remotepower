@@ -17121,6 +17121,11 @@ def _agent_mtls_ok(dev_id):
 # the response's `delta_resend` list and the agent ships it full next beat.
 # Server-side whitelist on purpose: an unknown/unsanitizable field named in
 # sysinfo_omitted is simply dropped (never merged, never trusted).
+# v6.2.2 (perf): process-local set of device ids whose metric time-series has
+# been confirmed non-empty, so the per-heartbeat metric_has_any seed-probe runs
+# once per (worker, device) instead of every beat. Per-worker by design.
+_METRIC_SEEDED = set()
+
 _DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
                          'ssh_hostkeys', 'usb', 'autoupdate')
 
@@ -19412,17 +19417,26 @@ def _record_metrics(dev_id, sysinfo):
         # (_recent_metric_window). The JSON backend keeps the blob — it has no
         # time-series table, so there the blob IS the store.
         try:
-            if not _m.metric_has_any(DATA_DIR, dev_id):
-                # First sight of this device on a DB backend (or a store migrated
-                # from the JSON backend): seed the time-series from whatever the
-                # old window blob holds, so history isn't empty for 30 days.
-                try:
-                    seed = _m.entity_get(METRICS_FILE, dev_id) or []
-                except Exception:
-                    seed = []
-                for s in seed:
-                    _m.metric_append(DATA_DIR, dev_id, int(s.get('ts') or now),
-                                     s.get('cpu'), s.get('mem'), s.get('swap'), s.get('disk'))
+            # v6.2.2 (perf): metric_has_any is an indexed SELECT run on EVERY
+            # heartbeat, but it only matters ONCE — the seed-from-blob is a
+            # first-sight migration and a device that has samples always will.
+            # Memoise seeded device ids process-locally so the probe is skipped
+            # after first sight (the set is per-worker; a fresh worker re-probes
+            # once, which is correct).
+            if dev_id not in _METRIC_SEEDED:
+                if not _m.metric_has_any(DATA_DIR, dev_id):
+                    # First sight of this device on a DB backend (or a store
+                    # migrated from the JSON backend): seed the time-series from
+                    # whatever the old window blob holds, so history isn't empty
+                    # for 30 days.
+                    try:
+                        seed = _m.entity_get(METRICS_FILE, dev_id) or []
+                    except Exception:
+                        seed = []
+                    for s in seed:
+                        _m.metric_append(DATA_DIR, dev_id, int(s.get('ts') or now),
+                                         s.get('cpu'), s.get('mem'), s.get('swap'), s.get('disk'))
+                _METRIC_SEEDED.add(dev_id)
             _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
         except Exception:
             pass                    # never fail a heartbeat over metrics

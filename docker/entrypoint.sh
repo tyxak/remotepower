@@ -278,7 +278,7 @@ fi
 echo "[*] Starting gunicorn on 127.0.0.1:8090..."
 cd /var/www/remotepower/cgi-bin
 RP_DATA_DIR=/var/lib/remotepower \
-  gunicorn --workers 2 --threads 8 --timeout 120 --keep-alive 75 --bind 127.0.0.1:8090 wsgi:application &
+  gunicorn --workers 2 --threads 8 --timeout 120 --keep-alive 75 --max-requests 1000 --max-requests-jitter 100 --bind 127.0.0.1:8090 wsgi:application &
 cd /
 echo "[+] gunicorn started (pid $!)"
 
