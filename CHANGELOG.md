@@ -82,8 +82,10 @@ day.
   fleet, security-flagged and CVE-fixing first, with which hosts need a reboot.
 - **More fleet knowledge for the assistant.** The AI's retrieval now also draws
   on the internal contact directory ("who do I call about host X?"), your
-  status-page incident history, and maintenance windows ("is anything in
-  maintenance now?"). Each is a toggle under Settings → AI.
+  status-page incident history, maintenance windows ("is anything in
+  maintenance now?"), and your saved script library ("is there a script for
+  X?"). Script bodies are scrubbed of inline secrets before they are indexed.
+  Each source is a toggle under Settings → AI.
 
 ### Dashboard
 

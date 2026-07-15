@@ -1352,6 +1352,78 @@ def build_kb_corpus(store, now=0):
     return docs
 
 
+# v6.2.2: line-level secret scrubber for script bodies before they enter the
+# RAG corpus. Unlike CMDB/KB free-form fields (where the SECRET is a whole
+# named field we can drop), a script body is code with secrets INLINE, so a
+# key-name filter is not enough — we redact secret-named ASSIGNMENTS and
+# always-on token SHAPES per line. Best-effort (a determined operator can still
+# hardcode an unusual secret), so the safe framing is: names + descriptions are
+# indexed verbatim, bodies are scrubbed. Operators who need a hard guarantee run
+# a local embedding model (no egress) — same posture as ai_provider.redact.
+_SCRIPT_SECRET_ASSIGN_RE = re.compile(
+    # KEY=value / KEY: value where KEY contains a secret word. The prefix is
+    # OPTIONAL (so a bare PASSWORD= matches, not just DB_PASSWORD=). Deliberately
+    # NOT matching the short ambiguous words auth/pat/pwd — they false-hit real
+    # env vars (PATH, PWD, AUTHOR); the precise words below cover the real cases
+    # (an AUTH_TOKEN is caught by 'token').
+    r'(?im)^(\s*(?:export\s+)?[A-Za-z0-9_]*'
+    r'(?:password|passwd|secret|token|api[_-]?key|apikey|passphrase|'
+    r'private[_-]?key|access[_-]?key|client[_-]?secret|bearer|credential)'
+    r'[A-Za-z0-9_]*)\s*([:=])\s*\S.*$')
+_SCRIPT_BEARER_RE = re.compile(r'(?i)(bearer\s+)[A-Za-z0-9._\-/+=]{16,}')
+_SCRIPT_AWS_RE = re.compile(r'\bAKIA[0-9A-Z]{16}\b')
+_SCRIPT_LONGHEX_RE = re.compile(r'\b[0-9a-fA-F]{32,}\b')
+_SCRIPT_B64_RE = re.compile(r'\b[A-Za-z0-9+/]{40,}={0,2}\b')
+
+
+def _scrub_script_body(body):
+    """Redact inline secrets from a script body before RAG embedding."""
+    if not isinstance(body, str) or not body:
+        return ''
+    out = _SCRIPT_SECRET_ASSIGN_RE.sub(r'\1\2 <REDACTED-SECRET>', body)
+    out = _SCRIPT_BEARER_RE.sub(r'\1<REDACTED>', out)
+    out = _SCRIPT_AWS_RE.sub('<REDACTED-AWS>', out)
+    out = _SCRIPT_LONGHEX_RE.sub('<REDACTED-HEX>', out)
+    out = _SCRIPT_B64_RE.sub('<REDACTED-TOKEN>', out)
+    return out
+
+
+def build_scripts_corpus(store, now=0):
+    """v6.2.2: the operator's saved custom scripts for the RAG, so the model can
+    answer "what automation do we have?", "which script does X?", "is there a
+    script for Y?". `store` is CUSTOM_SCRIPTS_FILE {'scripts': [...]} with
+    id/name/description/body. Names + descriptions index verbatim; BODIES pass
+    through _scrub_script_body first (inline secrets redacted) — script bodies
+    are the one RAG input where a credential can hide in free text, so this is
+    the deliberate difference from the other builders."""
+    docs = []
+    scripts = (store or {}).get('scripts', []) if isinstance(store, dict) else []
+    if not isinstance(scripts, list) or not scripts:
+        return docs
+    index = []
+    for s in scripts:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get('id') or ''
+        name = str(s.get('name') or 'script')
+        desc = str(s.get('description') or '')
+        body = _scrub_script_body(str(s.get('body') or ''))[:6000]
+        lines = [f"Custom script: {name}"]
+        if desc:
+            lines.append(f"Description: {desc}")
+        if body:
+            lines.append("Body (secrets redacted):\n" + body)
+        docs.append(make_doc(
+            f"scripts/{sid}", 'scripts', 'custom_script', '\n'.join(lines),
+            title=f"Script: {name[:80]}", ts=int(s.get('updated_at') or now)))
+        index.append(f"- {name[:70]}" + (f": {desc[:80]}" if desc else ''))
+    docs.append(make_doc(
+        'scripts/_index', 'scripts', 'scripts_index',
+        f"Custom scripts: {len(index)} saved.\n" + '\n'.join(index[:300]),
+        title='Custom scripts index', ts=now))
+    return docs
+
+
 def build_contacts_corpus(store, now=0):
     """v6.2.2: the internal contact directory (team phonebook) for the RAG, so
     the model can answer "who do I call about host X / vendor Y / this site?".

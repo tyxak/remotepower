@@ -96,6 +96,45 @@ class TestMaintenanceBuilder(unittest.TestCase):
         self.assertEqual(rag.build_maintenance_corpus({"windows": 5}), [])
 
 
+class TestScriptsBuilderScrubsSecrets(unittest.TestCase):
+    """THE security-critical difference: script bodies carry inline secrets, so
+    the builder must scrub them before the corpus is embedded (a cloud embedding
+    provider sends the stored corpus off-box)."""
+
+    def test_secret_assignments_redacted(self):
+        store = {"scripts": [{
+            "id": "s1", "name": "deploy", "description": "push to prod",
+            "body": (
+                "#!/bin/bash\n"
+                "export API_TOKEN=sk_live_abcdef1234567890abcdef\n"
+                "DB_PASSWORD=hunter2super\n"
+                "aws_secret_access_key: wJalrXUtnFEMI0000EXAMPLEKEY01234567890abc\n"
+                "curl -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'\n"
+                "echo hello world\n"),
+        }]}
+        docs = rag.build_scripts_corpus(store, now=1000)
+        blob = "\n".join(d.get("text", "") for d in docs)
+        # names/descriptions survive
+        self.assertIn("deploy", blob)
+        self.assertIn("push to prod", blob)
+        self.assertIn("echo hello world", blob)      # non-secret line intact
+        # secrets are gone
+        self.assertNotIn("sk_live_abcdef1234567890abcdef", blob)
+        self.assertNotIn("hunter2super", blob)
+        self.assertNotIn("wJalrXUtnFEMI0000EXAMPLEKEY01234567890abc", blob)
+        self.assertNotIn("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", blob)
+        self.assertIn("REDACTED", blob)
+
+    def test_direct_scrubber(self):
+        s = rag._scrub_script_body("PASSWORD=topsecret123\nls -la\n")
+        self.assertNotIn("topsecret123", s)
+        self.assertIn("ls -la", s)
+
+    def test_empty_and_malformed_safe(self):
+        self.assertEqual(rag.build_scripts_corpus(None), [])
+        self.assertEqual(rag.build_scripts_corpus({"scripts": 1}), [])
+
+
 class TestFiveSpotWiring(unittest.TestCase):
     def test_spot1_default_on(self):
         self.assertIn("'contacts':", _API_SRC)
@@ -108,11 +147,14 @@ class TestFiveSpotWiring(unittest.TestCase):
         self.assertIn("files.append(INCIDENTS_FILE)", _API_SRC)
         self.assertIn("if sources.get('maintenance'):", _API_SRC)
         self.assertIn("files.append(MAINT_FILE)", _API_SRC)
+        self.assertIn("if sources.get('scripts'):", _API_SRC)
+        self.assertIn("files.append(SCRIPTS_FILE)", _API_SRC)
 
     def test_spot3_builder_called_in_orchestrator(self):
         self.assertIn("rag_index.build_contacts_corpus", _API_SRC)
         self.assertIn("rag_index.build_incidents_corpus", _API_SRC)
         self.assertIn("rag_index.build_maintenance_corpus", _API_SRC)
+        self.assertIn("rag_index.build_scripts_corpus", _API_SRC)
 
     def test_spot4_save_whitelisted(self):
         # miss this and the Settings toggle silently never persists
@@ -121,9 +163,10 @@ class TestFiveSpotWiring(unittest.TestCase):
         self.assertIn("'contacts'", whitelist)
         self.assertIn("'incidents'", whitelist)
         self.assertIn("'maintenance'", whitelist)
+        self.assertIn("'scripts'", whitelist)
 
     def test_spot5_ui_checkbox_and_load_and_save(self):
-        for src in ("contacts", "incidents", "maintenance"):
+        for src in ("contacts", "incidents", "maintenance", "scripts"):
             self.assertIn(f'id="ai-rag-src-{src}"', _HTML)
             self.assertIn(f"ai-rag-src-{src}", _APP_AI)        # _setSrc load
             self.assertIn(f"{src}:", _APP_AI)                  # save object
