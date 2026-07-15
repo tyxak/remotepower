@@ -415,7 +415,7 @@ def build_devices() -> dict:
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '4.7.0' if not dev['agentless'] else None,
+            'version':     '6.2.2' if not dev['agentless'] else None,
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),
@@ -495,6 +495,14 @@ def build_devices() -> dict:
                 'kernel':       rng.choice(['6.1.0-21-amd64', '6.8.0-31-generic', '6.6.32-current']),
                 'uptime_s':     rng.randint(86400, 86400 * 180),
                 'packages':     (lambda u: {'upgradable': u, 'security_updates': rng.randint(0, u) if u else 0})(rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]),
+                # v6.2.2: kernel modules visible from the agent context (healthy)
+                # so the demo shows the forced module-visibility Check passing.
+                'modules_visible': True,
+                # v6.1.2: auto-update posture — a realistic mix of self-patching
+                # and manually-patched hosts drives the "Auto-update posture" view.
+                'autoupdate':   {'enabled': rng.choice([True, True, False]),
+                                 'mechanism': rng.choice(['unattended-upgrades',
+                                                          'dnf-automatic', ''])},
             }
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host
