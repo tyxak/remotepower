@@ -59,26 +59,38 @@ class TestNicErrorEvent(unittest.TestCase):
 
     def test_steady_errors_do_not_refire(self):
         self._ingest([{"iface": "eth0", "err_delta": 0}])
-        self._ingest([{"iface": "eth0", "err_delta": 4}])
+        self._ingest([{"iface": "eth0", "err_delta": 8}])
         self.fired.clear()
-        self._ingest([{"iface": "eth0", "err_delta": 4}])  # still erroring
+        self._ingest([{"iface": "eth0", "err_delta": 8}])  # still erroring
         self.assertNotIn("nic_errors", self._events())
 
     def test_recovery_fires_cleared(self):
         self._ingest([{"iface": "eth0", "err_delta": 0}])
-        self._ingest([{"iface": "eth0", "err_delta": 4}])
+        self._ingest([{"iface": "eth0", "err_delta": 8}])
         self.fired.clear()
         self._ingest([{"iface": "eth0", "err_delta": 0}])  # stopped
         self.assertIn("nic_errors_cleared", self._events())
+
+    def test_trivial_delta_below_threshold_does_not_page(self):
+        """A busy NIC drops the odd packet under load — a high-severity page must
+        need a MEANINGFUL delta (>= _NIC_ERR_ALERT_MIN), not a single drop."""
+        self.assertGreaterEqual(api._NIC_ERR_ALERT_MIN, 2)
+        self._ingest([{"iface": "eth0", "err_delta": 0}])
+        self.fired.clear()
+        self._ingest([{"iface": "eth0", "err_delta": api._NIC_ERR_ALERT_MIN - 1}])
+        self.assertNotIn("nic_errors", self._events())
+        # …but a delta AT the threshold does page.
+        self._ingest([{"iface": "eth0", "err_delta": api._NIC_ERR_ALERT_MIN}])
+        self.assertIn("nic_errors", self._events())
 
     def test_per_iface_independence(self):
         """eth1 erroring must not clear eth0's still-open state, and recovery on
         eth0 must not clear eth1."""
         self._ingest([{"iface": "eth0", "err_delta": 0}, {"iface": "eth1", "err_delta": 0}])
-        self._ingest([{"iface": "eth0", "err_delta": 3}, {"iface": "eth1", "err_delta": 0}])
+        self._ingest([{"iface": "eth0", "err_delta": 7}, {"iface": "eth1", "err_delta": 0}])
         self.fired.clear()
         # eth1 starts erroring; eth0 keeps erroring (no re-fire), no clear for eth0.
-        self._ingest([{"iface": "eth0", "err_delta": 3}, {"iface": "eth1", "err_delta": 9}])
+        self._ingest([{"iface": "eth0", "err_delta": 7}, {"iface": "eth1", "err_delta": 9}])
         evs = [(e, p.get("iface")) for e, p in self.fired]
         self.assertIn(("nic_errors", "eth1"), evs)
         self.assertNotIn(("nic_errors", "eth0"), evs)

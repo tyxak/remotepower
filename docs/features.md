@@ -155,6 +155,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Branded email | Alert / digest / test emails send a branded HTML alternative (white-label name + accent) + plain-text fallback *(v5.5.0)* |
 | Digest endpoint | `/api/digest` for cron-driven email summaries |
 | Flap cap | Server-wide cap stops a flapping monitor flooding channels |
+| Alert parameters | One Settings page for the global alert-firing thresholds — NIC error floor, SNMP dead-after, temperature, clock skew, UPS battery/runtime, controller disk headroom, pending-update count, scrub/snapshot age, incident host count, health score, Proxmox snapshot age. Distinct from Monitoring → Tuning (which silences noisy alerts). `GET/POST /api/config` *(v6.2.2)* |
+| Explained alerts | Every alert row and webhook/push body carries the event's specific detail or human label — never a bare machine event name *(v6.2.2)* |
 | Alert mute & tuning | Per-(host, event) **mute** silences one exact alert from one asset (inbox + webhook + needs-attention) while history keeps recording; a mute now also drops the signal from Needs-Attention, so it **stops depressing the host's and the fleet's health score** — matched per event *and* severity, so muting `av_warning` never hides a critical `av_infected` *(health fix v6.1.2)*; a mute can be **timed** (`hours`, 0.25–8760) and lapses on its own, with the time remaining shown on Tuning — a permanent mute you forget to lift is a signal you have silently stopped monitoring *(v6.1.2)*; the Alerts/dashboard Ack button is an **X mute**; Monitoring → Tuning ranks the noisiest alerts/sources from the timeline. `GET/POST /api/alert-mutes`, `GET /api/alert-tuning` *(v5.6.0)* |
 
 ## Notification destinations

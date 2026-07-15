@@ -7641,10 +7641,27 @@ def _alert_title(event, payload):
         extra = f' (+{n-1} more)' if isinstance(n, int) and n > 1 else ''
         return (f'Exposed secret on {name}: {p.get("rule","?")} in '
                 f'{p.get("path","?")}{extra}')
+    # v6.2.2 — universal readable fallback. An alert row must NEVER show a bare
+    # machine event name ("nic_errors: host" told the operator nothing). Prefer
+    # the fire-site's human `detail`; otherwise the event's registry `label`
+    # (every EVENT_REGISTRY entry has one). Only truly unknown events (not in the
+    # registry, no detail) reach the last line. Guarded by
+    # tests/test_v622_alert_titles.py so no future alertable event regresses to it.
+    _dtl = p.get('detail') if isinstance(p, dict) else None
+    if _dtl:
+        return f'{name}: {_dtl}' if name else str(_dtl)
+    _lbl = (EVENT_REGISTRY.get(event) or {}).get('label')
+    if _lbl:
+        return f'{_lbl} — {name}' if name else _lbl
     return f'{event}: {name}'
 
 
 # Fields that identify *which* thing an alert is about, beyond its event type +
+# Minimum per-interval error/drop delta before a NIC-error condition pages. A
+# high-severity alert must mean "this NIC is failing", not "a busy link dropped
+# one packet under load" — so require a handful of new errors in a single beat.
+_NIC_ERR_ALERT_MIN = 5
+
 # device. Two open alerts for the same event + device + these identity values
 # are the SAME ongoing condition and must coalesce into one row, never stack up.
 _ALERT_IDENTITY_FIELDS = (
@@ -17484,13 +17501,20 @@ def handle_heartbeat():
                         if isinstance(v, (int, float)) and 0 <= v < 1e15:
                             ent[k] = int(v)
                     _p = _prev_io.get(ent['iface']) or {}
-                    _cur_bad = sum(ent.get(k, 0) for k in
-                                   ('rx_err', 'tx_err', 'rx_drop', 'tx_drop'))
-                    _prev_bad = sum(_p.get(k, 0) for k in
-                                    ('rx_err', 'tx_err', 'rx_drop', 'tx_drop'))
-                    # Carry the running total forward so a single heartbeat's worth of
-                    # errors isn't lost the moment the next clean beat arrives.
-                    _delta = _cur_bad - _prev_bad if _cur_bad >= _prev_bad else 0
+                    _ecols = ('rx_err', 'tx_err', 'rx_drop', 'tx_drop')
+                    _cur_bad = sum(ent.get(k, 0) for k in _ecols)
+                    _prev_bad = sum(_p.get(k, 0) for k in _ecols)
+                    # v6.2.2 FIX: only an INCREASE we can actually MEASURE is news.
+                    # If the previous sample had NO error counters (a just-upgraded
+                    # agent that only now sends them, or a newly-appearing NIC),
+                    # `_prev_bad` is 0 and `_cur_bad` is the host's ACCUMULATED
+                    # LIFETIME error total — so a plain delta would fire an alert for
+                    # errors that happened MONTHS ago. That spurious fire hit two
+                    # prod hosts on the first heartbeat after deploy. Baseline the
+                    # first sighting silently (err_delta 0); a real delta needs a
+                    # prior counter to subtract from.
+                    _has_prev = any(k in _p for k in _ecols)
+                    _delta = (_cur_bad - _prev_bad) if (_has_prev and _cur_bad >= _prev_bad) else 0
                     ent['err_delta'] = _delta
                     safe_io.append(ent)
                 safe_si['network_io'] = safe_io
@@ -23231,6 +23255,15 @@ def handle_config_get():
     safe.setdefault('ups_auto_shutdown_enabled', False)  # v6.1.1: opt-in UPS-critical auto-shutdown
     safe.setdefault('ups_critical_battery_pct', 20)
     safe.setdefault('ups_critical_runtime_s', 180)
+    # v6.2.2: alert-firing thresholds surfaced on Settings → Alert parameters.
+    # The first two were hardcoded constants; the last three were config-backed
+    # but had no UI (operators had to hand-edit config.json). Defaults mirror the
+    # code constants so an unconfigured server renders the effective value.
+    safe.setdefault('nic_err_alert_min', _NIC_ERR_ALERT_MIN)        # NIC err/drop floor per beat
+    safe.setdefault('snmp_dead_threshold', _SNMP_DEAD_THRESHOLD)    # consecutive SNMP fails → dead
+    safe.setdefault('temp_alert_threshold_c', 85)                   # temp_high °C
+    safe.setdefault('clock_skew_threshold_ms', 1000)               # clock_skew ms
+    safe.setdefault('proxmox_snapshot_warn_days', 7)               # stale Proxmox snapshot age
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24301,6 +24334,29 @@ def handle_config_save():
         if v < 0 or v > 99:
             respond(400, {'error': 'disk_watchdog_pct must be 0..99 (0 = off)'})
         cfg['disk_watchdog_pct'] = v
+
+    # v6.2.2: alert-firing thresholds edited on Settings → Alert parameters. Each
+    # is an int with a sane floor; a blank/None clears the override (falls back to
+    # the code default). Bounds are generous — the point is tuning, not policing.
+    for _tk, _lo, _hi, _blankable in (
+        ('nic_err_alert_min',         1,   100000, True),
+        ('snmp_dead_threshold',       1,   100000, True),
+        ('temp_alert_threshold_c',    1,   200,    True),
+        ('clock_skew_threshold_ms',   1,   86400000, True),
+        ('proxmox_snapshot_warn_days', 0,  3650,   True),
+    ):
+        if _tk in body:
+            _raw = body[_tk]
+            if _blankable and (_raw is None or _raw == ''):
+                cfg.pop(_tk, None)
+                continue
+            try:
+                _iv = int(_raw)
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{_tk} must be an integer'})
+            if _iv < _lo or _iv > _hi:
+                respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
+            cfg[_tk] = _iv
 
     # v3.14.0 (#48): agentless SSH. Opt-in (default off); the private key is a
     # write-only secret (preserved when omitted, never returned by GET).
@@ -31435,11 +31491,21 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
     # it stops. State = the set of currently-erroring ifaces, per device.
     nio = si.get('network_io')
     if isinstance(nio, list):
+        # A high-severity page needs a MEANINGFUL delta — a busy NIC drops the odd
+        # packet under load without a failing cable, so a delta of 1-2 between beats
+        # is noise. Require >= the configured floor (Settings → Alert parameters;
+        # _NIC_ERR_ALERT_MIN is the default) new errors/drops in one interval.
+        try:
+            _nic_min = int(_config_ro().get('nic_err_alert_min') or _NIC_ERR_ALERT_MIN)
+        except (TypeError, ValueError):
+            _nic_min = _NIC_ERR_ALERT_MIN
+        if _nic_min < 1:
+            _nic_min = _NIC_ERR_ALERT_MIN
         cur_bad = sorted({
             _sanitize_str(str(n.get('iface', '')), 32)
             for n in nio
             if isinstance(n, dict) and isinstance(n.get('err_delta'), int)
-            and n['err_delta'] > 0 and n.get('iface')
+            and n['err_delta'] >= _nic_min and n.get('iface')
         })
         prev_bad = set(prev.get('nic_err_ifaces') or [])
         if not first_seen:
@@ -53509,13 +53575,20 @@ def _do_snmp_poll(dev_id, dev):
                 })
             except Exception as ferr:
                 sys.stderr.write(f'[remotepower] snmp_unreachable fire failed: {ferr}\n')
-        # Dead transition: 6 hours of sustained failure (72 cycles at 5min
-        # cadence). The original `snmp_unreachable` alert is still in the
+        # Dead transition: sustained failure. At the default (72 cycles / 5min
+        # cadence ≈ 6h) the original `snmp_unreachable` alert is still in the
         # inbox at severity=high; this one fires at severity=critical so
         # silence at this stage is impossible to miss. Fires once at the
-        # crossing — _SNMP_DEAD_THRESHOLD = 72.
-        if is_monitored and prev_fails == _SNMP_DEAD_THRESHOLD - 1 \
-                and new_fails == _SNMP_DEAD_THRESHOLD:
+        # crossing. The threshold is tunable (Settings → Alert parameters;
+        # _SNMP_DEAD_THRESHOLD is the default).
+        try:
+            _snmp_dead_n = int(_config_ro().get('snmp_dead_threshold') or _SNMP_DEAD_THRESHOLD)
+        except (TypeError, ValueError):
+            _snmp_dead_n = _SNMP_DEAD_THRESHOLD
+        if _snmp_dead_n < 1:
+            _snmp_dead_n = _SNMP_DEAD_THRESHOLD
+        if is_monitored and prev_fails == _snmp_dead_n - 1 \
+                and new_fails == _snmp_dead_n:
             hours = (new_fails * SNMP_POLL_INTERVAL) // 3600
             try:
                 fire_webhook('snmp_dead', {

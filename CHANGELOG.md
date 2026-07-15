@@ -33,7 +33,17 @@ day.
   shedding packets (a failing cable, a dirty SFP, a dying switch port) was easy
   to miss. It now raises a `nic_errors` alert, edge-triggered per interface on
   the increase since the last heartbeat (a reboot resets the baseline), and
-  clears itself when the interface stops erroring.
+  clears itself when the interface stops erroring. It only counts an increase it
+  can actually measure — the first heartbeat that carries a NIC's error counters
+  baselines silently, so a host's *accumulated lifetime* errors never fire — and
+  a page needs a meaningful jump in one interval (tunable, see Alert parameters),
+  not a single packet dropped under load.
+- **Every alert now carries an explanation.** An alert row's title came from a
+  builder that fell through to the bare event name (e.g. `nic_errors: host`) for
+  any event without a hand-written line — 34 alertable events, including several
+  posture and hardware ones, showed no context. The inbox and the webhook/push
+  bodies now always render the specific detail the event carries, or the event's
+  human label — never a raw machine name.
 
 ### Performance
 
@@ -129,6 +139,13 @@ day.
 
 ### UX
 
+- **New Settings → Alert parameters page.** The global alert-firing thresholds
+  now live in one place: NIC error floor, SNMP dead-after, temperature, clock
+  skew, UPS battery/runtime, controller disk headroom, pending-update count,
+  scrub/snapshot age, incident host count, health score, and Proxmox snapshot
+  age. Five of these were previously either hardcoded or editable only by
+  hand-editing the config file. (This does not touch Monitoring → Tuning, which
+  silences noisy alerts per host — a separate job.)
 - **Keyboard-driven alert inbox** — `j`/`k` move, `a` acknowledge, `r` resolve,
   `m` mute, `x` select, `?` shows the map. Active only on the Alerts page and
   never while typing in a field or a modal.

@@ -1402,6 +1402,7 @@
                  actual dashboard-widget settings. Relabeled + moved next to
                  Notifications, where the content actually belongs. -->
             <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Alerting</button>
+            <button class="settings-tab"        data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams" >Alert parameters</button>
             <button class="settings-tab"        data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
             <button class="settings-tab"        data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
           </div>
@@ -1621,7 +1622,7 @@
             <div class="section-title">Incident auto-promotion</div>
             <p class="hint">When the SAME alert fires on at least this many devices at once (a network outage, a bad driver batch, a mis-shipped config), automatically open a status-page incident pre-filled from the cluster, and auto-resolve it once every alert in it clears. This is the cross-device axis the per-host root-cause folding on the Alerts page doesn't cover. <strong>Off by default.</strong></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-incident-auto-promote-enabled"> Auto-open an incident for a cross-device alert storm</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-incident-device-threshold">Device threshold</label><input type="number" id="cfg-incident-device-threshold" class="form-input mw-160" min="2" max="1000" value="5"></div>
+            <p class="hint">The device-count threshold lives in Settings → Alert parameters.</p>
           </div>
 
           <!-- v3.0.2: multi-webhook destinations -->
@@ -2241,8 +2242,7 @@
             <div class="section-title">UPS auto-shutdown</div>
             <p class="hint">When a device's monitored UPS crosses the critical-battery threshold below, any OTHER device marked as powered by that UPS (device drawer → UPS dependency) is automatically queued a graceful shutdown — bypassing change-approval above, since this is an unattended safety action, not an operator-initiated one. <strong>Off by default</strong> — a device still needs its own UPS dependency mapping for anything to happen.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ups-auto-shutdown-enabled"> Auto-shutdown devices dependent on a UPS that goes critical</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-ups-critical-battery-pct">Critical battery threshold (%)</label><input type="number" id="cfg-ups-critical-battery-pct" class="form-input mw-160" min="1" max="99" value="20"></div>
-            <div class="settings-row"><label class="form-label" for="cfg-ups-critical-runtime-s">Critical runtime threshold (seconds, 0 to disable)</label><input type="number" id="cfg-ups-critical-runtime-s" class="form-input mw-160" min="0" max="3600" value="180"></div>
+            <p class="hint">The critical battery and runtime thresholds live in Settings → Alert parameters.</p>
           </div>
 
           <!-- v6.1.1: Incident auto-promotion moved to Notifications --
@@ -2449,31 +2449,8 @@
             </label>
           </div>
 
-          <!-- ── v5.0.0 (#R1): server disk-space watchdog ────────────────────── -->
-          <div class="settings-section">
-            <div class="section-title">Server disk watchdog</div>
-            <p class="hint">Alert when the RemotePower controller's own data directory fills up — <em>before</em> file-lock writes start failing. Fires a high-severity <code>server_disk_low</code> alert (and a recover when it drops back). Checked every 30 min on the heartbeat hook.</p>
-            <div class="settings-row">
-              <div class="form-group mw-200">
-                <label for="cfg-disk-watchdog-pct" class="form-label">Alert at used % (0 = off)</label>
-                <input type="number" id="cfg-disk-watchdog-pct" class="form-input" min="0" max="99" placeholder="85">
-              </div>
-            </div>
-          </div>
-          <div class="settings-section">
-            <div class="section-title">Storage pool freshness</div>
-            <p class="hint">Age thresholds for ZFS / btrfs / mdadm pools reported by the agent. <strong>Scrub</strong> checks how long since the last scrub (<code>scrub_overdue</code>). <strong>Snapshot</strong> checks how long since the newest snapshot (<code>snapshot_stale</code>) — a snapshot cron that has quietly stopped is the silence you only discover on the day you need to roll back. Snapshots default to <strong>off</strong>, because plenty of pools legitimately aren't snapshotted; a pool with no snapshots at all is never alerted on.</p>
-            <div class="settings-row">
-              <div class="form-group mw-200">
-                <label for="cfg-scrub-overdue-days" class="form-label">Scrub overdue after (days)</label>
-                <input type="number" id="cfg-scrub-overdue-days" class="form-input" min="1" max="3650" placeholder="35">
-              </div>
-              <div class="form-group mw-200">
-                <label for="cfg-snapshot-stale-days" class="form-label">Snapshot stale after (days, 0 = off)</label>
-                <input type="number" id="cfg-snapshot-stale-days" class="form-input" min="0" max="3650" placeholder="0">
-              </div>
-            </div>
-          </div>
+          <!-- v6.2.2: server disk watchdog + storage pool freshness thresholds
+               relocated to Settings → Alert parameters. -->
           <div class="settings-section">
             <div class="section-title">Compose drift watch</div>
             <p class="hint">The drift engine can watch any file, but you had to know each path and add it by hand, per host — while the agent <em>already</em> discovers every compose file on the box (that's how the Containers page offers up/down/pull against them). The two halves were never connected, so a hand-edited <code>docker-compose.yml</code> — the most common "why did this stack change?" — drifted unwatched. Turn this on to fold each host's discovered compose files into its drift watch list. Appended, never replacing what you chose to watch.</p>
@@ -3210,17 +3187,8 @@
           <button class="btn-primary mt-8" data-action="saveBruteForceSettings" >Save</button>
         </div>
 
-        <div class="settings-section">
-          <div class="section-title">Health-score alerts</div>
-          <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing, not every heartbeat. Set to <strong>0</strong> to disable.</p>
-          <div class="settings-row isl-57">
-            <div class="form-group">
-              <label for="health-alert-threshold" class="form-label">Alert below score (0 = off)</label>
-              <input type="number" id="health-alert-threshold" class="form-input isl-80" min="0" max="100" value="0">
-            </div>
-          </div>
-          <button class="btn-primary mt-8" data-action="saveHealthAlertSettings" >Save</button>
-        </div>
+        <!-- v6.2.2: Health-score alert threshold relocated to
+             Settings → Alert parameters (Server health). -->
 
         <div class="settings-section">
           <div class="section-title">Quiet hours</div>
@@ -3369,6 +3337,113 @@
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter kinds or events…" data-input="filterRows" data-input-el="1" data-filter-target="#dash-channel-matrix tbody tr" aria-label="Filter channel routing">
           <div id="dash-channel-matrix"><div class="isl-78">Loading…</div></div>
         </div>
+
+      </div>
+
+      <!-- v6.2.2: Alert parameters — one home for the numeric alert-firing
+           thresholds that were scattered across other panes, plus new ones. -->
+      <div class="settings-pane" id="settings-pane-alertparams">
+
+        <div class="settings-section">
+          <div class="section-title">Network &amp; time</div>
+          <p class="hint">Thresholds for interface, SNMP and clock signals.</p>
+          <div class="settings-row">
+            <div class="form-group mw-200">
+              <label for="ap-nic-err-min" class="form-label">NIC error floor</label>
+              <input type="number" id="ap-nic-err-min" class="form-input" min="1" max="100000" placeholder="5">
+              <div class="hint">New errors/drops on one interface within a single heartbeat before it pages.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="ap-snmp-dead" class="form-label">SNMP dead after</label>
+              <input type="number" id="ap-snmp-dead" class="form-input" min="1" max="100000" placeholder="72">
+              <div class="hint">Consecutive failed SNMP polls before a device is declared dead (critical).</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="ap-clock-skew-ms" class="form-label">Clock skew ms</label>
+              <input type="number" id="ap-clock-skew-ms" class="form-input" min="1" max="86400000" placeholder="1000">
+              <div class="hint">NTP offset that fires <code>clock_skew</code>.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Hardware &amp; power</div>
+          <p class="hint">Temperature, UPS and controller disk headroom.</p>
+          <div class="settings-row">
+            <div class="form-group mw-200">
+              <label for="ap-temp-c" class="form-label">Temperature °C</label>
+              <input type="number" id="ap-temp-c" class="form-input" min="1" max="200" placeholder="85">
+              <div class="hint">Sensor temperature that fires <code>temp_high</code>.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="cfg-ups-critical-battery-pct" class="form-label">Critical battery threshold (%)</label>
+              <input type="number" id="cfg-ups-critical-battery-pct" class="form-input" min="1" max="99" value="20">
+              <div class="hint">UPS charge below this is treated as critical.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="cfg-ups-critical-runtime-s" class="form-label">Critical runtime threshold (seconds, 0 to disable)</label>
+              <input type="number" id="cfg-ups-critical-runtime-s" class="form-input" min="0" max="3600" value="180">
+              <div class="hint">UPS runtime remaining below this is treated as critical.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="cfg-disk-watchdog-pct" class="form-label">Server disk alert at used % (0 = off)</label>
+              <input type="number" id="cfg-disk-watchdog-pct" class="form-input" min="0" max="99" placeholder="85">
+              <div class="hint">Alert when the RemotePower controller's own data directory fills up, before file-lock writes start failing (<code>server_disk_low</code>).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Patching &amp; capacity</div>
+          <p class="hint">Pending-update and cross-device incident thresholds.</p>
+          <div class="settings-row">
+            <div class="form-group mw-200">
+              <label for="cfg-patch-threshold" class="form-label">Patch threshold (pending updates)</label>
+              <input type="number" id="cfg-patch-threshold" class="form-input" min="0" placeholder="e.g. 10">
+              <div class="hint">Pending updates on a host before <code>patch_alert</code> fires.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="cfg-incident-device-threshold" class="form-label">Incident device threshold</label>
+              <input type="number" id="cfg-incident-device-threshold" class="form-input" min="2" max="1000" value="5">
+              <div class="hint">Devices hit by the same alert at once before a status-page incident auto-opens.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Storage &amp; backup</div>
+          <p class="hint">Pool freshness and snapshot-age thresholds.</p>
+          <div class="settings-row">
+            <div class="form-group mw-200">
+              <label for="cfg-scrub-overdue-days" class="form-label">Scrub overdue after (days)</label>
+              <input type="number" id="cfg-scrub-overdue-days" class="form-input" min="1" max="3650" placeholder="35">
+              <div class="hint">Time since the last ZFS / btrfs / mdadm scrub before <code>scrub_overdue</code>.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="cfg-snapshot-stale-days" class="form-label">Snapshot stale after (days, 0 = off)</label>
+              <input type="number" id="cfg-snapshot-stale-days" class="form-input" min="0" max="3650" placeholder="0">
+              <div class="hint">Time since the newest pool snapshot before <code>snapshot_stale</code>.</div>
+            </div>
+            <div class="form-group mw-200">
+              <label for="ap-pmox-snap-days" class="form-label">Proxmox snapshot age (days)</label>
+              <input type="number" id="ap-pmox-snap-days" class="form-input" min="0" max="3650" placeholder="7">
+              <div class="hint">A Proxmox VM snapshot older than this is flagged stale.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Server health</div>
+          <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing. Set to <strong>0</strong> to disable.</p>
+          <div class="settings-row">
+            <div class="form-group mw-200">
+              <label for="health-alert-threshold" class="form-label">Alert below score (0 = off)</label>
+              <input type="number" id="health-alert-threshold" class="form-input" min="0" max="100" value="0">
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-primary mt-8" data-action="saveAlertParams" >Save</button>
 
       </div>
 

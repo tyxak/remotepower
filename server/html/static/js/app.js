@@ -3569,9 +3569,9 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
     const email = emailEvents[ev] === true ? 'checked' : '';
     const desc = descriptions[ev] || '';
     let extra = '';
-    if (ev === 'patch_alert') {
-      extra = `<div class="event-extra isl-156"><span class="hint">Threshold:</span><input type="number" id="cfg-patch-threshold" min="0" placeholder="e.g. 10" class="isl-336"><span class="meta-sm-nm">pending updates</span></div>`;
-    } else if (ev === 'cve_found') {
+    // v6.2.2: the patch_alert threshold input moved to Settings → Alert
+    // parameters (kept id cfg-patch-threshold; its loader/saver find it there).
+    if (ev === 'cve_found') {
       extra = `<div class="event-extra"><div class="isl-337">Severities to alert on:</div><div id="cfg-cve-severity-row" class="isl-338"></div></div>`;
     }
     return `<tr>
@@ -18596,6 +18596,53 @@ function _renderProcessesFiltered() {
 }
 
 // ── v2.8.1: Settings → Dashboard personalisation ─────────────────────────────
+
+// v6.2.2: Settings → Alert parameters. Numeric alert-firing thresholds gathered
+// from across Settings (kept their original ids so the existing General/Alerting
+// loaders/savers still find them) plus five new ap-* thresholds. Backend keys are
+// already wired; this pane just reads/writes /config.
+async function loadAlertParams() {
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  // New ap-* thresholds
+  set('ap-nic-err-min',    cfg.nic_err_alert_min ?? 5);
+  set('ap-snmp-dead',      cfg.snmp_dead_threshold ?? 72);
+  set('ap-temp-c',         cfg.temp_alert_threshold_c ?? 85);
+  set('ap-clock-skew-ms',  cfg.clock_skew_threshold_ms ?? 1000);
+  set('ap-pmox-snap-days', cfg.proxmox_snapshot_warn_days ?? 7);
+  // Relocated thresholds (unchanged ids + config keys)
+  set('cfg-patch-threshold',           cfg.patch_alert_threshold || '');
+  set('cfg-disk-watchdog-pct',         cfg.disk_watchdog_pct ?? 85);
+  set('cfg-ups-critical-battery-pct',  cfg.ups_critical_battery_pct ?? 20);
+  set('cfg-ups-critical-runtime-s',    cfg.ups_critical_runtime_s ?? 180);
+  set('cfg-scrub-overdue-days',        cfg.scrub_overdue_days ?? 35);
+  set('cfg-snapshot-stale-days',       cfg.snapshot_stale_days ?? 0);
+  set('cfg-incident-device-threshold', cfg.incident_device_threshold ?? 5);
+  set('health-alert-threshold',        parseInt(cfg.health_alert_threshold, 10) || 0);
+}
+
+async function saveAlertParams(btn) {
+  const num = (id, dflt) => { const el = document.getElementById(id); const n = parseInt(el?.value, 10); return Number.isNaN(n) ? dflt : n; };
+  const payload = {
+    nic_err_alert_min:          num('ap-nic-err-min', 5),
+    snmp_dead_threshold:        num('ap-snmp-dead', 72),
+    temp_alert_threshold_c:     num('ap-temp-c', 85),
+    clock_skew_threshold_ms:    num('ap-clock-skew-ms', 1000),
+    proxmox_snapshot_warn_days: num('ap-pmox-snap-days', 7),
+    patch_alert_threshold:      num('cfg-patch-threshold', 0),
+    disk_watchdog_pct:          num('cfg-disk-watchdog-pct', 85),
+    ups_critical_battery_pct:   num('cfg-ups-critical-battery-pct', 20),
+    ups_critical_runtime_s:     num('cfg-ups-critical-runtime-s', 180),
+    scrub_overdue_days:         num('cfg-scrub-overdue-days', 35),
+    snapshot_stale_days:        num('cfg-snapshot-stale-days', 0),
+    incident_device_threshold:  num('cfg-incident-device-threshold', 5),
+    health_alert_threshold:     num('health-alert-threshold', 0),
+  };
+  const r = await api('POST', '/config', payload);
+  if (r?.ok) { toast('Settings saved', 'success'); loadAlertParams(); }
+  else toast(r?.error || 'Failed', 'error');
+}
 
 // v3.2.3: canonical kind list moved server-side (CHANNEL_KINDS in api.py).
 // The matrix UI reads /api/dashboard/kinds — no more duplicated arrays here.

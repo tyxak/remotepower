@@ -793,7 +793,16 @@ def _webhook_message(event, payload):
         return f'{name}: systemd unit {payload.get("unit","?")} entered the failed state' + (
             f" (+{_un - 1} more new this cycle)" if _un > 1 else ""
         )
-    return f"{event}: {name}"
+    # v6.2.2 — no hand-written branch: prefer the fire-site's human `detail` over
+    # a bare "event: host" so a webhook/push consumer still gets an explanation.
+    # (The notification TITLE separately carries the event's registry title.)
+    _dtl = payload.get("detail") if isinstance(payload, dict) else None
+    if _dtl:
+        return f"{name}: {_dtl}" if name else str(_dtl)
+    # Humanize the raw event key so even a branch-less, detail-less event reads
+    # as a sentence ("smart_failure" → "Smart failure") rather than a machine token.
+    _human = event.replace("_", " ").capitalize()
+    return f"{_human}: {name}" if name else _human
 
 
 def _ts_fmt(ts):
