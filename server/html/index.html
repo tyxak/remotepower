@@ -3345,105 +3345,121 @@
       <div class="settings-pane" id="settings-pane-alertparams">
 
         <div class="settings-section">
-          <div class="section-title">Network &amp; time</div>
-          <p class="hint">Thresholds for interface, SNMP and clock signals.</p>
-          <div class="settings-row">
-            <div class="form-group mw-200">
-              <label for="ap-nic-err-min" class="form-label">NIC error floor</label>
-              <input type="number" id="ap-nic-err-min" class="form-input" min="1" max="100000" placeholder="5">
-              <div class="hint">New errors/drops on one interface within a single heartbeat before it pages.</div>
+          <div class="section-title">Monitors &amp; freshness</div>
+          <p class="hint">How many consecutive failures (or how stale) before a monitor pages. Higher values ride out brief blips; lower values page sooner.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-snmp-fails" class="form-label">SNMP unreachable after</label>
+              <input type="number" id="ap-snmp-fails" class="form-input isl-80" min="2" max="72" placeholder="2">
             </div>
-            <div class="form-group mw-200">
+            <div class="form-group">
               <label for="ap-snmp-dead" class="form-label">SNMP dead after</label>
-              <input type="number" id="ap-snmp-dead" class="form-input" min="1" max="100000" placeholder="72">
-              <div class="hint">Consecutive failed SNMP polls before a device is declared dead (critical).</div>
+              <input type="number" id="ap-snmp-dead" class="form-input isl-80" min="1" max="100000" placeholder="72">
             </div>
-            <div class="form-group mw-200">
-              <label for="ap-clock-skew-ms" class="form-label">Clock skew ms</label>
-              <input type="number" id="ap-clock-skew-ms" class="form-input" min="1" max="86400000" placeholder="1000">
-              <div class="hint">NTP offset that fires <code>clock_skew</code>.</div>
+            <div class="form-group">
+              <label for="ap-metric-fails" class="form-label">Metric alert after</label>
+              <input type="number" id="ap-metric-fails" class="form-input isl-80" min="1" max="10" placeholder="1">
+            </div>
+            <div class="form-group">
+              <label for="ap-container-stale" class="form-label">Container data stale (s)</label>
+              <input type="number" id="ap-container-stale" class="form-input isl-80" min="60" max="86400" placeholder="900">
             </div>
           </div>
+          <p class="hint">Failed SNMP polls before <code>snmp_unreachable</code>, then <code>snmp_dead</code> (critical); breaches before a metric alert; and seconds without a container report before <code>containers_stale</code>.</p>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Network &amp; time</div>
+          <p class="hint">Interface error and clock-drift thresholds.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-nic-err-min" class="form-label">NIC error floor</label>
+              <input type="number" id="ap-nic-err-min" class="form-input isl-80" min="1" max="100000" placeholder="5">
+            </div>
+            <div class="form-group">
+              <label for="ap-clock-skew-ms" class="form-label">Clock skew (ms)</label>
+              <input type="number" id="ap-clock-skew-ms" class="form-input isl-80" min="1" max="86400000" placeholder="1000">
+            </div>
+          </div>
+          <p class="hint">New errors/drops on one interface in a single heartbeat before <code>nic_errors</code>; NTP offset before <code>clock_skew</code>.</p>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
         <div class="settings-section">
           <div class="section-title">Hardware &amp; power</div>
           <p class="hint">Temperature, UPS and controller disk headroom.</p>
-          <div class="settings-row">
-            <div class="form-group mw-200">
-              <label for="ap-temp-c" class="form-label">Temperature °C</label>
-              <input type="number" id="ap-temp-c" class="form-input" min="1" max="200" placeholder="85">
-              <div class="hint">Sensor temperature that fires <code>temp_high</code>.</div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-temp-c" class="form-label">Temperature (°C)</label>
+              <input type="number" id="ap-temp-c" class="form-input isl-80" min="1" max="200" placeholder="85">
             </div>
-            <div class="form-group mw-200">
-              <label for="cfg-ups-critical-battery-pct" class="form-label">Critical battery threshold (%)</label>
-              <input type="number" id="cfg-ups-critical-battery-pct" class="form-input" min="1" max="99" value="20">
-              <div class="hint">UPS charge below this is treated as critical.</div>
+            <div class="form-group">
+              <label for="cfg-ups-critical-battery-pct" class="form-label">UPS battery (%)</label>
+              <input type="number" id="cfg-ups-critical-battery-pct" class="form-input isl-80" min="1" max="99" placeholder="20">
             </div>
-            <div class="form-group mw-200">
-              <label for="cfg-ups-critical-runtime-s" class="form-label">Critical runtime threshold (seconds, 0 to disable)</label>
-              <input type="number" id="cfg-ups-critical-runtime-s" class="form-input" min="0" max="3600" value="180">
-              <div class="hint">UPS runtime remaining below this is treated as critical.</div>
+            <div class="form-group">
+              <label for="cfg-ups-critical-runtime-s" class="form-label">UPS runtime (s, 0=off)</label>
+              <input type="number" id="cfg-ups-critical-runtime-s" class="form-input isl-80" min="0" max="3600" placeholder="180">
             </div>
-            <div class="form-group mw-200">
-              <label for="cfg-disk-watchdog-pct" class="form-label">Server disk alert at used % (0 = off)</label>
-              <input type="number" id="cfg-disk-watchdog-pct" class="form-input" min="0" max="99" placeholder="85">
-              <div class="hint">Alert when the RemotePower controller's own data directory fills up, before file-lock writes start failing (<code>server_disk_low</code>).</div>
+            <div class="form-group">
+              <label for="cfg-disk-watchdog-pct" class="form-label">Server disk (used %, 0=off)</label>
+              <input type="number" id="cfg-disk-watchdog-pct" class="form-input isl-80" min="0" max="99" placeholder="85">
             </div>
           </div>
+          <p class="hint">Sensor temperature fires <code>temp_high</code>; UPS charge/runtime below these are critical; the controller's own data-dir fill % fires <code>server_disk_low</code>.</p>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
         <div class="settings-section">
           <div class="section-title">Patching &amp; capacity</div>
           <p class="hint">Pending-update and cross-device incident thresholds.</p>
-          <div class="settings-row">
-            <div class="form-group mw-200">
-              <label for="cfg-patch-threshold" class="form-label">Patch threshold (pending updates)</label>
-              <input type="number" id="cfg-patch-threshold" class="form-input" min="0" placeholder="e.g. 10">
-              <div class="hint">Pending updates on a host before <code>patch_alert</code> fires.</div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="cfg-patch-threshold" class="form-label">Pending updates</label>
+              <input type="number" id="cfg-patch-threshold" class="form-input isl-80" min="0" placeholder="10">
             </div>
-            <div class="form-group mw-200">
-              <label for="cfg-incident-device-threshold" class="form-label">Incident device threshold</label>
-              <input type="number" id="cfg-incident-device-threshold" class="form-input" min="2" max="1000" value="5">
-              <div class="hint">Devices hit by the same alert at once before a status-page incident auto-opens.</div>
+            <div class="form-group">
+              <label for="cfg-incident-device-threshold" class="form-label">Incident device count</label>
+              <input type="number" id="cfg-incident-device-threshold" class="form-input isl-80" min="2" max="1000" placeholder="5">
             </div>
           </div>
+          <p class="hint">Pending updates on a host before <code>patch_alert</code>; devices hit by the same alert before a status-page incident auto-opens.</p>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
         <div class="settings-section">
           <div class="section-title">Storage &amp; backup</div>
-          <p class="hint">Pool freshness and snapshot-age thresholds.</p>
-          <div class="settings-row">
-            <div class="form-group mw-200">
-              <label for="cfg-scrub-overdue-days" class="form-label">Scrub overdue after (days)</label>
-              <input type="number" id="cfg-scrub-overdue-days" class="form-input" min="1" max="3650" placeholder="35">
-              <div class="hint">Time since the last ZFS / btrfs / mdadm scrub before <code>scrub_overdue</code>.</div>
+          <p class="hint">Pool-scrub and snapshot-age thresholds.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="cfg-scrub-overdue-days" class="form-label">Scrub overdue (days)</label>
+              <input type="number" id="cfg-scrub-overdue-days" class="form-input isl-80" min="1" max="3650" placeholder="35">
             </div>
-            <div class="form-group mw-200">
-              <label for="cfg-snapshot-stale-days" class="form-label">Snapshot stale after (days, 0 = off)</label>
-              <input type="number" id="cfg-snapshot-stale-days" class="form-input" min="0" max="3650" placeholder="0">
-              <div class="hint">Time since the newest pool snapshot before <code>snapshot_stale</code>.</div>
+            <div class="form-group">
+              <label for="cfg-snapshot-stale-days" class="form-label">Snapshot stale (days, 0=off)</label>
+              <input type="number" id="cfg-snapshot-stale-days" class="form-input isl-80" min="0" max="3650" placeholder="0">
             </div>
-            <div class="form-group mw-200">
-              <label for="ap-pmox-snap-days" class="form-label">Proxmox snapshot age (days)</label>
-              <input type="number" id="ap-pmox-snap-days" class="form-input" min="0" max="3650" placeholder="7">
-              <div class="hint">A Proxmox VM snapshot older than this is flagged stale.</div>
+            <div class="form-group">
+              <label for="ap-pmox-snap-days" class="form-label">Proxmox snapshot (days)</label>
+              <input type="number" id="ap-pmox-snap-days" class="form-input isl-80" min="0" max="3650" placeholder="7">
             </div>
           </div>
+          <p class="hint">Time since the last scrub before <code>scrub_overdue</code>; newest pool/Proxmox snapshot age before <code>snapshot_stale</code>.</p>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
         <div class="settings-section">
           <div class="section-title">Server health</div>
           <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing. Set to <strong>0</strong> to disable.</p>
-          <div class="settings-row">
-            <div class="form-group mw-200">
-              <label for="health-alert-threshold" class="form-label">Alert below score (0 = off)</label>
-              <input type="number" id="health-alert-threshold" class="form-input" min="0" max="100" value="0">
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="health-alert-threshold" class="form-label">Alert below score (0=off)</label>
+              <input type="number" id="health-alert-threshold" class="form-input isl-80" min="0" max="100" placeholder="0">
             </div>
           </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
-
-        <button class="btn-primary mt-8" data-action="saveAlertParams" >Save</button>
 
       </div>
 

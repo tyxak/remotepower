@@ -131,9 +131,22 @@ class TestAlertParamFrontendWiring(unittest.TestCase):
 
     def test_new_inputs_present_once(self):
         html = (ROOT / "server/html/index.html").read_text()
-        for _id in ("ap-nic-err-min", "ap-snmp-dead", "ap-temp-c",
+        for _id in ("ap-nic-err-min", "ap-snmp-dead", "ap-snmp-fails",
+                    "ap-metric-fails", "ap-container-stale", "ap-temp-c",
                     "ap-clock-skew-ms", "ap-pmox-snap-days"):
             self.assertEqual(html.count(f'id="{_id}"'), 1, f"{_id} not present exactly once")
+
+    def test_each_section_has_a_save_button(self):
+        """Styled like the other panes: a Save button per settings-section, not
+        one lost at the bottom of the pane."""
+        html = (ROOT / "server/html/index.html").read_text()
+        i = html.index('id="settings-pane-alertparams"')
+        j = html.index('id="settings-pane-ignored"', i)
+        pane = html[i:j]
+        n_sections = pane.count('class="settings-section"')
+        n_saves = pane.count('data-action="saveAlertParams"')
+        self.assertGreaterEqual(n_sections, 5)
+        self.assertEqual(n_saves, n_sections, "every section must carry its own Save button")
 
     def test_moved_inputs_still_present_once(self):
         html = (ROOT / "server/html/index.html").read_text()

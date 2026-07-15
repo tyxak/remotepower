@@ -27,6 +27,7 @@
   // fall back to English.
   var DICT = {
     'Alert parameters':      { fr: 'Paramètres des alertes', de: 'Alarmparameter', zh: '警报参数', hi: 'अलर्ट पैरामीटर', es: 'Parámetros de alerta', ar: 'معلمات التنبيه' },
+    'Monitors & freshness':  { fr: 'Sondes et fraîcheur', de: 'Monitore & Aktualität', zh: '监控与新鲜度', hi: 'मॉनिटर और ताज़गी', es: 'Monitores y frescura', ar: 'المراقبة والحداثة' },
     'Network & time':        { fr: 'Réseau et heure', de: 'Netzwerk & Zeit', zh: '网络与时间', hi: 'नेटवर्क और समय', es: 'Red y hora', ar: 'الشبكة والوقت' },
     'Hardware & power':      { fr: 'Matériel et alimentation', de: 'Hardware & Stromversorgung', zh: '硬件与电源', hi: 'हार्डवेयर और पावर', es: 'Hardware y energía', ar: 'الأجهزة والطاقة' },
     'Patching & capacity':   { fr: 'Correctifs et capacité', de: 'Patches & Kapazität', zh: '补丁与容量', hi: 'पैचिंग और क्षमता', es: 'Parches y capacidad', ar: 'التصحيح والسعة' },
