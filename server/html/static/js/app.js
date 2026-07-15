@@ -15853,6 +15853,14 @@ function _renderHomeWidgets(home) {
   const onlineN = counted.filter(d => d.online).length;
   bigStat('home-w-fleettotal-body', counted.length,
           `${onlineN} up · ${counted.length - onlineN} down`);
+  // v6.2.2: helpdesk open-ticket count. /api/home already returns tickets_open
+  // (0 when the tickets module is off), so this is a client-side tile with no
+  // extra server work. Distinct from the 'tickets' widget = the Alerts inbox.
+  {
+    const _hto = home.tickets_open || 0;
+    bigStat('home-w-helpdesk-body', _hto, _hto === 1 ? 'open ticket' : 'open tickets',
+            _hto ? 'c-amber' : 'c-green');
+  }
   bigStat('home-w-crittotal-body', `${totC} / ${totH}`, 'critical / high', totC ? 'c-red' : 'c-amber');
   bigStat('home-w-updatestotal-body', totUpd, `across ${upd.length} host(s)`,
           totUpd ? 'c-amber' : 'c-green');
@@ -16179,6 +16187,7 @@ const DASH_WIDGETS = [
   // v6.1.2: longest-uptime leaderboard. Must stay in the SAME ORDER as
   // api.DASHBOARD_WIDGETS — a guardrail test pins the two lists equal.
   { key: 'uptimetop', label: 'Longest uptime',                  opt: true, size: 'sm' },
+  { key: 'helpdesk', label: 'Helpdesk tickets open',  opt: true, size: 'sm' },
   // Ask-AI omnibox — toggleable like any widget, but stays pinned in the footer
   // (not moved into the grid). size is irrelevant; default on.
   { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },

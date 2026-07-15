@@ -660,6 +660,9 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'health', 'heatmap', 'overview', 'roster', 'links', 'postit',
                               # v6.1.2: longest-uptime leaderboard (from uptime.json)
                               'uptimetop',
+                              # v6.2.2: helpdesk open-ticket count (distinct from the
+                              # 'tickets' widget, which is actually the Alerts inbox)
+                              'helpdesk',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
