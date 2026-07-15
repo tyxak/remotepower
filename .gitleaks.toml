@@ -36,6 +36,7 @@ paths = [
   '''.*Manual\.html''',             # removed in v4.8.0 — only in git history
   '''server/html/static/js/i18n\.js''',  # translation data: UI label strings only
   '''tests/test_v560_rag_secret\.py''',  # deliberately holds FAKE secret-named values
+  '''tests/test_v622_rag_contacts\.py''',  # FAKE inline secrets that assert the scripts-RAG scrubber redacts them
                                          # to test the CMDB->RAG secret-exclusion denylist
 ]
 
