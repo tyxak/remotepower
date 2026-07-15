@@ -21,8 +21,20 @@ day.
   signal must never be mutable into invisibility. Hosts with no initramfs
   tooling (WSL, minimal containers) don't report it and are never flagged.
 
+### Alerts
+
+- **NIC errors now page.** Per-interface error/drop counters were always
+  collected and shown on the Checks page, but nothing fired an alert — so a NIC
+  shedding packets (a failing cable, a dirty SFP, a dying switch port) was easy
+  to miss. It now raises a `nic_errors` alert, edge-triggered per interface on
+  the increase since the last heartbeat (a reboot resets the baseline), and
+  clears itself when the interface stops erroring.
+
 ### Performance
 
+- **Background tabs stop polling the badge counts.** A dashboard tab left open
+  in the background kept refreshing the sidebar attention badges every minute;
+  it now pauses that poll while hidden and refreshes on return.
 - **Delta sysinfo.** Agents now skip re-sending heavy, slow-moving inventory
   fields (package lists, listening ports, network interfaces, SSH host keys,
   USB inventory, auto-update posture) when nothing changed, cutting steady-state
@@ -83,6 +95,10 @@ day.
 
 - The **Network map** page leads with the topology again — the Internet
   (WAN), Job check-ins and LAN services cards moved below the graph.
+- Two customer-portal lists (the ticket list and a ticket's message thread) now
+  cap their height and scroll internally instead of growing without bound, and
+  two muted-text colours that didn't adapt to the theme were fixed (they were
+  hard to read in dark mode).
 
 ### UX
 
