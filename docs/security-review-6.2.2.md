@@ -93,6 +93,49 @@ scope skipped the check):
   guard the server already applies to all untrusted XML. Defense-in-depth, applied
   because the bar is "nothing exploitable," not "nothing likely."
 
+### Second pass — a whole-codebase adversarial sweep
+
+A deeper follow-up review ran the full static-analysis suite again (all clean —
+CodeQL 0, Bandit 0-new, Gitleaks none, and the reviewed third-party rule set
+triaged to by-design) and then read every high-risk subsystem end to end:
+authorization and tenant isolation, SSRF, injection, storage/locking, the three
+OS agents, and secret handling. The injection surface — SSRF, XSS (over a
+thousand DOM sinks), XXE, path traversal, command and SQL injection, template
+injection, response splitting — came back **clean, nothing exploitable**. The
+sweep did surface one more isolation cluster and a handful of hardening items,
+all fixed and guardrail-tested here:
+
+- **Fleet-aggregate read views (the main find).** A set of "whole fleet"
+  read-only endpoints — the dashboard, the Needs Attention digest, log search,
+  the firewall / cron / fail2ban / services / ACME overviews, custom-script
+  results, the AI anomaly scan, the dependency graph, and CVE re-alert — built
+  their response over every device without applying the caller's scope/tenant
+  filter that their sibling handlers already used. A group-scoped operator or a
+  tenant admin could see device names, posture, rule/crontab contents, log lines
+  or script output outside their scope or tenant. Each now routes its device set
+  through the shared visibility filter (unchanged for a single-org admin). A new
+  guardrail drives every one of these endpoints under a scoped role and a tenant
+  admin and fails if an out-of-scope device leaks — the exact test shape this
+  class hides behind when a test stubs the auth check instead of the identity.
+- **Diagnostics bundle, continued.** The same support bundle also carried
+  `siem_url` / `audit_forward_url` / `otlp_endpoint` raw; like the warranty ID
+  above, these can embed `user:pass@` userinfo. Now stripped, matching the read
+  view.
+- **Wide-encoded XML.** The server's billion-laughs guard scanned for a
+  `<!DOCTYPE>` as ASCII bytes; a UTF-16/UTF-32-encoded declaration (which the
+  parser still honours) would have slipped past. The guard now normalises the
+  buffer first. Low reachability — the untrusted callers are UTF-8 — but the bar
+  is "nothing exploitable."
+- **Windows agent self-update.** The relaunch helper invoked `cmd`/`ping` by
+  bare name while the rest of the file already resolves System32 tools to
+  absolute paths to close a writable-`PATH` hijack under SYSTEM. Now consistent.
+- **Two audit/index redactions.** The metrics-push audit line and free-text
+  contact notes fed to the AI index are now credential-scrubbed.
+
+The agents' self-update integrity (hash + fail-closed signature), pull-only
+authenticated command channel, no-redirect outbound HTTP, and containerized
+host-path handling were all verified intact.
+
 ## Delta sysinfo — no stale or cross-device exposure
 
 The heartbeat delta protocol lets the agent omit inventory fields whose content

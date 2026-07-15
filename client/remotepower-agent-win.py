@@ -474,13 +474,17 @@ def _self_update():
     # runs it fresh with the swapped-in file. `ping` is the detached-safe sleep
     # (`timeout /t` needs a console stdin that a detached process lacks).
     _DETACHED = 0x00000008 | 0x00000200   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    # Resolve the detached-sleep helper to an absolute System32 path — same
+    # PATH-hijack hardening the file applies to sc/schtasks/icacls (a writable
+    # PATH dir would otherwise run a planted ping.exe as SYSTEM at relaunch).
+    _ping = _system_bin('ping')
     if _service_installed():
         # Under the Windows service, restart via the SCM: a detached helper stops
         # then starts the service (stop kills THIS process cleanly, start relaunches
         # the swapped-in file). Detached so it outlives our own termination.
         _sc = _system_bin('sc')
-        _relaunch = (f'ping -n 6 127.0.0.1 >nul & '
-                     f'"{_sc}" stop {SVC_NAME} & ping -n 2 127.0.0.1 >nul & '
+        _relaunch = (f'"{_ping}" -n 6 127.0.0.1 >nul & '
+                     f'"{_sc}" stop {SVC_NAME} & "{_ping}" -n 2 127.0.0.1 >nul & '
                      f'"{_sc}" start {SVC_NAME}')
     else:
         # Scheduled-task path. CRITICAL: the agent performing this update IS the
@@ -491,12 +495,12 @@ def _self_update():
         # exited), /run the swapped-in file. `ping` is the detached-safe sleep
         # (`timeout /t` needs a console stdin a detached process lacks).
         _sch = _system_bin('schtasks')
-        _relaunch = (f'ping -n 6 127.0.0.1 >nul & '
+        _relaunch = (f'"{_ping}" -n 6 127.0.0.1 >nul & '
                      f'"{_sch}" /end /tn RemotePowerAgent & '
-                     f'ping -n 2 127.0.0.1 >nul & '
+                     f'"{_ping}" -n 2 127.0.0.1 >nul & '
                      f'"{_sch}" /run /tn RemotePowerAgent')
     try:
-        subprocess.Popen(['cmd', '/c', _relaunch],
+        subprocess.Popen([_system_bin('cmd'), '/c', _relaunch],
                          creationflags=_DETACHED | getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                          close_fds=True, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

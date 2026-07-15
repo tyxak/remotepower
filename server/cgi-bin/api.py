@@ -14574,7 +14574,10 @@ def handle_firewall_overview():
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want_dev = (qs.get('device', [''])[0] or '').strip()
-    devices = load(DEVICES_FILE)
+    # v6.2.2 (SECURITY): scope/tenant-filter so a `?device=<id>` outside the
+    # caller's visibility can't return that host's per-backend rule lists (an
+    # out-of-scope want_dev matches no visible row → empty). No-op for single-org.
+    devices = _scope_filter_devices(load(DEVICES_FILE))
     rows = []
     for dev_id, d in (devices or {}).items():
         if want_dev and dev_id != want_dev:
@@ -14613,7 +14616,10 @@ def handle_fail2ban_overview():
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want_dev = (qs.get('device', [''])[0] or '').strip()
-    devices = load(DEVICES_FILE)
+    # v6.2.2 (SECURITY): scope/tenant-filter so a `?device=<id>` outside the
+    # caller's visibility can't return that host's per-jail banned-IP lists.
+    # No-op for a single-org admin (whole fleet stays visible).
+    devices = _scope_filter_devices(load(DEVICES_FILE))
     rows = []
     for dev_id, d in (devices or {}).items():
         if want_dev and dev_id != want_dev:
@@ -15104,7 +15110,10 @@ def handle_cron_overview():
     require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want = (qs.get('device', [''])[0] or '').strip()
-    devices = load(DEVICES_FILE)
+    # v6.2.2 (SECURITY): scope/tenant-filter so a `?device=<id>` outside the
+    # caller's visibility can't return that host's full crontabs / cron.d /
+    # timers. No-op for a single-org admin (whole fleet stays visible).
+    devices = _scope_filter_devices(load(DEVICES_FILE))
     rows = []
     for dev_id, d in (devices or {}).items():
         if want and dev_id != want:
@@ -24338,11 +24347,15 @@ def handle_config_save():
     # v6.2.2: alert-firing thresholds edited on Settings → Alert parameters. Each
     # is an int with a sane floor; a blank/None clears the override (falls back to
     # the code default). Bounds are generous — the point is tuning, not policing.
+    # temp/clock/proxmox were config-backed (hand-editable) BEFORE they had a save
+    # block, so a prior config may carry 0 — the min must accept it (additive-
+    # superset rule) or the whole pane fails to save. nic/snmp_dead were code
+    # constants, never 0, so they keep a floor of 1.
     for _tk, _lo, _hi, _blankable in (
         ('nic_err_alert_min',         1,   100000, True),
         ('snmp_dead_threshold',       1,   100000, True),
-        ('temp_alert_threshold_c',    1,   200,    True),
-        ('clock_skew_threshold_ms',   1,   86400000, True),
+        ('temp_alert_threshold_c',    0,   200,    True),
+        ('clock_skew_threshold_ms',   0,   86400000, True),
         ('proxmox_snapshot_warn_days', 0,  3650,   True),
     ):
         if _tk in body:
@@ -28381,6 +28394,12 @@ def handle_diagnostics_bundle():
     scrubbed.pop('agentless_ssh_key', None)            # SSH private key
     scrubbed.pop('webhook_url', None)                  # legacy URL w/ token in path
     scrubbed.pop('healthchecks_url', None)             # v5.6.0: hc.io ping UUID = credential
+    # v6.2.2: these three can embed basic-auth userinfo (https://user:pass@host).
+    # The /api/config GET view strips them for non-admins; the bundle promises
+    # "NO secrets" and is shared off-box with support, so strip them here too.
+    scrubbed.pop('siem_url', None)
+    scrubbed.pop('audit_forward_url', None)
+    scrubbed.pop('otlp_endpoint', None)
     scrubbed.pop('warranty_lenovo_client_id', None)    # v6.2.2: Lenovo API ClientID —
     # a reusable third-party credential; the /api/config GET view pops it (shows
     # only *_configured) but its name ends 'client_id', so the name-based
@@ -34554,8 +34573,14 @@ def handle_sudo_search():
 def _dependency_suggestions():
     """W3-8: correlate each device's observed outbound peers against known device
     IPs → suggested `device → upstream` dependency edges with evidence. Skips
-    edges already declared (depends_on / connected_to) or dismissed."""
-    devices = load(DEVICES_FILE) or {}
+    edges already declared (depends_on / connected_to) or dismissed.
+
+    v6.2.2 (SECURITY): scope/tenant-filter the device set first, so BOTH the
+    suggested source and its resolved upstream come only from devices the caller
+    may see (the ip→device index is built from this same filtered set, so an
+    out-of-scope host can never appear as either endpoint). No-op for a single-
+    org admin; only ever called in-request, so `_caller_scope()` is safe."""
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     peers = load(PEER_CONNS_FILE) or {}
     dismissed = set((load(DEP_DISMISS_FILE) or {}).get('pairs') or [])
     # index known device IPs → device id (agentless included; they're upstreams)
@@ -37974,7 +37999,10 @@ def handle_ai_anomaly():
     actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    devices = load(DEVICES_FILE) or {}
+    # v6.2.2 (SECURITY): only feed devices this caller may see into the AI prompt
+    # (a tenant admin/scoped operator must not have other scopes'/tenants' host
+    # telemetry summarised for them). No-op for a single-org admin.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     ttl = get_online_ttl()
     now = int(time.time())
     lines = []
@@ -40387,7 +40415,9 @@ def handle_custom_scripts_results():
     """GET /api/custom-scripts/results — fleet-wide current results per device."""
     require_auth()
     scripts   = _load_custom_scripts()
-    devices   = load(DEVICES_FILE)
+    # v6.2.2 (SECURITY): only emit per-device script output/rc for devices this
+    # caller may see. No-op for a single-org admin (whole fleet stays visible).
+    devices   = _scope_filter_devices(load(DEVICES_FILE))
     now       = int(time.time())
 
     # Build index: script_id → script meta (name, assigned_devices)
@@ -41945,10 +41975,32 @@ def _attention_payload(use_cache=True):
     return payload
 
 
+def _attention_for_caller(payload=None):
+    """v6.2.2 (SECURITY): scope/tenant-filter the Needs-Attention digest to the
+    caller's visible devices. Each NA item carries a `device_id` (None for
+    fleet-level / TLS items, which have no device to attribute and are kept);
+    per-device items for a device the caller can't see are dropped and the
+    counts/total recomputed. NO-OP for a single-org admin (scope None, tenant
+    None) — `_scope_filter_devices` returns the whole fleet, so nothing is
+    filtered and the digest is byte-identical to before."""
+    if payload is None:
+        payload = _attention_payload()
+    scope = _caller_scope()
+    if scope is None and _tenant_gate() is None:
+        return payload
+    visible = set(_scope_filter_devices(load(DEVICES_FILE) or {}, scope))
+    items = [i for i in (payload.get('items') or [])
+             if not i.get('device_id') or i.get('device_id') in visible]
+    counts = {'critical': 0, 'warning': 0, 'info': 0}
+    for i in items:
+        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    return {**payload, 'items': items, 'counts': counts, 'total': len(items)}
+
+
 def handle_attention():
     """GET /api/attention — the unified Needs Attention digest."""
     require_auth()
-    respond(200, _attention_payload())
+    respond(200, _attention_for_caller())
 
 
 # v3.4.1: fleet health score. A single 0-100 rollup per device (and fleet-wide)
@@ -42628,6 +42680,23 @@ def handle_fleet_health():
     respond(200, h)
 
 
+def _fleet_health_for_caller():
+    """v6.2.2 (SECURITY): _fleet_health() filtered to the caller's visible
+    devices, with the headline score/total recomputed over just those rows.
+    Mirrors handle_fleet_health's own scope/tenant filter so the /api/home
+    embed can't leak other scopes'/tenants' per-device health. NO-OP for a
+    single-org admin (scope None, tenant None)."""
+    h = _fleet_health()
+    scope = _caller_scope()
+    if scope is None and _tenant_gate() is None:
+        return h
+    devs = _scope_filter_devices(load(DEVICES_FILE) or {}, scope)
+    rows = [d for d in (h.get('devices') or []) if d.get('device_id') in devs]
+    scores = [d['score'] for d in rows if isinstance(d.get('score'), (int, float))]
+    return {**h, 'devices': rows, 'total_devices': len(rows),
+            'score': round(sum(scores) / len(scores)) if scores else None}
+
+
 _HEALTH_HIST_MAX = 180   # keep ~6 months of daily samples per series
 
 
@@ -43203,6 +43272,17 @@ def handle_home():
     # devices_raw and never mutates it, so use the deepcopy-skipping view. /home
     # is polled every 60s per open tab.
     devices_raw = _load_ro(DEVICES_FILE)
+    # v6.2.2 (SECURITY): the whole dashboard payload — roster + drift/cves/
+    # mailwatch/fleet_events/attention/health/widgets — must reflect ONLY the
+    # devices this caller may see. A group-scoped operator or a tenant admin
+    # (whose role scope is None, so scope-only gates miss them) must not get
+    # other scopes'/tenants' device data. `_scope_filter_devices` folds in BOTH
+    # role scope AND tenant isolation and is a NO-OP for a single-org admin
+    # (returns devices_raw unchanged), so the visible set is the whole fleet
+    # there and nothing below changes. NB: we only READ keys from the returned
+    # view — never mutate it — so the shared `_load_ro` cache is untouched.
+    _visible = _scope_filter_devices(devices_raw)
+    _visible_ids = set(_visible)
     now = int(time.time())
     devices = []
     try:
@@ -43210,6 +43290,8 @@ def handle_home():
     except Exception:
         ttl = 180
     for dev_id, dev in devices_raw.items():
+        if dev_id not in _visible_ids:
+            continue
         last_ping = dev.get('last_seen', 0)
         agentless = bool(dev.get('agentless', False))
         if agentless:
@@ -43250,6 +43332,15 @@ def handle_home():
         if unmonitored:
             events = [e for e in events
                       if (e.get('payload') or {}).get('device_id') not in unmonitored]
+        # v6.2.2 (SECURITY): drop activity for a device this caller can't see.
+        # An event whose device_id names a KNOWN device that isn't in the visible
+        # set is out-of-scope/other-tenant; keep fleet-level events (no device_id)
+        # and events for already-deleted devices (id absent from devices_raw), and
+        # for a single-org admin the visible set is the whole fleet so nothing is
+        # dropped here.
+        events = [e for e in events
+                  if (e.get('payload') or {}).get('device_id') not in devices_raw
+                  or (e.get('payload') or {}).get('device_id') in _visible_ids]
         events = [e for e in events
                   if _channel_allowed(e.get('event', ''), 'recent_activity')]
         fleet_events = list(reversed(events))[:50]
@@ -43265,6 +43356,8 @@ def handle_home():
     try:
         drift_state = load(DRIFT_STATE_FILE) or {}
         for ddev_id in devices_raw:
+            if ddev_id not in _visible_ids:
+                continue
             dev_state = drift_state.get(ddev_id) or {}
             files = dev_state.get('files') or {}
             n_drifted = sum(1 for f in files.values()
@@ -43288,6 +43381,8 @@ def handle_home():
         findings_all = load(CVE_FINDINGS_FILE) or {}
         ignore_data  = load(CVE_IGNORE_FILE) or {}
         for cdev_id in devices_raw:
+            if cdev_id not in _visible_ids:
+                continue
             entry = findings_all.get(cdev_id) or {}
             findings = entry.get('findings') or []
             counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
@@ -43309,6 +43404,8 @@ def handle_home():
     # DEVICES_FILE read.
     mailwatch_rows = []
     for dev_id, dev in (devices_raw or {}).items():
+        if dev_id not in _visible_ids:
+            continue
         paths = dev.get('mailbox_paths') or []
         if not paths:
             continue
@@ -43339,7 +43436,7 @@ def handle_home():
     if 'w=' in _qs:
         _want = set(filter(None, urllib.parse.parse_qs(_qs).get('w', [''])[0].split(',')))
 
-    respond(200, {
+    _home_resp = {
         'devices':      devices,
         'drift':        drift,
         'cves':         cves,
@@ -43371,7 +43468,8 @@ def handle_home():
         'show_provisioning': True,   # v6.0.0: always-on module
         # v5.6.0: extra gate to allow server-side terraform plan/apply/destroy.
         'iac_execute_enabled': bool(cfg.get('iac_execute_enabled')),
-        'attention':    _attention_payload(),
+        # v6.2.2 (SECURITY): scope/tenant-filtered digest (no-op for single-org).
+        'attention':    _attention_for_caller(),
         # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
         'upcoming':     _dashboard_upcoming(),
         'tickets':      _dashboard_tickets(),
@@ -43382,9 +43480,13 @@ def handle_home():
         # v4.1.0: server-backed catalog widgets (cheap summaries, best-effort).
         # The heavy ones (checks roll-up, disk-fill ETA) are skipped unless _want
         # lists them — see ?w= above.
-        'widgets':      _dashboard_extra_widgets(devices_raw, cfg, now, want=_want),
+        # v6.2.2 (SECURITY): pass the visible view so the device-keyed widgets
+        # (checks roll-up, disk-fill ETA) only summarise devices this caller can
+        # see. `_visible` is `devices_raw` unchanged for a single-org admin.
+        'widgets':      _dashboard_extra_widgets(_visible, cfg, now, want=_want),
         # v3.4.1: fleet health score. Reuses the cached attention payload above
         # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
+        # v6.2.2 (SECURITY): scope/tenant-filtered just below (no-op for single-org).
         'health':       _fleet_health(),
         # v3.4.1: compact fleet score trend (last 30 daily samples) for the
         # home health panel's sparkline — one cheap file read, no recompute.
@@ -43399,7 +43501,14 @@ def handle_home():
                 cfg.get('dashboard_hidden_activity_events') or [],
             'channel_routing':       cfg.get('channel_routing') or {},
         },
-    })
+    }
+    # v6.2.2 (SECURITY): replace the embedded fleet-health rollup with the
+    # scope/tenant-filtered view so it can't leak other scopes'/tenants'
+    # per-device health. Done here (not inline above) to keep the health rollup
+    # a single, greppable `_fleet_health()` embed. No-op for a single-org admin.
+    if _caller_scope() is not None or _tenant_gate() is not None:
+        _home_resp['health'] = _fleet_health_for_caller()
+    respond(200, _home_resp)
 
 
 def handle_dashboard_kinds():
@@ -51233,6 +51342,12 @@ def handle_nav_counts():
                         _respond_with_etag(_c, _c)   # content-based
                         respond(200, _c)
                         return
+    except HTTPError:
+        # respond()/_respond_with_etag() signal the response by RAISING HTTPError
+        # — it must NOT be swallowed by the broad except below, or the cache
+        # fast-path silently falls through to a full O(fleet) recompute every
+        # request (this is the hottest poll in the product). Re-raise to deliver.
+        raise
     except Exception:
         pass
     try:
@@ -55530,7 +55645,9 @@ def handle_fleet_timeline():
         'total':   len(items),
     }
     etag_source = _timeline_etag_source(
-        limit, tuple(sorted(kind_filter)), tuple(sorted(sev_filter)), dev_q, _caller_scope())
+        limit, tuple(sorted(kind_filter)), tuple(sorted(sev_filter)), dev_q,
+        _caller_scope(), _tenant_gate())   # tenant term: two tenant admins (both
+                                           # scope=None) must never share a 304
     if etag_source is not None:
         _respond_with_etag(out, etag_source)
     respond(200, out)
@@ -56739,11 +56856,19 @@ def handle_cve_realert():
     if not is_webhook_event_enabled('cve_found'):
         respond(400, {'error': 'cve_found alerting is disabled (Settings → Notifications)'})
     findings_all = load(CVE_FINDINGS_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    # v6.2.2 (SECURITY): require_admin_auth() passes a TENANT admin (role=='admin',
+    # scope=None), so without this a tenant admin could re-fire cve_found for —
+    # and read the CVE counts of — every tenant's hosts. Filter to the visible
+    # set: this fixes BOTH the returned count AND the cross-tenant alert side
+    # effect (findings for a device this caller can't see are skipped below).
+    # No-op for a single-org admin (whole fleet stays visible).
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     ignore_data = load(CVE_IGNORE_FILE) or {}
     sev_filter = set(get_cve_severity_filter())
     fired = 0
     for dev_id, rec in findings_all.items():
+        if dev_id not in devices:
+            continue
         alerted = []
         for f in (rec or {}).get('findings') or []:
             vid = f.get('vuln_id')
@@ -58123,7 +58248,11 @@ def handle_metrics_push_set():
     job = re.sub(r'[^A-Za-z0-9_-]', '', str(body.get('job') or 'remotepower'))[:64] or 'remotepower'
     with _LockedUpdate(CONFIG_FILE) as cfg:
         cfg['metrics_push'] = {'enabled': enabled, 'url': url, 'interval': interval, 'job': job}
-    audit_log(actor, 'metrics_push_set', f'enabled={enabled} url={url} interval={interval}')
+    # Redact any basic-auth userinfo in the URL — audit entries can be forwarded
+    # off-box to a SIEM/WORM sink, so a `https://user:pass@host` credential must
+    # not travel with the log line.
+    _audit_url = re.sub(r'://[^/@]*@', '://', url) if isinstance(url, str) else url
+    audit_log(actor, 'metrics_push_set', f'enabled={enabled} url={_audit_url} interval={interval}')
     respond(200, {'ok': True, 'enabled': enabled, 'url': url, 'interval': interval, 'job': job})
 
 
@@ -59830,7 +59959,9 @@ def handle_services_get():
     """GET /api/services — all current service states across the fleet."""
     require_auth()
     store = load(SERVICES_FILE)
-    devices = load(DEVICES_FILE)
+    # v6.2.2 (SECURITY): fleet variant — scope/tenant-filter so other scopes'/
+    # tenants' service states don't leak. No-op for a single-org admin.
+    devices = _scope_filter_devices(load(DEVICES_FILE))
     out = []
     for dev_id, dev in devices.items():
         entry = store.get(dev_id) or {}
@@ -60226,7 +60357,11 @@ def handle_log_search():
         respond(400, {'error': f'invalid regex: {e}'})
 
     log_store = load(LOG_WATCH_FILE)
-    devices = load(DEVICES_FILE)
+    # v6.2.2 (SECURITY): only search logs for devices this caller may see. The
+    # loop already gates on `dev_id not in devices`, so filtering the device set
+    # here makes an out-of-scope `?device=<id>` return an empty result set
+    # (never other scopes'/tenants' log lines). No-op for a single-org admin.
+    devices = _scope_filter_devices(load(DEVICES_FILE))
     results = []
 
     target_devs = [device] if device else list(log_store.keys())
@@ -61281,6 +61416,14 @@ def handle_vault_checkout_revoke(cid: str) -> None:
     with _LockedUpdate(VAULT_CHECKOUTS_FILE) as store:
         r = store.get(cid)
         if not r:
+            respond(404, {'error': 'checkout not found'})
+        # v6.2.2 (SECURITY): a tenant admin / scoped operator must not revoke a
+        # checkout on a device they can't see. Mirror the sibling
+        # handle_vault_checkout(s)_list scope/tenant gate; 404 (not 403) so we
+        # never confirm the checkout exists. respond() inside the lock aborts the
+        # save + releases it. No-op for a single-org admin. (load() here is a read,
+        # not a nested lock, so it's safe inside _LockedUpdate.)
+        if r.get('device_id') not in _scope_filter_devices(load(DEVICES_FILE) or {}):
             respond(404, {'error': 'checkout not found'})
         store.pop(cid, None)
     audit_log(actor, 'cmdb_vault_checkout_revoked',
@@ -64723,7 +64866,9 @@ def handle_acme_list():
     """GET /api/acme — fleet-wide cert overview, joined with device names."""
     require_auth()
     store   = load(ACME_STATE_FILE) or {}
-    devices = load(DEVICES_FILE)    or {}
+    # v6.2.2 (SECURITY): scope/tenant-filter the per-device cert overview so
+    # other scopes'/tenants' certs don't leak. No-op for a single-org admin.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     now     = int(time.time())
     out = []
     for dev_id, dev in devices.items():

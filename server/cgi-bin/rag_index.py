@@ -1448,8 +1448,13 @@ def build_contacts_corpus(store, now=0):
         phone = str(c.get('phone') or '')
         site = str(c.get('site') or '')
         notes = str(c.get('notes') or '')[:2000]
-        if notes and _is_secret_key('notes'):   # defensive parity with other builders
-            notes = ''
+        # notes is free text an operator might paste a credential into. The old
+        # `_is_secret_key('notes')` guard was dead (a KEY-name test on a fixed
+        # non-secret name → always False). Value-scrub instead: redact secret-
+        # looking tokens (KEY=secret, bearer, AWS, long hex/base64) the same way
+        # script bodies are scrubbed before embedding / (cloud) off-box.
+        if notes:
+            notes = _scrub_script_body(notes)
         lines = [f"Contact: {name}"]
         if role:
             lines.append(f"Role: {role}")

@@ -28,7 +28,16 @@ _DTD_RE = re.compile(rb'<!\s*(?:doctype|entity)', re.IGNORECASE)
 def has_dtd(data):
     """True if the buffer declares a DTD/entity anywhere (billion-laughs marker)."""
     raw = data if isinstance(data, (bytes, bytearray)) else str(data).encode('utf-8', 'replace')
-    return bool(_DTD_RE.search(raw))
+    if _DTD_RE.search(raw):
+        return True
+    # UTF-16/UTF-32 pad every ASCII char with NUL bytes (`<\x00!\x00d...`), so a
+    # DOCTYPE encoded that way slips past the byte/ASCII regex above while stdlib
+    # ElementTree still honors the encoding and would expand its entities. Strip
+    # NULs and re-scan — legitimate UTF-8 XML has none, so this only matters for
+    # a wide-encoded payload, which is exactly the bypass we must close.
+    if b'\x00' in raw and _DTD_RE.search(raw.replace(b'\x00', b'')):
+        return True
+    return False
 
 
 def fromstring(data):

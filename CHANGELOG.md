@@ -128,6 +128,27 @@ day.
   clients within ~3 s of SIGTERM (they simply reconnect — the channel carries
   no state), and the unit caps the stop at 8 s as a backstop.
 
+### Security
+
+- **Fleet-wide views now respect role scope and tenant boundaries everywhere.**
+  A cluster of read-only "whole fleet" endpoints — the dashboard, the Needs
+  Attention digest, log search, the firewall / cron / fail2ban / services /
+  ACME overviews, custom-script results, the AI anomaly scan, the dependency
+  graph, and CVE re-alert — computed over every device without applying the
+  caller's scope/tenant filter. A group-scoped operator or a tenant admin could
+  therefore see device data outside their scope or tenant. Every one now routes
+  its device set through the same visibility filter the rest of the product uses
+  (a no-op for a single-org admin, who still sees everything). A guardrail test
+  drives each endpoint under a scoped role and a tenant admin and fails if an
+  out-of-scope device appears. See `docs/security.md`.
+- **Hardening sweep.** The downloadable diagnostics bundle now also strips
+  `siem_url` / `audit_forward_url` / `otlp_endpoint` (these can embed
+  `user:pass@` credentials); the billion-laughs XML guard now catches a
+  UTF-16/32-encoded `<!DOCTYPE>`; the Windows agent's self-update relaunch
+  resolves `cmd`/`ping` to absolute System32 paths (matching its existing
+  PATH-hijack hardening); the metrics-push audit line redacts URL credentials;
+  and free-text contact notes are secret-scrubbed before AI indexing.
+
 ### Layout
 
 - The **Network map** page leads with the topology again — the Internet
