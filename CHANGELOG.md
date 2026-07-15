@@ -23,6 +23,11 @@ day.
 
 ### Alerts
 
+- **Windows posture now pages.** BitLocker off on an OS volume, a disabled
+  Windows Firewall profile, a stopped Windows Update service (the host silently
+  stops patching), and stale Defender signatures were all shown on the Checks
+  page but never raised an alert. Each now pages and auto-resolves when it
+  clears.
 - **NIC errors now page.** Per-interface error/drop counters were always
   collected and shown on the Checks page, but nothing fired an alert — so a NIC
   shedding packets (a failing cable, a dirty SFP, a dying switch port) was easy
@@ -70,8 +75,19 @@ day.
   run *through* the agent's own exec channel and detaches the final restart so
   it can't terminate itself mid-run.
 
+### AI
+
+- **Patch-prioritisation advisor.** The AI Insights hub gains a fleet
+  patch-prioritisation card — which pending updates to apply first across the
+  fleet, security-flagged and CVE-fixing first, with which hosts need a reboot.
+
 ### Fixes
 
+- **Docker disk-footprint reporting now works on hosts that restart often.**
+  The `docker system df` breakdown was meant to also report on an agent's first
+  heartbeat so a host that restarts more often than the (~hourly) cadence still
+  reports it — but that first-beat path was unreachable, so those hosts never
+  reported their Docker disk usage at all. Fixed.
 - **Concurrent startup no longer races the PostgreSQL schema.** After a
   restart, every server process verifies the schema on its first connection —
   and `CREATE … IF NOT EXISTS` is not atomic in PostgreSQL, so when an upgrade

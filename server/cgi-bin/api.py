@@ -1586,6 +1586,36 @@ EVENT_REGISTRY = {
     'av_realtime_on': dict(
         label='Real-time malware protection re-enabled (recovered)', kind='av_posture',
         resolves=('av_realtime_off',)),
+    # v6.2.2: Windows endpoint-posture conditions. The Windows agent reported all
+    # of these and the Checks page got a row, but none FIRED — so a host that
+    # silently stopped patching (WU service down), lost disk encryption
+    # (BitLocker off), dropped its firewall, or let Defender signatures go stale
+    # was invisible to every fleet view. CONDITIONS (fire on entering the bad
+    # state, incl. first contact; recover when it clears), device-level.
+    'win_bitlocker_off': dict(
+        label='BitLocker is off on a Windows OS volume', kind='win_posture',
+        title='BitLocker Off', severity='high', tags='rotating_light,lock'),
+    'win_bitlocker_on': dict(
+        label='BitLocker re-enabled on the OS volume (recovered)', kind='win_posture',
+        resolves=('win_bitlocker_off',)),
+    'win_firewall_off': dict(
+        label='A Windows Firewall profile is disabled', kind='win_posture',
+        title='Windows Firewall Off', severity='high', tags='rotating_light,shield'),
+    'win_firewall_on': dict(
+        label='Windows Firewall profiles re-enabled (recovered)', kind='win_posture',
+        resolves=('win_firewall_off',)),
+    'win_update_stopped': dict(
+        label='The Windows Update service is not running', kind='win_posture',
+        title='Windows Update Stopped', severity='high', tags='warning,package'),
+    'win_update_running': dict(
+        label='The Windows Update service is running again (recovered)', kind='win_posture',
+        resolves=('win_update_stopped',)),
+    'win_defender_stale': dict(
+        label='Windows Defender signatures are stale (≥7 days)', kind='win_posture',
+        title='Defender Signatures Stale', severity='high', tags='warning,shield'),
+    'win_defender_current': dict(
+        label='Windows Defender signatures are current again (recovered)',
+        kind='win_posture', resolves=('win_defender_stale',)),
     # v6.2.2: kernel-module visibility from the agent's execution context. A
     # sandbox that hides /lib/modules turns the next agent-run package upgrade
     # into a module-less, unbootable initramfs. A CONDITION (fires on first
@@ -7076,6 +7106,7 @@ CHANNEL_KIND_DEFS = (
     ('usb', 'USB device connected', 'operational'),  # v6.2.0
     ('reliability', 'Predicted hardware failure', 'operational'),  # v6.2.0
     ('agent_sandbox', 'Kernel modules hidden from the agent', 'operational'),  # v6.2.2
+    ('win_posture', 'Windows endpoint posture', 'operational'),  # v6.2.2
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
@@ -18891,7 +18922,8 @@ def handle_heartbeat():
     # value that matters is False (modules hidden), which is falsy and would be
     # skipped by exactly the check meant to let it in. Presence-test it instead.
     if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth',
-                                'mounts', 'mailq', 'mount_issues', 'usb', 'network_io')) \
+                                'mounts', 'mailq', 'mount_issues', 'usb', 'network_io',
+                                'win_posture')) \
             or _si.get('modules_visible') is not None:
         try:
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
@@ -31409,6 +31441,60 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 _fire('nic_errors_cleared', {'iface': _if,
                                              'detail': f'{_if}: errors stopped'})
         new['nic_err_ifaces'] = cur_bad
+
+    # ── v6.2.2: Windows endpoint-posture conditions ────────────────
+    # BitLocker off / firewall profile off / Windows Update stopped / Defender
+    # signatures stale. Each is a device-level CONDITION: fire on entering the
+    # bad state (incl. first contact — a host that enrols already-unprotected is
+    # exactly the one to hear about), auto-resolve when it clears. State = the
+    # set of currently-bad condition keys, per device. Mirrors the check rows in
+    # checks.py (defender_realtime is already covered by av_realtime_off).
+    wp = si.get('win_posture')
+    if isinstance(wp, dict):
+        _win_bad = {}   # cond_key -> (fire_event, recover_event, detail)
+        _bl = wp.get('bitlocker')
+        if isinstance(_bl, list):
+            _unprot = [v for v in _bl if isinstance(v, dict)
+                       and str(v.get('status', '')).lower() not in ('on', 'encrypted')]
+            if _unprot or not _bl:
+                _win_bad['bitlocker'] = ('win_bitlocker_off', 'win_bitlocker_on',
+                                         f'{len(_unprot)} OS volume(s) not encrypted')
+        _fw = wp.get('firewall')
+        if isinstance(_fw, list) and _fw:
+            _off = [p.get('name') for p in _fw if isinstance(p, dict) and not p.get('enabled')]
+            if _off:
+                _win_bad['firewall'] = ('win_firewall_off', 'win_firewall_on',
+                                        f"{', '.join(str(n) for n in _off if n)} profile(s) off")
+        _wu = wp.get('wu_service')
+        if _wu and str(_wu).lower() != 'running':
+            _win_bad['wu'] = ('win_update_stopped', 'win_update_running',
+                              f'Windows Update service is {_wu}')
+        _age = wp.get('defender_sig_age_days')
+        if isinstance(_age, (int, float)) and _age >= 7:
+            _win_bad['defender_sig'] = ('win_defender_stale', 'win_defender_current',
+                                        f'Defender signatures {int(_age)} days old')
+        prev_win = set(prev.get('win_bad') or [])
+        cur_win = set(_win_bad)
+        # win_posture is present but empty of a sub-key ⇒ that condition is fine
+        # now; recover it. Only recover keys we can evaluate this beat.
+        _evaluable = set()
+        if isinstance(_bl, list):
+            _evaluable.add('bitlocker')
+        if isinstance(_fw, list):
+            _evaluable.add('firewall')
+        if _wu is not None:
+            _evaluable.add('wu')
+        if isinstance(_age, (int, float)):
+            _evaluable.add('defender_sig')
+        _WIN_RECOVER = {'bitlocker': 'win_bitlocker_on', 'firewall': 'win_firewall_on',
+                        'wu': 'win_update_running', 'defender_sig': 'win_defender_current'}
+        for _k in sorted(cur_win - prev_win):
+            fire_ev, _rec, _det = _win_bad[_k]
+            _fire(fire_ev, {'detail': _det})
+        for _k in sorted((prev_win - cur_win) & _evaluable):
+            _fire(_WIN_RECOVER[_k], {'detail': f'{_k} posture recovered'})
+        # keep unevaluable prior-bad keys so we don't lose their state
+        new['win_bad'] = sorted(cur_win | (prev_win - _evaluable))
 
     # ── v6.2.2: kernel-module visibility ───────────────────────────
     # Like av_realtime_off this is a CONDITION, not an edge: a host that
@@ -63868,6 +63954,7 @@ _AI_PROMPT_LABELS = {
     'access_review':          'Access & credential review',
     'network_review':         'Network dependency review',
     'billing_review':         'Billing & revenue review',
+    'patch_priorities':       'Patch prioritisation',   # v6.2.2 fleet advisor
     # v3.0.1: Mitigation playbook prompts. One per alert category so a user
     # can tune the AI's tone independently — e.g. terse for service alerts,
     # more cautious for disk cleanup proposals.

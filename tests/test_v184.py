@@ -341,6 +341,10 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew
             'gateway_unreachable', 'gateway_reachable',  # v4.1.0 gateway
             'nic_errors', 'nic_errors_cleared',      # v6.2.2 NIC errors/drops
+            'win_bitlocker_off', 'win_firewall_off', # v6.2.2 Windows posture
+            'win_update_stopped', 'win_defender_stale',
+            'win_bitlocker_on', 'win_firewall_on',   # ← recoveries
+            'win_update_running', 'win_defender_current',
             'oom_detected',                          # v4.1.0 OOM-killer
             # v5.6.x: host-condition alerts now self-clear — each of these is the
             # recover event that auto-resolves its paired trigger alert.

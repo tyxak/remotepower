@@ -1223,6 +1223,17 @@ SYSTEM_PROMPTS = {
         "security-relevant). Recommend an order to apply them in, "
         "noting which need a reboot. Keep it short."
     ),
+    'patch_priorities': (
+        "You are a fleet operations assistant. Using the attached fleet patch "
+        "and CVE context, produce a short, ranked plan for which pending "
+        "updates to apply first ACROSS THE FLEET — lead with vendor "
+        "security-flagged updates and anything fixing a known-exploited CVE, "
+        "then widely-deployed high-risk packages (kernel / openssl / openssh / "
+        "sudo / glibc), then routine updates. Call out which hosts need a "
+        "reboot and roughly how many hosts each recommendation touches. A "
+        "ranked list, no filler. Do not invent packages or hosts not in the "
+        "context."
+    ),
     'prioritise_cves': (
         "You are a security operations assistant. Given a list of CVE "
         "findings for a single host (severity, CVE id, affected package, "

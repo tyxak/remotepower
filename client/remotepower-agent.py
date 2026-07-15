@@ -9460,20 +9460,27 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['compose_projects'] = projects
             except Exception as e:
                 log.debug(f'compose listing error: {e}')
-            # v6.1.2: `docker system df` — the disk-footprint breakdown. This one
-            # is EXPENSIVE (docker walks the whole layer store, and `-v` walks
-            # every volume), so it rides its own much slower cadence rather than
-            # the container listing's. Disk usage doesn't change by the minute.
-            # v6.1.2: also on the FIRST heartbeat (poll_count==1), so a host that
-            # restarts its agent more often than DOCKER_DF_EVERY still reports it —
-            # the same restart-churn gap the hardware block above already guards.
-            if poll_count == 1 or poll_count % DOCKER_DF_EVERY == 0:
-                try:
-                    df = get_docker_disk_usage()
-                    if df:
-                        payload['docker_df'] = df
-                except Exception as e:
-                    log.debug(f'docker df error: {e}')
+
+        # v6.1.2: `docker system df` — the disk-footprint breakdown. This one
+        # is EXPENSIVE (docker walks the whole layer store, and `-v` walks
+        # every volume), so it rides its own much slower cadence rather than
+        # the container listing's. Disk usage doesn't change by the minute.
+        # v6.1.2: also on the FIRST heartbeat (poll_count==1), so a host that
+        # restarts its agent more often than DOCKER_DF_EVERY still reports it —
+        # the same restart-churn gap the hardware block below already guards.
+        # v6.2.2 FIX: this block used to be nested INSIDE the container-listing
+        # `if poll_count > 1 …` above, which made its own `poll_count == 1`
+        # branch unreachable dead code — so a churny host NEVER reported
+        # docker_df (the trivy/force_image_scan restart-churn class). Hoisted to
+        # its own guard, mirroring the hardware block's correct pattern.
+        if (poll_count == 1 or poll_count % DOCKER_DF_EVERY == 0) \
+                and (_which('docker') or _which('podman')):
+            try:
+                df = get_docker_disk_usage()
+                if df:
+                    payload['docker_df'] = df
+            except Exception as e:
+                log.debug(f'docker df error: {e}')
 
         # v3.4.0: hardware / health inventory on the slow cadence — smartctl,
         # dmidecode, sensors and the kernel check aren't free, so they ride

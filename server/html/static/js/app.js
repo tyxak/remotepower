@@ -16814,6 +16814,11 @@ function _renderHomeActivity(fleetEvents) {
     'modules_hidden', 'modules_visible_restored',
     // v6.2.2: NIC accruing errors/drops (failing cable/SFP/port) / cleared
     'nic_errors', 'nic_errors_cleared',
+    // v6.2.2: Windows endpoint-posture conditions + recoveries
+    'win_bitlocker_off', 'win_bitlocker_on',
+    'win_firewall_off', 'win_firewall_on',
+    'win_update_stopped', 'win_update_running',
+    'win_defender_stale', 'win_defender_current',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
@@ -17061,6 +17066,11 @@ function _homeActivityAttrs(event, p) {
     case 'av_realtime_off': case 'av_realtime_on':
     // v6.2.2: kernel-module visibility → the affected host's drawer
     case 'modules_hidden': case 'modules_visible_restored':
+    // v6.2.2: Windows endpoint-posture conditions → the affected host's drawer
+    case 'win_bitlocker_off': case 'win_bitlocker_on':
+    case 'win_firewall_off': case 'win_firewall_on':
+    case 'win_update_stopped': case 'win_update_running':
+    case 'win_defender_stale': case 'win_defender_current':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
