@@ -101,6 +101,7 @@
     'Service flap detection': { fr: 'Détection de redémarrages en boucle', de: 'Erkennung von Dienst-Neustartschleifen', zh: '服务抖动检测', hi: 'सेवा फ्लैप पहचान', es: 'Detección de reinicios en bucle', ar: 'كشف تذبذب الخدمات' },
     'Compose drift watch': { fr: 'Surveillance des fichiers Compose', de: 'Compose-Drift-Überwachung', zh: 'Compose 漂移监控', hi: 'Compose ड्रिफ्ट निगरानी', es: 'Vigilancia de deriva de Compose', ar: 'مراقبة انحراف ملفات Compose' },
     'Longest uptime':   { fr: 'Disponibilité la plus longue', de: 'Längste Laufzeit', zh: '最长运行时间', hi: 'सबसे लंबा अपटाइम', es: 'Mayor tiempo activo', ar: 'أطول مدة تشغيل' },
+    'Helpdesk tickets': { fr: 'Tickets d\'assistance', de: 'Helpdesk-Tickets', zh: '服务台工单', hi: 'हेल्पडेस्क टिकट', es: 'Tickets de soporte', ar: 'تذاكر مكتب المساعدة' },
     'New-alert announcements': { fr: 'Annonces de nouvelles alertes', de: 'Benachrichtigungen bei neuen Warnungen', zh: '新告警提醒', hi: 'नई अलर्ट घोषणाएँ', es: 'Anuncios de alertas nuevas', ar: 'إعلانات التنبيهات الجديدة' },
     'Restart server':  { fr: 'Redémarrer le serveur', de: 'Server neu starten', zh: '重启服务器', hi: 'सर्वर पुनरारंभ करें', es: 'Reiniciar el servidor', ar: 'إعادة تشغيل الخادم' },
     'Exit kiosk':       { fr: 'Quitter le mode kiosque', de: 'Kioskmodus verlassen', zh: '退出信息亭模式', hi: 'कियोस्क मोड से बाहर निकलें', es: 'Salir del modo quiosco', ar: 'الخروج من وضع الكشك' },
