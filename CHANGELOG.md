@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.2.1 — "In1tMatters" — unreleased (test)
+## v6.2.1 — "In1tMatters" — 2026-07-15
 
 **Critical fix for Linux hosts using initramfs (Debian/Ubuntu) — action needed
 on existing installs.** The systemd unit shipped with the Linux agent enabled
