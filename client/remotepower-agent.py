@@ -2320,15 +2320,29 @@ def _attach_report_html(report, html_path):
         pass   # report download is best-effort; never break the scan result
 
 
+# Billion-laughs guard for the agent's one XML parse. stdlib ElementTree does
+# NOT resolve EXTERNAL entities (no XXE), but it DOES expand internal ones, so a
+# crafted XCCDF file could blow up memory. The results file is produced locally
+# by `oscap` on trusted profiles, so the real risk is minimal — but the agent
+# runs as root and a DTD here has no legitimate purpose, so we reject any
+# DTD/entity declaration before parsing (mirrors server/cgi-bin/safe_xml.py,
+# kept inline so the agent stays a single dependency-free file).
+_XML_DTD_RE = re.compile(rb'<!\s*(?:doctype|entity)', re.IGNORECASE)
+
+
 def _parse_oscap_results(path):
     """Parse an XCCDF results XML: overall score + rule-result tallies + up to
     200 failed rule ids/severities. Namespace-agnostic (matches on local tag)."""
-    import xml.etree.ElementTree as ET
+    import xml.etree.ElementTree as ET  # nosec B405 - guarded below, no XXE in stdlib
     counts = {'pass': 0, 'fail': 0, 'error': 0, 'notapplicable': 0,
               'notchecked': 0, 'notselected': 0, 'unknown': 0, 'informational': 0}
     failed = []
     score = None
-    root = ET.parse(path).getroot()
+    with open(path, 'rb') as _xf:
+        _raw = _xf.read()
+    if _XML_DTD_RE.search(_raw):
+        raise ValueError('XCCDF results declare a DTD/entity — refusing to parse')
+    root = ET.fromstring(_raw)  # nosec B314 - DTD/entity rejected above
     for el in root.iter():
         tag = el.tag.rsplit('}', 1)[-1]
         if tag == 'rule-result':
@@ -7865,6 +7879,9 @@ def execute_command(cmd):
             # admin-pushed command run as the agent user (root by design). Guarded
             # by token auth + audit-mode refusal + the server's allowlist/4-eyes/
             # quarantine controls. shell=True is intentional (operators paste shell).
+            # nosemgrep: subprocess-shell-true -- see the B602 note above: this
+            # is the agent's authenticated, audited, allowlist/4-eyes-gated root
+            # command channel; shell semantics are the feature, not a mistake.
             result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)  # nosec B602
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")
