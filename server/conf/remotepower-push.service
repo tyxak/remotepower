@@ -48,6 +48,10 @@ EnvironmentFile=-/etc/remotepower/api.env
 ExecStart=/usr/local/bin/remotepower-push
 Restart=always
 RestartSec=5s
+# v6.2.2: the daemon force-closes clients within ~3 s of SIGTERM (it holds no
+# durable state — agents just reconnect); if that ever hangs, don't let a
+# deploy wait the systemd default 90 s to find out.
+TimeoutStopSec=8
 
 # Hardening. The daemon writes NOTHING — it only reads shared state and accepts
 # loopback WebSocket connections from nginx — so ProtectSystem=strict (whole FS

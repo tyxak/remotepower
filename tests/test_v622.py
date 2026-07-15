@@ -112,6 +112,52 @@ class TestBackendIndexParity(unittest.TestCase):
             src = (_ROOT / rel).read_text()
             self.assertIn("idx_metric_samples_ts", src, rel)
 
+    def test_pg_schema_ddl_is_advisory_locked(self):
+        """`CREATE … IF NOT EXISTS` is not race-free in Postgres: after a
+        deploy restart every fresh process runs the DDL at once, and a release
+        that adds a NEW object makes one of them lose with a pg_class
+        UniqueViolation (fired live on the first v6.2.2 deploy). The DDL must
+        be serialized under an advisory lock, released even on failure."""
+        src = (_ROOT / "server/cgi-bin/storage_pg.py").read_text()
+        i = src.index("def _ensure_schema(")
+        body = src[i:src.index("def _ensure_schema_ddl(")]
+        self.assertIn("pg_advisory_lock", body)
+        lock = body.index("pg_advisory_lock")
+        ddl = body.index("_ensure_schema_ddl(conn)")
+        unlock = body.index("pg_advisory_unlock")
+        self.assertLess(lock, ddl, "lock must be taken BEFORE the DDL")
+        self.assertLess(ddl, unlock, "unlock must follow the DDL")
+        self.assertIn("finally:", body, "unlock must run even when DDL raises")
+
+
+class TestBackupSkipsUnreadable(unittest.TestCase):
+    """One unreadable file must not abort the whole DR backup (live case: a
+    host running BOTH server and agent shares /var/lib/remotepower, and the
+    agent's root-owned 0600 state files are unreadable to the server — the
+    daily backup then failed and retried on every sweep, forever)."""
+
+    def test_unreadable_file_does_not_abort_the_backup(self):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root reads mode-0 files — scenario not reproducible")
+        bdir = tempfile.mkdtemp(prefix="rp-bk-")
+        cfg = api.load(api.CONFIG_FILE) or {}
+        cfg["backup"] = {"enabled": True, "path": bdir}
+        api.save(api.CONFIG_FILE, cfg)
+        bad = api.DATA_DIR / "secrets_scan_last"
+        bad.write_text("1752570000")
+        os.chmod(bad, 0)
+        try:
+            res = api._run_data_backup(triggered_by="manual")
+        finally:
+            os.chmod(bad, 0o600)
+            bad.unlink()
+        self.assertTrue(res.get("ok"), res)
+        self.assertGreaterEqual(res.get("skipped_unreadable", 0), 1,
+                                "the skipped file must be reported, not hidden")
+        import glob
+        self.assertTrue(glob.glob(os.path.join(bdir, "remotepower_data_*.tar.gz")),
+                        "the archive itself must still have been written")
+
 
 class TestLazyModuleLockstep(unittest.TestCase):
     """A module listed BOTH in index.html's <script> tags and app.js's

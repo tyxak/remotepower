@@ -400,6 +400,24 @@ async def main_async(args):
                     pass   # Windows
             await stop.wait()
             log.info("shutting down")
+            # v6.2.2: bound the shutdown. Exiting the websockets.serve context
+            # waits for EVERY client's closing handshake — one stale, NAT-dead
+            # agent connection holds that until the keepalive timeout, which
+            # showed up live as `systemctl restart remotepower-push` hanging
+            # ~1 minute on every deploy. This channel carries no durable state
+            # (a pure wake nudge; the agents' poll loop stays authoritative),
+            # so force-close all clients with a short cap and exit promptly.
+            close_all = [ws.close(code=1001, reason='server shutting down')
+                         for ws in list(server.connections.values())]
+            if close_all:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*close_all, return_exceptions=True),
+                        timeout=3)
+                except asyncio.TimeoutError:
+                    log.info("shutdown: %d connection(s) did not finish the "
+                             "closing handshake in 3s — exiting anyway",
+                             len(close_all))
     finally:
         poll_task.cancel()
 

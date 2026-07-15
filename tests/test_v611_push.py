@@ -12,11 +12,17 @@ directly, with no real network I/O and no websockets dependency.
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+# MUST be set before api.py's exec_module — its import-time
+# ensure_default_user() writes into RP_DATA_DIR; without this the module
+# targets the REAL /var/lib/remotepower when this file runs solo (the
+# test_v230/test_v243 class from CLAUDE.md).
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v611-push-"))
 _ROOT = Path(__file__).parent.parent
 _CGI_BIN = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI_BIN))

@@ -58,6 +58,32 @@ day.
   run *through* the agent's own exec channel and detaches the final restart so
   it can't terminate itself mid-run.
 
+### Fixes
+
+- **Concurrent startup no longer races the PostgreSQL schema.** After a
+  restart, every server process verifies the schema on its first connection —
+  and `CREATE … IF NOT EXISTS` is not atomic in PostgreSQL, so when an upgrade
+  introduced a new table or index, two processes could try to create it in the
+  same instant and the loser logged a `UniqueViolation`. Harmless but alarming
+  (it fired log alerts). The schema step now serializes under an advisory
+  lock.
+- **A single unreadable file no longer aborts the whole DR backup.** The
+  nightly data-dir backup used to fail outright on the first file it couldn't
+  read (seen on hosts that run both the server and an agent, where the agent's
+  root-owned state files share the data directory) — and then retried, and
+  failed, on every sweep. The backup now skips what it can't read, reports the
+  skipped paths in the backup state and the log, and completes.
+- **Restarting the push daemon no longer hangs for up to a minute.** Shutting
+  down used to wait for every connected agent's WebSocket closing handshake,
+  so one stale connection could stall a deploy. The daemon now force-closes
+  clients within ~3 s of SIGTERM (they simply reconnect — the channel carries
+  no state), and the unit caps the stop at 8 s as a backstop.
+
+### Layout
+
+- The **Network map** page leads with the topology again — the Internet
+  (WAN), Job check-ins and LAN services cards moved below the graph.
+
 ### UX
 
 - **Keyboard-driven alert inbox** — `j`/`k` move, `a` acknowledge, `r` resolve,

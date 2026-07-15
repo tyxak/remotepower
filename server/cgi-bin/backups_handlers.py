@@ -203,8 +203,26 @@ def _run_data_backup(triggered_by='scheduled'):
         tarinfo.uname = ''; tarinfo.gname = ''
         return tarinfo
     _snap_tmp = None
+    skipped_unreadable = []
     with tarfile.open(str(out_path), 'w:gz') as tar:
-        tar.add(str(A.DATA_DIR), arcname='remotepower', filter=_filter)
+        # v6.2.2: add entries one by one instead of one recursive tar.add — a
+        # single unreadable file used to abort the WHOLE backup with
+        # PermissionError, and the daily gate then retried (and failed) on
+        # every sweep, forever. Live case: a host running BOTH the server and
+        # an agent shares /var/lib/remotepower, and the agent's root-owned
+        # 0600 state files (secrets_scan_last, …) are unreadable to the
+        # server. A DR backup must degrade (skip + warn), never vanish.
+        _base_dir = str(A.DATA_DIR)
+        for _root, _dirs, _files in os.walk(_base_dir):
+            _dirs[:] = [d for d in _dirs if d not in excluded_names]
+            for _name in sorted(_dirs) + sorted(_files):
+                _full = os.path.join(_root, _name)
+                _arc = 'remotepower/' + os.path.relpath(_full, _base_dir)
+                try:
+                    tar.add(_full, arcname=_arc, filter=_filter,
+                            recursive=False)
+                except (PermissionError, OSError):
+                    skipped_unreadable.append(os.path.relpath(_full, _base_dir))
         if sqlite_mode:
             # Consistent snapshot of the database into the tarball.
             _snap_tmp = p_base / f'.snap_{ts}_{os.getpid()}.db'
@@ -275,6 +293,12 @@ def _run_data_backup(triggered_by='scheduled'):
         except Exception as e:
             offsite_ok = False
             sys.stderr.write(f'[remotepower] offsite backup copy failed: {e}\n')
+    if skipped_unreadable:
+        sys.stderr.write(
+            f"[remotepower] backup: skipped {len(skipped_unreadable)} "
+            f"unreadable path(s): {', '.join(skipped_unreadable[:5])}"
+            f"{' …' if len(skipped_unreadable) > 5 else ''} — the archive was "
+            "still written; fix the permissions if these files matter\n")
     state = {
         'last_run':    int(time.time()),
         'last_file':   str(out_path),
@@ -285,11 +309,15 @@ def _run_data_backup(triggered_by='scheduled'):
         'retain_days': keep,
         'offsite_dir': offsite,
         'offsite_ok':  offsite_ok,
+        # v6.2.2: visible on the posture/self page — a backup that silently
+        # skipped paths must say so, not present itself as complete.
+        'skipped_unreadable': skipped_unreadable[:50],
     }
     A.save(A.DATA_DIR / 'self_backup_state.json', state)
     return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
             'bytes': out_path.stat().st_size, 'pruned': pruned,
-            'offsite_ok': offsite_ok}
+            'offsite_ok': offsite_ok,
+            'skipped_unreadable': len(skipped_unreadable)}
 
 
 def handle_backup_clear():

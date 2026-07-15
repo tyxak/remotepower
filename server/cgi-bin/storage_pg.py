@@ -426,10 +426,29 @@ def pg_status():
 _SCHEMA_OK = {'pid': None, 'gen': None}
 
 
+# Advisory-lock key serializing schema DDL across processes (arbitrary
+# constant, unique to this purpose within the database).
+_SCHEMA_DDL_LOCK_KEY = 7_425_010_622
+
+
 def _ensure_schema(conn):
     if (_SCHEMA_OK['pid'] == os.getpid() and _SCHEMA_OK['gen'] == _DSN_GEN):
         return
-    _ensure_schema_ddl(conn)
+    # v6.2.2: serialize the DDL across processes. `CREATE … IF NOT EXISTS` is
+    # NOT race-free in Postgres — after a deploy restart, the gunicorn workers
+    # and the scheduler all open fresh connections at once, every one runs
+    # this DDL, and when a release introduces a NEW object two of them pass
+    # the existence check together: the loser dies with a pg_class
+    # UniqueViolation (seen live on the first v6.2.2 deploy, the release that
+    # added idx_metric_samples_ts — two log alerts within one second, one per
+    # process). A session advisory lock makes the stampede sequential; the
+    # losers then find every object already present and no-op. Held only for
+    # the few ms the DDL takes, on first connection per process.
+    conn.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_DDL_LOCK_KEY,))
+    try:
+        _ensure_schema_ddl(conn)
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_DDL_LOCK_KEY,))
     _SCHEMA_OK['pid'] = os.getpid()
     _SCHEMA_OK['gen'] = _DSN_GEN
 

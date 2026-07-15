@@ -182,7 +182,9 @@ class TestBackupApiWiring(unittest.TestCase):
 
     def test_backup_run_encrypts(self):
         i = API_SRC.index("def _run_data_backup(")
-        block = API_SRC[i:i + 3500]
+        # v6.2.2: window widened 3500 → 6000 (the per-entry unreadable-skip
+        # walk landed above the encryption block — the source-window class).
+        block = API_SRC[i:i + 6000]
         self.assertIn("backup_crypto.encrypt_file", block)
         self.assertIn("refusing to write a plaintext backup", block)
         self.assertIn(".tar.gz.enc", block)
