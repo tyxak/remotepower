@@ -26,18 +26,20 @@ could be exploited is fixed before release, on both the server and the agent.
 
 Each release is reviewed for security at the code level and scanned with an
 external toolchain in addition to the CI guardrails. The most recent review,
-**v6.2.0**, ran the full SAST stack (CodeQL, Bandit, gitleaks — all clean) plus an
-authorization audit of the release's new attack surface (the supervised-service
-installers, the governed AI executor, the PII scan, EDR coverage, DNS-blocker
-control and JIT vault checkout) and a prompt-injection analysis of the AI executor
-— which cannot author a command, only pick a saved catalog action by exact id —
-held to the bar — **no Critical, High, or Medium finding ships** — see
-[security-review-6.2.0.md](security-review-6.2.0.md). It builds on **v6.1.2** (see
+**v6.2.2**, ran the full SAST stack (Bandit, gitleaks, agent undefined-name
+analysis — all clean) plus a Semgrep pass with every finding triaged in the open,
+a trust-boundary review of the new delta-heartbeat protocol (per-device,
+whitelisted, capability-negotiated) and the reused HTTPS transport (same
+certificate/mTLS verification, redirects still refused), and a live header and
+auth-boundary check of production. One agent hardening — a billion-laughs guard on
+the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
+High, or Medium finding ships** — see
+[security-review-6.2.2.md](security-review-6.2.2.md). It builds on **v6.2.0** (see
+[security-review-6.2.0.md](security-review-6.2.0.md), an authorization audit of the
+governed AI executor and the supervised-service surface) and **v6.1.2** (see
 [security-review-6.1.2.md](security-review-6.1.2.md), which surfaced
 collected-but-unalerted failure signals and promoted a supply-chain tamper signal
-to the alert path) and **v6.1.1** (see
-[security-review-6.1.1.md](security-review-6.1.1.md), which closed a High
-cross-tenant alerts-isolation gap and two Mediums). The v4.10.0
+to the alert path). The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
 construction: every edit is **server-validated against a strict character
@@ -90,7 +92,7 @@ security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
 state-changing requests, and the SSRF-safe fetch path were all verified live. A
 durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-6.1.1.md) files.
+[`security-review-*.md`](security-review-6.2.2.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -155,7 +157,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.2.0.md](security-review-6.2.0.md).
+summarised in the latest, [security-review-6.2.2.md](security-review-6.2.2.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -332,7 +334,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-6.2.0.md](security-review-6.2.0.md)).
+  [security-review-6.2.2.md](security-review-6.2.2.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
   semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

@@ -55,8 +55,17 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.2.0.md](security-review-6.2.0.md)** — Latest review: the
- v6.2.0 "Daem0nMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
+- **[security-review-6.2.2.md](security-review-6.2.2.md)** — Latest review: the
+ v6.2.2 "Pu1seMatters" pass — full SAST stack (Bandit 0 new, gitleaks clean,
+ agents F821-clean) plus a Semgrep pass with every finding triaged in the open, a
+ trust-boundary review of the new delta-heartbeat protocol (per-device,
+ whitelisted, capability-negotiated — no stale or cross-device exposure) and the
+ reused HTTPS transport (same cert/mTLS verification, redirects still refused), and
+ a live header/auth-boundary check of production. One agent-side hardening (a
+ billion-laughs guard on the OpenSCAP XML parse) was made from the scan; no
+ Critical/High/Medium ships.
+- **[security-review-6.2.0.md](security-review-6.2.0.md)** — the v6.2.0
+ "Daem0nMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
  gitleaks clean) plus an authorization audit of the new attack surface (the
  supervised-service installers, governed AI executor, PII scan, EDR coverage,
  DNS-blocker control, JIT vault checkout) and a prompt-injection analysis of the AI
@@ -69,14 +78,6 @@ holds long-form docs that don't fit there.
  never executed, promoted a refused-agent-self-update tamper signal to the alert
  path, and wired two silent hardware-failure signals (NVMe spare exhaustion, NIC
  errors) into the verdict.
-- **[security-review-6.1.1.md](security-review-6.1.1.md)** — the v6.1.1
- "HardenMatters" finalize sweep — full SAST stack (CodeQL 0, Bandit/gitleaks clean)
- plus a six-threat-class independently-verified review and a live read-only probe of
- a running instance; no Critical/High/Medium ships. A High cross-tenant
- alerts-isolation gap and two Mediums (a per-tenant badge-count cache collision, an
- integration credential in the diagnostics bundle) were closed, plus
- Low/defense-in-depth hardening.
-
 ## Release notes
 
 The full release history — every version, newest first — lives in
