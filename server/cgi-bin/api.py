@@ -23367,6 +23367,14 @@ def handle_config_get():
     # round-trips it on save; viewers / MCP keys get only the url_set indicator.
     if not _cfg_is_admin:
         safe.pop('healthchecks_url', None)   # v5.5.0 (L1): secret-bearing URL
+        # v6.2.2: the SIEM / audit-forward / OTLP endpoints may embed basic-auth
+        # userinfo (https://user:pass@host) — a reusable credential. They were
+        # returned raw to read-only roles (viewer/MCP/auditor/finance); give
+        # non-admins only a *_set indicator, matching metrics_push.url below.
+        for _uk in ('siem_url', 'audit_forward_url', 'otlp_endpoint'):
+            if (safe.get(_uk) or '').strip():
+                safe[_uk + '_set'] = True
+                safe[_uk] = ''
         # v5.6.0 pentest: a Pushgateway URL may embed basic-auth userinfo — give
         # non-admins only the indicator, like webhook URLs.
         if isinstance(safe.get('metrics_push'), dict) and safe['metrics_push'].get('url'):
@@ -28268,6 +28276,10 @@ def handle_diagnostics_bundle():
     scrubbed.pop('agentless_ssh_key', None)            # SSH private key
     scrubbed.pop('webhook_url', None)                  # legacy URL w/ token in path
     scrubbed.pop('healthchecks_url', None)             # v5.6.0: hc.io ping UUID = credential
+    scrubbed.pop('warranty_lenovo_client_id', None)    # v6.2.2: Lenovo API ClientID —
+    # a reusable third-party credential; the /api/config GET view pops it (shows
+    # only *_configured) but its name ends 'client_id', so the name-based
+    # _scrub_config_secrets above doesn't catch it. Mirror the GET view here.
     if isinstance(scrubbed.get('metrics_push'), dict):
         scrubbed['metrics_push'].pop('url', None)      # v5.6.0: may embed basic-auth userinfo
     if isinstance(scrubbed.get('gitops'), dict):
@@ -35573,9 +35585,15 @@ def handle_exec_batch_status(job_id):
     # devices outside its scope. Drop those entries; an unrestricted caller
     # (scope is None) sees everything, unchanged.
     scope = _caller_scope()
+    # v6.2.2: tenant admin (scope=None) must not see other tenants' per-device
+    # output/return codes — confine to the tenant-and-role-filtered id set.
+    _restrict = scope is not None or _tenant_gate() is not None
     devices_roster = load(DEVICES_FILE) if scope is not None else None
+    _visible_ids = set(_scope_filter_devices(load(DEVICES_FILE) or {})) if _restrict else None
     for dev_id, entry in job['per_device'].items():
         if scope is not None and not _device_in_scope(scope, (devices_roster or {}).get(dev_id) or {}):
+            continue
+        if _visible_ids is not None and dev_id not in _visible_ids:
             continue
         out = dict(entry)
         if entry.get('queued') and match_key:
@@ -35604,13 +35622,18 @@ def handle_exec_batch_status(job_id):
     })
 
 
-def _batch_job_progress(job, outputs, scope=None, devices_roster=None, cmds=None):
+def _batch_job_progress(job, outputs, scope=None, devices_roster=None, cmds=None,
+                        visible_ids=None):
     """(done, failed, pending, total) for a batch job by correlating cmd_output
     against the job's match command. done == rc 0, failed == rc != 0.
 
     RBAC: when `scope` is non-None, only targets inside the caller's device
     scope are counted (out-of-scope hosts are invisible). `devices_roster` is
     the device map used for the scope test; pass it to avoid a reload per job.
+    v6.2.2 tenant isolation: `visible_ids` (a set of device ids from
+    _scope_filter_devices) additionally confines counting to those devices — a
+    tenant admin has scope=None yet must not see other tenants' targets, so the
+    caller passes the filtered id set even when scope is None.
     `cmds` (the pending command queue) lets a re-issued, de-duplicated job
     resolve from a prior run instead of hanging 'pending' — see
     _batch_match_record."""
@@ -35630,6 +35653,8 @@ def _batch_job_progress(job, outputs, scope=None, devices_roster=None, cmds=None
             continue
         if scope is not None and not _device_in_scope(scope, (devices_roster or {}).get(dev_id) or {}):
             continue
+        if visible_ids is not None and dev_id not in visible_ids:
+            continue   # v6.2.2: tenant confinement (scope=None tenant admin)
         total += 1
         st = 'pending'
         if match_key:
@@ -35657,12 +35682,18 @@ def handle_batch_jobs_list():
     # omitted entirely (their label may name a package). Unrestricted callers
     # (scope is None) see everything with counts unchanged.
     scope = _caller_scope()
+    # v6.2.2: restrict on EITHER role scope OR tenant isolation. A tenant admin
+    # has scope=None but must not see other tenants' jobs — pass the tenant-and-
+    # role-filtered id set as visible_ids and hide jobs with no visible target.
+    _restrict = scope is not None or _tenant_gate() is not None
     devices_roster = load(DEVICES_FILE) if scope is not None else None
+    _visible_ids = set(_scope_filter_devices(load(DEVICES_FILE) or {})) if _restrict else None
     out = []
     for jid, job in jobs_data.get('jobs', {}).items():
         done, failed, pending, total = _batch_job_progress(
-            job, outputs, scope=scope, devices_roster=devices_roster, cmds=cmds)
-        if scope is not None and total == 0:
+            job, outputs, scope=scope, devices_roster=devices_roster, cmds=cmds,
+            visible_ids=_visible_ids)
+        if _restrict and total == 0:
             continue
         out.append({'id': jid, 'kind': job.get('kind', 'script'),
                     'label': job.get('label') or job.get('script_name', ''),
@@ -44938,9 +44969,13 @@ def handle_scan_detail(scan_id):
     if not isinstance(s, dict):
         respond(404, {'error': 'scan not found'})
     scope = _caller_scope()
-    if scope is not None:
-        dev = device_get(s.get('target_device_id') or '')
-        if not dev or not _device_in_scope(scope, dev):
+    # v6.2.2: restrict on EITHER role scope OR tenant isolation — a tenant admin
+    # has scope=None but must not read another tenant's scan findings (this
+    # gated only on `scope is not None`, matching handle_scans_list's fix).
+    if scope is not None or _tenant_gate() is not None:
+        _visible = _scope_filter_devices(load(DEVICES_FILE) or {})
+        tdid = s.get('target_device_id') or ''
+        if not tdid or tdid not in _visible:
             respond(404, {'error': 'scan not found'})
     pub = _scan_public(s)
     pub['findings'] = s.get('findings') or []
@@ -44987,6 +45022,11 @@ def handle_scans_create():
     if dev_id:
         # RBAC: 'scan' permission AND the target must be inside the caller's scope.
         actor = require_perm('scan', [dev_id])
+        # v6.2.2: require_perm early-returns for an admin role, so a tenant admin
+        # (role scope None) would otherwise launch an intrusive scan against
+        # another tenant's host. _scope_block_device 403s a cross-tenant/
+        # out-of-scope target before we build the scan.
+        _scope_block_device(dev_id)
         dev = device_get(dev_id)
         if not isinstance(dev, dict):
             respond(404, {'error': 'Device not found'})
@@ -45105,7 +45145,13 @@ def handle_scan_delete(scan_id):
     s0 = (load(SCANS_FILE) or {}).get(scan_id)
     if not isinstance(s0, dict):
         respond(404, {'error': 'scan not found'})
-    actor = require_perm('scan', [s0.get('target_device_id') or ''])
+    _tdid = s0.get('target_device_id') or ''
+    actor = require_perm('scan', [_tdid])
+    # v6.2.2: require_perm early-returns for admin — block a tenant admin from
+    # deleting another tenant's scan record (no-op for an in-scope target or a
+    # device-less IP-only scan).
+    if _tdid:
+        _scope_block_device(_tdid)
     removed = False
     with _LockedUpdate(SCANS_FILE) as scans:
         if scan_id in scans:
@@ -45622,13 +45668,24 @@ def run_scheduled_scans_if_due():
 
 def _scan_sched_in_scope(sched, scope):
     """v4.2.0 finalize (authz): may a caller with `scope` (from _caller_scope())
-    act on this schedule? Mirrors handle_scan_schedules_create's rule — an
-    all-scope caller (scope is None) sees everything; a scoped caller may only
-    touch device-targeted schedules whose host is inside their scope (never a
-    domain/scan-target schedule, which is all-scope only)."""
-    if scope is None:
-        return True
+    act on this schedule? A role-scoped caller may only touch device-targeted
+    schedules whose host is inside their scope (never a domain/scan-target
+    schedule, which is all-scope only).
+
+    v6.2.2 (tenant isolation): scope=None is BOTH the cross-tenant superadmin
+    AND a tenant admin. Distinguish via _tenant_gate(): the superadmin (gate
+    None) still sees everything; a tenant admin (gate set) is confined to
+    device-targeted schedules whose host is in their tenant, and cannot see
+    device-less domain schedules (not tenant-attributable)."""
     dev_id = sched.get('device_id')
+    if scope is None:
+        _tg = _tenant_gate()
+        if _tg is None:
+            return True                       # cross-tenant superadmin
+        if not dev_id:
+            return False                      # domain schedule → tenant admin can't see it
+        dev = device_get(dev_id)
+        return isinstance(dev, dict) and _tenant_visible(dev)
     if not dev_id:
         return False   # target-only schedules are all-scope only
     dev = device_get(dev_id)
@@ -45675,6 +45732,9 @@ def handle_scan_schedules_create():
         respond(400, {'error': 'cron must be a valid 5-field expression that fires within ~45 days'})
     if dev_id:
         actor = require_perm('scan', [dev_id])
+        # v6.2.2: require_perm early-returns for admin — block a tenant admin
+        # from scheduling a recurring scan against another tenant's host.
+        _scope_block_device(dev_id)
         if not isinstance(load(DEVICES_FILE).get(dev_id), dict):
             respond(404, {'error': 'Device not found'})
     elif st_id:
@@ -53952,8 +54012,15 @@ def handle_compose_stacks_list():
     require_auth()
     stacks = load(COMPOSE_STACKS_FILE) or {}
     devs = load(DEVICES_FILE) or {}
+    # v6.2.2: confine to the caller's visible devices (role scope AND tenant).
+    # This handler had no filter at all, so any authenticated user — including a
+    # tenant admin or a scoped role — saw every tenant's stacks. Mirror the
+    # sibling handle_compose_stack_action, which scope-blocks its device.
+    _visible = _scope_filter_devices(devs)
     items = []
     for sid, s in stacks.items():
+        if s.get('device_id') not in _visible:
+            continue
         dev = devs.get(s.get('device_id')) or {}
         items.append({
             'id':              sid,
@@ -53978,6 +54045,9 @@ def handle_compose_stack_get(stack_id):
     s = (load(COMPOSE_STACKS_FILE) or {}).get(stack_id)
     if not s:
         respond(404, {'error': 'stack not found'})
+    # v6.2.2: require_admin_auth early-returns for a tenant admin — block a
+    # cross-tenant read of the full compose YAML (which can carry secrets).
+    _scope_block_device(s.get('device_id') or '')
     out = dict(s)
     out['id'] = stack_id
     respond(200, out)
@@ -54001,6 +54071,9 @@ def handle_compose_stack_create():
         respond(400, {'error': f'compose file too large (>{COMPOSE_YAML_MAX} bytes)'})
     if 'services:' not in yaml:
         respond(400, {'error': 'does not look like a compose file (no "services:" key)'})
+    # v6.2.2: block a tenant admin from creating a stack on another tenant's
+    # host (require_admin_auth early-returns for admin, so this is the only gate).
+    _scope_block_device(device_id)
     devices = load(DEVICES_FILE)
     if device_id not in devices:
         respond(404, {'error': 'device not found'})
@@ -54027,6 +54100,8 @@ def handle_compose_stack_delete(stack_id):
     actor = require_admin_auth()
     stacks = load(COMPOSE_STACKS_FILE) or {}
     if stack_id in stacks:
+        # v6.2.2: block a tenant admin from deleting another tenant's stack.
+        _scope_block_device(stacks[stack_id].get('device_id') or '')
         name = stacks[stack_id].get('name', '')
         del stacks[stack_id]
         save(COMPOSE_STACKS_FILE, stacks)

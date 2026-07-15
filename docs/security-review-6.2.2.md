@@ -39,7 +39,48 @@ transport weaken any of the guarantees the per-request transport gave.
 - **Delta protocol, transport reuse and the new frontend surface** were read for
   their trust boundaries (below).
 
-## The one change made from the scan
+## Findings — all fixed before release
+
+The SAST pass was clean; the findings below came from the **manual logic
+audit** (authorization, tenant isolation, SSRF, injection, secret handling) that
+SAST cannot do. Every one was fixed and guardrail-tested before this release.
+None are injection, RCE, SQLi, XML or XSS — the remediation surface is entirely
+tenant isolation plus two secret-scrub omissions, each a narrow fix mirroring an
+already-correct sibling in the same subsystem.
+
+**Tenant isolation** (applies only where hard multi-tenancy is enforced — a
+tenant admin resolves to no role scope, so a handler that gated only on role
+scope skipped the check):
+
+- **Scan subsystem** (highest severity). Reading a scan's findings, launching a
+  scan, deleting a scan, and the recurring-scan schedule family were gated on
+  role scope only — so a tenant admin could read another tenant's vulnerability
+  findings, or launch an intrusive scan against another tenant's host. Now
+  gated on tenant visibility (`_scope_block_device` / `_scope_filter_devices`),
+  matching the already-correct scan-list handler.
+- **Batch/exec job tracker.** The job list and per-device status confined
+  results by role scope only, leaking other tenants' job labels, hostnames and
+  command output/return codes to a tenant admin. Both now confine by tenant.
+- **Compose-stack store.** List/get/create/delete lacked the per-device tenant
+  block the sibling stack-action handler already had (a cross-tenant read of
+  compose YAML, which can carry secrets, plus cross-tenant create/delete). All
+  four now block a cross-tenant target.
+
+**Secret handling:**
+
+- **Diagnostics support bundle** omitted one credential from its scrub — the
+  Lenovo warranty API ClientID (a reusable third-party credential). Its field
+  name ends `client_id`, so the name-based scrubber didn't catch it, and the
+  admin-only bundle (advertised as carrying no secrets, and routinely attached
+  to support tickets) shipped it off-box. Now popped explicitly, matching the
+  `/api/config` read view.
+- **`/api/config` read view** returned the SIEM, audit-forwarding and OTLP
+  endpoint URLs raw to read-only roles; if an operator embedded basic-auth
+  userinfo (`https://user:pass@host`) in one, a viewer/auditor token could
+  harvest it. Now withheld as a `*_set` indicator for non-admins, matching the
+  metrics-push URL redaction.
+
+**Agent hardening (from the scanner):**
 
 - **Billion-laughs guard on the agent's XML parse.** The agent parses one XML
   document — the OpenSCAP (XCCDF) results file produced locally by `oscap`. It
