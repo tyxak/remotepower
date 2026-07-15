@@ -4789,11 +4789,11 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .chargeback-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .chargeback-col .isl-356 { margin-bottom: 6px; }
 .isl-358 { font-family: var(--font-mono); font-size: 12px; color: var(--accent) }
-.isl-359 { padding: 16px; color: #666; font-size: 12px; text-align: center }
+.isl-359 { padding: 16px; color: var(--muted); font-size: 12px; text-align: center }
 .isl-360 { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px }
 .isl-361 { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap }
 .isl-362 { background: #fff; padding: 8px; border-radius: 8px; flex-shrink: 0; min-width: 168px; min-height: 168px; display: flex; align-items: center; justify-content: center }
-.isl-363 { color: #999; font-size: 12px }
+.isl-363 { color: var(--muted); font-size: 12px }
 .isl-364 { flex: 1; min-width: 200px }
 .isl-365 { font-size: 13px; font-weight: 600; margin-bottom: 8px }
 .isl-366 { font-size: 12px; color: var(--muted); margin-bottom: 12px }
