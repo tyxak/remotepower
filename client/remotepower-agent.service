@@ -23,7 +23,13 @@ PrivateTmp=yes
 #                       # root to execute admin tasks, so this hardening is mostly
 #                       # cosmetic anyway.
 ProtectKernelTunables=yes
-ProtectKernelModules=yes
+# ProtectKernelModules=yes  # NEVER re-enable: it makes /usr/lib/modules
+#                           # inaccessible to the unit, so a package upgrade run
+#                           # through the exec channel that triggers
+#                           # update-initramfs builds an initrd with NO kernel
+#                           # modules (mkinitramfs warns but exits 0) — the host
+#                           # then can't find its LVM/disk root at next boot and
+#                           # drops to the initramfs shell, unbootable.
 ProtectControlGroups=yes
 
 # Environment overrides (optional)

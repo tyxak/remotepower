@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.2.0'
+SERVER_VERSION = '6.2.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -20545,6 +20545,22 @@ def _upgrade_command_for(dev, package=''):
 
 _UPGRADE_CMD = (
     'set -e; '
+    # v6.2.1: REFUSE to upgrade when the running kernel's modules are not
+    # accessible but an initramfs toolchain is present. Under sandboxing like
+    # systemd's ProtectKernelModules, /usr/lib/modules is hidden from this
+    # process — any update-initramfs triggered by the upgrade then builds an
+    # initrd with NO kernel modules (mkinitramfs only warns, exit 0) and the
+    # host drops to the initramfs shell on its next reboot, unbootable. Gated
+    # on update-initramfs existing so hosts with no initramfs concern (e.g.
+    # WSL) are not blocked.
+    'KV=$(uname -r); '
+    'if command -v update-initramfs >/dev/null 2>&1 '
+    '&& [ ! -d "/lib/modules/$KV" ] && [ ! -d "/usr/lib/modules/$KV" ]; then '
+    '  echo "ERROR: /lib/modules/$KV is not accessible from this context — refusing to upgrade." >&2; '
+    '  echo "An upgrade here could rebuild the initramfs WITHOUT kernel modules and leave the host unbootable." >&2; '
+    '  echo "Check the agent service sandboxing (ProtectKernelModules must be off), then retry." >&2; '
+    '  exit 3; '
+    'fi; '
     'if command -v apt-get >/dev/null 2>&1; then '
     '  APT_CONFIG=$(mktemp); '
     '  trap "rm -f $APT_CONFIG" EXIT; '
@@ -20608,10 +20624,32 @@ _SCHED_UPGRADE_REBOOT_CMD = (
     'mkdir -p /var/log/remotepower; '
     'echo "=== $(date +%Y-%m-%d_%H:%M:%S) upgrade-packages+reboot ===" >> "$L"; '
     '( ' + _UPGRADE_CMD + ' ) >> "$L" 2>&1; RC=$?; '
-    'echo "=== exit $RC — rebooting ===" >> "$L"; '
-    # v3.13.0: reboot unconditionally after the upgrade (success or not), with
-    # fallbacks so it fires regardless of init system / PATH. The agent gives
-    # upgrade commands a 30-min exec timeout so this line is actually reached.
+    # v6.2.1: the reboot used to be unconditional ("success or not", v3.13.0) —
+    # that rebooted hosts into half-configured/broken states. Now it only fires
+    # after a CLEAN upgrade, and only if every initramfs-tools initrd on disk
+    # actually contains kernel modules. A module-less initrd (built under
+    # ProtectKernelModules-style sandboxing — mkinitramfs warns but exits 0) is
+    # unbootable on an LVM/encrypted root, and can sit armed for days until a
+    # patch-window reboot exposes it. Skipping the reboot keeps the host up and
+    # reachable, and the nonzero rc surfaces on the exec channel.
+    'if [ "$RC" -ne 0 ]; then '
+    'echo "=== exit $RC — upgrade FAILED, reboot SKIPPED ===" >> "$L"; '
+    'tail -n 20 "$L"; exit "$RC"; '
+    'fi; '
+    'BADIRD=""; '
+    'if command -v lsinitramfs >/dev/null 2>&1; then '
+    'for IRD in /boot/initrd.img-*; do '
+    '[ -f "$IRD" ] || continue; '
+    'lsinitramfs "$IRD" 2>/dev/null | grep -q "\\.ko" || BADIRD="$BADIRD $IRD"; '
+    'done; '
+    'fi; '
+    'if [ -n "$BADIRD" ]; then '
+    'echo "=== upgrade ok BUT initrd sanity check FAILED —$BADIRD contains no kernel modules; reboot ABORTED (host would not boot) ===" >> "$L"; '
+    'tail -n 5 "$L"; exit 4; '
+    'fi; '
+    'echo "=== exit 0 — rebooting ===" >> "$L"; '
+    # Reboot fallbacks so it fires regardless of init system / PATH. The agent
+    # gives upgrade commands a 30-min exec timeout so this line is reached.
     'systemctl reboot || /sbin/reboot || reboot'
 )
 

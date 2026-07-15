@@ -15,7 +15,7 @@ inbound ports. Up and running in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.2.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.2.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -167,6 +167,12 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.2.1 "In1tMatters"** — a critical fix for Linux hosts using initramfs
+  (Debian/Ubuntu): systemd unit hardening could make upgrades run through
+  RemotePower rebuild the initramfs **without kernel modules**, leaving the host
+  unbootable at its next reboot. The unit is fixed, the upgrade command now
+  refuses to run in that situation, and patch-window reboots verify the initrd
+  (and a clean upgrade) before firing.
 - **v6.2.0 "Daem0nMatters"** — the agent now runs as a first-class **supervised
   service on every OS** — a Windows service (services.msc, SCM auto-restart via
   pywin32), launchd `KeepAlive` on macOS, systemd on Linux — with full
@@ -187,8 +193,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 - **v6.1.0 "Runt1meMatters"** — enterprise productization: Postgres, an
   out-of-band scheduler and a scanner satellite are now the single-node
   default; the server runs entirely on gunicorn + Flask (CGI retired).
-- **v6.0.1 "RefineMatters"** — a polish pass: sidebar reorganised, a real
-  world map on the Sites page, PDF patch-report export.
 
 Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 

@@ -84,6 +84,11 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.2.1.md](v6.2.1.md)** — "In1tMatters": a critical fix for Linux hosts
+ booting via initramfs (Debian/Ubuntu) — agent-unit sandboxing could make
+ upgrades run through RemotePower rebuild the initramfs without kernel modules
+ (unbootable at next reboot). Unit fixed; the upgrade command now refuses to
+ run in that situation; patch-window reboots verify the initrd first.
 - **[v6.2.0.md](v6.2.0.md)** — "Daem0nMatters": the agent runs as a supervised
  service on every OS (Windows service / launchd / systemd), plus a wave of
  gap-closing features.
@@ -100,13 +105,6 @@ The three most recent per-release notes are kept here:
  500s on PostgreSQL, a sweep of frontend defects (including Billing deleting the
  wrong row), the first wave of the performance programme, and optional modules a
  minimal homelab can switch off. No breaking API changes.
-- **[v6.1.1.md](v6.1.1.md)** — "HardenMatters": a broad hardening +
- feature-coverage release — two real cross-tenant security fixes (API keys,
- SSO config), step-up re-auth for privilege escalation, litigation hold, a
- STRIDE threat model, a full WCAG AA + axe-core accessibility pass, real
- per-package pinned patch enforcement, invoice PDFs + payment-webhook
- reconciliation, a fleet query engine, distributed tracing, and more. No
- breaking API changes.
 
 Older release notes (v6.1.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

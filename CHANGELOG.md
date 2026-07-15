@@ -2,6 +2,39 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.2.1 — "In1tMatters" — unreleased (test)
+
+**Critical fix for Linux hosts using initramfs (Debian/Ubuntu) — action needed
+on existing installs.** The systemd unit shipped with the Linux agent enabled
+`ProtectKernelModules=yes`, a hardening option that also hides
+`/usr/lib/modules` from every command the agent runs. When a package upgrade
+executed through RemotePower triggered an initramfs rebuild, the initrd could
+be generated **without kernel modules** — the tooling only warns and the
+upgrade still reports success, but the host may then fail to find its root
+filesystem (most visibly on LVM) and stop at the initramfs shell on its next
+reboot.
+
+- **Fixed the agent unit.** `ProtectKernelModules` is no longer set in
+  `remotepower-agent.service`. New installs (installer script and AUR package)
+  get the fixed unit automatically. **Existing installs:** comment out the
+  `ProtectKernelModules=yes` line in
+  `/etc/systemd/system/remotepower-agent.service`, run
+  `systemctl daemon-reload && systemctl restart remotepower-agent`, then
+  rebuild initrds with `update-initramfs -u -k all` and confirm
+  `lsinitramfs /boot/initrd.img-$(uname -r) | grep -c '\.ko'` is non-zero
+  before the next reboot.
+- **The upgrade command now protects itself.** It refuses to run (clear error,
+  rc=3) when `/lib/modules/$(uname -r)` isn't accessible while an initramfs
+  toolchain is present — so any similar sandboxing misconfiguration fails
+  loudly up front instead of leaving a host unbootable. Hosts with no
+  initramfs tooling (e.g. WSL) are unaffected.
+- **Scheduled patch-window reboots are now gated.** The reboot fires only when
+  the upgrade succeeded (previously it rebooted even after a failed upgrade),
+  and only after `lsinitramfs` confirms the on-disk initrds actually contain
+  kernel modules (otherwise the reboot is aborted with rc=4 and the host stays
+  up and reachable). Hosts without `lsinitramfs` (dracut/mkinitcpio-based)
+  skip the initrd check.
+
 ## v6.2.0 — "Daem0nMatters" — 2026-07-14
 
 Closing named gaps against comparable RMM products, built on signals RemotePower

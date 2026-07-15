@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.2.0">
+<link rel="stylesheet" href="static/css/styles.css?v=6.2.1">
 
 </head>
 <body>
@@ -3535,7 +3535,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.2.0 daem0nmatters daemon windows service services.msc pywin32 launchd systemd supervised auto-restart cross-platform install-service privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint ai executor governed propose approve confirmations catalog saved scripts playbook prompt injection ai-exec pii regulated data gdpr pci luhn credit card national id ssn iban email scan compliance edr coverage wazuh crowdstrike falcon sentinelone uncovered hosts stale agent dns blocker control pihole adguard pause blocking quotes quote invoice convert accepted expired vat snapshot jit credential checkout vault_checkout_required winget third party patching">
+          <details class="doc-card" open data-keywords="release notes changelog v6.2.1 in1tmatters init initramfs initrd lvm volume group not found unbootable boot failure busybox rescue kernel modules update-initramfs mkinitramfs protectkernelmodules systemd unit hardening sandbox agent service patch window reboot gate lsinitramfs sanity check upgrade refuses lib modules dracut mkinitcpio wsl">
+            <summary><strong>What's new — v6.2.1 &ldquo;In1tMatters&rdquo;</strong> — a critical fix for Linux hosts using initramfs (Debian/Ubuntu): the agent's systemd unit hardening could cause package upgrades run through RemotePower to rebuild the initramfs <strong>without kernel modules</strong>, leaving a host unable to find its root filesystem on its next reboot. The unit is fixed, the upgrade command now refuses to run in that situation, and scheduled patch-window reboots verify the initrd before firing.</summary>
+            <div class="doc-body">
+              <p><strong>What happened.</strong> The Linux agent's systemd unit set <code>ProtectKernelModules=yes</code>. Besides blocking module loading, that option hides <code>/usr/lib/modules</code> from the unit — and from every command the agent executes. When a package upgrade run through RemotePower triggered <code>update-initramfs</code>, the initrd was rebuilt with no kernel modules at all; the tooling only warns, the upgrade reports success, and the host boots into the initramfs shell (most visibly &ldquo;volume group not found&rdquo; on LVM roots) at its next reboot.</p>
+              <p><strong>The fixes</strong></p>
+              <ul>
+                <li><strong>The unit no longer sets <code>ProtectKernelModules</code>.</strong> New installs get the fixed unit; existing installs must comment the line out in <code>/etc/systemd/system/remotepower-agent.service</code>, run <code>systemctl daemon-reload &amp;&amp; systemctl restart remotepower-agent</code>, then rebuild with <code>update-initramfs -u -k all</code> and confirm <code>lsinitramfs /boot/initrd.img-$(uname -r) | grep -c '.ko'</code> is non-zero before the next reboot.</li>
+                <li><strong>The upgrade command protects itself.</strong> It refuses to run (clear error, rc=3) when the running kernel's modules are not accessible while an initramfs toolchain is present — any similar sandboxing misconfiguration now fails loudly up front. Hosts without initramfs tooling (e.g. WSL) are unaffected.</li>
+                <li><strong>Patch-window reboots are gated.</strong> The reboot fires only when the upgrade succeeded (it used to reboot even after a failure), and only after <code>lsinitramfs</code> confirms the on-disk initrds actually contain kernel modules — otherwise the reboot is aborted and the host stays up and reachable. dracut/mkinitcpio hosts skip the initrd check.</li>
+              </ul>
+              <p class="hint">See <code>docs/v6.2.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v6.2.0 daem0nmatters daemon windows service services.msc pywin32 launchd systemd supervised auto-restart cross-platform install-service privileged group sudo wheel administrators priv_group_added tripwire escalation persistence windows defender antivirus av realtime protection off av_realtime_off get-mpcomputerstatus usb device added physical access sysfs vid pid disk usage explorer du top consumers what is filling my disk reliability prediction failure likelihood smart trend reallocated sectors ecc reboot churn predictive health risk cache fingerprint ai executor governed propose approve confirmations catalog saved scripts playbook prompt injection ai-exec pii regulated data gdpr pci luhn credit card national id ssn iban email scan compliance edr coverage wazuh crowdstrike falcon sentinelone uncovered hosts stale agent dns blocker control pihole adguard pause blocking quotes quote invoice convert accepted expired vat snapshot jit credential checkout vault_checkout_required winget third party patching">
             <summary><strong>What's new — v6.2.0 &ldquo;Daem0nMatters&rdquo;</strong> — the agent now runs as a first-class <strong>supervised service on every OS</strong> (a Windows service in services.msc, a launchd daemon on macOS, systemd on Linux), all auto-restarting and installed by one elevated one-liner. Plus a wave of gap-closing features built on signals already collected: three new tripwires (privileged-group change, Windows Defender real-time-protection-off, USB), a disk-usage explorer, reliability prediction, EDR coverage gaps, a regulated-data (PII) scan, DNS-blocker control, quotes, JIT credential checkout — and a <strong>governed AI executor</strong> that proposes but never executes.</summary>
             <div class="doc-body">
               <p><strong>The daemon grows up.</strong> The Windows agent went from "the minimal agent" to a real Windows service — the Service Control Manager restarts it on any exit, so a self-update just exits and relaunches, and it's controllable from services.msc like anything else. macOS runs the same way under launchd (KeepAlive), Linux under systemd. A single elevated one-liner installs Python + the service on a bare box.</p>
@@ -3581,41 +3594,6 @@
               <p><strong>Performance</strong> — the <strong>Needs-Attention cache was defeated on essentially every fleet</strong> (it invalidated on any <code>devices.json</code> write, which every heartbeat does, so it never hit and the O(fleet) digest recomputed on every poll); <strong>six maintenance sweeps</strong> ran on every heartbeat even when a dedicated scheduler was already doing that work; the OTLP hook deep-copied the whole config per beat to read one disabled boolean; the monitor sweep rewrote every configured monitor's history to record the few that ran; and PostgreSQL re-ran its full schema DDL on every new connection.</p>
               <p><strong>Optional modules</strong> — <strong>Settings → Advanced</strong> can now switch off <strong>Alerts, Tickets, Billing, Knowledge base, Compliance and Pentest</strong>. A disabled module leaves the sidebar <em>and</em> its whole API prefix 404s — genuinely off, not merely hidden. Nothing is deleted. Turning <strong>Alerts</strong> off stops inbox rows while webhook/email notifications and the event history keep working — for operators who page themselves through ntfy or Discord and don't want a queue to curate.</p>
               <p class="hint">See <code>docs/v6.1.2.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v6.1.1 hardenmatters harden hardening security tenant isolation cross-tenant api key sso step-up re-auth mfa privilege escalation litigation hold threat model stride patch snapshot pinned install enforcement apt dnf yum pacman billing invoice pdf payment webhook reconciliation partially paid vpn preshared key psk discovery netscan topology query engine data explorer batch otlp distributed tracing structured logging incident promotion accessibility wcag aa axe a11y nested interactive german de i18n sdk openapi ref postgres migration catch-up ups critical shutdown connector plugin reload file manager tar archive storage provisioning raid lvm mkfs ticket sla auto routing pagination">
-            <summary><strong>What's new — v6.1.1 &ldquo;HardenMatters&rdquo;</strong> — a broad hardening and feature-coverage release: two real cross-tenant security fixes (API keys, SSO config), step-up re-auth for privilege escalation, litigation hold, a STRIDE threat model, a full WCAG AA + axe-core accessibility pass, real per-package pinned patch enforcement, invoice PDFs + payment-webhook reconciliation, a fleet query engine, distributed tracing, and dozens more. No breaking API changes.</summary>
-            <div class="doc-body">
-              <p>v6.1.1 is a broad correctness-and-coverage pass across the whole product — security hardening, several feature-buildout items, and a handful of real bugs found live on production upgrades.</p>
-              <p><strong>Security &amp; tenancy</strong></p>
-              <ul>
-                <li><strong>Step-up re-auth</strong>: creating a new admin or promoting a user to admin now re-verifies the caller's own password or TOTP first — a hijacked session token alone can no longer silently mint a backdoor admin.</li>
-                <li>Fixed two real cross-tenant isolation bypasses: an API key with no tenant of its own resolved as a full superadmin key once tenancy enforcement was on, and any tenant's admin could silently overwrite the instance-wide SSO group-role mapping for every other tenant.</li>
-                <li><strong>Litigation hold</strong> (Settings → Advanced): suspends all age-based data purging fleet-wide, with a required reason and full audit trail.</li>
-                <li>A structured <strong>STRIDE threat model</strong> (<code>docs/threat-model.md</code>), guided API-key rotation, and versioned audit-HMAC key rotation.</li>
-              </ul>
-              <p><strong>Patch management</strong></p>
-              <ul>
-                <li>A new <strong>Package Snapshots</strong> page freezes the fleet's installed-package state, diffs snapshots, and promotes one to a device tag. A promoted tag now actually pauses auto-patch dispatch, and can be explicitly <strong>enforced</strong> — queuing an exact pinned apt/dnf/yum install or downgrade over the agent's existing command channel (pacman is refused with a clear error, not silently attempted).</li>
-              </ul>
-              <p><strong>Billing &amp; VPN</strong></p>
-              <ul>
-                <li>Real generated <strong>invoice PDFs</strong>, and a provider-agnostic <strong>payment-webhook</strong> endpoint that reconciles payments/refunds against invoices (new <em>partially paid</em> status) — not a Stripe/PayPal integration, a generic authenticated sink any processor's own webhook can post into.</li>
-                <li>VPN clients get an optional <strong>preshared key</strong> (encrypted at rest, generated by default), per-peer RX/TX history, and a saveable default tunnel template.</li>
-              </ul>
-              <p><strong>Discovery, query &amp; observability</strong></p>
-              <ul>
-                <li><strong>Scheduled LAN netscan</strong> results now fold into the topology graph as unmanaged, dashed nodes/edges; OPNsense DHCP-lease reading reaches parity with RouterOS.</li>
-                <li>A new <strong>Data Explorer</strong> page: an ad-hoc, whitelisted (never raw-SQL) query engine over devices/CVEs/drift, plus a batch endpoint for up to 10 queries in one call.</li>
-                <li>Real <strong>OTLP distributed tracing</strong>, structured request logging with correlation IDs on more failure paths, conditional-GET/ETag on the timeline and risk-overview reads, and alert-storm <strong>incident auto-promotion</strong> on the status page.</li>
-              </ul>
-              <p><strong>Accessibility &amp; i18n</strong></p>
-              <ul>
-                <li>A full <strong>WCAG AA</strong> color-contrast pass and the last nested-interactive structural fix — the axe-core accessibility gate is now fully enforced with zero exemptions.</li>
-                <li>German (<code>de</code>) translation coverage completed.</li>
-              </ul>
-              <p><strong>Also</strong>: a generated Python SDK (<code>make sdk</code>) plus a real invalid-<code>$ref</code> OpenAPI fix, guided disk provisioning (RAID/LVM/mkfs), a UPS-critical threshold alert with opt-in auto-shutdown of dependent devices, a connector-plugin panel with hot reload, folder-as-tar streaming downloads in the file manager, per-ticket-type SLA + auto-routing, a real total-count pagination envelope on the devices list, and an online catch-up pass for the Postgres migration path. Several real bugs found live during production upgrades were fixed too: Postgres port/password drift on multi-instance boxes, a service-worker race that intermittently broke SSO login, the demo site running its maintenance cadence in-line instead of out-of-band, and scanner containers missing the raw-socket capability <code>nmap</code> needs.</p>
-              <p class="hint">See <code>docs/v6.1.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -9583,45 +9561,45 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.2.0"></script>
+<script defer src="static/js/app.js?v=6.2.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.2.0"></script>
-<script defer src="static/js/app-cmdb.js?v=6.2.0"></script>
-<script defer src="static/js/app-containers.js?v=6.2.0"></script>
-<script defer src="static/js/app-network.js?v=6.2.0"></script>
+<script defer src="static/js/app-calendar.js?v=6.2.1"></script>
+<script defer src="static/js/app-cmdb.js?v=6.2.1"></script>
+<script defer src="static/js/app-containers.js?v=6.2.1"></script>
+<script defer src="static/js/app-network.js?v=6.2.1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.2.0"></script>
-<script defer src="static/js/app-compliance.js?v=6.2.0"></script>
-<script defer src="static/js/app-integrations.js?v=6.2.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.2.1"></script>
+<script defer src="static/js/app-compliance.js?v=6.2.1"></script>
+<script defer src="static/js/app-integrations.js?v=6.2.1"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.2.0"></script>
-<script defer src="static/js/app-dns.js?v=6.2.0"></script>
-<script defer src="static/js/app-drift.js?v=6.2.0"></script>
-<script defer src="static/js/app-dmarc.js?v=6.2.0"></script>
-<script defer src="static/js/app-cve.js?v=6.2.0"></script>
-<script defer src="static/js/app-firewall.js?v=6.2.0"></script>
-<script defer src="static/js/app-backups.js?v=6.2.0"></script>
-<script defer src="static/js/app-iac.js?v=6.2.0"></script>
-<script defer src="static/js/app-provisioning.js?v=6.2.0"></script>
-<script defer src="static/js/app-tuning.js?v=6.2.0"></script>
-<script defer src="static/js/app-kb.js?v=6.2.0"></script>
-<script defer src="static/js/app-rollouts.js?v=6.2.0"></script>
-<script defer src="static/js/app-power.js?v=6.2.0"></script>
-<script defer src="static/js/app-gpu.js?v=6.2.0"></script>
-<script defer src="static/js/app-proxmox.js?v=6.2.0"></script>
-<script defer src="static/js/wg-access.js?v=6.2.0"></script>
-<script defer src="static/js/app-billing.js?v=6.2.0"></script>
-<script defer src="static/js/app-virt.js?v=6.2.0"></script>
+<script defer src="static/js/app-ai.js?v=6.2.1"></script>
+<script defer src="static/js/app-dns.js?v=6.2.1"></script>
+<script defer src="static/js/app-drift.js?v=6.2.1"></script>
+<script defer src="static/js/app-dmarc.js?v=6.2.1"></script>
+<script defer src="static/js/app-cve.js?v=6.2.1"></script>
+<script defer src="static/js/app-firewall.js?v=6.2.1"></script>
+<script defer src="static/js/app-backups.js?v=6.2.1"></script>
+<script defer src="static/js/app-iac.js?v=6.2.1"></script>
+<script defer src="static/js/app-provisioning.js?v=6.2.1"></script>
+<script defer src="static/js/app-tuning.js?v=6.2.1"></script>
+<script defer src="static/js/app-kb.js?v=6.2.1"></script>
+<script defer src="static/js/app-rollouts.js?v=6.2.1"></script>
+<script defer src="static/js/app-power.js?v=6.2.1"></script>
+<script defer src="static/js/app-gpu.js?v=6.2.1"></script>
+<script defer src="static/js/app-proxmox.js?v=6.2.1"></script>
+<script defer src="static/js/wg-access.js?v=6.2.1"></script>
+<script defer src="static/js/app-billing.js?v=6.2.1"></script>
+<script defer src="static/js/app-virt.js?v=6.2.1"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.2.0"></script>
-<script defer src="static/js/app-checks.js?v=6.2.0"></script>
-<script defer src="static/js/app-logs.js?v=6.2.0"></script>
-<script defer src="static/js/app-remote.js?v=6.2.0"></script>
-<script defer src="static/js/app-tickets.js?v=6.2.0"></script>
+<script defer src="static/js/app-alerts.js?v=6.2.1"></script>
+<script defer src="static/js/app-checks.js?v=6.2.1"></script>
+<script defer src="static/js/app-logs.js?v=6.2.1"></script>
+<script defer src="static/js/app-remote.js?v=6.2.1"></script>
+<script defer src="static/js/app-tickets.js?v=6.2.1"></script>
 
-<script defer src="static/js/sw-register.js?v=6.2.0"></script>
+<script defer src="static/js/sw-register.js?v=6.2.1"></script>
 </body>
 </html>

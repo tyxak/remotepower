@@ -1,8 +1,9 @@
-"""v6.2.0 "Daem0nMatters" — release pins.
+"""v6.2.1 "In1tMatters" — release pins.
 
 The CURRENT release carries the strict version pins (older test_vXYZ.py files
-have theirs loosened to regex). Feature behaviour is tested in the dedicated
-files: test_v613_priv_group / _defender / _usb / _disk_usage / _reliability.
+have theirs loosened to the live version). The release's behaviour itself is
+tested in tests/test_v621_patch_safety.py (upgrade-command module guard,
+gated patch-window reboot, agent-unit hardening guardrail).
 """
 
 import importlib.util
@@ -15,8 +16,8 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
-os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v613-"))
-_spec = importlib.util.spec_from_file_location("api_v613", _CGI / "api.py")
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v621-"))
+_spec = importlib.util.spec_from_file_location("api_v621_pins", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
@@ -26,11 +27,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    # v6.2.1: loosened from the "6.2.0" literal to the live version, exactly as
-    # the convention instructs on each bump. The STRICT pins for the current
-    # release live in tests/test_v621.py; what stays valuable here is that
-    # every version surface remains in lockstep with SERVER_VERSION.
-    V = api.SERVER_VERSION
+    V = "6.2.1"
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -56,7 +53,7 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"?v={self.V}", _html())
 
     def test_no_stale_cachebust(self):
-        self.assertNotIn("?v=6.1.2", _html())
+        self.assertNotIn("?v=6.2.0", _html())
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
@@ -77,18 +74,15 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_whats_new_card_is_doc_searchable(self):
         """The data-keywords attribute embeds the codename as a lowercase search
-        term. It is the surface a visible-text rename always misses (it shipped
-        stale as 'vigilmatters' through v5.1.0)."""
+        term — the surface a visible-text rename always misses."""
         html = _html()
-        i = html.index("What's new — v6.2.0")
-        card = html[max(0, i - 1200):i]
-        self.assertIn("daem0nmatters", card)
+        i = html.index(f"What's new — v{self.V}")
+        card = html[max(0, i - 1600):i]
+        self.assertIn("in1tmatters", card)
 
     def test_changelog_header(self):
-        # v6.2.1: loosened from the [:400] head window (newer releases sit
-        # above this one now) — the entry itself must remain.
-        self.assertIn('## v6.2.0 — "Daem0nMatters"',
-                      (_ROOT / "CHANGELOG.md").read_text())
+        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
+        self.assertIn('## v6.2.1 — "In1tMatters"', head)
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -96,40 +90,7 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        # v6.2.1: codename dropped from the pin (the live top release owns it).
-        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "'))
-
-
-class TestNewEventsRegistered(unittest.TestCase):
-    """Every event added this release, in one place — a registry entry that never
-    reaches WEBHOOK_EVENTS is an event nobody can subscribe to."""
-
-    NEW = ("priv_group_added", "av_realtime_off", "av_realtime_on", "usb_device_added")
-
-    def test_all_in_registry(self):
-        for ev in self.NEW:
-            self.assertIn(ev, api.EVENT_REGISTRY, ev)
-
-    def test_all_in_derived_webhook_events(self):
-        # WEBHOOK_EVENTS is DERIVED from EVENT_REGISTRY as (name, label, default)
-        # triples — an event missing here is one nobody can subscribe to.
-        names = {row[0] for row in api.WEBHOOK_EVENTS}
-        for ev in self.NEW:
-            self.assertIn(ev, names, ev)
-
-    def test_kinds_exist_in_the_channel_matrix(self):
-        kinds = {k for k, _, _ in api.CHANNEL_KIND_DEFS}
-        for ev in self.NEW:
-            self.assertIn(api.EVENT_REGISTRY[ev]["kind"], kinds, ev)
-
-
-class TestNewRoutes(unittest.TestCase):
-    NEW = ("/api/reliability", "/disk-usage", "/disk-usage/scan")
-
-    def test_registered(self):
-        src = (_CGI / "api.py").read_text()
-        for r in self.NEW:
-            self.assertIn(f"'{r}'", src, r)
+        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "In1tMatters"'))
 
 
 if __name__ == "__main__":
