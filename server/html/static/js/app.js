@@ -18704,6 +18704,32 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-ecc-min-delta',             'ecc_error_alert_min_delta',  0],
 ];
 
+// v6.2.2 batch 4: per-factor SCORE weights (health / risk / reliability), each an
+// operator-tunable config key. Generated from the factor→default maps (mirrors the
+// server's _HEALTH_WEIGHTS / _RISK_WEIGHTS / _RELIABILITY_WEIGHTS) so the id prefix,
+// config key and default stay in one place. ids: ap-hw-* / ap-rw-* / ap-lw-*.
+const _SCORE_WEIGHT_DEFAULTS = [
+  ['ap-hw-', 'health_weight_', { critical: 25, warning: 8, info: 2 }],
+  ['ap-rw-', 'risk_weight_', {
+    offline: 25, cve_critical: 8, cve_high: 3, pending_updates: 1,
+    exposed_world: 4, policy_violation: 6, expiry_expired: 10, expiry_soon: 3,
+    mount_issue: 12, reboot_required: 4, firewall_off: 14, storage_degraded: 12,
+    smart_failure: 12, kernel_outdated: 6, failed_units: 3, os_eol: 14,
+    os_eol_soon: 4, overheating: 10, config_drift: 3, clock_skew: 4,
+    gateway_down: 10, oom_recent: 6,
+  }],
+  ['ap-lw-', 'reliability_weight_', {
+    smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,
+    spare_low: 20, ecc_uncorrectable: 30, ecc_correctable: 8, reboot_churn: 12,
+    health_declining: 10, overheating: 12, oom_recent: 8,
+  }],
+];
+for (const [idPfx, keyPfx, weights] of _SCORE_WEIGHT_DEFAULTS) {
+  for (const [factor, dflt] of Object.entries(weights)) {
+    _ALERT_PARAM_FIELDS.push([idPfx + factor, keyPfx + factor, dflt]);
+  }
+}
+
 async function loadAlertParams() {
   const cfg = await api('GET', '/config');
   if (!cfg) return;

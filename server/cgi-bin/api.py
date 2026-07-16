@@ -23413,6 +23413,13 @@ def handle_config_get():
     safe.setdefault('smart_realloc_crit_sectors', _REALLOC_CRIT)  # realloc/pending → "critical" / ETA target
     safe.setdefault('disk_predict_medium_eta_days', 180)    # medium disk suppressed unless ETA ≤ this
     safe.setdefault('ecc_error_alert_min_delta', 0)         # ecc_errors floor; 0 = fire on any positive delta
+    # v6.2.2 batch 4: per-factor SCORE weights (health / risk / reliability). One
+    # config key per factor; default = the constant dict's value so an unconfigured
+    # server renders the effective weight. Derived from the dicts (see the accessors
+    # + the save loop) so the key set can't drift. 0 disables a factor.
+    for _wpfx, _wdict in _SCORE_WEIGHT_PREFIXES:
+        for _wk, _wv in _wdict.items():
+            safe.setdefault(f'{_wpfx}{_wk}', _wv)
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24545,7 +24552,9 @@ def handle_config_save():
         ('smart_realloc_crit_sectors', 1,  100000, True),
         ('disk_predict_medium_eta_days', 1, 3650,  True),
         ('ecc_error_alert_min_delta', 0,   100000, True),
-    ):
+    # v6.2.2 batch 4: per-factor score weights (health/risk/reliability), 0..1000,
+    # blankable (blank → the code default). Generated from the constant dicts.
+    ) + _weight_param_specs():
         if _tk in body:
             _raw = body[_tk]
             if _blankable and (_raw is None or _raw == ''):
@@ -42241,6 +42250,26 @@ def handle_attention():
 _HEALTH_WEIGHTS = {'critical': 25, 'warning': 8, 'info': 2}
 
 
+def _weight_or(raw, default):
+    """v6.2.2 batch 4: coerce an operator-configured score weight, else the code
+    default. Blank/None/garbage → default; out-of-bounds (save clamps to 0..1000,
+    but a hand-edited config might not) → default. 0 is legal (disables a factor)."""
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return v if 0 <= v <= 1000 else default
+
+
+def _health_weights():
+    """Per-severity health-score deductions, operator-tunable on Settings →
+    Health score weights (health_weight_<sev>; defaults from _HEALTH_WEIGHTS).
+    Read ONCE and indexed in the per-item loop; never mutate a _config_ro() result."""
+    cfg = _config_ro()
+    return {k: _weight_or(cfg.get(f'health_weight_{k}'), v)
+            for k, v in _HEALTH_WEIGHTS.items()}
+
+
 def _health_grade_cuts():
     """The good/fair/poor score cutoffs, operator-tunable on Settings → Alert
     parameters (health_grade_good/fair/poor; defaults 90/70/40). Clamped to stay
@@ -42287,6 +42316,15 @@ _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
 
 
+def _risk_weights():
+    """Per-factor risk-score weights, operator-tunable on Settings → Risk score
+    weights (risk_weight_<factor>; defaults from _RISK_WEIGHTS). Hoisted out of the
+    per-device loop and passed into _device_risk; never mutate a _config_ro() result."""
+    cfg = _config_ro()
+    return {k: _weight_or(cfg.get(f'risk_weight_{k}'), v)
+            for k, v in _RISK_WEIGHTS.items()}
+
+
 def _risk_level_cuts():
     """The critical/high/medium risk-score cutoffs, operator-tunable on Settings →
     Alert parameters (risk_level_critical/high/medium; defaults 80/50/20). Clamped
@@ -42314,9 +42352,13 @@ def _risk_level(score):
 
 
 def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
-                 cve_ignore=None, exposure_mutes=None, pkg_entry=None):
+                 cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
+    # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
+    # caller (_compute_fleet_risk) and passed in; falls back to a self-read so a
+    # standalone call still works. Never mutate this dict.
+    w = weights if weights is not None else _risk_weights()
     factors = []
 
     def _add(kind, pts, detail):
@@ -42326,7 +42368,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
 
     last = dev.get('last_seen', 0)
     if last and (now - last) > ttl:
-        _add('offline', _RISK_WEIGHTS['offline'], 'host is offline')
+        _add('offline', w['offline'], 'host is offline')
     finds = cve_rec.get('findings') if isinstance(cve_rec, dict) else cve_rec
     # v3.13.0: respect the CVE ignore list (accepted-risk findings) — an ignored
     # CVE shouldn't keep driving the asset's risk score.
@@ -42339,15 +42381,15 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     crit = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'critical')
     high = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'high')
     if crit:
-        _add('cve_critical', min(_RISK_CAPS['cve_critical'], crit * _RISK_WEIGHTS['cve_critical']), f'{crit} critical CVE(s)')
+        _add('cve_critical', min(_RISK_CAPS['cve_critical'], crit * w['cve_critical']), f'{crit} critical CVE(s)')
     if high:
-        _add('cve_high', min(_RISK_CAPS['cve_high'], high * _RISK_WEIGHTS['cve_high']), f'{high} high CVE(s)')
+        _add('cve_high', min(_RISK_CAPS['cve_high'], high * w['cve_high']), f'{high} high CVE(s)')
     try:
         up = int(((si.get('packages') or {}).get('upgradable')) or 0)
     except (TypeError, ValueError):
         up = 0
     if up:
-        _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * _RISK_WEIGHTS['pending_updates']), f'{up} pending update(s)')
+        _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * w['pending_updates']), f'{up} pending update(s)')
     # v3.13.0: don't count world-reachable sockets the operator has muted on the
     # Exposure page (surgical mute, or a host-level mute).
     world = sum(1 for p in (si.get('listening_ports') or [])
@@ -42355,10 +42397,10 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                 and not _exposure_muted(p.get('process'), p.get('proto'), p.get('port'),
                                         exposure_mutes or [], dev_id))
     if world:
-        _add('exposed_world', min(_RISK_CAPS['exposed_world'], world * _RISK_WEIGHTS['exposed_world']), f'{world} world-reachable service(s)')
+        _add('exposed_world', min(_RISK_CAPS['exposed_world'], world * w['exposed_world']), f'{world} world-reachable service(s)')
     viol = len(sv_rec.get('violations') or []) if isinstance(sv_rec, dict) else 0
     if viol:
-        _add('policy_violation', min(_RISK_CAPS['policy_violation'], viol * _RISK_WEIGHTS['policy_violation']), f'{viol} software-policy violation(s)')
+        _add('policy_violation', min(_RISK_CAPS['policy_violation'], viol * w['policy_violation']), f'{viol} software-policy violation(s)')
     expired = soon = 0
     for v in _device_contract_status(cmdb_rec):
         if v.get('status') == 'expired':
@@ -42366,14 +42408,14 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         else:
             soon += 1
     if expired:
-        _add('expiry_expired', min(_RISK_CAPS['expiry_expired'], expired * _RISK_WEIGHTS['expiry_expired']), f'{expired} expired contract/license/warranty')
+        _add('expiry_expired', min(_RISK_CAPS['expiry_expired'], expired * w['expiry_expired']), f'{expired} expired contract/license/warranty')
     if soon:
-        _add('expiry_soon', soon * _RISK_WEIGHTS['expiry_soon'], f'{soon} expiring soon')
+        _add('expiry_soon', soon * w['expiry_soon'], f'{soon} expiring soon')
     mi = len([m for m in (si.get('mount_issues') or []) if isinstance(m, dict)])
     if mi:
-        _add('mount_issue', min(_RISK_CAPS['mount_issue'], mi * _RISK_WEIGHTS['mount_issue']), f'{mi} mount issue(s)')
+        _add('mount_issue', min(_RISK_CAPS['mount_issue'], mi * w['mount_issue']), f'{mi} mount issue(s)')
     if si.get('reboot_required'):
-        _add('reboot_required', _RISK_WEIGHTS['reboot_required'], 'reboot required')
+        _add('reboot_required', w['reboot_required'], 'reboot required')
     # ── v3.12.0: firewall posture ────────────────────────────────────────────
     fwsum = si.get('firewall')
     if isinstance(fwsum, dict) and fwsum.get('backends'):
@@ -42381,13 +42423,13 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         # True / False / None(=couldn't read). Only penalise an EXPLICIT False —
         # never when the agent couldn't read the ruleset (e.g. not root).
         if fwsum.get('active') is False:
-            _add('firewall_off', _RISK_WEIGHTS['firewall_off'],
+            _add('firewall_off', w['firewall_off'],
                  'no active host firewall (nftables/iptables/ufw/ebtables)')
         elif fwsum.get('active'):
             for b in fwsum['backends']:
                 if (b.get('active') and not b.get('rules')
                         and (b.get('policy') or '').upper() == 'ACCEPT'):
-                    _add('firewall_off', max(1, _RISK_WEIGHTS['firewall_off'] // 2),
+                    _add('firewall_off', max(1, w['firewall_off'] // 2),
                          f"{b.get('name')} defaults to ACCEPT with no rules")
                     break
     else:
@@ -42396,9 +42438,9 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         if isinstance(fw, dict):
             fwb = (fw.get('backend') or '').lower()
             if fwb == 'none':
-                _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'no host firewall active')
+                _add('firewall_off', w['firewall_off'], 'no host firewall active')
             elif fwb and not fw.get('rules'):
-                _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'host firewall has no rules')
+                _add('firewall_off', w['firewall_off'], 'host firewall has no rules')
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────
     bad_pools = [p for p in (si.get('storage_health') or [])
                  if isinstance(p, dict)
@@ -42406,31 +42448,31 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if bad_pools:
         names = ', '.join(p.get('name', '?') for p in bad_pools[:3])
         _add('storage_degraded',
-             min(_RISK_CAPS['storage_degraded'], len(bad_pools) * _RISK_WEIGHTS['storage_degraded']),
+             min(_RISK_CAPS['storage_degraded'], len(bad_pools) * w['storage_degraded']),
              f'{len(bad_pools)} degraded pool/array ({names})')
     # ── v3.12.0: disk SMART + kernel currency (from hardware.json) ────────────
     smart_bad = sum(1 for d in (hw_rec.get('smart') or []) if _smart_disk_failed(d))
     if smart_bad:
         _add('smart_failure',
-             min(_RISK_CAPS['smart_failure'], smart_bad * _RISK_WEIGHTS['smart_failure']),
+             min(_RISK_CAPS['smart_failure'], smart_bad * w['smart_failure']),
              f'{smart_bad} disk(s) reporting SMART failure')
     if (hw_rec.get('kernel') or {}).get('reboot_for_kernel'):
-        _add('kernel_outdated', _RISK_WEIGHTS['kernel_outdated'],
+        _add('kernel_outdated', w['kernel_outdated'],
              'running kernel older than newest installed')
     # ── v3.12.0: failed systemd services (what software is broken) ────────────
     fu = len([u for u in (si.get('failed_units') or []) if isinstance(u, str)])
     if fu:
         _add('failed_units',
-             min(_RISK_CAPS['failed_units'], fu * _RISK_WEIGHTS['failed_units']),
+             min(_RISK_CAPS['failed_units'], fu * w['failed_units']),
              f'{fu} failed system service(s)')
     # ── v4.10.0: more posture/health signals (all already collected) ─────────
     # OS end-of-life — no security updates is a real, durable risk.
     eol = _device_os_eol(dev, pkg_entry or {})
     if eol and eol.get('status') == 'eol':
-        _add('os_eol', _RISK_WEIGHTS['os_eol'],
+        _add('os_eol', w['os_eol'],
              f"{eol.get('label', 'OS')} is past end-of-life — no security updates")
     elif eol and eol.get('status') == 'soon':
-        _add('os_eol_soon', _RISK_WEIGHTS['os_eol_soon'],
+        _add('os_eol_soon', w['os_eol_soon'],
              f"{eol.get('label', 'OS')} reaches end-of-life in {eol.get('days', 0)}d")
     # Overheating — hottest board/disk/GPU sensor vs the thermal thresholds.
     hottest_c = None
@@ -42449,7 +42491,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if hottest_c is not None and hottest_c >= _hot_c:
         _crit_t = hottest_c >= _crit_c
         _add('overheating',
-             _RISK_WEIGHTS['overheating'] if _crit_t else _RISK_WEIGHTS['overheating'] // 2,
+             w['overheating'] if _crit_t else w['overheating'] // 2,
              f"hottest sensor at {round(hottest_c, 1)} °C ({'critical' if _crit_t else 'hot'})")
     # Config drift from the tracked baseline.
     drifted = [f for f, s in (dev.get('drift_state') or {}).items()
@@ -42457,15 +42499,15 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if drifted:
         _dnames = ', '.join(drifted[:4]) + ('…' if len(drifted) > 4 else '')
         _add('config_drift',
-             min(_RISK_CAPS['config_drift'], len(drifted) * _RISK_WEIGHTS['config_drift']),
+             min(_RISK_CAPS['config_drift'], len(drifted) * w['config_drift']),
              f'{len(drifted)} config file(s) drifted: {_dnames}')
     if isinstance(si.get('clock'), dict) and si['clock'].get('skewed'):
-        _add('clock_skew', _RISK_WEIGHTS['clock_skew'], 'system clock skewed / NTP out of sync')
+        _add('clock_skew', w['clock_skew'], 'system clock skewed / NTP out of sync')
     if isinstance(si.get('gateway'), dict) and si['gateway'].get('reachable') is False:
-        _add('gateway_down', _RISK_WEIGHTS['gateway_down'], 'default gateway unreachable')
+        _add('gateway_down', w['gateway_down'], 'default gateway unreachable')
     _lo = si.get('last_oom_ts')
     if isinstance(_lo, (int, float)) and _lo > 0 and (now - _lo) < 86400:
-        _add('oom_recent', _RISK_WEIGHTS['oom_recent'], 'OOM killer fired in last 24h')
+        _add('oom_recent', w['oom_recent'], 'OOM killer fired in last 24h')
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
             'score': score, 'level': _risk_level(score),
@@ -42528,6 +42570,32 @@ _REBOOT_CHURN_MIN       = 3        # returns-to-online in the window before it c
 _HEALTH_DECLINE_PER_DAY = 0.5      # score points lost per day, averaged
 
 
+def _reliability_weights():
+    """Per-factor reliability (failure-likelihood) weights, operator-tunable on
+    Settings → Reliability score weights (reliability_weight_<factor>; defaults from
+    _RELIABILITY_WEIGHTS). Hoisted out of the per-device loop and passed into
+    _device_reliability; never mutate a _config_ro() result."""
+    cfg = _config_ro()
+    return {k: _weight_or(cfg.get(f'reliability_weight_{k}'), v)
+            for k, v in _RELIABILITY_WEIGHTS.items()}
+
+
+# v6.2.2 batch 4: the (config_key, lo, hi, blankable) save-validation specs for
+# every per-factor score weight, derived from the three constant dicts so the
+# save loop, the GET-config defaults and the accessors can never drift on the key
+# set. Weights are small ints; 0 disables a factor, 1000 is a generous ceiling.
+_SCORE_WEIGHT_PREFIXES = (
+    ('health_weight_', _HEALTH_WEIGHTS),
+    ('risk_weight_', _RISK_WEIGHTS),
+    ('reliability_weight_', _RELIABILITY_WEIGHTS),
+)
+
+
+def _weight_param_specs():
+    return tuple((f'{pfx}{k}', 0, 1000, True)
+                 for pfx, wd in _SCORE_WEIGHT_PREFIXES for k in wd)
+
+
 def _reliability_level_cuts():
     """The critical/high/medium failure-likelihood cutoffs, operator-tunable on
     Settings → Alert parameters (reliability_crit/high/medium; defaults 70/45/20
@@ -42556,12 +42624,16 @@ def _reliability_level(score, cuts=None):
 
 
 def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_rec,
-                        svc_rec, posture_rec, now, rel_cuts=None):
+                        svc_rec, posture_rec, now, rel_cuts=None, weights=None):
     """Composite failure-likelihood for ONE host, with an explainable factor list.
 
     Returns {device_id, name, score, level, factors:[{kind, points, detail}]}.
     Pure aggregation over already-stored data — safe to call on demand.
     """
+    # v6.2.2 batch 4: operator-configurable per-factor weights, hoisted by the
+    # caller (_compute_fleet_reliability) and passed in; self-read fallback for a
+    # standalone call. Never mutate this dict.
+    w = weights if weights is not None else _reliability_weights()
     factors = []
 
     def _add(kind, points, detail):
@@ -42581,10 +42653,10 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             continue
         disk = d.get('device') or d.get('model') or 'disk'
         if _smart_disk_failed(d):
-            _add('smart_failing', _RELIABILITY_WEIGHTS['smart_failing'],
+            _add('smart_failing', w['smart_failing'],
                  f'{disk}: SMART reports the drive as failing')
         if _nvme_spare_exhausted(d):
-            _add('spare_low', _RELIABILITY_WEIGHTS['spare_low'],
+            _add('spare_low', w['spare_low'],
                  f'{disk}: NVMe available spare is below its threshold')
         # NB the RAW hardware dict uses long field names (wear_pct,
         # pending_sectors, reallocated_sectors); only the HISTORY samples use the
@@ -42592,11 +42664,11 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         # at zero, forever, and looks completely correct in review.
         wear = d.get('wear_pct')
         if isinstance(wear, (int, float)) and wear >= _WEAR_HIGH_PCT:
-            _add('wear_high', _RELIABILITY_WEIGHTS['wear_high'],
+            _add('wear_high', w['wear_high'],
                  f'{disk}: {int(wear)}% of rated write endurance consumed')
         pending = d.get('pending_sectors')
         if isinstance(pending, (int, float)) and pending > 0:
-            _add('pending_sectors', _RELIABILITY_WEIGHTS['pending_sectors'],
+            _add('pending_sectors', w['pending_sectors'],
                  f'{disk}: {int(pending)} sector(s) pending remap')
         # The TREND is what makes this predictive rather than reactive: a disk
         # with 4 reallocated sectors that has had 4 for a year is fine; one that
@@ -42604,7 +42676,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         samples = ((smart_hist or {}).get(_disk_key(d)) or {}).get('samples') or []
         slope, latest = _smart_trend(samples, 'realloc')
         if slope > _REALLOC_GROWTH_PER_DAY and (latest or 0) > 0:
-            _add('realloc_growing', _RELIABILITY_WEIGHTS['realloc_growing'],
+            _add('realloc_growing', w['realloc_growing'],
                  f'{disk}: reallocated sectors growing (~{slope:.2f}/day, now {int(latest)})')
 
     # ── memory: ECC. Latest counters only — no history is stored, so this is a
@@ -42615,10 +42687,10 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         ue = ecc.get('ue')
         ce = ecc.get('ce')
         if isinstance(ue, (int, float)) and ue > 0:
-            _add('ecc_uncorrectable', _RELIABILITY_WEIGHTS['ecc_uncorrectable'],
+            _add('ecc_uncorrectable', w['ecc_uncorrectable'],
                  f'{int(ue)} uncorrectable ECC error(s) — the DIMM could not fix them')
         if isinstance(ce, (int, float)) and ce > 0:
-            _add('ecc_correctable', _RELIABILITY_WEIGHTS['ecc_correctable'] * min(3, int(ce)),
+            _add('ecc_correctable', w['ecc_correctable'] * min(3, int(ce)),
                  f'{int(ce)} correctable ECC error(s)')
 
     # ── churn: a box that keeps coming back has been going away ───────────────
@@ -42633,7 +42705,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             returns += 1
         prev_online = online
     if returns >= _REBOOT_CHURN_MIN:
-        _add('reboot_churn', _RELIABILITY_WEIGHTS['reboot_churn'] * (returns - _REBOOT_CHURN_MIN + 1),
+        _add('reboot_churn', w['reboot_churn'] * (returns - _REBOOT_CHURN_MIN + 1),
              f'came back online {returns}x in 7 days — unexplained restarts')
 
     # ── trajectory: is this host getting worse? ───────────────────────────────
@@ -42649,7 +42721,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         except Exception:
             slope = 0.0
         if slope < -_HEALTH_DECLINE_PER_DAY:
-            _add('health_declining', _RELIABILITY_WEIGHTS['health_declining'],
+            _add('health_declining', w['health_declining'],
                  f'health score trending down (~{abs(slope):.1f} points/day)')
 
     # ── heat kills hardware ───────────────────────────────────────────────────
@@ -42658,11 +42730,11 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     # v6.2.2 batch 3: operator-configurable overheating threshold.
     _crit_c = float(_config_ro().get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
     if temps and max(temps) >= _crit_c:
-        _add('overheating', _RELIABILITY_WEIGHTS['overheating'],
+        _add('overheating', w['overheating'],
              f'running at {int(max(temps))}°C')
 
     if isinstance(si.get('last_oom_ts'), (int, float)) and (now - si['last_oom_ts']) < 86400:
-        _add('oom_recent', _RELIABILITY_WEIGHTS['oom_recent'],
+        _add('oom_recent', w['oom_recent'],
              'the OOM killer fired in the last 24h')
 
     # DELIBERATELY NOT SCORED: unit flapping.
@@ -42696,6 +42768,7 @@ def _compute_fleet_reliability():
     per_dev_health = (health_hist.get('devices') or {}) if isinstance(health_hist, dict) else {}
     now = int(time.time())
     rel_cuts = _reliability_level_cuts()   # hoist the config read out of the loop
+    rel_weights = _reliability_weights()   # ditto — one config read for the fleet
     out = []
     for dev_id, dev in devices.items():
         if dev.get('agentless') or dev.get('decommissioned'):
@@ -42703,7 +42776,7 @@ def _compute_fleet_reliability():
         out.append(_device_reliability(
             dev_id, dev, hw.get(dev_id), smart_hist.get(dev_id),
             per_dev_health.get(dev_id), uptime.get(dev_id),
-            svcs.get(dev_id), posture.get(dev_id), now, rel_cuts))
+            svcs.get(dev_id), posture.get(dev_id), now, rel_cuts, rel_weights))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -42862,6 +42935,7 @@ def _compute_fleet_risk():
         ttl = get_online_ttl()
     except Exception:
         ttl = 180
+    weights = _risk_weights()   # hoist the config read out of the per-device loop
     out = []
     for dev_id, dev in devices.items():
         if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
@@ -42870,7 +42944,7 @@ def _compute_fleet_risk():
                                 cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl,
                                 hw.get(dev_id) or {},
                                 cve_ignore=cve_ignore, exposure_mutes=exposure_mutes,
-                                pkg_entry=pkgs.get(dev_id) or {}))
+                                pkg_entry=pkgs.get(dev_id) or {}, weights=weights))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -42934,13 +43008,14 @@ def _fleet_health(use_cache=True):
             continue
         per[did] = {'device_id': did, 'device_name': d.get('name', did),
                     'score': 100, 'critical': 0, 'warning': 0, 'info': 0}
+    hw = _health_weights()   # hoist the config read out of the per-item loop
     for it in items:
         did = it.get('device_id')
         sev = it.get('severity')
         rec = per.get(did)
-        if rec is None or sev not in _HEALTH_WEIGHTS:
+        if rec is None or sev not in hw:
             continue
-        rec['score'] = max(0, rec['score'] - _HEALTH_WEIGHTS[sev])
+        rec['score'] = max(0, rec['score'] - hw[sev])
         rec[sev] += 1
     # v3.13.0: fleet health is now derived purely from Needs-Attention signals.
     # The per-asset risk score is a SEPARATE lens (security posture) and no

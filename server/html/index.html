@@ -3676,6 +3676,174 @@
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
+        <div class="settings-section">
+          <div class="section-title">Health score weights</div>
+          <p class="hint">Points deducted from a device&#x27;s 0-100 health score per Needs-Attention item, by severity. Higher = a bigger hit to the score (and the fleet average). 0 disables that severity&#x27;s deduction. Blank uses the default.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-hw-critical" class="form-label">Critical item</label>
+              <input type="number" id="ap-hw-critical" class="form-input isl-80" min="0" max="1000" placeholder="25">
+            </div>
+            <div class="form-group">
+              <label for="ap-hw-warning" class="form-label">Warning item</label>
+              <input type="number" id="ap-hw-warning" class="form-input isl-80" min="0" max="1000" placeholder="8">
+            </div>
+            <div class="form-group">
+              <label for="ap-hw-info" class="form-label">Info item</label>
+              <input type="number" id="ap-hw-info" class="form-input isl-80" min="0" max="1000" placeholder="2">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Risk score weights</div>
+          <p class="hint">Points each posture/security signal adds to a device&#x27;s 0-100 risk score. Per-occurrence factors are marked (each) and may be capped. Higher = more impact on the score. 0 disables the factor. Blank uses the default.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-rw-offline" class="form-label">Offline</label>
+              <input type="number" id="ap-rw-offline" class="form-input isl-80" min="0" max="1000" placeholder="25">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-cve_critical" class="form-label">Critical CVE (each)</label>
+              <input type="number" id="ap-rw-cve_critical" class="form-input isl-80" min="0" max="1000" placeholder="8">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-cve_high" class="form-label">High CVE (each)</label>
+              <input type="number" id="ap-rw-cve_high" class="form-input isl-80" min="0" max="1000" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-pending_updates" class="form-label">Pending update (each)</label>
+              <input type="number" id="ap-rw-pending_updates" class="form-input isl-80" min="0" max="1000" placeholder="1">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-exposed_world" class="form-label">World-exposed service (each)</label>
+              <input type="number" id="ap-rw-exposed_world" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-policy_violation" class="form-label">Software-policy violation (each)</label>
+              <input type="number" id="ap-rw-policy_violation" class="form-input isl-80" min="0" max="1000" placeholder="6">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-expiry_expired" class="form-label">Expired contract/license</label>
+              <input type="number" id="ap-rw-expiry_expired" class="form-input isl-80" min="0" max="1000" placeholder="10">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-expiry_soon" class="form-label">Expiring soon (each)</label>
+              <input type="number" id="ap-rw-expiry_soon" class="form-input isl-80" min="0" max="1000" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-mount_issue" class="form-label">Mount issue (each)</label>
+              <input type="number" id="ap-rw-mount_issue" class="form-input isl-80" min="0" max="1000" placeholder="12">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-reboot_required" class="form-label">Reboot required</label>
+              <input type="number" id="ap-rw-reboot_required" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-firewall_off" class="form-label">No host firewall</label>
+              <input type="number" id="ap-rw-firewall_off" class="form-input isl-80" min="0" max="1000" placeholder="14">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-storage_degraded" class="form-label">Degraded pool/array (each)</label>
+              <input type="number" id="ap-rw-storage_degraded" class="form-input isl-80" min="0" max="1000" placeholder="12">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-smart_failure" class="form-label">SMART failure (each disk)</label>
+              <input type="number" id="ap-rw-smart_failure" class="form-input isl-80" min="0" max="1000" placeholder="12">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-kernel_outdated" class="form-label">Kernel outdated</label>
+              <input type="number" id="ap-rw-kernel_outdated" class="form-input isl-80" min="0" max="1000" placeholder="6">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-failed_units" class="form-label">Failed service (each)</label>
+              <input type="number" id="ap-rw-failed_units" class="form-input isl-80" min="0" max="1000" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-os_eol" class="form-label">OS end-of-life</label>
+              <input type="number" id="ap-rw-os_eol" class="form-input isl-80" min="0" max="1000" placeholder="14">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-os_eol_soon" class="form-label">OS EOL soon</label>
+              <input type="number" id="ap-rw-os_eol_soon" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-overheating" class="form-label">Overheating</label>
+              <input type="number" id="ap-rw-overheating" class="form-input isl-80" min="0" max="1000" placeholder="10">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-config_drift" class="form-label">Config drift (each file)</label>
+              <input type="number" id="ap-rw-config_drift" class="form-input isl-80" min="0" max="1000" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-clock_skew" class="form-label">Clock skew</label>
+              <input type="number" id="ap-rw-clock_skew" class="form-input isl-80" min="0" max="1000" placeholder="4">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-gateway_down" class="form-label">Gateway down</label>
+              <input type="number" id="ap-rw-gateway_down" class="form-input isl-80" min="0" max="1000" placeholder="10">
+            </div>
+            <div class="form-group">
+              <label for="ap-rw-oom_recent" class="form-label">Recent OOM kill</label>
+              <input type="number" id="ap-rw-oom_recent" class="form-input isl-80" min="0" max="1000" placeholder="6">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Reliability score weights</div>
+          <p class="hint">Points each signal adds to a host&#x27;s 0-100 failure-likelihood (reliability) score. Higher = more impact on the predicted-failure score. Some factors are capped internally. 0 disables the factor. Blank uses the default.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-lw-smart_failing" class="form-label">SMART failing</label>
+              <input type="number" id="ap-lw-smart_failing" class="form-input isl-80" min="0" max="1000" placeholder="40">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-realloc_growing" class="form-label">Reallocated sectors growing</label>
+              <input type="number" id="ap-lw-realloc_growing" class="form-input isl-80" min="0" max="1000" placeholder="25">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-pending_sectors" class="form-label">Pending sectors</label>
+              <input type="number" id="ap-lw-pending_sectors" class="form-input isl-80" min="0" max="1000" placeholder="20">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-wear_high" class="form-label">High wear</label>
+              <input type="number" id="ap-lw-wear_high" class="form-input isl-80" min="0" max="1000" placeholder="15">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-spare_low" class="form-label">NVMe spare low</label>
+              <input type="number" id="ap-lw-spare_low" class="form-input isl-80" min="0" max="1000" placeholder="20">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-ecc_uncorrectable" class="form-label">Uncorrectable ECC</label>
+              <input type="number" id="ap-lw-ecc_uncorrectable" class="form-input isl-80" min="0" max="1000" placeholder="30">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-ecc_correctable" class="form-label">Correctable ECC</label>
+              <input type="number" id="ap-lw-ecc_correctable" class="form-input isl-80" min="0" max="1000" placeholder="8">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-reboot_churn" class="form-label">Reboot churn</label>
+              <input type="number" id="ap-lw-reboot_churn" class="form-input isl-80" min="0" max="1000" placeholder="12">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-health_declining" class="form-label">Health declining</label>
+              <input type="number" id="ap-lw-health_declining" class="form-input isl-80" min="0" max="1000" placeholder="10">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-overheating" class="form-label">Overheating</label>
+              <input type="number" id="ap-lw-overheating" class="form-input isl-80" min="0" max="1000" placeholder="12">
+            </div>
+            <div class="form-group">
+              <label for="ap-lw-oom_recent" class="form-label">Recent OOM kill</label>
+              <input type="number" id="ap-lw-oom_recent" class="form-input isl-80" min="0" max="1000" placeholder="8">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
       </div>
 
       <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->
