@@ -23376,6 +23376,12 @@ def handle_config_get():
     safe.setdefault('health_grade_good', 90)   # health score ≥ → good (green)
     safe.setdefault('health_grade_fair', 70)   # ≥ → fair (amber)
     safe.setdefault('health_grade_poor', 40)   # ≥ → poor (orange); below → critical (red)
+    safe.setdefault('risk_level_critical', 80) # risk score ≥ → critical (red)
+    safe.setdefault('risk_level_high', 50)     # ≥ → high (amber)
+    safe.setdefault('risk_level_medium', 20)   # ≥ → medium; below → low (green)
+    safe.setdefault('reliability_crit', 70)    # failure-likelihood ≥ → critical
+    safe.setdefault('reliability_high', 45)    # ≥ → high
+    safe.setdefault('reliability_medium', 20)  # ≥ → medium; below → low
     # v6.2.2 batch 1: alert-firing thresholds surfaced on Settings → Alert
     # parameters. Defaults mirror the code constants (see handle_config_save +
     # the read-sites) so an unconfigured server renders the effective value.
@@ -24484,6 +24490,15 @@ def handle_config_save():
         ('health_grade_good',         1,   100,    True),
         ('health_grade_fair',         1,   100,    True),
         ('health_grade_poor',         1,   100,    True),
+        # Risk-score → critical/high/medium level cutoffs (Risk Assessment page).
+        ('risk_level_critical',       1,   100,    True),
+        ('risk_level_high',           1,   100,    True),
+        ('risk_level_medium',         1,   100,    True),
+        # Failure-likelihood → critical/high/medium cutoffs (Reliability page +
+        # the "likely to fail" Needs-Attention card/alert).
+        ('reliability_crit',          1,   100,    True),
+        ('reliability_high',          1,   100,    True),
+        ('reliability_medium',        1,   100,    True),
         # v6.2.2 batch 1: previously-hardcoded alert-firing thresholds, now
         # operator-configurable (Settings → Alert parameters). Defaults mirror
         # the code constants so an unconfigured server behaves identically.
@@ -42236,12 +42251,28 @@ _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
 
 
+def _risk_level_cuts():
+    """The critical/high/medium risk-score cutoffs, operator-tunable on Settings →
+    Alert parameters (risk_level_critical/high/medium; defaults 80/50/20). Clamped
+    to stay descending so a fat-fingered config can't invert the ladder (mirrors
+    _health_grade_cuts)."""
+    cfg = _config_ro()
+    try:
+        crit = int(cfg.get('risk_level_critical', 80))
+        high = min(int(cfg.get('risk_level_high', 50)), crit)
+        med = min(int(cfg.get('risk_level_medium', 20)), high)
+    except (TypeError, ValueError):
+        crit, high, med = 80, 50, 20
+    return crit, high, med
+
+
 def _risk_level(score):
-    if score >= 80:
+    crit, high, med = _risk_level_cuts()
+    if score >= crit:
         return 'critical'
-    if score >= 50:
+    if score >= high:
         return 'high'
-    if score >= 20:
+    if score >= med:
         return 'medium'
     return 'low'
 
@@ -42456,15 +42487,35 @@ _REBOOT_CHURN_MIN       = 3        # returns-to-online in the window before it c
 _HEALTH_DECLINE_PER_DAY = 0.5      # score points lost per day, averaged
 
 
-def _reliability_level(score):
-    for threshold, name in _RELIABILITY_LEVELS:
-        if score >= threshold:
-            return name
+def _reliability_level_cuts():
+    """The critical/high/medium failure-likelihood cutoffs, operator-tunable on
+    Settings → Alert parameters (reliability_crit/high/medium; defaults 70/45/20
+    from _RELIABILITY_LEVELS). Clamped descending so a fat-fingered config can't
+    invert the ladder. Read ONCE and passed into the per-device loop below."""
+    _dc = {name: threshold for threshold, name in _RELIABILITY_LEVELS}
+    cfg = _config_ro()
+    try:
+        crit = int(cfg.get('reliability_crit', _dc['critical']))
+        high = min(int(cfg.get('reliability_high', _dc['high'])), crit)
+        med = min(int(cfg.get('reliability_medium', _dc['medium'])), high)
+    except (TypeError, ValueError):
+        crit, high, med = _dc['critical'], _dc['high'], _dc['medium']
+    return crit, high, med
+
+
+def _reliability_level(score, cuts=None):
+    crit, high, med = cuts if cuts is not None else _reliability_level_cuts()
+    if score >= crit:
+        return 'critical'
+    if score >= high:
+        return 'high'
+    if score >= med:
+        return 'medium'
     return 'low'
 
 
 def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_rec,
-                        svc_rec, posture_rec, now):
+                        svc_rec, posture_rec, now, rel_cuts=None):
     """Composite failure-likelihood for ONE host, with an explainable factor list.
 
     Returns {device_id, name, score, level, factors:[{kind, points, detail}]}.
@@ -42587,7 +42638,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     score = min(100, sum(f['points'] for f in factors))
     factors.sort(key=lambda f: -f['points'])
     return {'device_id': dev_id, 'name': dev.get('name', dev_id),
-            'score': score, 'level': _reliability_level(score), 'factors': factors}
+            'score': score, 'level': _reliability_level(score, rel_cuts), 'factors': factors}
 
 
 def _compute_fleet_reliability():
@@ -42601,6 +42652,7 @@ def _compute_fleet_reliability():
     posture = (load(POSTURE_STATE_FILE) or {}) if backend_exists(POSTURE_STATE_FILE) else {}
     per_dev_health = (health_hist.get('devices') or {}) if isinstance(health_hist, dict) else {}
     now = int(time.time())
+    rel_cuts = _reliability_level_cuts()   # hoist the config read out of the loop
     out = []
     for dev_id, dev in devices.items():
         if dev.get('agentless') or dev.get('decommissioned'):
@@ -42608,7 +42660,7 @@ def _compute_fleet_reliability():
         out.append(_device_reliability(
             dev_id, dev, hw.get(dev_id), smart_hist.get(dev_id),
             per_dev_health.get(dev_id), uptime.get(dev_id),
-            svcs.get(dev_id), posture.get(dev_id), now))
+            svcs.get(dev_id), posture.get(dev_id), now, rel_cuts))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -42796,6 +42848,11 @@ def handle_risk_overview():
     for r in risks:
         counts[r['level']] = counts.get(r['level'], 0) + 1
     avg = round(sum(r['score'] for r in risks) / len(risks)) if risks else 0
+    # Deliver the operator-configured score→level cutoffs so the client paints the
+    # risk badge from the SAME boundaries the server used (mirrors _fleet_health's
+    # `grades`) — one source of truth, not a second hardcoded ladder in the UI.
+    _rc, _rh, _rm = _risk_level_cuts()
+    risk_levels = {'critical': _rc, 'high': _rh, 'medium': _rm}
     # master-improvement-scoping #10: conditional GET keyed off the same
     # cache-freshness marker _fleet_risk_cached() already maintains (mtime of
     # fleet_risk_cache.json, bumped exactly when the underlying data actually
@@ -42806,14 +42863,19 @@ def handle_risk_overview():
     # operator inputs), so it can't collide the way a coarse-granularity mtime
     # can when a write lands in the same second as the previous one.
     try:
-        etag_source = (_risk_fingerprint(), scope, _tgate)
+        # Fold the level cutoffs into the ETag: they change the delivered payload
+        # (badge colours) with no device-data write, so an mtime/fingerprint-only
+        # key would serve a stale 304 after an operator retunes them.
+        etag_source = (_risk_fingerprint(), scope, _tgate, _rc, _rh, _rm)
     except Exception:
         etag_source = None
     if etag_source is not None:
         _respond_with_etag(
-            {'devices': risks, 'counts': counts, 'avg': avg, 'total': len(risks)},
+            {'devices': risks, 'counts': counts, 'avg': avg,
+             'total': len(risks), 'risk_levels': risk_levels},
             etag_source)
-    respond(200, {'devices': risks, 'counts': counts, 'avg': avg, 'total': len(risks)})
+    respond(200, {'devices': risks, 'counts': counts, 'avg': avg,
+                  'total': len(risks), 'risk_levels': risk_levels})
 
 
 def _fleet_health(use_cache=True):

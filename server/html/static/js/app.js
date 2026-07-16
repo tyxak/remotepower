@@ -6270,6 +6270,7 @@ async function loadRisk() {
   tbody.innerHTML = _skeletonRows(4);
   const data = await api('GET', '/risk');
   if (!data) { tbody.innerHTML = '<tr><td colspan="4" class="c-red">Failed to load.</td></tr>'; return; }
+  _setRiskCuts(data.risk_levels);   // config cutoffs for the badge word + colour
   _riskResp = data;
   const s = document.getElementById('risk-summary');
   if (s) { const c = data.counts || {}; s.innerHTML = `${data.total} assets · avg ${data.avg} · critical <span class="${(c.critical||0) > 0 ? 'c-red fw-600' : ''}">${c.critical||0}</span> · high <span class="${(c.high||0) > 0 ? 'c-amber' : ''}">${c.high||0}</span> · medium ${c.medium||0}`; }
@@ -6351,13 +6352,17 @@ function _renderRisk() {
   }));
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4" class="hint">No monitored assets.</td></tr>'; return; }
   tbody.innerHTML = rows.map(r => {
-    const color = _riskColor(r.level);
+    // Derive the level from the delivered cutoffs so the badge word + colour use
+    // the operator config, not a second hardcoded ladder (the server computes the
+    // same level; this keeps them in lockstep even if a stale row is cached).
+    const level = _riskLevel(r.score);
+    const color = _riskColor(level);
     const factors = (r.factors || []).slice(0, 4).map(f =>
       `<span class="pill" data-color="var(--muted)" title="${escAttr(f.detail || '')}">${escHtml(f.kind.replace(/_/g, ' '))} +${f.points}</span>`).join(' ') || '<span class="hint">—</span>';
     return `<tr>
       <td class="fw-500 pointer" data-action="openDeviceDrawer" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}">${escHtml(r.device_name)}</td>
       <td><span class="fw-600" data-color="${color}">${r.score}</span>/100</td>
-      <td><span class="pill" data-color="${color}">${escHtml(r.level)}</span></td>
+      <td><span class="pill" data-color="${color}">${escHtml(level)}</span></td>
       <td>${factors}</td>
     </tr>`;
   }).join('');
@@ -7023,6 +7028,16 @@ function _healthClass(s) {
   if (typeof s !== 'number') return 'c-muted';
   const c = _HEALTH_CUTS;
   return s >= c.good ? 'c-green' : s >= c.fair ? 'c-amber' : 'c-red';
+}
+
+// operator-configured risk-score cutoffs, delivered from the server
+// (/api/risk → risk_levels). ONE source of truth for the risk level word +
+// badge colour, so the Risk page doesn't re-hardcode 80/50/20.
+let _RISK_CUTS = { critical: 80, high: 50, medium: 20 };
+function _setRiskCuts(g) { if (g && typeof g.critical === 'number') _RISK_CUTS = g; }
+function _riskLevel(s) {
+  const c = _RISK_CUTS;
+  return s >= c.critical ? 'critical' : s >= c.high ? 'high' : s >= c.medium ? 'medium' : 'low';
 }
 // Generic score→class ladders — cutoffs are ARGS because they genuinely differ
 // per metric (compliance 80/50, uptime 90/70, hardening 75/50, …). Higher=better
@@ -18647,6 +18662,12 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-grade-good',                'health_grade_good',          90],
   ['ap-grade-fair',                'health_grade_fair',          70],
   ['ap-grade-poor',                'health_grade_poor',          40],
+  ['ap-risk-crit',                 'risk_level_critical',        80],
+  ['ap-risk-high',                 'risk_level_high',            50],
+  ['ap-risk-medium',               'risk_level_medium',          20],
+  ['ap-rel-crit',                  'reliability_crit',           70],
+  ['ap-rel-high',                  'reliability_high',           45],
+  ['ap-rel-medium',                'reliability_medium',         20],
   // v6.2.2 batch 1: newly operator-configurable alert-firing thresholds.
   ['ap-inode-warn',                'inode_warn_percent',         85],
   ['ap-inode-crit',                'inode_crit_percent',         95],

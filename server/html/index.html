@@ -3492,6 +3492,46 @@
         </div>
 
         <div class="settings-section">
+          <div class="section-title">Risk levels</div>
+          <p class="hint">The per-asset security/posture <strong>risk score</strong> boundaries that decide an asset's level and badge colour on the Risk Assessment page — <strong>critical</strong> (red), <strong>high</strong> (amber), <strong>medium</strong>; anything below medium is <strong>low</strong> (green). A score at or above each value takes that level. Keep them descending.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-risk-crit" class="form-label">Critical ≥ (red)</label>
+              <input type="number" id="ap-risk-crit" class="form-input isl-80" min="1" max="100" placeholder="80">
+            </div>
+            <div class="form-group">
+              <label for="ap-risk-high" class="form-label">High ≥ (amber)</label>
+              <input type="number" id="ap-risk-high" class="form-input isl-80" min="1" max="100" placeholder="50">
+            </div>
+            <div class="form-group">
+              <label for="ap-risk-medium" class="form-label">Medium ≥</label>
+              <input type="number" id="ap-risk-medium" class="form-input isl-80" min="1" max="100" placeholder="20">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Reliability levels</div>
+          <p class="hint">The failure-likelihood <strong>reliability score</strong> boundaries that decide a host's predicted-failure level — <strong>critical</strong>, <strong>high</strong>, <strong>medium</strong>; below medium a host is not flagged. A host crossing the medium cutoff raises the "likely to fail" Needs-Attention card and a reliability alert, so a low bar here becomes noise. Keep them descending.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-rel-crit" class="form-label">Critical ≥</label>
+              <input type="number" id="ap-rel-crit" class="form-input isl-80" min="1" max="100" placeholder="70">
+            </div>
+            <div class="form-group">
+              <label for="ap-rel-high" class="form-label">High ≥</label>
+              <input type="number" id="ap-rel-high" class="form-input isl-80" min="1" max="100" placeholder="45">
+            </div>
+            <div class="form-group">
+              <label for="ap-rel-medium" class="form-label">Medium ≥</label>
+              <input type="number" id="ap-rel-medium" class="form-input isl-80" min="1" max="100" placeholder="20">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
           <div class="section-title">Capacity limits</div>
           <p class="hint">Fullness percentages that fire <code>metric_warning</code>/<code>metric_critical</code> for inode, file-descriptor and conntrack-table exhaustion. A per-device threshold override still wins over these fleet defaults.</p>
           <div class="settings-row isl-57">

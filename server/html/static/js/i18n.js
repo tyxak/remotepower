@@ -35,6 +35,8 @@
     'Server health':         { fr: 'État du serveur', de: 'Serverzustand', zh: '服务器健康', hi: 'सर्वर स्वास्थ्य', es: 'Estado del servidor', ar: 'صحة الخادم' },
     'Health grade cutoffs':  { fr: 'Seuils de note de santé', de: 'Zustandsnoten-Schwellen', zh: '健康评级阈值', hi: 'स्वास्थ्य ग्रेड सीमाएँ', es: 'Umbrales de calificación de salud', ar: 'حدود تقييم الصحة' },
     'Capacity limits':       { fr: 'Limites de capacité', de: 'Kapazitätsgrenzen', zh: '容量限制', hi: 'क्षमता सीमाएँ', es: 'Límites de capacidad', ar: 'حدود السعة' },
+    'Risk levels':           { fr: 'Niveaux de risque', de: 'Risikostufen', zh: '风险级别', hi: 'जोखिम स्तर', es: 'Niveles de riesgo', ar: 'مستويات المخاطر' },
+    'Reliability levels':    { fr: 'Niveaux de fiabilité', de: 'Zuverlässigkeitsstufen', zh: '可靠性级别', hi: 'विश्वसनीयता स्तर', es: 'Niveles de fiabilidad', ar: 'مستويات الموثوقية' },
     'Reachability':          { fr: 'Accessibilité', de: 'Erreichbarkeit', zh: '可达性', hi: 'पहुँच-योग्यता', es: 'Accesibilidad', ar: 'إمكانية الوصول' },
     'Certificates':          { fr: 'Certificats', de: 'Zertifikate', zh: '证书', hi: 'प्रमाणपत्र', es: 'Certificados', ar: 'الشهادات' },
     'Lifecycle':             { fr: 'Cycle de vie', de: 'Lebenszyklus', zh: '生命周期', hi: 'जीवनचक्र', es: 'Ciclo de vida', ar: 'دورة الحياة' },
