@@ -230,7 +230,7 @@ def normalize_listing(items: Any) -> list[dict]:
     return out
 
 
-def summarise(items: list[dict]) -> dict:
+def summarise(items: list[dict], restarting_min: int = 5) -> dict:
     """Return aggregate counts for the device-list overview.
 
     Used by the Devices page sidebar / CMDB list to show
@@ -256,7 +256,7 @@ def summarise(items: list[dict]) -> dict:
             running += 1
         elif any(t in status for t in ("exited", "stopped", "dead", "terminated")):
             stopped += 1
-        if c.get("restart_count", 0) >= 5:
+        if c.get("restart_count", 0) >= restarting_min:
             restarting += 1
         rt = c.get("runtime") or "unknown"
         by_runtime[rt] = by_runtime.get(rt, 0) + 1

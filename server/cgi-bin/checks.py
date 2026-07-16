@@ -22,6 +22,12 @@ test suite. Part of the Makefile LINT + TYPECHECK baseline.
 
 import time
 
+# v6.2.2 threshold batch 5: seconds-per-day, for the OOM "days ago" display
+# divisor. The OOM *recency* window itself is operator-configurable and passed
+# in as `oom_recent_window_seconds` (single source, mirrors api.py) — this
+# constant is only the fixed calendar divisor, never a threshold.
+_SECONDS_PER_DAY = 86400
+
 
 def _exposure_muted(process, proto, port, mutes, device_id=None):
     """True if a (process, proto, port) socket matches any exposure-mute rule.
@@ -62,6 +68,11 @@ def _host_checks(
     custom_defs=None,
     scripts=None,
     exposure_mutes=None,
+    disk_forecast_crit_days=7,
+    disk_forecast_warn_days=21,
+    oom_recent_window_seconds=_SECONDS_PER_DAY,
+    av_sig_stale_days=7,
+    defender_sig_warn_days=3,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -324,13 +335,15 @@ def _host_checks(
 
     lo = si.get("last_oom_ts")
     if isinstance(lo, (int, float)) and lo > 0:
-        recent = (now - lo) < 86400
+        recent = (now - lo) < oom_recent_window_seconds
+        _win_h = max(1, int(oom_recent_window_seconds // 3600))
         add(
             "oom",
             "OOM killer",
             "core",
             "warning" if recent else "ok",
-            "fired in last 24h" if recent else f"last {(now - lo) // 86400}d ago",
+            f"fired in last {_win_h}h" if recent
+            else f"last {(now - lo) // _SECONDS_PER_DAY}d ago",
         )
     # v4.1.0: mail queue depth (agent reads postfix/sendmail/exim mailq).
     mq = si.get("mailq")
@@ -373,7 +386,8 @@ def _host_checks(
             "disk_eta",
             "Disk fill ETA",
             "storage",
-            "critical" if disk_eta <= 2 else "warning" if disk_eta <= 7 else "ok",
+            "critical" if disk_eta <= disk_forecast_crit_days
+            else "warning" if disk_eta <= disk_forecast_warn_days else "ok",
             f"~{disk_eta:.1f} day(s) to full at current trend",
         )
     pools = si.get("storage_health") or []
@@ -415,7 +429,8 @@ def _host_checks(
                 "win_av_signatures",
                 "Defender signature age",
                 "security",
-                "critical" if age >= 7 else "warning" if age >= 3 else "ok",
+                "critical" if age >= av_sig_stale_days
+                else "warning" if age >= defender_sig_warn_days else "ok",
                 f"{int(age)} day(s) old",
             )
         # BitLocker on the OS volume.

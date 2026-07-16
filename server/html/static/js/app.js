@@ -7040,7 +7040,8 @@ function _setRiskCuts(g) { if (g && typeof g.critical === 'number') _RISK_CUTS =
 // the server (thermal / gpu / disk-health → hw_bands). Drives the SSD-wear and
 // GPU-temp cell colours from the SAME boundaries the server flags on — one source
 // of truth, no second hardcoded ladder. Defaults mirror the code constants.
-let _HW_BANDS = { thermal_hot: 75, thermal_crit: 85, gpu_hot: 85, wear_warn: 80, wear_high: 90 };
+let _HW_BANDS = { thermal_hot: 75, thermal_crit: 85, gpu_hot: 85, wear_warn: 80, wear_high: 90,
+                  disk_forecast_crit: 7, disk_forecast_warn: 21 };
 function _setHwBands(b) { if (b && typeof b === 'object') Object.assign(_HW_BANDS, b); }
 function _riskLevel(s) {
   const c = _RISK_CUTS;
@@ -14820,7 +14821,10 @@ function _renderDiskHealth() {
   const healthy = tracked.filter(t => !riskKeys.has(`${t.device}|${t.disk}`));
   tbody.innerHTML = rows.map(r => {
     const eta = r.eta_days != null ? (r.eta_days < 1 ? 'imminent' : `~${r.eta_days}d`) : '—';
-    const etaCls = (r.eta_days != null && r.eta_days < 30) ? 'c-red' : (r.eta_days != null && r.eta_days < 90) ? 'c-amber' : '';
+    // v6.2.2 batch 5: colour from the server-delivered disk-fill bands (one source
+    // with the NA digest + Checks engine), not a hardcoded 30/90 ladder.
+    const etaCls = (r.eta_days != null && r.eta_days <= _HW_BANDS.disk_forecast_crit) ? 'c-red'
+                 : (r.eta_days != null && r.eta_days <= _HW_BANDS.disk_forecast_warn) ? 'c-amber' : '';
     return `<tr>
       <td>${riskPill(r.risk)}</td>
       <td class="fw-500">${escHtml(r.device)}</td>
@@ -18702,6 +18706,36 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-smart-realloc-crit',        'smart_realloc_crit_sectors', 100],
   ['ap-disk-eta-days',             'disk_predict_medium_eta_days', 180],
   ['ap-ecc-min-delta',             'ecc_error_alert_min_delta',  0],
+  // v6.2.2 batch 5: final threshold sweep — collapsed divergences + remaining scalars.
+  ['ap-disk-fc-crit',              'disk_forecast_crit_days',    7],
+  ['ap-disk-fc-warn',              'disk_forecast_warn_days',    21],
+  ['ap-oom-window-s',              'oom_recent_window_seconds',  86400],
+  ['ap-defender-warn-days',        'defender_sig_warn_days',     3],
+  ['ap-patch-na-warn',             'patch_na_warn_count',        20],
+  ['ap-container-restart-delta',   'container_restart_delta_threshold', 1],
+  ['ap-container-restarting-min',  'container_restarting_min',   5],
+  ['ap-attn-event-ttl-h',          'attention_event_ttl_hours',  24],
+  ['ap-afterhours-window-h',       'after_hours_na_window_hours', 24],
+  ['ap-snmp-cpu-warn',             'snmp_cpu_warn_percent',      75],
+  ['ap-snmp-cpu-crit',             'snmp_cpu_crit_percent',      90],
+  ['ap-agentless-ping-fails',      'agentless_ping_fail_threshold', 2],
+  ['ap-ct-fail-backoff',           'ct_fail_backoff',            3],
+  ['ap-github-issue-cap',          'github_new_issue_per_poll_cap', 10],
+  ['ap-self-load-ratio',           'self_high_load_ratio',       2],
+  ['ap-self-mem-pct',              'self_mem_warn_pct',          90],
+  ['ap-self-online-pct',           'self_online_pct_warn',       80],
+  ['ap-compliance-tls-days',       'compliance_tls_expiring_days', 21],
+  ['ap-compliance-lookback',       'compliance_lookback_days',   30],
+  ['ap-cis-disk-max',              'cis_disk_pct_max',           90],
+  ['ap-cis-swap-max',              'cis_swap_pct_max',           80],
+  ['ap-dmarc-pct-min',             'dmarc_pct_min',              100],
+  ['ap-pmox-backup-days',          'proxmox_backup_warn_days',   7],
+  ['ap-metric-recovery-buffer',    'metric_recovery_buffer',     5],
+  ['ap-min-online-ttl',            'min_online_ttl',             150],
+  ['ap-unstable-returns',          'unstable_host_returns_min',  3],
+  ['ap-unstable-window-days',      'unstable_host_window_days',  7],
+  ['ap-rel-reboot-churn',          'reliability_reboot_churn_min', 3],
+  ['ap-rel-wear-high',             'reliability_wear_high_pct',  85],
 ];
 
 // v6.2.2 batch 4: per-factor SCORE weights (health / risk / reliability), each an

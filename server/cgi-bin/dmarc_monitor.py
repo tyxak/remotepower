@@ -93,7 +93,7 @@ def parse_dkim(records):
     return {}
 
 
-def grade(dmarc, spf, dkim, dkim_checked):
+def grade(dmarc, spf, dkim, dkim_checked, pct_min=100):
     """Grade the posture → (status, reasons).
 
     status:  'ok'   — enforcing (p=quarantine/reject), rua set, SPF -all/~all
@@ -107,7 +107,7 @@ def grade(dmarc, spf, dkim, dkim_checked):
         p = dmarc.get('policy')
         if p not in ('quarantine', 'reject'):
             reasons.append(f"DMARC policy '{p or 'none'}' — monitoring only, not enforcing")
-        if dmarc.get('pct', 100) < 100:
+        if dmarc.get('pct', 100) < pct_min:
             reasons.append(f"DMARC pct={dmarc['pct']} (not all mail enforced)")
         if not dmarc.get('rua'):
             reasons.append('no aggregate-report (rua) address')
@@ -125,7 +125,7 @@ def grade(dmarc, spf, dkim, dkim_checked):
     return 'weak', reasons
 
 
-def check_domain(domain, dkim_selector=''):
+def check_domain(domain, dkim_selector='', pct_min=100):
     """Full posture check for one domain. Never raises — DNS failures become
     per-record ``errors`` entries; missing records are graded, not errored."""
     out = {
@@ -148,7 +148,7 @@ def check_domain(domain, dkim_selector=''):
             out['dkim'] = parse_dkim(_txt_records(f'{dkim_selector}._domainkey.{domain}'))
         except Exception as e:
             out['errors']['dkim'] = str(e)[:120]
-    out['status'], out['reasons'] = grade(out['dmarc'], out['spf'], out['dkim'], dkim_checked)
+    out['status'], out['reasons'] = grade(out['dmarc'], out['spf'], out['dkim'], dkim_checked, pct_min)
     return out
 
 

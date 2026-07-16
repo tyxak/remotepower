@@ -1330,10 +1330,19 @@ class TestHostChecks(_HandlerBase):
         # No eta passed → omitted.
         chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
         self.assertNotIn('disk_eta', chk)
-        for days, want in ((30, 'ok'), (5, 'warning'), (1, 'critical')):
+        # v6.2.2 batch 5: the Checks-engine disk-ETA cutoffs are now the
+        # operator-configurable disk_forecast_crit_days (7) / _warn_days (21) —
+        # ONE source shared with the NA digest + the frontend cell (was the
+        # divergent crit≤2/warn≤7 ladder). Defaults exercised here.
+        for days, want in ((30, 'ok'), (14, 'warning'), (3, 'critical')):
             chk = {c['key']: c for c in
                    api._host_checks('d1', dev, {}, [], now, 180, disk_eta=days)}
             self.assertEqual(chk['disk_eta']['status'], want, days)
+        # explicit overrides are honoured (collapsed-source contract)
+        chk = {c['key']: c for c in
+               api._host_checks('d1', dev, {}, [], now, 180, disk_eta=5,
+                                disk_forecast_crit_days=2, disk_forecast_warn_days=7)}
+        self.assertEqual(chk['disk_eta']['status'], 'warning')
 
     def test_disk_fill_eta_helper(self):
         now = int(api.time.time())

@@ -716,6 +716,10 @@ DEFAULT_METRIC_THRESHOLDS = {
     'mailq_crit_count':        500,
 }
 METRIC_RECOVERY_BUFFER = 5      # percentage points (or load-ratio*100 equivalent)
+# v6.2.2 batch 5: the "recent OOM kill" window — how long after an OOM kill a
+# host still counts as recently-OOM'd (Checks engine, risk/reliability scores,
+# NA rollup). Single source; operator-tunable via `oom_recent_window_seconds`.
+OOM_RECENT_WINDOW_SECONDS = 86400   # 24h
 METRIC_KINDS           = ('disk', 'memory', 'swap', 'cpu')
 METRIC_SEVERITIES      = ('warning', 'critical')
 
@@ -1692,7 +1696,25 @@ def get_online_ttl():
         v = int(_config_ro().get('online_ttl', DEFAULT_ONLINE_TTL))
     except (TypeError, ValueError):
         v = DEFAULT_ONLINE_TTL
-    return max(MIN_ONLINE_TTL, v)
+    # v6.2.2 batch 5: the flap floor is operator-tunable (min_online_ttl);
+    # default = the code constant so an unconfigured server is unchanged.
+    try:
+        floor = int(_config_ro().get('min_online_ttl', MIN_ONLINE_TTL) or MIN_ONLINE_TTL)
+    except (TypeError, ValueError):
+        floor = MIN_ONLINE_TTL
+    return max(floor, v)
+
+
+def _oom_recent_window():
+    """v6.2.2 batch 5: seconds after an OOM kill during which a host still counts
+    as recently-OOM'd. Single config source (`oom_recent_window_seconds`) for the
+    Checks engine, risk/reliability scores and the NA rollup; default = constant."""
+    try:
+        return int(_config_ro().get('oom_recent_window_seconds',
+                                    OOM_RECENT_WINDOW_SECONDS)
+                   or OOM_RECENT_WINDOW_SECONDS)
+    except (TypeError, ValueError):
+        return OOM_RECENT_WINDOW_SECONDS
 
 
 def _agentless_online(dev):
@@ -1863,6 +1885,12 @@ def run_agentless_reachability_if_due():
     cfg['last_agentless_ping'] = now
     save(CONFIG_FILE, cfg)
 
+    try:
+        _ping_fail_thresh = int(cfg.get('agentless_ping_fail_threshold',
+                                        AGENTLESS_PING_FAIL_THRESHOLD)
+                                or AGENTLESS_PING_FAIL_THRESHOLD)
+    except (TypeError, ValueError):
+        _ping_fail_thresh = AGENTLESS_PING_FAIL_THRESHOLD
     transitions = []   # (dev_id, name, online_bool) → fire webhook after the lock
     states = []        # (dev_id, name, online_bool) for EVERY probed device
     with _LockedUpdate(DEVICES_FILE) as store:
@@ -1881,7 +1909,7 @@ def run_agentless_reachability_if_due():
             else:
                 fails = int(dev.get('reach_fails', 0)) + 1
                 dev['reach_fails'] = fails
-                if was_reachable and fails >= AGENTLESS_PING_FAIL_THRESHOLD:
+                if was_reachable and fails >= _ping_fail_thresh:
                     dev['reachable'] = False
                     transitions.append((dev_id, dev.get('name', dev_id), False))
             states.append((dev_id, dev.get('name', dev_id), bool(dev.get('reachable', True))))
@@ -11785,7 +11813,8 @@ def handle_device_metric_thresholds(dev_id):
             'overrides': overrides,
             'effective': effective,
             'defaults':  DEFAULT_METRIC_THRESHOLDS,
-            'recovery_buffer_percent': METRIC_RECOVERY_BUFFER,
+            'recovery_buffer_percent': int(_config_ro().get(
+                'metric_recovery_buffer', METRIC_RECOVERY_BUFFER)),
         })
 
     if method() == 'DELETE':
@@ -22184,8 +22213,12 @@ def _persist_integration_results(results):
                 except (TypeError, ValueError):
                     continue
             new_issues.sort(key=lambda i: i.get('number') or 0)
-            overflow = len(new_issues) - 10
-            for item in new_issues[:10]:    # anti-burst cap per poll
+            try:
+                _gh_cap = int(_config_ro().get('github_new_issue_per_poll_cap', 10) or 10)
+            except (TypeError, ValueError):
+                _gh_cap = 10
+            overflow = len(new_issues) - _gh_cap
+            for item in new_issues[:_gh_cap]:    # anti-burst cap per poll
                 pending.append(('github_new_issue', {
                     'label': label, 'integration_id': key,
                     'repo': item.get('repo', ''),
@@ -23420,6 +23453,38 @@ def handle_config_get():
     for _wpfx, _wdict in _SCORE_WEIGHT_PREFIXES:
         for _wk, _wv in _wdict.items():
             safe.setdefault(f'{_wpfx}{_wk}', _wv)
+    # v6.2.2 batch 5: final threshold sweep — divergent duplicate literals
+    # collapsed to one config source each, plus the remaining integer
+    # monitoring/NA/control-plane scalars. Defaults mirror the code constants.
+    safe.setdefault('disk_forecast_crit_days', 7)       # disk-fill ETA → critical (NA/Checks/cell)
+    safe.setdefault('disk_forecast_warn_days', 21)      # disk-fill ETA → warning
+    safe.setdefault('oom_recent_window_seconds', OOM_RECENT_WINDOW_SECONDS)  # "recent OOM" window
+    safe.setdefault('defender_sig_warn_days', 3)        # Defender sig age → warning (crit = av_sig_stale_days)
+    safe.setdefault('patch_na_warn_count', 20)          # pending updates → NA warning (else info)
+    safe.setdefault('container_restart_delta_threshold', CONTAINER_RESTART_DELTA_THRESHOLD)  # restart delta → alert
+    safe.setdefault('container_restarting_min', 5)      # restart_count ≥ → "restarting" (staged; containers.py)
+    safe.setdefault('attention_event_ttl_hours', 24)    # transient NA event auto-expiry
+    safe.setdefault('after_hours_na_window_hours', 24)  # after-hours activity NA window
+    safe.setdefault('snmp_cpu_warn_percent', DEFAULT_METRIC_THRESHOLDS['snmp_cpu_warn_percent'])
+    safe.setdefault('snmp_cpu_crit_percent', DEFAULT_METRIC_THRESHOLDS['snmp_cpu_crit_percent'])
+    safe.setdefault('agentless_ping_fail_threshold', AGENTLESS_PING_FAIL_THRESHOLD)  # consecutive fails → offline
+    safe.setdefault('ct_fail_backoff', CT_FAIL_BACKOFF)  # CT poll fails → circuit-break (staged; tls_ct_handlers.py)
+    safe.setdefault('github_new_issue_per_poll_cap', 10)  # anti-burst cap per integration poll
+    safe.setdefault('self_high_load_ratio', 2)          # self #site-health: load_5m > cores*THIS
+    safe.setdefault('self_mem_warn_pct', 90)            # self #site-health: memory used %
+    safe.setdefault('self_online_pct_warn', 80)         # self #site-health: < THIS% devices online
+    safe.setdefault('compliance_tls_expiring_days', 21)  # compliance TLS-expiry window
+    safe.setdefault('compliance_lookback_days', 30)     # compliance recent-events window
+    safe.setdefault('cis_disk_pct_max', 90)             # CIS: root filesystem under THIS%
+    safe.setdefault('cis_swap_pct_max', 80)             # CIS: swap under THIS%
+    safe.setdefault('dmarc_pct_min', 100)               # DMARC min pct (staged; dmarc_monitor.py)
+    safe.setdefault('proxmox_backup_warn_days', 7)      # stale Proxmox guest-backup age
+    safe.setdefault('metric_recovery_buffer', METRIC_RECOVERY_BUFFER)  # metric-recovered hysteresis
+    safe.setdefault('min_online_ttl', MIN_ONLINE_TTL)   # online-TTL clamp floor (anti-flap)
+    safe.setdefault('unstable_host_returns_min', 3)     # returns-to-online in window → unstable
+    safe.setdefault('unstable_host_window_days', 7)     # unstable-host detection window
+    safe.setdefault('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)  # returns in window → reboot-churn factor
+    safe.setdefault('reliability_wear_high_pct', _WEAR_HIGH_PCT)        # SSD wear → high-wear reliability factor
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24552,6 +24617,39 @@ def handle_config_save():
         ('smart_realloc_crit_sectors', 1,  100000, True),
         ('disk_predict_medium_eta_days', 1, 3650,  True),
         ('ecc_error_alert_min_delta', 0,   100000, True),
+        # v6.2.2 batch 5: final threshold sweep — collapsed divergences + the
+        # remaining monitoring/NA/control-plane scalars. Blankable; blank →
+        # the code default. metric_recovery_buffer keeps a 0 floor (0 = no
+        # hysteresis, a valid tuning); the rest keep a floor of 1.
+        ('disk_forecast_crit_days',   1,   3650,   True),
+        ('disk_forecast_warn_days',   1,   3650,   True),
+        ('oom_recent_window_seconds', 60,  31536000, True),
+        ('defender_sig_warn_days',    1,   365,    True),
+        ('patch_na_warn_count',       1,   100000, True),
+        ('container_restart_delta_threshold', 1, 1000, True),
+        ('container_restarting_min',  1,   1000,   True),
+        ('attention_event_ttl_hours', 1,   8760,   True),
+        ('after_hours_na_window_hours', 1, 8760,   True),
+        ('snmp_cpu_warn_percent',     1,   100,    True),
+        ('snmp_cpu_crit_percent',     1,   100,    True),
+        ('agentless_ping_fail_threshold', 1, 100,  True),
+        ('ct_fail_backoff',           1,   100,    True),
+        ('github_new_issue_per_poll_cap', 1, 1000, True),
+        ('self_high_load_ratio',      1,   100,    True),
+        ('self_mem_warn_pct',         1,   100,    True),
+        ('self_online_pct_warn',      1,   100,    True),
+        ('compliance_tls_expiring_days', 1, 3650,  True),
+        ('compliance_lookback_days',  1,   3650,   True),
+        ('cis_disk_pct_max',          1,   100,    True),
+        ('cis_swap_pct_max',          1,   100,    True),
+        ('dmarc_pct_min',             1,   100,    True),
+        ('proxmox_backup_warn_days',  1,   3650,   True),
+        ('metric_recovery_buffer',    0,   100,    True),
+        ('min_online_ttl',            1,   100000, True),
+        ('unstable_host_returns_min', 1,   1000,   True),
+        ('unstable_host_window_days', 1,   365,    True),
+        ('reliability_reboot_churn_min', 1, 1000,  True),
+        ('reliability_wear_high_pct', 1,   100,    True),
     # v6.2.2 batch 4: per-factor score weights (health/risk/reliability), 0..1000,
     # blankable (blank → the code default). Generated from the constant dicts.
     ) + _weight_param_specs():
@@ -28298,15 +28396,26 @@ def handle_self_status():
     # Python parsed that as `(x > y) if cpu_count else 999`, so when
     # os.cpu_count() returned None/0 the whole expression evaluated to
     # 999 (truthy) and 'high load' fired on every status response.
+    # v6.2.2 batch 5: RemotePower self-health cutoffs, operator-tunable; default =
+    # the code literals so an unconfigured server behaves identically.
+    _shc = _config_ro()
+    def _sh_int(key, dflt):
+        try:
+            return int(_shc.get(key, dflt) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    _load_ratio = _sh_int('self_high_load_ratio', 2)
+    _mem_warn = _sh_int('self_mem_warn_pct', 90)
+    _online_warn = _sh_int('self_online_pct_warn', 80)
     _cpu_n = os.cpu_count() or 0
     _load_5m = perf.get('load_avg', {}).get('5m', 0)
-    if _cpu_n and _load_5m > _cpu_n * 2:
+    if _cpu_n and _load_5m > _cpu_n * _load_ratio:
         flags.append('high load')
-    if perf.get('memory', {}).get('used_pct', 0) > 90:
-        flags.append('memory > 90%')
+    if perf.get('memory', {}).get('used_pct', 0) > _mem_warn:
+        flags.append(f'memory > {_mem_warn}%')
     if isinstance(out.get('devices'), dict) and out['devices'].get('monitored'):
-        if perf.get('devices_online_pct', 100) < 80:
-            flags.append('< 80% devices online')
+        if perf.get('devices_online_pct', 100) < _online_warn:
+            flags.append(f'< {_online_warn}% devices online')
     if isinstance(out.get('webhooks', {}).get('last_24h'), dict):
         rate = out['webhooks']['last_24h'].get('rate')
         # rate is None when every event was suppressed/disabled/filtered —
@@ -30386,7 +30495,7 @@ def handle_device_containers(dev_id: str) -> None:
         'is_stale':  containers_mod.is_stale(reported_at, now, ttl),
         'stale_ttl': ttl,
         'items':     items,
-        'summary':   containers_mod.summarise(items),
+        'summary':   containers_mod.summarise(items, int(_config_ro().get('container_restarting_min', 5))),
         # v6.1.2: `docker system df` — the footprint breakdown + per-volume
         # sizes, so "which volume is eating 200 GB" is answerable here rather
         # than by SSHing in.
@@ -32648,7 +32757,7 @@ def handle_containers_overview() -> None:
             'os':          devices[dev_id].get('os', ''),
             'reported_at': ts,
             'is_stale':    is_stale,
-            'summary':     containers_mod.summarise(items),
+            'summary':     containers_mod.summarise(items, int(_config_ro().get('container_restarting_min', 5))),
         }
         # v6.1.2: `docker system df` footprint (images / containers / volumes /
         # build cache + what's reclaimable). Absent on hosts that haven't
@@ -33104,7 +33213,8 @@ def handle_dmarc_scan() -> None:
             continue
         try:
             results[tid] = dmarc_monitor.check_domain(
-                t.get('domain', ''), t.get('dkim_selector', ''))
+                t.get('domain', ''), t.get('dkim_selector', ''),
+                int(_config_ro().get('dmarc_pct_min', 100)))
         except Exception as e:
             sys.stderr.write(f'[remotepower] dmarc check failed {t.get("domain")}: {e}\n')
     save(DMARC_RESULTS_FILE, results)
@@ -37034,7 +37144,7 @@ def _rag_fleet_rollups():
         if (si.get('gateway') or {}).get('reachable') is False:
             add('an unreachable default gateway', did)
         _lt = si.get('last_oom_ts')
-        if isinstance(_lt, (int, float)) and (now - _lt) < 86400:
+        if isinstance(_lt, (int, float)) and (now - _lt) < _oom_recent_window():
             add('a recent OOM kill', did)
         ls = d.get('last_seen', 0)
         if ls and (now - ls) > ttl: add('offline status', did, f'{(now - ls) // 60} min')
@@ -38259,6 +38369,16 @@ def _compliance_facts():
 
     facts = {'devices': len(devices)}
 
+    # v6.2.2 batch 5: operator-configurable compliance windows (default = code
+    # literals). One config source for the TLS-expiry and recent-events windows.
+    def _compl_int(key, dflt):
+        try:
+            return int(cfg.get(key, dflt) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    _compliance_tls_days = _compl_int('compliance_tls_expiring_days', 21)
+    _compliance_lookback_days = _compl_int('compliance_lookback_days', 30)
+
     # Patches / reboots from sysinfo + config threshold.
     patch_thresh = int((cfg.get('thresholds') or {}).get('patch_alert', 50) or 50)
     pending_bad, reboot = [], []
@@ -38305,7 +38425,7 @@ def _compliance_facts():
             if not r:
                 continue
             days = tls_monitor.days_until_expiry(r)
-            if isinstance(days, (int, float)) and days <= 21:
+            if isinstance(days, (int, float)) and days <= _compliance_tls_days:
                 expiring.append(f"{t.get('host', tid)}:{t.get('port', 443)}")
         facts['tls_expiring'] = expiring
         facts['tls_monitored'] = len(tls_targets)
@@ -38357,7 +38477,7 @@ def _compliance_facts():
     except Exception:
         facts['ports_monitored'] = 0
     try:
-        cutoff = now - 30 * 86400
+        cutoff = now - _compliance_lookback_days * 86400
         events = (load(FLEET_EVENTS_FILE) or {}).get('events', [])
         recent = [e for e in events
                   if isinstance(e, dict) and e.get('ts', 0) >= cutoff]
@@ -40185,7 +40305,14 @@ def handle_disk_health():
     by = {'critical': 0, 'high': 0, 'medium': 0}
     for r in rows:
         by[r['risk']] = by.get(r['risk'], 0) + 1
-    unstable = _unstable_hosts_view()
+    _uc = _config_ro()
+    def _u_int(key, dflt):
+        try:
+            return int(_uc.get(key, dflt) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    unstable = _unstable_hosts_view(days=_u_int('unstable_host_window_days', 7),
+                                    threshold=_u_int('unstable_host_returns_min', 3))
     tracked = _disk_tracked_view()
     respond(200, {'disks': rows, 'count': len(rows),
                   'critical': by.get('critical', 0), 'high': by.get('high', 0),
@@ -40929,6 +41056,26 @@ def _disk_fill_eta(devices, min_percent=60.0, horizon_days=60):
     return out
 
 
+def _checks_threshold_kwargs(cfg):
+    """v6.2.2 batch 5: the operator-configurable cutoffs the pure Checks engine
+    (checks._host_checks) needs threaded in — so the Checks page, the NA digest
+    and the frontend all read ONE config source per threshold instead of three
+    divergent hardcoded copies. Defaults mirror the code constants."""
+    def _i(key, dflt):
+        try:
+            return int(cfg.get(key, dflt) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    return {
+        'disk_forecast_crit_days':   _i('disk_forecast_crit_days', 7),
+        'disk_forecast_warn_days':   _i('disk_forecast_warn_days', 21),
+        'oom_recent_window_seconds': _i('oom_recent_window_seconds',
+                                        OOM_RECENT_WINDOW_SECONDS),
+        'av_sig_stale_days':         _i('av_sig_stale_days', 7),
+        'defender_sig_warn_days':    _i('defender_sig_warn_days', 3),
+    }
+
+
 def handle_device_checks(dev_id):
     """GET /api/devices/<id>/checks — the unified check list + summary for one host."""
     require_auth()
@@ -40949,7 +41096,8 @@ def handle_device_checks(dev_id):
     ttl = get_online_ttl()
     checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl,
                           cve_high=cve, disk_eta=eta, custom_defs=custom_defs,
-                          scripts=scripts, exposure_mutes=exposure_mutes)
+                          scripts=scripts, exposure_mutes=exposure_mutes,
+                          **_checks_threshold_kwargs(cfg))
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
                   'checks': checks, 'summary': _host_check_summary(checks)})
 
@@ -41001,6 +41149,7 @@ def _fleet_checks_rows(devices_all, cfg, scripts, fp):
     exposure_mutes = cfg.get('exposure_mutes') or []
     now = int(time.time())
     ttl = get_online_ttl()
+    _ck_thresh = _checks_threshold_kwargs(cfg)   # hoisted: read config once per sweep
     hosts = []
     for did, dev in devices_all.items():
         if not isinstance(dev, dict):
@@ -41009,7 +41158,7 @@ def _fleet_checks_rows(devices_all, cfg, scripts, fp):
                               disabled_all.get(did) or [], now, ttl,
                               cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
                               custom_defs=custom_defs, scripts=scripts,
-                              exposure_mutes=exposure_mutes)
+                              exposure_mutes=exposure_mutes, **_ck_thresh)
         summ = _host_check_summary(checks)
         hosts.append({'device_id': did, 'name': dev.get('name', did),
                       'group': dev.get('group', ''),
@@ -41199,6 +41348,17 @@ def _compute_attention():
     # this function loaded it 4× during a single call.
     cfg = load(CONFIG_FILE) or {}
     now = int(time.time())
+    # v6.2.2 batch 5: operator-configurable thresholds used below; default = the
+    # code constants so an unconfigured server is unchanged. disk-fill ETA now
+    # shares ONE source with the Checks engine + the frontend cell colour.
+    def _cfg_int(key, dflt):
+        try:
+            return int(cfg.get(key, dflt) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    _disk_fc_crit = _cfg_int('disk_forecast_crit_days', 7)
+    _disk_fc_warn = _cfg_int('disk_forecast_warn_days', 21)
+    _patch_na_warn = _cfg_int('patch_na_warn_count', 20)
     try:
         ttl = get_online_ttl()
     except Exception:
@@ -41233,7 +41393,7 @@ def _compute_attention():
         if up is None:
             up = dev.get('upgradable')
         if isinstance(up, int) and up > 0:
-            sev = 'warning' if up >= 20 else 'info'
+            sev = 'warning' if up >= _patch_na_warn else 'info'
             items.append({
                 'severity': sev, 'kind': 'patches',
                 'device': dev.get('name', dev_id),
@@ -41798,13 +41958,15 @@ def _compute_attention():
     # device_id, so it shows in NA without dinging any single device's health.
     if (cfg.get('after_hours') or {}).get('enabled'):
         try:
+            _ah_win_h = _cfg_int('after_hours_na_window_hours', 24)
             ah_hits = (load(AFTER_HOURS_FILE) or {}).get('hits') or []
-            recent_ah = [h for h in ah_hits if h.get('ts', 0) >= now - 86400]
+            recent_ah = [h for h in ah_hits if h.get('ts', 0) >= now - _ah_win_h * 3600]
         except Exception:
+            _ah_win_h = 24
             recent_ah = []
         if recent_ah:
             items.append({'severity': 'warning', 'kind': 'after_hours', 'device': '',
-                          'summary': f'{len(recent_ah)} event(s) fired outside business hours (last 24h)'})
+                          'summary': f'{len(recent_ah)} event(s) fired outside business hours (last {_ah_win_h}h)'})
 
     # v3.0.1 (attention audit): services_watched that are NOT active right now.
     # Recent Activity gets a `service_down` event when the transition happens,
@@ -41893,7 +42055,7 @@ def _compute_attention():
     # silence them per-rule. After ATTENTION_EVENT_TTL they auto-expire and
     # disappear from NA (still visible in Recent Activity, which is what
     # that surface is for).
-    ATTENTION_EVENT_TTL = 24 * 3600    # 24h window
+    ATTENTION_EVENT_TTL = _cfg_int('attention_event_ttl_hours', 24) * 3600  # default 24h
     cutoff_ts = now - ATTENTION_EVENT_TTL
     # Dedup by stable key so a noisy rule firing 50 times in a day produces
     # exactly one NA card the user can dismiss with one click.
@@ -42017,9 +42179,9 @@ def _compute_attention():
                 d2f = m.get('days_to_full')
                 if d2f is None:
                     continue
-                if d2f <= 7:
+                if d2f <= _disk_fc_crit:
                     sev = 'critical'
-                elif d2f <= 21:
+                elif d2f <= _disk_fc_warn:
                     sev = 'warning'
                 else:
                     continue
@@ -42506,7 +42668,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     if isinstance(si.get('gateway'), dict) and si['gateway'].get('reachable') is False:
         _add('gateway_down', w['gateway_down'], 'default gateway unreachable')
     _lo = si.get('last_oom_ts')
-    if isinstance(_lo, (int, float)) and _lo > 0 and (now - _lo) < 86400:
+    if isinstance(_lo, (int, float)) and _lo > 0 and (now - _lo) < _oom_recent_window():
         _add('oom_recent', w['oom_recent'], 'OOM killer fired in last 24h')
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
@@ -42634,6 +42796,16 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     # caller (_compute_fleet_reliability) and passed in; self-read fallback for a
     # standalone call. Never mutate this dict.
     w = weights if weights is not None else _reliability_weights()
+    # v6.2.2 batch 5: operator-configurable reliability tuning scalars; default =
+    # the code constants so an unconfigured server scores identically.
+    _rc = _config_ro()
+    def _rel_int(key, dflt):
+        try:
+            return int(_rc.get(key, dflt) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    _wear_high = _rel_int('reliability_wear_high_pct', _WEAR_HIGH_PCT)
+    _reboot_churn_min = _rel_int('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)
     factors = []
 
     def _add(kind, points, detail):
@@ -42663,7 +42835,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         # short ones (wear/pending/realloc). Getting this wrong scores every disk
         # at zero, forever, and looks completely correct in review.
         wear = d.get('wear_pct')
-        if isinstance(wear, (int, float)) and wear >= _WEAR_HIGH_PCT:
+        if isinstance(wear, (int, float)) and wear >= _wear_high:
             _add('wear_high', w['wear_high'],
                  f'{disk}: {int(wear)}% of rated write endurance consumed')
         pending = d.get('pending_sectors')
@@ -42704,8 +42876,8 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         if prev_online is False and online and int(e.get('ts', 0)) >= win:
             returns += 1
         prev_online = online
-    if returns >= _REBOOT_CHURN_MIN:
-        _add('reboot_churn', w['reboot_churn'] * (returns - _REBOOT_CHURN_MIN + 1),
+    if returns >= _reboot_churn_min:
+        _add('reboot_churn', w['reboot_churn'] * (returns - _reboot_churn_min + 1),
              f'came back online {returns}x in 7 days — unexplained restarts')
 
     # ── trajectory: is this host getting worse? ───────────────────────────────
@@ -42733,7 +42905,8 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         _add('overheating', w['overheating'],
              f'running at {int(max(temps))}°C')
 
-    if isinstance(si.get('last_oom_ts'), (int, float)) and (now - si['last_oom_ts']) < 86400:
+    if isinstance(si.get('last_oom_ts'), (int, float)) \
+            and (now - si['last_oom_ts']) < _oom_recent_window():
         _add('oom_recent', w['oom_recent'],
              'the OOM killer fired in the last 24h')
 
@@ -43346,6 +43519,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     def _g(k):
         return want is None or k in want
     out = {}
+    _oom_win = _oom_recent_window()   # hoisted: read config once per widget build
     # Load the hardware record once and share it across the smart/ups/temp, tls
     # and checks-roll-up widgets — avoids re-deep-copying hardware.json per
     # consumer. Only read it at all when one of those widgets is enabled.
@@ -43463,7 +43637,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             if isinstance(gwd, dict) and gwd.get('reachable') is False:
                 gw_unreach += 1
             lo = si.get('last_oom_ts')
-            if isinstance(lo, (int, float)) and lo > 0 and (now - lo) < 86400:
+            if isinstance(lo, (int, float)) and lo > 0 and (now - lo) < _oom_win:
                 oom_recent += 1
             for pool in (si.get('storage_health') or []):
                 if isinstance(pool, dict) and (pool.get('state') or '').lower() not in (
@@ -47614,12 +47788,23 @@ def _cis_checks():
     def _failed_units(ctx):
         fu = ctx['sysinfo'].get('failed_units')
         return None if fu is None else len(fu) == 0
+    # v6.2.2 batch 5: the CIS disk/swap fullness ceilings are operator-tunable
+    # (default = the code literals). Read once here; the closures capture them.
+    _gc = _config_ro()
+    try:
+        _cis_disk_max = int(_gc.get('cis_disk_pct_max', 90) or 90)
+    except (TypeError, ValueError):
+        _cis_disk_max = 90
+    try:
+        _cis_swap_max = int(_gc.get('cis_swap_pct_max', 80) or 80)
+    except (TypeError, ValueError):
+        _cis_swap_max = 80
     def _disk(ctx):
         d = ctx['sysinfo'].get('disk_percent')
-        return None if not isinstance(d, (int, float)) else d < 90
+        return None if not isinstance(d, (int, float)) else d < _cis_disk_max
     def _swap(ctx):
         s = ctx['sysinfo'].get('swap_percent')
-        return None if not isinstance(s, (int, float)) else s < 80
+        return None if not isinstance(s, (int, float)) else s < _cis_swap_max
     def _cve(ctx):
         return ctx['cve_high'] == 0 if ctx['cve_high'] is not None else None
     def _integrity(ctx):
@@ -47629,8 +47814,8 @@ def _cis_checks():
         ('cis-patches',   'No pending package updates',          'high',   _patches),
         ('cis-reboot',    'No pending reboot',                   'medium', _reboot),
         ('cis-failed',    'No failed systemd units',             'medium', _failed_units),
-        ('cis-disk',      'Root filesystem under 90% used',      'high',   _disk),
-        ('cis-swap',      'Swap usage under 80%',                'low',    _swap),
+        ('cis-disk',      f'Root filesystem under {_cis_disk_max}% used', 'high',   _disk),
+        ('cis-swap',      f'Swap usage under {_cis_swap_max}%',           'low',    _swap),
         ('cis-cve',       'No critical/high CVEs',               'high',   _cve),
         ('cis-integrity', 'Agent binary matches signed build',  'medium', _integrity),
     ]
@@ -56718,6 +56903,11 @@ def _hw_bands():
         'gpu_hot': int(_gc.get('gpu_hot_c', GPU_HOT_C) or GPU_HOT_C),
         'wear_warn': int(_gc.get('smart_wear_warn_pct', 80) or 80),
         'wear_high': int(_gc.get('smart_wear_high_pct', 90) or 90),
+        # v6.2.2 batch 5: disk-fill ETA (days-to-full) colour bands — the SAME
+        # source the NA digest + Checks engine now read, so the disk-health cell
+        # stops disagreeing with them. red ≤ crit, amber ≤ warn.
+        'disk_forecast_crit': int(_gc.get('disk_forecast_crit_days', 7) or 7),
+        'disk_forecast_warn': int(_gc.get('disk_forecast_warn_days', 21) or 21),
     }
 
 
@@ -59638,7 +59828,11 @@ def _below_recovery(value, warn):
     absolute buffer still wins (e.g. warn 80 → recover < 75), so their
     behaviour is unchanged.
     """
-    recovery_point = max(warn - METRIC_RECOVERY_BUFFER, warn * 0.9)
+    try:
+        _buf = int(_config_ro().get('metric_recovery_buffer', METRIC_RECOVERY_BUFFER))
+    except (TypeError, ValueError):
+        _buf = METRIC_RECOVERY_BUFFER
+    recovery_point = max(warn - _buf, warn * 0.9)
     return value < recovery_point
 
 
@@ -59877,10 +60071,16 @@ def _snmp_threshold_warn_crit(dev, kind):
     overrides = (dev.get('metric_thresholds') or {}) if isinstance(dev, dict) else {}
     D = DEFAULT_METRIC_THRESHOLDS
     if kind == 'snmp_cpu':
+        # v6.2.2 batch 5: per-device override wins; else the fleet-wide config
+        # default (operator-tunable); else the code constant. Same 3-tier shape
+        # the metric-thresholds system already uses, now with a global default.
+        _gc = _config_ro()
         return (float(overrides.get('snmp_cpu_warn_percent',
-                                     D['snmp_cpu_warn_percent'])),
+                                     _gc.get('snmp_cpu_warn_percent',
+                                             D['snmp_cpu_warn_percent']))),
                 float(overrides.get('snmp_cpu_crit_percent',
-                                     D['snmp_cpu_crit_percent'])))
+                                     _gc.get('snmp_cpu_crit_percent',
+                                             D['snmp_cpu_crit_percent']))))
     if kind == 'snmp_mem':
         # Re-use existing memory thresholds — same percent units
         return (float(overrides.get('mem_warn_percent', D['mem_warn_percent'])),
@@ -60237,6 +60437,12 @@ def process_container_report(dev_id, normalised, now):
     # v3.10.0: the agent now reports a real restart_count for docker/podman too
     # (a single batched `docker inspect` per heartbeat), so this fires fleet-wide
     # — not just for Kubernetes pods as it historically did.
+    try:
+        _restart_delta = int(_config_ro().get('container_restart_delta_threshold',
+                                              CONTAINER_RESTART_DELTA_THRESHOLD)
+                             or CONTAINER_RESTART_DELTA_THRESHOLD)
+    except (TypeError, ValueError):
+        _restart_delta = CONTAINER_RESTART_DELTA_THRESHOLD
     for key, cur in new_by_key.items():
         prev = prev_by_key.get(key)
         if not prev:
@@ -60247,7 +60453,7 @@ def process_container_report(dev_id, normalised, now):
         except (TypeError, ValueError):
             continue
         delta = cur_n - prev_n
-        if delta >= CONTAINER_RESTART_DELTA_THRESHOLD:
+        if delta >= _restart_delta:
             # v4.2.0 sweep: honour the operator's exclude list here too — it
             # only covered the stopped/vanished loop, so an excluded container
             # still paged on restarts.

@@ -375,7 +375,7 @@ def run_ct_watch_if_due():
         last = int(st.get('last_check', 0) or 0)
         if now - last < A.CT_SCAN_INTERVAL:
             break               # oldest-first: everything after this is younger
-        if int(st.get('fail_streak', 0) or 0) >= A.CT_FAIL_BACKOFF \
+        if int(st.get('fail_streak', 0) or 0) >= int(A._config_ro().get('ct_fail_backoff', A.CT_FAIL_BACKOFF)) \
                 and now - last < A.CT_BACKOFF_SECONDS:
             continue            # circuit-broken — retry tomorrow
         if scanned >= A.CT_MAX_PER_RUN or time.monotonic() - start > A.CT_RUN_BUDGET:

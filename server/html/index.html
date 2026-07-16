@@ -3454,8 +3454,12 @@
               <label for="ap-pmox-snap-days" class="form-label">Proxmox snapshot (days)</label>
               <input type="number" id="ap-pmox-snap-days" class="form-input isl-80" min="0" max="3650" placeholder="7">
             </div>
+            <div class="form-group">
+              <label for="ap-pmox-backup-days" class="form-label">Proxmox backup stale (days)</label>
+              <input type="number" id="ap-pmox-backup-days" class="form-input isl-80" min="1" max="3650" placeholder="7">
+            </div>
           </div>
-          <p class="hint">Time since the last scrub before <code>scrub_overdue</code>; newest pool/Proxmox snapshot age before <code>snapshot_stale</code>.</p>
+          <p class="hint">Time since the last scrub before <code>scrub_overdue</code>; newest pool/Proxmox snapshot age before <code>snapshot_stale</code>; newest per-guest Proxmox backup age before the stale-backup NA item.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
@@ -3600,7 +3604,12 @@
               <label for="ap-certfile-days" class="form-label">Cert-file expiring (days)</label>
               <input type="number" id="ap-certfile-days" class="form-input isl-80" min="1" max="3650" placeholder="21">
             </div>
+            <div class="form-group">
+              <label for="ap-ct-fail-backoff" class="form-label">CT poll fails → backoff</label>
+              <input type="number" id="ap-ct-fail-backoff" class="form-input isl-80" min="1" max="100" placeholder="3">
+            </div>
           </div>
+          <p class="hint">Consecutive crt.sh certificate-transparency poll failures for a watched domain before it circuit-breaks for 24h.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
@@ -3624,7 +3633,12 @@
               <label for="ap-av-stale-days" class="form-label">AV signature stale (days)</label>
               <input type="number" id="ap-av-stale-days" class="form-input isl-80" min="1" max="365" placeholder="7">
             </div>
+            <div class="form-group">
+              <label for="ap-defender-warn-days" class="form-label">Defender sig warn (days)</label>
+              <input type="number" id="ap-defender-warn-days" class="form-input isl-80" min="1" max="365" placeholder="3">
+            </div>
           </div>
+          <p class="hint">Defender signature age: the Checks engine warns at the warn value and is critical at the AV-signature-stale value above — so all Defender-staleness surfaces agree.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
@@ -3839,6 +3853,160 @@
             <div class="form-group">
               <label for="ap-lw-oom_recent" class="form-label">Recent OOM kill</label>
               <input type="number" id="ap-lw-oom_recent" class="form-input isl-80" min="0" max="1000" placeholder="8">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <!-- v6.2.2 batch 5: final threshold sweep — collapsed divergences +
+             remaining monitoring/NA/control-plane scalars. -->
+        <div class="settings-section">
+          <div class="section-title">Capacity &amp; forecast</div>
+          <p class="hint">Disk-fill ETA (days-to-full) cutoffs drive the SAME verdict everywhere — the Needs-Attention digest, the Checks engine row and the disk-health cell colour. Pending-update count fires an NA warning (below it, informational). OOM window is how long after an OOM kill a host still counts as recently-OOM'd.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-disk-fc-crit" class="form-label">Disk fill ETA crit ≤ (days)</label>
+              <input type="number" id="ap-disk-fc-crit" class="form-input isl-80" min="1" max="3650" placeholder="7">
+            </div>
+            <div class="form-group">
+              <label for="ap-disk-fc-warn" class="form-label">Disk fill ETA warn ≤ (days)</label>
+              <input type="number" id="ap-disk-fc-warn" class="form-input isl-80" min="1" max="3650" placeholder="21">
+            </div>
+            <div class="form-group">
+              <label for="ap-patch-na-warn" class="form-label">Pending updates warn ≥</label>
+              <input type="number" id="ap-patch-na-warn" class="form-input isl-80" min="1" max="100000" placeholder="20">
+            </div>
+            <div class="form-group">
+              <label for="ap-oom-window-s" class="form-label">Recent-OOM window (s)</label>
+              <input type="number" id="ap-oom-window-s" class="form-input isl-80" min="60" max="31536000" placeholder="86400">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Containers &amp; SNMP</div>
+          <p class="hint">Container restart-delta and "restarting" thresholds, plus the fleet-default SNMP CPU cutoffs (a per-device threshold override still wins).</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-container-restart-delta" class="form-label">Restart delta ≥ (alert)</label>
+              <input type="number" id="ap-container-restart-delta" class="form-input isl-80" min="1" max="1000" placeholder="1">
+            </div>
+            <div class="form-group">
+              <label for="ap-container-restarting-min" class="form-label">Restart count ≥ (restarting)</label>
+              <input type="number" id="ap-container-restarting-min" class="form-input isl-80" min="1" max="1000" placeholder="5">
+            </div>
+            <div class="form-group">
+              <label for="ap-snmp-cpu-warn" class="form-label">SNMP CPU warn %</label>
+              <input type="number" id="ap-snmp-cpu-warn" class="form-input isl-80" min="1" max="100" placeholder="75">
+            </div>
+            <div class="form-group">
+              <label for="ap-snmp-cpu-crit" class="form-label">SNMP CPU crit %</label>
+              <input type="number" id="ap-snmp-cpu-crit" class="form-input isl-80" min="1" max="100" placeholder="90">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Monitoring cadence</div>
+          <p class="hint">Transient-event NA lifetime, after-hours activity window, agentless ping-fail debounce, per-poll GitHub-issue cap, metric-recovered hysteresis buffer, and the online-TTL flap floor.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-attn-event-ttl-h" class="form-label">NA event TTL (hours)</label>
+              <input type="number" id="ap-attn-event-ttl-h" class="form-input isl-80" min="1" max="8760" placeholder="24">
+            </div>
+            <div class="form-group">
+              <label for="ap-afterhours-window-h" class="form-label">After-hours window (hours)</label>
+              <input type="number" id="ap-afterhours-window-h" class="form-input isl-80" min="1" max="8760" placeholder="24">
+            </div>
+            <div class="form-group">
+              <label for="ap-agentless-ping-fails" class="form-label">Agentless ping fails → offline</label>
+              <input type="number" id="ap-agentless-ping-fails" class="form-input isl-80" min="1" max="100" placeholder="2">
+            </div>
+            <div class="form-group">
+              <label for="ap-github-issue-cap" class="form-label">GitHub issues per poll</label>
+              <input type="number" id="ap-github-issue-cap" class="form-input isl-80" min="1" max="1000" placeholder="10">
+            </div>
+            <div class="form-group">
+              <label for="ap-metric-recovery-buffer" class="form-label">Metric recovery buffer (pts)</label>
+              <input type="number" id="ap-metric-recovery-buffer" class="form-input isl-80" min="0" max="100" placeholder="5">
+            </div>
+            <div class="form-group">
+              <label for="ap-min-online-ttl" class="form-label">Min online TTL (s, flap floor)</label>
+              <input type="number" id="ap-min-online-ttl" class="form-input isl-80" min="1" max="100000" placeholder="150">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Compliance &amp; CIS</div>
+          <p class="hint">Compliance TLS-expiry and recent-events windows, and the CIS disk/swap fullness ceilings and DMARC minimum pass percentage.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-compliance-tls-days" class="form-label">Compliance TLS expiring (days)</label>
+              <input type="number" id="ap-compliance-tls-days" class="form-input isl-80" min="1" max="3650" placeholder="21">
+            </div>
+            <div class="form-group">
+              <label for="ap-compliance-lookback" class="form-label">Compliance lookback (days)</label>
+              <input type="number" id="ap-compliance-lookback" class="form-input isl-80" min="1" max="3650" placeholder="30">
+            </div>
+            <div class="form-group">
+              <label for="ap-cis-disk-max" class="form-label">CIS disk under %</label>
+              <input type="number" id="ap-cis-disk-max" class="form-input isl-80" min="1" max="100" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label for="ap-cis-swap-max" class="form-label">CIS swap under %</label>
+              <input type="number" id="ap-cis-swap-max" class="form-input isl-80" min="1" max="100" placeholder="80">
+            </div>
+            <div class="form-group">
+              <label for="ap-dmarc-pct-min" class="form-label">DMARC min pass %</label>
+              <input type="number" id="ap-dmarc-pct-min" class="form-input isl-80" min="1" max="100" placeholder="100">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">RemotePower self-health</div>
+          <p class="hint">The control plane's OWN health pill (top bar). High-load = 5-minute load average above cores × this ratio; memory and fleet-online percentages below feed the pill's reasons.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-self-load-ratio" class="form-label">High-load ratio (× cores)</label>
+              <input type="number" id="ap-self-load-ratio" class="form-input isl-80" min="1" max="100" placeholder="2">
+            </div>
+            <div class="form-group">
+              <label for="ap-self-mem-pct" class="form-label">Memory warn %</label>
+              <input type="number" id="ap-self-mem-pct" class="form-input isl-80" min="1" max="100" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label for="ap-self-online-pct" class="form-label">Devices online warn %</label>
+              <input type="number" id="ap-self-online-pct" class="form-input isl-80" min="1" max="100" placeholder="80">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Reliability tuning</div>
+          <p class="hint">Unstable-host detection (returns-to-online in a window) and the reboot-churn and high-wear thresholds that feed the failure-likelihood score.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-unstable-returns" class="form-label">Unstable returns ≥</label>
+              <input type="number" id="ap-unstable-returns" class="form-input isl-80" min="1" max="1000" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-unstable-window-days" class="form-label">Unstable window (days)</label>
+              <input type="number" id="ap-unstable-window-days" class="form-input isl-80" min="1" max="365" placeholder="7">
+            </div>
+            <div class="form-group">
+              <label for="ap-rel-reboot-churn" class="form-label">Reboot churn ≥</label>
+              <input type="number" id="ap-rel-reboot-churn" class="form-input isl-80" min="1" max="1000" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-rel-wear-high" class="form-label">Wear high % (reliability)</label>
+              <input type="number" id="ap-rel-wear-high" class="form-input isl-80" min="1" max="100" placeholder="85">
             </div>
           </div>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
