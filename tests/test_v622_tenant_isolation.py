@@ -94,9 +94,12 @@ class TestSecretScrubGaps(unittest.TestCase):
 
     def test_diagnostics_bundle_scrubs_warranty_client_id(self):
         # The Lenovo API ClientID ends 'client_id', so the name-based scrub
-        # misses it — the bundle must pop it explicitly like /api/config does.
-        self.assertIn("warranty_lenovo_client_id",
+        # misses it. v6.2.3: the bundle redacts it via the shared
+        # _redact_nonname_config_secrets helper (which pins the key).
+        self.assertIn("_redact_nonname_config_secrets",
                       _body("def handle_diagnostics_bundle"))
+        self.assertIn("warranty_lenovo_client_id",
+                      _body("def _redact_nonname_config_secrets"))
 
     def test_config_get_withholds_endpoint_urls_from_non_admins(self):
         b = _body("def handle_config_get")

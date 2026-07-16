@@ -89,10 +89,8 @@ async function loadBreakGlass() {
 }
 
 async function cmdbBreakGlassApprove(reqId) {
-  if (typeof uiConfirm === 'function'
-      ? !(await uiConfirm('Approve this break-glass reveal? The requester will then be able to '
-          + 'see the credential. You cannot approve your own request.'))
-      : !await uiConfirm('Approve this break-glass reveal?')) return;
+  if (!await uiConfirm('Approve this break-glass reveal? The requester will then be able to '
+        + 'see the credential. You cannot approve your own request.')) return;
   const res = await cmdbApi('POST', '/cmdb/break-glass/' + encodeURIComponent(reqId) + '/approve', {});
   if (!res || !res.ok) {
     alert('Approve failed: ' + (res && res.data && res.data.error || '?'));
@@ -135,10 +133,8 @@ async function loadVaultCheckouts() {
 }
 
 async function cmdbCheckoutRevoke(coId) {
-  if (typeof uiConfirm === 'function'
-      ? !(await uiConfirm('Revoke this checkout? The holder loses access to the '
-          + 'credential immediately.'))
-      : !await uiConfirm('Revoke this checkout?')) return;
+  if (!await uiConfirm('Revoke this checkout? The holder loses access to the '
+        + 'credential immediately.')) return;
   const res = await cmdbApi('DELETE', '/cmdb/vault/checkouts/' + encodeURIComponent(coId));
   if (!res || !res.ok) {
     alert('Revoke failed: ' + (res && res.data && res.data.error || '?'));

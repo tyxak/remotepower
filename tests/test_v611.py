@@ -132,11 +132,15 @@ class TestAlertsTenantIsolationFix(unittest.TestCase):
         i = self.SRC.index("def handle_alert_mutes")
         body = self.SRC[i : self.SRC.index("\ndef ", i + 10)]
         self.assertIn("_tenant", body)
-        # diagnostics bundle must strip integration URLs (basic-auth userinfo)
+        # diagnostics bundle must strip integration URLs (basic-auth userinfo).
+        # v6.2.3: moved into the shared _redact_nonname_config_secrets helper.
         i2 = self.SRC.index("def handle_diagnostics_bundle")
         b2 = self.SRC[i2 : self.SRC.index("\ndef ", i2 + 10)]
-        self.assertIn("integrations", b2)
-        self.assertIn("_ig.pop('url'", b2)
+        self.assertIn("_redact_nonname_config_secrets", b2)
+        h = self.SRC[self.SRC.index("def _redact_nonname_config_secrets"):]
+        h = h[: h.index("\ndef ", 10)]
+        self.assertIn("integrations", h)
+        self.assertIn("_ig", h)
 
 
 class TestSsoGroupRolesSuperadminGate(unittest.TestCase):

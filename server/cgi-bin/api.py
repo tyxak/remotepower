@@ -21018,6 +21018,7 @@ def handle_wol():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    _scope_block_device(dev_id)   # body-supplied id, not under /api/devices/ — tenant/scope gate
     ok, info = _send_wol(devices[dev_id])
     if not ok:
         respond(400 if 'MAC' in info else 500, {'error': info})
@@ -21056,7 +21057,12 @@ def handle_sysinfo_batch():
     requested = [i.strip() for i in ids_raw.split(',') if i.strip()][:200]
     if not requested:
         respond(200, {'sysinfo': {}})
-    devices = load(DEVICES_FILE) or {}
+    # SECURITY: /api/devices/sysinfo has seg="sysinfo" (not a real device id), so
+    # main()'s _enforce_device_scope falls through and does NOT cover this bulk
+    # endpoint. Filter to the caller's visible set (role scope AND tenant) or a
+    # scoped operator / tenant admin could read any host's sysinfo (ports,
+    # processes, packages, mounts, kernel). No-op for an unscoped single-tenant admin.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     out = {}
     for dev_id in requested:
         if not _validate_id(dev_id):
@@ -22769,6 +22775,41 @@ def _redact_config_secrets_inplace(obj):
     _walk_config_secrets(obj, _mask)
 
 
+# Config fields that hold a secret (or a secret-BEARING URL / id) whose KEY NAME
+# is NOT caught by _SECRET_KEY_RE, so the name-based scrub/redact above misses
+# them. EVERY export surface that leaves the box (diagnostics support bundle,
+# backup ZIP, declarative config export) must redact these in ADDITION to the
+# name-based pass, or a reusable credential ships off-box. Kept as ONE list so
+# the surfaces can't drift — they did: the bundle redacted siem/audit/otlp/
+# lenovo/integrations[].url but missed cloud_accounts[].secret_key, while the
+# backup ZIP redacted cloud_accounts but missed the first five (v6.2.3 audit).
+def _redact_nonname_config_secrets(cfg, mask=False):
+    """Redact the non-name-caught secret fields of a config dict IN PLACE.
+    mask=False drops the key (support bundle promises "no secrets"); mask=True
+    replaces the value with the '(redacted)' marker (backup/declarative export
+    stay structurally restorable). Idempotent and safe on a partial config."""
+    if not isinstance(cfg, dict):
+        return
+    def _hit(container, key):
+        if not isinstance(container, dict) or not container.get(key):
+            return
+        if mask:
+            container[key] = '(redacted)'
+        else:
+            container.pop(key, None)
+    for k in ('agentless_ssh_key', 'webhook_url', 'healthchecks_url', 'siem_url',
+              'audit_forward_url', 'otlp_endpoint', 'warranty_lenovo_client_id'):
+        _hit(cfg, k)
+    _hit(cfg.get('metrics_push'), 'url')
+    _hit(cfg.get('gitops'), 'auth_header')
+    for _wh in (cfg.get('webhook_urls') or []):
+        _hit(_wh, 'url'); _hit(_wh, 'pushover_user')  # pushover_token is name-caught
+    for _ig in (cfg.get('integrations') or []):
+        _hit(_ig, 'url')            # basic-auth userinfo; sibling 'secret' is name-caught
+    for _ca in (cfg.get('cloud_accounts') or []):
+        _hit(_ca, 'secret_key')     # AWS/Hetzner/DO secret access key; '_key' not name-caught
+
+
 # ── v5.8.0 (B3.5): declarative config export ─────────────────────────────────
 # A single, versioned, secret-redacted document of the OPERATOR-AUTHORED
 # resources (monitors, checks, rules, integrations, windows, targets, …) — for
@@ -22838,6 +22879,15 @@ def _build_declarative_config():
             for item in red:
                 if isinstance(item, dict) and item.get('url'):
                     item['url'] = _cfg_enc(item['url']) if enc_ok else _redact_url_to_host(item['url'])
+        # v6.2.3 (SECURITY): an integration instance URL can embed basic-auth
+        # userinfo (https://user:pass@host); the name-based redactor catches the
+        # sibling 'secret' but not the URL, so it survived into this
+        # "safe to commit to version control" document. Collapse to host-only,
+        # same posture as the webhook URLs above.
+        if name == 'integrations' and isinstance(red, list):
+            for item in red:
+                if isinstance(item, dict) and item.get('url'):
+                    item['url'] = _redact_url_to_host(item['url'])
         resources[name] = red
     return {
         'schema':         DECLARATIVE_SCHEMA,
@@ -28457,37 +28507,12 @@ def handle_diagnostics_bundle():
     import copy as _copy
     scrubbed = _copy.deepcopy(cfg)
     _scrub_config_secrets(scrubbed)
-    # v5.0.1 (SECURITY): _scrub_config_secrets is NAME-based (matches keys ending
-    # password/secret/token/…), so it misses secrets whose key doesn't. The
-    # /api/config GET view strips these explicitly; mirror that here or the
-    # downloadable "contains NO secrets" support bundle leaks them.
-    scrubbed.pop('agentless_ssh_key', None)            # SSH private key
-    scrubbed.pop('webhook_url', None)                  # legacy URL w/ token in path
-    scrubbed.pop('healthchecks_url', None)             # v5.6.0: hc.io ping UUID = credential
-    # v6.2.2: these three can embed basic-auth userinfo (https://user:pass@host).
-    # The /api/config GET view strips them for non-admins; the bundle promises
-    # "NO secrets" and is shared off-box with support, so strip them here too.
-    scrubbed.pop('siem_url', None)
-    scrubbed.pop('audit_forward_url', None)
-    scrubbed.pop('otlp_endpoint', None)
-    scrubbed.pop('warranty_lenovo_client_id', None)    # v6.2.2: Lenovo API ClientID —
-    # a reusable third-party credential; the /api/config GET view pops it (shows
-    # only *_configured) but its name ends 'client_id', so the name-based
-    # _scrub_config_secrets above doesn't catch it. Mirror the GET view here.
-    if isinstance(scrubbed.get('metrics_push'), dict):
-        scrubbed['metrics_push'].pop('url', None)      # v5.6.0: may embed basic-auth userinfo
-    if isinstance(scrubbed.get('gitops'), dict):
-        scrubbed['gitops'].pop('auth_header', None)    # git PAT / bearer
-    for _wh in (scrubbed.get('webhook_urls') or []):
-        if isinstance(_wh, dict):
-            _wh.pop('url', None)                       # Slack/Discord/Teams token-in-path
-            _wh.pop('pushover_user', None)             # Pushover user key
-    # v6.1.1 (SECURITY): an integration instance URL can embed basic-auth
-    # userinfo (https://user:pass@host) — the /api/config GET view redacts it;
-    # mirror that here so the off-box support bundle can't leak it.
-    for _ig in (scrubbed.get('integrations') or []):
-        if isinstance(_ig, dict):
-            _ig.pop('url', None)
+    # _scrub_config_secrets is NAME-based (keys ending password/secret/token/…),
+    # so it misses secret-BEARING fields whose key name isn't secret-shaped
+    # (credential URLs, cloud_accounts[].secret_key, lenovo client_id, …). Drop
+    # them via the shared non-name list so this "contains NO secrets" support
+    # bundle (shared off-box) and the backup/declarative exports can't drift.
+    _redact_nonname_config_secrets(scrubbed, mask=False)
     # Drop the noisy per-device bookkeeping maps — not useful for support and
     # they bloat the bundle.
     for noisy in ('offline_notified', 'offline_pending', 'patch_alerted',
@@ -33712,7 +33737,7 @@ def handle_patch_sla():
     Reads the aging store + current device state; does not mutate."""
     require_auth()
     now = int(time.time())
-    devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     age = load(PATCH_AGE_FILE) or {}
     # read-only eval over a COPY so the GET never writes the store
     rows, _ = _eval_patch_sla(devices, _config_ro(), dict(age), now)
@@ -34411,7 +34436,7 @@ def handle_reboot_plan():
         respond(405, {'error': 'Method not allowed'})
     require_admin_auth()
     body = _read_valid(request_models.RebootPlanRequest)
-    devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     scope = body.get('scope') or {}
     st = scope.get('type')
     if st == 'all':
@@ -37648,7 +37673,7 @@ def handle_discovery():
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
     store = load(DISCOVERY_FILE) or {}
-    devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     by_ip = {}
     for dev_id, rec in store.items():
         seen_by = devices.get(dev_id, {}).get('name', dev_id)
@@ -37811,7 +37836,7 @@ def handle_forecast():
     require_auth()
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
-    devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     mh_all = load(METRICS_HIST_FILE) or {}
     _min_r2 = _forecast_min_r2()
     rows = []
@@ -45077,32 +45102,8 @@ def handle_export():
                 # are not secret-shaped so the regex misses them.
                 raw = load(f)
                 if isinstance(raw, dict):
-                    _redact_config_secrets_inplace(raw)
-                    for k in ('agentless_ssh_key', 'webhook_url',
-                              'healthchecks_url'):
-                        if raw.get(k):
-                            raw[k] = '(redacted)'
-                    # webhook_urls[].url embeds Slack/Discord/Teams tokens in the
-                    # path; pushover creds live here too.
-                    if isinstance(raw.get('webhook_urls'), list):
-                        for e in raw['webhook_urls']:
-                            if not isinstance(e, dict):
-                                continue
-                            for ek in ('url', 'pushover_token', 'pushover_user'):
-                                if e.get(ek):
-                                    e[ek] = '(redacted)'
-                    mp = raw.get('metrics_push')
-                    if isinstance(mp, dict) and mp.get('url'):
-                        mp['url'] = '(redacted)'
-                    gi = raw.get('gitops')
-                    if isinstance(gi, dict) and gi.get('auth_header'):
-                        gi['auth_header'] = '(redacted)'
-                    # cloud_accounts[].secret_key ends '_key' but isn't matched by
-                    # the secret-name regex (only api_key/private_key are).
-                    if isinstance(raw.get('cloud_accounts'), list):
-                        for a in raw['cloud_accounts']:
-                            if isinstance(a, dict) and a.get('secret_key'):
-                                a['secret_key'] = '(redacted)'
+                    _redact_config_secrets_inplace(raw)             # name-based (*_password/_secret/_token/api_key/…)
+                    _redact_nonname_config_secrets(raw, mask=True)  # + the non-name-caught set (URLs w/ creds, cloud secret_key, …)
                 zf.writestr('config.json', json.dumps(raw, indent=2))
             else:
                 zf.writestr(name, json.dumps(load(f), indent=2))
@@ -46665,6 +46666,12 @@ def handle_longpoll_exec():
 
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    # SECURITY: this handler resolves device_id from the BODY and is NOT under
+    # /api/devices/<id>/… (so main()'s _enforce_device_scope never runs) — without
+    # this a tenant admin (scope=None) or a scoped operator could queue an
+    # arbitrary command on another tenant's / out-of-scope host. Mirrors the
+    # _resolve_targets → _scope_filter_devices chokepoint the command family uses.
+    _scope_block_device(dev_id)
 
     # Apply the same allowlist check as handle_custom_cmd
     ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
@@ -46731,7 +46738,7 @@ def handle_longpoll_exec():
 
 def handle_digest():
     require_auth()
-    devices = load(DEVICES_FILE); now = int(time.time())
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {}); now = int(time.time())  # SEC: per-tenant/scope
     online  = sum(1 for d in devices.values() if (now - d.get('last_seen', 0)) < get_online_ttl())
     patches = sum(
         (d.get('sysinfo', {}).get('packages', {}).get('upgradable') or 0)
@@ -51848,13 +51855,18 @@ def handle_alerts_clear():
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             arr = store.get('alerts', [])
+            # SECURITY: only purge alerts the caller may SEE (tenant + RBAC scope) —
+            # a tenant admin must not wipe another tenant's alerts (this bulk clear
+            # was the one alert mutation missing the _filter_alerts_for_caller guard
+            # its ack/resolve siblings already have). No-op for an unscoped
+            # single-tenant admin (filter returns the whole list).
+            visible = {id(a) for a in _filter_alerts_for_caller(arr)}
             if scope == 'all':
-                removed = len(arr)
-                store['alerts'] = []
+                kept = [a for a in arr if id(a) not in visible]
             else:
-                kept = [a for a in arr if not a.get('resolved_at')]
-                removed = len(arr) - len(kept)
-                store['alerts'] = kept
+                kept = [a for a in arr if id(a) not in visible or not a.get('resolved_at')]
+            removed = len(arr) - len(kept)
+            store['alerts'] = kept
     except Exception as e:
         respond(500, {'error': str(e)})
     audit_log(actor, 'alerts_clear', f'scope={scope} removed={removed}')
@@ -56707,6 +56719,7 @@ def handle_secrets_host_mute():
     did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
     if not did:
         respond(400, {'error': 'device_id required'})
+    _scope_block_device(did)   # body-supplied id — don't let a tenant admin mute/clear another tenant's host
     unmute = bool(body.get('unmute'))
     with _LockedUpdate(CONFIG_FILE) as cfg:
         mutes = list(cfg.get('secrets_host_mutes') or [])
@@ -58763,7 +58776,7 @@ def handle_maintenance_list():
     """GET /api/maintenance — list all defined windows + currently active ones."""
     require_auth()
     now = int(time.time())
-    devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})  # SEC: per-tenant/scope
     windows = (load(MAINT_FILE) or {}).get('windows') or []
     # One-time repair (v6.2.0): windows created before the auto-patch sync wrote a
     # full record (or any window persisted without an id/scope) rendered "(no
@@ -63707,6 +63720,12 @@ def handle_host_config_collect_all():
     target = body.get('target') or {'type': 'all', 'value': ''}
     targets = _autopatch_target_devices(target)   # resolves type/value, skips quarantined
     devices = load(DEVICES_FILE) or {}
+    # SECURITY: _autopatch_target_devices resolves all/group/tag/site across the
+    # WHOLE fleet with no scope/tenant filter — intersect with the caller's visible
+    # set or a tenant admin would queue this command onto other tenants' agents.
+    # No-op for an unscoped single-tenant admin.
+    visible = _scope_filter_devices(devices)
+    targets = [d for d in targets if d in visible]
     # Host config is agent-only — drop agentless devices.
     targets = [d for d in targets if not (devices.get(d) or {}).get('agentless')]
     if not targets:

@@ -64,7 +64,8 @@ def valid_name(s) -> bool:
 def valid_port(p) -> bool:
     try:
         p = int(p)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: json.loads accepts Infinity/-Infinity → int(inf) overflows.
         return False
     return 1 <= p <= 65535
 

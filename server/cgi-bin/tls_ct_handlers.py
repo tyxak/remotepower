@@ -159,7 +159,14 @@ def handle_tls_internal_webhook() -> None:
     Only accepts requests from loopback. Fires a tls_expiry webhook with
     the cert/DANE details supplied by the cron script.
     """
-    remote = A._env('REMOTE_ADDR', '')
+    # SECURITY: under the shipped nginx→gunicorn proxy topology, bare REMOTE_ADDR
+    # is ALWAYS nginx's loopback peer, so a "REMOTE_ADDR in loopback" gate is
+    # satisfied for EVERY request → any external caller with the (non-secret,
+    # attacker-settable) header could fire arbitrary tls_expiry webhooks. Use
+    # _get_client_ip() (rightmost X-Forwarded-For hop / X-Real-IP — the real
+    # peer, unforgeable through the local proxy), matching the _get_client_ip
+    # fix the IP-allowlist/rate-limit/audit paths already rely on.
+    remote = A._get_client_ip()
     hdr    = A._env('HTTP_X_REMOTEPOWER_INTERNAL', '')
     if remote not in ('127.0.0.1', '::1') or not hdr:
         A.respond(403, {'error': 'forbidden'})

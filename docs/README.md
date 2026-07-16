@@ -55,7 +55,16 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.2.2.md](security-review-6.2.2.md)** — Latest review: the
+- **[security-review-6.2.3.md](security-review-6.2.3.md)** — Latest review: the
+ v6.2.3 "Un1fyMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 new,
+ gitleaks clean, Semgrep triaged) plus an exhaustive six-dimension adversarial
+ audit prompted by the release's shared-helper refactors. Confirmed the config-
+ secret, HTML-escaping and request-validation refactors are behaviour-preserving
+ (a 20k-config property test on the secret redactors), and fixed a set of
+ pre-existing multi-tenant isolation gaps (cross-tenant device targeting and
+ fleet-aggregate read leaks) plus a drift between the off-box export surfaces'
+ secret-redaction lists; no Critical/High/Medium ships.
+- **[security-review-6.2.2.md](security-review-6.2.2.md)** — the
  v6.2.2 "Pu1seMatters" pass — full SAST stack (Bandit 0 new, gitleaks clean,
  agents F821-clean) plus a Semgrep pass with every finding triaged in the open, a
  trust-boundary review of the new delta-heartbeat protocol (per-device,
@@ -71,13 +80,6 @@ holds long-form docs that don't fit there.
  DNS-blocker control, JIT vault checkout) and a prompt-injection analysis of the AI
  executor (which cannot author commands — it may only pick a saved catalog action
  by exact id); no Critical/High/Medium ships.
-- **[security-review-6.1.2.md](security-review-6.1.2.md)** — the v6.1.2
- "AfterglowMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
- gitleaks clean) plus undefined-name analysis on the agents and the property/fuzz
- suites; no Critical/High/Medium ships. Closed a username-validation guard that
- never executed, promoted a refused-agent-self-update tamper signal to the alert
- path, and wired two silent hardware-failure signals (NVMe spare exhaustion, NIC
- errors) into the verdict.
 ## Release notes
 
 The full release history — every version, newest first — lives in

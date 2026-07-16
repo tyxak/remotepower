@@ -18,6 +18,9 @@ description = "Build artifacts (gitignored) + documentation examples — no real
 paths = [
   # ── Gitignored build / scan artifacts (only seen by a --no-git scan) ──────
   '''\.codeql-cache/.*''',          # CodeQL CLI + query-pack docs (contain example creds)
+  '''.*__pycache__/.*''',           # compiled .pyc bytecode (gitignored) — inherits the
+                                    # FAKE example secrets from the allowlisted test sources
+  '''.*\.pyc''',                    # (belt-and-braces for the same)
   '''packaging/aur/[^/]+/src/.*''', # AUR makepkg source tree (regenerated)
   '''packaging/aur/[^/]+/pkg/.*''', # AUR makepkg package tree (regenerated)
   '''.*\.BUILDINFO''',              # AUR build metadata (regenerated)

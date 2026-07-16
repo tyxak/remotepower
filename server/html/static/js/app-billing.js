@@ -578,10 +578,8 @@ async function quoteSetStatus(qid, status) {
 }
 
 async function quoteConvert(qid) {
-  if (typeof uiConfirm === 'function'
-      ? !(await uiConfirm('Turn this accepted quote into an invoice? A quote can be '
-          + 'invoiced only once.'))
-      : !await uiConfirm('Invoice this quote?')) return;
+  if (!await uiConfirm('Turn this accepted quote into an invoice? A quote can be '
+        + 'invoiced only once.')) return;
   const r = await api('POST', '/quotes/' + encodeURIComponent(qid) + '/convert', {});
   if (!r || !r.ok) { toast((r && r.error) || 'Could not convert the quote', 'error'); return; }
   toast(`Invoice ${r.invoice_number} created from this quote`, 'success');

@@ -29,6 +29,29 @@ fixes below.
   (they wrote the same config keys, so a save on one page could quietly reset
   the other). Alert parameters is now the single home for them.
 
+### Security
+
+- **Exhaustive audit** (SAST — CodeQL/Bandit/Gitleaks/Semgrep all clean — plus a
+  six-dimension adversarial review). It confirmed the release's shared-helper
+  refactors are behaviour-preserving (a 20k-config property test on the
+  config-secret redactors, 0 divergence) and surfaced a set of **pre-existing**
+  issues, all fixed and regression-tested before release:
+  - **Multi-tenant / role-scope isolation** on handlers that resolved a device id
+    from the request body or iterated the fleet unfiltered outside the
+    scope-enforced path prefix — a cross-tenant command path, a bulk sysinfo read,
+    a bulk alert clear, a fleet host-config collect, a Wake-on-LAN, a secrets
+    host-mute and several fleet-aggregate report views now apply the same
+    scope-and-tenant filter as the rest of the fleet surface (a no-op on a
+    single-tenant, unscoped install).
+  - **Off-box export redaction unified** — the diagnostics bundle, backup archive
+    and declarative config export now share one redaction list for the
+    credential-bearing fields whose key name isn't secret-shaped (URLs with
+    embedded userinfo, a cloud secret key, a third-party client id), so the
+    surfaces can't drift and each strips the full set.
+  - **Internal webhook peer check** now uses trusted-peer resolution instead of a
+    raw peer address that always reads as loopback behind the reverse proxy.
+  - Full write-up: [docs/security-review-6.2.3.md](docs/security-review-6.2.3.md).
+
 ### Internal (consolidation sweep)
 
 - Collapsed the ~240-copy request-body pre-check idiom

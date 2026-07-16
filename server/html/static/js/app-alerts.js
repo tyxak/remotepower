@@ -85,7 +85,7 @@ function _alertRowHtml(a, role) {
   const isResolved = !!a.resolved_at;
   const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
   const sev = (a.severity || 'medium');
-  const sevPill = `<span class="sev-pill sev-${sev}">${sev}</span>`;
+  const sevPill = `<span class="sev-pill sev-${escAttr(sev)}">${escHtml(sev)}</span>`;
   const dev = a.device_name || a.device_id || '—';
   const ts = _formatTs(a.ts);
   let actions = '';
