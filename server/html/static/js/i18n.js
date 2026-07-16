@@ -40,6 +40,8 @@
     'Reachability':          { fr: 'Accessibilité', de: 'Erreichbarkeit', zh: '可达性', hi: 'पहुँच-योग्यता', es: 'Accesibilidad', ar: 'إمكانية الوصول' },
     'Certificates':          { fr: 'Certificats', de: 'Zertifikate', zh: '证书', hi: 'प्रमाणपत्र', es: 'Certificados', ar: 'الشهادات' },
     'Lifecycle':             { fr: 'Cycle de vie', de: 'Lebenszyklus', zh: '生命周期', hi: 'जीवनचक्र', es: 'Ciclo de vida', ar: 'دورة الحياة' },
+    'Thermal & GPU':         { fr: 'Thermique et GPU', de: 'Temperatur & GPU', zh: '温度与 GPU', hi: 'तापमान और GPU', es: 'Térmico y GPU', ar: 'الحرارة و GPU' },
+    'Disk wear & SMART':     { fr: 'Usure disque et SMART', de: 'Datenträgerverschleiß & SMART', zh: '磁盘损耗与 SMART', hi: 'डिस्क घिसाव और SMART', es: 'Desgaste de disco y SMART', ar: 'تآكل القرص و SMART' },
     'Explain output':        { fr: 'Expliquer la sortie', de: 'Ausgabe erklären', zh: '解释输出', hi: 'आउटपुट समझाएँ', es: 'Explicar salida', ar: 'شرح المخرجات' },
     'Explain logs':          { fr: 'Expliquer les journaux', de: 'Protokolle erklären', zh: '解释日志', hi: 'लॉग समझाएँ', es: 'Explicar registros', ar: 'شرح السجلات' },
     'Compliance exports':    { fr: 'Exports de conformité', de: 'Compliance-Exporte', zh: '合规导出', hi: 'अनुपालन निर्यात', es: 'Exportaciones de cumplimiento', ar: 'تصدير الامتثال' },

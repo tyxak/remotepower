@@ -3628,6 +3628,54 @@
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
+        <div class="settings-section">
+          <div class="section-title">Thermal &amp; GPU</div>
+          <p class="hint">Temperature cutoffs (°C) for the Thermal and GPU pages. <strong>Hot</strong> flags a host/GPU and drives the "hot" count and the amber cell colour; <strong>critical</strong> marks it critical (red) and feeds the overheating risk/reliability factors. Keep critical above hot.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-thermal-hot-c" class="form-label">Sensor hot ≥ (°C)</label>
+              <input type="number" id="ap-thermal-hot-c" class="form-input isl-80" min="1" max="200" placeholder="75">
+            </div>
+            <div class="form-group">
+              <label for="ap-thermal-crit-c" class="form-label">Sensor critical ≥ (°C)</label>
+              <input type="number" id="ap-thermal-crit-c" class="form-input isl-80" min="1" max="200" placeholder="85">
+            </div>
+            <div class="form-group">
+              <label for="ap-gpu-hot-c" class="form-label">GPU hot ≥ (°C)</label>
+              <input type="number" id="ap-gpu-hot-c" class="form-input isl-80" min="1" max="200" placeholder="85">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Disk wear &amp; SMART</div>
+          <p class="hint">Predictive disk-health thresholds. Wear <strong>warn/high</strong> percentages colour the SSD/NVMe wear cell and raise its risk; <strong>realloc/pending critical</strong> is the bad-sector count treated as critical and the ETA target; <strong>medium-risk ETA</strong> suppresses a <code>disk_predict_fail</code> for a medium-risk disk unless it's within that many days; <strong>ECC min delta</strong> is the floor a per-beat correctable/uncorrectable increase must exceed to fire <code>ecc_errors</code> (0 = any increase fires). Keep wear high above warn.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-smart-wear-warn" class="form-label">Wear warn %</label>
+              <input type="number" id="ap-smart-wear-warn" class="form-input isl-80" min="1" max="100" placeholder="80">
+            </div>
+            <div class="form-group">
+              <label for="ap-smart-wear-high" class="form-label">Wear high %</label>
+              <input type="number" id="ap-smart-wear-high" class="form-input isl-80" min="1" max="100" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label for="ap-smart-realloc-crit" class="form-label">Realloc/pending critical (sectors)</label>
+              <input type="number" id="ap-smart-realloc-crit" class="form-input isl-80" min="1" max="100000" placeholder="100">
+            </div>
+            <div class="form-group">
+              <label for="ap-disk-eta-days" class="form-label">Medium-risk ETA window (days)</label>
+              <input type="number" id="ap-disk-eta-days" class="form-input isl-80" min="1" max="3650" placeholder="180">
+            </div>
+            <div class="form-group">
+              <label for="ap-ecc-min-delta" class="form-label">ECC min delta (0=any)</label>
+              <input type="number" id="ap-ecc-min-delta" class="form-input isl-80" min="0" max="100000" placeholder="0">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
       </div>
 
       <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->

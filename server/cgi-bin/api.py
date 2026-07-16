@@ -23401,6 +23401,18 @@ def handle_config_get():
     safe.setdefault('contract_soon_days', _CONTRACT_SOON_DAYS)              # contract expiry soon (days)
     safe.setdefault('os_eol_soon_days', 90)            # OS end-of-life soon (days)
     safe.setdefault('av_sig_stale_days', 7)            # AV/Defender signature stale (days)
+    # v6.2.2 batch 3: previously-hardcoded hardware/thermal/SMART thresholds, now
+    # operator-configurable (Settings → Thermal & GPU / Disk wear & SMART).
+    # Defaults mirror the code constants so an unconfigured server behaves
+    # identically (see the read-sites, which fall back to the same constant).
+    safe.setdefault('thermal_hot_c', int(THERMAL_HOT_C))    # hottest sensor → "hot" flag/count + half risk
+    safe.setdefault('thermal_crit_c', int(THERMAL_CRIT_C))  # → "critical" + full risk + overheating reliability
+    safe.setdefault('gpu_hot_c', int(GPU_HOT_C))            # GPU temp → fleet "hot" count
+    safe.setdefault('smart_wear_warn_pct', 80)              # SSD/NVMe wear → medium risk
+    safe.setdefault('smart_wear_high_pct', 90)              # SSD/NVMe wear → high risk
+    safe.setdefault('smart_realloc_crit_sectors', _REALLOC_CRIT)  # realloc/pending → "critical" / ETA target
+    safe.setdefault('disk_predict_medium_eta_days', 180)    # medium disk suppressed unless ETA ≤ this
+    safe.setdefault('ecc_error_alert_min_delta', 0)         # ecc_errors floor; 0 = fire on any positive delta
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24522,6 +24534,17 @@ def handle_config_save():
         ('contract_soon_days',        1,   3650,   True),
         ('os_eol_soon_days',          1,   3650,   True),
         ('av_sig_stale_days',         1,   365,    True),
+        # v6.2.2 batch 3: hardware/thermal/SMART thresholds. Constants were never
+        # 0/negative, so each keeps a floor of 1 EXCEPT ecc_error_alert_min_delta
+        # (a floor where 0 = fire on any positive delta = today's behaviour).
+        ('thermal_hot_c',             1,   200,    True),
+        ('thermal_crit_c',            1,   200,    True),
+        ('gpu_hot_c',                 1,   200,    True),
+        ('smart_wear_warn_pct',       1,   100,    True),
+        ('smart_wear_high_pct',       1,   100,    True),
+        ('smart_realloc_crit_sectors', 1,  100000, True),
+        ('disk_predict_medium_eta_days', 1, 3650,  True),
+        ('ecc_error_alert_min_delta', 0,   100000, True),
     ):
         if _tk in body:
             _raw = body[_tk]
@@ -31602,7 +31625,10 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         p_ce, p_ue = int(p_ecc.get('ce') or 0), int(p_ecc.get('ue') or 0)
         d_ce = ce - p_ce if ce >= p_ce else ce      # counter reset → treat as new
         d_ue = ue - p_ue if ue >= p_ue else ue
-        if not first_seen and (d_ce > 0 or d_ue > 0):
+        # v6.2.2 batch 3: operator-configurable floor. Default 0 → `> 0` = today's
+        # fire-on-any-positive-delta behaviour, exactly preserved.
+        ecc_min = int(_config_ro().get('ecc_error_alert_min_delta', 0) or 0)
+        if not first_seen and (d_ce > ecc_min or d_ue > ecc_min):
             _fire('ecc_errors', {'ce': ce, 'ue': ue,
                                  'new_ce': d_ce, 'new_ue': d_ue})
         new['ecc'] = {'ce': ce, 'ue': ue}
@@ -39978,6 +40004,12 @@ def _disk_health_view():
     hist = load(SMART_HIST_FILE) or {}
     hw_all = load(HARDWARE_FILE) or {}
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    # v6.2.2 batch 3: operator-configurable SMART bands — hoisted once (never
+    # mutate a _config_ro() result). Defaults mirror the code constants.
+    _gc = _config_ro()
+    realloc_crit = int(_gc.get('smart_realloc_crit_sectors', _REALLOC_CRIT) or _REALLOC_CRIT)
+    wear_warn = int(_gc.get('smart_wear_warn_pct', 80) or 80)
+    wear_high = int(_gc.get('smart_wear_high_pct', 90) or 90)
     rows = []
     for dev_id, dev in devices.items():
         # Telemetry view — show unmonitored hosts' disks too (alerting suppressed).
@@ -40030,7 +40062,7 @@ def _disk_health_view():
                         risk = 'high'
                     reasons.append(f'{label} sectors = {int(latest)}')
                     if slope > 0:
-                        to_crit = (_REALLOC_CRIT - latest) / slope
+                        to_crit = (realloc_crit - latest) / slope
                         if to_crit > 0:
                             eta = int(to_crit)
                             eta_days = eta if eta_days is None else min(eta_days, eta)
@@ -40038,9 +40070,9 @@ def _disk_health_view():
 
             # Predictive: wear trajectory.
             w_slope, w_latest = _smart_trend(samples, 'wear')
-            if w_latest is not None and w_latest >= 80:
+            if w_latest is not None and w_latest >= wear_warn:
                 if risk == 'low':
-                    risk = 'high' if w_latest >= 90 else 'medium'
+                    risk = 'high' if w_latest >= wear_high else 'medium'
                 reasons.append(f'wear {int(w_latest)}%')
             if w_slope and w_slope > 0 and w_latest is not None and w_latest < 100:
                 wear_eta = int((100 - w_latest) / w_slope)
@@ -40150,7 +40182,8 @@ def handle_disk_health():
                   'critical': by.get('critical', 0), 'high': by.get('high', 0),
                   'medium': by.get('medium', 0),
                   'tracked': tracked, 'tracked_count': len(tracked),
-                  'unstable': unstable, 'unstable_count': len(unstable)})
+                  'unstable': unstable, 'unstable_count': len(unstable),
+                  'hw_bands': _hw_bands()})
 
 
 def _maybe_check_disk_predictions():
@@ -40163,6 +40196,8 @@ def _maybe_check_disk_predictions():
         return
     cfg['last_disk_predict_check'] = now
     save(CONFIG_FILE, cfg)
+    # v6.2.2 batch 3: operator-configurable medium-risk ETA suppression window.
+    _medium_eta = int(cfg.get('disk_predict_medium_eta_days', 180) or 180)
     try:
         rows = _disk_health_view()
     except Exception:
@@ -40175,9 +40210,10 @@ def _maybe_check_disk_predictions():
             continue  # predictive (has an ETA), not just reactive-critical
         # v4.6.0: don't alert on a disk that's years from failing. A 'medium'
         # disk is only "wearing out" on a slow trajectory; only fire when it's
-        # genuinely urgent — reactive high/critical, or a near-term ETA (≤180d).
+        # genuinely urgent — reactive high/critical, or a near-term ETA (≤180d
+        # by default; operator-configurable via disk_predict_medium_eta_days).
         # (e.g. 27% SSD wear with a ~700-day ETA should not raise an alert.)
-        if r.get('risk') == 'medium' and (r.get('eta_days') or 0) > 180:
+        if r.get('risk') == 'medium' and (r.get('eta_days') or 0) > _medium_eta:
             continue
         key = f"{r['device_id']}|{r.get('serial') or r.get('disk')}"
         cur.add(key)
@@ -42405,8 +42441,13 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
             _c = _e.get(_key) if isinstance(_e, dict) else None
             if isinstance(_c, (int, float)) and (hottest_c is None or _c > hottest_c):
                 hottest_c = float(_c)
-    if hottest_c is not None and hottest_c >= THERMAL_HOT_C:
-        _crit_t = hottest_c >= THERMAL_CRIT_C
+    # v6.2.2 batch 3: operator-configurable thermal thresholds (defaults mirror
+    # the code constants). One _config_ro() read; never mutate the result.
+    _gc = _config_ro()
+    _hot_c = float(_gc.get('thermal_hot_c', THERMAL_HOT_C) or THERMAL_HOT_C)
+    _crit_c = float(_gc.get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
+    if hottest_c is not None and hottest_c >= _hot_c:
+        _crit_t = hottest_c >= _crit_c
         _add('overheating',
              _RISK_WEIGHTS['overheating'] if _crit_t else _RISK_WEIGHTS['overheating'] // 2,
              f"hottest sensor at {round(hottest_c, 1)} °C ({'critical' if _crit_t else 'hot'})")
@@ -42614,7 +42655,9 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
     # ── heat kills hardware ───────────────────────────────────────────────────
     temps = [t.get('current_c') for t in (hw_rec.get('temps') or [])
              if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))]
-    if temps and max(temps) >= THERMAL_CRIT_C:
+    # v6.2.2 batch 3: operator-configurable overheating threshold.
+    _crit_c = float(_config_ro().get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
+    if temps and max(temps) >= _crit_c:
         _add('overheating', _RELIABILITY_WEIGHTS['overheating'],
              f'running at {int(max(temps))}°C')
 
@@ -56587,9 +56630,27 @@ THERMAL_HOT_C = 75.0
 THERMAL_CRIT_C = 85.0
 
 
+def _hw_bands():
+    """v6.2.2 batch 3: the operator-configurable hardware colour/flag cutoffs the
+    client needs to paint bands from the SAME boundaries the server uses (mirrors
+    handle_risk_overview's `risk_levels`). Delivered on the thermal / gpu /
+    disk-health endpoints; the client stamps `_HW_BANDS` and drops its hardcoded
+    copies. Defaults mirror the code constants for an unconfigured server."""
+    _gc = _config_ro()
+    return {
+        'thermal_hot': int(_gc.get('thermal_hot_c', THERMAL_HOT_C) or THERMAL_HOT_C),
+        'thermal_crit': int(_gc.get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C),
+        'gpu_hot': int(_gc.get('gpu_hot_c', GPU_HOT_C) or GPU_HOT_C),
+        'wear_warn': int(_gc.get('smart_wear_warn_pct', 80) or 80),
+        'wear_high': int(_gc.get('smart_wear_high_pct', 90) or 90),
+    }
+
+
 def handle_fleet_thermal():
     """GET /api/fleet/thermal — hottest-host roll-up across the fleet."""
     require_auth()
+    _bands = _hw_bands()
+    _hot_c, _crit_c = _bands['thermal_hot'], _bands['thermal_crit']
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
@@ -56642,7 +56703,7 @@ def handle_fleet_thermal():
         max_c = round(hottest[0], 1)
         crit_c = hottest[3]
         headroom = round(crit_c - max_c, 1) if isinstance(crit_c, (int, float)) else None
-        is_hot = max_c >= THERMAL_HOT_C
+        is_hot = max_c >= _hot_c
         if is_hot:
             hot += 1
         detail.sort(key=lambda x: -x['temp'])
@@ -56656,11 +56717,11 @@ def handle_fleet_thermal():
             'max_temp': max_c, 'sensor_label': hottest[1], 'sensor_type': hottest[2],
             'sensors': sensors, 'crit_c': crit_c, 'headroom': headroom,
             'detail': detail[:16], 'gpu': gpu_extra, 'trend': trend,
-            'hot': is_hot, 'critical': max_c >= THERMAL_CRIT_C,
+            'hot': is_hot, 'critical': max_c >= _crit_c,
             'reported_at': hw.get('ts', 0),
         })
     rows.sort(key=lambda r: -r['max_temp'])
-    respond(200, {'hosts': rows, 'count': len(rows), 'hot': hot})
+    respond(200, {'hosts': rows, 'count': len(rows), 'hot': hot, 'hw_bands': _bands})
 
 
 # ─── v4.7.0: fleet GPU roll-up (NVIDIA + AMD) ────────────────────────────────
@@ -56687,6 +56748,8 @@ def handle_fleet_gpus():
     via nvidia-smi, AMD via rocm-smi or the amdgpu sysfs fallback) — no schema
     change. Hottest/busiest first; carries a fleet summary."""
     require_auth()
+    _bands = _hw_bands()
+    _gpu_hot = _bands['gpu_hot']
     # v6.1.2 SECURITY: fleet-aggregate read not under /api/devices/, so
     # _enforce_device_scope doesn't cover it — scope/tenant-filter the roster
     # (no-op for a superadmin; a real cut for a tenant admin / scoped role).
@@ -56736,9 +56799,9 @@ def handle_fleet_gpus():
         'nvidia': sum(1 for r in rows if r['vendor'] == 'nvidia'),
         'amd': sum(1 for r in rows if r['vendor'] == 'amd'),
         'total_power_w': round(sum(r['power_w'] or 0 for r in rows), 1),
-        'hot': sum(1 for r in rows if (r['temp_c'] or 0) >= GPU_HOT_C),
+        'hot': sum(1 for r in rows if (r['temp_c'] or 0) >= _gpu_hot),
     }
-    respond(200, {'gpus': rows, 'summary': summary})
+    respond(200, {'gpus': rows, 'summary': summary, 'hw_bands': _bands})
 
 
 def handle_fleet_power():

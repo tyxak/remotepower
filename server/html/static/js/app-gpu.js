@@ -10,7 +10,7 @@ function _gpuMem(mb) {
 function _gpuCard(g) {
   const vend = String(g.vendor || '').toLowerCase();
   const vlabel = vend === 'nvidia' ? 'NVIDIA' : vend === 'amd' ? 'AMD' : (g.vendor || 'GPU');
-  const tcls = _riskClass(g.temp_c, 85, 75, 'c-green');
+  const tcls = _riskClass(g.temp_c, _HW_BANDS.gpu_hot, _HW_BANDS.thermal_hot, 'c-green');
   const stat = (l, v, cls) => `<div class="gpu-stat"><span class="gpu-stat-l">${l}</span><b class="${cls || ''}">${v}</b></div>`;
   const bar = (pct, cls) => {
     const p = Math.max(0, Math.min(100, Number(pct) || 0));
@@ -36,7 +36,7 @@ function _gpuCard(g) {
 function _gpuTrend(g) {
   const tt = (g.trend_temp || []), tu = (g.trend_util || []);
   if (tt.length < 2 && tu.length < 2) return '';
-  const tcolor = (g.temp_c >= 85) ? 'var(--red)' : (g.temp_c >= 75) ? 'var(--amber)' : 'var(--green)';
+  const tcolor = (g.temp_c >= _HW_BANDS.gpu_hot) ? 'var(--red)' : (g.temp_c >= _HW_BANDS.thermal_hot) ? 'var(--amber)' : 'var(--green)';
   const row = (label, vals, color) => vals.length >= 2
     ? `<div class="gpu-trend-row"><span class="gpu-trend-l">${label}</span>${renderSparkline(vals, {width: 120, height: 18, color, fill: true})}</div>`
     : '';
@@ -49,6 +49,7 @@ async function loadGpus() {
   if (!grid) return;
   try {
     const data = await api('GET', '/fleet/gpus');
+    _setHwBands(data && data.hw_bands);   // operator-configured GPU-temp cutoffs
     const gpus = (data && data.gpus) || [];
     const s = (data && data.summary) || {};
     if (sum) sum.textContent = gpus.length

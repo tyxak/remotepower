@@ -7035,6 +7035,13 @@ function _healthClass(s) {
 // badge colour, so the Risk page doesn't re-hardcode 80/50/20.
 let _RISK_CUTS = { critical: 80, high: 50, medium: 20 };
 function _setRiskCuts(g) { if (g && typeof g.critical === 'number') _RISK_CUTS = g; }
+
+// v6.2.2 batch 3: operator-configurable hardware colour cutoffs, delivered from
+// the server (thermal / gpu / disk-health → hw_bands). Drives the SSD-wear and
+// GPU-temp cell colours from the SAME boundaries the server flags on — one source
+// of truth, no second hardcoded ladder. Defaults mirror the code constants.
+let _HW_BANDS = { thermal_hot: 75, thermal_crit: 85, gpu_hot: 85, wear_warn: 80, wear_high: 90 };
+function _setHwBands(b) { if (b && typeof b === 'object') Object.assign(_HW_BANDS, b); }
 function _riskLevel(s) {
   const c = _RISK_CUTS;
   return s >= c.critical ? 'critical' : s >= c.high ? 'high' : s >= c.medium ? 'medium' : 'low';
@@ -14747,6 +14754,7 @@ function _renderDiskHealth() {
   _renderUnstableHosts();
   const tbody = document.getElementById('disk-health-tbody');
   if (!tbody || !_diskHealthResp) return;
+  _setHwBands(_diskHealthResp.hw_bands);   // operator-configured SMART-wear cutoffs
   const _rank = { critical: 0, high: 1, medium: 2, low: 3 };
   let rows = (_diskHealthResp.disks || []).slice();
   rows = tableCtl.sortRows('diskhealth', rows, (r) => ({
@@ -14785,7 +14793,7 @@ function _renderDiskHealth() {
       <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
       <td class="fw-500">${escHtml(t.device)}</td>
       <td><code>${escHtml(t.disk)}</code>${t.model ? `<div class="fs-11 c-muted">${escHtml(t.model)}</div>` : ''}</td>
-      <td class="ta-center ${_riskClass(t.wear_pct,90,80)}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
+      <td class="ta-center ${_riskClass(t.wear_pct,_HW_BANDS.wear_high,_HW_BANDS.wear_warn)}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
       <td class="ta-center">—</td>
       <td class="hint">${escHtml(det.join(' · '))}</td></tr>`;
   };
@@ -14817,7 +14825,7 @@ function _renderDiskHealth() {
       <td>${riskPill(r.risk)}</td>
       <td class="fw-500">${escHtml(r.device)}</td>
       <td><code>${escHtml(r.disk)}</code>${r.model ? `<div class="fs-11 c-muted">${escHtml(r.model)}</div>` : ''}</td>
-      <td class="ta-center ${_riskClass(r.wear_pct,90,80)}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
+      <td class="ta-center ${_riskClass(r.wear_pct,_HW_BANDS.wear_high,_HW_BANDS.wear_warn)}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
       <td class="ta-center ${etaCls}">${eta}</td>
       <td class="hint">${escHtml([...(r.reasons || []),
                                   ...(r.spare_pct != null ? [`spare ${r.spare_pct}%`] : []),
@@ -18685,6 +18693,15 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-contract-soon-days',        'contract_soon_days',         90],
   ['ap-os-eol-days',               'os_eol_soon_days',           90],
   ['ap-av-stale-days',             'av_sig_stale_days',          7],
+  // v6.2.2 batch 3: hardware/thermal/SMART thresholds.
+  ['ap-thermal-hot-c',             'thermal_hot_c',              75],
+  ['ap-thermal-crit-c',            'thermal_crit_c',             85],
+  ['ap-gpu-hot-c',                 'gpu_hot_c',                  85],
+  ['ap-smart-wear-warn',           'smart_wear_warn_pct',        80],
+  ['ap-smart-wear-high',           'smart_wear_high_pct',        90],
+  ['ap-smart-realloc-crit',        'smart_realloc_crit_sectors', 100],
+  ['ap-disk-eta-days',             'disk_predict_medium_eta_days', 180],
+  ['ap-ecc-min-delta',             'ecc_error_alert_min_delta',  0],
 ];
 
 async function loadAlertParams() {
