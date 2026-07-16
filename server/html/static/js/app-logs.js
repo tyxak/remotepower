@@ -166,14 +166,8 @@ function lineSeverityColor(line) {
   return '';
 }
 
-function relTime(ts) {
-  if (!ts) return '—';
-  const delta = Math.floor(Date.now()/1000 - ts);
-  if (delta < 60) return `${delta}s ago`;
-  if (delta < 3600) return `${Math.floor(delta/60)}m ago`;
-  if (delta < 86400) return `${Math.floor(delta/3600)}h ago`;
-  return `${Math.floor(delta/86400)}d ago`;
-}
+// Same s/m/h/d format as the shared timeAgo() (app.js), with a '—' empty label.
+function relTime(ts) { return timeAgo(ts, { empty: '—' }); }
 
 function onLogFilterChange() {
   // Changing a filter resets the tail so we don't show stale unfiltered lines

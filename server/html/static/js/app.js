@@ -5147,7 +5147,10 @@ function enhanceDeviceCombos(root) {
     });
   } catch (e) { /* never break a page */ }
 }
-function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
+// opts (all optional, defaults preserve the original behaviour for every
+// existing caller): {empty} — label returned for a falsy ts; {clamp} — floor
+// the delta at 0 so a future/skewed ts never reads "-5s ago".
+function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty; let diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
 // Everything is STORED in Celsius — the agent reports °C, thresholds are °C,
@@ -11669,11 +11672,10 @@ function _formatTs(ts) {
   return d.toLocaleString();
 }
 
-function _escapeHtml(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
+// Same escaping as escHtml(), plus a null/undefined → '' guard (escHtml renders
+// them as the literal "null"/"undefined"). Kept as a thin wrapper so the
+// replace-chain lives in exactly one place.
+function _escapeHtml(s) { return escHtml(s == null ? '' : s); }
 
 function _paintAlertsBadge(n) {
   const badge = document.getElementById('alerts-badge');
@@ -24728,14 +24730,7 @@ function _selfFmtBytes(b) {
   while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
   return b.toFixed(b < 10 ? 1 : 0) + ' ' + u[i];
 }
-function _selfFmtAgo(ts) {
-  if (!ts) return 'never';
-  const s = Math.max(0, Math.floor(Date.now()/1000) - ts);
-  if (s < 60) return s + 's ago';
-  if (s < 3600) return Math.floor(s/60) + 'm ago';
-  if (s < 86400) return Math.floor(s/3600) + 'h ago';
-  return Math.floor(s/86400) + 'd ago';
-}
+function _selfFmtAgo(ts) { return timeAgo(ts, { empty: 'never', clamp: true }); }
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
   body.innerHTML = '<div class="c-muted">Loading…</div>';
