@@ -23289,6 +23289,9 @@ def handle_config_get():
     safe.setdefault('temp_alert_threshold_c', 85)                   # temp_high °C
     safe.setdefault('clock_skew_threshold_ms', 1000)               # clock_skew ms
     safe.setdefault('proxmox_snapshot_warn_days', 7)               # stale Proxmox snapshot age
+    safe.setdefault('health_grade_good', 90)   # health score ≥ → good (green)
+    safe.setdefault('health_grade_fair', 70)   # ≥ → fair (amber)
+    safe.setdefault('health_grade_poor', 40)   # ≥ → poor (orange); below → critical (red)
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24373,6 +24376,11 @@ def handle_config_save():
         ('temp_alert_threshold_c',    0,   200,    True),
         ('clock_skew_threshold_ms',   0,   86400000, True),
         ('proxmox_snapshot_warn_days', 0,  3650,   True),
+        # Fleet/device health-score grade cutoffs (score at/above → grade). The
+        # dashboard paints green/amber/orange/red at these same boundaries.
+        ('health_grade_good',         1,   100,    True),
+        ('health_grade_fair',         1,   100,    True),
+        ('health_grade_poor',         1,   100,    True),
     ):
         if _tk in body:
             _raw = body[_tk]
@@ -42027,10 +42035,25 @@ def handle_attention():
 _HEALTH_WEIGHTS = {'critical': 25, 'warning': 8, 'info': 2}
 
 
+def _health_grade_cuts():
+    """The good/fair/poor score cutoffs, operator-tunable on Settings → Alert
+    parameters (health_grade_good/fair/poor; defaults 90/70/40). Clamped to stay
+    descending so a fat-fingered config can't invert the ladder."""
+    cfg = _config_ro()
+    try:
+        good = int(cfg.get('health_grade_good', 90))
+        fair = min(int(cfg.get('health_grade_fair', 70)), good)
+        poor = min(int(cfg.get('health_grade_poor', 40)), fair)
+    except (TypeError, ValueError):
+        good, fair, poor = 90, 70, 40
+    return good, fair, poor
+
+
 def _health_grade(score):
-    if score >= 90: return 'good'
-    if score >= 70: return 'fair'
-    if score >= 40: return 'poor'
+    good, fair, poor = _health_grade_cuts()
+    if score >= good: return 'good'
+    if score >= fair: return 'fair'
+    if score >= poor: return 'poor'
     return 'critical'
 
 
@@ -42665,12 +42688,17 @@ def _fleet_health(use_cache=True):
     # slice the top N "needs attention most" devices without re-sorting.
     devs = sorted(per.values(), key=lambda r: (r['score'], -r['critical']))
     fleet = round(sum(r['score'] for r in devs) / len(devs)) if devs else 100
+    _gg, _gf, _gp = _health_grade_cuts()
     return {
         'score':         fleet,
         'grade':         _health_grade(fleet),
         'devices':       devs,
         'counts':        payload.get('counts') or {},
         'total_devices': len(devs),
+        # The color/grade cutoffs so the dashboard paints the score ring with the
+        # SAME operator-configured boundaries the grade uses — one source of truth,
+        # not a second hardcoded ladder in the frontend.
+        'grades':        {'good': _gg, 'fair': _gf, 'poor': _gp},
     }
 
 

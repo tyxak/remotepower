@@ -3461,6 +3461,26 @@
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
+        <div class="settings-section">
+          <div class="section-title">Health grade cutoffs</div>
+          <p class="hint">The health-score boundaries that decide a device's grade and the colour of the dashboard score — <strong>good</strong> (green), <strong>fair</strong> (amber), <strong>poor</strong> (orange); anything below poor is <strong>critical</strong> (red). A score at or above each value takes that grade. Keep them descending.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-grade-good" class="form-label">Good ≥ (green)</label>
+              <input type="number" id="ap-grade-good" class="form-input isl-80" min="1" max="100" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label for="ap-grade-fair" class="form-label">Fair ≥ (amber)</label>
+              <input type="number" id="ap-grade-fair" class="form-input isl-80" min="1" max="100" placeholder="70">
+            </div>
+            <div class="form-group">
+              <label for="ap-grade-poor" class="form-label">Poor ≥ (orange)</label>
+              <input type="number" id="ap-grade-poor" class="form-input isl-80" min="1" max="100" placeholder="40">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
       </div>
 
       <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->

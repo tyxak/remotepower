@@ -102,6 +102,38 @@ class TestAlertParamPersist(_SaveBase):
         self.assertEqual(self.cap.get("s"), 400)
 
 
+class TestHealthGradeCutoffs(_SaveBase):
+    def test_grade_cutoffs_persist_and_apply(self):
+        self._save({"health_grade_good": "80", "health_grade_fair": "60",
+                    "health_grade_poor": "30"})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertEqual(api._health_grade_cuts(), (80, 60, 30))
+        self.assertEqual(api._health_grade(85), "good")   # ≥80 now good
+        self.assertEqual(api._health_grade(65), "fair")
+        self.assertEqual(api._health_grade(20), "critical")
+
+    def test_default_cutoffs(self):
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertEqual(api._health_grade_cuts(), (90, 70, 40))
+
+    def test_inverted_config_clamps_descending(self):
+        # good < fair must not invert the ladder — fair/poor clamp to ≤ good.
+        self._save({"health_grade_good": "50", "health_grade_fair": "70",
+                    "health_grade_poor": "40"})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        g, f, p = api._health_grade_cuts()
+        self.assertGreaterEqual(g, f)
+        self.assertGreaterEqual(f, p)
+
+    def test_fleet_health_embeds_grades(self):
+        api.save(api.CONFIG_FILE, {"health_grade_good": "88"})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        h = api._fleet_health()
+        self.assertIn("grades", h)
+        self.assertEqual(h["grades"]["good"], 88)
+
+
 class TestAlertParamDefaultsExposed(unittest.TestCase):
     def test_config_get_setdefaults_present(self):
         """handle_config_get must setdefault each key so the UI renders the
@@ -133,7 +165,8 @@ class TestAlertParamFrontendWiring(unittest.TestCase):
         html = (ROOT / "server/html/index.html").read_text()
         for _id in ("ap-nic-err-min", "ap-snmp-dead", "ap-snmp-fails",
                     "ap-metric-fails", "ap-container-stale", "ap-temp-c",
-                    "ap-clock-skew-ms", "ap-pmox-snap-days"):
+                    "ap-clock-skew-ms", "ap-pmox-snap-days",
+                    "ap-grade-good", "ap-grade-fair", "ap-grade-poor"):
             self.assertEqual(html.count(f'id="{_id}"'), 1, f"{_id} not present exactly once")
 
     def test_each_section_has_a_save_button(self):

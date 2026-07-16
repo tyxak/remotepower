@@ -15372,7 +15372,11 @@ function _renderHomeHeatmap(health) {
   const devs = (health && health.devices) || [];
   if (devs.length < 2) { if (card) card.classList.add('d-none'); return; }
   if (card) card.classList.remove('d-none');
-  const color = s => s >= 90 ? 'var(--green)' : s >= 70 ? '#d4a017' : s >= 40 ? '#ff8c00' : 'var(--red)';
+  // Colour per-device cells at the SAME operator-configured cutoffs the grade
+  // uses (delivered as health.grades from the server — one source of truth).
+  const _g = (health && health.grades) || {};
+  const _gGood = _g.good ?? 90, _gFair = _g.fair ?? 70, _gPoor = _g.poor ?? 40;
+  const color = s => s >= _gGood ? 'var(--green)' : s >= _gFair ? '#d4a017' : s >= _gPoor ? '#ff8c00' : 'var(--red)';
   wrap.innerHTML = '<div class="heatmap-grid">' + devs.map(d =>
     `<button class="heatmap-cell" data-bg="${color(d.score)}" data-action="openDeviceTimeline" data-arg="${escAttr(d.device_id)}" title="${escAttr(d.device_name)} — health ${d.score}/100${d.critical ? ` · ${d.critical} critical` : ''}${d.warning ? ` · ${d.warning} warning` : ''}"></button>`
   ).join('') + '</div>';
@@ -18620,6 +18624,9 @@ const _ALERT_PARAM_FIELDS = [
   ['cfg-snapshot-stale-days',      'snapshot_stale_days',        0],
   ['cfg-incident-device-threshold','incident_device_threshold',  5],
   ['health-alert-threshold',       'health_alert_threshold',     0],
+  ['ap-grade-good',                'health_grade_good',          90],
+  ['ap-grade-fair',                'health_grade_fair',          70],
+  ['ap-grade-poor',                'health_grade_poor',          40],
 ];
 
 async function loadAlertParams() {

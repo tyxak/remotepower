@@ -171,6 +171,13 @@ day.
   age. Five of these were previously either hardcoded or editable only by
   hand-editing the config file. (This does not touch Monitoring → Tuning, which
   silences noisy alerts per host — a separate job.)
+- **Health grade cutoffs are now configurable.** The score boundaries that
+  decide a device's grade — good / fair / poor / critical — and the matching
+  green / amber / orange / red on the dashboard were hardcoded at 90 / 70 / 40.
+  They're now editable on Settings → Alert parameters, and the dashboard paints
+  the score ring and the per-device heat-map at the same operator-set boundaries
+  (one source of truth, delivered from the server — not a second hardcoded ladder
+  in the browser).
 - **Keyboard-driven alert inbox** — `j`/`k` move, `a` acknowledge, `r` resolve,
   `m` mute, `x` select, `?` shows the map. Active only on the Alerts page and
   never while typing in a field or a modal.

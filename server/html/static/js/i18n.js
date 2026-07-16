@@ -33,6 +33,7 @@
     'Patching & capacity':   { fr: 'Correctifs et capacité', de: 'Patches & Kapazität', zh: '补丁与容量', hi: 'पैचिंग और क्षमता', es: 'Parches y capacidad', ar: 'التصحيح والسعة' },
     'Storage & backup':      { fr: 'Stockage et sauvegarde', de: 'Speicher & Sicherung', zh: '存储与备份', hi: 'स्टोरेज और बैकअप', es: 'Almacenamiento y copia de seguridad', ar: 'التخزين والنسخ الاحتياطي' },
     'Server health':         { fr: 'État du serveur', de: 'Serverzustand', zh: '服务器健康', hi: 'सर्वर स्वास्थ्य', es: 'Estado del servidor', ar: 'صحة الخادم' },
+    'Health grade cutoffs':  { fr: 'Seuils de note de santé', de: 'Zustandsnoten-Schwellen', zh: '健康评级阈值', hi: 'स्वास्थ्य ग्रेड सीमाएँ', es: 'Umbrales de calificación de salud', ar: 'حدود تقييم الصحة' },
     'Explain output':        { fr: 'Expliquer la sortie', de: 'Ausgabe erklären', zh: '解释输出', hi: 'आउटपुट समझाएँ', es: 'Explicar salida', ar: 'شرح المخرجات' },
     'Explain logs':          { fr: 'Expliquer les journaux', de: 'Protokolle erklären', zh: '解释日志', hi: 'लॉग समझाएँ', es: 'Explicar registros', ar: 'شرح السجلات' },
     'Compliance exports':    { fr: 'Exports de conformité', de: 'Compliance-Exporte', zh: '合规导出', hi: 'अनुपालन निर्यात', es: 'Exportaciones de cumplimiento', ar: 'تصدير الامتثال' },
