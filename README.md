@@ -15,7 +15,7 @@ inbound ports. Up and running in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.2.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.2.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -168,6 +168,12 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.2.3 "Un1fyMatters"** — a consolidation and tidy-up pass: an optional
+  listen port on Create tunnel, an ACME certificates page that loads on
+  navigation (no manual Refresh), clearer feedback when a package snapshot
+  captures nothing, and a removed duplicate dampening setting — on top of a
+  project-wide sweep that collapsed repeated code idioms, deleted dead code and
+  de-duplicated the docs.
 - **v6.2.2 "Pu1seMatters"** — a performance and polish pass built around the
   heartbeat: agents skip re-sending unchanged inventory data (delta sysinfo)
   and reuse their HTTPS connection instead of a new TLS handshake per beat; a
@@ -195,9 +201,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   triggered, `POST /api/cve/scan` no longer 500s on Postgres, a sweep of frontend
   defects, the first wave of performance work, and optional modules a minimal
   homelab can switch off.
-- **v6.1.1 "HardenMatters"** — a broad hardening pass: cross-tenant security
-  fixes, step-up re-auth, litigation hold, a STRIDE threat model, a full
-  WCAG AA accessibility pass, and real per-package patch pinning.
 Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security

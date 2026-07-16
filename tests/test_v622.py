@@ -29,7 +29,11 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "6.2.2"
+    # v6.2.3: loosened from the "6.2.2" literal to the live version, per the
+    # convention. Strict pins for the current release live in tests/test_v623.py;
+    # what stays valuable here is version-surface lockstep with SERVER_VERSION
+    # plus the v6.2.2-specific history checks below.
+    V = api.SERVER_VERSION
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -76,22 +80,18 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_whats_new_card_is_doc_searchable(self):
         """The data-keywords attribute embeds the codename as a lowercase search
-        term — the surface a visible-text rename always misses."""
+        term — the surface a visible-text rename always misses. Pinned to the
+        v6.2.2 card this file owns (still present as one of the last three)."""
         html = _html()
-        i = html.index(f"What's new — v{self.V}")
+        i = html.index("What's new — v6.2.2")
         card = html[max(0, i - 1600):i]
         self.assertIn("pu1sematters", card)
 
     def test_changelog_header(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn('## v6.2.2 — "Pu1seMatters"', head)
-
-    def test_gen_wiki_codename(self):
-        p = _ROOT / "tools/gen-wiki.py"
-        if not p.exists():
-            self.skipTest("excluded from dist tree")
-        self.assertIn('Pu1seMatters', p.read_text(),
-                      "gen-wiki.py's Home line hardcodes the codename — bump it")
+        # v6.2.3: loosened from the [:400] head window (newer releases sit above
+        # this one now) — the v6.2.2 entry itself must remain.
+        self.assertIn('## v6.2.2 — "Pu1seMatters"',
+                      (_ROOT / "CHANGELOG.md").read_text())
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -99,7 +99,8 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "Pu1seMatters"'))
+        # v6.2.3: codename dropped from the pin (the live top release owns it).
+        self.assertTrue(bullets[0].startswith(f'- **v{self.V} "'))
 
 
 class TestBackendIndexParity(unittest.TestCase):

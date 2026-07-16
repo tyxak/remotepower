@@ -180,19 +180,30 @@ class TestSweepCoverageAndExclusions(unittest.TestCase):
 
     def test_broad_coverage(self):
         """A floor, not an exact count (new handlers keep landing). The sweep wired
-        200+ handlers; if this drops far below, the sweep was reverted."""
-        n = self.api_src.count('request_models.validate(')
-        self.assertGreater(n, 200, f'only {n} validate() call sites — sweep regressed?')
+        200+ handlers; if this drops far below, the sweep was reverted. Most sites
+        now go through the `_read_valid(request_models.X)` helper (the collapsed
+        get_json_obj+validate+respond idiom); a handful keep the inline
+        `request_models.validate(request_models.X, body)` form (get_json_body body
+        readers). Count both."""
+        n = (self.api_src.count('_read_valid(request_models.') +
+             self.api_src.count('request_models.validate(request_models.'))
+        self.assertGreater(n, 200, f'only {n} validated handlers — sweep regressed?')
+
+    def _is_validated(self, block):
+        """A handler is wired if it either calls the _read_valid helper or the
+        inline request_models.validate() pre-check."""
+        return ('_read_valid(' in block) or ('request_models.validate(' in block)
 
     def test_non_dict_body_handlers_are_NOT_validated(self):
         """These legitimately accept a bare JSON array/string (or any non-dict) body;
-        a dict-expecting model would 400 a request they accept. Must stay unwired."""
+        a dict-expecting model would 400 a request they accept. Must stay unwired
+        (neither the inline validate nor the _read_valid helper)."""
         for fn in ('handle_favorites_set', 'handle_drift_policies_set',
                    'handle_syslog_in', 'handle_snmp_trap_in'):
             i = self.api_src.index('def ' + fn + '(')
             nxt = self.api_src.find('\ndef ', i + 1)
             block = self.api_src[i:nxt]
-            self.assertNotIn('request_models.validate(', block,
+            self.assertFalse(self._is_validated(block),
                              f'{fn} accepts a non-dict body — must not be validated')
 
     def test_heartbeat_is_not_validated(self):
@@ -201,7 +212,7 @@ class TestSweepCoverageAndExclusions(unittest.TestCase):
         value. Deliberately unwired."""
         i = self.api_src.index('def handle_heartbeat(')
         nxt = self.api_src.find('\ndef ', i + 1)
-        self.assertNotIn('request_models.validate(', self.api_src[i:nxt])
+        self.assertFalse(self._is_validated(self.api_src[i:nxt]))
 
 
 class TestPydanticIsInstalledEverywhere(unittest.TestCase):

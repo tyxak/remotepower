@@ -2,7 +2,12 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.2.3 — unreleased (test)
+## v6.2.3 — "Un1fyMatters" — unreleased (test)
+
+A consolidation and tidy-up pass: one WG Access improvement, two UI fixes, and a
+project-wide sweep that collapsed repeated code idioms, removed a duplicated
+setting and dead code, and de-duplicated docs — no behaviour change beyond the
+fixes below.
 
 ### WG Access
 
@@ -19,6 +24,23 @@ All notable changes to RemotePower. Newest first.
 - **Package Snapshots "Create snapshot"** now gives explicit feedback when it
   captures zero packages (no host has reported a full package inventory yet),
   instead of an easy-to-miss success toast.
+- **Settings → General** no longer shows the "Metric/SNMP alert dampening"
+  fields that duplicated the same controls on **Settings → Alert parameters**
+  (they wrote the same config keys, so a save on one page could quietly reset
+  the other). Alert parameters is now the single home for them.
+
+### Internal (consolidation sweep)
+
+- Collapsed the ~240-copy request-body pre-check idiom
+  (`get_json_obj()` + `request_models.validate()` + `respond(400)`) into a single
+  `_read_valid(model)` helper — behaviour-identical, ~480 fewer lines.
+- Removed verified-dead frontend code and unified duplicated JS helpers
+  (relative-time, HTML-escaping, byte formatting).
+- Consolidated repeated backend validation helpers (port range, secret
+  scrubbing) and migrated native browser confirms to the throttle-proof
+  in-app confirm dialog.
+- Documentation: `storage.md` is now an umbrella that links the focused
+  disk-health / GPU / thermal / power guides instead of duplicating them.
 
 ## v6.2.2 — "Pu1seMatters" — 2026-07-16
 

@@ -85,6 +85,11 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.2.3.md](v6.2.3.md)** — "Un1fyMatters": a consolidation and tidy-up pass —
+ an optional listen port on Create tunnel, an ACME page that loads on navigation,
+ clearer empty-snapshot feedback, and a removed duplicate dampening setting; plus
+ a project-wide sweep that collapsed repeated code idioms, deleted dead code and
+ de-duplicated the docs.
 - **[v6.2.2.md](v6.2.2.md)** — "Pu1seMatters": performance and polish around
  the heartbeat — delta sysinfo (agents skip re-sending unchanged inventory),
  agent HTTP keep-alive, streamed large-fleet tables and a leaner first load;
@@ -96,16 +101,6 @@ The three most recent per-release notes are kept here:
  upgrades run through RemotePower rebuild the initramfs without kernel modules
  (unbootable at next reboot). Unit fixed; the upgrade command now refuses to
  run in that situation; patch-window reboots verify the initrd first.
-- **[v6.2.0.md](v6.2.0.md)** — "Daem0nMatters": the agent runs as a supervised
- service on every OS (Windows service / launchd / systemd), plus a wave of
- gap-closing features.
- Detection tripwires (privileged-group sudo/wheel/Administrators, Windows Defender
- real-time-off, USB), a disk-usage explorer, device-reliability prediction; then a
- **governed AI executor** (proposes, never executes), a **regulated-data (PII)
- scan**, **EDR coverage** gaps, **DNS-blocker control**, **quotes**, and **JIT
- credential checkout**; plus a full **Windows agent parity** buildout (services,
- processes, file manager, SMART/hardware, signed self-update, Event Log, the check
- catalog, and a one-line PowerShell installer). No breaking API changes.
 Older release notes (v6.1.2 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 

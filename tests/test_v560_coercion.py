@@ -24,10 +24,13 @@ class TestNoFragileBodyIdiom(unittest.TestCase):
                          "use get_json_obj() — 'get_json_body() or {}' 500s on a JSON array body")
 
     def test_config_and_integrations_use_coercing_reader(self):
+        # Either the direct coercing reader, or the _read_valid() helper which
+        # reads the body via get_json_obj() internally — both coerce a non-dict
+        # body to {} and never 500 on a top-level JSON array.
         for fn in ('handle_config_save', 'handle_integrations_save'):
             seg = _API[_API.index('def ' + fn): _API.index('def ' + fn) + 400]
-            self.assertIn('get_json_obj()', seg,
-                          f'{fn} must read its body with get_json_obj()')
+            self.assertTrue('get_json_obj()' in seg or '_read_valid(' in seg,
+                            f'{fn} must read its body with get_json_obj() or _read_valid()')
 
 
 if __name__ == '__main__':

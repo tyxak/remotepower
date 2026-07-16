@@ -48,7 +48,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.2.2'
+VERSION = '6.2.3'
 DEFAULT_POLL = 60
 
 

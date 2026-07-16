@@ -75,14 +75,10 @@ class TestVersionBumps(unittest.TestCase):
     def test_whats_new_cards_capped_at_three(self):
         self.assertEqual(_html().count("What's new — v"), 3)
 
-    def test_whats_new_card_is_doc_searchable(self):
-        """The data-keywords attribute embeds the codename as a lowercase search
-        term. It is the surface a visible-text rename always misses (it shipped
-        stale as 'vigilmatters' through v5.1.0)."""
-        html = _html()
-        i = html.index("What's new — v6.2.0")
-        card = html[max(0, i - 1200):i]
-        self.assertIn("daem0nmatters", card)
+    # test_whats_new_card_is_doc_searchable removed in v6.2.3: the v6.2.0
+    # What's-new card aged out of the keep-3 in-app cards (its data-keywords
+    # searchability is no longer applicable). The v6.2.0 CHANGELOG entry — the
+    # durable history — is still pinned below.
 
     def test_changelog_header(self):
         # v6.2.1: loosened from the [:400] head window (newer releases sit
