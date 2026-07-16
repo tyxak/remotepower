@@ -92,7 +92,7 @@ async function cmdbBreakGlassApprove(reqId) {
   if (typeof uiConfirm === 'function'
       ? !(await uiConfirm('Approve this break-glass reveal? The requester will then be able to '
           + 'see the credential. You cannot approve your own request.'))
-      : !confirm('Approve this break-glass reveal?')) return;
+      : !await uiConfirm('Approve this break-glass reveal?')) return;
   const res = await cmdbApi('POST', '/cmdb/break-glass/' + encodeURIComponent(reqId) + '/approve', {});
   if (!res || !res.ok) {
     alert('Approve failed: ' + (res && res.data && res.data.error || '?'));
@@ -138,7 +138,7 @@ async function cmdbCheckoutRevoke(coId) {
   if (typeof uiConfirm === 'function'
       ? !(await uiConfirm('Revoke this checkout? The holder loses access to the '
           + 'credential immediately.'))
-      : !confirm('Revoke this checkout?')) return;
+      : !await uiConfirm('Revoke this checkout?')) return;
   const res = await cmdbApi('DELETE', '/cmdb/vault/checkouts/' + encodeURIComponent(coId));
   if (!res || !res.ok) {
     alert('Revoke failed: ' + (res && res.data && res.data.error || '?'));
@@ -910,7 +910,7 @@ async function cmdbDocDelete(docId) {
   if (!_cmdbCurrent) return;
   const doc = (_cmdbCurrent.docs || []).find(d => d.id === docId);
   if (!doc) return;
-  if (!confirm(`Delete document "${doc.title}"?`)) return;
+  if (!await uiConfirm(`Delete document "${doc.title}"?`)) return;
   const res = await cmdbApi('DELETE',
     `/cmdb/${encodeURIComponent(_cmdbCurrent.device_id)}/docs/${encodeURIComponent(docId)}`);
   if (!res) return;
@@ -1162,7 +1162,7 @@ async function cmdbCredSave() {
 }
 
 async function cmdbCredDelete(deviceId, credId) {
-  if (!confirm('Delete this credential? The encrypted password will be permanently removed.')) return;
+  if (!await uiConfirm('Delete this credential? The encrypted password will be permanently removed.')) return;
   const res = await cmdbApi('DELETE',
     '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId));
   if (!res || !res.ok) { alert('Delete failed.'); return; }

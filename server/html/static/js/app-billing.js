@@ -238,7 +238,7 @@ async function saveTimeEntry() {
 }
 
 async function deleteTimeEntry(eid, ctxTid) {
-  if (!confirm('Delete this time entry?')) return;
+  if (!await uiConfirm('Delete this time entry?')) return;
   const r = await api('DELETE', '/time-entries/' + encodeURIComponent(eid));
   if (r && r.ok) {
     toast('Deleted', 'success');
@@ -581,7 +581,7 @@ async function quoteConvert(qid) {
   if (typeof uiConfirm === 'function'
       ? !(await uiConfirm('Turn this accepted quote into an invoice? A quote can be '
           + 'invoiced only once.'))
-      : !confirm('Invoice this quote?')) return;
+      : !await uiConfirm('Invoice this quote?')) return;
   const r = await api('POST', '/quotes/' + encodeURIComponent(qid) + '/convert', {});
   if (!r || !r.ok) { toast((r && r.error) || 'Could not convert the quote', 'error'); return; }
   toast(`Invoice ${r.invoice_number} created from this quote`, 'success');
@@ -646,7 +646,7 @@ function wsExportCsv() {
     'worksheet.csv', 'Worksheet CSV downloaded');
 }
 async function wsGenerateInvoice(site, month) {
-  if (!confirm('Generate an invoice for this site/period? The included hours will be locked.')) return;
+  if (!await uiConfirm('Generate an invoice for this site/period? The included hours will be locked.')) return;
   const r = await api('POST', '/invoices', { site_id: site, month: month });
   if (r && r.ok) {
     toast('Invoice ' + r.number + ' created (' + r.locked_entries + ' entries locked)', 'success');
@@ -746,7 +746,7 @@ async function invoiceSetStatus(iid, status) {
   else toast((r && r.error) || 'Failed', 'error');
 }
 async function invoiceVoid(iid) {
-  if (!confirm('Void this invoice? Its hours are freed so they can be re-billed.')) return;
+  if (!await uiConfirm('Void this invoice? Its hours are freed so they can be re-billed.')) return;
   await invoiceSetStatus(iid, 'void');
 }
 // W1-30: email the invoice to the customer's billing contact.

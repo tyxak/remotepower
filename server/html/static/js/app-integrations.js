@@ -183,8 +183,8 @@ async function opnsenseAction(action, arg) {
   const id = _drawerDeviceId;
   if (!id) return;
   const act = action;   // data-arg carries the action name (matches routerosAction shape)
-  if (act === 'reboot' && !confirm('Reboot this OPNsense firewall? It will drop all connections through it.')) return;
-  if (act === 'upgrade' && !confirm('Run the OPNsense firmware upgrade now? This can take several minutes and may reboot the firewall.')) return;
+  if (act === 'reboot' && !await uiConfirm('Reboot this OPNsense firewall? It will drop all connections through it.')) return;
+  if (act === 'upgrade' && !await uiConfirm('Run the OPNsense firmware upgrade now? This can take several minutes and may reboot the firewall.')) return;
   if (act === 'check_update') toast('Checking OPNsense for updates…', 'info');
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: act });
   if (!r || r.error) { toast((r && r.error) || 'Action failed', 'error'); return; }
@@ -359,7 +359,7 @@ async function addOpnsenseFilterRule() {
     description:      document.getElementById('opn-fw-desc')?.value.trim() || '',
   };
   if (!rule.interface) { toast('interface is required', 'error'); return; }
-  if (!confirm(`Add a ${rule.action} rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  if (!await uiConfirm(`Add a ${rule.action} rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_filter_rule', rule });
   if (r && r.ok) { toast('Filter rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }
   else toast((r && r.error) || 'Add failed', 'error');
@@ -380,7 +380,7 @@ async function addOpnsenseNatRule() {
   };
   if (!rule.interface) { toast('interface is required', 'error'); return; }
   if (!rule.target) { toast('target (translation address) is required for outbound NAT', 'error'); return; }
-  if (!confirm(`Add an outbound NAT rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  if (!await uiConfirm(`Add an outbound NAT rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_nat_rule', rule });
   if (r && r.ok) { toast('NAT rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }
   else toast((r && r.error) || 'Add failed', 'error');
@@ -389,7 +389,7 @@ async function addOpnsenseNatRule() {
 async function opnsenseRuleToggle(uuid, mode, table) {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (mode === 'enable' && !confirm('Enable this rule? Make sure it won’t lock you out.')) return;
+  if (mode === 'enable' && !await uiConfirm('Enable this rule? Make sure it won’t lock you out.')) return;
   const nat = table === 'nat';
   const action = mode === 'enable'
     ? (nat ? 'enable_nat_rule' : 'enable_filter_rule')
@@ -403,7 +403,7 @@ async function opnsenseRuleDelete(uuid, table) {
   const id = _drawerDeviceId;
   if (!id) return;
   const nat = table === 'nat';
-  if (!confirm(`Permanently delete this ${nat ? 'NAT' : 'filter'} rule? This cannot be undone.`)) return;
+  if (!await uiConfirm(`Permanently delete this ${nat ? 'NAT' : 'filter'} rule? This cannot be undone.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`,
     { action: nat ? 'delete_nat_rule' : 'delete_filter_rule', arg: uuid });
   if (r && r.ok) { toast('Rule deleted', 'success'); loadOpnsenseFirewall(); }
@@ -470,7 +470,7 @@ async function saveDeviceSsh() {
 async function synologyUpgrade() {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (!confirm('Upgrade DSM and REBOOT this NAS now?\n\n' +
+  if (!await uiConfirm('Upgrade DSM and REBOOT this NAS now?\n\n' +
     'It checks for a DSM update and, if one is available, applies it and ' +
     'reboots the NAS — every service on it goes down during the reboot. ' +
     'Make sure SSH credentials are saved first.')) return;
@@ -557,7 +557,7 @@ async function routerosCheckUpdate() {
 async function routerosUpgrade() {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (!confirm('Upgrade RouterOS firmware?\n\nThis downloads the update and REBOOTS the router — it will be offline for a minute or two. Run it in a maintenance window.')) return;
+  if (!await uiConfirm('Upgrade RouterOS firmware?\n\nThis downloads the update and REBOOTS the router — it will be offline for a minute or two. Run it in a maintenance window.')) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'upgrade' });
   if (r && r.ok) toast('Upgrade started — router is rebooting', 'success');
   else toast((r && r.error) || 'Upgrade failed', 'error');
@@ -666,7 +666,7 @@ async function addRouterosFirewallRule() {
     comment: document.getElementById('fw-add-comment')?.value.trim() || '',
     disabled: 'yes',
   };
-  if (!confirm(`Add a ${rule.action} rule to chain "${rule.chain}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  if (!await uiConfirm(`Add a ${rule.action} rule to chain "${rule.chain}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'add_firewall_rule', rule });
   if (r && r.ok) { toast('Rule added (disabled) — review then enable', 'success'); loadRouterosFirewall(); }
   else toast((r && r.error) || 'Add failed', 'error');
@@ -691,7 +691,7 @@ async function addRouterosNatRule() {
   };
   // out-interface is the usual match for srcnat; in-interface for dstnat.
   if (iface) rule[chain === 'dstnat' ? 'in-interface' : 'out-interface'] = iface;
-  if (!confirm(`Add a ${rule.action} rule to chain "${rule.chain}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  if (!await uiConfirm(`Add a ${rule.action} rule to chain "${rule.chain}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'add_nat_rule', rule });
   if (r && r.ok) { toast('NAT rule added (disabled) — review then enable', 'success'); loadRouterosFirewall(); }
   else toast((r && r.error) || 'Add failed', 'error');
@@ -700,7 +700,7 @@ async function addRouterosNatRule() {
 async function routerosRuleToggle(ruleId, mode, table) {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (mode === 'enable' && !confirm('Enable this rule? Make sure it won’t lock you out.')) return;
+  if (mode === 'enable' && !await uiConfirm('Enable this rule? Make sure it won’t lock you out.')) return;
   const nat = table === 'nat';
   const action = mode === 'enable'
     ? (nat ? 'enable_nat_rule' : 'enable_rule')
@@ -715,7 +715,7 @@ async function routerosRuleDelete(ruleId, table) {
   const id = _drawerDeviceId;
   if (!id) return;
   const nat = table === 'nat';
-  if (!confirm(`Permanently delete this ${nat ? 'NAT' : 'filter'} rule? This cannot be undone.`)) return;
+  if (!await uiConfirm(`Permanently delete this ${nat ? 'NAT' : 'filter'} rule? This cannot be undone.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`,
     { action: nat ? 'delete_nat_rule' : 'delete_filter_rule', arg: ruleId });
   if (r && r.ok) { toast('Rule deleted', 'success'); loadRouterosFirewall(); }
@@ -813,9 +813,9 @@ async function routerosLiveRates() {
 async function routerosAction(action, arg) {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (action === 'reboot' && !confirm('Reboot this RouterOS device?')) return;
+  if (action === 'reboot' && !await uiConfirm('Reboot this RouterOS device?')) return;
   if (action === 'disable_interface' &&
-      !confirm('Disable this interface? If it carries your access you could lock yourself out.')) return;
+      !await uiConfirm('Disable this interface? If it carries your access you could lock yourself out.')) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action, arg });
   if (!r || r.error) { toast(r?.error || 'Action failed', 'error'); return; }
   if (action === 'export' && r.result && r.result.export != null) {

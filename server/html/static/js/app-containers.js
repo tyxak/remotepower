@@ -157,7 +157,7 @@ async function updateImageNow(ref) {
     return;
   }
   const names = [...new Set(list.map(h => h.device_name))].join(', ');
-  if (!confirm(`Update "${ref}" on ${list.length} host(s) (${names})?\n\nThis runs "docker compose pull" then "up -d" to pull the new image and recreate the container(s) — expect a brief restart. Output arrives on the next heartbeat.`)) return;
+  if (!await uiConfirm(`Update "${ref}" on ${list.length} host(s) (${names})?\n\nThis runs "docker compose pull" then "up -d" to pull the new image and recreate the container(s) — expect a brief restart. Output arrives on the next heartbeat.`)) return;
   let ok = 0, fail = 0;
   for (const h of list) {
     const r = await api('POST', `/devices/${encodeURIComponent(h.device_id)}/compose/action`,
@@ -283,21 +283,21 @@ async function submitComposeStack() {
 }
 
 async function composeStackAction(stackId, action) {
-  if (action === 'down' && !confirm('Run `docker compose down` for this stack?')) return;
+  if (action === 'down' && !await uiConfirm('Run `docker compose down` for this stack?')) return;
   const r = await api('POST', `/compose/stacks/${encodeURIComponent(stackId)}/action`, { action });
   if (r && r.ok) { toast(`${action} queued — runs on the device's next heartbeat (~60s)`, 'success'); loadComposeStacks(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
 async function deleteComposeStack(stackId, name) {
-  if (!confirm(`Delete stack "${name}"?\n\nThis only removes it from RemotePower — it does NOT stop running containers. Run "Down" first if you want to tear it down.`)) return;
+  if (!await uiConfirm(`Delete stack "${name}"?\n\nThis only removes it from RemotePower — it does NOT stop running containers. Run "Down" first if you want to tear it down.`)) return;
   const r = await api('DELETE', `/compose/stacks/${encodeURIComponent(stackId)}`);
   if (r && r.ok) { toast('Stack deleted', 'success'); loadComposeStacks(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
 async function enableComposeOnDevice(deviceId, deviceName) {
-  if (!confirm(`Enable compose deploys on "${deviceName}"?\n\nThis lets RemotePower run uploaded compose files as root on that host.`)) return;
+  if (!await uiConfirm(`Enable compose deploys on "${deviceName}"?\n\nThis lets RemotePower run uploaded compose files as root on that host.`)) return;
   const r = await api('PATCH', `/devices/${encodeURIComponent(deviceId)}/compose_enabled`, { compose_enabled: true });
   if (r && r.ok) { toast('Compose deploys enabled', 'success'); loadComposeStacks(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -675,9 +675,9 @@ async function containerAction(deviceId, runtime, containerId, action, displayNa
   // v5.8.0 (B1.1): 'update' pulls the latest image and RECREATES the container —
   // disruptive, so it gets an explicit confirm that names the recreate.
   if (action === 'update') {
-    if (!confirm(`Update ${displayName || containerId}?\n\nThis pulls the latest image and recreates the container with the same configuration. Compose-managed containers are skipped — update those from their stack. Output arrives on the next heartbeat.`)) return;
+    if (!await uiConfirm(`Update ${displayName || containerId}?\n\nThis pulls the latest image and recreates the container with the same configuration. Compose-managed containers are skipped — update those from their stack. Output arrives on the next heartbeat.`)) return;
   } else if ((action === 'stop' || action === 'restart') &&
-      !confirm(`${verb} container ${displayName || containerId}?`)) return;
+      !await uiConfirm(`${verb} container ${displayName || containerId}?`)) return;
   const resp = await api('POST',
     '/devices/' + encodeURIComponent(deviceId) + '/containers/action',
     {runtime, action, container_id: containerId});
@@ -691,7 +691,7 @@ async function containerAction(deviceId, runtime, containerId, action, displayNa
 // after deliberately removing containers via `docker rm`.
 async function containersClearCurrent() {
   if (!_containersOpenDeviceId) return;
-  if (!confirm('Clear stored container data for this device?\n\nThis only clears the dashboard snapshot — it does NOT touch any actual containers on the host. The agent will repopulate the list on its next heartbeat (~5 min).')) {
+  if (!await uiConfirm('Clear stored container data for this device?\n\nThis only clears the dashboard snapshot — it does NOT touch any actual containers on the host. The agent will repopulate the list on its next heartbeat (~5 min).')) {
     return;
   }
   const deviceId = _containersOpenDeviceId;

@@ -404,7 +404,7 @@ async function deleteCustomScript() {
   const sid  = document.getElementById('cs-modal-id').value;
   const name = document.getElementById('cs-modal-name').value;
   if (!sid) return;
-  if (!confirm(`Delete script "${name}"? This removes it from all devices.`)) return;
+  if (!await uiConfirm(`Delete script "${name}"? This removes it from all devices.`)) return;
   const r = await api('DELETE', `/custom-scripts/${sid}`);
   if (!r) return;
   closeModal('custom-script-modal');
@@ -416,7 +416,7 @@ async function deleteCustomScript() {
 async function csDeleteScript(sid) {
   const script = (_csData && _csData.scripts || []).find(s => s.id === sid);
   const name   = script ? script.name : sid;
-  if (!confirm(`Delete script "${name}"? This removes it from all devices.`)) return;
+  if (!await uiConfirm(`Delete script "${name}"? This removes it from all devices.`)) return;
   const r = await api('DELETE', `/custom-scripts/${sid}`);
   if (!r) return;
   toast('Script deleted', 'success');

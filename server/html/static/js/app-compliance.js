@@ -273,7 +273,7 @@ async function runScapScan() {
   const value = document.getElementById('scap-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
   const scapScope = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
-  if (!confirm(`Run the OpenSCAP "${profile}" scan on ${scapScope}? Each host runs oscap in the background; results arrive on the next heartbeat.`)) return;
+  if (!await uiConfirm(`Run the OpenSCAP "${profile}" scan on ${scapScope}? Each host runs oscap in the background; results arrive on the next heartbeat.`)) return;
   const body = await _fleetTargetBody(type, value);
   if (!(body.device_ids || body.group || body.tag) || (body.device_ids && !body.device_ids.length)) { toast('No matching devices', 'error'); return; }
   body.profile = profile;
@@ -289,7 +289,7 @@ async function runInstall() {
   const value = document.getElementById('install-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Enter a ' + type, 'error'); return; }
   const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
-  if (!confirm(`Install "${pkgs}" on ${scopeLabel}?`)) return;
+  if (!await uiConfirm(`Install "${pkgs}" on ${scopeLabel}?`)) return;
   const body = await _fleetTargetBody(type, value);
   if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
   body.packages = pkgs;
@@ -305,7 +305,7 @@ async function runUninstall() {
   const value = document.getElementById('install-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
   const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
-  if (!confirm(`Uninstall "${pkgs}" from ${scopeLabel}? This removes the package(s) via the host's package manager.`)) return;
+  if (!await uiConfirm(`Uninstall "${pkgs}" from ${scopeLabel}? This removes the package(s) via the host's package manager.`)) return;
   const body = await _fleetTargetBody(type, value);
   if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
   body.packages = pkgs;
@@ -323,7 +323,7 @@ async function _runHold(hold) {
   if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
   const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
   const verb = hold ? 'Hold' : 'Unhold';
-  if (!confirm(`${verb} "${pkgs}" on ${scopeLabel}?`)) return;
+  if (!await uiConfirm(`${verb} "${pkgs}" on ${scopeLabel}?`)) return;
   const body = await _fleetTargetBody(type, value);
   if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
   body.packages = pkgs;
@@ -369,7 +369,7 @@ async function runOneTimeInstall() {
     body = type === 'tag' ? { tag: val } : { group: val };
     scope = `${type} "${val}"`;
   }
-  if (!confirm(`Install "${pkgs}" now on ${scope}?`)) return;
+  if (!await uiConfirm(`Install "${pkgs}" now on ${scope}?`)) return;
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
   if (r?.ok) {

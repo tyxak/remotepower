@@ -184,7 +184,7 @@ async function addDeadmanJob() {
 }
 
 async function deleteDeadmanJob(id) {
-  if (!confirm('Delete this check-in job? Its ping URL stops working.')) return;
+  if (!await uiConfirm('Delete this check-in job? Its ping URL stops working.')) return;
   try {
     await api('DELETE', '/deadman/' + encodeURIComponent(id));
   } catch (e) {
@@ -702,7 +702,7 @@ async function tunnelAdd() {
 }
 
 async function tunnelDelete(id) {
-  if (!confirm('Delete this tunnel?')) return;
+  if (!await uiConfirm('Delete this tunnel?')) return;
   const r = await api('DELETE', '/network-map/tunnels/' + encodeURIComponent(id));
   if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
   await tunnelRenderList();
@@ -710,7 +710,7 @@ async function tunnelDelete(id) {
 }
 
 async function netmapResetPositions() {
-  if (!confirm('Clear all manual positions and revert to auto-layout?')) return;
+  if (!await uiConfirm('Clear all manual positions and revert to auto-layout?')) return;
   // Send null for every node — server treats that as "clear"
   const positions = _netmapData.nodes.map(n => ({id: n.id, x: null, y: null}));
   const r = await api('PUT', '/network-map/positions', {positions});
@@ -908,7 +908,7 @@ async function tlsAddSave() {
 }
 
 async function tlsDelete(id, host) {
-  if (!confirm(`Remove TLS target ${host}?`)) return;
+  if (!await uiConfirm(`Remove TLS target ${host}?`)) return;
   const r = await api('DELETE', '/tls/targets/' + encodeURIComponent(id));
   if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
   toast('Target removed', 'info');
@@ -1308,7 +1308,7 @@ async function linkSave() {
 }
 
 async function linkDelete(linkId, title) {
-  if (!confirm(`Delete link "${title}"?`)) return;
+  if (!await uiConfirm(`Delete link "${title}"?`)) return;
   const r = await api('DELETE', '/links/' + encodeURIComponent(linkId));
   if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
   toast('Link deleted', 'info');
