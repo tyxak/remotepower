@@ -23,6 +23,7 @@ address pool, public endpoint and optional pushed DNS. The tunnel carries the
 
 | Setting | What it does |
 | --- | --- |
+| **Listen port** *(optional)* | The UDP port the hub interface listens on. Leave blank to auto-assign the next free port; set it to pin the tunnel to a specific port (e.g. one you've already opened on the firewall). Must be unique across tunnels, and — like the interface and address pool — is fixed once the tunnel exists. |
 | **Allow internet (full tunnel)** | On = the client routes *all* its traffic out through the hub (road-warrior egress). Off = split tunnel: the client only reaches what the reach scope allows, plus the dashboard. |
 | **Reach scope** | Which fleet devices the tunnel's clients can reach — `none` (dashboard only), `all` (the whole fleet), or a `site` / `group` / `tag`. This reuses RemotePower's normal RBAC scope vocabulary and is enforced by per-tunnel firewall rules on the hub. |
 | **DNS** *(optional)* | A resolver IP pushed to the client. |
