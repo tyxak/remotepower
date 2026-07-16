@@ -2028,7 +2028,7 @@ function showPage(name, btn) {
   if (name === 'netmap')   { enterNetmap(); loadDiscovery(); }
   if (name === 'netmetrics') loadNetMetrics();
   if (name === 'compliance') loadCompliance();
-  if (name === 'tls')      { enterTLS(); _showAllTLSPanels(); }
+  if (name === 'tls')      { enterTLS(); _showAllTLSPanels(); loadTLS(); loadAcme(); }
   if (name === 'drift')    loadDrift();
   if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
@@ -7616,7 +7616,8 @@ async function psCreate() {
   const r = await api('POST', '/patch-snapshots', { name }).catch(e => ({ error: String(e) }));
   if (status) status.textContent = '';
   if (r?.ok) {
-    toast(`Snapshot saved (${r.entry_count} packages)`, 'success');
+    if (!r.entry_count) toast('Snapshot saved, but 0 packages were captured — no host has reported a full package inventory yet (trigger a package scan first).', 'error');
+    else toast(`Snapshot saved (${r.entry_count} packages)`, 'success');
     if (nameEl) nameEl.value = '';
     await psRefreshList();
   } else toast(r?.error || 'Failed', 'error');
