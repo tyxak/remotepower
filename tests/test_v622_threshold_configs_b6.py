@@ -5,7 +5,7 @@ config-save loop (which int()s and would truncate 0.5 → 0). A SEPARATE float l
 in handle_config_save coerces with float() and bounds-checks; request_models
 declares each as a loose str; handle_config_get setdefaults the float default; the
 UI wires ap-* number inputs; and saveAlertParams parseFloats (not parseInts) these
-six keys. Read-sites: forecast._MIN_R2 (via a param), the two reliability trend
+six keys. Read-sites: the forecast R-squared floor (via a param), the two reliability trend
 constants (via _config_ro in _device_reliability), and cve_scanner's CVSS→severity
 bands (via a module setter the api-side scan worker calls).
 

@@ -53,4 +53,8 @@ regexes = [
   # obviously-fake unit fixture that pattern-matched generic-api-key; the
   # working-tree fixture was renamed, but the historical commit is permanent.
   '''sk-live-abc123''',
+  # test_v622_threshold_configs_b6.py docstring (commit 8263b5f) referenced the
+  # code identifier `forecast._MIN_R2`, which generic-api-key matched as a
+  # word.word token. The working-tree docstring was reworded; history is permanent.
+  '''forecast\._MIN_R2''',
 ]

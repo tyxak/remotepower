@@ -2912,7 +2912,7 @@ body.density-compact .dash-card > .section-header:first-child {
   font-weight: 500;
 }
 .empty-state-body {
-  font-size: 13.5px;   /* descriptive prose = body (14), not dense-cell 13 */
+  font-size: 13.5px;   /* descriptive prose = body (13.5), not dense-cell 13 */
   margin-bottom: 16px;
   max-width: 480px;
   margin-left: auto;
@@ -4217,7 +4217,7 @@ body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block
 .fs-12 { font-size: 12px; }
 .fs-13 { font-size: 13px; }
 .bh-day { min-width: 96px; }
-.fs-14 { font-size: 13.5px; }
+.fs-14 { font-size: 13.5px; }   /* legacy name; the 14px anchor was retired → 13.5px body */
 .meta-sm { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hint-mb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .meta-sm-nm { font-size: 11px; color: var(--muted); }
@@ -5763,7 +5763,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-score { text-align: center; }
 .hh-num { font-size: 48px; font-weight: 700; line-height: 1; }
 .hh-grade { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-.hh-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (14) */
+.hh-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (13.5) */
 .hh-bar-track { width: 100%; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .hh-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .hh-counts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -5804,7 +5804,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .rep-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .rep-v { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.1; margin-top: 4px; }
 .rep-unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
-.rep-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (14) */
+.rep-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (13.5) */
 .rep-compliance { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
 .m-0 { margin: 0; }
