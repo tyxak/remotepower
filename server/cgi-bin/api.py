@@ -56959,17 +56959,27 @@ def _hw_bands():
     disk-health endpoints; the client stamps `_HW_BANDS` and drops its hardcoded
     copies. Defaults mirror the code constants for an unconfigured server."""
     _gc = _config_ro()
+    _th = int(_gc.get('thermal_hot_c', THERMAL_HOT_C) or THERMAL_HOT_C)
+    _tc = int(_gc.get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
+    _ww = int(_gc.get('smart_wear_warn_pct', 80) or 80)
+    _wh = int(_gc.get('smart_wear_high_pct', 90) or 90)
+    _dc = int(_gc.get('disk_forecast_crit_days', 7) or 7)
+    _dw = int(_gc.get('disk_forecast_warn_days', 21) or 21)
+    # Clamp so a fat-fingered config can't invert a band (warn past crit) — the
+    # same discipline the grade/level ladders use. Cosmetic-only (wrong cell
+    # colour) but keep it consistent. Temp/wear: hot/warn must not exceed crit/
+    # high; disk-ETA is inverted (fewer days = worse) so crit must not exceed warn.
     return {
-        'thermal_hot': int(_gc.get('thermal_hot_c', THERMAL_HOT_C) or THERMAL_HOT_C),
-        'thermal_crit': int(_gc.get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C),
+        'thermal_hot': min(_th, _tc),
+        'thermal_crit': _tc,
         'gpu_hot': int(_gc.get('gpu_hot_c', GPU_HOT_C) or GPU_HOT_C),
-        'wear_warn': int(_gc.get('smart_wear_warn_pct', 80) or 80),
-        'wear_high': int(_gc.get('smart_wear_high_pct', 90) or 90),
+        'wear_warn': min(_ww, _wh),
+        'wear_high': _wh,
         # v6.2.2 batch 5: disk-fill ETA (days-to-full) colour bands — the SAME
         # source the NA digest + Checks engine now read, so the disk-health cell
         # stops disagreeing with them. red ≤ crit, amber ≤ warn.
-        'disk_forecast_crit': int(_gc.get('disk_forecast_crit_days', 7) or 7),
-        'disk_forecast_warn': int(_gc.get('disk_forecast_warn_days', 21) or 21),
+        'disk_forecast_crit': min(_dc, _dw),
+        'disk_forecast_warn': _dw,
     }
 
 

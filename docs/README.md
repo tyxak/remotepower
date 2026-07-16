@@ -196,6 +196,9 @@ Older release notes (v6.1.2 and earlier) live in
  run server-side (Terraform Plan/Apply/Destroy behind the execute gate).
 - **[alert-tuning.md](alert-tuning.md)** — The Tuning page: surface the noisiest
  alerts and sources, and per-(host, event) mute to silence exactly one alert.
+- **[alert-parameters.md](alert-parameters.md)** — Settings → Alert parameters:
+ the one home for every numeric alert-firing threshold, the health-grade /
+ risk / reliability cutoffs, and the per-factor score weights (with a filter box).
 - **[virtualization.md](virtualization.md)** — Virtualization lifecycle across
  Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift: list guests,
  power actions and snapshots.

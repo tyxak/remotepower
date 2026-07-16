@@ -3,7 +3,9 @@
 **Hardware → Thermal** lists the hottest hosts across the fleet from the
 CPU, chipset and disk temperatures agents already report. Each host shows
 its single hottest sensor; the list sorts hottest-first and anything over
-its threshold is flagged.
+its threshold is flagged. Per-host thresholds live in the metric-threshold UI;
+the global hot/critical °C defaults are tunable in **Settings → Alert
+parameters**.
 
 - Sensor sources: hwmon/lm-sensors, NVMe/SMART temperatures, GPU sensors.
 - Per-host thermal history is sampled into a rolling store (charted in the

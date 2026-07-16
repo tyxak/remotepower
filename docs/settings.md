@@ -49,6 +49,13 @@ ack-comment prompts, alert correlation/host-folding, and the customizable
 dashboard widget set. On multi-tenant instances the inbox and its badge counts
 are scoped to your tenant. See [alerts.md](alerts.md).
 
+### Alert parameters
+The single, filterable home for every numeric alert-firing **threshold** (NIC
+errors, SNMP, temperature, disk-fill, TLS/cert expiry, CVSS bands, …), the
+**health-grade / risk / reliability** score cutoffs, and the per-factor **score
+weights**. Blank a field to restore its default. Distinct from the Tuning page
+(which mutes noisy alerts). See [alert-parameters.md](alert-parameters.md).
+
 ### Mailbox monitor
 Optional IMAP mailbox watch (queue depth, unread age) surfaced as fleet health.
 See [monitors.md](monitors.md).

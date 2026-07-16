@@ -47,7 +47,9 @@ the same thermal alerting as everything else.
 (smartctl) and GPU temps into one hottest-first view (Device, Max temp, Hottest
 sensor, Type, Threshold, Headroom, ~24h trend). ≥75 °C is flagged amber; ≥85 °C
 raises **`temp_high`** (high) and cooling back down raises **`temp_normal`**.
-Thresholds are per-device (metric-threshold UI). Data: `GET /api/fleet/thermal`.
+Thresholds are per-device (metric-threshold UI); the global amber/red °C and the
+`temp_high` threshold defaults are tunable in **Settings → Alert parameters**.
+Data: `GET /api/fleet/thermal`.
 
 ## Power & UPS
 
