@@ -31839,13 +31839,22 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
     mq = si.get('mailq')
     if isinstance(mq, (int, float)):
         mq = int(mq)
+        # v6.2.2 fix: fire at the SAME thresholds the Checks page shows, not a
+        # hardcoded 500/50 that ignored the per-device metric_thresholds override
+        # and the DEFAULT_METRIC_THRESHOLDS defaults (mailq_warn/crit_count).
+        try:
+            _mto = (device_get(dev_id) or {}).get('metric_thresholds') or {}
+        except Exception:
+            _mto = {}
+        _mq_crit = int(_mto.get('mailq_crit_count', DEFAULT_METRIC_THRESHOLDS['mailq_crit_count']))
+        _mq_warn = int(_mto.get('mailq_warn_count', DEFAULT_METRIC_THRESHOLDS['mailq_warn_count']))
         was_high = bool(prev.get('mailq_high'))
         if first_seen:
-            new['mailq_high'] = mq >= 500
-        elif mq >= 500 and not was_high:
-            _fire('mailq_high', {'count': mq, 'threshold': 500})
+            new['mailq_high'] = mq >= _mq_crit
+        elif mq >= _mq_crit and not was_high:
+            _fire('mailq_high', {'count': mq, 'threshold': _mq_crit})
             new['mailq_high'] = True
-        elif mq < 50 and was_high:
+        elif mq < _mq_warn and was_high:
             _fire('mailq_normal', {'count': mq})
             new['mailq_high'] = False
         else:
