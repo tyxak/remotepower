@@ -2,6 +2,24 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.2.3 — unreleased (test)
+
+### WG Access
+
+- **Create tunnel now takes an optional listen port.** Leave it blank to
+  auto-assign the next free UDP port (unchanged default); set it to pin the hub
+  to a specific port (e.g. one already opened on the firewall). The port is
+  validated (1–65535, must be free) and, like the interface and address pool, is
+  fixed once the tunnel exists.
+
+### Fixes
+
+- **ACME certificates page no longer needs a manual Refresh** — navigating to
+  the TLS page now loads both the expiry and ACME panels automatically.
+- **Package Snapshots "Create snapshot"** now gives explicit feedback when it
+  captures zero packages (no host has reported a full package inventory yet),
+  instead of an easy-to-miss success toast.
+
 ## v6.2.2 — "Pu1seMatters" — 2026-07-16
 
 A performance and polish release built around the agent heartbeat, plus a new

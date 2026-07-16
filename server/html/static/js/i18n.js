@@ -189,6 +189,7 @@
     'Create client':         { fr: 'Créer un client', de: 'Client erstellen', zh: '创建客户端', hi: 'क्लाइंट बनाएँ', es: 'Crear cliente', ar: 'إنشاء عميل' },
     'Download .conf':        { fr: 'Télécharger .conf', de: '.conf herunterladen', zh: '下载 .conf', hi: '.conf डाउनलोड करें', es: 'Descargar .conf', ar: 'تنزيل .conf' },
     'Reach':                 { fr: 'Portée', de: 'Erreichbarkeit', zh: '可达范围', hi: 'पहुँच', es: 'Alcance', ar: 'الوصول' },
+    'Listen port':           { fr: "Port d'écoute", de: 'Listen-Port', zh: '监听端口', hi: 'लिसन पोर्ट', es: 'Puerto de escucha', ar: 'منفذ الاستماع' },
     'Transfer':              { fr: 'Transfert', de: 'Übertragung', zh: '传输量', hi: 'स्थानांतरण', es: 'Transferencia', ar: 'النقل' },
     'Address':               { fr: 'Adresse', de: 'Adresse', zh: '地址', hi: 'पता', es: 'Dirección', ar: 'العنوان' },
     'Endpoint':              { fr: 'Point de terminaison', de: 'Endpunkt', zh: '端点', hi: 'एंडपॉइंट', es: 'Extremo', ar: 'نقطة النهاية' },

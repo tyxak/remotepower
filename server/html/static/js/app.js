@@ -7925,6 +7925,8 @@ async function loadVpn() {
 // ── Tunnel create / edit ─────────────────────────────────────────────────────
 function _vpnTunnelModalReset() {
   document.getElementById('vpn-tunnel-name').value = '';
+  const portEl = document.getElementById('vpn-tunnel-port');
+  if (portEl) { portEl.value = ''; portEl.disabled = false; }
   document.getElementById('vpn-tunnel-allow-internet').checked = false;
   document.getElementById('vpn-tunnel-reach-type').value = 'none';
   document.getElementById('vpn-tunnel-reach-value').value = '';
@@ -7978,6 +7980,9 @@ function editVpnTunnel(id) {
   const btn = document.getElementById('vpn-tunnel-save-btn'); if (btn) btn.textContent = 'Save changes';
   _vpnTunnelModalReset();
   document.getElementById('vpn-tunnel-name').value = t.name || '';
+  // Port is immutable after creation (iface/port/pool are fixed) — show it read-only.
+  const portEl = document.getElementById('vpn-tunnel-port');
+  if (portEl) { portEl.value = t.listen_port || ''; portEl.disabled = true; }
   document.getElementById('vpn-tunnel-allow-internet').checked = !!t.allow_internet;
   document.getElementById('vpn-tunnel-reach-type').value = t.reach_scope_type || 'none';
   document.getElementById('vpn-tunnel-reach-value').value = t.reach_scope_value || '';
@@ -8026,6 +8031,15 @@ async function vpnTunnelSave() {
     dns: document.getElementById('vpn-tunnel-dns').value.trim(),
     expires_at: _vpnReadTtl('vpn-tunnel-ttl-num', 'vpn-tunnel-ttl-unit'),
   };
+  // Listen port is optional and immutable — only send it when creating.
+  if (!_vpnTunnelEditId) {
+    const portRaw = (document.getElementById('vpn-tunnel-port')?.value || '').trim();
+    if (portRaw) {
+      const port = Number(portRaw);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) { toast('Listen port must be a whole number 1–65535', 'error'); return; }
+      body.listen_port = port;
+    }
+  }
   let data;
   if (_vpnTunnelEditId) data = await api('PATCH', '/vpn-tunnels/' + encodeURIComponent(_vpnTunnelEditId), body);
   else data = await api('POST', '/vpn-tunnels', body);

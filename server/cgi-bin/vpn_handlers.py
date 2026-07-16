@@ -436,6 +436,13 @@ def handle_vpn_tunnel_create() -> None:
     if dns and not wg_access.valid_host_ip(dns):
         A.respond(400, {'error': 'dns must be an IP address'})
     expires_at = A._vpn_parse_expiry(body.get('expires_at'))
+    # Optional operator-chosen listen port; blank/omitted → auto-allocate below.
+    req_port = body.get('listen_port')
+    want_port = None
+    if req_port not in (None, '', 0, '0'):
+        if not wg_access.valid_port(req_port):
+            A.respond(400, {'error': 'listen_port must be a UDP port 1-65535'})
+        want_port = int(req_port)
     cfg = A.load(A.CONFIG_FILE) or {}
     pool_base = cfg.get('vpn_pool_base', wg_access.POOL_BASE)
     port_base = int(cfg.get('vpn_port_base', wg_access.PORT_BASE) or wg_access.PORT_BASE)
@@ -448,7 +455,13 @@ def handle_vpn_tunnel_create() -> None:
             if len(tunnels) >= wg_access.MAX_TUNNELS:
                 A.respond(400, {'error': f'max {wg_access.MAX_TUNNELS} tunnels'})
             iface = wg_access.next_iface([t.get('iface') for t in tunnels])
-            port = wg_access.next_port([t.get('listen_port') for t in tunnels], base=port_base)
+            used_ports = [t.get('listen_port') for t in tunnels]
+            if want_port is not None:
+                if want_port in {int(p) for p in used_ports if wg_access.valid_port(p)}:
+                    A.respond(400, {'error': 'listen_port already in use by another tunnel'})
+                port = want_port
+            else:
+                port = wg_access.next_port(used_ports, base=port_base)
             pool = wg_access.next_pool([t.get('pool') for t in tunnels], base=pool_base)
             tunnel = {
                 'id': tid, 'name': name, 'iface': iface, 'listen_port': port,

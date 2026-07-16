@@ -245,6 +245,57 @@ class TestHandlers(unittest.TestCase):
             api.handle_vpn_clients_list('wgt_test')
         self.assertEqual(cm.exception.status, 200)
 
+    # ── operator-chosen listen port (Create tunnel → optional Port) ────────
+    def _stub_apply(self):
+        self._apply_orig = (api._vpn_up_tunnel, api._vpn_sync_tunnel)
+        api._vpn_up_tunnel = lambda t: t
+        api._vpn_sync_tunnel = lambda t: None
+
+    def _restore_apply(self):
+        api._vpn_up_tunnel, api._vpn_sync_tunnel = self._apply_orig
+
+    def test_tunnel_create_honors_custom_port(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'custom', 'listen_port': 51999}
+        self._stub_apply()
+        try:
+            with self.assertRaises(_Responded) as cm:
+                api.handle_vpn_tunnel_create()
+            self.assertEqual(cm.exception.status, 200)
+        finally:
+            self._restore_apply()
+        new = next(t for t in api.load(api.VPN_FILE)['tunnels'] if t['name'] == 'custom')
+        self.assertEqual(new['listen_port'], 51999)
+        self.assertTrue(new['endpoint'].endswith(':51999'))
+
+    def test_tunnel_create_auto_port_when_blank(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'auto'}          # no listen_port
+        self._stub_apply()
+        try:
+            with self.assertRaises(_Responded) as cm:
+                api.handle_vpn_tunnel_create()
+            self.assertEqual(cm.exception.status, 200)
+        finally:
+            self._restore_apply()
+        new = next(t for t in api.load(api.VPN_FILE)['tunnels'] if t['name'] == 'auto')
+        self.assertEqual(new['listen_port'], 51821)          # next free after 51820
+
+    def test_tunnel_create_rejects_duplicate_port(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'dup', 'listen_port': 51820}   # taken by wgt_test
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_tunnel_create()
+        self.assertEqual(cm.exception.status, 400)
+        self.assertIn('use', cm.exception.data['error'])
+
+    def test_tunnel_create_rejects_invalid_port(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'bad', 'listen_port': 70000}
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_tunnel_create()
+        self.assertEqual(cm.exception.status, 400)
+
     # ── #86: preshared key generated + encrypted on client create ──────────
     def _give_hub_key(self):
         store = api.load(api.VPN_FILE)
