@@ -38,12 +38,16 @@ day.
   baselines silently, so a host's *accumulated lifetime* errors never fire — and
   a page needs a meaningful jump in one interval (tunable, see Alert parameters),
   not a single packet dropped under load.
-- **Every alert now carries an explanation.** An alert row's title came from a
-  builder that fell through to the bare event name (e.g. `nic_errors: host`) for
-  any event without a hand-written line — 34 alertable events, including several
-  posture and hardware ones, showed no context. The inbox and the webhook/push
-  bodies now always render the specific detail the event carries, or the event's
-  human label — never a raw machine name.
+- **Every alert now carries an explanation — and names the thing it's about.**
+  An alert row's title came from a builder that fell through to the bare event
+  name (e.g. `nic_errors: host`) for any event without a hand-written line — 34
+  alertable events, including several posture and hardware ones, showed no
+  context. The inbox and the webhook/push bodies now render the specific detail
+  the event carries, or the event's human label **plus the specific resource it
+  names** — so a failed-unit alert reads "Service failed on host: nginx.service",
+  not "a systemd unit entered the failed state", and a SMART alert names the
+  disk. Never a raw machine name, never a generic sentence with the key detail
+  missing.
 
 ### Performance
 

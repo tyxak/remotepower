@@ -7641,19 +7641,34 @@ def _alert_title(event, payload):
         extra = f' (+{n-1} more)' if isinstance(n, int) and n > 1 else ''
         return (f'Exposed secret on {name}: {p.get("rule","?")} in '
                 f'{p.get("path","?")}{extra}')
-    # v6.2.2 — universal readable fallback. An alert row must NEVER show a bare
-    # machine event name ("nic_errors: host" told the operator nothing). Prefer
-    # the fire-site's human `detail`; otherwise the event's registry `label`
-    # (every EVENT_REGISTRY entry has one). Only truly unknown events (not in the
-    # registry, no detail) reach the last line. Guarded by
-    # tests/test_v622_alert_titles.py so no future alertable event regresses to it.
+    if event == 'failed_unit':
+        _un = p.get('new_count') or 1
+        return (f'Service failed on {name}: {p.get("unit", "?")}'
+                + (f' (+{_un - 1} more)' if isinstance(_un, int) and _un > 1 else ''))
+    # v6.2.2 — readable fallback. An alert row must NEVER show a bare machine
+    # event name, AND where the event names a specific resource (a unit, path,
+    # container, …) the title must SAY which one — the generic label alone
+    # ("a systemd unit entered the failed state") is useless without it. Prefer
+    # the fire-site's human `detail`; else the event's registry `label` PLUS the
+    # specific resource the payload names; else the label alone. Guarded by
+    # tests/test_v622_alert_titles.py so no future alertable event regresses.
     _dtl = p.get('detail') if isinstance(p, dict) else None
     if _dtl:
         return f'{name}: {_dtl}' if name else str(_dtl)
-    _lbl = (EVENT_REGISTRY.get(event) or {}).get('label')
-    if _lbl:
-        return f'{_lbl} — {name}' if name else _lbl
-    return f'{event}: {name}'
+    _lbl = (EVENT_REGISTRY.get(event) or {}).get('label') or event.replace('_', ' ')
+    _rid = None
+    if isinstance(p, dict):
+        for _k in ('unit', 'service', 'container', 'pool', 'process', 'iface',
+                   'mount', 'path', 'target', 'disk', 'sensor', 'ups', 'image',
+                   'domain', 'check_name', 'vm_name', 'snap_name', 'rule'):
+            if p.get(_k):
+                _rid = str(p[_k])
+                break
+    if name and _rid:
+        return f'{_lbl} — {name}: {_rid}'
+    if name:
+        return f'{_lbl} — {name}'
+    return _lbl
 
 
 # Fields that identify *which* thing an alert is about, beyond its event type +
@@ -8734,6 +8749,7 @@ def _record_alert(event, payload):
                     # (proto/port/process), backup (label/age_hours),
                     # snapshot (vm_name/snap_name/days_old).
                     'label', 'target', 'source_ip', 'count',
+                    'new_count',   # failed_unit/fail2ban: enables "+N more" in the title
                     'user', 'fingerprint', 'proto', 'port', 'process',
                     'age_hours', 'vm_name', 'snap_name', 'days_old',
                     # v6.2.0: which AV engine fired (clamav/rkhunter/defender).

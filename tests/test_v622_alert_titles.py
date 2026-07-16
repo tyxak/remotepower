@@ -71,6 +71,29 @@ class TestNoAlertWithoutExplanation(unittest.TestCase):
             title = api._alert_title(ev, {"device_name": "H", "detail": "SENTINEL-DETAIL"})
             self.assertIn("SENTINEL-DETAIL", title, f"{ev}: detail dropped from title")
 
+    def test_failed_unit_names_the_unit(self):
+        """'a systemd unit entered the failed state' is useless without the unit."""
+        t = api._alert_title("failed_unit", {
+            "device_name": "tviweb01", "unit": "nginx.service", "new_count": 1})
+        self.assertIn("nginx.service", t)
+        self.assertIn("tviweb01", t)
+        # the '+N more' count survives (new_count is whitelisted in _record_alert)
+        t2 = api._alert_title("failed_unit", {
+            "device_name": "h", "unit": "a.service", "new_count": 3})
+        self.assertIn("+2 more", t2)
+
+    def test_fallback_surfaces_the_named_resource(self):
+        """An event with no hand-written branch but a specific resource field
+        (unit/disk/container/…) must name that resource, not just the label."""
+        t = api._alert_title("smart_failure", {"device_name": "nas", "disk": "/dev/sda"})
+        self.assertIn("/dev/sda", t)
+        self.assertIn("nas", t)
+
+    def test_new_count_whitelisted_in_record_alert(self):
+        src = (_CGI / "api.py").read_text()
+        rec = src[src.index("def _record_alert"):src.index("def _record_alert") + 4000]
+        self.assertIn("'new_count'", rec)
+
     def test_nic_errors_title_reads_as_a_sentence(self):
         t = api._alert_title("nic_errors", {
             "device_name": "ns3204737", "iface": "eth0",
