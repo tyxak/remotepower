@@ -27,5 +27,5 @@ sed -i -E "0,/^  '[0-9a-f]{64}'/s//  '${sha}'/" PKGBUILD
 command -v makepkg >/dev/null && makepkg --printsrcinfo > .SRCINFO \
   || echo "!! makepkg not found — regenerate .SRCINFO on an Arch box before pushing."
 
-echo "==> remotepower-agent bumped to ${ver} (sha256 ${sha:0:12}…)."
+echo "==> remotepower-server bumped to ${ver} (sha256 ${sha:0:12}…)."
 echo "    Review PKGBUILD + .SRCINFO, run 'makepkg -f' to sanity-build, then push to the AUR."
