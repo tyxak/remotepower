@@ -113,6 +113,15 @@ day.
   maintenance now?"), and your saved script library ("is there a script for
   X?"). Script bodies are scrubbed of inline secrets before they are indexed.
   Each source is a toggle under Settings → AI.
+- **The assistant now reasons over the same posture you see.** Two live-state
+  index chunks were silently dead (a field-name mismatch meant per-mount disk
+  capacity and failing custom-checks never reached the AI), and much host
+  posture was absent from its corpus. Fixed, and the index now also carries
+  per-pool storage health (degraded arrays, overdue scrubs, snapshot age),
+  failed systemd units and timers, ECC memory errors, clock skew, gateway
+  reachability/latency, recent OOM kills, mail-queue depth and Windows security
+  posture — so "which pools are degraded?" or "what was OOM-killed on host X?"
+  are answerable, with citations.
 
 ### Dashboard
 

@@ -234,4 +234,33 @@ I/O. The v6.2.2 backup change (skip an unreadable file rather than abort) and th
 Postgres schema advisory lock are robustness fixes with no privilege or
 data-exposure surface.
 
+## Third pass — the configurable-thresholds work
+
+Late in the cycle a large feature landed: roughly seventy alert-firing
+thresholds, grade/level cutoffs and score weights became operator-tunable on a
+new Settings page, touching the config-save/validation layer, many read-sites,
+and a deliver-to-client path for the dashboard colours. That surface was
+re-reviewed end to end:
+
+- **Static analysis, again clean.** CodeQL (python + javascript) reported zero
+  results; Bandit zero new against baseline; Gitleaks none; semgrep only the
+  long-standing by-design set. All five scanners were re-run against the final
+  tree.
+- **Adversarial logic review.** A dedicated pass drove the new code with hostile
+  inputs — inverted cutoffs, zero weights, fractional values — and checked the
+  usual traps: no accessor mutates the shared request-scoped config cache; the
+  CVSS-band override is re-asserted per scan and can't leak between requests
+  (workers are separate processes; classification runs only in the detached scan
+  worker); grade/level ladders and the hardware colour bands are clamped so a
+  fat-fingered config can't invert them; a weight of zero simply disables a
+  factor (no division); the config model still accepts an empty body and rejects
+  no value the old code accepted; and the dashboard-delivered cutoffs are global
+  scalars folded into the tenant/ETag key, so nothing leaks across scope or
+  tenant. **No Critical, High or Medium finding.**
+- **Whole-project finalize sweep.** The box-overflow discipline (every
+  variable-length panel caps and scrolls) and the typography scale were audited
+  clean; the localisation dictionary was spot-checked correct across all six
+  languages; and an AI-corpus binding audit fixed two indexing bugs so the
+  assistant reasons over the same host posture the operator sees.
+
 **Result: no Critical, High or Medium finding ships in v6.2.2.**

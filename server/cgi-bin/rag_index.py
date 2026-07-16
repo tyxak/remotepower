@@ -431,6 +431,46 @@ def _format_facet(data, max_items=40):
     return '\n'.join(l for l in lines if l)
 
 
+def _format_mounts(mounts):
+    """Render per-mount capacity rows (path + %used + sizes + flags).
+
+    The heartbeat sanitizer stores per-mount data under `sysinfo.mounts`
+    (list of {path, used_gb, total_gb, fstype, percent?, inode_percent?,
+    ro?, network?, server?, stalled?}); it also tolerates the legacy
+    `{mount, percent}` shape a few callers/tests still use. Defensive
+    about odd items since load() may hand us anything.
+    """
+    lines = []
+    for m in (mounts or [])[:60]:
+        if not isinstance(m, dict):
+            continue
+        path = m.get('path') or m.get('mount') or ''
+        if not path:
+            continue
+        parts = [str(path)]
+        pct = m.get('percent')
+        if isinstance(pct, (int, float)):
+            parts.append(f"{pct}% used")
+        used, total = m.get('used_gb'), m.get('total_gb')
+        if isinstance(total, (int, float)) and total:
+            parts.append(f"{used if isinstance(used, (int, float)) else 0}/{total} GB")
+        ipct = m.get('inode_percent')
+        if isinstance(ipct, (int, float)):
+            parts.append(f"inodes {ipct}%")
+        if m.get('ro'):
+            parts.append("read-only")
+        if m.get('stalled'):
+            parts.append("STALLED")
+        if m.get('network'):
+            srv = m.get('server') or ''
+            parts.append("network share" + (f" {srv}" if srv else ""))
+        fs = m.get('fstype')
+        if fs:
+            parts.append(str(fs))
+        lines.append(" — ".join(parts))
+    return '\n'.join(lines)
+
+
 def build_live_state_corpus(devices, facets=None, now=0):
     """Build per-(device, facet) chunks of current fleet state.
 
@@ -492,11 +532,22 @@ def build_live_state_corpus(devices, facets=None, now=0):
             f"live/{dev_id}#summary", 'live_state', 'device_summary',
             '\n'.join(summary), title=f"{name} — summary", device=dev_id, ts=ts))
 
-        # Disks / hardware from sysinfo.
-        if si.get('disks'):
+        # Disks / hardware from sysinfo. The heartbeat sanitizer stores
+        # per-mount capacity under `sysinfo.mounts` (NOT `disks` — that key is
+        # never persisted, so reading it here left the disk-capacity chunk
+        # permanently dead; the only disk fact reaching the AI was the single
+        # root `disk_percent` in the metrics chunk). Read `mounts` (the real
+        # field); fall back to a legacy `disks` list if a caller supplies one.
+        mounts = si.get('mounts')
+        disk_body = _format_mounts(mounts) if isinstance(mounts, list) else ''
+        if not disk_body and si.get('disks'):
+            disk_body = _format_facet(si.get('disks'))
+        if disk_body.strip():
             docs.append(make_doc(
                 f"live/{dev_id}#hardware", 'live_state', 'device_hardware',
-                f"{name} disks / hardware:\n" + _format_facet(si.get('disks')),
+                f"{name} disk / filesystem capacity (per-mount %used, sizes, "
+                f"inode use, read-only / stalled / network mounts):\n"
+                + disk_body,
                 title=f"{name} — hardware", device=dev_id, ts=ts))
 
         # Listening ports from sysinfo. The agent already collects these
@@ -574,17 +625,149 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 title=f"{name} — mount issues", device=dev_id, ts=ts))
 
         # Failing custom checks — index only the non-OK ones so "which checks
-        # are failing on X" is answerable from the corpus.
+        # are failing on X" is answerable from the corpus. The heartbeat
+        # sanitizer stores `custom_check_results` as a DICT (check-id -> {status,
+        # output}, status ∈ ok/warning/critical/unknown), NOT a list — reading it
+        # as a list left this chunk permanently dead. Handle both shapes.
         ccr = si.get('custom_check_results')
-        if isinstance(ccr, list):
+        failing = []
+        _not_ok = ('ok', 'pass', 'passing', 'up', '')
+        if isinstance(ccr, dict):
+            for cid, res in ccr.items():
+                if not isinstance(res, dict):
+                    continue
+                if str(res.get('status', '')).lower() in _not_ok:
+                    continue
+                failing.append({'check': cid, 'status': res.get('status', ''),
+                                'output': res.get('output', '')})
+        elif isinstance(ccr, list):
             failing = [c for c in ccr if isinstance(c, dict)
-                       and str(c.get('status', '')).lower()
-                       not in ('ok', 'pass', 'passing', 'up', '')]
-            if failing:
+                       and str(c.get('status', '')).lower() not in _not_ok]
+        if failing:
+            docs.append(make_doc(
+                f"live/{dev_id}#checks", 'live_state', 'device_checks',
+                f"{name} failing custom checks:\n" + _format_facet(failing),
+                title=f"{name} — failing checks", device=dev_id, ts=ts))
+
+        # ── Host posture facts — degraded pools, failed units/timers, DIMM ECC
+        # errors, clock skew, gateway reachability, OOM kills, mail-queue depth,
+        # and Windows security posture. The operator sees these in the drawer /
+        # Storage page but the AI corpus had none of them. All are numeric/enum
+        # control-plane signals (no free text / no secret risk). Defensive about
+        # shape since load() may hand us anything.
+
+        # Storage / RAID pool health (zfs/mdadm/btrfs) — "which pools are
+        # degraded / have scrubs overdue?". Degraded is derived from `state`
+        # (there is no explicit boolean); scrub is a free string; last_snapshot
+        # is an epoch (0 = the pool has NO snapshots).
+        sh = si.get('storage_health')
+        if isinstance(sh, list):
+            pool_lines = []
+            for p in sh[:40]:
+                if not isinstance(p, dict):
+                    continue
+                nm = p.get('name')
+                if not nm:
+                    continue
+                state = str(p.get('state', '') or '')
+                degraded = state.lower() not in (
+                    'online', 'healthy', 'ok', 'active', 'clean', '')
+                parts = [str(nm)]
+                if p.get('kind'):
+                    parts.append(str(p['kind']))
+                if state:
+                    parts.append(f"state {state}"
+                                 + (" (DEGRADED)" if degraded else ""))
+                cap = p.get('capacity')
+                if isinstance(cap, int):
+                    parts.append(f"{cap}% full")
+                if p.get('scrub'):
+                    parts.append(f"scrub: {p['scrub']}")
+                ls = p.get('last_snapshot')
+                if isinstance(ls, int):
+                    parts.append("no snapshots" if ls == 0
+                                 else f"last snapshot epoch {ls}")
+                pool_lines.append(" — ".join(parts))
+            if pool_lines:
                 docs.append(make_doc(
-                    f"live/{dev_id}#checks", 'live_state', 'device_checks',
-                    f"{name} failing custom checks:\n" + _format_facet(failing),
-                    title=f"{name} — failing checks", device=dev_id, ts=ts))
+                    f"live/{dev_id}#storage", 'live_state', 'device_storage',
+                    f"{name} storage / RAID pool health (zfs/mdadm/btrfs — pool "
+                    f"state, degraded pools, scrub status, snapshot age):\n"
+                    + '\n'.join(pool_lines),
+                    title=f"{name} — storage health", device=dev_id, ts=ts))
+
+        posture = []
+        fu = si.get('failed_units')
+        if isinstance(fu, list):
+            _fu = [str(u) for u in fu[:50] if u]
+            if _fu:
+                posture.append("failed systemd units: " + ', '.join(_fu))
+        tm = si.get('timers')
+        if isinstance(tm, list):
+            _ft = [str(t.get('unit')) for t in tm
+                   if isinstance(t, dict) and t.get('failed') and t.get('unit')]
+            if _ft:
+                posture.append("failed systemd timers: " + ', '.join(_ft[:50]))
+        ecc = si.get('ecc')
+        if isinstance(ecc, dict) and (ecc.get('ce') or ecc.get('ue')):
+            posture.append(
+                f"ECC memory errors: {ecc.get('ce', 0)} correctable, "
+                f"{ecc.get('ue', 0)} uncorrectable"
+                + (f" across {ecc.get('controllers')} controller(s)"
+                   if ecc.get('controllers') else ""))
+        clk = si.get('clock')
+        if isinstance(clk, dict) and (clk.get('skewed') or clk.get('synced') is False):
+            off = clk.get('offset_ms')
+            posture.append(
+                "clock skew / NTP unsynchronised"
+                + (f", offset {off} ms" if isinstance(off, (int, float)) else "")
+                + (" (not synced)" if clk.get('synced') is False else ""))
+        gw = si.get('gateway')
+        if isinstance(gw, dict):
+            gw_ip = gw.get('ip', '') or ''
+            if gw.get('reachable') is False:
+                posture.append((f"default gateway {gw_ip} UNREACHABLE").strip())
+            else:
+                lat = gw.get('latency_ms')
+                if isinstance(lat, (int, float)):
+                    posture.append(
+                        (f"default gateway {gw_ip} latency {lat} ms").strip())
+        oom = si.get('last_oom_ts')
+        if isinstance(oom, (int, float)) and oom > 0:
+            proc = si.get('last_oom_proc')
+            posture.append(f"most recent OOM kill: epoch {int(oom)}"
+                           + (f" (process {proc})" if proc else ""))
+        mq = si.get('mailq')
+        if isinstance(mq, int) and mq > 0:
+            posture.append(f"mail queue depth: {mq}")
+        wp = si.get('win_posture')
+        if isinstance(wp, dict):
+            wl = []
+            if 'defender_realtime' in wp:
+                wl.append("Defender real-time protection: "
+                          + ("on" if wp.get('defender_realtime') else "OFF"))
+            if isinstance(wp.get('defender_sig_age_days'), (int, float)):
+                wl.append(f"Defender signature age: {wp['defender_sig_age_days']}d")
+            for b in (wp.get('bitlocker') or []):
+                if isinstance(b, dict) and b.get('mount'):
+                    wl.append(f"BitLocker {b.get('mount')}: {b.get('status', '')}")
+            for f in (wp.get('firewall') or []):
+                if isinstance(f, dict) and f.get('name'):
+                    wl.append(f"firewall {f.get('name')}: "
+                              + ("on" if f.get('enabled') else "OFF"))
+            if wp.get('wu_service'):
+                wl.append(f"Windows Update service: {wp['wu_service']}")
+            if wl:
+                posture.append("Windows security posture:\n  " + '\n  '.join(wl))
+        if posture:
+            docs.append(make_doc(
+                f"live/{dev_id}#posture", 'live_state', 'device_posture',
+                f"{name} host posture (failed systemd units/timers, ECC memory "
+                f"errors, clock skew, default-gateway reachability, OOM kills, "
+                f"mail-queue depth"
+                + (", Windows security" if isinstance(wp, dict) else "")
+                + "):\n" + '\n'.join(posture),
+                title=f"{name} — posture", device=dev_id, ts=ts))
 
         # Running process NAMES (the unique set, sorted for a stable chunk hash)
         # — answers "is nginx / postgres running on X" without a tool call. We
@@ -608,10 +791,18 @@ def build_live_state_corpus(devices, facets=None, now=0):
             patch_lines.append(f"pending package updates: {upgradable}")
             if upgradable > 0:
                 patch_hosts.append((name, upgradable))
+        # v6.2.2: vendor-flagged SECURITY update count (apt -security / dnf
+        # --security / arch-audit), stored under sysinfo.packages.security_updates
+        # — a higher-priority signal than the raw upgradable total.
+        _pkg = si.get('packages')
+        _pkg = _pkg if isinstance(_pkg, dict) else {}
+        sec_updates = _pkg.get('security_updates')
+        if isinstance(sec_updates, int) and sec_updates >= 0:
+            patch_lines.append(f"vendor security updates pending: {sec_updates}")
         if dev.get('patch_status'):
             patch_lines.append(f"patch status: {dev['patch_status']}")
-        if (dev.get('sysinfo') or {}).get('packages', {}).get('manager'):
-            patch_lines.append(f"package manager: {si['packages']['manager']}")
+        if _pkg.get('manager'):
+            patch_lines.append(f"package manager: {_pkg['manager']}")
         if reboot_required:
             patch_lines.append("reboot required: yes"
                                + (f" ({si.get('reboot_reason')})"

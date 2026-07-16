@@ -139,7 +139,8 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 ## What you can do with it
 
 - **Monitor & alert** — live metrics, a CheckMK-style Checks page, active
-  monitors (HTTP/DNS/ICMP/TCP), an Alerts inbox with ack/auto-resolve/mute.
+  monitors (HTTP/DNS/ICMP/TCP), an Alerts inbox with ack/auto-resolve/mute,
+  and one filterable page to tune every alert threshold, grade and score weight.
 - **See every signal** — SMART/hardware health, GPU, power/UPS, disk-fill
   forecasting, a per-host timeline, log search.
 - **Manage remotely** — shell + Custom Scripts, a file manager and
