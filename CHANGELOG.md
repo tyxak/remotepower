@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.2.2 — "Pu1seMatters" — unreleased (test)
+## v6.2.2 — "Pu1seMatters" — 2026-07-16
 
 A performance and polish release built around the agent heartbeat, plus a new
 always-on safety check that catches the v6.2.1 class of problem *before* patch
