@@ -806,10 +806,31 @@ def _webhook_message(event, payload):
     _human = event.replace("_", " ").capitalize()
     _rid = None
     if isinstance(payload, dict):
-        for _k in ("unit", "service", "container", "pool", "process", "iface",
-                   "mount", "path", "paths", "target", "disk", "disks", "ups",
-                   "image", "domain", "check_name", "vm_name", "snap_name", "rule",
-                   "jail", "label", "ip", "mac"):
+        for _k in (
+            "unit",
+            "service",
+            "container",
+            "pool",
+            "process",
+            "iface",
+            "mount",
+            "path",
+            "paths",
+            "target",
+            "disk",
+            "disks",
+            "ups",
+            "image",
+            "domain",
+            "check_name",
+            "vm_name",
+            "snap_name",
+            "rule",
+            "jail",
+            "label",
+            "ip",
+            "mac",
+        ):
             _v = payload.get(_k)
             if not _v:
                 continue

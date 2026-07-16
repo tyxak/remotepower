@@ -342,8 +342,7 @@ def _host_checks(
             "OOM killer",
             "core",
             "warning" if recent else "ok",
-            f"fired in last {_win_h}h" if recent
-            else f"last {(now - lo) // _SECONDS_PER_DAY}d ago",
+            f"fired in last {_win_h}h" if recent else f"last {(now - lo) // _SECONDS_PER_DAY}d ago",
         )
     # v4.1.0: mail queue depth (agent reads postfix/sendmail/exim mailq).
     mq = si.get("mailq")
@@ -386,8 +385,11 @@ def _host_checks(
             "disk_eta",
             "Disk fill ETA",
             "storage",
-            "critical" if disk_eta <= disk_forecast_crit_days
-            else "warning" if disk_eta <= disk_forecast_warn_days else "ok",
+            (
+                "critical"
+                if disk_eta <= disk_forecast_crit_days
+                else "warning" if disk_eta <= disk_forecast_warn_days else "ok"
+            ),
             f"~{disk_eta:.1f} day(s) to full at current trend",
         )
     pools = si.get("storage_health") or []
@@ -429,8 +431,11 @@ def _host_checks(
                 "win_av_signatures",
                 "Defender signature age",
                 "security",
-                "critical" if age >= av_sig_stale_days
-                else "warning" if age >= defender_sig_warn_days else "ok",
+                (
+                    "critical"
+                    if age >= av_sig_stale_days
+                    else "warning" if age >= defender_sig_warn_days else "ok"
+                ),
                 f"{int(age)} day(s) old",
             )
         # BitLocker on the OS volume.
