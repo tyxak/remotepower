@@ -2133,32 +2133,10 @@ const _CONTAINER_PANELS = ['containers-panel-agent', 'containers-panel-lxc'];
 function _showAllContainerPanels() {
   _CONTAINER_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
 }
-function showContainerSection(sectionId, btn) {
-  showPage('containers', btn);
-  _CONTAINER_PANELS.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
-  });
-  if (sectionId === 'containers-panel-lxc') {
-    // When navigating directly to LXC, always show the section and load with
-    // focused=true so a "not configured" hint is shown instead of hiding.
-    const sec = document.getElementById('containers-lxc-section');
-    if (sec) sec.style.display = 'block';
-    loadProxmoxLXC(true);
-  }
-}
 
 const _TLS_PANELS = ['tls-panel-expiry', 'tls-panel-acme'];
 function _showAllTLSPanels() {
   _TLS_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
-}
-function showTLSSection(sectionId, btn) {
-  showPage('tls', btn);
-  _TLS_PANELS.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
-  });
-  if (sectionId === 'tls-panel-acme') loadAcme();
 }
 
 async function loadDevices() {
@@ -3618,8 +3596,6 @@ async function loadSettings() {
   document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
   document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
   { const e = document.getElementById('cfg-allow-internal-monitors'); if (e) e.checked = !!data.allow_internal_monitors; }
-  { const e = document.getElementById('cfg-metric-fba'); if (e) e.value = data.metric_failures_before_alert || 1; }
-  { const e = document.getElementById('cfg-snmp-fba'); if (e) e.value = data.snmp_failures_before_alert || 2; }
   document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
   document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255';
   document.getElementById('cfg-wol-port').value  = data.wol_port || '9';
@@ -4157,8 +4133,6 @@ async function saveSettings(btn) {
     online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
     monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
     allow_internal_monitors: (document.getElementById('cfg-allow-internal-monitors') || {}).checked || false,
-    metric_failures_before_alert: parseInt(document.getElementById('cfg-metric-fba')?.value) || 1,
-    snmp_failures_before_alert:   parseInt(document.getElementById('cfg-snmp-fba')?.value) || 2,
     cve_cache_days:        parseInt(document.getElementById('cfg-cve-cache-days').value) || 7,
     wol_broadcast:         document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255',
     wol_port:              parseInt(document.getElementById('cfg-wol-port').value) || 9,

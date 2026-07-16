@@ -166,8 +166,8 @@ Older release notes (v6.1.2 and earlier) live in
  and encrypted control-plane disaster recovery.
 - **[remote-access.md](remote-access.md)** — Browser web terminal, remote file
  manager, and host user / SSH-key / firewall management from the drawer.
-- **[storage.md](storage.md)** — Storage-RAID health (ZFS/mdadm/btrfs), SMART +
- predictive disk health, GPUs, thermal, and power / UPS.
+- **[storage.md](storage.md)** — Storage-RAID health (ZFS/mdadm/btrfs) + SMART;
+ umbrella page linking the focused disk-health, GPU, thermal and power guides.
 - **[tls-selfsigned.md](tls-selfsigned.md)** — Built-in self-signed CA +
  fingerprint-verified agent TLS (generate a cert from the UI).
 - **[update-history.md](update-history.md)** — Captured `apt` / `dnf` /

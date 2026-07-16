@@ -23,42 +23,21 @@ event fires when a pool goes bad and **`storage_recovered`** when it heals;
 
 Destructive actions (scrub, balance, clear, snapshot delete) require confirmation.
 
-## SMART & predictive disk health
+Per physical disk the agent also runs `smartctl` (SMART health, temperature, key
+attributes); a drive reporting failure/pre-fail raises **`smart_failure`**.
 
-The agent runs `smartctl` per physical disk (SMART health, temperature, key
-attributes). A drive reporting failure/pre-fail raises **`smart_failure`**.
+## Related hardware pages
 
-**Predictive health** goes further: it trends SMART data (reallocated/pending
-sectors on HDDs, wear % on SSDs) to estimate an ETA, and lists at-risk disks
-(Risk, Disk, Wear, ETA, Signals) plus frequently-restarting hosts. When a disk's
-ETA drops to ≤180 days (or risk becomes critical/high) it raises
-**`disk_predict_fail`** — one alert per disk. Data: `GET /api/fleet/disk-health`.
+The rest of the physical-health surface has its own focused page and guide — each
+draws from the same agent hardware inventory (unmonitored hosts still appear,
+flagged):
 
-## GPUs
-
-**GPUs** shows every NVIDIA/AMD GPU (hottest/busiest first) with utilisation,
-VRAM, temperature, power draw, fan speed and ~4h trend sparklines. Collected via
-`nvidia-smi` / `rocm-smi` (with an amdgpu sysfs fallback). GPU temperature feeds
-the same thermal alerting as everything else.
-
-## Thermal
-
-**Thermal health** aggregates CPU/chipset sensors (lm-sensors), disk temps
-(smartctl) and GPU temps into one hottest-first view (Device, Max temp, Hottest
-sensor, Type, Threshold, Headroom, ~24h trend). ≥75 °C is flagged amber; ≥85 °C
-raises **`temp_high`** (high) and cooling back down raises **`temp_normal`**.
-Thresholds are per-device (metric-threshold UI); the global amber/red °C and the
-`temp_high` threshold defaults are tunable in **Settings → Alert parameters**.
-Data: `GET /api/fleet/thermal`.
-
-## Power & UPS
-
-**Power & energy** lists hosts on battery first (UPS status, battery %, load %,
-runtime, watts). Where a smart PDU/plug is mapped on the device, you can
-power **on / off / cycle** it (`POST /api/devices/{id}/power-control`,
-SSRF-guarded, `command` permission, audited). A per-group/tag **energy cost**
-card projects a monthly estimate from instantaneous watts and a $/kWh you set.
-Data: `GET /api/fleet/power`.
+| Page | What it covers | Guide |
+| --- | --- | --- |
+| **Predictive health** | Trends SMART wear/sector data into a per-disk failure ETA and reliability score (`disk_predict_fail`). | [disk-health.md](disk-health.md) |
+| **GPUs** | Every NVIDIA/AMD GPU — utilisation, VRAM, temperature, power, fan, trends. | [gpus.md](gpus.md) |
+| **Thermal health** | CPU/chipset/disk/GPU temperatures in one hottest-first view (`temp_high`). | [thermal.md](thermal.md) |
+| **Power & energy** | UPS status, PDU on/off/cycle control, and per-group energy-cost projection. | [power.md](power.md) |
 
 ## Permissions
 

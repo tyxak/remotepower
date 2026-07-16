@@ -132,8 +132,11 @@ class TestSnmpThresholdConfigurable(unittest.TestCase):
 
 class TestSettingsUI(unittest.TestCase):
     def test_controls_and_wiring(self):
-        self.assertIn('cfg-metric-fba', _HTML)
-        self.assertIn('cfg-snmp-fba', _HTML)
+        # v6.2.3: the dampening controls consolidated onto Settings → Alert
+        # parameters (ap-metric-fails / ap-snmp-fails); the duplicate General-pane
+        # rows (cfg-metric-fba / cfg-snmp-fba) that wrote the same keys were removed.
+        self.assertIn('ap-metric-fails', _HTML)
+        self.assertIn('ap-snmp-fails', _HTML)
         self.assertIn('metric_failures_before_alert', _APP_JS)
         self.assertIn('snmp_failures_before_alert', _APP_JS)
 
