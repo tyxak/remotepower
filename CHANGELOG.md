@@ -48,6 +48,19 @@ day.
   not "a systemd unit entered the failed state", and a SMART alert names the
   disk. Never a raw machine name, never a generic sentence with the key detail
   missing.
+- **Alert / Needs-Attention / activity-feed descriptions overhaul.** A sweep of
+  all four text surfaces (inbox titles, webhook/push bodies, Needs Attention, and
+  the dashboard activity feed) made the vague ones specific: fleet-level events
+  keep their resource, dedicated lines now name the values for server-disk-low
+  (used%, free/total GB), UPS-critical (battery %), kernel-outdated (running vs
+  latest), SNMP traps (OID/value), break-glass (who/what/why), new-certificate
+  (domain), IP conflict, SMART failure (which disks), read-only filesystem
+  (which mounts), backup shrink/verify, and more; the activity feed no longer
+  renders blank rows for storage/oom/ticket/av/fail2ban events (the fields it
+  needed were being dropped before storage — now kept); config-drift names the
+  drifted files. Fixed a real bug found in the same sweep: **a custom-metric
+  threshold breach fired a webhook but never landed in the Alerts inbox** (its
+  severity was computed as "none" and the record was dropped).
 
 ### Performance
 

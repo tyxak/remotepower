@@ -6950,7 +6950,25 @@ def _record_fleet_event(event, payload):
                     'age_hours',                        # backup_stale
                     'process',                          # new_port_detected
                     'ip', 'blocklists',                 # ip_blacklisted / cleared
-                    'rtype', 'target'):                 # resolver_unhealthy / recovered
+                    'rtype', 'target',                  # resolver_unhealthy / recovered
+                    # v6.2.2 activity-feed overhaul: fire sites ship these but the
+                    # feed dropped them → blank/placeholder rows. `sections` fixes
+                    # the config_drift row; `size`/`median` fix the backup_size_
+                    # anomaly row that always read "0 B".
+                    'disks', 'disk', 'eta_days',        # smart_failure / disk_predict_fail
+                    'tool', 'infected',                 # av_infected (rendered blank)
+                    'jail',                             # fail2ban_ban
+                    'script_name', 'check_name',        # custom_script_fail / custom_check_*
+                    'image', 'tag',                     # image_update_*
+                    'client_name', 'tunnel_name',       # vpn_client_*
+                    'value', 'threshold',               # metric_*/process_alert numbers
+                    'oid',                              # snmp_trap_received
+                    'sections',                         # config_drift (fixes blank row)
+                    'size', 'median',                   # backup_size_anomaly (fixes "0 B")
+                    'battery_pct',                      # ups_critical
+                    'old_ip', 'new_ip',                 # wan_ip_changed
+                    'mac',                              # mac_conflict
+                    'running', 'latest'):               # kernel_outdated
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -7392,6 +7410,13 @@ def _alert_severity(event, payload):
         return s if s in ('low', 'medium', 'high', 'critical') else 'medium'
     if event == 'ticket_sla_breached':
         return 'high' if int(p.get('priority') or 4) <= 2 else 'medium'
+    # v6.2.2 fix: custom_metric_alert carries its severity in the payload (from
+    # the per-metric threshold) but had no branch → _alert_severity returned None
+    # → _record_alert dropped it, so a crossed custom metric webhook-fired but
+    # never landed in the inbox. Same class as integration_down above.
+    if event == 'custom_metric_alert':
+        s = str(p.get('severity', '')).lower()
+        return s if s in ('low', 'medium', 'high', 'critical') else 'medium'
     return None
 
 
@@ -7425,7 +7450,9 @@ def _alert_title(event, payload):
         verb = 'Image update available' if event == 'image_update_available' else 'Image updated'
         return f'{verb}: {ref}{suffix}'
     if event == 'patch_alert':
-        return f'{p.get("upgradable", "?")} pending updates on {name}'
+        _pt = p.get('threshold') or _config_ro().get('patch_alert_threshold')
+        return (f'{p.get("upgradable", "?")} pending updates on {name}'
+                + (f' (threshold {_pt})' if _pt else ''))
     if event == 'cve_found':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'CVEs on {name}: {c} critical, {h} high'
@@ -7645,6 +7672,53 @@ def _alert_title(event, payload):
         _un = p.get('new_count') or 1
         return (f'Service failed on {name}: {p.get("unit", "?")}'
                 + (f' (+{_un - 1} more)' if isinstance(_un, int) and _un > 1 else ''))
+    # v6.2.2 description overhaul — name the resource AND the values that make the
+    # row actionable (these events previously fell to the generic label).
+    if event == 'server_disk_low':
+        return (f'Server data dir at {p.get("used_pct","?")}% — {p.get("free_gb","?")}GB '
+                f'free of {p.get("total_gb","?")}GB (threshold {p.get("threshold","?")}%)')
+    if event == 'ups_critical':
+        _bp, _rt = p.get('battery_pct'), p.get('runtime_s')
+        _x = (f' at {_bp}%' if _bp is not None else '')
+        _x += (f', ~{int(_rt) // 60}m left' if isinstance(_rt, (int, float)) else '')
+        return f'UPS battery CRITICAL on {name}: {p.get("ups","?")}{_x}'
+    if event == 'kernel_outdated':
+        return (f'Kernel reboot needed on {name}: running {p.get("running","?")}, '
+                f'{p.get("latest","?")} installed')
+    if event == 'mailq_high':
+        return (f'Mail queue backed up on {name}: {p.get("count","?")} queued '
+                f'(threshold {p.get("threshold","?")})')
+    if event == 'snmp_trap_received':
+        return (f'SNMP trap from {name}: {p.get("count","?")} trap(s), '
+                f'OID {p.get("oid","?")} = {p.get("value","?")}')
+    if event == 'vault_break_glass':
+        return (f'Break-glass reveal on {name}: "{p.get("label","?")}" by '
+                f'{p.get("requester","?")} — {p.get("reason","?")}')
+    if event == 'ct_new_certificate':
+        return (f'New certificate for {p.get("domain","?")}: CN {p.get("cn","?")}, '
+                f'issuer {p.get("issuer","?")}')
+    if event == 'ip_conflict':
+        return f'IP conflict: {p.get("ip","?")} — {p.get("detail") or "assigned to multiple devices"}'
+    if event == 'smart_failure':
+        _d = p.get('disks') or p.get('disk')
+        _ds = ', '.join(str(x) for x in _d) if isinstance(_d, (list, tuple)) else (_d or '?')
+        return f'SMART failure on {name}: {_ds}'
+    if event == 'readonly_fs':
+        _pp = p.get('paths') or []
+        _ps = (', '.join(str(x) for x in _pp[:3]) + ('…' if len(_pp) > 3 else '')
+               if isinstance(_pp, (list, tuple)) else str(_pp))
+        return f'Filesystem remounted read-only on {name}: {_ps}'
+    if event == 'backup_size_anomaly':
+        return (f'Backup shrank on {name}: "{p.get("label","?")}" now '
+                f'{p.get("size","?")}B (was ~{p.get("median","?")}B)')
+    if event == 'backup_verify_failed':
+        return (f'Backup verify failed on {name}: "{p.get("label","?")}" — '
+                f'{p.get("verify_output") or p.get("output") or "integrity check failed"}')
+    if event == 'github_new_issue':
+        return (f'New GitHub issue {p.get("repo","?")}#{p.get("number","?")}: '
+                f'{p.get("title","?")}')
+    if event == 'custom_metric_alert':
+        return f'Custom metric on {name}: {p.get("output") or p.get("metric","?")}'
     # v6.2.2 — readable fallback. An alert row must NEVER show a bare machine
     # event name, AND where the event names a specific resource (a unit, path,
     # container, …) the title must SAY which one — the generic label alone
@@ -7659,13 +7733,20 @@ def _alert_title(event, payload):
     _rid = None
     if isinstance(p, dict):
         for _k in ('unit', 'service', 'container', 'pool', 'process', 'iface',
-                   'mount', 'path', 'target', 'disk', 'sensor', 'ups', 'image',
-                   'domain', 'check_name', 'vm_name', 'snap_name', 'rule'):
-            if p.get(_k):
-                _rid = str(p[_k])
-                break
+                   'mount', 'path', 'paths', 'target', 'disk', 'disks', 'sensor',
+                   'ups', 'image', 'domain', 'check_name', 'vm_name', 'snap_name',
+                   'rule', 'jail', 'label', 'ip', 'mac'):
+            _v = p.get(_k)
+            if not _v:
+                continue
+            if isinstance(_v, (list, tuple)):
+                _v = ', '.join(str(x) for x in _v[:3]) + ('…' if len(_v) > 3 else '')
+            _rid = str(_v)
+            break
     if name and _rid:
         return f'{_lbl} — {name}: {_rid}'
+    if _rid:               # S1: a fleet-level event (no device) keeps its resource
+        return f'{_lbl}: {_rid}'
     if name:
         return f'{_lbl} — {name}'
     return _lbl
@@ -42228,9 +42309,10 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     drifted = [f for f, s in (dev.get('drift_state') or {}).items()
                if isinstance(s, dict) and s.get('status') == 'drifted' and not s.get('ignored')]
     if drifted:
+        _dnames = ', '.join(drifted[:4]) + ('…' if len(drifted) > 4 else '')
         _add('config_drift',
              min(_RISK_CAPS['config_drift'], len(drifted) * _RISK_WEIGHTS['config_drift']),
-             f'{len(drifted)} config file(s) drifted from baseline')
+             f'{len(drifted)} config file(s) drifted: {_dnames}')
     if isinstance(si.get('clock'), dict) and si['clock'].get('skewed'):
         _add('clock_skew', _RISK_WEIGHTS['clock_skew'], 'system clock skewed / NTP out of sync')
     if isinstance(si.get('gateway'), dict) and si['gateway'].get('reachable') is False:

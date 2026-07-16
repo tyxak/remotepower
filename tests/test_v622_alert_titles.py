@@ -84,10 +84,40 @@ class TestNoAlertWithoutExplanation(unittest.TestCase):
 
     def test_fallback_surfaces_the_named_resource(self):
         """An event with no hand-written branch but a specific resource field
-        (unit/disk/container/…) must name that resource, not just the label."""
-        t = api._alert_title("smart_failure", {"device_name": "nas", "disk": "/dev/sda"})
-        self.assertIn("/dev/sda", t)
-        self.assertIn("nas", t)
+        (target/label/…) must name that resource, not just the label."""
+        # mailflow_delayed has no dedicated title branch → exercises the fallback.
+        t = api._alert_title("mailflow_delayed", {"device_name": "h", "target": "smtp.ex.com"})
+        self.assertIn("smtp.ex.com", t)
+        self.assertIn("h", t)
+
+    def test_high_value_events_name_resource_and_values(self):
+        cases = {
+            "server_disk_low": ({"name": "srv", "used_pct": 92, "free_gb": 4.1,
+                                 "total_gb": 50, "threshold": 85}, ["92%", "4.1", "50"]),
+            "ups_critical": ({"device_name": "r1", "ups": "apc", "battery_pct": 12}, ["apc", "12%"]),
+            "kernel_outdated": ({"device_name": "w2", "running": "6.1", "latest": "6.5"}, ["6.1", "6.5"]),
+            "snmp_trap_received": ({"name": "sw", "count": 3, "oid": "1.3.6", "value": "x"}, ["1.3.6"]),
+            "vault_break_glass": ({"device_name": "db", "label": "root", "requester": "al",
+                                   "reason": "inc"}, ["root", "al", "inc"]),
+            "ct_new_certificate": ({"domain": "a.ex", "cn": "a.ex", "issuer": "LE"}, ["a.ex", "LE"]),
+            "ip_conflict": ({"ip": "10.0.0.5", "detail": "assigned to a, b"}, ["10.0.0.5"]),
+            "smart_failure": ({"device_name": "nas", "disks": ["/dev/sda"]}, ["/dev/sda"]),
+            "readonly_fs": ({"device_name": "db", "paths": ["/var"]}, ["/var"]),
+        }
+        for ev, (payload, musts) in cases.items():
+            t = api._alert_title(ev, payload)
+            for m in musts:
+                self.assertIn(str(m), t, f"{ev}: title '{t}' missing '{m}'")
+
+    def test_custom_metric_alert_reaches_inbox(self):
+        # It carries severity in the payload; _alert_severity must not drop it.
+        self.assertEqual(api._alert_severity("custom_metric_alert", {"severity": "high"}), "high")
+        self.assertEqual(api._alert_severity("custom_metric_alert", {}), "medium")
+
+    def test_fleet_level_event_keeps_its_resource(self):
+        # S1: a fleet-level event (no device name) must still name its resource.
+        t = api._alert_title("ct_new_certificate", {"domain": "x.example"})
+        self.assertIn("x.example", t)
 
     def test_new_count_whitelisted_in_record_alert(self):
         src = (_CGI / "api.py").read_text()

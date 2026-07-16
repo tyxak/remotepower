@@ -16933,7 +16933,11 @@ function _renderHomeActivity(fleetEvents) {
       case 'resolver_recovered':
         detail = `${p.rtype || ''} ${p.target || ''} recovered`.trim(); break;
       default:
-        detail = p.path || p.unit || p.metric || p.cve_id || p.pattern || '';
+        // Prefer the fire-site's ready-made human `detail`, then a named
+        // resource, so a branch-less feed row isn't blank (v6.2.2 — ~10 events
+        // ship `detail`/`name` that the feed was dropping).
+        detail = p.detail || p.pool || p.container || p.process || p.path || p.unit
+               || p.metric || p.cve_id || p.pattern || p.name || '';
         if (!detail && p.upgradable) detail = `${p.upgradable} updates`;
         if (!detail && p.critical)   detail = `${p.critical} critical`;
     }

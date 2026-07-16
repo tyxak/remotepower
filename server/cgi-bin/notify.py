@@ -800,8 +800,27 @@ def _webhook_message(event, payload):
     if _dtl:
         return f"{name}: {_dtl}" if name else str(_dtl)
     # Humanize the raw event key so even a branch-less, detail-less event reads
-    # as a sentence ("smart_failure" → "Smart failure") rather than a machine token.
+    # as a sentence ("smart_failure" → "Smart failure") rather than a machine token,
+    # AND name the specific resource the payload carries (unit/disk/pool/…) so the
+    # body isn't a vague "Smart failure: host". Mirrors _alert_title's fallback.
     _human = event.replace("_", " ").capitalize()
+    _rid = None
+    if isinstance(payload, dict):
+        for _k in ("unit", "service", "container", "pool", "process", "iface",
+                   "mount", "path", "paths", "target", "disk", "disks", "ups",
+                   "image", "domain", "check_name", "vm_name", "snap_name", "rule",
+                   "jail", "label", "ip", "mac"):
+            _v = payload.get(_k)
+            if not _v:
+                continue
+            if isinstance(_v, (list, tuple)):
+                _v = ", ".join(str(x) for x in _v[:3]) + ("…" if len(_v) > 3 else "")
+            _rid = str(_v)
+            break
+    if name and _rid:
+        return f"{name}: {_human} ({_rid})"
+    if _rid:
+        return f"{_human}: {_rid}"
     return f"{_human}: {name}" if name else _human
 
 
