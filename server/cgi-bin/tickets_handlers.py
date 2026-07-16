@@ -247,6 +247,10 @@ def handle_tickets():
                 A.respond(200, {'ok': True, 'id': t['id'], 'number': t['number'], 'existing': True})
         al = next((a for a in ((A.load(A.ALERTS_FILE) or {}).get('alerts') or [])
                    if a.get('id') == alert_internal), None)
+        # SEC (v6.2.3): don't let a cross-tenant alert_id be linked/auto-acked/
+        # stamped — 404 to hide its existence (mirrors the alert mutation handlers).
+        if al and not A._alert_tenant_visible(al):
+            A.respond(404, {'error': 'alert not found'})
         if al:
             alertid = al.get('alertid', '')
             number = A._alert_seq_num(alertid)   # alert-derived number = alert seq

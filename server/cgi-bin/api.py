@@ -11431,6 +11431,11 @@ def handle_devices_bulk_delete():
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
     ids = [str(i) for i in ids if _validate_id(str(i))][:1000]
+    # SEC: body-supplied id list, not under /api/devices/ — a tenant admin must
+    # not delete another tenant's devices. Keep only ids the caller can see
+    # (no-op for an unscoped single-tenant admin).
+    _vis = _scope_filter_devices(load(DEVICES_FILE) or {})
+    ids = [i for i in ids if i in _vis]
     deleted = 0
     for dev_id in ids:
         try:
@@ -11482,6 +11487,8 @@ def handle_devices_bulk_tags():
     if not add and not remove:
         respond(400, {'error': 'pass at least one tag in add or remove'})
     ids = {str(i) for i in ids if _validate_id(str(i))}
+    _vis = _scope_filter_devices(load(DEVICES_FILE) or {})   # SEC: tenant/scope filter
+    ids = {i for i in ids if i in _vis}
     updated = 0
     with _LockedUpdate(DEVICES_FILE) as devices:
         for dev_id in ids:
@@ -11998,6 +12005,8 @@ def handle_device_profile_apply(pid):
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
     ids = [_sanitize_str(str(i), 64) for i in ids[:500]]
+    _vis = _scope_filter_devices(load(DEVICES_FILE) or {})   # SEC: tenant/scope filter
+    ids = [i for i in ids if i in _vis]
     applied = 0
     with _LockedUpdate(DEVICES_FILE) as devices:
         for did in ids:
@@ -16693,6 +16702,7 @@ def handle_webterm_auth():
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
+    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
 
     # W6-49: RDP-tunnel intent is gated behind an explicit opt-in — it exposes a
     # native-RDP bridge (mstsc/Remmina to localhost:PORT), not an in-browser
@@ -29888,6 +29898,7 @@ def handle_schedule_add():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
 
     if cron:
@@ -29940,6 +29951,7 @@ def handle_schedule_update(job_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — schedules a command on it
     _validate_scheduled_command(command, dev_id)
     if cron:
         if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
@@ -34680,6 +34692,7 @@ def handle_dependency_suggestions():
     devices = load(DEVICES_FILE) or {}
     if did not in devices or up not in devices or did == up:
         respond(400, {'error': 'valid device_id and upstream_id required'})
+    _scope_block_device(did); _scope_block_device(up)   # SEC: tenant/scope gate on both ids
     if action == 'accept':
         with _LockedUpdate(DEVICES_FILE) as devs:
             dev = devs.get(did)
@@ -34763,6 +34776,7 @@ def handle_lldp_suggestions():
     devices = load(DEVICES_FILE) or {}
     if did not in devices or peer not in devices or did == peer:
         respond(400, {'error': 'valid device_id and peer_id required'})
+    _scope_block_device(did); _scope_block_device(peer)   # SEC: tenant/scope gate on both ids
     if action == 'accept':
         with _LockedUpdate(DEVICES_FILE) as devs:
             dev = devs.get(did)
@@ -37731,6 +37745,7 @@ def handle_netscan_schedules():
     subnet = str(body.get('subnet', '')).strip()
     if not _validate_id(dev_id) or dev_id not in (load(DEVICES_FILE) or {}):
         respond(400, {'error': 'valid device_id required'})
+    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     if not _valid_netscan_subnet(subnet):
         respond(400, {'error': 'subnet must be CIDR, e.g. 192.168.1.0/24'})
     try:
@@ -40263,7 +40278,7 @@ def handle_monitoring_profile_apply():
     if not prof:
         respond(404, {'error': 'profile not found'})
     devices = load(DEVICES_FILE)
-    valid = [d for d in device_ids if d in devices]
+    valid = [d for d in device_ids if d in _scope_filter_devices(devices)]  # SEC: tenant/scope filter
     applied = 0
     with _LockedUpdate(CUSTOM_SCRIPTS_FILE) as scripts:
         for sid in (prof.get('script_ids') or []):
@@ -40868,6 +40883,7 @@ def handle_checks_toggle():
     enabled = bool(body.get('enabled'))
     if not did or not chk:
         respond(400, {'error': 'device_id and check are required'})
+    _scope_block_device(did)   # SEC: body device_id — don't let a tenant admin disable another tenant's checks
     with _LockedUpdate(CONFIG_FILE) as cfg:
         d = cfg.setdefault('host_checks_disabled', {})
         cur = set(d.get(did) or [])
@@ -51030,7 +51046,13 @@ def handle_alert_mutes():
     # v6.1.1: a tenant-scoped admin may only mute alerts for its own devices —
     # otherwise it could silence another tenant's signal. 404 (not 403) so a
     # cross-tenant device_id / alert_id isn't confirmed to exist.
-    if not _tenant_visible((load(DEVICES_FILE) or {}).get(device_id, {})):
+    _mdev = (load(DEVICES_FILE) or {}).get(device_id, {})
+    if not _tenant_visible(_mdev):
+        respond(404, {'error': 'device not found'})
+    # v6.2.3: also honour role/API-key scope (a scoped admin may only mute its own
+    # devices' alerts) — 404 (not 403) to keep hiding cross-scope existence.
+    _mscope = _caller_scope()
+    if _mscope is not None and not _device_in_scope(_mscope, _mdev):
         respond(404, {'error': 'device not found'})
     data = _alert_mutes_load()
     existing = next((m for m in data['mutes']
@@ -56294,6 +56316,7 @@ def handle_exposure_mute():
     rule = {}
     if body.get('device_id'):
         rule['device_id'] = _sanitize_str(body['device_id'], 64)
+        _scope_block_device(rule['device_id'])   # SEC: mute resolves that device's exposure alerts
     if body.get('process'):
         rule['process'] = _sanitize_str(body['process'], 64)
     if body.get('proto'):
@@ -57181,6 +57204,7 @@ def handle_cve_scan():
         target = str(target).strip()
         if not _validate_id(target):
             respond(400, {'error': 'Invalid device_id'})
+        _scope_block_device(target)   # SEC: scans that device's packages
     # Refuse to stack a second concurrent scan (stale >30 min markers ignored).
     st = load(CVE_SCAN_STATUS_FILE) or {}
     if st.get('running') and (int(time.time()) - (st.get('updated') or 0)) < 1800:
@@ -63887,6 +63911,7 @@ def handle_iac_request():
 
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device_id'}); return
+    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     if not isinstance(categories, list) or not categories:
         respond(400, {'error': 'categories must be a non-empty list'}); return
     bad = [c for c in categories if c not in _IAC_ALL_CATEGORIES]
@@ -65292,6 +65317,7 @@ def handle_dns_import_from_agent():
         respond(400, {'error': 'invalid device id'})
     if not device_get(dev_id):
         respond(404, {'error': 'unknown device'})
+    _scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — tenant/scope gate
     with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not isinstance(dev, dict):

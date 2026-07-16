@@ -88,9 +88,35 @@ regression tests before this release:
   port value returned a 500 instead of a clean 400; a defensive confirmation
   fallback had become self-referential) were also fixed.
 
+## From audit to invariant: a structural guardrail
+
+The isolation gaps above belong to a class that had been "fixed" in several prior
+releases: a handler that takes a device id from the request body, sits outside the
+path prefix whose pre-dispatch check enforces scope, and acts on the device without
+a tenant/scope check. Each prior pass fixed the *instances it found* and moved on.
+The lesson of this review is that finding instances — even with a thorough
+adversarial pass — is not the same as closing the class.
+
+So rather than trust the audit, we added a **structural test that enumerates the
+whole surface**: it parses the handler modules, finds every handler that reads a
+device id from the body, and fails unless each one either routes that id through a
+canonical scope helper or is on an explicit, reasoned exemption list (agent-self
+endpoints authenticated by a device token, ids kept only as free metadata, etc.).
+
+That enumeration immediately surfaced **more** handlers of the same class than the
+adversarial pass had reached — a further set of body-device handlers spanning
+scheduled-command, bulk-device, profile-apply, per-host toggle/mute/scan and
+terminal-authorization actions. Every one was given the same scope/tenant filter
+(all no-ops on a single-tenant, unscoped install) and covered by regression tests.
+Going forward, a new ungated body-device handler fails the build — the safe path is
+now the only one that passes CI, the same way the product's event and module
+registries are enforced. This converts a recurring "did the audit catch them all?"
+question into a mechanical guarantee.
+
 ## Bottom line
 
-SAST is clean across all four tools; the six adversarial passes found no
-remaining exploitable issue; and the pre-existing isolation and export-redaction
-gaps the audit surfaced were fixed and regression-tested before release. No
-Critical, High or Medium finding ships in v6.2.3.
+SAST is clean across all four tools; the six adversarial passes found no remaining
+exploitable issue; the pre-existing isolation and export-redaction gaps were fixed
+and regression-tested; and a structural guardrail now enforces the tenant-isolation
+invariant for the whole body-device-handler surface rather than relying on an audit
+to spot each instance. No Critical, High or Medium finding ships in v6.2.3.

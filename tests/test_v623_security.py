@@ -142,6 +142,40 @@ class TestWolAndSecretsHostMuteScoped(_TenantBase):
         self.assertEqual(self.cap.get('s'), 403)
 
 
+class TestBodyDeviceHandlerGaps(_TenantBase):
+    """Cross-tenant gaps the structural body-device guardrail surfaced (beyond the
+    handlers the adversarial audit reached). Drive the scariest ones."""
+
+    def test_bulk_delete_cannot_remove_another_tenants_device(self):
+        self._as('tenantA')
+        self.api.method = lambda: 'POST'
+        self.api.get_json_obj = lambda: {'device_ids': ['devA', 'devB']}
+        self.api.get_json_body = self.api.get_json_obj
+        try:
+            self.api.handle_devices_bulk_delete()
+        except (self.api.HTTPError, SystemExit):
+            pass
+        left = set(self.api.load(self.api.DEVICES_FILE) or {})
+        self.assertIn('devB', left, "another tenant's device must not be deletable")
+
+    def test_schedule_add_cannot_target_another_tenants_host(self):
+        self._as('tenantA')
+        self.api.method = lambda: 'POST'
+        self.api.get_json_obj = lambda: {'device_id': 'devB', 'command': 'reboot',
+                                         'run_at': 9999999999}
+        self.api.get_json_body = self.api.get_json_obj
+        self.api.save(self.api.SCHEDULE_FILE, {})
+        self.api._invalidate_load_cache(self.api.SCHEDULE_FILE)
+        try:
+            self.api.handle_schedule_add()
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('s'), 403)
+        jobs = self.api.load(self.api.SCHEDULE_FILE) or {}
+        self.assertFalse(any(j.get('device_id') == 'devB' for j in jobs.values()),
+                         'no schedule may be queued on another tenant host')
+
+
 class TestExportSecretRedaction(unittest.TestCase):
     """MEDIUM: the diagnostics bundle, backup ZIP and declarative export each kept
     their own hand-list of non-name-caught secret fields and drifted. One shared

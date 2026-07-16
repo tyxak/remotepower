@@ -50,6 +50,15 @@ fixes below.
     surfaces can't drift and each strips the full set.
   - **Internal webhook peer check** now uses trusted-peer resolution instead of a
     raw peer address that always reads as loopback behind the reverse proxy.
+- **Structural guardrail for the whole class.** Because these gaps are a recurring
+  class that prior audits kept fixing instance-by-instance, a new test now
+  enumerates *every* handler that reads a device id from the request body and fails
+  unless each routes through a canonical scope helper or is an explicitly-reasoned
+  exemption. That enumeration surfaced a further set of body-device handlers the
+  adversarial pass hadn't reached (scheduled-command, bulk-device, profile-apply,
+  per-host toggle/mute/scan and terminal-auth actions) — all given the same
+  scope/tenant filter and regression-tested. A new ungated body-device handler now
+  fails the build.
   - Full write-up: [docs/security-review-6.2.3.md](docs/security-review-6.2.3.md).
 
 ### Internal (consolidation sweep)

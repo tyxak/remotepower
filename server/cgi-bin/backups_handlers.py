@@ -453,6 +453,7 @@ def handle_backup_job_create():
     devices = A.load(A.DEVICES_FILE)
     if dev_id not in devices:
         A.respond(404, {'error': 'Device not found'})
+    A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — the run/cron path execs a command on it
     if cron and not A._valid_cron(cron):
         A.respond(400, {'error': 'invalid cron expression'})
     data = A._backup_jobs_load()
