@@ -3161,7 +3161,7 @@ async function openMonitorHistory(label) { document.getElementById('mon-history-
   // monitor whose window predates latency capture.
   const L = data.latency;
   const _lat = L ? `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">p50</div><div class="value">${L.p50} ms</div></div><div class="sysinfo-pill"><div class="label">p95</div><div class="value">${L.p95} ms</div></div><div class="sysinfo-pill"><div class="label">p99</div><div class="value">${L.p99} ms</div></div><div class="sysinfo-pill" title="min / avg / max over ${L.samples} successful checks"><div class="label">min · avg · max</div><div class="value fs-13">${L.min} · ${L.avg} · ${L.max} ms</div></div></div>` : '';
-  document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${pct>=90?'c-green': pct>=70?'c-amber': 'c-red'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div>${_lat}<div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Response</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${h.ms == null ? '—' : escHtml(String(h.ms)) + ' ms'}</td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+  document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${_scoreClass(pct,90,70)}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div>${_lat}<div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Response</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${h.ms == null ? '—' : escHtml(String(h.ms)) + ' ms'}</td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
 // v1.11.6: users page gets filter+sort
 let _usersRegistered = false;
 function _registerUsersTable() {
@@ -7009,6 +7009,26 @@ async function duScan(devId) {
   if (!r?.ok) { toast(r?.error || 'Failed to queue scan', 'error'); return; }
   toast(r.message || 'Disk-usage scan queued', 'success');
 }
+
+// v6.2.2: operator-configured health-grade cutoffs, delivered from the server
+// (/api/home → health.grades). ONE source of truth for every grade word + colour
+// on the dashboard, so no view re-hardcodes 90/70/40.
+let _HEALTH_CUTS = { good: 90, fair: 70, poor: 40 };
+function _setHealthCuts(g) { if (g && typeof g.good === 'number') _HEALTH_CUTS = g; }
+function _healthGrade(s) {
+  const c = _HEALTH_CUTS;
+  return s >= c.good ? 'good' : s >= c.fair ? 'fair' : s >= c.poor ? 'poor' : 'critical';
+}
+function _healthClass(s) {
+  if (typeof s !== 'number') return 'c-muted';
+  const c = _HEALTH_CUTS;
+  return s >= c.good ? 'c-green' : s >= c.fair ? 'c-amber' : 'c-red';
+}
+// Generic score→class ladders — cutoffs are ARGS because they genuinely differ
+// per metric (compliance 80/50, uptime 90/70, hardening 75/50, …). Higher=better
+// for _scoreClass; higher=worse for _riskClass (temp, wear, restarts).
+function _scoreClass(v, hi, mid) { return v == null ? '' : v >= hi ? 'c-green' : v >= mid ? 'c-amber' : 'c-red'; }
+function _riskClass(v, hi, mid, low = '') { return v == null ? low : v >= hi ? 'c-red' : v >= mid ? 'c-amber' : low; }
 
 function _fmtBytes(n) {
   if (!n && n !== 0) return '?';
@@ -14750,7 +14770,7 @@ function _renderDiskHealth() {
       <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
       <td class="fw-500">${escHtml(t.device)}</td>
       <td><code>${escHtml(t.disk)}</code>${t.model ? `<div class="fs-11 c-muted">${escHtml(t.model)}</div>` : ''}</td>
-      <td class="ta-center ${(t.wear_pct >= 90) ? 'c-red' : (t.wear_pct >= 80) ? 'c-amber' : ''}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
+      <td class="ta-center ${_riskClass(t.wear_pct,90,80)}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
       <td class="ta-center">—</td>
       <td class="hint">${escHtml(det.join(' · '))}</td></tr>`;
   };
@@ -14782,7 +14802,7 @@ function _renderDiskHealth() {
       <td>${riskPill(r.risk)}</td>
       <td class="fw-500">${escHtml(r.device)}</td>
       <td><code>${escHtml(r.disk)}</code>${r.model ? `<div class="fs-11 c-muted">${escHtml(r.model)}</div>` : ''}</td>
-      <td class="ta-center ${(r.wear_pct >= 90) ? 'c-red' : (r.wear_pct >= 80) ? 'c-amber' : ''}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
+      <td class="ta-center ${_riskClass(r.wear_pct,90,80)}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
       <td class="ta-center ${etaCls}">${eta}</td>
       <td class="hint">${escHtml([...(r.reasons || []),
                                   ...(r.spare_pct != null ? [`spare ${r.spare_pct}%`] : []),
@@ -15382,12 +15402,7 @@ function _renderHomeHeatmap(health) {
   ).join('') + '</div>';
 }
 
-function _gradeFor(score) {
-  if (score >= 90) return 'good';
-  if (score >= 70) return 'fair';
-  if (score >= 40) return 'poor';
-  return 'critical';
-}
+function _gradeFor(score) { return _healthGrade(score); }   // uses config cutoffs
 
 function openDeviceTimeline(devId) {
   window._timelinePendingDevice = devId;
@@ -15602,6 +15617,7 @@ async function loadHome() {
       else { _fn.classList.add('d-none'); _fn.innerHTML = ''; } } }
   // The attention payload is embedded so _renderHomeAttention can use
   // it directly without re-fetching /api/attention.
+  _setHealthCuts(home.health && home.health.grades);   // config cutoffs for every grade/colour below
   _renderHomeTiles(devs, drift, cves, mailwatch);
   _renderHomeHealth(home.health, home.health_history);
   _renderHomeHeatmap(home.health);
@@ -15853,7 +15869,7 @@ function _renderHomeWidgets(home) {
           h.grade ? `grade: ${h.grade}` : 'fleet health',
           // v6.0.1: don't paint the no-data em-dash red (reads as "critical").
           typeof h.score !== 'number' ? 'c-muted'
-            : h.score >= 90 ? 'c-green' : h.score >= 70 ? 'c-amber' : 'c-red');
+            : _healthClass(h.score));
   const onlineN = counted.filter(d => d.online).length;
   bigStat('home-w-fleettotal-body', counted.length,
           `${onlineN} up · ${counted.length - onlineN} down`);
@@ -15930,7 +15946,7 @@ function _renderHomeWidgets(home) {
     .sort((a, b) => a.score - b.score).slice(0, 6);
   _setWidget('home-w-worsthealth-body', worst.length
     ? _miniRows(worst.map(d => ({ l: escHtml(d.device_name || d.device_id || ''),
-      r: String(d.score), cls: d.score >= 90 ? 'c-green' : d.score >= 70 ? 'c-amber' : 'c-red' })))
+      r: String(d.score), cls: _healthClass(d.score) })))
     : '<div class="hint">No health data yet.</div>');
   // v6.1.2: longest-uptime leaderboard. Uses sysinfo.uptime_seconds — the
   // numeric uptime added this release; the old `uptime` field is prose from
@@ -15956,7 +15972,7 @@ function _renderHomeWidgets(home) {
         })))
       : '<div class="hint">No uptime reported yet — agents send it with their next full sysinfo.</div>');
   }
-  const gradeOf = s => s >= 90 ? 'good' : s >= 70 ? 'fair' : s >= 40 ? 'poor' : 'critical';
+  const gradeOf = s => _healthGrade(s);
   const gd = breakdown(hdevs.filter(d => typeof d.score === 'number'), d => gradeOf(d.score));
   _setWidget('home-w-gradedist-body', gd.length
     ? _miniRows(gd.map(([g, n]) => ({ l: g, r: String(n),

@@ -10,7 +10,7 @@ function _gpuMem(mb) {
 function _gpuCard(g) {
   const vend = String(g.vendor || '').toLowerCase();
   const vlabel = vend === 'nvidia' ? 'NVIDIA' : vend === 'amd' ? 'AMD' : (g.vendor || 'GPU');
-  const tcls = (g.temp_c >= 85) ? 'c-red' : (g.temp_c >= 75) ? 'c-amber' : 'c-green';
+  const tcls = _riskClass(g.temp_c, 85, 75, 'c-green');
   const stat = (l, v, cls) => `<div class="gpu-stat"><span class="gpu-stat-l">${l}</span><b class="${cls || ''}">${v}</b></div>`;
   const bar = (pct, cls) => {
     const p = Math.max(0, Math.min(100, Number(pct) || 0));
