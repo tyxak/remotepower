@@ -22728,23 +22728,34 @@ _SECRET_KEY_RE = re.compile(
     r'refresh_token|private_key|credentials|community|bearer|token)$', re.I)
 
 
+def _walk_config_secrets(obj, on_secret):
+    """Shared traversal for the secret scrub/redact helpers: recurse a config
+    payload (dicts and lists) and call ``on_secret(container_dict, key)`` for
+    every secret-named key (per ``_SECRET_KEY_RE``). Keeping the traversal in one
+    place stops the drop-variant and the mask-variant below from drifting apart
+    (e.g. one gaining a new container type the other misses)."""
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            if isinstance(k, str) and _SECRET_KEY_RE.search(k):
+                on_secret(obj, k)
+            else:
+                _walk_config_secrets(obj[k], on_secret)
+    elif isinstance(obj, list):
+        for item in obj:
+            _walk_config_secrets(item, on_secret)
+
+
 def _scrub_config_secrets(obj, stripped=None):
     """Recursively remove secret-valued keys from a config payload in place.
 
     If `stripped` (a set) is passed, the names of removed keys are collected into
     it — callers use this to audit-log *what* was redacted (see handle_config_get).
     """
-    if isinstance(obj, dict):
-        for k in list(obj.keys()):
-            if isinstance(k, str) and _SECRET_KEY_RE.search(k):
-                obj.pop(k, None)
-                if stripped is not None:
-                    stripped.add(k)
-            else:
-                _scrub_config_secrets(obj[k], stripped)
-    elif isinstance(obj, list):
-        for item in obj:
-            _scrub_config_secrets(item, stripped)
+    def _drop(container, k):
+        container.pop(k, None)
+        if stripped is not None:
+            stripped.add(k)
+    _walk_config_secrets(obj, _drop)
 
 
 def _redact_config_secrets_inplace(obj):
@@ -22752,16 +22763,10 @@ def _redact_config_secrets_inplace(obj):
     '(redacted)' marker instead of dropping the key — used by the backup export
     so a restored backup stays structurally intact and the operator can see at a
     glance which secrets need re-entering. Matches the same secret-name regex."""
-    if isinstance(obj, dict):
-        for k in list(obj.keys()):
-            if isinstance(k, str) and _SECRET_KEY_RE.search(k):
-                if obj[k]:
-                    obj[k] = '(redacted)'
-            else:
-                _redact_config_secrets_inplace(obj[k])
-    elif isinstance(obj, list):
-        for item in obj:
-            _redact_config_secrets_inplace(item)
+    def _mask(container, k):
+        if container[k]:
+            container[k] = '(redacted)'
+    _walk_config_secrets(obj, _mask)
 
 
 # ── v5.8.0 (B3.5): declarative config export ─────────────────────────────────
