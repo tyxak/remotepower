@@ -86,8 +86,12 @@ class TestOfflineHardening(unittest.TestCase):
     def test_per_device_threshold_helper(self):
         self.assertIn('def _offline_thresholds(', self.api,
             '_offline_thresholds helper must exist')
-        self.assertIn('poll * OFFLINE_MISSED_POLLS', self.api,
+        # v6.2.2: the multiplier is now operator-configurable (offline_missed_polls,
+        # default OFFLINE_MISSED_POLLS) — still scales with the poll interval.
+        self.assertIn('poll * _missed', self.api,
             'threshold must scale with the device poll interval')
+        self.assertIn("_config_ro().get('offline_missed_polls', OFFLINE_MISSED_POLLS)", self.api,
+            'the missed-poll multiplier must be config-backed')
 
     def test_debounce_pending_state(self):
         # check_offline_webhooks must arm a candidate before firing OFFLINE

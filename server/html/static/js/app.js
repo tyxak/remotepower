@@ -18647,6 +18647,23 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-grade-good',                'health_grade_good',          90],
   ['ap-grade-fair',                'health_grade_fair',          70],
   ['ap-grade-poor',                'health_grade_poor',          40],
+  // v6.2.2 batch 1: newly operator-configurable alert-firing thresholds.
+  ['ap-inode-warn',                'inode_warn_percent',         85],
+  ['ap-inode-crit',                'inode_crit_percent',         95],
+  ['ap-fd-warn',                   'fd_warn_percent',            80],
+  ['ap-fd-crit',                   'fd_crit_percent',            95],
+  ['ap-conntrack-warn',            'conntrack_warn_percent',     80],
+  ['ap-conntrack-crit',            'conntrack_crit_percent',     95],
+  ['ap-offline-polls',             'offline_missed_polls',       5],
+  ['ap-resolver-fails',            'resolver_failures_before_alert', 2],
+  ['ap-iprep-scans',               'ip_rep_confirm_scans',       2],
+  ['ap-tls-warn-days',             'tls_warn_days',              14],
+  ['ap-tls-crit-days',             'tls_crit_days',              3],
+  ['ap-certfile-days',             'cert_file_expiring_days',    21],
+  ['ap-contract-warn-days',        'contract_warn_days',         30],
+  ['ap-contract-soon-days',        'contract_soon_days',         90],
+  ['ap-os-eol-days',               'os_eol_soon_days',           90],
+  ['ap-av-stale-days',             'av_sig_stale_days',          7],
 ];
 
 async function loadAlertParams() {

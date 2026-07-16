@@ -3344,6 +3344,16 @@
            thresholds that were scattered across other panes, plus new ones. -->
       <div class="settings-pane" id="settings-pane-alertparams">
 
+        <div class="mb-16">
+          <input type="text" id="ap-filter" class="form-input input-wide"
+                 placeholder="Filter parameters… (e.g. disk, tls, temp, health, inode)"
+                 data-input="filterRows" data-input-el="1"
+                 data-filter-target="#settings-pane-alertparams .settings-section"
+                 data-filter-count="ap-filter-count"
+                 aria-label="Filter alert parameters">
+          <span id="ap-filter-count" class="hint"></span>
+        </div>
+
         <div class="settings-section">
           <div class="section-title">Monitors &amp; freshness</div>
           <p class="hint">How many consecutive failures (or how stale) before a monitor pages. Higher values ride out brief blips; lower values page sooner.</p>
@@ -3476,6 +3486,103 @@
             <div class="form-group">
               <label for="ap-grade-poor" class="form-label">Poor ≥ (orange)</label>
               <input type="number" id="ap-grade-poor" class="form-input isl-80" min="1" max="100" placeholder="40">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Capacity limits</div>
+          <p class="hint">Fullness percentages that fire <code>metric_warning</code>/<code>metric_critical</code> for inode, file-descriptor and conntrack-table exhaustion. A per-device threshold override still wins over these fleet defaults.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-inode-warn" class="form-label">Inode warn %</label>
+              <input type="number" id="ap-inode-warn" class="form-input isl-80" min="1" max="100" placeholder="85">
+            </div>
+            <div class="form-group">
+              <label for="ap-inode-crit" class="form-label">Inode crit %</label>
+              <input type="number" id="ap-inode-crit" class="form-input isl-80" min="1" max="100" placeholder="95">
+            </div>
+            <div class="form-group">
+              <label for="ap-fd-warn" class="form-label">File-descriptor warn %</label>
+              <input type="number" id="ap-fd-warn" class="form-input isl-80" min="1" max="100" placeholder="80">
+            </div>
+            <div class="form-group">
+              <label for="ap-fd-crit" class="form-label">File-descriptor crit %</label>
+              <input type="number" id="ap-fd-crit" class="form-input isl-80" min="1" max="100" placeholder="95">
+            </div>
+            <div class="form-group">
+              <label for="ap-conntrack-warn" class="form-label">Conntrack warn %</label>
+              <input type="number" id="ap-conntrack-warn" class="form-input isl-80" min="1" max="100" placeholder="80">
+            </div>
+            <div class="form-group">
+              <label for="ap-conntrack-crit" class="form-label">Conntrack crit %</label>
+              <input type="number" id="ap-conntrack-crit" class="form-input isl-80" min="1" max="100" placeholder="95">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Reachability</div>
+          <p class="hint">Flap-dampening confirm counts before a host, resolver or IP-reputation signal pages. Higher rides out transient blips; lower pages sooner.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-offline-polls" class="form-label">Offline after N missed polls</label>
+              <input type="number" id="ap-offline-polls" class="form-input isl-80" min="1" max="100" placeholder="5">
+            </div>
+            <div class="form-group">
+              <label for="ap-resolver-fails" class="form-label">Resolver down after N fails</label>
+              <input type="number" id="ap-resolver-fails" class="form-input isl-80" min="1" max="100" placeholder="2">
+            </div>
+            <div class="form-group">
+              <label for="ap-iprep-scans" class="form-label">IP-reputation confirm scans</label>
+              <input type="number" id="ap-iprep-scans" class="form-input isl-80" min="1" max="100" placeholder="2">
+            </div>
+          </div>
+          <p class="hint">Missed poll intervals before <code>device_offline</code>; consecutive down scans before <code>resolver_unhealthy</code>; consecutive listed scans before <code>ip_blacklisted</code>.</p>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Certificates</div>
+          <p class="hint">Certificate-expiry windows (days). TLS warn/crit are the fleet defaults for monitored TLS targets that don't set their own; cert-file is the local x509 inventory window.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-tls-warn-days" class="form-label">TLS expiry warn (days)</label>
+              <input type="number" id="ap-tls-warn-days" class="form-input isl-80" min="1" max="3650" placeholder="14">
+            </div>
+            <div class="form-group">
+              <label for="ap-tls-crit-days" class="form-label">TLS expiry crit (days)</label>
+              <input type="number" id="ap-tls-crit-days" class="form-input isl-80" min="1" max="3650" placeholder="3">
+            </div>
+            <div class="form-group">
+              <label for="ap-certfile-days" class="form-label">Cert-file expiring (days)</label>
+              <input type="number" id="ap-certfile-days" class="form-input isl-80" min="1" max="3650" placeholder="21">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Lifecycle</div>
+          <p class="hint">Warn/soon windows (days) for contract expiry, OS end-of-life and AV/Defender signature staleness — the date-based Needs-Attention verdicts.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-contract-warn-days" class="form-label">Contract expiry warn (days)</label>
+              <input type="number" id="ap-contract-warn-days" class="form-input isl-80" min="1" max="3650" placeholder="30">
+            </div>
+            <div class="form-group">
+              <label for="ap-contract-soon-days" class="form-label">Contract expiry soon (days)</label>
+              <input type="number" id="ap-contract-soon-days" class="form-input isl-80" min="1" max="3650" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label for="ap-os-eol-days" class="form-label">OS end-of-life soon (days)</label>
+              <input type="number" id="ap-os-eol-days" class="form-input isl-80" min="1" max="3650" placeholder="90">
+            </div>
+            <div class="form-group">
+              <label for="ap-av-stale-days" class="form-label">AV signature stale (days)</label>
+              <input type="number" id="ap-av-stale-days" class="form-input isl-80" min="1" max="365" placeholder="7">
             </div>
           </div>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>

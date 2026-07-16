@@ -1977,7 +1977,10 @@ def _offline_thresholds(dev, ttl):
     except (TypeError, ValueError):
         poll = DEFAULT_POLL_INTERVAL
     poll = max(1, poll)
-    offline_after = max(ttl, poll * OFFLINE_MISSED_POLLS) + OFFLINE_GRACE_S
+    # v6.2.2: the missed-poll multiplier is operator-configurable (Settings →
+    # Alert parameters → Reachability); OFFLINE_MISSED_POLLS stays the default.
+    _missed = int(_config_ro().get('offline_missed_polls', OFFLINE_MISSED_POLLS))
+    offline_after = max(ttl, poll * _missed) + OFFLINE_GRACE_S
     # v4.3.0: operator-configurable per-device extra grace before a silent host
     # is even a candidate for OFFLINE. Lets a box on a flaky link or a known-
     # slow poller avoid noisy offline alerts without raising the global TTL.
@@ -23373,6 +23376,25 @@ def handle_config_get():
     safe.setdefault('health_grade_good', 90)   # health score ≥ → good (green)
     safe.setdefault('health_grade_fair', 70)   # ≥ → fair (amber)
     safe.setdefault('health_grade_poor', 40)   # ≥ → poor (orange); below → critical (red)
+    # v6.2.2 batch 1: alert-firing thresholds surfaced on Settings → Alert
+    # parameters. Defaults mirror the code constants (see handle_config_save +
+    # the read-sites) so an unconfigured server renders the effective value.
+    safe.setdefault('inode_warn_percent', 85)          # inode fullness → metric_warning
+    safe.setdefault('inode_crit_percent', 95)          # inode fullness → metric_critical
+    safe.setdefault('fd_warn_percent', 80)             # file-descriptor fullness → warning
+    safe.setdefault('fd_crit_percent', 95)             # file-descriptor fullness → critical
+    safe.setdefault('conntrack_warn_percent', 80)      # conntrack fullness → warning
+    safe.setdefault('conntrack_crit_percent', 95)      # conntrack fullness → critical
+    safe.setdefault('offline_missed_polls', OFFLINE_MISSED_POLLS)             # offline after N missed polls
+    safe.setdefault('resolver_failures_before_alert', RESOLVER_HEALTH_CONFIRM)  # resolver_unhealthy confirm
+    safe.setdefault('ip_rep_confirm_scans', IP_REP_CONFIRM)                  # ip_blacklisted confirm
+    safe.setdefault('tls_warn_days', TLS_DEFAULT_WARN_DAYS)                  # TLS expiry warn (days)
+    safe.setdefault('tls_crit_days', TLS_DEFAULT_CRIT_DAYS)                  # TLS expiry crit (days)
+    safe.setdefault('cert_file_expiring_days', 21)     # local cert-file expiring (days)
+    safe.setdefault('contract_warn_days', _CONTRACT_WARN_DAYS)              # contract expiry warn (days)
+    safe.setdefault('contract_soon_days', _CONTRACT_SOON_DAYS)              # contract expiry soon (days)
+    safe.setdefault('os_eol_soon_days', 90)            # OS end-of-life soon (days)
+    safe.setdefault('av_sig_stale_days', 7)            # AV/Defender signature stale (days)
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24462,6 +24484,29 @@ def handle_config_save():
         ('health_grade_good',         1,   100,    True),
         ('health_grade_fair',         1,   100,    True),
         ('health_grade_poor',         1,   100,    True),
+        # v6.2.2 batch 1: previously-hardcoded alert-firing thresholds, now
+        # operator-configurable (Settings → Alert parameters). Defaults mirror
+        # the code constants so an unconfigured server behaves identically.
+        # Capacity limits — inode / file-descriptor / conntrack fullness (%).
+        ('inode_warn_percent',        1,   100,    True),
+        ('inode_crit_percent',        1,   100,    True),
+        ('fd_warn_percent',           1,   100,    True),
+        ('fd_crit_percent',           1,   100,    True),
+        ('conntrack_warn_percent',    1,   100,    True),
+        ('conntrack_crit_percent',    1,   100,    True),
+        # Reachability — offline / resolver / IP-reputation confirm counts.
+        ('offline_missed_polls',      1,   100,    True),
+        ('resolver_failures_before_alert', 1, 100, True),
+        ('ip_rep_confirm_scans',      1,   100,    True),
+        # Certificates — TLS + local cert-file expiry windows (days).
+        ('tls_warn_days',             1,   3650,   True),
+        ('tls_crit_days',             1,   3650,   True),
+        ('cert_file_expiring_days',   1,   3650,   True),
+        # Lifecycle — contract / OS-EOL / AV-signature staleness (days).
+        ('contract_warn_days',        1,   3650,   True),
+        ('contract_soon_days',        1,   3650,   True),
+        ('os_eol_soon_days',          1,   3650,   True),
+        ('av_sig_stale_days',         1,   365,    True),
     ):
         if _tk in body:
             _raw = body[_tk]
@@ -31677,7 +31722,9 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
             _win_bad['wu'] = ('win_update_stopped', 'win_update_running',
                               f'Windows Update service is {_wu}')
         _age = wp.get('defender_sig_age_days')
-        if isinstance(_age, (int, float)) and _age >= 7:
+        # v6.2.2: AV signature-staleness threshold is operator-configurable
+        # (Settings → Alert parameters → Lifecycle); 7 days stays the default.
+        if isinstance(_age, (int, float)) and _age >= int(_config_ro().get('av_sig_stale_days', 7)):
             _win_bad['defender_sig'] = ('win_defender_stale', 'win_defender_current',
                                         f'Defender signatures {int(_age)} days old')
         prev_win = set(prev.get('win_bad') or [])
@@ -33361,6 +33408,9 @@ def _scan_ip_reputation(targets, results, min_recheck=0, max_ips=None,
                    key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
     pending, scanned = [], 0
     start = time.monotonic()
+    # v6.2.2: consecutive-listed confirm count is operator-configurable (Settings →
+    # Alert parameters → Reachability); IP_REP_CONFIRM stays the default.
+    _confirm = int(_config_ro().get('ip_rep_confirm_scans', IP_REP_CONFIRM))
     for tid, t in order:
         if not isinstance(t, dict):
             continue
@@ -33404,7 +33454,7 @@ def _scan_ip_reputation(targets, results, min_recheck=0, max_ips=None,
         res['listed_streak'] = streak
         res['alerted'] = was_alerted
         names = ', '.join(z['name'] for z in res.get('listed_on', [])) or '—'
-        if new_listed > 0 and not was_alerted and streak >= IP_REP_CONFIRM:
+        if new_listed > 0 and not was_alerted and streak >= _confirm:
             res['alerted'] = True
             pending.append(('ip_blacklisted', {
                 'ip': ip, 'label': t.get('label', ''),
@@ -33544,6 +33594,9 @@ def _scan_resolver_health(targets, results, min_recheck=0, max_targets=None,
                    key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
     pending, scanned = [], 0
     start = time.monotonic()
+    # v6.2.2: consecutive-down confirm count is operator-configurable (Settings →
+    # Alert parameters → Reachability); RESOLVER_HEALTH_CONFIRM stays the default.
+    _confirm = int(_config_ro().get('resolver_failures_before_alert', RESOLVER_HEALTH_CONFIRM))
     for tid, t in order:
         if not isinstance(t, dict):
             continue
@@ -33576,7 +33629,7 @@ def _scan_resolver_health(targets, results, min_recheck=0, max_targets=None,
             streak = 0
         res['down_streak'] = streak
         res['alerted'] = was_alerted
-        if down and not was_alerted and streak >= RESOLVER_HEALTH_CONFIRM:
+        if down and not was_alerted and streak >= _confirm:
             res['alerted'] = True
             pending.append(('resolver_unhealthy', {
                 'target': name, 'rtype': rtype, 'label': t.get('label', ''),
@@ -39462,7 +39515,9 @@ def _ingest_hardware(dev_id, dev_name, body, now):
         # that coalescing. Still only the host's OWN service certs, never the CA
         # trust bundle. An operator who explicitly turned it off keeps it off.
         if _config_ro().get('cert_expiry_alerts_enabled', True):
-            soon = now + 21 * 86400
+            # v6.2.2: expiry window is operator-configurable (Settings → Alert
+            # parameters → Certificates); 21 days stays the default.
+            soon = now + int(_config_ro().get('cert_file_expiring_days', 21)) * 86400
             _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
                    '/usr/share/ca-certificates', '/etc/ca-certificates')
             expiring = sorted((c for c in certs
@@ -40652,7 +40707,10 @@ def _device_os_eol(dev, pkg_entry):
         return None
     days = (eol_dt - _dt.date.today()).days
     label = f"{distro.capitalize()} {version}"
-    status = 'eol' if days < 0 else ('soon' if days <= 90 else 'ok')
+    # v6.2.2: EOL "soon" window is operator-configurable (Settings → Alert
+    # parameters → Lifecycle); 90 days stays the default.
+    _eol_soon = int(_config_ro().get('os_eol_soon_days', 90))
+    status = 'eol' if days < 0 else ('soon' if days <= _eol_soon else 'ok')
     return {'distro': distro, 'version': version, 'label': label,
             'eol_date': eol_date, 'days': days, 'status': status}
 
@@ -40676,6 +40734,10 @@ def _device_contract_status(cmdb_rec):
     import datetime as _dt
     out = []
     today = _dt.date.today()
+    # v6.2.2: contract expiry warn/soon windows are operator-configurable
+    # (Settings → Alert parameters → Lifecycle); the constants stay the defaults.
+    _cw = int(_config_ro().get('contract_warn_days', _CONTRACT_WARN_DAYS))
+    _cs = int(_config_ro().get('contract_soon_days', _CONTRACT_SOON_DAYS))
     for field, kind, label in _CONTRACT_FIELDS:
         raw = (cmdb_rec or {}).get(field) or ''
         if not raw:
@@ -40687,9 +40749,9 @@ def _device_contract_status(cmdb_rec):
         days = (d - today).days
         if days < 0:
             status = 'expired'
-        elif days <= _CONTRACT_WARN_DAYS:
+        elif days <= _cw:
             status = 'warn'
-        elif days <= _CONTRACT_SOON_DAYS:
+        elif days <= _cs:
             status = 'soon'
         else:
             continue  # ok — nothing to surface
@@ -41526,6 +41588,9 @@ def _compute_attention():
         _av_store = load(AV_FILE) or {}
     except Exception:
         _av_store = {}
+    # v6.2.2: AV signature-staleness threshold is operator-configurable (Settings
+    # → Alert parameters → Lifecycle); 7 days stays the default.
+    _av_stale = int(_config_ro().get('av_sig_stale_days', 7))
     for dev_id, dev in monitored.items():
         av = _av_store.get(dev_id) or {}
         clam = av.get('clamav') or {}
@@ -41534,7 +41599,7 @@ def _compute_attention():
         if isinstance(clam.get('infected'), int) and clam['infected'] > 0:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
                           'summary': f"ClamAV reported {clam['infected']} infected file(s)"})
-        elif isinstance(clam.get('db_age_days'), int) and clam['db_age_days'] > 7:
+        elif isinstance(clam.get('db_age_days'), int) and clam['db_age_days'] > _av_stale:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'summary': f"ClamAV signature DB is {clam['db_age_days']}d old"})
         if isinstance(rk.get('warnings'), int) and rk['warnings'] > 0:
@@ -41550,7 +41615,7 @@ def _compute_attention():
         if dfd.get('realtime_enabled') is False:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
                           'summary': 'Defender real-time protection is OFF'})
-        elif isinstance(dfd.get('db_age_days'), int) and dfd['db_age_days'] > 7:
+        elif isinstance(dfd.get('db_age_days'), int) and dfd['db_age_days'] > _av_stale:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
                           'summary': f"Defender signatures are {dfd['db_age_days']}d old"})
 
@@ -59308,15 +59373,19 @@ def _resolve_metric_thresholds(dev, kind, target=''):
                 float(overrides.get('cpu_crit_load_ratio', DEFAULT_METRIC_THRESHOLDS['cpu_crit_load_ratio'])))
     # v4.1.0: inode / file-descriptor / conntrack fullness — all percentages,
     # so they reuse the metric_warning/critical pipeline (no new event type).
+    # v6.2.2: per-device metric_thresholds still win; the global fallback is now
+    # operator-configurable (Settings → Alert parameters → Capacity limits),
+    # defaulting to the historical code constants.
+    _gc = _config_ro()
     if kind == 'inode':
-        return (float(overrides.get('inode_warn_percent', 85)),
-                float(overrides.get('inode_crit_percent', 95)))
+        return (float(overrides.get('inode_warn_percent', _gc.get('inode_warn_percent', 85))),
+                float(overrides.get('inode_crit_percent', _gc.get('inode_crit_percent', 95))))
     if kind == 'fd':
-        return (float(overrides.get('fd_warn_percent', 80)),
-                float(overrides.get('fd_crit_percent', 95)))
+        return (float(overrides.get('fd_warn_percent', _gc.get('fd_warn_percent', 80))),
+                float(overrides.get('fd_crit_percent', _gc.get('fd_crit_percent', 95))))
     if kind == 'conntrack':
-        return (float(overrides.get('conntrack_warn_percent', 80)),
-                float(overrides.get('conntrack_crit_percent', 95)))
+        return (float(overrides.get('conntrack_warn_percent', _gc.get('conntrack_warn_percent', 80))),
+                float(overrides.get('conntrack_crit_percent', _gc.get('conntrack_crit_percent', 95))))
     return (None, None)
 
 

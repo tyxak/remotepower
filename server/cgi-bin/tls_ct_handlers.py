@@ -80,8 +80,9 @@ def handle_tls_list() -> None:
         if not isinstance(t, dict):
             continue
         r = results.get(tid) or {}
-        warn = int(t.get('warn_days', A.TLS_DEFAULT_WARN_DAYS))
-        crit = int(t.get('crit_days', A.TLS_DEFAULT_CRIT_DAYS))
+        _gc = A._config_ro()
+        warn = int(t.get('warn_days', _gc.get('tls_warn_days', A.TLS_DEFAULT_WARN_DAYS)))
+        crit = int(t.get('crit_days', _gc.get('tls_crit_days', A.TLS_DEFAULT_CRIT_DAYS)))
         out.append({
             'id':              tid,
             'host':            t.get('host', ''),
@@ -257,8 +258,9 @@ def _tls_expiry_crossings(target, prev, cur):
     cert that sits at 10 days doesn't re-alert on every sweep. Mirrors the logic
     the ``remotepower-tls-check`` cron runner has always used, but honours the
     per-target ``warn_days``/``crit_days`` instead of that script's fixed 30/7."""
-    warn = int(target.get('warn_days', A.TLS_DEFAULT_WARN_DAYS))
-    crit = int(target.get('crit_days', A.TLS_DEFAULT_CRIT_DAYS))
+    _gc = A._config_ro()
+    warn = int(target.get('warn_days', _gc.get('tls_warn_days', A.TLS_DEFAULT_WARN_DAYS)))
+    crit = int(target.get('crit_days', _gc.get('tls_crit_days', A.TLS_DEFAULT_CRIT_DAYS)))
     days      = tls_monitor.days_until_expiry(cur)
     prev_days = tls_monitor.days_until_expiry(prev) if prev else 9999
     host = target.get('host', '?')
