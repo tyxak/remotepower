@@ -18736,7 +18736,24 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-unstable-window-days',      'unstable_host_window_days',  7],
   ['ap-rel-reboot-churn',          'reliability_reboot_churn_min', 3],
   ['ap-rel-wear-high',             'reliability_wear_high_pct',  85],
+  // v6.2.2 batch 6: FLOAT thresholds (Forecast & CVE tuning). These MUST NOT be
+  // parseInt'd on save — 0.5 would truncate to 0; see _ALERT_PARAM_FLOAT_KEYS +
+  // the float branch in saveAlertParams.
+  ['ap-forecast-min-r2',           'forecast_min_r2',            0.5],
+  ['ap-rel-realloc-growth',        'reliability_realloc_growth_per_day', 0.05],
+  ['ap-rel-health-decline',        'reliability_health_decline_per_day', 0.5],
+  ['ap-cvss-crit',                 'cvss_band_critical',         9.0],
+  ['ap-cvss-high',                 'cvss_band_high',             7.0],
+  ['ap-cvss-med',                  'cvss_band_medium',           4.0],
 ];
+
+// v6.2.2 batch 6: config keys whose alert-param input holds a FLOAT — saveAlertParams
+// must parseFloat (not parseInt) these or a fractional tuning (0.5, 0.05) truncates to 0.
+const _ALERT_PARAM_FLOAT_KEYS = new Set([
+  'forecast_min_r2', 'reliability_realloc_growth_per_day',
+  'reliability_health_decline_per_day', 'cvss_band_critical',
+  'cvss_band_high', 'cvss_band_medium',
+]);
 
 // v6.2.2 batch 4: per-factor SCORE weights (health / risk / reliability), each an
 // operator-tunable config key. Generated from the factor→default maps (mirrors the
@@ -18779,7 +18796,10 @@ async function saveAlertParams(btn) {
   const payload = {};
   for (const [id, key, dflt] of _ALERT_PARAM_FIELDS) {
     const el = document.getElementById(id);
-    const n = parseInt(el?.value, 10);
+    // Float keys parseFloat (0.5 must not truncate to 0); everything else parseInt.
+    const n = _ALERT_PARAM_FLOAT_KEYS.has(key)
+      ? parseFloat(el?.value)
+      : parseInt(el?.value, 10);
     payload[key] = Number.isNaN(n) ? dflt : n;
   }
   const r = await api('POST', '/config', payload);

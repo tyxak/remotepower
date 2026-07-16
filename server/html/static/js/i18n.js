@@ -40,6 +40,7 @@
     'Compliance & CIS':      { fr: 'Conformité et CIS', de: 'Compliance & CIS', zh: '合规与 CIS', hi: 'अनुपालन और CIS', es: 'Cumplimiento y CIS', ar: 'الامتثال و CIS' },
     'RemotePower self-health': { fr: 'Auto-santé de RemotePower', de: 'RemotePower-Selbstzustand', zh: 'RemotePower 自身健康', hi: 'RemotePower स्व-स्वास्थ्य', es: 'Autosalud de RemotePower', ar: 'الصحة الذاتية لـ RemotePower' },
     'Reliability tuning':    { fr: 'Réglage de fiabilité', de: 'Zuverlässigkeits-Feinabstimmung', zh: '可靠性调优', hi: 'विश्वसनीयता ट्यूनिंग', es: 'Ajuste de fiabilidad', ar: 'ضبط الموثوقية' },
+    'Forecast & CVE tuning': { fr: 'Réglage des prévisions et CVE', de: 'Prognose- & CVE-Feinabstimmung', zh: '预测与 CVE 调优', hi: 'पूर्वानुमान और CVE ट्यूनिंग', es: 'Ajuste de previsión y CVE', ar: 'ضبط التنبؤ و CVE' },
     'Health score weights':  { fr: 'Pondérations du score de santé', de: 'Gewichtungen des Zustandswerts', zh: '健康评分权重', hi: 'स्वास्थ्य स्कोर भार', es: 'Ponderaciones de puntuación de salud', ar: 'أوزان نقاط الصحة' },
     'Risk score weights':    { fr: 'Pondérations du score de risque', de: 'Gewichtungen des Risikowerts', zh: '风险评分权重', hi: 'जोखिम स्कोर भार', es: 'Ponderaciones de puntuación de riesgo', ar: 'أوزان نقاط المخاطر' },
     'Reliability score weights': { fr: 'Pondérations du score de fiabilité', de: 'Gewichtungen des Zuverlässigkeitswerts', zh: '可靠性评分权重', hi: 'विश्वसनीयता स्कोर भार', es: 'Ponderaciones de puntuación de fiabilidad', ar: 'أوزان نقاط الموثوقية' },

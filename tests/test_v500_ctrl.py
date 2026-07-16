@@ -904,7 +904,7 @@ class TestOsvPrefetch(unittest.TestCase):
 
     def test_worker_uses_prefetch_for_fleet(self):
         i = API_SRC.index("def _cve_scan_worker(")
-        block = API_SRC[i:i + 2000]
+        block = API_SRC[i:i + 3000]
         self.assertIn("cve_scanner.prefetch_osv(", block)
         self.assertIn("osv_prefetch=osv_prefetch", block)
         # single-device scans don't prefetch (guarded by `not target and total>1`)

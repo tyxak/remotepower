@@ -23485,6 +23485,15 @@ def handle_config_get():
     safe.setdefault('unstable_host_window_days', 7)     # unstable-host detection window
     safe.setdefault('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)  # returns in window → reboot-churn factor
     safe.setdefault('reliability_wear_high_pct', _WEAR_HIGH_PCT)        # SSD wear → high-wear reliability factor
+    # v6.2.2 batch 6: FLOAT thresholds (Settings → Forecast & CVE tuning). Defaults
+    # mirror the code constants so an unconfigured server behaves identically; kept
+    # as real floats so the GET body round-trips fractional values (never truncated).
+    safe.setdefault('forecast_min_r2', float(forecast._MIN_R2))                 # R² floor for a disk-fill projection
+    safe.setdefault('reliability_realloc_growth_per_day', float(_REALLOC_GROWTH_PER_DAY))  # realloc-sector growth/day → factor
+    safe.setdefault('reliability_health_decline_per_day', float(_HEALTH_DECLINE_PER_DAY))  # health-score decline/day → factor
+    safe.setdefault('cvss_band_critical', float(cve_scanner._CVSS_BAND_DEFAULT_CRITICAL))  # CVSS ≥ → critical
+    safe.setdefault('cvss_band_high', float(cve_scanner._CVSS_BAND_DEFAULT_HIGH))          # CVSS ≥ → high
+    safe.setdefault('cvss_band_medium', float(cve_scanner._CVSS_BAND_DEFAULT_MEDIUM))      # CVSS ≥ → medium
     # v6.1.1 (#53): opt-in cross-device alert-storm -> incident auto-promotion.
     safe.setdefault('incident_auto_promote_enabled', False)
     safe.setdefault('incident_device_threshold', 5)
@@ -24665,6 +24674,31 @@ def handle_config_save():
             if _iv < _lo or _iv > _hi:
                 respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
             cfg[_tk] = _iv
+
+    # v6.2.2 batch 6: FLOAT thresholds. The int loop above coerces with int(),
+    # which would truncate 0.5→0 — these need a SEPARATE float() path. Blank/None
+    # clears the override (falls back to the code default); the stored value is a
+    # real float so the save/load round-trip never truncates a fractional tuning.
+    for _tk, _lo, _hi in (
+        ('forecast_min_r2',                     0.0, 1.0),
+        ('reliability_realloc_growth_per_day',  0.0, 1000.0),
+        ('reliability_health_decline_per_day',  0.0, 1000.0),
+        ('cvss_band_critical',                  0.0, 10.0),
+        ('cvss_band_high',                      0.0, 10.0),
+        ('cvss_band_medium',                    0.0, 10.0),
+    ):
+        if _tk in body:
+            _raw = body[_tk]
+            if _raw is None or _raw == '':
+                cfg.pop(_tk, None)
+                continue
+            try:
+                _fv = float(_raw)
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{_tk} must be a number'})
+            if _fv < _lo or _fv > _hi:
+                respond(400, {'error': f'{_tk} must be {_lo}..{_hi}'})
+            cfg[_tk] = _fv
 
     # v3.14.0 (#48): agentless SSH. Opt-in (default off); the private key is a
     # write-only secret (preserved when omitted, never returned by GET).
@@ -38134,6 +38168,19 @@ def run_netscan_schedules_if_due():
             sys.stderr.write(f'[remotepower] netscan schedule {s.get("id")} fire error: {_e}\n')
 
 
+def _forecast_min_r2():
+    """v6.2.2 batch 6: operator-configurable R² floor for a disk-fill projection.
+    forecast.py has no api import, so read the config here and pass it in; blank/
+    missing → the module default (forecast._MIN_R2). Float (never truncated)."""
+    v = _config_ro().get('forecast_min_r2', forecast._MIN_R2)
+    if v is None or v == '':
+        return forecast._MIN_R2
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return forecast._MIN_R2
+
+
 def handle_device_forecast(dev_id):
     """GET /api/devices/<id>/forecast — disk-fill projection per mount."""
     require_auth()
@@ -38144,7 +38191,7 @@ def handle_device_forecast(dev_id):
     rec = (load(METRICS_HIST_FILE) or {}).get(dev_id, {})
     samples = rec.get('samples', [])
     respond(200, {
-        'mounts':      forecast.forecast_mounts(samples),
+        'mounts':      forecast.forecast_mounts(samples, min_r2=_forecast_min_r2()),
         'sample_days': len(samples),
     })
 
@@ -38159,6 +38206,7 @@ def handle_forecast():
         respond(405, {'error': 'Method not allowed'})
     devices = load(DEVICES_FILE) or {}
     mh_all = load(METRICS_HIST_FILE) or {}
+    _min_r2 = _forecast_min_r2()
     rows = []
     dev_count = 0
     for dev_id, rec in mh_all.items():
@@ -38166,7 +38214,7 @@ def handle_forecast():
         if not dev:
             continue
         samples = (rec or {}).get('samples') or []
-        mounts = forecast.forecast_mounts(samples)
+        mounts = forecast.forecast_mounts(samples, min_r2=_min_r2)
         if mounts:
             dev_count += 1
         name = dev.get('name', dev_id)
@@ -42173,9 +42221,10 @@ def _compute_attention():
 
     try:
         mh_all = load(METRICS_HIST_FILE) or {}
+        _min_r2 = _forecast_min_r2()
         for dev_id, dev in monitored.items():
             samples = (mh_all.get(dev_id) or {}).get('samples') or []
-            for m in forecast.forecast_mounts(samples):
+            for m in forecast.forecast_mounts(samples, min_r2=_min_r2):
                 d2f = m.get('days_to_full')
                 if d2f is None:
                     continue
@@ -42804,8 +42853,21 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             return int(_rc.get(key, dflt) or dflt)
         except (TypeError, ValueError):
             return dflt
+    def _rel_float(key, dflt):
+        # NB: don't use `x or dflt` — 0.0 is a legal tuning (fire on any positive
+        # slope / decline) and must not collapse to the default.
+        v = _rc.get(key, dflt)
+        if v is None or v == '':
+            return dflt
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return dflt
     _wear_high = _rel_int('reliability_wear_high_pct', _WEAR_HIGH_PCT)
     _reboot_churn_min = _rel_int('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)
+    # v6.2.2 batch 6: operator-configurable float reliability tuning scalars.
+    _realloc_growth = _rel_float('reliability_realloc_growth_per_day', _REALLOC_GROWTH_PER_DAY)
+    _health_decline = _rel_float('reliability_health_decline_per_day', _HEALTH_DECLINE_PER_DAY)
     factors = []
 
     def _add(kind, points, detail):
@@ -42847,7 +42909,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
         # went 0 → 4 this month is on its way out.
         samples = ((smart_hist or {}).get(_disk_key(d)) or {}).get('samples') or []
         slope, latest = _smart_trend(samples, 'realloc')
-        if slope > _REALLOC_GROWTH_PER_DAY and (latest or 0) > 0:
+        if slope > _realloc_growth and (latest or 0) > 0:
             _add('realloc_growing', w['realloc_growing'],
                  f'{disk}: reallocated sectors growing (~{slope:.2f}/day, now {int(latest)})')
 
@@ -42892,7 +42954,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
             slope, _ = forecast.linear_fit(xs, ys)
         except Exception:
             slope = 0.0
-        if slope < -_HEALTH_DECLINE_PER_DAY:
+        if slope < -_health_decline:
             _add('health_declining', w['health_declining'],
                  f'health score trending down (~{abs(slope):.1f} points/day)')
 
@@ -57621,6 +57683,23 @@ def _spawn_cve_scan(actor, target):
 def _cve_scan_worker(actor, target):
     """The fleet-wide CVE scan body — runs in the detached worker. Writes
     progress to CVE_SCAN_STATUS_FILE and the findings to CVE_FINDINGS_FILE."""
+    # v6.2.2 batch 6: operator-configurable CVSS→severity band cutoffs. cve_scanner
+    # has no api import (it also runs in cve_scan_runner's own process), so push the
+    # persisted floats into it once before the scan; blank/missing → the standard
+    # defaults baked into cve_scanner.set_cvss_bands.
+    _cfg = _config_ro()
+    def _band(key, dflt):
+        v = _cfg.get(key, dflt)
+        if v is None or v == '':
+            return dflt
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return dflt
+    cve_scanner.set_cvss_bands(
+        _band('cvss_band_critical', cve_scanner._CVSS_BAND_DEFAULT_CRITICAL),
+        _band('cvss_band_high', cve_scanner._CVSS_BAND_DEFAULT_HIGH),
+        _band('cvss_band_medium', cve_scanner._CVSS_BAND_DEFAULT_MEDIUM))
     store = load(PACKAGES_FILE) or {}
     findings_all = load(CVE_FINDINGS_FILE) or {}
     devices = load(DEVICES_FILE) or {}

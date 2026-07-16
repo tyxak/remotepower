@@ -4012,6 +4012,40 @@
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
+        <div class="settings-section">
+          <div class="section-title" data-i18n="Forecast &amp; CVE tuning">Forecast &amp; CVE tuning</div>
+          <p class="hint">Float thresholds: the R² floor below which a disk-fill date is not projected, the disk/health reliability trend cutoffs, and the CVSS base-score bands that classify a CVE as critical / high / medium. Blank uses the built-in default.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-forecast-min-r2" class="form-label">Disk-fill R² floor</label>
+              <input type="number" id="ap-forecast-min-r2" class="form-input isl-80" min="0" max="1" step="0.1" placeholder="0.5">
+            </div>
+            <div class="form-group">
+              <label for="ap-rel-realloc-growth" class="form-label">Realloc growth/day</label>
+              <input type="number" id="ap-rel-realloc-growth" class="form-input isl-80" min="0" max="1000" step="0.01" placeholder="0.05">
+            </div>
+            <div class="form-group">
+              <label for="ap-rel-health-decline" class="form-label">Health decline/day</label>
+              <input type="number" id="ap-rel-health-decline" class="form-input isl-80" min="0" max="1000" step="0.1" placeholder="0.5">
+            </div>
+          </div>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="ap-cvss-crit" class="form-label">CVSS ≥ critical</label>
+              <input type="number" id="ap-cvss-crit" class="form-input isl-80" min="0" max="10" step="0.1" placeholder="9.0">
+            </div>
+            <div class="form-group">
+              <label for="ap-cvss-high" class="form-label">CVSS ≥ high</label>
+              <input type="number" id="ap-cvss-high" class="form-input isl-80" min="0" max="10" step="0.1" placeholder="7.0">
+            </div>
+            <div class="form-group">
+              <label for="ap-cvss-med" class="form-label">CVSS ≥ medium</label>
+              <input type="number" id="ap-cvss-med" class="form-input isl-80" min="0" max="10" step="0.1" placeholder="4.0">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
+        </div>
+
       </div>
 
       <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->

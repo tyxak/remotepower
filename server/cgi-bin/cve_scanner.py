@@ -378,6 +378,34 @@ def _debian_severity_fallback(cve_id: str) -> str | None:
 
 # ── Severity extraction (prioritizes Ubuntu priority) ────────────────────────
 
+# CVSS base-score → severity-band cutoffs. Operator-configurable (Settings →
+# Forecast & CVE tuning). This module has no `api` import (it runs in the detached
+# cve_scan_runner process too), so the api-side scan worker calls set_cvss_bands()
+# with the persisted config values before a scan; defaults reproduce the standard
+# CVSS 3.1 mapping so an unconfigured server classifies identically.
+# The _DEFAULT_* constants are IMMUTABLE (the "reset" target + what api-side code
+# reports as the default); the bare names are the LIVE mutable values that
+# set_cvss_bands rewrites and _severity_from_vuln reads — never treat those as the
+# default in a persistent worker (a prior scan may have moved them).
+_CVSS_BAND_DEFAULT_CRITICAL = 9.0
+_CVSS_BAND_DEFAULT_HIGH     = 7.0
+_CVSS_BAND_DEFAULT_MEDIUM   = 4.0
+_CVSS_BAND_CRITICAL = _CVSS_BAND_DEFAULT_CRITICAL
+_CVSS_BAND_HIGH     = _CVSS_BAND_DEFAULT_HIGH
+_CVSS_BAND_MEDIUM   = _CVSS_BAND_DEFAULT_MEDIUM
+
+
+def set_cvss_bands(critical=_CVSS_BAND_DEFAULT_CRITICAL,
+                   high=_CVSS_BAND_DEFAULT_HIGH,
+                   medium=_CVSS_BAND_DEFAULT_MEDIUM):
+    """Override the CVSS→severity band cutoffs (called once per scan from the
+    api-side worker with the operator's config). Floats; no persistence."""
+    global _CVSS_BAND_CRITICAL, _CVSS_BAND_HIGH, _CVSS_BAND_MEDIUM
+    _CVSS_BAND_CRITICAL = float(critical)
+    _CVSS_BAND_HIGH     = float(high)
+    _CVSS_BAND_MEDIUM   = float(medium)
+
+
 def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
     """Extract (severity, source) for a vuln.
 
@@ -426,9 +454,9 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
         if score is not None:
             vtype = (sev.get('type') or '').upper()
             src = 'cvss_v2' if vtype.startswith('CVSS_V2') else 'cvss_v3'
-            if score >= 9.0:   return 'critical', src
-            if score >= 7.0:   return 'high', src
-            if score >= 4.0:   return 'medium', src
+            if score >= _CVSS_BAND_CRITICAL:   return 'critical', src
+            if score >= _CVSS_BAND_HIGH:       return 'high', src
+            if score >= _CVSS_BAND_MEDIUM:     return 'medium', src
             if score > 0:      return 'low', src
             return 'low', src
 
