@@ -2182,6 +2182,14 @@
 
         <!-- ── Security ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-security">
+          <div class="settings-filter-row">
+            <input type="text" id="sec-filter" class="form-input input-wide" placeholder="Filter security settings…"
+                   aria-label="Filter security settings"
+                   data-input="filterRows" data-input-el="1"
+                   data-filter-target="#settings-pane-security > .settings-section"
+                   data-filter-count="sec-filter-count">
+            <span id="sec-filter-count" class="hint"></span>
+          </div>
           <div class="settings-section">
             <div class="section-title">CVE details cache</div>
             <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
@@ -2728,7 +2736,9 @@
             <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
             <div id="tkimap-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
-            <div class="section-title mt-16">Ticket auto-reply</div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Ticket auto-reply</div>
             <div class="meta-sm-nm mt-4">Send a one-time acknowledgement ("Thank you for contacting support…") when a NEW ticket is auto-created from an inbound email. Loop-safe: stamped <code>Auto-Submitted</code>, sent once per ticket, and never to no-reply / mailer-daemon / bounce senders. Requires SMTP (Notifications).</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkar-enabled"> Auto-reply to new email tickets</label></div>
             <div class="settings-row"><label class="form-label" for="tkar-subject">Subject (the <code>#RP&lt;number&gt;</code> is prefixed automatically)</label><input type="text" id="tkar-subject" class="form-input" placeholder="Re: your support request" maxlength="200"></div>
@@ -2736,11 +2746,15 @@
             <div class="row-6"><button class="btn-primary" data-action="saveTicketAutoreply">Save auto-reply</button></div>
             <div id="tkar-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
-            <div class="section-title mt-16">Satisfaction survey (CSAT)</div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Satisfaction survey (CSAT)</div>
             <div class="meta-sm-nm mt-4">When a ticket is resolved, email the contact a one-click <strong>Good / Okay / Bad</strong> rating link (no login — the link is signed and single-use). Ratings show on the ticket and as a rolling average. Requires SMTP + a contact email on the ticket.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ticket-csat" data-change="saveTicketCsat"> Send a satisfaction survey on resolve</label></div>
 
-            <div class="section-title mt-16">Business hours (SLA calendar)</div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Business hours (SLA calendar)</div>
             <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). One open window per weekday; blank = closed.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="bh-enabled"> Enable business-hours SLA</label></div>
             <div class="settings-row"><label class="form-label" for="bh-tz">UTC offset (minutes, e.g. 60 = UTC+1, -300 = UTC-5)</label><input type="number" id="bh-tz" class="form-input" min="-720" max="840" value="0"></div>
@@ -2749,7 +2763,9 @@
             <div class="row-6"><button class="btn-primary" data-action="saveBusinessHours">Save business hours</button></div>
             <div id="bh-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
-            <div class="section-title mt-16">Ticket SLA targets</div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Ticket SLA targets</div>
             <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
             <div class="form-row mt-8">
               <div class="form-group"><label class="form-label" for="tksla-1">P1 Major (hours)</label><input type="number" id="tksla-1" class="form-input" min="0.1" step="0.5" value="1"></div>
@@ -2759,7 +2775,9 @@
             </div>
             <div class="row-6 mt-8"><button class="btn-primary" data-action="saveTicketSla">Save SLA targets</button></div>
 
-            <div class="section-title mt-16">Canned replies</div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Canned replies</div>
             <div class="meta-sm-nm mt-4">Reusable reply snippets for the ticket composer. Placeholders fill in when inserted: <code>{ticket_id}</code> (the #RP number), <code>{customer}</code> (the contact address), <code>{assignee}</code>.</div>
             <div id="tk-tpl-list" class="scroll-cap-sm mt-8"></div>
             <div class="settings-row"><label class="form-label" for="tk-tpl-name">Name</label><input type="text" id="tk-tpl-name" class="form-input" maxlength="80" placeholder="Resolved — please confirm"></div>
@@ -2767,7 +2785,9 @@
             <div class="row-6"><button class="btn-primary" data-action="saveTicketTemplate">Save canned reply</button></div>
             <div id="tk-tpl-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
-            <div class="section-title mt-16">Recurring tickets</div>
+          </div>
+          <div class="settings-section">
+            <div class="section-title">Recurring tickets</div>
             <div class="meta-sm-nm mt-4">Open a ticket automatically on a schedule — for recurring chores (quarterly restore drill, monthly cert review). Uses a 5-field cron (<code>min hour day month weekday</code>, server-local time).</div>
             <div id="tk-sched-list" class="scroll-cap mt-8"></div>
             <div class="settings-row"><label class="form-label" for="tk-sched-subject">Subject</label><input type="text" id="tk-sched-subject" class="form-input" maxlength="200" placeholder="Quarterly restore drill"></div>
@@ -3019,8 +3039,12 @@
 
             <label class="click-row-mb6"><input type="checkbox" id="ai-rag-enabled" checked> Enable the knowledge index</label>
 
-            <div class="form-group isl-773">
+            <div class="form-group isl-773" id="ai-rag-sources">
               <label for="ai-rag-src-docs" class="form-label">Sources to index</label>
+              <input type="text" id="ai-rag-src-filter" class="form-input mb-8" placeholder="Filter sources…"
+                     aria-label="Filter RAG sources"
+                     data-input="filterRows" data-input-el="1"
+                     data-filter-target="#ai-rag-sources .click-row-mb6">
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-docs" checked> Product docs &amp; per-device runbooks</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-live" checked> Live state (devices, services, CVEs, containers, SNMP)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-cmdb" checked> CMDB metadata &amp; asset docs (no credentials)</label>
