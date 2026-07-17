@@ -46536,6 +46536,19 @@ def handle_longpoll_exec():
     ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
     if not ok: respond(403, {'error': reason})
 
+    # v6.2.3: honour maker-checker change approval exactly as handle_custom_cmd
+    # does — otherwise the run-and-wait path would be a bypass of the approval
+    # gate the immediate-exec path enforces. When approval is on, park a
+    # confirmation and return; there is nothing to wait for (a different admin
+    # must approve, after which it runs via the normal queue → command history).
+    if _config_ro().get('change_approval_enabled'):
+        cid = _create_confirmation('exec_command', dev_id, {'command': f'exec:{cmd_str}'},
+                                   actor, None, None)
+        audit_log(actor, 'change_approval_requested', f'exec(wait) on device={dev_id}')
+        respond(202, {'ok': False, 'approval_required': True,
+                      'confirmation_ids': [cid],
+                      'message': 'Change queued for approval by another admin.'})
+
     lp = load(LONGPOLL_FILE)
     lp[dev_id] = {'cmd': cmd_str, 'ready': False, 'output': None, 'ts': int(time.time())}
     save(LONGPOLL_FILE, lp)

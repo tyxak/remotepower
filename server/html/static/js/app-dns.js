@@ -867,7 +867,7 @@ function _acmeRenderDetail(r) {
         <div class="meta-sm-nm">${new Date(e.ts * 1000).toLocaleString()}</div>
         ${e.logId ? `<button class="btn-icon isl-684" data-action="acmeLoadLog" data-arg="${escAttr(e.logId)}" >View log</button>` : ''}
       </div>
-    </div>`).join('') : '<div class="empty-p20">No timeline events yet.</div>';
+    </div>`).join('') : '<div class="empty-p20">No timeline events yet. Queue an issue or renewal to see activity here.</div>';
   document.getElementById('acme-detail-timeline').innerHTML = timeline;
 
   // ─── Logs tab ─ list of recent log captures ───────────────────────────
@@ -1024,6 +1024,7 @@ async function acmeIssueSubmit() {
   const dns = document.getElementById('acme-issue-dns').value;
   const keylen = document.getElementById('acme-issue-keylen').value;
   const alts = altRaw.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) { toast('Enter a valid domain name', 'warning'); return; }
   if (wildcard) alts.push(`*.${domain}`);
   const body = {
     domain, alt_names: alts, dns_provider: dns, key_length: keylen,

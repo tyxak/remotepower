@@ -374,6 +374,7 @@
     'AI prioritise': { fr: 'Priorisation IA', de: 'KI-Priorisierung', zh: 'AI 优先级排序', hi: 'AI प्राथमिकता', es: 'Priorizar con IA', ar: 'ترتيب أولويات الذكاء الاصطناعي' },
     'Search':      { fr: 'Rechercher', de: 'Suchen', zh: '搜索', hi: 'खोजें', es: 'Buscar', ar: 'بحث' },
     'Delete':      { fr: 'Supprimer', de: 'Löschen', zh: '删除', hi: 'हटाएँ', es: 'Eliminar', ar: 'حذف' },
+    'Prune':       { fr: 'Nettoyer', de: 'Bereinigen', zh: '清理', hi: 'साफ़ करें', es: 'Purgar', ar: 'تنظيف' },
     'Close':       { fr: 'Fermer', de: 'Schließen', zh: '关闭', hi: 'बंद करें', es: 'Cerrar', ar: 'إغلاق' },
     // ── section titles (.section-title) — coverage gate: test_v430_i18n_gate ──
     'Security posture':            { fr: 'Posture de sécurité', de: 'Sicherheitsstatus', zh: '安全态势', hi: 'सुरक्षा स्थिति', es: 'Estado de seguridad', ar: 'وضع الأمان' },

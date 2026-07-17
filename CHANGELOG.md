@@ -109,6 +109,24 @@ code, and de-duplicated docs.
   CVE "Scan all devices" button restored a text-only label after running,
   wiping their inline SVG; they now preserve it (same fix as the backup-now
   button).
+- **"Run command" can wait for the output.** The exec modal gains a "Run and
+  wait for the output" option that shows the command's real result inline
+  (with its exit code) instead of it vanishing into command history — and the
+  Run button now disables while in flight so it can't be double-queued. The
+  wait path honours change-approval exactly as the immediate path does (a
+  gated command is parked for a second admin, not run).
+- **The credential vault no longer uses native pop-ups.** Its 34 blocking
+  browser `alert()` dialogs (including one that showed a plaintext password)
+  became in-app toasts, and credential reveal now uses a proper dismissable
+  modal with copy buttons.
+- **Fewer double-submits and silent 400s.** Cloud import and terraform
+  Plan/Apply/Destroy disable their buttons while running (no accidental
+  concurrent runs); and monitor targets/ports, IPAM CIDRs, contact emails,
+  ACME domains and backup-job cron strings are format-checked in the browser
+  with a clear message instead of a bare server rejection.
+- **Empty panels tell you what to do.** "No tunnels/contacts/quotes/campaigns
+  yet" and similar now include the next step (which button creates the first
+  one) rather than a dead end.
 - **Docker cleanup is a proper picker with real feedback.** The Containers
   "Prune…" button now opens a checkbox modal — stopped containers, unused
   images, build cache, unused networks, unused volumes — each showing what it

@@ -264,7 +264,7 @@ async function renderTicketHours(tid) {
     return `<div class="row-6 tk-hours-row"><span class="fw-600">${_bHours(e.hours)}h</span> ${b}
       <span class="meta-sm-nm">${escHtml(e.user || '')} · ${escHtml(e.date || '')}${e.note ? ' · ' + escHtml(e.note) : ''}</span>${lock}
       <span class="ml-auto">${actions}</span></div>`;
-  }).join('') : '<div class="meta-sm-nm">No hours logged yet.</div>';
+  }).join('') : '<div class="meta-sm-nm">No hours logged yet — use "Log hours" on the ticket.</div>';
   box.innerHTML = `<div class="row-6 mb-6"><span class="fw-600">Total ${_bHours(r.total_hours)}h</span>
     <span class="meta-sm-nm">(${_bHours(r.billable_hours)}h billable)</span></div>
     <div class="scroll-cap">${list}</div>`;
@@ -407,7 +407,7 @@ function _twRenderList() {
   const list = document.getElementById('tw-list');
   if (!list || !_twData) return;
   const g = _twData.grants;
-  if (!g.length) { list.innerHTML = '<div class="meta-sm-nm">No watch grants yet.</div>'; return; }
+  if (!g.length) { list.innerHTML = '<div class="meta-sm-nm">No watch grants yet — use "Add watcher" above to grant one.</div>'; return; }
   list.innerHTML = g.map(x => `<div class="row-6 ts-entry">
     <span class="fw-600">${escHtml(x.watcher)}</span>
     <span class="meta-sm-nm">watches</span>
@@ -528,7 +528,7 @@ async function _billingQuotes() {
       <td class="num">${_bMoney(q.total, q.currency)}</td>
       <td>${badge(q.status)} ${inv}</td>
       <td><div class="row-6">${lifecycle}${convert}</div></td></tr>`;
-  }).join('') : '<tr><td colspan="6" class="empty-state-sm">No quotes yet.</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="empty-state-sm">No quotes yet — click "New quote" to create one.</td></tr>';
 
   const newBtn = _bIsAdmin()
     ? '<button class="btn-primary" data-action="quoteNew">New quote</button>' : '';

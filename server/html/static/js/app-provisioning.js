@@ -231,8 +231,17 @@ async function runBlueprintOp(op) {
   const vars = {};
   document.querySelectorAll('#blueprint-run-vars .bp-run-input').forEach(inp => { vars[inp.dataset.var] = inp.value; });
   const outEl = document.getElementById('blueprint-run-out');
+  // Disable every run button while terraform is executing — a second click
+  // would launch a concurrent plan/apply/destroy against the same state.
+  const runBtns = document.querySelectorAll('#blueprint-run-modal [data-action="runBlueprintOp"], [data-action="runBlueprintOp"]');
+  runBtns.forEach(b => { b.disabled = true; });
   outEl.value = `Running terraform ${op}…`;
-  const r = await api('POST', '/provisioning/blueprints/' + encodeURIComponent(_bpRunState.id) + '/run', { op, vars });
+  let r;
+  try {
+    r = await api('POST', '/provisioning/blueprints/' + encodeURIComponent(_bpRunState.id) + '/run', { op, vars });
+  } finally {
+    runBtns.forEach(b => { b.disabled = false; });
+  }
   if (!r) { outEl.value = 'Request failed.'; return; }
   if (r.error) { outEl.value = r.error; toast(r.error, 'error'); return; }
   outEl.value = r.output || '(no output)';

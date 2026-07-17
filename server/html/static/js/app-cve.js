@@ -117,7 +117,7 @@ async function loadCveCampaigns() {
   const r = await api('GET', '/cve/campaigns');
   if (!r || !r.ok) return;
   const camps = r.campaigns || [];
-  if (!camps.length) { box.innerHTML = '<div class="meta-sm-nm">No campaigns yet.</div>'; return; }
+  if (!camps.length) { box.innerHTML = '<div class="meta-sm-nm">No campaigns yet. Fill in the form below and click "Create campaign".</div>'; return; }
   box.innerHTML = camps.map(c => {
     const scope = (c.cve_ids && c.cve_ids.length) ? `${c.cve_ids.length} CVEs`
       : [(c.severities || []).join('/'), c.kev_only ? 'KEV' : ''].filter(Boolean).join(' · ') || 'all';

@@ -470,7 +470,7 @@ async function loadContacts() {
   const data = await api('GET', '/contacts' + (q ? '?q=' + encodeURIComponent(q) : ''));
   if (!data) { tb.innerHTML = '<tr><td colspan="6" class="empty-state-sm">Failed to load.</td></tr>'; return; }
   const cs = data.contacts || [];
-  if (!cs.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No contacts yet.</td></tr>'; return; }
+  if (!cs.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No contacts yet. Click "Add contact" to create the first one.</td></tr>'; return; }
   const sorted = tableCtl.sortRows('contacts', cs, c => ({
     name: (c.name || '').toLowerCase(), role: (c.role || '').toLowerCase(),
     company: (c.company || '').toLowerCase(), email: (c.email || '').toLowerCase(),
@@ -519,7 +519,9 @@ async function saveContact() {
   const v = id => document.getElementById(id)?.value.trim() || '';
   const name = v('ct-name');
   if (!name) { toast('Name required', 'warning'); return; }
-  const body = { name, role: v('ct-role'), company: v('ct-company'), email: v('ct-email'), phone: v('ct-phone'), notes: v('ct-notes'),
+  const email = v('ct-email');
+  if (email && !/.+@.+\..+/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
+  const body = { name, role: v('ct-role'), company: v('ct-company'), email, phone: v('ct-phone'), notes: v('ct-notes'),
     site: v('ct-site'), portal_enabled: !!document.getElementById('ct-portal-enabled')?.checked };  // W6-28
   const r = _ctEditId
     ? await api('PATCH', '/contacts/' + encodeURIComponent(_ctEditId), body)

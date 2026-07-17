@@ -8170,7 +8170,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
   </div>
 </div>
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="exec-modal-title" id="exec-modal"><div class="modal"><div class="modal-title" id="exec-modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512" aria-label="Shell command"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" data-change="pickFromLibrary" aria-label="Or pick from library"><option value="">— Command library —</option></select></div><div class="form-group"><label class="form-label">Timeout (seconds, optional)</label><input type="number" id="exec-timeout" class="form-input mw-160" min="1" max="3600" placeholder="default (300s)" aria-label="Timeout (seconds, optional)"><span class="hint">Override the agent's default kill timeout for this one command (1–3600s).</span></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="exec-modal" >Cancel</button><button class="btn-primary" data-action="sendExecCmd" >Run</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="exec-modal-title" id="exec-modal"><div class="modal"><div class="modal-title" id="exec-modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512" aria-label="Shell command"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" data-change="pickFromLibrary" aria-label="Or pick from library"><option value="">— Command library —</option></select></div><div class="form-group"><label class="form-label">Timeout (seconds, optional)</label><input type="number" id="exec-timeout" class="form-input mw-160" min="1" max="3600" placeholder="default (300s)" aria-label="Timeout (seconds, optional)"><span class="hint">Override the agent's default kill timeout for this one command (1–3600s).</span></div><div class="form-group"><label class="click-row-6"><input type="checkbox" id="exec-wait"> <span>Run and wait for the output (up to ~90s)</span></label></div><div id="exec-result" class="d-none"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="exec-modal" >Cancel</button><button class="btn-primary" id="exec-run-btn" data-action="sendExecCmd" >Run</button></div></div></div>
 
 <!-- v1.12.0: per-device metric thresholds editor -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="metric-thresholds-title" id="metric-thresholds-modal">
@@ -9343,6 +9343,31 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="modal-actions">
     <button class="btn-primary" data-action="cmdbCredRevealClose" >Close</button>
+  </div>
+</div></div>
+
+<!-- Scoped-credential reveal — styled fallback when the clipboard API is unavailable. NEVER an alert(). -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-reveal-title" id="cmdb-reveal-modal"><div class="modal">
+  <div class="modal-title" id="cmdb-reveal-title">Revealed credential</div>
+  <div class="modal-subtitle">This reveal has been recorded in the audit log. The values below are not stored in the page after this modal closes.</div>
+  <div class="form-group">
+    <label class="form-label">Label</label>
+    <div id="cmdb-reveal-label" class="isl-237">—</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Username <button class="btn-icon isl-238" data-action="cmdbCredCopy" data-arg="cmdb-reveal-username" >Copy</button></label>
+    <div id="cmdb-reveal-username" class="isl-239">—</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Password <button class="btn-icon isl-238" data-action="cmdbCredCopy" data-arg="cmdb-reveal-password" >Copy</button></label>
+    <div id="cmdb-reveal-password" class="isl-239">—</div>
+  </div>
+  <div class="form-group" id="cmdb-reveal-note-wrap">
+    <label class="form-label">Note</label>
+    <div id="cmdb-reveal-note" class="isl-240">—</div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-primary" data-action="cmdbScopedRevealClose" >Close</button>
   </div>
 </div></div>
 

@@ -3077,6 +3077,18 @@ async function addMonitor() {
   // W4-13: http_flow builds from steps, not a single target.
   if (type === 'http_flow') { return _addHttpFlowMonitor(label); }
   if (!target) { toast('Target is required', 'error'); return; }
+  // Client-side format checks before the server 400, for the two easy-to-typo
+  // fields: an http target must be a real URL, and a tcp port must be 1–65535.
+  if (type === 'http') {
+    try { const u = new URL(target); if (!/^https?:$/.test(u.protocol)) throw 0; }
+    catch (_) { toast('HTTP target must be a full URL (https://host/path)', 'error'); return; }
+  }
+  if (type === 'tcp') {
+    const p = parseInt(document.getElementById('mon-port')?.value || '', 10);
+    if (document.getElementById('mon-port')?.value.trim() && !(p >= 1 && p <= 65535)) {
+      toast('Port must be between 1 and 65535', 'error'); return;
+    }
+  }
   const tagOk = (type === 'ping' || type === 'icmp' || type === 'tcp');
   const kind  = tagOk ? (document.getElementById('mon-kind')?.value || 'host') : 'host';
   const cfg = await api('GET', '/config');
@@ -5452,7 +5464,7 @@ async function addScheduleJob() {
 // coerced to Infinity by the data-arg dispatcher and the DELETE would 404.
 function _deleteJobBtn(btn) { return deleteJob(btn.dataset.id); }
 async function deleteJob(id) { id = String(id); const data = await api('DELETE', '/schedule/' + encodeURIComponent(id)); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
-function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
+function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } { const w = document.getElementById('exec-wait'); if (w) w.checked = false; const rr = document.getElementById('exec-result'); if (rr) { rr.classList.add('d-none'); rr.innerHTML = ''; } } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
 // v3.3.0: schedule modal carries an editing id for in-place updates.
 let _scheduleEditId = null;
@@ -5520,7 +5532,43 @@ async function _editScheduleBtn(btn) {
   if (calCb) calCb.checked = false;
   openModal('schedule-add-modal');
 }
-async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const body = {device_id: id, cmd}; const to = parseInt(document.getElementById('exec-timeout')?.value || '0', 10); if (to > 0) body.timeout = to; const data = await api('POST', '/exec', body); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
+async function sendExecCmd() {
+  const id = document.getElementById('exec-device-id').value;
+  const cmd = document.getElementById('exec-cmd').value.trim();
+  if (!cmd) { toast('Enter a command', 'error'); return; }
+  const wait = !!document.getElementById('exec-wait')?.checked;
+  const body = {device_id: id, cmd};
+  const to = parseInt(document.getElementById('exec-timeout')?.value || '0', 10);
+  if (to > 0) body.timeout = to;
+  const btn = document.getElementById('exec-run-btn');
+  const origBtn = btn ? btn.innerHTML : '';
+  const res = document.getElementById('exec-result');
+  if (btn) { btn.disabled = true; btn.textContent = wait ? 'Running…' : 'Queuing…'; }  // guard against double-submit
+
+  if (wait) {
+    // Run-and-wait: /exec/wait blocks for the agent's output (same round-trip
+    // the Docker prune uses). It honours change-approval, so a parked command
+    // returns approval_required rather than waiting.
+    if (res) { res.classList.remove('d-none'); res.innerHTML = '<div class="hint mt-8">Running on the host and waiting for the output…</div>'; }
+    const data = await api('POST', '/exec/wait', body);
+    if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
+    if (!data || data.error) { if (res) res.innerHTML = `<div class="c-red mt-8">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+    if (data.approval_required) { if (res) res.innerHTML = ''; toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); return; }
+    if (data.timeout) { if (res) res.innerHTML = '<div class="c-amber mt-8">No output within the wait window — the command runs on the next heartbeat; check the device’s command history.</div>'; return; }
+    const out = data.output || {};
+    const text = (out && out.output != null) ? out.output : (typeof out === 'string' ? out : '');
+    const rc = out && typeof out.rc === 'number' ? out.rc : null;
+    if (res) res.innerHTML = `<div class="section-title mt-12">Output${rc != null ? ` <span class="hint">(exit ${rc})</span>` : ''}</div>`
+      + `<pre class="ff-mono fs-12 scroll-cap mt-6">${escHtml(String(text).trim() || '(no output)')}</pre>`;
+    return;
+  }
+
+  const data = await api('POST', '/exec', body);
+  if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
+  if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); }
+  else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); }
+  else toast(data?.error || 'Failed', 'error');
+}
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
   "Settings → Integrations can poll the software your homelab already runs — Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more — and raise an alert when one goes unhealthy. Read-only and SSRF-guarded.",
@@ -8651,6 +8699,11 @@ function openSubnetCreate() {
 async function saveSubnet() {
   const cidr = document.getElementById('subnet-cidr').value.trim();
   if (!cidr) { toast('CIDR required', 'error'); return; }
+  // Basic client check: a.b.c.d/len (IPv4) or an IPv6 …/len — reject obvious typos
+  // before the server 400. Permissive: only rejects a clearly-malformed value.
+  if (!/^([0-9]{1,3}\.){3}[0-9]{1,3}\/\d{1,2}$/.test(cidr) && !/^[0-9a-fA-F:]+\/\d{1,3}$/.test(cidr)) {
+    toast('CIDR must look like 10.0.0.0/24 or 2001:db8::/48', 'error'); return;
+  }
   const body = { cidr, vlan: document.getElementById('subnet-vlan').value.trim(),
                  notes: document.getElementById('subnet-notes').value.trim(),
                  site: document.getElementById('subnet-site').value || '' };
@@ -19205,10 +19258,18 @@ async function removeCloudAccount(idx) {
   if (r?.ok) { renderCloudAccounts(_cloudAccounts); toast('Removed', 'info'); }
   else toast('Failed', 'error');
 }
-async function runCloudImport() {
+let _cloudImporting = false;
+async function runCloudImport(ev) {
+  if (_cloudImporting) return;   // guard against concurrent provider enumerations
+  _cloudImporting = true;
+  const btn = ev && ev.currentTarget ? ev.currentTarget : document.querySelector('[data-action="runCloudImport"]');
+  const origBtn = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; }
   const st = document.getElementById('cloud-import-status');
   if (st) st.textContent = 'Importing…';
   const r = await api('POST', '/cloud/import', {}).catch(() => null);
+  _cloudImporting = false;
+  if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
   if (r?.ok) {
     const msg = `Imported ${r.imported}, updated ${r.updated}` + (r.errors?.length ? `, ${r.errors.length} error(s)` : '');
     if (st) st.textContent = msg;

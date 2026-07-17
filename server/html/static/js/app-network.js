@@ -672,7 +672,7 @@ async function tunnelRenderList() {
   const list = document.getElementById('tun-list');
   const tunnels = await api('GET', '/network-map/tunnels');
   if (!Array.isArray(tunnels) || !tunnels.length) {
-    list.innerHTML = '<div class="empty-state-sm">No tunnels yet.</div>';
+    list.innerHTML = '<div class="empty-state-sm">No tunnels yet. Create one to issue road-warrior clients.</div>';
     return;
   }
   // Build a name lookup for friendlier rendering

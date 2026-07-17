@@ -48,7 +48,7 @@ function _renderKbRunbooks(eventNames) {
         `<div class="row-6-center mb-4"><code class="fs-12">${escHtml(_kbEventLabels[ev] || ev)}</code>`
         + `<span class="meta-sm-nm ellipsis flex-1">→ ${escHtml(artTitle(aid))}</span>`
         + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteKbRunbookLink" data-arg="${escAttr(ev)}">Unlink</button></div>`).join('')
-    : '<div class="meta-sm-nm">No runbook links yet.</div>';
+    : '<div class="meta-sm-nm">No runbook links yet. Link an alert type to an article below.</div>';
   if (evSel && eventNames) {
     evSel.innerHTML = eventNames.sort().map(ev =>
       `<option value="${escAttr(ev)}">${escHtml(_kbEventLabels[ev] || ev)}</option>`).join('');

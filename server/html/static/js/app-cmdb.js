@@ -40,7 +40,7 @@ async function cmdbApi(method, path, body, sendKey) {
     if (payload && payload.code === 'vault_locked') {
       _cmdbVaultKey = null;
       cmdbRenderVaultBar();
-      alert('Vault is locked — please unlock and retry.');
+      toast('Vault is locked — please unlock and retry.', 'error');
       return null;
     }
     doLogout();
@@ -93,7 +93,7 @@ async function cmdbBreakGlassApprove(reqId) {
         + 'see the credential. You cannot approve your own request.')) return;
   const res = await cmdbApi('POST', '/cmdb/break-glass/' + encodeURIComponent(reqId) + '/approve', {});
   if (!res || !res.ok) {
-    alert('Approve failed: ' + (res && res.data && res.data.error || '?'));
+    toast('Approve failed: ' + (res && res.data && res.data.error || '?'), 'error');
     return;
   }
   if (typeof toast === 'function') toast('Break-glass request approved', 'success');
@@ -137,7 +137,7 @@ async function cmdbCheckoutRevoke(coId) {
         + 'credential immediately.')) return;
   const res = await cmdbApi('DELETE', '/cmdb/vault/checkouts/' + encodeURIComponent(coId));
   if (!res || !res.ok) {
-    alert('Revoke failed: ' + (res && res.data && res.data.error || '?'));
+    toast('Revoke failed: ' + (res && res.data && res.data.error || '?'), 'error');
     return;
   }
   if (typeof toast === 'function') toast('Checkout revoked', 'success');
@@ -177,11 +177,11 @@ function _renderScopedCreds() {
         <button class="btn-icon cell-sm" data-action="scopedCredReveal" data-arg="${escAttr(c.id)}" title="Reveal — copies the password to the clipboard (audited)">Reveal</button>
         <button class="btn-icon cell-sm c-danger-outline" data-action="scopedCredDelete" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.label)}" title="Delete">${_icon('trash', 12)}</button>
       </td>
-    </tr>`).join('') : '<tr><td colspan="5" class="hint">No scoped credentials yet.</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="5" class="hint">No scoped credentials yet — click \'Add\' above to store one (encrypted).</td></tr>';
 }
 
 async function scopedCredAdd() {
-  if (!_cmdbVaultKey) { alert('Unlock the vault first (top of this page).'); return; }
+  if (!_cmdbVaultKey) { toast('Unlock the vault first (top of this page).', 'error'); return; }
   const body = {
     scope_type:  document.getElementById('scoped-cred-scope-type').value,
     scope_value: document.getElementById('scoped-cred-scope-value').value.trim(),
@@ -190,11 +190,11 @@ async function scopedCredAdd() {
     password:    document.getElementById('scoped-cred-password').value,
   };
   if (!body.scope_value || !body.label || !body.password) {
-    alert('Scope value, label and password are required.'); return;
+    toast('Scope value, label and password are required.', 'error'); return;
   }
   const res = await cmdbApi('POST', '/scoped-credentials', body, true);
   if (!res) return;
-  if (!res.ok) { alert((res.data && res.data.error) || 'Failed to add.'); return; }
+  if (!res.ok) { toast((res.data && res.data.error) || 'Failed to add.', 'error'); return; }
   ['scoped-cred-scope-value', 'scoped-cred-label', 'scoped-cred-username', 'scoped-cred-password']
     .forEach(id => { document.getElementById(id).value = ''; });
   toast('Scoped credential added', 'success');
@@ -202,16 +202,45 @@ async function scopedCredAdd() {
 }
 
 async function scopedCredReveal(id) {
-  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  if (!_cmdbVaultKey) { toast('Unlock the vault first.', 'error'); return; }
   const res = await cmdbApi('POST', '/scoped-credentials/' + encodeURIComponent(id) + '/reveal', {}, true);
-  if (!res || !res.ok) { alert((res && res.data && res.data.error) || 'Reveal failed.'); return; }
+  if (!res || !res.ok) { toast((res && res.data && res.data.error) || 'Reveal failed.', 'error'); return; }
   const d = res.data;
   try {
     await navigator.clipboard.writeText(d.password);
     toast(`${d.label}: password copied to clipboard (user ${d.username || '—'})`, 'success');
   } catch (e) {
-    alert(`${d.label}\nUsername: ${d.username || '—'}\nPassword: ${d.password}` + (d.note ? `\nNote: ${d.note}` : ''));
+    // Clipboard unavailable (older browser / non-HTTPS) — never fall back to a
+    // plaintext native dialog. Show the secret in a dismissable, copyable modal.
+    _cmdbShowScopedReveal(d);
   }
+}
+
+// Populate + open the styled scoped-credential reveal modal (#cmdb-reveal-modal).
+// Uses textContent (no innerHTML) so the secret can't be re-interpreted as markup.
+function _cmdbShowScopedReveal(d) {
+  d = d || {};
+  document.getElementById('cmdb-reveal-title').textContent    = 'Revealed credential';
+  document.getElementById('cmdb-reveal-label').textContent    = d.label || '—';
+  document.getElementById('cmdb-reveal-username').textContent = d.username || '—';
+  document.getElementById('cmdb-reveal-password').textContent = d.password || '';
+  const noteWrap = document.getElementById('cmdb-reveal-note-wrap');
+  if (d.note) {
+    noteWrap.style.display = 'block';
+    document.getElementById('cmdb-reveal-note').textContent = d.note;
+  } else {
+    noteWrap.style.display = 'none';
+  }
+  openModal('cmdb-reveal-modal');
+}
+
+// Wipe the plaintext DOM nodes so the secret doesn't linger in the markup.
+function cmdbScopedRevealClose() {
+  document.getElementById('cmdb-reveal-label').textContent    = '—';
+  document.getElementById('cmdb-reveal-username').textContent = '—';
+  document.getElementById('cmdb-reveal-password').textContent = '—';
+  document.getElementById('cmdb-reveal-note').textContent     = '—';
+  closeModal('cmdb-reveal-modal');
 }
 
 async function scopedCredDelete(id, label) {
@@ -219,7 +248,7 @@ async function scopedCredDelete(id, label) {
     message: `Delete “${label}”? This cannot be undone.`, confirmText: 'Delete', danger: true});
   if (!ok) return;
   const res = await cmdbApi('DELETE', '/scoped-credentials/' + encodeURIComponent(id));
-  if (!res || !res.ok) { alert((res && res.data && res.data.error) || 'Delete failed.'); return; }
+  if (!res || !res.ok) { toast((res && res.data && res.data.error) || 'Delete failed.', 'error'); return; }
   toast('Deleted', 'info');
   loadScopedCreds();
 }
@@ -290,10 +319,10 @@ function cmdbOpenRotateModal() {
 async function cmdbVaultSetup() {
   const pw  = document.getElementById('cmdb-vault-setup-pw').value;
   const pw2 = document.getElementById('cmdb-vault-setup-pw2').value;
-  if (pw !== pw2) { alert('Passphrases do not match.'); return; }
+  if (pw !== pw2) { toast('Passphrases do not match.', 'error'); return; }
   const res = await cmdbApi('POST', '/cmdb/vault/setup', {passphrase: pw});
   if (!res) return;
-  if (!res.ok) { alert('Vault setup failed: ' + (res.data && res.data.error || res.status)); return; }
+  if (!res.ok) { toast('Vault setup failed: ' + (res.data && res.data.error || res.status), 'error'); return; }
   _cmdbVaultKey = res.data.key;
   closeModal('cmdb-vault-setup-modal');
   await cmdbRefreshVaultStatus();
@@ -304,7 +333,7 @@ async function cmdbVaultUnlock() {
   const pw = document.getElementById('cmdb-vault-unlock-pw').value;
   const res = await cmdbApi('POST', '/cmdb/vault/unlock', {passphrase: pw});
   if (!res) return;
-  if (!res.ok) { alert('Unlock failed: ' + (res.data && res.data.error || res.status)); return; }
+  if (!res.ok) { toast('Unlock failed: ' + (res.data && res.data.error || res.status), 'error'); return; }
   _cmdbVaultKey = res.data.key;
   closeModal('cmdb-vault-unlock-modal');
   cmdbRenderVaultBar();
@@ -316,14 +345,14 @@ async function cmdbVaultRotate() {
   const oldPw = document.getElementById('cmdb-vault-rotate-old').value;
   const newPw = document.getElementById('cmdb-vault-rotate-new').value;
   const new2  = document.getElementById('cmdb-vault-rotate-new2').value;
-  if (newPw !== new2) { alert('New passphrases do not match.'); return; }
+  if (newPw !== new2) { toast('New passphrases do not match.', 'error'); return; }
   const res = await cmdbApi('POST', '/cmdb/vault/change',
     {old_passphrase: oldPw, new_passphrase: newPw});
   if (!res) return;
-  if (!res.ok) { alert('Rotation failed: ' + (res.data && res.data.error || res.status)); return; }
+  if (!res.ok) { toast('Rotation failed: ' + (res.data && res.data.error || res.status), 'error'); return; }
   _cmdbVaultKey = res.data.key;
   closeModal('cmdb-vault-rotate-modal');
-  alert('Passphrase rotated. ' + res.data.rotated + ' credential(s) re-encrypted.');
+  toast('Passphrase rotated. ' + res.data.rotated + ' credential(s) re-encrypted.', 'success');
   cmdbRenderVaultBar();
 }
 
@@ -423,7 +452,7 @@ async function cmdbLoadServerFunctions() {
 
 async function cmdbOpenAsset(deviceId) {
   const res = await cmdbApi('GET', '/cmdb/' + encodeURIComponent(deviceId));
-  if (!res || !res.ok) { alert('Failed to load asset.'); return; }
+  if (!res || !res.ok) { toast('Failed to load asset.', 'error'); return; }
   _cmdbCurrent = res.data;
   document.getElementById('cmdb-asset-title').textContent = res.data.name + ' — CMDB';
   document.getElementById('cmdb-asset-deviceid').value = deviceId;
@@ -870,7 +899,7 @@ async function cmdbDocSave() {
   const body    = document.getElementById('cmdb-doc-modal-body').value;
 
   if (!title) {
-    alert('Title is required.');
+    toast('Title is required.', 'error');
     return;
   }
   let res;
@@ -884,7 +913,7 @@ async function cmdbDocSave() {
   }
   if (!res) return;
   if (!res.ok) {
-    alert('Save failed: ' + (res.data && res.data.error || res.status));
+    toast('Save failed: ' + (res.data && res.data.error || res.status), 'error');
     return;
   }
   // Update _cmdbCurrent.docs in place — promotes legacy doc id if the
@@ -912,7 +941,7 @@ async function cmdbDocDelete(docId) {
     `/cmdb/${encodeURIComponent(_cmdbCurrent.device_id)}/docs/${encodeURIComponent(docId)}`);
   if (!res) return;
   if (!res.ok) {
-    alert('Delete failed: ' + (res.data && res.data.error || res.status));
+    toast('Delete failed: ' + (res.data && res.data.error || res.status), 'error');
     return;
   }
   _cmdbCurrent.docs = (_cmdbCurrent.docs || []).filter(d => d.id !== docId);
@@ -1002,7 +1031,7 @@ async function cmdbAssetSave() {
   body.interfaces = _cmdbInterfaces;
   const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
   if (!res) return;
-  if (!res.ok) { alert('Save failed: ' + (res.data && res.data.error || res.status)); return; }
+  if (!res.ok) { toast('Save failed: ' + (res.data && res.data.error || res.status), 'error'); return; }
   // v5.0.0: persist the decommissioned flag separately (device-level, admin-only)
   // and only when it changed, so a non-admin CMDB edit isn't blocked by a 403.
   const decomm = document.getElementById('cmdb-asset-decommissioned').checked;
@@ -1035,7 +1064,7 @@ async function cmdbLoadCreds(deviceId) {
   _cmdbCredsCache = {}; creds.forEach(c => { _cmdbCredsCache[c.id] = c; });  // v3.7.0
   const list = document.getElementById('cmdb-creds-list');
   if (creds.length === 0) {
-    list.innerHTML = '<div class="isl-232">No credentials yet.</div>';
+    list.innerHTML = '<div class="isl-232">No credentials yet — click \'+ Add credential\' to store one (encrypted).</div>';
     return;
   }
   list.innerHTML = creds.map(c => {
@@ -1085,19 +1114,19 @@ function cmdbSshCopy(cmd) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(cmd).then(
       () => toast && toast('SSH command copied', 'success'),
-      () => alert('Copy failed — your browser may block clipboard access on http://')
+      () => toast('Copy failed — your browser may block clipboard access on http://', 'error')
     );
   } else {
     const ta = document.createElement('textarea');
     ta.value = cmd; document.body.appendChild(ta); ta.select();
     try { document.execCommand('copy'); if (typeof toast === 'function') toast('SSH command copied', 'success'); }
-    catch (e) { alert('Copy failed.'); }
+    catch (e) { toast('Copy failed.', 'error'); }
     document.body.removeChild(ta);
   }
 }
 
 function cmdbCredAddOpen() {
-  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  if (!_cmdbVaultKey) { toast('Unlock the vault first.', 'error'); return; }
   if (!_cmdbCurrent)  return;
   document.getElementById('cmdb-cred-modal-mode').value = 'add';
   document.getElementById('cmdb-cred-modal-deviceid').value = _cmdbCurrent.device_id;
@@ -1114,7 +1143,7 @@ function cmdbCredAddOpen() {
 
 let _cmdbCredsCache = {};   // v3.7.0: id -> credential metadata (for edit prefill)
 function cmdbCredEditOpen(deviceId, credId, label, username, note) {
-  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  if (!_cmdbVaultKey) { toast('Unlock the vault first.', 'error'); return; }
   document.getElementById('cmdb-cred-modal-mode').value = 'edit';
   document.getElementById('cmdb-cred-modal-deviceid').value = deviceId;
   document.getElementById('cmdb-cred-modal-credid').value = credId;
@@ -1141,18 +1170,18 @@ async function cmdbCredSave() {
   };
   const pw = document.getElementById('cmdb-cred-password').value;
   if (mode === 'add') {
-    if (!pw) { alert('Password required.'); return; }
+    if (!pw) { toast('Password required.', 'error'); return; }
     body.password = pw;
     const res = await cmdbApi('POST',
       '/cmdb/' + encodeURIComponent(deviceId) + '/credentials',
       body, true);
-    if (!res || !res.ok) { alert('Save failed: ' + (res && res.data && res.data.error || '?')); return; }
+    if (!res || !res.ok) { toast('Save failed: ' + (res && res.data && res.data.error || '?'), 'error'); return; }
   } else {
     if (pw) body.password = pw;
     const res = await cmdbApi('PUT',
       '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId),
       body, !!pw);
-    if (!res || !res.ok) { alert('Save failed: ' + (res && res.data && res.data.error || '?')); return; }
+    if (!res || !res.ok) { toast('Save failed: ' + (res && res.data && res.data.error || '?'), 'error'); return; }
   }
   closeModal('cmdb-cred-add-modal');
   cmdbLoadCreds(deviceId);
@@ -1163,7 +1192,7 @@ async function cmdbCredDelete(deviceId, credId) {
   if (!await uiConfirm('Delete this credential? The encrypted password will be permanently removed.')) return;
   const res = await cmdbApi('DELETE',
     '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId));
-  if (!res || !res.ok) { alert('Delete failed.'); return; }
+  if (!res || !res.ok) { toast('Delete failed.', 'error'); return; }
   cmdbLoadCreds(deviceId);
   cmdbReloadList();
 }
@@ -1175,7 +1204,7 @@ let _cmdbBgReqs = {};
 // server that keeps answering checkout_required.
 let _cmdbCheckoutRetry = {};
 async function cmdbCredReveal(deviceId, credId) {
-  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  if (!_cmdbVaultKey) { toast('Unlock the vault first.', 'error'); return; }
   const bgKey = deviceId + '|' + credId;
   const body = {};
   if (_cmdbBgReqs[bgKey]) body.request_id = _cmdbBgReqs[bgKey];
@@ -1185,8 +1214,10 @@ async function cmdbCredReveal(deviceId, credId) {
   // Break-glass: first click opens a request that a second admin must approve.
   if (res && res.data && res.data.pending) {
     _cmdbBgReqs[bgKey] = res.data.request_id;
-    alert('Break-glass credential.\n\nRequest ' + res.data.request_id + ' created — a SECOND '
-      + 'admin must approve it under CMDB → "Break-glass requests", then click Reveal again.');
+    // Status message, not a secret (the request id also shows in the break-glass
+    // card that loadBreakGlass() paints below) — a toast is enough.
+    toast('Break-glass request ' + res.data.request_id + ' created — a second admin '
+      + 'must approve it under CMDB → Break-glass requests, then click Reveal again.', 'info');
     if (typeof loadBreakGlass === 'function') loadBreakGlass();
     return;
   }
@@ -1197,7 +1228,7 @@ async function cmdbCredReveal(deviceId, credId) {
   if (res && res.data && res.data.checkout_required) {
     if (_cmdbCheckoutRetry[bgKey]) {      // guard: never loop on a server that
       delete _cmdbCheckoutRetry[bgKey];   // keeps refusing after a grant
-      alert('Reveal still refused after checkout — check the audit log.');
+      toast('Reveal still refused after checkout — check the audit log.', 'error');
       return;
     }
     const reason = await uiPrompt({
@@ -1210,7 +1241,7 @@ async function cmdbCredReveal(deviceId, credId) {
     const co = await cmdbApi('POST', '/cmdb/vault/checkout',
       { device_id: deviceId, cred_id: credId, reason: reason, hours: 1 }, true);
     if (!co || !co.ok) {
-      alert('Checkout failed: ' + (co && co.data && co.data.error || '?'));
+      toast('Checkout failed: ' + (co && co.data && co.data.error || '?'), 'error');
       return;
     }
     _cmdbCheckoutRetry[bgKey] = true;
@@ -1219,7 +1250,7 @@ async function cmdbCredReveal(deviceId, credId) {
   }
   delete _cmdbCheckoutRetry[bgKey];
   if (!res || !res.ok) {
-    alert('Reveal failed: ' + (res && res.data && res.data.error || '?'));
+    toast('Reveal failed: ' + (res && res.data && res.data.error || '?'), 'error');
     return;
   }
   delete _cmdbBgReqs[bgKey];   // consumed

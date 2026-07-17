@@ -72,6 +72,7 @@ async function saveBackupJob() {
   };
   if (!id) body.device_id = dsel.value;
   if (!body.name || !body.command) { toast('Name and command required', 'error'); return; }
+  if (body.cron && body.cron.split(/\s+/).length !== 5) { toast('Cron needs 5 fields (min hour day month weekday)', 'error'); return; }
   const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
                : await api('POST', '/backup-jobs', body);
   dsel.disabled = false;
