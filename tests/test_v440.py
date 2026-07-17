@@ -172,8 +172,11 @@ class TestCommandQuotingSource(unittest.TestCase):
         self.assertNotIn("exec:cat '{p}'", src)
 
     def test_acme_uses_shlex_quote(self):
-        src = (_CGI / 'api.py').read_text()
-        self.assertIn("shlex.quote(f'{home}/acme.sh')", src)
+        # ACME command builders live in acme_handlers.py (bound module) since the
+        # api.py split — read the combined source so the pin survives extraction.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from apisrc import api_source
+        self.assertIn("shlex.quote(f'{home}/acme.sh')", api_source())
 
 
 class TestAgentTransportParity(unittest.TestCase):
