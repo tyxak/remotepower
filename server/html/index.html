@@ -9063,6 +9063,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group">
+      <label for="cmdb-asset-criticality" class="form-label">Business criticality</label>
+      <select id="cmdb-asset-criticality" class="form-input">
+        <option value="">— none —</option>
+        <option value="low">low</option>
+        <option value="normal">normal</option>
+        <option value="high">high</option>
+        <option value="critical">critical</option>
+      </select>
+      <div class="meta-sm">Weights the exposure-priority CVE ranking — a critical CVE on a world-exposed, business-critical host ranks first.</div>
+    </div>
+    <div class="form-group">
       <label for="cmdb-asset-business-function" class="form-label">Business function</label>
       <select id="cmdb-asset-business-function" class="form-input">
         <option value="">— none —</option>

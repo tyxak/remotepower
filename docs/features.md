@@ -236,6 +236,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | KEV / EPSS prioritization | Re-ranked by CISA KEV (known-exploited) + FIRST EPSS (exploit-probability) *(v4.0.0)* |
 | Distro security flag | Counts vendor-flagged security updates (apt `-security`, dnf/yum `--security`, `arch-audit`) as a "N sec" badge *(v5.0.0)* |
 | CVE ↔ patch cross-link | Per device, how many critical/high CVEs a pending patch fixes *(v3.4.1)* |
+| Exposure-weighted CVE ranking | A "fix this first" view scoring each host with open CVEs by severity (critical/high, fixable-first) × reachability (a world-exposed listening port dominates a loopback-only host) × the asset's CMDB **business criticality** — so a critical CVE on a world-exposed, business-critical host ranks first. `GET /api/cve/exposure-ranked` *(v6.2.3)* |
 | Container image CVEs | Opt-in: the agent runs `trivy` against the images of running containers on a ~24h cadence (feature-invisible without trivy), ships a capped severity summary; the CVE page shows them grouped by image across the fleet. **Scan now** queues a one-shot scan on every container host instead of waiting for the cadence, which is now a persisted wall-clock interval that survives agent restarts. `GET /api/image-cves`, `POST /api/image-cves/scan` *(v6.0.0; on-demand scan v6.1.2)* |
 | Windows / macOS patch execution | Windows installs pending updates via PSWindowsUpdate (`Install-WindowsUpdate`), else the built-in Microsoft.Update COM API (never auto-reboots); macOS upgrades outdated Homebrew formulae via `brew upgrade --formula` (casks left alone, never `--greedy`). Both ride the audited, maker-checker-gated `upgrade` command. **Actually reachable since v6.2.0**: the agents implemented `upgrade` / `upgrade:<name>` in v6.0.0, but every server-side upgrade path (on-demand, auto-patch, scheduled job) queued a *bash* script with no OS branch — so a Windows host was sent a shell script and the feature was dead end-to-end. All three paths are now OS-aware *(v6.0.0; fixed v6.2.0)* |
 | Windows third-party app patching | `winget` — the OS updates are Windows Update's job; the CVEs live in Chrome, 7-Zip, VLC. Pending third-party app updates flow into the existing patch catalog under the same `third_party` structure as Linux flatpak/snap/pip/npm, and (unlike those, which are detection-only) they can be **remediated**: `winget:<id>` upgrades one package, `winget:` upgrades all — argv-only, package-id charset-validated, no shell. Feature-invisible where winget isn't present *(v6.2.0)* |
@@ -365,7 +366,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Asset metadata | Asset ID, server function, hypervisor URL, SSH port |
+| Asset metadata | Asset ID, server function, hypervisor URL, SSH port, environment (test/dev/staging/prod), business criticality (low/normal/high/critical — weights the exposure-ranked CVE view) |
 | Network interfaces + NAT | Multiple NICs each with optional NAT/public IP, one primary (★), live preview tree *(v5.0.0)* |
 | Multi-doc attachments | Multiple titled Markdown documents per asset (≤64 KB) *(v2.0)* |
 | Credentials vault | AES-GCM 256 + PBKDF2-SHA256, shared admin passphrase, audit-logged reveals; key never persisted |

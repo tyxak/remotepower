@@ -430,6 +430,7 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-id').value         = res.data.asset_id || '';
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
   document.getElementById('cmdb-asset-environment').value = res.data.environment || '';
+  document.getElementById('cmdb-asset-criticality').value = res.data.criticality || '';
   document.getElementById('cmdb-asset-business-function').value = res.data.business_function || '';
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
   // W5-3: rack placement.
@@ -976,6 +977,7 @@ async function cmdbAssetSave() {
     asset_id:        document.getElementById('cmdb-asset-id').value.trim(),
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
     environment:     document.getElementById('cmdb-asset-environment').value,
+    criticality:     document.getElementById('cmdb-asset-criticality').value,
     business_function: document.getElementById('cmdb-asset-business-function').value,
     vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),

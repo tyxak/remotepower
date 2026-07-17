@@ -380,6 +380,10 @@ _CMDB_IFACE_RE      = re.compile(r'^[A-Za-z0-9._:\-]{0,32}$')
 # v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
 CMDB_DEFAULT_SSH_PORT = 22
 CMDB_ENVIRONMENTS = ('', 'test', 'dev', 'staging', 'prod')  # v3.12.0
+# v6.2.3: business criticality of the asset — weights the exposure-ranked CVE view
+# (a critical CVE on a world-exposed BUSINESS-CRITICAL host is the top priority).
+CMDB_CRITICALITIES = ('', 'low', 'normal', 'high', 'critical')
+_CMDB_CRIT_WEIGHT = {'critical': 3.0, 'high': 2.0, 'normal': 1.0, 'low': 0.5, '': 1.0}
 # v5.0.0: coarse operational ownership bucket (who runs the box, not what it
 # does). Fixed allowlist — values are stored verbatim (mixed-case labels).
 CMDB_BUSINESS_FUNCTIONS = ('', 'Application Operation', 'OS Operation', 'Server Camp')
@@ -57898,6 +57902,7 @@ def handle_cve_exposure_ranked():
     require_auth()
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     findings_all = load(CVE_FINDINGS_FILE) or {}
+    cmdb = load(CMDB_FILE) or {}          # v6.2.3: business criticality weighting
     rows = []
     for dev_id, dev in devices.items():
         if not isinstance(dev, dict):
@@ -57912,13 +57917,17 @@ def handle_cve_exposure_ranked():
         fixable = sum(1 for f in findings if str(f.get('fixed_version') or '').strip())
         exposed = _host_world_exposed_ports(dev)
         wx = bool(exposed)
+        criticality = str((cmdb.get(dev_id) or {}).get('criticality') or '')
         # A critical on a world-exposed host dominates the order; a fixable one
-        # outranks an unfixable one at the same severity.
-        score = crit * (10 if wx else 1) + high * (3 if wx else 0.5) + min(fixable, 50) * 0.05
+        # outranks an unfixable one at the same severity; and the whole score is
+        # scaled by the asset's business criticality (CMDB) so exposure × severity
+        # × importance all land in one "fix this first" number.
+        score = (crit * (10 if wx else 1) + high * (3 if wx else 0.5)
+                 + min(fixable, 50) * 0.05) * _CMDB_CRIT_WEIGHT.get(criticality, 1.0)
         rows.append({
             'device_id': dev_id, 'device_name': dev.get('name', dev_id),
             'critical': crit, 'high': high, 'fixable': fixable,
-            'world_exposed': wx,
+            'world_exposed': wx, 'criticality': criticality,
             'exposed_ports': sorted({f"{p.get('proto', 'tcp')}/{p.get('port')}" for p in exposed})[:12],
             'score': round(score, 2),
             'monitored': dev.get('monitored', True) is not False,

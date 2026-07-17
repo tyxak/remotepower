@@ -188,6 +188,7 @@ def _cmdb_record_default() -> dict:
         'asset_id':        '',
         'server_function': '',
         'environment':     '',     # v3.12.0: test / dev / staging / prod
+        'criticality':     '',     # v6.2.3: business criticality (CMDB_CRITICALITIES)
         # v5.0.0: coarse operational ownership bucket (fixed allowlist — see
         # CMDB_BUSINESS_FUNCTIONS). Drives reporting/grouping, not a free-text.
         'business_function': '',
@@ -1081,6 +1082,13 @@ def handle_cmdb_update(dev_id: str) -> None:
             A.respond(400, {'error': f'environment must be one of: {", ".join(e for e in A.CMDB_ENVIRONMENTS if e)} (or empty)'})
         rec['environment'] = env
         changed.append('environment')
+
+    if 'criticality' in body:
+        crit = str(body.get('criticality') or '').strip().lower()
+        if crit not in A.CMDB_CRITICALITIES:
+            A.respond(400, {'error': f'criticality must be one of: {", ".join(c for c in A.CMDB_CRITICALITIES if c)} (or empty)'})
+        rec['criticality'] = crit
+        changed.append('criticality')
 
     if 'business_function' in body:
         bf = str(body.get('business_function') or '').strip()

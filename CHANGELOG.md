@@ -4,10 +4,58 @@ All notable changes to RemotePower. Newest first.
 
 ## v6.2.3 — "Un1fyMatters" — unreleased (test)
 
-A consolidation and tidy-up pass: one WG Access improvement, two UI fixes, and a
-project-wide sweep that collapsed repeated code idioms, removed a duplicated
-setting and dead code, and de-duplicated docs — no behaviour change beyond the
-fixes below.
+A release built around **unifying the monitoring surface** — one catalog of
+baseline checks you apply by scope, a single "fix this first" CVE ranking that
+folds exposure and business criticality together, tickets that carry the full
+alert and heal themselves, and a page that watches RemotePower's own internals.
+On top of that: one WG Access improvement, two UI fixes, and a project-wide
+sweep that collapsed repeated code idioms, removed a duplicated setting and dead
+code, and de-duplicated docs.
+
+### Monitoring & checks
+
+- **Baseline checks catalog.** A shipped catalog of recommended custom checks —
+  grouped into Core liveness, Security posture, Filesystem/OS and Role-tagged —
+  that an operator applies fleet-wide (or by tag/group) in one action, the same
+  way Service baselines work for systemd units. Pick a category, apply, and every
+  in-scope host gets the checks; edit or extend them afterwards like any custom
+  check.
+
+### CVE
+
+- **Exposure-weighted CVE ranking.** A new "fix this first" view ranks every host
+  with open CVEs by a single score that combines *how bad* (critical/high counts,
+  fixable-first) with *how reachable* (a world-exposed listening port dominates a
+  loopback-only host) and *how important* (the asset's CMDB business criticality).
+  A critical CVE on a world-exposed, business-critical host lands at the top.
+- **Asset business criticality.** CMDB records gain a `criticality`
+  (low/normal/high/critical) field; it weights the exposure ranking above so the
+  hosts that matter most to the business rise to the top.
+
+### Tickets
+
+- **A ticket opened from an alert now carries the full detail** — every affected
+  host and signal, not the truncated "+3 more" the inbox row showed.
+- **Tickets auto-update on recovery.** When the underlying alert clears (e.g.
+  "kernel recovered", a failed unit comes back), the linked ticket is updated
+  automatically with the recovery, instead of sitting open against a resolved
+  condition.
+
+### Self-observability
+
+- **A page for RemotePower's own health.** The ~33 background maintenance sweeps
+  and the out-of-band scheduler now record their last run, duration and any
+  swallowed error to a small ring buffer, surfaced on a new self-observability
+  view — so a sweep that has been silently failing (the class of bug that used to
+  hide behind a broad `except`) is visible instead of invisible.
+
+### UX / QoL
+
+- **Sidebar counts refresh when you return to the tab.** The nav-count badges
+  (Status Board, alerts, …) now refresh on tab refocus, so a count no longer sits
+  stale after the browser tab was backgrounded.
+- **The offline badge names the hosts** in its tooltip and is role-aware, so you
+  can see *which* hosts are offline without opening the page.
 
 ### WG Access
 

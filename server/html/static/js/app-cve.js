@@ -25,17 +25,21 @@ async function openCveExposure() {
     const exp = h.world_exposed
       ? `<span class="badge badge-crit" title="${escAttr((h.exposed_ports || []).join(', '))}">EXPOSED</span>`
       : '<span class="c-muted fs-12">internal</span>';
+    const crit = h.criticality
+      ? `<span class="c-muted fs-12">${escHtml(h.criticality)}</span>`
+      : '<span class="hint">—</span>';
     return `<tr><td class="ta-center hint">${i + 1}</td>`
       + `<td class="fw-500">${escHtml(h.device_name)}</td>`
       + `<td>${exp}</td>`
+      + `<td class="ta-center">${crit}</td>`
       + `<td class="ta-center c-red">${h.critical}</td>`
       + `<td class="ta-center">${h.high}</td>`
       + `<td class="ta-center hint">${h.fixable} fixable</td>`
       + `<td class="ta-center fw-500">${h.score}</td></tr>`;
   }).join('');
   el.innerHTML =
-    `<div class="hint mb-8">${d.exposed_with_critical} world-exposed host(s) carry a critical CVE — patch these first.</div>`
-    + `<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>#</th><th>Host</th><th>Reach</th><th>Crit</th><th>High</th><th>Fixable</th><th>Score</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+    `<div class="hint mb-8">${d.exposed_with_critical} world-exposed host(s) carry a critical CVE — patch these first. Score is scaled by each asset's CMDB business criticality.</div>`
+    + `<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>#</th><th>Host</th><th>Reach</th><th>Crit·ality</th><th>Crit</th><th>High</th><th>Fixable</th><th>Score</th></tr></thead><tbody>${trs}</tbody></table></div>`;
 }
 
 async function loadCVEReport() {
