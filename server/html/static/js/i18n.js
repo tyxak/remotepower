@@ -192,6 +192,7 @@
     'Listen port':           { fr: "Port d'écoute", de: 'Listen-Port', zh: '监听端口', hi: 'लिसन पोर्ट', es: 'Puerto de escucha', ar: 'منفذ الاستماع' },
     'Baseline checks':       { fr: 'Contrôles de référence', de: 'Basis-Checks', zh: '基线检查', hi: 'बेसलाइन जाँचें', es: 'Comprobaciones base', ar: 'فحوصات أساسية' },
     'Apply selected':        { fr: 'Appliquer la sélection', de: 'Auswahl anwenden', zh: '应用所选', hi: 'चयनित लागू करें', es: 'Aplicar selección', ar: 'تطبيق المحدد' },
+    'Internal health — maintenance sweeps': { fr: 'Santé interne — balayages de maintenance', de: 'Interne Gesundheit — Wartungsläufe', zh: '内部健康——维护任务', hi: 'आंतरिक स्वास्थ्य — रखरखाव स्वीप', es: 'Salud interna — barridos de mantenimiento', ar: 'الصحة الداخلية — عمليات الصيانة' },
     'Transfer':              { fr: 'Transfert', de: 'Übertragung', zh: '传输量', hi: 'स्थानांतरण', es: 'Transferencia', ar: 'النقل' },
     'Address':               { fr: 'Adresse', de: 'Adresse', zh: '地址', hi: 'पता', es: 'Dirección', ar: 'العنوان' },
     'Endpoint':              { fr: 'Point de terminaison', de: 'Endpunkt', zh: '端点', hi: 'एंडपॉइंट', es: 'Extremo', ar: 'نقطة النهاية' },

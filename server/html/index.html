@@ -5352,6 +5352,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="self-test-result" class="d-none mb-12"></div>
         <div id="self-status-body" class="isl-123"><div class="c-muted">Loading…</div></div>
+        <!-- v6.2.3: self-observability — maintenance-sweep health -->
+        <div class="dash-card mt-16" id="self-obs-card">
+          <div class="section-title">Internal health — maintenance sweeps</div>
+          <p class="hint">Each background maintenance sweep's last successful run and any recent error. A sweep that silently stops running or starts failing shows up here instead of quietly taking a feature down with it.</p>
+          <div id="self-obs-body"><div class="c-muted">Loading…</div></div>
+        </div>
       </div>
 
       <!-- ── v3.4.0: Compliance report page ───────────────────────────────── -->

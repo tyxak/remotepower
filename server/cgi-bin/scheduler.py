@@ -119,7 +119,11 @@ def run_cadence_once():
             try:
                 fn()
                 ok += 1
+                try: api._self_obs_mark(name, True)          # v6.2.3 self-observability
+                except Exception: pass
             except Exception as exc:
+                try: api._self_obs_mark(name, False, exc)
+                except Exception: pass
                 sys.stderr.write(f"[remotepower-scheduler] {name} failed: "
                                  f"{exc.__class__.__name__}: {exc}\n")
                 traceback.print_exc(file=sys.stderr)

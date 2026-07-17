@@ -93,3 +93,16 @@ systemctl start remotepower-wsgi nginx
 ```
 
 If the backup was created on a host with a different `RP_PROXMOX_TOKEN_SECRET` environment variable, re-set Settings → Virtualization → token secret. Same for SMTP / LDAP bind passwords if they were redacted (they always are in `config.json` exports).
+
+## Internal health — maintenance sweeps
+
+The Server-status page shows an **Internal health** card: every background
+maintenance sweep (offline detection, monitors, integrations, DMARC/IMAP,
+ticket SLA, backups, rollouts, …) with its **last successful run**, error count,
+and last error. The sweeps run inside a swallow-all wrapper so a single failing
+one can never take down the cadence — but that also meant a sweep that silently
+stopped, or started failing, used to be invisible until someone noticed a stale
+feature. Now a red **FAILING** row (its last outcome was an error) or a sweep
+that hasn't run OK in a long time is visible immediately, with a rolling list of
+recent internal errors underneath. Served by `GET /api/self/observability`
+(admin).

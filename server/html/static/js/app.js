@@ -24773,9 +24773,36 @@ function _selfFmtBytes(b) {
   return b.toFixed(b < 10 ? 1 : 0) + ' ' + u[i];
 }
 function _selfFmtAgo(ts) { return timeAgo(ts, { empty: 'never', clamp: true }); }
+async function _loadSelfObs() {
+  const el = document.getElementById('self-obs-body');
+  if (!el) return;
+  const d = await api('GET', '/self/observability').catch(() => null);
+  if (!d || d.error) { el.innerHTML = '<div class="c-muted">Unavailable.</div>'; return; }
+  const rows = d.sweeps || [];
+  if (!rows.length) {
+    el.innerHTML = '<div class="c-muted">No sweep activity recorded yet — it accumulates over the next maintenance cycles.</div>';
+    return;
+  }
+  const trs = rows.map(r => {
+    const status = r.failing ? '<span class="c-red">● FAILING</span>'
+      : (r.last_ok ? '<span class="c-green">● OK</span>' : '<span class="c-muted">● never run</span>');
+    return `<tr><td class="ff-mono fs-12">${escHtml(r.name)}</td><td>${status}</td>`
+      + `<td class="hint">${r.last_ok ? _selfFmtAgo(r.last_ok) : '—'}</td>`
+      + `<td class="hint">${r.err_count || 0}</td>`
+      + `<td class="c-red fs-12">${r.failing ? escHtml((r.err || '').slice(0, 90)) : ''}</td></tr>`;
+  }).join('');
+  const errs = (d.errors || []).slice(-10).reverse().map(e =>
+    `<div class="fs-12"><span class="hint">${_selfFmtAgo(e.ts)}</span> <span class="ff-mono">${escHtml(e.ctx)}</span> — <span class="c-red">${escHtml((e.err || '').slice(0, 120))}</span></div>`).join('');
+  el.innerHTML =
+    `<div class="hint mb-8">${d.tracked} sweeps tracked · <span class="${d.failing ? 'c-red' : 'c-green'}">${d.failing} failing</span></div>`
+    + `<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Sweep</th><th>Status</th><th>Last OK</th><th>Errors</th><th>Last error</th></tr></thead><tbody>${trs}</tbody></table></div>`
+    + (errs ? `<div class="section-title mt-16">Recent internal errors</div><div class="scroll-cap">${errs}</div>` : '');
+}
+
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
   body.innerHTML = '<div class="c-muted">Loading…</div>';
+  _loadSelfObs();
   const s = await api('GET', '/self/status');
   if (!s || s.error) {
     body.innerHTML = '<div class="c-red">Failed to load: ' + escHtml(s?.error || 'unknown') + '</div>';

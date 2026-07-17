@@ -419,6 +419,7 @@ CONTROL_UPTIME_FILE = DATA_DIR / 'control_uptime.json'
 # cadence loop, so the request path / self-status can report whether it is
 # actually alive (vs merely configured). {ts, pid, interval, host_leader}.
 SCHEDULER_STATE_FILE = DATA_DIR / 'scheduler_state.json'
+SELF_OBS_FILE        = DATA_DIR / 'self_observability.json'  # v6.2.3: sweep last-run + swallowed-error ring
 # v3.4.2: automation rules (when event matches → run script / notify).
 RULES_FILE       = DATA_DIR / 'automation_rules.json'
 # v3.4.2: rolling log of selected events that fired outside business hours.
@@ -28071,6 +28072,39 @@ def _subsystems_status(now):
     except Exception:
         pass
     return out
+
+
+def handle_self_observability():
+    """GET /api/self/observability — maintenance-sweep health: each sweep's last
+    successful run + last error, plus recent swallowed errors. Admin-only. The
+    durable answer to 'why did feature X silently stop firing?'."""
+    require_admin_auth()
+    st = load(SELF_OBS_FILE) if backend_exists(SELF_OBS_FILE) else {}
+    if not isinstance(st, dict):
+        st = {}
+    sweeps = st.get('sweeps') or {}
+    now = int(time.time())
+    rows = []
+    for name, s in sorted(sweeps.items()):
+        if not isinstance(s, dict):
+            continue
+        last_ok = int(s.get('last_ok') or 0)
+        last_err = int(s.get('last_err') or 0)
+        rows.append({
+            'name': name, 'last_ok': last_ok, 'last_err': last_err,
+            'ok_count': int(s.get('ok_count') or 0),
+            'err_count': int(s.get('err_count') or 0),
+            'err': s.get('err', ''),
+            'failing': (s.get('last_outcome') == 'err'
+                        if s.get('last_outcome') else bool(last_err and last_err >= last_ok)),
+            'age_ok_s': (now - last_ok) if last_ok else None,
+        })
+    respond(200, {
+        'sweeps': rows,
+        'errors': (st.get('errors') or [])[-50:],
+        'failing': sum(1 for r in rows if r['failing']),
+        'tracked': len(rows),
+    })
 
 
 def handle_self_status():
@@ -62612,6 +62646,7 @@ def _build_exact_routes():
         ('POST', '/api/backup/test-restore'): handle_backup_test_restore,       # v5.4.1 (G1)
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
+        ('GET', '/api/self/observability'): handle_self_observability,   # v6.2.3
         ('GET', '/api/self-test'): handle_self_test,                 # v5.0.0 #U9
         ('GET', '/api/diagnostics'): handle_diagnostics_bundle,
         # v3.12.0: pluggable storage backend (JSON <-> SQLite). Separate from
@@ -63465,6 +63500,75 @@ def _dispatch(pi, m):
         elif fn(pi, m):    # 'code'
             return
     respond(404, {'error': 'Not found'})
+
+
+# ── v6.2.3: self-observability ───────────────────────────────────────────────
+# The ~33 maintenance sweeps run inside a swallow-all wrapper (main()'s _safe and
+# the out-of-band scheduler) — so a sweep that silently stops firing, or starts
+# failing, was invisible until someone noticed a stale feature. Record each
+# sweep's last successful run and last error (plus a small ring of recent
+# swallowed errors) so the Server-status page can answer "did X run? did X fail?"
+# In-memory mirror flushed to disk throttled (immediately on error) — cheap on
+# the hot cadence, shared across the WSGI workers + the scheduler process via the
+# storage backend. Self-observability must NEVER raise into the thing it observes.
+_SELF_OBS = None
+_SELF_OBS_LAST_FLUSH = 0
+_SELF_OBS_MAX_ERRORS = 50
+
+
+def _self_obs_load():
+    global _SELF_OBS
+    if _SELF_OBS is None:
+        try:
+            _SELF_OBS = load(SELF_OBS_FILE) if backend_exists(SELF_OBS_FILE) else {}
+        except Exception:
+            _SELF_OBS = {}
+        if not isinstance(_SELF_OBS, dict):
+            _SELF_OBS = {}
+        _SELF_OBS.setdefault('sweeps', {})
+        _SELF_OBS.setdefault('errors', [])
+    return _SELF_OBS
+
+
+def _self_obs_mark(label, ok, exc=None):
+    """Record a maintenance-sweep outcome (last_ok on success; last_err + the
+    error ring on failure). Also usable as a general swallowed-error sink:
+    _self_obs_mark('some_context', False, exc)."""
+    global _SELF_OBS_LAST_FLUSH
+    try:
+        st = _self_obs_load()
+        now = int(time.time())
+        sw = st['sweeps'].setdefault(str(label), {})
+        _prev = sw.get('last_outcome')
+        sw['last_outcome'] = 'ok' if ok else 'err'   # unambiguous even at 1s resolution
+        if ok:
+            sw['last_ok'] = now
+            sw['ok_count'] = int(sw.get('ok_count', 0)) + 1
+        else:
+            msg = (f'{exc.__class__.__name__}: {exc}' if exc else 'error')[:300]
+            sw['last_err'] = now
+            sw['err'] = msg
+            sw['err_count'] = int(sw.get('err_count', 0)) + 1
+            st['errors'].append({'ts': now, 'ctx': str(label), 'err': msg})
+            del st['errors'][:-_SELF_OBS_MAX_ERRORS]
+        # Flush now on an error OR any state change (incl. recovery err→ok); else
+        # throttle steady-state ok→ok to keep the hot cadence cheap.
+        _changed = (_prev != sw['last_outcome'])
+        if (not ok) or _changed or (now - _SELF_OBS_LAST_FLUSH) >= 30:
+            _SELF_OBS_LAST_FLUSH = now
+            try:
+                save(SELF_OBS_FILE, st, non_blocking=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _record_self_error(context, exc):
+    """Public swallowed-error sink for any `except` that would otherwise vanish."""
+    _self_obs_mark(context, False, exc)
+
+
 def main():
     # v5.4.1 (keystone Stage A): reset per-request process-local state at the very
     # start. No-op under CGI (fresh process); the boundary a persistent app server
@@ -63491,7 +63595,9 @@ def main():
             return
         try:
             fn(*args)
+            _self_obs_mark(label, True)          # v6.2.3: last successful run
         except Exception as exc:
+            _self_obs_mark(label, False, exc)    # v6.2.3: last error + ring
             sys.stderr.write(
                 f"[remotepower] {label} failed: {exc.__class__.__name__}: {exc}\n")
             traceback.print_exc(file=sys.stderr)
