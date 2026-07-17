@@ -572,62 +572,130 @@ async function containersOpen(deviceId, name) {
 // abandoned ones to Docker. That's how people lose their Nextcloud data, so it
 // takes a typed confirmation — which the SERVER checks, because a browser-only
 // confirm is theatre when anything can POST to the API.
-const DOCKER_CLEANUP_SCOPES = [
-  { id: 'images',   label: 'Unused images',        hint: 'Re-pulled on next start' },
-  { id: 'cache',    label: 'Build cache',          hint: 'Rebuilt on next build' },
-  { id: 'networks', label: 'Unused networks',      hint: 'Re-created by compose up' },
-  { id: 'all',      label: 'All of the above',     hint: 'docker system prune -a — no volumes' },
-  { id: 'volumes',  label: 'Unused VOLUMES',       hint: 'DELETES DATA', destructive: true },
-  { id: 'full',     label: 'FULL — everything incl. volumes', hint: 'DELETES DATA', destructive: true },
+// v6.2.3: granular Docker cleanup — a CHECKBOX picker (each target independent)
+// + run-and-wait FEEDBACK that shows the real docker output (reclaimed space per
+// target, deleted volumes). Replaces the old "type a number 1–6" prompt that ran
+// silently. Targets mirror the server's _DOCKER_PRUNE_TARGETS; `df` label maps to
+// the `docker system df` bucket so each row shows what it will reclaim. 'images'
+// is prune -a on the server (all unused, not just dangling — the dangling-only
+// default reclaimed 0B and looked broken).
+const DOCKER_PRUNE_UI = [
+  { id: 'containers', label: 'Stopped containers', df: 'containers',    safe: true,  hint: 'Exited containers not part of a running stack' },
+  { id: 'images',     label: 'Unused images',      df: 'images',        safe: true,  hint: 'Every image no container uses — not just dangling layers' },
+  { id: 'cache',      label: 'Build cache',        df: 'build_cache',   safe: true,  hint: 'Rebuilt on the next build' },
+  { id: 'networks',   label: 'Unused networks',    df: null,            safe: true,  hint: 'Re-created by compose up' },
+  { id: 'volumes',    label: 'Unused volumes',     df: 'local_volumes', safe: false, hint: 'DELETES DATA in every volume no running container uses — including a stopped stack’s volumes' },
 ];
-const DOCKER_CLEANUP_CONFIRM = 'DELETE VOLUMES';
+const DOCKER_PRUNE_CONFIRM = 'DELETE VOLUMES';
+const _DOCKER_PRUNE_LBL = Object.fromEntries(DOCKER_PRUNE_UI.map(t => [t.id, t.label]));
+let _dockerDfByDev = {};   // deviceId → last `docker system df`, for per-row reclaimable sizes
+let _dockerPruneDev = null;
 
-async function pruneDocker(deviceId) {
-  const list = DOCKER_CLEANUP_SCOPES
-    .map((s, i) => `${i + 1}. ${s.label} — ${s.hint}`)
-    .join('\n');
-  const pick = await uiPrompt({
-    title: 'Clean up Docker',
-    message: 'What should be removed?\n\n' + list
-      + '\n\nOptions 1–4 only remove things Docker can recreate.\n'
-      + 'Options 5–6 DELETE THE DATA in every volume no running container '
-      + 'uses — including the volumes of a stack you have merely stopped.',
-    value: '4',
-    confirmText: 'Continue',
-  });
-  if (pick === null) return;
-  const scope = DOCKER_CLEANUP_SCOPES[parseInt(pick, 10) - 1];
-  if (!scope) { toast(`Pick a number from 1 to ${DOCKER_CLEANUP_SCOPES.length}`, 'error'); return; }
+// Open the checkbox picker for a host. `df` (optional) fills in the reclaimable
+// size next to each target.
+function pruneDocker(deviceId) {
+  _dockerPruneDev = deviceId;
+  const df = _dockerDfByDev[deviceId] || null;
+  const box = document.getElementById('docker-prune-choices');
+  if (!box) return;
+  box.innerHTML = DOCKER_PRUNE_UI.map(t => {
+    const b = t.df && df && df[t.df];
+    const recl = b ? String(b.reclaimable || '').split(' ')[0] : '';
+    const sizeTag = (recl && recl !== '0B')
+      ? ` — <span class="${t.safe ? 'c-muted' : 'c-amber'} fs-12">${escHtml(recl)} reclaimable</span>` : '';
+    return `<label class="click-row-6 mb-8">
+      <input type="checkbox" class="docker-prune-cb" value="${escAttr(t.id)}" ${t.safe ? 'checked' : ''} data-change="_dockerPruneSyncConfirm">
+      <span><strong>${escHtml(t.label)}</strong>${sizeTag}<br><span class="hint">${escHtml(t.hint)}</span></span>
+    </label>`;
+  }).join('');
+  document.getElementById('docker-prune-confirm-row').classList.add('d-none');
+  document.getElementById('docker-prune-confirm-input').value = '';
+  const res = document.getElementById('docker-prune-result');
+  res.classList.add('d-none'); res.innerHTML = '';
+  const runBtn = document.getElementById('docker-prune-run');
+  runBtn.disabled = false; runBtn.textContent = 'Prune'; runBtn.classList.remove('d-none');
+  document.getElementById('docker-prune-cancel').textContent = 'Cancel';
+  openModal('docker-prune-modal');
+}
 
-  const body = { scope: scope.id };
-  if (scope.destructive) {
-    const typed = await uiPrompt({
-      title: 'This deletes data',
-      message: `"${scope.label}" removes every Docker volume that no RUNNING `
-             + 'container references. Docker cannot tell an abandoned volume from '
-             + 'one belonging to a stack you stopped an hour ago — both look unused. '
-             + 'Databases, Nextcloud data, Paperless documents: gone, with no undo.\n\n'
-             + `Type ${DOCKER_CLEANUP_CONFIRM} to proceed.`,
-      placeholder: DOCKER_CLEANUP_CONFIRM,
-      confirmText: 'Delete',
-      danger: true,
-    });
-    if (typed === null) return;
-    if (String(typed).trim() !== DOCKER_CLEANUP_CONFIRM) {
-      toast('Not confirmed — nothing was removed', 'error');
-      return;
-    }
-    body.confirm = DOCKER_CLEANUP_CONFIRM;
+// The volumes checkbox reveals the typed-confirmation row (also enforced server-side).
+function _dockerPruneSyncConfirm() {
+  const volCb = document.querySelector('.docker-prune-cb[value="volumes"]');
+  const row = document.getElementById('docker-prune-confirm-row');
+  if (row) row.classList.toggle('d-none', !(volCb && volCb.checked));
+}
+
+async function dockerPruneRun() {
+  const targets = Array.from(document.querySelectorAll('.docker-prune-cb:checked')).map(c => c.value);
+  if (!targets.length) { toast('Pick at least one thing to prune', 'error'); return; }
+  const body = { targets, wait: true };
+  if (targets.includes('volumes')) {
+    const typed = (document.getElementById('docker-prune-confirm-input').value || '').trim();
+    if (typed !== DOCKER_PRUNE_CONFIRM) { toast(`Type ${DOCKER_PRUNE_CONFIRM} to remove volumes`, 'error'); return; }
+    body.confirm = DOCKER_PRUNE_CONFIRM;
   }
-  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/docker/prune`, body);
-  if (r && r.ok) toast(r.message || 'Cleanup queued', 'success');
-  else toast((r && r.error) || 'Failed to queue cleanup', 'error');
+  const runBtn = document.getElementById('docker-prune-run');
+  const res = document.getElementById('docker-prune-result');
+  runBtn.disabled = true; runBtn.textContent = 'Pruning…';
+  res.classList.remove('d-none');
+  res.innerHTML = `<div class="hint mt-8">Running on the host and waiting for the agent to report back…</div>`;
+  let r = null;
+  try { r = await api('POST', `/devices/${encodeURIComponent(_dockerPruneDev)}/docker/prune`, body); }
+  catch (e) { r = null; }
+  if (!r || r.error) {
+    res.innerHTML = `<div class="c-red mt-8">${escHtml((r && r.error) || 'Prune failed')}</div>`;
+    runBtn.disabled = false; runBtn.textContent = 'Prune';
+    return;
+  }
+  // Done — swap the primary button out, turn Cancel into Close.
+  runBtn.classList.add('d-none');
+  document.getElementById('docker-prune-cancel').textContent = 'Close';
+  res.innerHTML = r.timeout
+    ? `<div class="c-amber mt-8">${escHtml(r.message || 'Still running — the footprint will refresh shortly.')}</div>`
+    : _renderPruneResult(r.output);
+  // Refresh the footprint panel so the numbers reflect the reclaim.
+  if (typeof loadContainersOverview === 'function') loadContainersOverview();
+}
+
+// Turn the agent's raw docker output (with our @@RP:<target> markers) into a
+// tidy per-target reclaim table + total, with the full output foldable below.
+function _renderPruneResult(output) {
+  const text = (output && (output.output != null ? output.output : output.stdout)) || '';
+  const rc = output && typeof output.rc === 'number' ? output.rc : null;
+  const sections = {};
+  let cur = '_pre';
+  String(text).split('\n').forEach(line => {
+    const m = line.match(/^@@RP:(\w+)\s*$/);
+    if (m) { cur = m[1]; sections[cur] = []; return; }
+    (sections[cur] = sections[cur] || []).push(line);
+  });
+  let totalBytes = 0, rows = '';
+  DOCKER_PRUNE_UI.forEach(t => {
+    if (!sections[t.id]) return;
+    const seg = sections[t.id].join('\n');
+    const mm = seg.match(/Total reclaimed space:\s*([0-9.]+\s*[KMGTP]?i?B)/i);
+    const recl = mm ? mm[1].replace(/\s+/g, '') : '0B';
+    totalBytes += _parseSize(recl) || 0;
+    const delVols = /Deleted Volumes:/.test(seg)
+      ? (seg.split(/Deleted Volumes:/)[1] || '').split('\n').filter(l => l.trim() && !/Total reclaimed/i.test(l)).length
+      : 0;
+    const note = delVols ? ` <span class="c-amber fs-11">(${delVols} volume${delVols === 1 ? '' : 's'} deleted)</span>` : '';
+    rows += `<tr><td>${escHtml(_DOCKER_PRUNE_LBL[t.id] || t.id)}${note}</td><td class="ta-right">${escHtml(recl)}</td></tr>`;
+  });
+  const warn = (rc != null && rc !== 0)
+    ? `<div class="c-amber fs-12 mt-6">The agent reported a non-zero exit (${rc}) — see the full output.</div>` : '';
+  return `<div class="section-title mt-12">Result</div>
+    <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><tbody>${rows || '<tr><td class="hint">No output parsed</td></tr>'}</tbody></table></div>
+    <div class="mt-8"><strong>Total reclaimed: ${escHtml(_fmtSize(totalBytes))}</strong></div>
+    ${warn}
+    <details class="mt-8"><summary class="hint">Full output</summary><pre class="ff-mono fs-12 scroll-cap mt-6">${escHtml(String(text).trim())}</pre></details>`;
 }
 
 // v6.1.2: the `docker system df` panel — footprint by bucket, what a prune
 // would reclaim, and the biggest volumes.
 function _renderDockerDf(df, deviceId) {
   if (!df) return '';
+  _dockerDfByDev[deviceId] = df;   // so the prune picker can show per-target reclaimable sizes
   const LBL = { images: 'Images', containers: 'Containers',
                 local_volumes: 'Volumes', build_cache: 'Build cache' };
   const cells = Object.keys(LBL).filter(k => df[k]).map(k => {
@@ -656,7 +724,7 @@ function _renderDockerDf(df, deviceId) {
     <div class="section-header">
       <div class="section-title">Docker disk footprint</div>
       <button class="btn-icon" data-action="pruneDocker" data-arg="${escAttr(deviceId)}"
-              title="Queue an image + build-cache prune on this host. Never touches volumes.">Prune…</button>
+              title="Choose what to reclaim (images, cache, networks, containers, volumes) and see what each freed.">Prune…</button>
     </div>
     <div class="sysinfo-row">${cells}</div>
     ${vols.length ? `<div class="section-title mt-12">Largest volumes</div>

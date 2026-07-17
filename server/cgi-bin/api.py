@@ -32674,6 +32674,26 @@ _DOCKER_PRUNE_DESTRUCTIVE = {
 _DOCKER_PRUNE_CMDS = {**_DOCKER_PRUNE_SAFE, **_DOCKER_PRUNE_DESTRUCTIVE}
 _DOCKER_PRUNE_CONFIRM = 'DELETE VOLUMES'
 
+# v6.2.3: granular multi-target prune for the checkbox UI. Each id maps to ONE
+# docker prune verb and is selected independently (vs the legacy single `scope`,
+# still accepted below for back-compat). 'images' uses -a — the dangling-only
+# `docker image prune -f` reclaimed 0B on hosts whose unused images are tagged
+# (the #1 "prune did nothing" report); -a removes every image no container uses.
+# 'containers' (stopped containers) is newly exposed here — the legacy scopes
+# only reached it via `all`. Every command carries -f (the exec channel is
+# non-interactive; docker would otherwise block on its y/N prompt).
+_DOCKER_PRUNE_TARGETS = {
+    'containers': 'docker container prune -f',
+    'images':     'docker image prune -a -f',
+    'cache':      'docker builder prune -f',
+    'networks':   'docker network prune -f',
+    'volumes':    'docker volume prune -f',   # DESTRUCTIVE — deletes volume data
+}
+_DOCKER_PRUNE_TARGET_DESTRUCTIVE = frozenset({'volumes'})
+# Fixed order so the combined command + its @@RP: markers are deterministic
+# (safe things first, the data-deleting volume prune last).
+_DOCKER_PRUNE_TARGET_ORDER = ('containers', 'images', 'cache', 'networks', 'volumes')
+
 
 def handle_device_docker_prune(dev_id):
     """POST /api/devices/{id}/docker/prune — reclaim docker disk space.
@@ -32696,41 +32716,111 @@ def handle_device_docker_prune(dev_id):
     _rm_ok, _rm_err = request_models.validate(request_models.DockerPruneRequest, body)
     if not _rm_ok:
         respond(400, {'error': _rm_err})
-    scope = str(body.get('scope', 'all')).strip().lower()
-    if scope not in _DOCKER_PRUNE_CMDS:
-        respond(400, {'error': f'scope must be one of {list(_DOCKER_PRUNE_CMDS)}'})
+
+    # Two request shapes, both accepted:
+    #   NEW (checkbox UI): {targets: ['images','volumes',…], wait?, confirm?}
+    #   LEGACY:            {scope: 'images'|'all'|'full'|…, confirm?}
+    # `targets` wins when present. The command sent to the agent is built ONLY
+    # from the server-side whitelist maps — the request never contributes a raw
+    # command string, so there's no injection surface.
+    raw_targets = body.get('targets')
+    scope = str(body.get('scope', '') or '').strip().lower()
+    label = ''            # audit/summary label
+    destructive = False
+    marker_cmds = []      # [(target_id, cmd)] — markered so output is attributable
+
+    if isinstance(raw_targets, list) and raw_targets:
+        seen = set()
+        picked = []
+        for t in raw_targets:
+            t = str(t or '').strip().lower()
+            if t not in _DOCKER_PRUNE_TARGETS:
+                respond(400, {'error': f'unknown prune target "{t}"; '
+                                       f'valid: {list(_DOCKER_PRUNE_TARGETS)}'})
+            if t not in seen:
+                seen.add(t); picked.append(t)
+        # Canonical order so the command + markers are deterministic.
+        picked = [t for t in _DOCKER_PRUNE_TARGET_ORDER if t in seen]
+        marker_cmds = [(t, _DOCKER_PRUNE_TARGETS[t]) for t in picked]
+        destructive = bool(seen & _DOCKER_PRUNE_TARGET_DESTRUCTIVE)
+        label = 'targets=' + ','.join(picked)
+    elif scope:
+        if scope not in _DOCKER_PRUNE_CMDS:
+            respond(400, {'error': f'scope must be one of {list(_DOCKER_PRUNE_CMDS)}'})
+        marker_cmds = [(scope, _DOCKER_PRUNE_CMDS[scope])]
+        destructive = scope in _DOCKER_PRUNE_DESTRUCTIVE
+        label = f'scope={scope}'
+    else:
+        respond(400, {'error': 'select at least one thing to prune (targets or scope)'})
+
     # The typed confirmation is checked HERE, not in the browser. A UI-only
     # confirm is theatre: anything can POST to this endpoint.
-    if scope in _DOCKER_PRUNE_DESTRUCTIVE:
-        if str(body.get('confirm', '')).strip() != _DOCKER_PRUNE_CONFIRM:
-            respond(400, {
-                'error': f'scope "{scope}" deletes the data in every volume no '
-                         'running container references — including a stopped '
-                         "stack's volumes. Re-send with "
-                         f'confirm="{_DOCKER_PRUNE_CONFIRM}" to proceed.',
-                'requires_confirm': _DOCKER_PRUNE_CONFIRM,
-            })
+    if destructive and str(body.get('confirm', '')).strip() != _DOCKER_PRUNE_CONFIRM:
+        respond(400, {
+            'error': 'removing volumes deletes the data in every volume no '
+                     'running container references — including a stopped '
+                     "stack's volumes. Re-send with "
+                     f'confirm="{_DOCKER_PRUNE_CONFIRM}" to proceed.',
+            'requires_confirm': _DOCKER_PRUNE_CONFIRM,
+        })
+
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
     if not dev or not _tenant_visible(dev):
         respond(404, {'error': 'Device not found'})
     if dev.get('agentless'):
         respond(400, {'error': 'cannot run docker on an agentless device'})
-    cmd_payload = 'exec:' + _DOCKER_PRUNE_CMDS[scope]
+
+    # Join with `;` (not `&&`) so every selected prune runs even when an earlier
+    # one has nothing to reclaim; an `echo @@RP:<target>` marker before each lets
+    # the UI attribute each "Total reclaimed space:" line back to its checkbox.
+    shell_cmd = '; '.join(f'echo @@RP:{t}; {cmd}' for t, cmd in marker_cmds)
+    cmd_payload = 'exec:' + shell_cmd
+    wait = bool(body.get('wait'))
+
+    audit_log(actor, 'docker_prune',
+              detail=f'device={dev_id} {label}'
+                     + (' DESTRUCTIVE' if destructive else ''))
+    fire_webhook('command_queued', {
+        'device_id': dev_id, 'name': dev.get('name', dev_id),
+        'command': cmd_payload, 'actor': actor,
+    })
+
+    if wait:
+        # Run-and-wait: queue into the longpoll slot so the agent's next
+        # heartbeat resolves it with the real docker output (reclaimed space,
+        # deleted volumes). Same mechanism as the file-manager round-trip.
+        lp = load(LONGPOLL_FILE)
+        lp[dev_id] = {'cmd': shell_cmd, 'ready': False, 'output': None,
+                      'ts': int(time.time())}
+        save(LONGPOLL_FILE, lp)
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            cmds.setdefault(dev_id, [])
+            cmds[dev_id].append(cmd_payload)
+        log_command(actor, dev_id, dev.get('name', dev_id), f'exec(wait):{shell_cmd[:60]}')
+        try:
+            timeout = max(10, min(int(body.get('timeout', 90) or 90), 120))
+        except (ValueError, TypeError):
+            timeout = 90
+        status, output = _longpoll_wait(dev_id, timeout)
+        if status == 'ok':
+            respond(200, {'ok': True, 'output': output, 'destructive': destructive,
+                          'label': label})
+        if status == 'shutdown':
+            respond(503, {'ok': False, 'shutdown': True,
+                          'message': 'Server is restarting — the prune is queued and '
+                                     'will run; the footprint will refresh shortly.'})
+        respond(200, {'ok': True, 'timeout': True, 'destructive': destructive,
+                      'message': 'Prune queued — the agent had not reported back within '
+                                 'the wait window. It runs on the next heartbeat; the '
+                                 'footprint will refresh then.'})
+
     with _LockedUpdate(CMDS_FILE) as cmds:
         cmds.setdefault(dev_id, [])
         if cmd_payload not in cmds[dev_id]:
             cmds[dev_id].append(cmd_payload)
     log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
-    audit_log(actor, 'docker_prune',
-              detail=f'device={dev_id} scope={scope}'
-                     + (' DESTRUCTIVE' if scope in _DOCKER_PRUNE_DESTRUCTIVE else ''))
-    fire_webhook('command_queued', {
-        'device_id': dev_id, 'name': dev.get('name', dev_id),
-        'command': cmd_payload, 'actor': actor,
-    })
-    respond(200, {'ok': True, 'queued': cmd_payload, 'scope': scope,
-                  'destructive': scope in _DOCKER_PRUNE_DESTRUCTIVE,
+    respond(200, {'ok': True, 'queued': cmd_payload, 'destructive': destructive,
                   'message': 'Cleanup queued — it runs on the next heartbeat.'})
 
 

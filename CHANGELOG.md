@@ -93,6 +93,15 @@ code, and de-duplicated docs.
 - **Windows agent honours "Scan now" for the secrets scan** (the one-shot
   `force_secrets_scan` flag — Linux/macOS already did), and the Exposed-secrets
   page gains a **Scan now** button for the endpoint that was API-only.
+- **Docker cleanup is a proper picker with real feedback.** The Containers
+  "Prune…" button now opens a checkbox modal — stopped containers, unused
+  images, build cache, unused networks, unused volumes — each showing what it
+  will reclaim, instead of a "type a number 1–6" prompt. It waits for the host
+  and shows the actual result (reclaimed space per target, deleted volumes, a
+  total) rather than a silent "queued". "Unused images" now prunes all unused
+  images, not just dangling layers (the old default reclaimed 0 B on most
+  hosts); volumes still require typing `DELETE VOLUMES` (checked server-side);
+  and an empty request no longer defaults to a full system prune.
 
 ### Security
 

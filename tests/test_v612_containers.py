@@ -150,6 +150,107 @@ class TestDockerPrune(unittest.TestCase):
         self.assertIn("'/docker/prune'", src)
 
 
+class TestDockerPruneGranular(unittest.TestCase):
+    """v6.2.3: the checkbox UI sends `targets` (list) + `wait`; each maps to ONE
+    whitelisted docker prune verb, the command is built server-side, and volumes
+    still require the typed confirmation (checked here, not in the browser)."""
+
+    def setUp(self):
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}})
+        api.save(api.CMDS_FILE, {})
+        api._LOAD_CACHE.clear()
+        # Stub auth/identity + the request body; capture respond().
+        self._body = {}
+        self._orig = {
+            "require_perm": api.require_perm,
+            "method": api.method,
+            "get_json_obj": api.get_json_obj,
+            "respond": api.respond,
+            "audit_log": api.audit_log,
+            "fire_webhook": api.fire_webhook,
+            "log_command": api.log_command,
+        }
+        api.require_perm = lambda *a, **k: "tester"
+        api.method = lambda: "POST"
+        api.get_json_obj = lambda: self._body
+        api.audit_log = lambda *a, **k: None
+        api.fire_webhook = lambda *a, **k: None
+        api.log_command = lambda *a, **k: None
+        self._resp = {}
+
+        def _cap(status, data=None):
+            self._resp = {"status": status, "data": data or {}}
+            raise api.HTTPError(status, data or {})
+        api.respond = _cap
+
+    def tearDown(self):
+        for k, v in self._orig.items():
+            setattr(api, k, v)
+
+    def _run(self, body):
+        self._body = body
+        try:
+            api.handle_device_docker_prune("d1")
+        except api.HTTPError:
+            pass
+        return self._resp
+
+    def _queued(self):
+        return api.load(api.CMDS_FILE).get("d1", [])
+
+    def test_targets_build_one_markered_command(self):
+        r = self._run({"targets": ["images", "cache"]})
+        self.assertEqual(r["status"], 200)
+        cmds = self._queued()
+        self.assertEqual(len(cmds), 1)
+        cmd = cmds[0]
+        # images uses -a (the real-reclaim fix), each target is markered.
+        self.assertIn("@@RP:images; docker image prune -a -f", cmd)
+        self.assertIn("@@RP:cache; docker builder prune -f", cmd)
+
+    def test_targets_are_emitted_in_canonical_order(self):
+        # Request order shouldn't matter — the command is deterministic.
+        self._run({"targets": ["volumes", "images"], "confirm": api._DOCKER_PRUNE_CONFIRM})
+        cmd = self._queued()[0]
+        self.assertLess(cmd.index("@@RP:images"), cmd.index("@@RP:volumes"))
+
+    def test_volumes_target_requires_typed_confirmation(self):
+        r = self._run({"targets": ["images", "volumes"]})
+        self.assertEqual(r["status"], 400)
+        self.assertEqual(r["data"].get("requires_confirm"), api._DOCKER_PRUNE_CONFIRM)
+        self.assertEqual(self._queued(), [])   # nothing queued without confirm
+
+    def test_volumes_target_with_confirmation_queues(self):
+        r = self._run({"targets": ["volumes"], "confirm": api._DOCKER_PRUNE_CONFIRM})
+        self.assertEqual(r["status"], 200)
+        self.assertIn("docker volume prune -f", self._queued()[0])
+
+    def test_unknown_target_is_rejected(self):
+        r = self._run({"targets": ["images", "rootfs"]})
+        self.assertEqual(r["status"], 400)
+        self.assertEqual(self._queued(), [])
+
+    def test_legacy_scope_still_works(self):
+        r = self._run({"scope": "all"})
+        self.assertEqual(r["status"], 200)
+        self.assertIn("docker system prune -a -f", self._queued()[0])
+
+    def test_empty_request_is_rejected(self):
+        r = self._run({})
+        self.assertEqual(r["status"], 400)
+
+    def test_no_operator_string_reaches_the_shell(self):
+        # Every command fragment must come from the server whitelist only.
+        self._run({"targets": ["containers", "images", "cache", "networks"]})
+        cmd = self._queued()[0]
+        self.assertTrue(cmd.startswith("exec:"))
+        for frag in cmd[len("exec:"):].split(";"):
+            frag = frag.strip()
+            if frag.startswith("echo @@RP:"):
+                continue
+            self.assertIn(frag, set(api._DOCKER_PRUNE_TARGETS.values()))
+
+
 class TestScheduledContainerActions(unittest.TestCase):
     def setUp(self):
         api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}})

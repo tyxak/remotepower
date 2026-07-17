@@ -259,9 +259,18 @@ if _AVAILABLE:
         model_config = ConfigDict(extra='ignore')
         scope: str = 'all'
         confirm: str = ''
+        # v6.2.3: checkbox UI sends a `targets` list (validated against
+        # _DOCKER_PRUNE_TARGETS in the handler) and `wait` for run-and-wait
+        # feedback. `targets` is Any so a non-list can't 400 a body the handler
+        # already tolerates (it isinstance-checks and falls back to scope).
+        targets: Any = None
+        wait: bool = False
+        timeout: int = 90
 
         _v_scope = field_validator('scope', mode='before')(_coerce_str_loose)
         _v_confirm = field_validator('confirm', mode='before')(_coerce_str_loose)
+        _v_wait = field_validator('wait', mode='before')(_coerce_bool_loose)
+        _v_timeout = field_validator('timeout', mode='before')(_coerce_int_or(90))
 
     # ── v6.1.2 full-adoption sweep ───────────────────────────────────────────
     # Every body-reading handler gets a superset model (all-optional loose

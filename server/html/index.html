@@ -7976,6 +7976,22 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-primary" id="ui-prompt-confirm" data-action="_uiPromptOk">OK</button>
   </div>
 </div></div>
+
+<!-- v6.2.3: Docker cleanup — checkbox target picker + run-and-wait result -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="docker-prune-title" id="docker-prune-modal"><div class="modal">
+  <div class="modal-title" id="docker-prune-title">Clean up Docker</div>
+  <div class="modal-subtitle" id="docker-prune-sub">Choose what to reclaim. The first four only remove things Docker can recreate; volumes delete data.</div>
+  <div id="docker-prune-choices" class="scroll-cap"></div>
+  <div class="form-group d-none" id="docker-prune-confirm-row">
+    <label class="form-label" for="docker-prune-confirm-input">Removing volumes deletes data in every volume no running container uses — type <code>DELETE VOLUMES</code> to allow it</label>
+    <input type="text" id="docker-prune-confirm-input" class="form-input ff-mono" autocomplete="off" placeholder="DELETE VOLUMES" aria-label="Type DELETE VOLUMES to confirm">
+  </div>
+  <div id="docker-prune-result" class="d-none"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="docker-prune-modal" id="docker-prune-cancel">Cancel</button>
+    <button class="btn-primary" id="docker-prune-run" data-action="dockerPruneRun">Prune</button>
+  </div>
+</div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dns-record-title" id="dns-record-modal"><div class="modal">
   <div class="modal-title" id="dns-record-title">New record</div>
   <div class="modal-subtitle" id="dns-record-zone"></div>

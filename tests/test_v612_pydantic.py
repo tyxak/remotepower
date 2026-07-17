@@ -156,11 +156,21 @@ class TestConvertedHandlersKeepBehaviour(unittest.TestCase):
             pass
         self.assertEqual(self.cap['s'], 400)
 
-    def test_docker_prune_defaults_scope_and_reads_confirm(self):
+    def test_docker_prune_reads_scope_and_requires_a_selection(self):
+        # v6.2.3: an EMPTY body used to default to a full `system prune -a`; it
+        # now 400s (an accidental empty POST must not prune the whole host —
+        # the checkbox UI always sends explicit targets/scope). An explicit
+        # legacy scope still works unchanged.
         self.api.require_perm = lambda *a, **k: 'admin'
         self.api._validate_id = lambda x: True
         self.api.save(self.api.DEVICES_FILE, {'d1': {'name': 'n', 'token': 't'}})
-        self.api.get_json_obj = lambda: {}   # no scope -> defaults to 'all' (safe)
+        self.api.get_json_obj = lambda: {}
+        try:
+            self.api.handle_device_docker_prune('d1')
+        except self.api.HTTPError:
+            pass
+        self.assertEqual(self.cap['s'], 400)
+        self.api.get_json_obj = lambda: {'scope': 'images'}
         try:
             self.api.handle_device_docker_prune('d1')
         except self.api.HTTPError:
