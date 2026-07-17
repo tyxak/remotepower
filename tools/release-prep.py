@@ -5,7 +5,7 @@ Subcommands (all DRY-RUN by default; pass --apply AFTER the subcommand to
 actually edit files; --root points at an alternate repo tree, used by tests):
 
   bump vX.Y.Z ["Codename"]   version-bump checklist mechanical items
-  prune                      docs keep-5 / security-review keep-3 + link scan
+  prune                      version-docs keep-3 / security-review keep-3 + link scan
   counts                     refresh drifting counts (lines / connectors / events)
   verify                     run the checklist greps, print PASS/FAIL
 
@@ -23,9 +23,9 @@ from pathlib import Path
 
 VER_RE = r'\d+\.\d+\.\d+'
 EMDASH = '—'
-KEEP_VERSION_DOCS = 5
+KEEP_VERSION_DOCS = 3       # docs/vX.Y.Z.md — keep 3 (was 5; policy changed 2026-07-13)
 KEEP_REVIEW_DOCS = 3
-KEEP_RECENT_RELEASES = 5
+KEEP_RECENT_RELEASES = 5    # README "Recent releases" + docs/README index stay keep-5
 
 # Files scanned for links to pruned docs (CLAUDE.md docs-housekeeping rule).
 LINK_SCAN_FILES = ('README.md', 'docs/README.md', 'docs/features.md',
@@ -228,7 +228,8 @@ class Pruner(Concern):
 
     def run(self):
         self.mode_line()
-        print('== prune (docs keep-5 / reviews keep-3)')
+        print('== prune (version docs keep-3 / reviews keep-3; '
+              'README + docs/README index keep-5)')
         deleted_versions = self._prune_set(
             r'v(\d+\.\d+\.\d+)\.md$', KEEP_VERSION_DOCS, 'version docs')
         deleted_reviews = self._prune_set(
@@ -345,13 +346,13 @@ class Pruner(Concern):
                 i = j
             else:
                 i += 1
-        if len(blocks) <= KEEP_VERSION_DOCS:
+        if len(blocks) <= KEEP_RECENT_RELEASES:
             print(f'docs/README.md: release index has {len(blocks)} '
-                  f'entr(ies) (<= {KEEP_VERSION_DOCS}), nothing to trim')
+                  f'entr(ies) (<= {KEEP_RECENT_RELEASES}), nothing to trim')
             return
         keep = set(id(b) for b in
                    sorted(blocks, key=lambda b: b[2],
-                          reverse=True)[:KEEP_VERSION_DOCS])
+                          reverse=True)[:KEEP_RECENT_RELEASES])
         dead_ranges = [(s, e) for b in blocks if id(b) not in keep
                        for s, e in (b[:2],)]
         for s, e in dead_ranges:
@@ -362,7 +363,7 @@ class Pruner(Concern):
         new = [ln for i, ln in enumerate(lines) if i not in dead_lines]
         self.write_text(path, ''.join(new),
                         f'trim release index {len(blocks)} '
-                        f'→ {KEEP_VERSION_DOCS} entries')
+                        f'→ {KEEP_RECENT_RELEASES} entries')
 
 
 # --------------------------------------------------------------------------
@@ -503,7 +504,7 @@ class Verifier(Concern):
         docs = self.root / 'docs'
         vdocs = [p for p in docs.glob('v*.md')
                  if re.fullmatch(rf'v{VER_RE}\.md', p.name)]
-        self.check(len(vdocs) <= KEEP_VERSION_DOCS, 'docs-keep-5',
+        self.check(len(vdocs) <= KEEP_VERSION_DOCS, 'docs-keep-3',
                    f'{len(vdocs)} docs/vX.Y.Z.md (cap {KEEP_VERSION_DOCS})')
         reviews = [p for p in docs.glob('security-review-*.md')
                    if '-internal' not in p.name]
@@ -593,7 +594,7 @@ def main(argv=None):
     b.add_argument('version', help='new version, e.g. v5.7.0')
     b.add_argument('codename', nargs='?', help='release codename')
     sub.add_parser('prune', parents=[common],
-                   help='docs keep-5 / security-review keep-3 + link scan')
+                   help='version-docs keep-3 / security-review keep-3 + link scan')
     sub.add_parser('counts', parents=[common],
                    help='refresh line / connector / webhook-event counts')
     sub.add_parser('verify', parents=[common],

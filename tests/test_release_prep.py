@@ -86,8 +86,8 @@ def build_fixture(root: Path):
         f'# Changelog\n\n## v5.6.0 {EM} "HeapMatters" {EM} 2026-07-01\n\n'
         '- stuff\n')
 
-    # 7 version docs (prune → delete 2 oldest), 4 public reviews (delete 1),
-    # one -internal review that must never be touched.
+    # 7 version docs (keep-3 → delete 4 oldest), 4 public reviews (keep-3 →
+    # delete 1), one -internal review that must never be touched.
     for i in range(7):
         (root / f'docs/v5.{i}.0.md').write_text(f'# v5.{i}.0\n')
     for v in ('5.2.0', '5.3.0', '5.5.0', '5.6.0'):
@@ -208,19 +208,20 @@ class TestPrune(FixtureCase):
     def test_dry_run_deletes_nothing_and_reports(self):
         rc, out = run(self.root_args('prune'))
         self.assertEqual(rc, 1, 'pending work → non-zero')
-        for f in ('docs/v5.0.0.md', 'docs/v5.1.0.md',
-                  'docs/security-review-5.2.0.md'):
+        for f in ('docs/v5.0.0.md', 'docs/v5.1.0.md', 'docs/v5.2.0.md',
+                  'docs/v5.3.0.md', 'docs/security-review-5.2.0.md'):
             self.assertTrue((self.tmp / f).exists())
             self.assertIn(f'{f}: DELETE', out)
-        self.assertNotIn('v5.2.0.md: DELETE', out)
+        # keep-3 → v5.4.0 and newer are kept
+        self.assertNotIn('v5.4.0.md: DELETE', out)
         self.assertNotIn('internal', out.replace('-internal.md', ''))
 
     def test_apply_prunes_and_repoints(self):
         rc, out = run(self.root_args('prune', apply=True))
-        # keep-5 version docs / keep-3 public reviews
-        self.assertFalse((self.tmp / 'docs/v5.0.0.md').exists())
-        self.assertFalse((self.tmp / 'docs/v5.1.0.md').exists())
-        for i in range(2, 7):
+        # keep-3 version docs / keep-3 public reviews
+        for i in range(0, 4):
+            self.assertFalse((self.tmp / f'docs/v5.{i}.0.md').exists())
+        for i in range(4, 7):
             self.assertTrue((self.tmp / f'docs/v5.{i}.0.md').exists())
         self.assertFalse(
             (self.tmp / 'docs/security-review-5.2.0.md').exists())
@@ -301,7 +302,7 @@ class TestVerify(FixtureCase):
         self.assertEqual(rc, 0, out)
         self.assertNotIn('FAIL', out)
         for name in ('features-md-purity', 'agent-extensionless-sync',
-                     'docs-keep-5', 'reviews-keep-3',
+                     'docs-keep-3', 'reviews-keep-3',
                      'readme-recent-releases', 'index-cache-bust',
                      'changelog-top-header', 'version-consistency'):
             self.assertIn(f'PASS: {name}', out)
@@ -332,7 +333,7 @@ class TestVerify(FixtureCase):
         rc, out = run(self.root_args('verify'))
         self.assertEqual(rc, 1)
         for name in ('features-md-purity', 'agent-extensionless-sync',
-                     'docs-keep-5', 'index-cache-bust',
+                     'docs-keep-3', 'index-cache-bust',
                      'changelog-top-header'):
             self.assertIn(f'FAIL: {name}', out)
         self.assertIn('stale ?v= versions: 5.5.0', out)
