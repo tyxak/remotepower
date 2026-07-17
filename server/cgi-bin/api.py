@@ -1090,6 +1090,21 @@ for _wl_name in (
 ):
     globals()[_wl_name] = getattr(webhook_log_handlers_mod, _wl_name)
 del _wl_name
+
+# Per-device SSH management for agentless devices (SSH config + Synology DSM
+# upgrade over SSH). Same private-instance loader. DEVICES_FILE stays in api.py,
+# read via A.; the ssh_exec REST-less client is imported per-call in the module.
+_sd_spec = _tk_ilu.spec_from_file_location(
+    'ssh_device_handlers', Path(__file__).parent / 'ssh_device_handlers.py')
+ssh_device_handlers_mod = _tk_ilu.module_from_spec(_sd_spec)
+_sd_spec.loader.exec_module(ssh_device_handlers_mod)
+ssh_device_handlers_mod.bind(globals())
+for _sd_name in (
+        '_ssh_target', '_ssh_redacted', 'handle_device_ssh',
+        'handle_device_synology_upgrade',
+):
+    globals()[_sd_name] = getattr(ssh_device_handlers_mod, _sd_name)
+del _sd_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -53750,123 +53765,6 @@ def handle_image_ignore_remove():
         save(IMAGE_IGNORE_FILE, ignores)
         audit_log(actor, 'image_ignore_remove', detail=ref)
     respond(200, {'ok': True})
-
-
-# ─── v3.4.0: SSH exec for agentless devices (Synology DSM upgrade) ──────────
-# Agentless devices have no RemotePower agent. Some jobs have no management
-# API either — a Synology can't trigger its own DSM upgrade via SNMP — but
-# root SSH can. This is a deliberately tiny, gated surface: per-device SSH
-# creds (write-only password OR private key) and ONE built-in action,
-# synology_upgrade, which runs the shipped DSM upgrade+reboot script over SSH.
-# admin-only + audited + per-device opt-in. The exec lives in ssh_exec.py.
-
-def _ssh_target(dev):
-    """{host, user, port, password, key} for an SSH-enabled device, or None."""
-    cfg = dev.get('ssh') or {}
-    if not cfg.get('enabled'):
-        return None
-    host = dev.get('ip') or dev.get('hostname') or dev.get('host')
-    if not host:
-        return None
-    if not (cfg.get('password') or cfg.get('private_key')):
-        return None
-    return {
-        'host':     host,
-        'user':     cfg.get('username') or 'root',
-        'port':     int(cfg.get('port') or 22),
-        'password': cfg.get('password') or None,
-        'key':      cfg.get('private_key') or None,
-    }
-
-
-def _ssh_redacted(dev):
-    cfg = dev.get('ssh') or {}
-    return {
-        'enabled':      bool(cfg.get('enabled')),
-        'username':     cfg.get('username') or 'root',
-        'port':         int(cfg.get('port') or 22),
-        'has_password': bool(cfg.get('password')),
-        'has_key':      bool(cfg.get('private_key')),
-    }
-
-
-def handle_device_ssh(dev_id):
-    """GET /api/devices/<id>/ssh — redacted SSH config. PATCH — admin; save
-    {enabled, username, port, password, private_key} (empty password/key
-    preserves the stored one). For agentless management actions over SSH."""
-    if not _validate_id(dev_id):
-        respond(400, {'error': 'invalid device id'})
-    devs = load(DEVICES_FILE)
-    if dev_id not in devs:
-        respond(404, {'error': 'device not found'})
-    m = method()
-    if m == 'GET':
-        require_auth()
-        respond(200, {'config': _ssh_redacted(devs[dev_id])})
-    elif m == 'PATCH':
-        actor = require_admin_auth()
-        body = _read_valid(request_models.DeviceSshRequest)
-        with _LockedUpdate(DEVICES_FILE) as store:
-            dev = store.get(dev_id) or {}
-            sc = dict(dev.get('ssh') or {})
-            if 'enabled' in body:
-                sc['enabled'] = bool(body['enabled'])
-            if 'username' in body:
-                sc['username'] = _sanitize_str(str(body['username']), 64) or 'root'
-            if 'port' in body:
-                try:
-                    p = int(body['port'])
-                    if 1 <= p <= 65535:
-                        sc['port'] = p
-                except (TypeError, ValueError):
-                    respond(400, {'error': 'port must be 1..65535'})
-            if 'password' in body:
-                pw = str(body['password'])
-                if pw:                       # empty preserves existing
-                    sc['password'] = pw[:256]
-            if 'private_key' in body:
-                k = str(body['private_key'])
-                if k:                        # empty preserves existing
-                    sc['private_key'] = k[:8192]
-            if sc.get('enabled') and not (sc.get('password') or sc.get('private_key')):
-                respond(400, {'error': 'an SSH key or password is required when SSH is enabled'})
-            dev['ssh'] = sc
-            store[dev_id] = dev
-        audit_log(actor, 'device_ssh_config',
-                  f'dev={dev_id} enabled={sc.get("enabled")} user={sc.get("username")}')
-        respond(200, {'ok': True, 'config': _ssh_redacted({'ssh': sc})})
-    else:
-        respond(405, {'error': 'Method not allowed'})
-
-
-def handle_device_synology_upgrade(dev_id):
-    """POST /api/devices/<id>/synology/upgrade — SSH in and launch the DSM
-    upgrade + reboot. admin-only, audited, gated on the SSH opt-in."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(400, {'error': 'invalid device id'})
-    dev = device_get(dev_id)
-    if not dev:
-        respond(404, {'error': 'device not found'})
-    tgt = _ssh_target(dev)
-    if not tgt:
-        respond(403, {'error': 'SSH not enabled/configured on this device. '
-                               'Add SSH credentials first.'})
-    import ssh_exec
-    audit_log(actor, 'device_synology_upgrade',
-              f'dev={dev_id} host={tgt["host"]} user={tgt["user"]}')
-    try:
-        res = ssh_exec.synology_upgrade(tgt['host'], tgt['user'], tgt['port'],
-                                        password=tgt['password'], key=tgt['key'])
-    except ssh_exec.SshError as e:
-        respond(502, {'error': str(e)[:300]})
-    except Exception as e:
-        respond(502, {'error': f'{type(e).__name__}: {e}'[:300]})
-    if not res.get('ok'):
-        respond(502, {'error': res.get('error', 'upgrade failed to start')})
-    respond(200, res)
 
 
 def handle_device_snmp(dev_id):
