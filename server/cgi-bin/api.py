@@ -57881,6 +57881,55 @@ def handle_import_monitors():
                   'added': added, 'unmapped': result['unmapped']})
 
 
+def _host_world_exposed_ports(dev):
+    """The device's listening ports bound to a world-reachable address."""
+    si = dev.get('sysinfo') or {}
+    return [p for p in (si.get('listening_ports') or [])
+            if isinstance(p, dict) and p.get('scope') == 'world' and p.get('port')]
+
+
+def handle_cve_exposure_ranked():
+    """GET /api/cve/exposure-ranked — hosts ranked by real exploitability: their
+    critical/high CVE counts WEIGHTED by whether the host has world-reachable
+    listening ports. A critical CVE on a world-exposed host is far more urgent than
+    the same CVE on a loopback-only service — this combines the two datasets the CVE
+    and Exposure pages hold separately into one 'fix this first' order. Tenant/
+    scope-safe (a fleet aggregate; filtered like the others)."""
+    require_auth()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    findings_all = load(CVE_FINDINGS_FILE) or {}
+    rows = []
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        rec = findings_all.get(dev_id) or {}
+        findings = [f for f in (rec.get('findings') or [])
+                    if isinstance(f, dict) and not f.get('ignored')]
+        if not findings:
+            continue
+        crit = sum(1 for f in findings if f.get('severity') == 'critical')
+        high = sum(1 for f in findings if f.get('severity') == 'high')
+        fixable = sum(1 for f in findings if str(f.get('fixed_version') or '').strip())
+        exposed = _host_world_exposed_ports(dev)
+        wx = bool(exposed)
+        # A critical on a world-exposed host dominates the order; a fixable one
+        # outranks an unfixable one at the same severity.
+        score = crit * (10 if wx else 1) + high * (3 if wx else 0.5) + min(fixable, 50) * 0.05
+        rows.append({
+            'device_id': dev_id, 'device_name': dev.get('name', dev_id),
+            'critical': crit, 'high': high, 'fixable': fixable,
+            'world_exposed': wx,
+            'exposed_ports': sorted({f"{p.get('proto', 'tcp')}/{p.get('port')}" for p in exposed})[:12],
+            'score': round(score, 2),
+            'monitored': dev.get('monitored', True) is not False,
+        })
+    rows.sort(key=lambda r: (-r['score'], -r['critical'], r['device_name']))
+    respond(200, {
+        'hosts': rows, 'total': len(rows),
+        'exposed_with_critical': sum(1 for r in rows if r['world_exposed'] and r['critical']),
+    })
+
+
 def handle_cve_findings():
     """GET /api/cve/findings — aggregate CVE report across all devices."""
     require_auth()
@@ -62490,6 +62539,7 @@ def _build_exact_routes():
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
+        ('GET', '/api/cve/exposure-ranked'): handle_cve_exposure_ranked,   # v6.2.3
         ('POST', '/api/cve/refresh-feeds'): handle_cve_refresh_feeds,   # v3.14.0 KEV/EPSS
         ('GET', '/api/cve/ignore'): handle_cve_ignore_list,
         ('POST', '/api/cve/ignore'): handle_cve_ignore_add,

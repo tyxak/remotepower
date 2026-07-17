@@ -11,6 +11,33 @@ function renderCveSeverityRow(severities, current) {
   }).join('');
 }
 
+// v6.2.3: exposure-weighted CVE ranking — hosts ordered by exploitability.
+async function openCveExposure() {
+  const el = document.getElementById('cve-exp-body');
+  if (el) el.innerHTML = '<div class="empty-state">Loading…</div>';
+  openModal('cve-exposure-modal');
+  const d = await api('GET', '/cve/exposure-ranked').catch(() => null);
+  if (!el) return;
+  if (!d || d.error) { el.innerHTML = '<div class="c-red">' + escHtml((d && d.error) || 'Failed to load') + '</div>'; return; }
+  const hosts = d.hosts || [];
+  if (!hosts.length) { el.innerHTML = '<div class="empty-state">No hosts with open CVEs.</div>'; return; }
+  const trs = hosts.map((h, i) => {
+    const exp = h.world_exposed
+      ? `<span class="badge badge-crit" title="${escAttr((h.exposed_ports || []).join(', '))}">EXPOSED</span>`
+      : '<span class="c-muted fs-12">internal</span>';
+    return `<tr><td class="ta-center hint">${i + 1}</td>`
+      + `<td class="fw-500">${escHtml(h.device_name)}</td>`
+      + `<td>${exp}</td>`
+      + `<td class="ta-center c-red">${h.critical}</td>`
+      + `<td class="ta-center">${h.high}</td>`
+      + `<td class="ta-center hint">${h.fixable} fixable</td>`
+      + `<td class="ta-center fw-500">${h.score}</td></tr>`;
+  }).join('');
+  el.innerHTML =
+    `<div class="hint mb-8">${d.exposed_with_critical} world-exposed host(s) carry a critical CVE — patch these first.</div>`
+    + `<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>#</th><th>Host</th><th>Reach</th><th>Crit</th><th>High</th><th>Fixable</th><th>Score</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+}
+
 async function loadCVEReport() {
   _registerCveTable();
   const tbody = document.getElementById('cve-tbody');

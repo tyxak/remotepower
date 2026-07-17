@@ -71,3 +71,12 @@ Generate a Software Bill of Materials per host or for the whole fleet:
 - Viewing findings and SBOMs needs normal authentication.
 - Running scans, re-alerting, refreshing feeds and ignoring CVEs are
   **admin-only**. Every scan/ignore is audit-logged.
+
+## Exposure priority
+
+**Exposure priority** (CVE-page button) ranks hosts by *real exploitability*: each
+host's critical/high CVE counts are weighted by whether it has **world-reachable
+listening ports** (`scope: world` on the Exposure page). A critical CVE on an
+internet-exposed host outranks more criticals sitting behind a firewall, so the
+list is a "patch this first" order rather than a raw count. Served by
+`GET /api/cve/exposure-ranked` (tenant/scope-filtered).

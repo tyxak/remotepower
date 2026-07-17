@@ -6163,6 +6163,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Package vulnerabilities per device, via <a href="https://osv.dev" target="_blank" class="c-accent">OSV.dev</a> — scan checks installed packages against known CVEs. <a href="docs/cve.md" class="c-accent">Documentation</a></div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadCVEReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="openCveExposure" title="Rank hosts by real exploitability: critical CVEs weighted by whether the host has world-reachable ports"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg> Exposure priority</button>
           <button class="btn-icon" data-action="aiInsight" data-arg="prioritise_cves" title="AI: prioritise which CVEs to patch first, and why"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI prioritise</button>
           <button class="btn-primary mw-200" id="btn-trigger-cve-scan" data-action-btn="triggerCVEScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-99336aa6"/></svg> Scan all devices</button>
           <button class="btn-icon" data-action="cveRealert" title="Re-raise alerts for the current CVE backlog — cve_found is edge-triggered, so already-known CVEs don't re-alert after you clear them"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-d5d1e09c"/></svg> Re-alert backlog</button>
@@ -8563,6 +8564,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-secondary" data-action="closeModal" data-arg="baseline-checks-modal">Cancel</button>
     <button class="btn-primary" id="bc-apply-btn" data-action="applyBaselineChecks">Apply selected</button>
   </div>
+</div></div>
+
+<!-- v6.2.3: Exposure-weighted CVE ranking -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-exp-title" id="cve-exposure-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="cve-exp-title">Exposure priority</div>
+  <div class="modal-subtitle">Hosts ranked by real exploitability — critical/high CVE counts weighted by whether the host has world-reachable listening ports. A critical on an internet-exposed host outranks more criticals behind a firewall, so this is the "patch this first" order rather than a raw count.</div>
+  <div id="cve-exp-body"><div class="empty-state">Loading…</div></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-exposure-modal">Close</button></div>
 </div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mon-history-title" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="notes-modal-title" id="notes-modal"><div class="modal"><div class="modal-title" id="notes-modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting" aria-label="Notes (free text)"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
