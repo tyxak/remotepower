@@ -1074,6 +1074,22 @@ for _na_name in (
 ):
     globals()[_na_name] = getattr(netappliance_handlers_mod, _na_name)
 del _na_name
+
+# Webhook delivery log + dead-letter queue + event replay. Same private-instance
+# loader. WEBHOOK_LOG_FILE / WEBHOOK_DLQ_FILE / FLEET_EVENTS_FILE + the
+# _dlq_retry_entry / _redact_url_to_host helpers + fire_webhook stay in api.py,
+# read via A.
+_wl_spec = _tk_ilu.spec_from_file_location(
+    'webhook_log_handlers', Path(__file__).parent / 'webhook_log_handlers.py')
+webhook_log_handlers_mod = _tk_ilu.module_from_spec(_wl_spec)
+_wl_spec.loader.exec_module(webhook_log_handlers_mod)
+webhook_log_handlers_mod.bind(globals())
+for _wl_name in (
+        'handle_webhook_log', 'handle_webhook_log_clear', 'handle_webhook_dlq_list',
+        'handle_webhook_dlq_retry', 'handle_webhook_dlq_clear', 'handle_webhook_replay',
+):
+    globals()[_wl_name] = getattr(webhook_log_handlers_mod, _wl_name)
+del _wl_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -54484,128 +54500,6 @@ def handle_fleet_timeline():
     if etag_source is not None:
         _respond_with_etag(out, etag_source)
     respond(200, out)
-
-
-def handle_webhook_log():
-    """Return the webhook delivery log."""
-    require_admin_auth()
-    wl = load(WEBHOOK_LOG_FILE)
-    # v2.2.2: tolerate both the canonical {entries: [...]} shape AND
-    # a bare list (older deployments, or hand-edited files). Reading
-    # both is cheap; deciding to upgrade the format on read isn't —
-    # operators may have other tooling assuming the bare-list shape,
-    # so we just normalise for the response and leave disk alone.
-    if isinstance(wl, list):
-        entries = wl
-    elif isinstance(wl, dict):
-        entries = wl.get('entries', []) or []
-    else:
-        entries = []
-    respond(200, list(reversed(entries)))
-
-
-def handle_webhook_log_clear():
-    """Clear the webhook delivery log."""
-    actor = require_admin_auth()
-    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
-    save(WEBHOOK_LOG_FILE, {'entries': []})
-    audit_log(actor, 'clear_webhook_log', 'webhook log cleared')
-    respond(200, {'ok': True})
-
-
-def handle_webhook_dlq_list():
-    """v5.0.0 (#R2): ``GET /api/webhook/dlq`` — permanently-failed webhook
-    deliveries (newest first). The secret-bearing dest fields are scrubbed."""
-    require_admin_auth()
-    entries = (load(WEBHOOK_DLQ_FILE) or {}).get('entries', []) or []
-    out = []
-    for e in reversed(entries):
-        d = dict(e)
-        d.pop('dest', None)          # may carry tokens/keys — never echo it
-        # The convenience top-level `url` embeds the secret for Slack/Discord/
-        # Teams (token in the path) — same secret-bearing-URL-in-GET class as
-        # the webhook_url→webhook_configured fix. Show host only, never the path.
-        if d.get('url'):
-            d['url'] = _redact_url_to_host(d['url'])
-        out.append(d)
-    respond(200, out)
-
-
-def handle_webhook_dlq_retry():
-    """``POST /api/webhook/dlq/retry`` — re-dispatch one entry ({"id": "..."}) or
-    all ({"all": true}). Successes are removed from the queue; failures stay with
-    their attempt count bumped."""
-    actor = require_admin_auth()
-    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = _read_valid(request_models.WebhookDlqRetryRequest)
-    want_all = bool(body.get('all'))
-    one_id = str(body.get('id', '')).strip()
-    if not want_all and not one_id:
-        respond(400, {'error': 'pass {"id": ...} or {"all": true}'})
-    entries = (load(WEBHOOK_DLQ_FILE) or {}).get('entries', []) or []
-    targets = entries if want_all else [e for e in entries if e.get('id') == one_id]
-    if not targets:
-        respond(404, {'error': 'no matching dead-letter entry'})
-    retried = succeeded = 0
-    survived_ids = set()
-    for e in targets:
-        retried += 1
-        if _dlq_retry_entry(e):
-            succeeded += 1
-        else:
-            survived_ids.add(e.get('id'))
-    # Rebuild the queue under the lock against a FRESH load: drop the ones that
-    # retried OK, and bump `attempts` on the survivors here (mutating the copies
-    # we read above would be lost — the lock re-reads from disk).
-    retried_ids = {e.get('id') for e in targets} - survived_ids
-    with _LockedUpdate(WEBHOOK_DLQ_FILE) as dlq:
-        kept = []
-        for e in (dlq.get('entries', []) or []):
-            if e.get('id') in retried_ids:
-                continue
-            if e.get('id') in survived_ids:
-                e['attempts'] = int(e.get('attempts', 1)) + 1
-            kept.append(e)
-        dlq['entries'] = kept
-    audit_log(actor, 'webhook_dlq_retry',
-              detail=f'retried={retried} ok={succeeded} all={want_all}')
-    respond(200, {'ok': True, 'retried': retried, 'succeeded': succeeded,
-                  'remaining': retried - succeeded})
-
-
-def handle_webhook_dlq_clear():
-    """``DELETE /api/webhook/dlq`` — empty the dead-letter queue."""
-    actor = require_admin_auth()
-    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
-    save(WEBHOOK_DLQ_FILE, {'entries': []})
-    audit_log(actor, 'webhook_dlq_clear', 'webhook dead-letter queue cleared')
-    respond(200, {'ok': True})
-
-
-def handle_webhook_replay():
-    """v5.0.0 (#R2): ``POST /api/webhook/replay`` {ts, event} — re-fire a past
-    fleet event through the normal webhook path (filters + suppression apply, so
-    it routes exactly as a fresh event would)."""
-    actor = require_admin_auth()
-    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = _read_valid(request_models.WebhookReplayRequest)
-    ev = str(body.get('event', '')).strip()
-    try:
-        ts = int(body.get('ts', 0))
-    except (TypeError, ValueError):
-        ts = 0
-    if not ev or not ts:
-        respond(400, {'error': 'pass {"event": ..., "ts": ...} from the activity feed'})
-    events = (load(FLEET_EVENTS_FILE) or {}).get('events', []) or []
-    match = next((e for e in events
-                  if e.get('event') == ev and int(e.get('ts', 0)) == ts), None)
-    if not match:
-        respond(404, {'error': 'no matching fleet event to replay'})
-    payload = dict(match.get('payload') or {})
-    payload['_replay'] = True
-    fire_webhook(ev, payload)
-    audit_log(actor, 'webhook_replay', detail=f'event={ev} ts={ts}')
-    respond(200, {'ok': True, 'event': ev, 'ts': ts})
 
 
 # ─── v1.8.6: SMTP test endpoint ───────────────────────────────────────────────
