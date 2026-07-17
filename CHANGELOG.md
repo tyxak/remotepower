@@ -167,6 +167,15 @@ code, and de-duplicated docs.
   in-app confirm dialog.
 - Documentation: `storage.md` is now an umbrella that links the focused
   disk-health / GPU / thermal / power guides instead of duplicating them.
+- **CI green-on-push contract.** `make ci-parity` now mirrors prod CI exactly
+  (Python 3.12, the ci.yml dep list verbatim, the same `unittest discover`
+  runner); a new guardrail test fails locally on any new hard import missing
+  from the CI dep list, on dep-list drift between ci.yml and the Makefile,
+  and on any test module that imports a package CI doesn't install; a
+  `pre-push` git hook blocks production pushes unless `make pre-release`
+  passed on the exact commit being pushed (and blocks workflow-file pushes
+  over the token remote); the CI job timeout was raised 10→20 min to remove
+  a slow-runner flake class.
 
 ## v6.2.2 — "Pu1seMatters" — 2026-07-16
 

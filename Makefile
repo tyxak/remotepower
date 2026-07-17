@@ -232,10 +232,29 @@ check: test-both lint
 # predicts prod and you can set PARITY=0.
 pre-release: check dist ci-parity
 	@echo ""
-	@echo "==> CodeQL prod-parity scan (simulates GitHub default setup)"
-	@PARITY=1 tools/codeql-local.sh
+	@echo "==> CodeQL GATE: config-honoring scan (== prod's ADVANCED codeql.yml setup)"
+	@# This is the pass/fail gate: prod runs the advanced codeql.yml workflow
+	@# (default-setup is 'not-configured' since v6.2.2), which honors
+	@# .github/codeql/codeql-config.yml — exactly what tools/codeql-local.sh
+	@# reproduces without PARITY. If THIS is clean, the prod-push CodeQL is green.
+	@tools/codeql-local.sh
 	@echo ""
-	@echo "✓ pre-release gate passed: check + dist + CI-3.12 parity + CodeQL parity"
+	@echo "==> CodeQL PREVIEW (non-fatal): PARITY=1 simulates the RETIRED default setup"
+	@# Informational only. Fires the reviewed FP classes (scans tests/, FP rules
+	@# on). Prod no longer uses default setup, so a hit here does NOT block a push
+	@# — it's belt-and-braces in case prod is ever reverted to default setup.
+	@PARITY=1 tools/codeql-local.sh || echo "  ⓘ PARITY preview reported the documented FP classes — non-fatal (prod is on advanced setup)."
+	@echo ""
+	@echo "✓ pre-release gate passed: check + dist + CI-3.12 parity + CodeQL (config-honoring)"
+	@# Push stamp for tools/git-hooks/pre-push: records the exact commit this
+	@# gate ran against. Only written on a CLEAN tree — a gate run over dirty
+	@# state proves nothing about the commit that would actually be pushed.
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "⚠ tree is dirty — no push stamp written (commit, then re-run make pre-release)"; \
+	else \
+		git rev-parse HEAD > .pre-release-ok; \
+		echo "✓ push stamp written: prod pushes of this commit pass the pre-push hook"; \
+	fi
 
 # Reproduce prod CI's environment: Python 3.12 (dev is 3.14) with the EXACT
 # fixed dep list from .github/workflows/ci.yml, run against the release tree.
@@ -243,15 +262,25 @@ pre-release: check dist ci-parity
 # dev has but the CI dep list doesn't — the class that red-X'd prod CI on the
 # release push. Needs `uv` (falls back to a warning if absent).
 CI_PY := 3.12
-CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic hypothesis pytest
+# EXACTLY the ci.yml "Install runtime dependencies" pip list — nothing more.
+# The extra local-only packages (pytest, hypothesis) were removed on purpose:
+# CI runs `python -m unittest discover` WITHOUT them, so a module-level
+# `import pytest` in a test passes a pytest-based parity run and then red-Xs
+# prod CI at import time. tests/test_ci_green_parity.py pins this list == the
+# ci.yml pip line, so neither can drift without the other.
+CI_DEPS := bcrypt cryptography dnspython webauthn pysaml2 flask gunicorn pydantic
 ci-parity:
 	@command -v uv >/dev/null 2>&1 || { echo "⚠ uv not installed — skipping CI-$(CI_PY) parity (pip install uv). Prod CI runs $(CI_PY); dev is $$(python3 --version)."; exit 0; }
-	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list, against the current tree"
+	@echo "==> CI parity: Python $(CI_PY) + the ci.yml dep list + the ci.yml runner (unittest discover)"
 	@uv python install $(CI_PY) >/dev/null 2>&1 || true
 	@rm -rf .ci-parity-venv
 	@uv venv --python $(CI_PY) .ci-parity-venv >/dev/null 2>&1
 	@. .ci-parity-venv/bin/activate && uv pip install --quiet $(CI_DEPS) >/dev/null 2>&1 && \
-		python -m pytest -q tests/ -x 2>&1 | tail -3
+		RPD=$$(mktemp -d /tmp/rp-ciparity-XXXXXX) && \
+		{ RP_DATA_DIR=$$RPD python -m unittest discover -s tests > .ci-parity-run.log 2>&1; \
+		  ec=$$?; tail -5 .ci-parity-run.log; rm -rf "$$RPD"; \
+		  [ $$ec -eq 0 ]; } || \
+		{ rm -rf .ci-parity-venv; echo "✗ CI-$(CI_PY) parity FAILED (full log: .ci-parity-run.log)"; exit 1; }
 	@rm -rf .ci-parity-venv
 	@echo "✓ CI-$(CI_PY) parity passed"
 

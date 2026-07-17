@@ -26,7 +26,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # v6.2.3: was 10 — the suite is ~8.5 min on a fast dev box and GitHub's
+    # 2-core runners are slower; a growing suite against a 10-min ceiling is
+    # a timeout-flake class waiting to fire on a release push.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

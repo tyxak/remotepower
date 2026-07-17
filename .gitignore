@@ -70,3 +70,8 @@ openclaw-workspace-state.json
 # Test-suite artifact: the Windows agent test writes its literal C:\ProgramData
 # log path as a relative file on Linux. Never commit it.
 C:*
+
+# pre-release push stamp + CI-parity artifacts (local gate state, never shipped)
+.pre-release-ok
+.ci-parity-run.log
+.ci-parity-venv/

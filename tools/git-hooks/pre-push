@@ -1,0 +1,75 @@
+#!/bin/sh
+# pre-push — the "green on push" enforcement hook (v6.2.3).
+#
+# Prod CI red-runs historically came from pushing commits the local gate never
+# ran against (or ran against in a subtly different environment). This hook
+# makes the gate unskippable for PRODUCTION pushes:
+#
+#   * A push to the prod repo (tyxak/remotepower) is allowed only when
+#     `make pre-release` has passed against EXACTLY the commit being pushed —
+#     the gate writes .pre-release-ok with that commit's sha on success
+#     (clean tree only).
+#   * A push that touches .github/workflows/ over an https remote is blocked:
+#     the gh OAuth token lacks the `workflow` scope, so GitHub rejects it
+#     mid-push with a confusing error — use the SSH remote for those.
+#
+# Pushes to the test repo (tyxak/claude-code) are NOT gated — it is scratch
+# space with Actions disabled; the prod remote is where red CI hurts.
+#
+# Install (once per clone):  git config core.hooksPath tools/git-hooks
+# Bypass (emergencies only): git push --no-verify
+
+remote_name="$1"
+remote_url="$2"
+
+case "$remote_url" in
+    *tyxak/remotepower*) is_prod=1 ;;
+    *)                   is_prod=0 ;;
+esac
+
+# ── Workflow-file pushes need the SSH remote (OAuth token lacks `workflow`) ──
+case "$remote_url" in
+    https://*)
+        while read -r local_ref local_sha remote_ref remote_sha; do
+            [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+            if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+                range="$local_sha"
+            else
+                range="$remote_sha..$local_sha"
+            fi
+            if git diff --name-only "$range" 2>/dev/null | grep -q '^\.github/workflows/'; then
+                echo "✗ pre-push: this push touches .github/workflows/ over an https remote." >&2
+                echo "  The OAuth token lacks the 'workflow' scope — GitHub will reject it." >&2
+                echo "  Push via the SSH remote instead (git remote set-url / a second remote)." >&2
+                exit 1
+            fi
+        done
+        ;;
+esac
+
+[ "$is_prod" = "1" ] || exit 0
+
+# ── Prod pushes require a fresh pre-release stamp on the pushed commit ──────
+repo_root=$(git rev-parse --show-toplevel)
+stamp_file="$repo_root/.pre-release-ok"
+stamp=$(cat "$stamp_file" 2>/dev/null)
+
+# Re-read the ref list from the hook's stdin is already consumed above for the
+# https case; for the ssh case we still need the pushed shas. POSIX sh has no
+# rewind, so we gate on HEAD: prod promotes are always a fast-forward of the
+# current checkout (CLAUDE.md two-remote model), so HEAD is what lands.
+head=$(git rev-parse HEAD)
+
+if [ "$stamp" != "$head" ]; then
+    echo "✗ pre-push: pushing to PROD ($remote_url) without a matching pre-release stamp." >&2
+    echo "  Run:  make pre-release   (on this exact commit, clean tree)" >&2
+    if [ -n "$stamp" ]; then
+        echo "  Stamp is for $(echo "$stamp" | cut -c1-12), HEAD is $(echo "$head" | cut -c1-12)." >&2
+    else
+        echo "  No stamp found (.pre-release-ok missing)." >&2
+    fi
+    echo "  Emergency bypass: git push --no-verify" >&2
+    exit 1
+fi
+
+exit 0
