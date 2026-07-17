@@ -159,7 +159,8 @@ class TestRouterosShipped(unittest.TestCase):
     """MikroTik RouterOS REST client + endpoints + drawer card."""
 
     def setUp(self):
-        self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        # combined source: routeros handlers moved to netappliance_handlers.py
+        self.api = api_source()
         self.appjs = client_js()
 
     def test_client_module_present(self):
