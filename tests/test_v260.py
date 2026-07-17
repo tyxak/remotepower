@@ -13,6 +13,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import py_function, balanced_block   # growth-proof source windows
 import re
 import unittest
 from pathlib import Path
@@ -97,13 +98,11 @@ class TestWebhookEvent(unittest.TestCase):
 
     def test_config_drift_in_priority(self):
         # priority/tags now live on the event's EVENT_REGISTRY row.
-        idx = self.api.find("'config_drift': dict(")
-        block = self.api[idx: idx + 300]
+        block = balanced_block(self.api, "'config_drift': dict(", "(", ")")
         self.assertIn('priority=4', block)
 
     def test_config_drift_in_tags(self):
-        idx = self.api.find("'config_drift': dict(")
-        block = self.api[idx: idx + 300]
+        block = balanced_block(self.api, "'config_drift': dict(", "(", ")")
         self.assertIn('wrench', block)
 
     def test_config_drift_discord_title(self):
@@ -147,56 +146,45 @@ class TestHandlers(unittest.TestCase):
         self.assertIn('def _ingest_host_config_current(', self.api)
 
     def test_validate_rejects_nul_bytes(self):
-        idx = self.api.find('def _validate_host_config_section(')
-        block = self.api[idx: idx + 1450]  # widened for pydantic validate() pre-check
+        block = py_function(self.api, '_validate_host_config_section')
         self.assertIn('\\x00', block)
 
     def test_validate_rejects_oversized(self):
-        idx = self.api.find('def _validate_host_config_section(')
-        block = self.api[idx: idx + 1450]  # widened for pydantic validate() pre-check
+        block = py_function(self.api, '_validate_host_config_section')
         self.assertIn('MAX_HOST_CONFIG_SECTION_SIZE', block)
 
     def test_sudoers_validated_with_visudo(self):
-        idx = self.api.find('def apply_host_config(')
-        if idx == -1:
-            # Check agent instead
+        # apply_host_config lives in the agent, not api.py — skip if absent here.
+        if 'def apply_host_config(' not in self.api:
             return
-        block = self.api[idx: idx + 3000]
-        self.assertIn('visudo', block)
+        self.assertIn('visudo', py_function(self.api, 'apply_host_config'))
 
     def test_drift_audit_checks_text_sections(self):
-        idx = self.api.find('def _audit_host_config_drift(')
-        block = self.api[idx: idx + 2000]
+        block = py_function(self.api, '_audit_host_config_drift')
         self.assertIn('.strip()', block)
 
     def test_drift_audit_checks_services_subset(self):
-        idx = self.api.find('def _audit_host_config_drift(')
-        block = self.api[idx: idx + 2000]
+        block = py_function(self.api, '_audit_host_config_drift')
         self.assertIn('issubset', block)
 
     def test_drift_audit_checks_users(self):
-        idx = self.api.find('def _audit_host_config_drift(')
-        block = self.api[idx: idx + 3000]
+        block = py_function(self.api, '_audit_host_config_drift')
         self.assertIn('authorized_keys', block)
 
     def test_ingest_fires_edge_triggered_webhook(self):
-        idx = self.api.find('def _ingest_host_config_current(')
-        block = self.api[idx: idx + 3000]
+        block = py_function(self.api, '_ingest_host_config_current')
         self.assertIn('fire_webhook', block)
         self.assertIn('config_drift', block)
         self.assertIn('was_clean', block)
 
     def test_put_handler_uses_admin_auth(self):
-        idx = self.api.find('def handle_device_host_config_put(')
-        block = self.api[idx: idx + 400]
+        block = py_function(self.api, 'handle_device_host_config_put')
         self.assertIn('require_admin_auth', block)
 
     def test_put_handler_audit_logs(self):
-        idx = self.api.find('def handle_device_host_config_put(')
-        # window widened in v3.7.0 (the handler grew an `enforce` field) and again
-        # for the v6.1.2 pydantic validate() pre-check; the assertion — the PUT
-        # handler audit-logs — is unchanged.
-        block = self.api[idx: idx + 1850]
+        # the assertion — the PUT handler audit-logs — is unchanged; the window
+        # is now the whole handler (py_function), so it never needs re-widening.
+        block = py_function(self.api, 'handle_device_host_config_put')
         self.assertIn('audit_log', block)
 
 
@@ -229,8 +217,11 @@ class TestHeartbeatWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         api = (_ROOT / 'server/cgi-bin/api.py').read_text()
-        idx = api.find('def handle_heartbeat(')
-        cls.hb = api[idx: idx + 112000]  # widened as handle_heartbeat grew (v3.13.0 CMDB hardware fields; v3.14.0 network_io + secrets ingest; v4.1.0 inode/fd/conntrack + clock/gateway/oom edge-triggers; v4.2.0 sweep mailq/pkg_scan_ts + reinstall-audit hoist; v4.10.0 agent-stopping branch + backup_verify ingest; v5.4.1 device-token migration block; v5.5.0 failed_unit edge-trigger; v5.8.0 W5-1 LLDP-neighbor ingest; v6.1.2 uptime_seconds/ecc/zram/autoupdate sanitizer fields; v6.1.2 ssh_hostkeys sanitizer pushed host_config_desired to 99088)
+        # The whole handle_heartbeat() body (py_function, growth-proof) — this
+        # used to be a fixed api[idx:idx+112000] window widened on every release
+        # as the handler grew (CMDB hardware, network_io, inode/fd/conntrack,
+        # LLDP, ecc/zram/autoupdate, ssh_hostkeys, …). No longer.
+        cls.hb = py_function(api, 'handle_heartbeat')
 
     def test_desired_pushed_in_response(self):
         self.assertIn('host_config_desired', self.hb)
@@ -265,13 +256,11 @@ class TestAgent(unittest.TestCase):
         self.assertIn('def apply_host_config(', self.agent)
 
     def test_collect_reads_resolv_conf(self):
-        idx = self.agent.find('def collect_host_config(')
-        block = self.agent[idx: idx + 4000]
+        block = py_function(self.agent, 'collect_host_config')
         self.assertIn('resolv.conf', block)
 
     def test_collect_reads_etc_hosts(self):
-        idx = self.agent.find('def collect_host_config(')
-        block = self.agent[idx: idx + 4000]
+        block = py_function(self.agent, 'collect_host_config')
         self.assertIn('/etc/hosts', block)
 
     def test_collect_repos_reads_sources_list_d(self):
@@ -279,8 +268,7 @@ class TestAgent(unittest.TestCase):
         # is empty/absent — the real repos live in sources.list.d/ (classic
         # .list + deb822 .sources). Reading only sources.list returned nothing
         # ("Fetch current" came back empty). Must read the drop-in dir too.
-        idx = self.agent.find('def collect_host_config(')
-        block = self.agent[idx: idx + 4000]
+        block = py_function(self.agent, 'collect_host_config')
         self.assertIn('sources.list.d', block)
         self.assertIn("glob('*.sources')", block)
 
@@ -293,62 +281,48 @@ class TestAgent(unittest.TestCase):
         # silently (reproduced live). Guard against that pattern coming back.
         self.assertIn('def _ws_header_kwarg(', self.agent)
         self.assertIn('_WS_HEADER_KW', self.agent)
-        idx = self.agent.find('def _push_listener_thread(')
-        block = self.agent[idx: idx + 2000]
+        block = py_function(self.agent, '_push_listener_thread')
         self.assertIn('connect_kwargs[_WS_HEADER_KW]', block)
         # the broken inline additional_headers=... connect must be gone
         self.assertNotIn('additional_headers={', block)
 
     def test_collect_reads_enabled_services(self):
-        idx = self.agent.find('def collect_host_config(')
-        block = self.agent[idx: idx + 5000]
+        block = py_function(self.agent, 'collect_host_config')
         self.assertIn('systemctl', block)
         self.assertIn('enabled', block)
 
     def test_collect_reads_users_with_keys(self):
-        idx = self.agent.find('def collect_host_config(')
-        block = self.agent[idx: idx + 6000]
+        block = py_function(self.agent, 'collect_host_config')
         self.assertIn('authorized_keys', block)
 
     def test_apply_writes_resolv_conf(self):
-        idx = self.agent.find('def apply_host_config(')
-        block = self.agent[idx: idx + 6000]
+        block = py_function(self.agent, 'apply_host_config')
         self.assertIn('resolv.conf', block)
 
     def test_apply_runs_netplan(self):
-        idx = self.agent.find('def apply_host_config(')
-        block = self.agent[idx: idx + 6000]
+        block = py_function(self.agent, 'apply_host_config')
         self.assertIn('netplan', block)
         self.assertIn('apply', block)
 
     def test_apply_validates_sudoers_with_visudo(self):
-        idx = self.agent.find('def apply_host_config(')
-        block = self.agent[idx: idx + 8000]
+        block = py_function(self.agent, 'apply_host_config')
         self.assertIn('visudo', block)
 
     def test_apply_sets_authorized_keys_permissions(self):
-        idx = self.agent.find('def apply_host_config(')
-        block = self.agent[idx: idx + 8000]
+        block = py_function(self.agent, 'apply_host_config')
         self.assertIn('0o600', block)
         self.assertIn('authorized_keys', block)
 
     def test_heartbeat_loop_applies_desired(self):
-        # v6.2.0: scan the WHOLE heartbeat() body (to the next top-level def)
-        # instead of a fixed-size char window. The old 26000-char window kept
-        # needing to be widened as heartbeat() grew, and the v6.2.0 bug hunt
-        # removed the redundant poll==2 apply (leaving only the apply-on-change
-        # path in the response handler, which sat just past the window) — the
-        # fragile pin, not the code, was the problem.
-        idx = self.agent.find('def heartbeat(')
-        end = self.agent.find('\ndef ', idx + 1)
-        block = self.agent[idx: end if end != -1 else len(self.agent)]
+        # Scan the WHOLE heartbeat() body (py_function, growth-proof) instead of
+        # a fixed-size char window that kept needing widening as heartbeat() grew.
+        block = py_function(self.agent, 'heartbeat')
         self.assertIn('apply_host_config', block)
         self.assertIn('host_config_desired', block)
 
     def test_heartbeat_loop_does_not_send_current_in_payload(self):
         """Current state is on-demand only — not sent in every heartbeat poll."""
-        idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 18000]
+        block = py_function(self.agent, 'heartbeat')
         # host_config_current should NOT be added to payload in the regular poll loop
         # (it's only sent via send_current_configs subcommand)
         self.assertNotIn("payload['host_config_current']", block)

@@ -28,6 +28,7 @@ _spec.loader.exec_module(api)
 
 import backup_crypto  # noqa: E402
 from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
+from srcpin import py_function, js_function  # noqa: E402  growth-proof source windows
 
 API_SRC = _apisrc_combined()
 APP = client_js()
@@ -102,22 +103,16 @@ class TestApiKeyRateLimit(unittest.TestCase):
         self.assertFalse(api._key_ratelimit(kid2, 1))   # bucket now full -- proves it was charged
 
     def test_create_validates_and_persists_rate_limit(self):
-        i = API_SRC.index("def handle_apikeys_create(")
-        block = API_SRC[i:API_SRC.index("def handle_apikeys_delete(")]
+        block = py_function(API_SRC, "handle_apikeys_create")
         self.assertIn("rate_limit", block)
         self.assertIn("0..100000", block)
         self.assertIn("'rate_limit': rate_limit", block)
         # list endpoint returns it
-        j = API_SRC.index("def handle_apikeys_list(")
-        # v6.1.1 (#16): widened 600->1000, tenant-scoping the roster (a real
-        # comment+filter block) pushed 'rate_limit' further down.
-        self.assertIn("'rate_limit'", API_SRC[j:j + 1000])
+        self.assertIn("'rate_limit'", py_function(API_SRC, "handle_apikeys_list"))
 
     def test_verify_token_enforces(self):
-        i = API_SRC.index("# API keys — full constant-time scan")
-        # v5.4.1: widened 1400→1800 (C1 key-hashing) →2300 (D7 ip_allow check added
-        # ahead of the enforce call), pushing the enforce call further down.
-        self.assertIn("_enforce_apikey_ratelimit(matched_kid", API_SRC[i:i + 2300])
+        self.assertIn("_enforce_apikey_ratelimit(matched_kid",
+                      py_function(API_SRC, "verify_token"))
 
     def test_frontend_wires_rate(self):
         self.assertIn('id="apikey-rate"', HTML)
@@ -175,23 +170,19 @@ class TestBackupCryptoModule(unittest.TestCase):
 class TestBackupApiWiring(unittest.TestCase):
     def test_passphrase_from_env_only(self):
         self.assertIn("RP_BACKUP_PASSPHRASE", API_SRC)
-        i = API_SRC.index("def _backup_passphrase(")
         # v5.4.1 (C8): sourced via _secret_from_env (env var OR a *_CMD helper) —
         # still never from the config/data dir (which the backup itself contains).
-        self.assertIn("_secret_from_env('RP_BACKUP_PASSPHRASE')", API_SRC[i:i + 800])
+        self.assertIn("_secret_from_env('RP_BACKUP_PASSPHRASE')",
+                      py_function(API_SRC, "_backup_passphrase"))
 
     def test_backup_run_encrypts(self):
-        i = API_SRC.index("def _run_data_backup(")
-        # v6.2.2: window widened 3500 → 6000 (the per-entry unreadable-skip
-        # walk landed above the encryption block — the source-window class).
-        block = API_SRC[i:i + 6000]
+        block = py_function(API_SRC, "_run_data_backup")
         self.assertIn("backup_crypto.encrypt_file", block)
         self.assertIn("refusing to write a plaintext backup", block)
         self.assertIn(".tar.gz.enc", block)
 
     def test_restore_decrypts(self):
-        i = API_SRC.index("def handle_backup_restore(")
-        block = API_SRC[i:i + 2000]
+        block = py_function(API_SRC, "handle_backup_restore")
         self.assertIn("backup_crypto.MAGIC", block)
         self.assertIn("X-RP-Backup-Passphrase", block)
         self.assertIn("backup_crypto.decrypt_file", block)
@@ -300,9 +291,8 @@ class TestBreakGlass(unittest.TestCase):
                          "handle_breakglass_approve")
 
     def test_cred_add_stores_flag(self):
-        i = API_SRC.index("def handle_cmdb_credentials_add(")
         self.assertIn("'break_glass': bool(body.get('break_glass'))",
-                      API_SRC[i:i + 4000])
+                      py_function(API_SRC, "handle_cmdb_credentials_add"))
 
     def test_frontend_wires(self):
         self.assertIn('id="cmdb-cred-breakglass"', HTML)
@@ -362,8 +352,8 @@ class TestAgentMtls(unittest.TestCase):
         self.assertEqual(fp, "aabbcc")
 
     def test_heartbeat_enforces(self):
-        i = API_SRC.index("def handle_heartbeat(")
-        self.assertIn("_agent_mtls_ok(dev_id)", API_SRC[i:i + 3000])
+        self.assertIn("_agent_mtls_ok(dev_id)",
+                      py_function(API_SRC, "handle_heartbeat"))
 
     def test_config_wiring(self):
         self.assertIn("cfg['require_agent_mtls'] = bool(body['require_agent_mtls'])", API_SRC)
@@ -412,16 +402,13 @@ class TestDiskWatchdog(unittest.TestCase):
 
     def test_recover_matches_by_target(self):
         # the server_disk_ok branch in _auto_resolve_alerts matches on 'target'
-        i = API_SRC.index("def _auto_resolve_alerts(")
-        block = API_SRC[i:i + 5200]
+        block = py_function(API_SRC, "_auto_resolve_alerts")
         self.assertIn("event == 'server_disk_ok'", block)
         self.assertIn("sub_match['target'] = p.get('target')", block)
 
     def test_target_in_record_alert_whitelist(self):
         # 'target' must be a whitelisted key or the recover never resolves
-        i = API_SRC.index("def _record_alert(")
-        # Widened v5.6.0 (mute check inserted) and again v6.1.2 (Alerts-module gate).
-        self.assertIn("'target'", API_SRC[i:i + 3400])
+        self.assertIn("'target'", py_function(API_SRC, "_record_alert"))
 
     def test_low_fires_then_recovers(self):
         # Drive the watchdog by stubbing os.statvfs + bypassing the 30-min gate.
@@ -527,7 +514,6 @@ class TestWebhookDlq(unittest.TestCase):
         # the three except branches in _dispatch_one_webhook must call _dlq_record
         # (the _build_* payload builders moved to notify.py — anchor on the
         # function itself, not its old neighbour)
-        from srcpin import py_function
         block = py_function(API_SRC, '_dispatch_one_webhook')
         self.assertEqual(block.count("_dlq_record("), 3)
 
@@ -540,8 +526,8 @@ class TestWebhookDlq(unittest.TestCase):
 
     def test_list_scrubs_dest(self):
         # handle_webhook_dlq_list must drop the dest blob (carries tokens)
-        i = API_SRC.index("def handle_webhook_dlq_list(")
-        self.assertIn("d.pop('dest', None)", API_SRC[i:i + 700])
+        self.assertIn("d.pop('dest', None)",
+                      py_function(API_SRC, "handle_webhook_dlq_list"))
 
     def test_frontend(self):
         self.assertIn('id="webhook-dlq-wrap"', HTML)
@@ -604,12 +590,10 @@ class TestMaintenanceMode(unittest.TestCase):
     def test_queue_command_paths_all_route_through_the_gate(self):
         """Every path that queues a command must consult the gate — the single
         predicate, not its own subset (the bug this factoring fixed)."""
-        qc = API_SRC[API_SRC.index("def _queue_command(dev_id"):]
-        self.assertIn("_command_block_reason(", qc[:900])
-        mc = API_SRC[API_SRC.index("def _mcp_execute("):]
-        self.assertIn("_command_block_reason(", mc[:1200])
-        j = API_SRC.index("def _queue_command_batch(")
-        self.assertIn("_block_if_maintenance(command)", API_SRC[j:j + 200])
+        self.assertIn("_command_block_reason(", py_function(API_SRC, "_queue_command"))
+        self.assertIn("_command_block_reason(", py_function(API_SRC, "_mcp_execute"))
+        self.assertIn("_block_if_maintenance(command)",
+                      py_function(API_SRC, "_queue_command_batch"))
 
     def test_routes(self):
         from routing_harness import resolve_route
@@ -625,8 +609,7 @@ class TestMaintenanceMode(unittest.TestCase):
 # ─────────────────────────── #R4 graceful long-poll SIGTERM ────────────────────
 class TestLongpollGracefulShutdown(unittest.TestCase):
     def test_handler_installs_sigterm(self):
-        i = API_SRC.index("def handle_longpoll_exec(")
-        block = API_SRC[i:i + 3500]
+        block = py_function(API_SRC, "handle_longpoll_exec")
         self.assertIn("signal.SIGTERM", block)
         self.assertIn("_shutting_down", block)
         self.assertIn("'shutdown': True", block)
@@ -744,8 +727,7 @@ class TestBulkDeviceOps(unittest.TestCase):
 # ─────────────────────────── #F3 per-command timeout ───────────────────────────
 class TestPerCommandTimeout(unittest.TestCase):
     def test_server_encodes_prefix(self):
-        i = API_SRC.index("def handle_custom_cmd(")
-        block = API_SRC[i:i + 1400]
+        block = py_function(API_SRC, "handle_custom_cmd")
         self.assertIn("to={_to}:", block)
         self.assertIn("1..3600 seconds", block)
         self.assertIn("_queued = f'exec:{_exec_pfx}{cmd_str}'", block)
@@ -813,8 +795,7 @@ class TestAgentCompat(unittest.TestCase):
         self.assertTrue(c["compatible"])
 
     def test_update_handler_gates(self):
-        i = API_SRC.index("def handle_update_device(")
-        block = API_SRC[i:i + 1150]  # widened for pydantic validate() pre-check
+        block = py_function(API_SRC, "handle_update_device")
         self.assertIn("_agent_compat(", block)
         self.assertIn("body.get('force')", block)
         self.assertIn("'incompatible': True", block)
@@ -831,14 +812,12 @@ class TestAgentCompat(unittest.TestCase):
 # ─────────────────────────── #F5 rollout rollback ──────────────────────────────
 class TestRolloutRollback(unittest.TestCase):
     def test_create_accepts_rollback_script(self):
-        i = API_SRC.index("def handle_rollouts_create(")
-        block = API_SRC[i:i + 2600]
+        block = py_function(API_SRC, "handle_rollouts_create")
         self.assertIn("rollback_script_id", block)
         self.assertIn("rollback_script_id not found", block)
 
     def test_action_handler_has_rollback(self):
-        i = API_SRC.index("def handle_rollout_action(")
-        block = API_SRC[i:API_SRC.index("def handle_rollout_delete(")]
+        block = py_function(API_SRC, "handle_rollout_action")
         self.assertIn("action == 'rollback'", block)
         # gathers dispatched_ids across rings + makes a new script rollout
         self.assertIn("dispatched_ids", block)
@@ -846,8 +825,7 @@ class TestRolloutRollback(unittest.TestCase):
         self.assertIn("agent-binary rollback requires a", block)
 
     def test_response_surfaces_rollback_id(self):
-        i = API_SRC.index("def handle_rollout_action(")
-        block = API_SRC[i:API_SRC.index("def handle_rollout_delete(")]
+        block = py_function(API_SRC, "handle_rollout_action")
         self.assertIn("'rollback_id': err_box[1]", block)
 
     def test_frontend(self):
@@ -903,8 +881,7 @@ class TestOsvPrefetch(unittest.TestCase):
                          "packages": [{"name": "x", "version": "1"}]}}, self.dir), {})
 
     def test_worker_uses_prefetch_for_fleet(self):
-        i = API_SRC.index("def _cve_scan_worker(")
-        block = API_SRC[i:i + 3000]
+        block = py_function(API_SRC, "_cve_scan_worker")
         self.assertIn("cve_scanner.prefetch_osv(", block)
         self.assertIn("osv_prefetch=osv_prefetch", block)
         # single-device scans don't prefetch (guarded by `not target and total>1`)
@@ -920,15 +897,11 @@ class TestT5Polish(unittest.TestCase):
 
     def test_u2_webhook_dot(self):
         # the webhook log row carries an explicit green/red delivery dot
-        i = APP.index("function loadWebhookLog(")
-        self.assertIn("Delivered", APP[i:i + 1500])
+        self.assertIn("Delivered", js_function(APP, "loadWebhookLog"))
 
     def test_u4_pending_commands_badge(self):
         # backend exposes commands_pending in nav-counts (admin only)
-        i = API_SRC.index("def handle_nav_counts(")
-        # v6.1.2: widened — the conditional-GET + _load_ro work pushed
-        # out['commands_pending'] to ~8654 from the top of the handler.
-        block = API_SRC[i:i + 11000]
+        block = py_function(API_SRC, "handle_nav_counts")
         self.assertIn("out['commands_pending']", block)
         # CMDS_FILE added to the cache-invalidation sources so the badge is fresh
         self.assertIn("ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE", API_SRC)
@@ -950,8 +923,7 @@ class TestT5Polish(unittest.TestCase):
     def test_u9_self_test(self):
         from routing_harness import resolve_route
         self.assertEqual(resolve_route("GET", "/api/self-test")[0], "handle_self_test")
-        i = API_SRC.index("def handle_self_test(")
-        block = API_SRC[i:i + 2500]
+        block = py_function(API_SRC, "handle_self_test")
         for label in ("Storage backend", "Disk space", "Audit chain", "Agent reachability"):
             self.assertIn(label, block)
         self.assertIn("function runSelfTest(", APP)
@@ -961,8 +933,7 @@ class TestT5Polish(unittest.TestCase):
         self.assertIn("function snoozeDeviceAlerts(", APP)
         self.assertIn("'Snooze alerts 1h'", APP)
         # builds a one-shot device maintenance window (which suppresses alerts)
-        i = APP.index("function snoozeDeviceAlerts(")
-        block = APP[i:i + 700]
+        block = js_function(APP, "snoozeDeviceAlerts")
         self.assertIn("scope: 'device'", block)
         self.assertIn("/maintenance'", block)
 
@@ -974,10 +945,9 @@ class TestT5Polish(unittest.TestCase):
         # behavioral: the helper builds a checks list with an overall ok bool
         # (can't call the handler directly — it needs auth/respond — so assert the
         # shape via the source contract instead).
-        i = API_SRC.index("def handle_self_test(")
-        # window widened for the v5.4.1 (G3) uptime + (Stage D) scheduler-nudge blocks.
-        self.assertIn("'ok': overall", API_SRC[i:i + 4600])
-        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 4600])
+        _st = py_function(API_SRC, "handle_self_test")
+        self.assertIn("'ok': overall", _st)
+        self.assertIn("all(c['ok'] for c in checks)", _st)
 
 
 # ─────────────────────────── T6 industrial design pass ─────────────────────────
@@ -985,8 +955,7 @@ class TestT6Design(unittest.TestCase):
     def test_board_route_and_handler(self):
         from routing_harness import resolve_route
         self.assertEqual(resolve_route("GET", "/api/board")[0], "handle_board")
-        i = API_SRC.index("def handle_board(")
-        block = API_SRC[i:i + 3000]
+        block = py_function(API_SRC, "handle_board")
         # big-fleet shape: rollup tiles + capped problem strip + totals, not raw tiles
         self.assertIn("not in ('group', 'site', 'tag')", block)
         self.assertIn("len(problems) < 80", block)        # problem strip capped
@@ -1029,8 +998,7 @@ class TestT6Design(unittest.TestCase):
         self.assertIn("alertTriangle:", APP)            # new icon registered
         self.assertIn("wifiOff", APP)
         # vitals strip carries icons
-        i = APP.index("function _paintVitals(")
-        self.assertIn("_icon('server'", APP[i:i + 900])
+        self.assertIn("_icon('server'", js_function(APP, "_paintVitals"))
 
     def test_no_emoji_in_v5_surfaces(self):
         import re

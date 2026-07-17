@@ -16,6 +16,7 @@ import shutil
 import sys
 import unittest
 from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
+from srcpin import py_function   # growth-proof source windows (no fixed [i:i+N])
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -416,24 +417,17 @@ class TestV342RBAC(unittest.TestCase):
         for fn, perm in (('handle_custom_cmd', 'command'), ('handle_reboot', 'reboot'),
                          ('handle_shutdown', 'shutdown'), ('handle_upgrade_device', 'patch'),
                          ('handle_update_device', 'patch'), ('handle_exec_batch', 'command')):
-            i = self.API.find('def ' + fn + '(')
-            self.assertGreater(i, 0, fn)
-            # slice up to the next top-level def so the perm call is in range
-            nxt = self.API.find('\ndef ', i + 1)
-            body = self.API[i:nxt if nxt > 0 else i + 3000]
+            body = py_function(self.API, fn)
             self.assertIn(f"require_perm('{perm}'", body, f'{fn} should require_perm({perm})')
 
     def test_device_list_scoped(self):
-        i = self.API.find('def handle_devices_list(')
-        nxt = self.API.find('\ndef ', i + 1)
-        body = self.API[i:nxt if nxt > 0 else i + 4000]
+        body = py_function(self.API, 'handle_devices_list')
         self.assertIn('_caller_scope()', body)
         self.assertIn('_device_in_scope(_scope', body)
 
     def test_role_mgmt_admin_only(self):
         for fn in ('handle_role_create', 'handle_role_update', 'handle_role_delete'):
-            i = self.API.find('def ' + fn + '(')
-            self.assertIn('require_admin_auth()', self.API[i:i + 400], fn)
+            self.assertIn('require_admin_auth()', py_function(self.API, fn), fn)
 
     # ── behaviour ────────────────────────────────────────────────────────────
     def _fresh_api(self):
@@ -605,12 +599,10 @@ class TestV342RBACv2(unittest.TestCase):
     def test_explicit_per_device_guards(self):
         for fn in ('handle_patch_report_device', 'handle_cmdb_get',
                    'handle_cmdb_credentials_list', 'handle_acme_detail'):
-            i = self.API.find('def ' + fn + '(')
-            nxt = self.API.find('\ndef ', i + 1)
-            self.assertIn('_scope_block_device(', self.API[i:nxt if nxt > 0 else i + 1200], fn)
+            self.assertIn('_scope_block_device(', py_function(self.API, fn), fn)
         # health-history per-device series gated
-        i = self.API.find('def handle_fleet_health_history(')
-        self.assertIn('_scope_block_device(dev_id)', self.API[i:i + 600])
+        self.assertIn('_scope_block_device(dev_id)',
+                      py_function(self.API, 'handle_fleet_health_history'))
 
     def test_aggregates_scoped(self):
         # each aggregate that emits per-device rows must scope-filter
@@ -619,16 +611,12 @@ class TestV342RBACv2(unittest.TestCase):
                    'handle_fleet_anomalies', 'handle_inventory_search', 'handle_inventory_metering',
                    'handle_drift_overview', 'handle_patch_catalog', 'handle_network_map',
                    'handle_log_rules', 'handle_fleet_timeline'):
-            i = self.API.find('def ' + fn + '(')
-            nxt = self.API.find('\ndef ', i + 1)
-            body = self.API[i:nxt if nxt > 0 else i + 2500]
+            body = py_function(self.API, fn)
             self.assertIn('_scope_filter_devices', body, f'{fn} should scope-filter devices')
         # fleet health + events + compliance + alerts use _caller_scope directly
         for fn in ('handle_fleet_health', 'handle_fleet_events', 'handle_alerts_list',
                    'handle_compliance_baseline'):
-            i = self.API.find('def ' + fn + '(')
-            nxt = self.API.find('\ndef ', i + 1)
-            body = self.API[i:nxt if nxt > 0 else i + 2500]
+            body = py_function(self.API, fn)
             # v6.1.1: handle_alerts_list delegates scope+tenant filtering to the
             # shared _filter_alerts_for_caller() helper (which calls _caller_scope).
             self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body
@@ -644,8 +632,7 @@ class TestV342SettingsActions(unittest.TestCase):
 
     # ── sign requires admin password ─────────────────────────────────────────
     def test_sign_requires_password(self):
-        i = self.API.find('def handle_signing_sign(')
-        body = self.API[i:self.API.find('\ndef ', i + 1)]
+        body = py_function(self.API, 'handle_signing_sign')
         self.assertIn('verify_password(', body)
         self.assertIn('password required to sign', body)
         self.assertIn("api('POST', '/signing/sign', { password: pw })", self.APP)
@@ -702,8 +689,7 @@ class TestV342SettingsActions(unittest.TestCase):
 
     # ── expanded fleet query ─────────────────────────────────────────────────
     def test_fleet_query_new_filters(self):
-        i = self.API.find('def handle_fleet_query(')
-        body = self.API[i:self.API.find('\ndef ', i + 1)]
+        body = py_function(self.API, 'handle_fleet_query')
         for p in ('version', 'pkg_manager', 'has_package', 'reboot', 'failed',
                   'quarantined', 'monitored', 'agentless', 'disk_gt', 'mem_gt', 'offline_days'):
             self.assertIn(f"'{p}'", body, f'fleet query missing {p}')
@@ -740,8 +726,8 @@ class TestV342SettingsActions(unittest.TestCase):
         # apt sandbox workaround (seteuid 105 fix) must be present, like _UPGRADE_CMD
         self.assertIn('APT::Sandbox::User "root"', cmd)
         # v3.12.0: gated on the granular 'packages' permission (shared core)
-        i = self.API.find('def _handle_pkg_action(')
-        self.assertIn("require_perm('packages'", self.API[i:i + 1800])
+        self.assertIn("require_perm('packages'",
+                      py_function(self.API, '_handle_pkg_action'))
 
     def test_uninstall_command_and_route(self):
         # Uninstall mirrors install: package-manager-agnostic remove, validated
@@ -767,8 +753,7 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('function onScapTargetChange(', self.APP)
 
     def test_install_creates_tracked_job(self):
-        i = self.API.find('def _handle_pkg_action(')
-        body = self.API[i:self.API.find('\ndef ', i + 1)]
+        body = py_function(self.API, '_handle_pkg_action')
         self.assertIn('BATCH_JOBS_FILE', body)
         self.assertIn("'job_id'", body)
         self.assertIn("'match_cmd'", body)
@@ -1061,8 +1046,7 @@ class TestV342ReviewFixes(unittest.TestCase):
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
     def test_disable_signing_requires_password(self):
-        idx = self.API.find('def handle_signing_toggle')
-        body = self.API[idx:idx + 1150]   # widened for the pydantic validate() pre-check
+        body = py_function(self.API, 'handle_signing_toggle')
         self.assertIn('verify_password', body)
         self.assertIn('if not enabled:', body)
         # Frontend prompts for the password on disable.
@@ -1070,8 +1054,7 @@ class TestV342ReviewFixes(unittest.TestCase):
 
     def test_snmp_threshold_uses_live_device(self):
         # The fix resolves thresholds + state under the lock on the fresh device.
-        idx = self.API.find('def process_snmp_metric_thresholds')
-        body = self.API[idx:idx + 3600]
+        body = py_function(self.API, 'process_snmp_metric_thresholds')
         self.assertIn('_invalidate_load_cache(DEVICES_FILE)', body)
         self.assertIn('_LockedUpdate(DEVICES_FILE) as store', body)
         self.assertIn('_snmp_threshold_warn_crit(d,', body)   # resolves from fresh `d`
