@@ -295,6 +295,14 @@ def handle_tickets():
     # what the operator didn't already specify; an explicit choice always wins.
     _route_group, _route_assignee = _ticket_auto_route(ttype)
     tid = 'tk_' + secrets.token_hex(5)
+    # Seed the ticket with the FULL alert detail as an internal note — the alert
+    # title (→ subject) only kept the first item + a "(+N more)" count; this
+    # expands it from the live source so the ticket stands on its own.
+    _seed_msgs = []
+    if alert_internal and al:
+        _detail = A._alert_ticket_detail(al, (devices or {}).get(device_id) if device_id else None)
+        if _detail:
+            _seed_msgs = [{'direction': 'note', 'author': 'alert', 'ts': now, 'body': _detail}]
     with A._LockedUpdate(A.TICKETS_FILE) as store:
         tickets = store.setdefault('tickets', [])
         if len(tickets) >= A.MAX_TICKETS:
@@ -312,7 +320,7 @@ def handle_tickets():
             'assignee': A._sanitize_str(str(body.get('assignee') or _route_assignee or actor), 64),
             'group': A._sanitize_str(str(body.get('group') or _route_group), 64),
             'created_by': actor, 'created_at': now, 'updated_at': now,
-            'messages': [],
+            'messages': _seed_msgs,
         })
     # Link the ticket number back onto the source alert (collect-then-write, no nesting)
     if alert_internal:

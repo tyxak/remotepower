@@ -132,5 +132,17 @@ class TestConsolidationSweep(unittest.TestCase):
         self.assertRegex(self.app_js, r"name === 'tls'[^\n]*loadTLS\(\)[^\n]*loadAcme\(\)")
 
 
+class TestWebtermSilencesCryptoDeprecation(unittest.TestCase):
+    """The webterm daemon must filter asyncssh's CryptographyDeprecationWarning
+    BEFORE importing asyncssh (the warning fires at import) — else it spams stderr
+    and the log monitor raises it as a recurring log_alert."""
+
+    def test_filter_precedes_asyncssh_import(self):
+        src = (_ROOT / 'server/webterm/remotepower-webterm.py').read_text()
+        self.assertIn('CryptographyDeprecationWarning', src)
+        self.assertLess(src.index('filterwarnings'), src.index('    import asyncssh'),
+                        'the warning filter must run before asyncssh is imported')
+
+
 if __name__ == "__main__":
     unittest.main()

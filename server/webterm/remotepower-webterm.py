@@ -90,6 +90,19 @@ except ImportError:
     print("  pip:           pip install 'websockets>=10'", file=sys.stderr)
     sys.exit(2)
 
+# asyncssh's crypto backend imports ciphers the `cryptography` library has
+# deprecated (TripleDES/Blowfish/CAST5/SEED/… kept for legacy-host SSH compat),
+# which prints a CryptographyDeprecationWarning to stderr the first time it runs
+# — harmless here, but the log monitor picks it up as a recurring "log alert".
+# Silence just that ONE category (never a blanket DeprecationWarning filter, which
+# would hide our own) before importing asyncssh.
+import warnings as _warnings
+try:
+    from cryptography.utils import CryptographyDeprecationWarning as _CryptoDeprecation
+    _warnings.filterwarnings('ignore', category=_CryptoDeprecation)
+except Exception:
+    pass
+
 try:
     import asyncssh
 except ImportError:

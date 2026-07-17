@@ -7808,6 +7808,84 @@ _ALERT_IDENTITY_FIELDS = (
 )
 
 
+def _alert_ticket_detail(al, device=None):
+    """Compose the FULL-detail first message (an internal note) for a ticket
+    opened from an alert. The alert *title* keeps only the first item plus a
+    '(+N more)' count, and the ticket used to copy just that title — so the other
+    items were lost. Here we pull the COMPLETE list from the live source (the
+    device's current sysinfo for failed units, the CVE findings store for CVEs)
+    so the ticket stands on its own. Falls back to the stored alert payload for
+    everything else. Returns '' when there's nothing worth adding."""
+    if not isinstance(al, dict):
+        return ''
+    p = al.get('payload') if isinstance(al.get('payload'), dict) else {}
+    event = al.get('event', '') or ''
+    dev = device if isinstance(device, dict) else {}
+    si = dev.get('sysinfo') if isinstance(dev.get('sysinfo'), dict) else {}
+    dev_id = al.get('device_id', '') or p.get('device_id', '')
+    out = ['Opened from alert: ' + str(al.get('title') or event or 'Alert')]
+    if al.get('severity') or p.get('severity'):
+        out.append('Severity: ' + str(al.get('severity') or p.get('severity')))
+    _ts = al.get('ts') or al.get('created_at') or al.get('first_seen')
+    if isinstance(_ts, (int, float)) and _ts > 0:
+        out.append('First seen: ' + time.strftime('%Y-%m-%d %H:%M %Z', time.localtime(_ts)))
+    out.append('')
+
+    if event == 'failed_unit':
+        units = [u for u in (si.get('failed_units') or []) if isinstance(u, str)]
+        if units:
+            out.append(f'Failed systemd units on this host ({len(units)}):')
+            out += ['  - ' + u for u in units[:80]]
+            if len(units) > 80:
+                out.append(f'  … and {len(units) - 80} more (showing 80)')
+        else:
+            out.append('Failed unit: ' + str(p.get('unit', '?')))
+            out.append('(the host is no longer reporting a failed-unit list)')
+    elif event == 'cve_found':
+        rec = (load(CVE_FINDINGS_FILE) or {}).get(dev_id, {}) if dev_id else {}
+        findings = [f for f in (rec.get('findings') or [])
+                    if isinstance(f, dict) and not f.get('ignored')]
+        crit = [f for f in findings if f.get('severity') == 'critical']
+        fixable = [f for f in findings if str(f.get('fixed_version') or '').strip()]
+        out.append(f'Open CVEs on this host: {len(findings)} total · '
+                   f'{len(crit)} critical · {len(fixable)} fixable')
+        if findings:
+            out.append('')
+            _rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+            shown = sorted(findings, key=lambda f: _rank.get(f.get('severity'), 9))[:100]
+            for f in shown:
+                fx = ('  → fix in ' + str(f.get('fixed_version'))
+                      if str(f.get('fixed_version') or '').strip() else '  (no fix yet)')
+                out.append(f"  - [{f.get('severity', '?')}] "
+                           f"{f.get('vuln_id') or f.get('cve_id') or '?'} · "
+                           f"{f.get('package', '?')}{fx}")
+            if len(findings) > len(shown):
+                out.append(f'  … and {len(findings) - len(shown)} more '
+                           f'(showing top {len(shown)} by severity)')
+    elif event == 'log_alert':
+        out.append('Log pattern matched on ' + str(p.get('unit') or 'syslog') + ':')
+        if p.get('pattern'):
+            out.append('  Pattern: ' + str(p.get('pattern')))
+        if p.get('count'):
+            out.append('  Matches: ' + str(p.get('count')))
+        sample = [s for s in (p.get('sample') or []) if isinstance(s, str)]
+        if sample:
+            out.append('  Sample lines:')
+            out += ['    ' + s for s in sample[:5]]
+        else:
+            out.append('  (matched lines are not retained past the alert — check the host journal)')
+    else:
+        shown = [(k, v) for k, v in p.items()
+                 if k not in ('device_id', 'device_name') and v not in (None, '', [], {})]
+        if shown:
+            out.append('Alert detail:')
+            out += [f'  {k}: {v}' for k, v in shown]
+
+    body = '\n'.join(out).strip()
+    # If nothing beyond the header/severity was added, don't bother seeding a note.
+    return body if len(body.splitlines()) > 2 else ''
+
+
 def _alert_identity(event, summary, dev_id):
     """A hashable identity for de-duplicating open alerts.
 
@@ -8832,6 +8910,8 @@ def _record_alert(event, payload):
                     # (proto/port/process), backup (label/age_hours),
                     # snapshot (vm_name/snap_name/days_old).
                     'label', 'target', 'source_ip', 'count',
+                    'sample',      # log_alert: up to 3 matched lines — kept so a
+                                   # ticket opened from the alert carries the evidence
                     'new_count',   # failed_unit/fail2ban: enables "+N more" in the title
                     'user', 'fingerprint', 'proto', 'port', 'process',
                     'age_hours', 'vm_name', 'snap_name', 'days_old',
@@ -9088,6 +9168,7 @@ def _auto_resolve_alerts(event, payload):
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
         return
+    _recovered_tids = []          # tickets whose source alert just recovered
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             now = int(time.time())
@@ -9113,8 +9194,59 @@ def _auto_resolve_alerts(event, payload):
                     continue
                 a['resolved_at'] = now
                 a['resolved_by'] = 'auto'
+                if a.get('rp_ticket_id'):
+                    _recovered_tids.append(a['rp_ticket_id'])
     except Exception:
         pass
+    # Outside the ALERTS lock (the TICKETS lock must not nest): reflect the
+    # recovery on any ticket the resolved alert opened — a note (always) and an
+    # auto-resolve if the ticket is still untouched. collect-then-apply.
+    if _recovered_tids:
+        _apply_alert_recovery_to_tickets(_recovered_tids, event, payload or {})
+
+
+def _apply_alert_recovery_to_tickets(tids, event, payload):
+    """A recover event auto-resolved an alert that had opened a ticket — keep the
+    ticket's timeline honest: append a recovery note, and (if the ticket is still
+    in its untouched 'ongoing' state and auto-resolve isn't disabled) mark it
+    resolved so a self-healed incident closes itself. A ticket a human is already
+    working (moved to pending_*) or already resolved/closed only gets the note.
+    Fires ticket_resolved AFTER the lock (self-locking recorder)."""
+    if not tids:
+        return
+    note = ('Source alert recovered — ' + (_alert_title(event, payload) or 'the alert cleared')[:200]
+            + '\nThe condition that opened this ticket has cleared.')
+    auto_ok = bool(_config_ro().get('ticket_auto_resolve_on_recover', True))
+    now = int(time.time())
+    _fire = []
+    try:
+        with _LockedUpdate(TICKETS_FILE) as store:
+            by_id = {t.get('id'): t for t in store.get('tickets', []) if isinstance(t, dict)}
+            for tid in dict.fromkeys(tids):        # de-dupe, keep order
+                t = by_id.get(tid)
+                if not t:
+                    continue
+                did_resolve = (auto_ok and t.get('status') == 'ongoing')
+                _body = note + ('\nTicket auto-resolved (self-healed).' if did_resolve else '')
+                t.setdefault('messages', []).append(
+                    {'direction': 'note', 'author': 'alert', 'ts': now, 'body': _body})
+                t['updated_at'] = now
+                if did_resolve:
+                    t['status'] = 'resolved'
+                    t['auto_resolved'] = True
+                    _fire.append({'number': t.get('number'), 'ticket_id': t.get('id'),
+                                  'subject': t.get('subject', ''),
+                                  'priority': _coerce_priority(t.get('priority', 4)),
+                                  'status': 'resolved', 'resolved_by': 'auto',
+                                  'device_id': t.get('device_id', ''),
+                                  'device_name': t.get('device_name', '')})
+    except Exception:
+        pass
+    for wp in _fire:
+        try:
+            fire_webhook('ticket_resolved', wp)
+        except Exception:
+            pass
 
 
 _QH_SEV_RANK = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1, 'info': 0}
