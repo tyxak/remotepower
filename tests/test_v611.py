@@ -18,6 +18,8 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from apisrc import api_source as _api_source  # noqa: E402  api.py + *_handlers.py
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v611-test-"))
 _spec = importlib.util.spec_from_file_location("api_v611_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
@@ -244,7 +246,8 @@ class TestFleetAggregateTenantIsolationFix(unittest.TestCase):
     through _scope_filter_devices() (which folds in _tenant_filter_devices) or
     consult _tenant_gate()."""
 
-    SRC = (_CGI / "api.py").read_text()
+    # combined source: handle_scap_overview now lives in scap_handlers.py
+    SRC = _api_source()
 
     def _body(self, fn):
         i = self.SRC.index(fn)

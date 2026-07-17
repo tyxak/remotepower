@@ -26,9 +26,10 @@ import unittest
 from pathlib import Path
 
 CGI = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin'
-HANDLER_FILES = ['api.py', 'vpn_handlers.py', 'tickets_handlers.py',
-                 'cmdb_handlers.py', 'provisioning_handlers.py',
-                 'backups_handlers.py', 'tls_ct_handlers.py']
+# api.py + EVERY bound *_handlers.py module — auto-globbed so extracting a
+# subsystem into a new module can never silently drop its handlers from this
+# scope-gate enumeration (a hardcoded list did exactly that as modules were added).
+HANDLER_FILES = ['api.py'] + sorted(p.name for p in CGI.glob('*_handlers.py'))
 
 # Reads a device id (or a target set that contains device ids) from the body.
 _READ = re.compile(
