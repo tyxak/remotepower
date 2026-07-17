@@ -1,0 +1,36 @@
+# Dependency & supply-chain hygiene. Grouped + weekly to stay low-noise — the
+# point is to SEE a drifting dependency (the asyncssh/cryptography deprecation
+# class) before it becomes a hard break, not to drown in PRs. Runs on the prod
+# repo (tyxak/remotepower) where Actions are enabled.
+version: 2
+updates:
+  # GitHub Actions used by ci.yml / codeql.yml / release.yml
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci(deps)"
+
+  # Python runtime deps (flask, gunicorn, pydantic, bcrypt, cryptography, …)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-runtime:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps"
+
+  # Base images for the server + agent containers (python:3.12-slim)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "docker(deps)"
