@@ -24,3 +24,18 @@ sortable, filterable table.
 
 The same engine feeds the per-device checks view in the device drawer and
 the dashboard checks-rollup widget.
+
+## Baseline checks
+
+**Baseline checks** (toolbar button) is the checks analogue of *Service
+baselines*: a shipped catalog of recommended checks you apply to a **scope** —
+the whole fleet, a group, or a tag — in one click. Each becomes an ordinary
+scoped check, so it evaluates, shows OK/WARN/CRIT, alerts and can be silenced
+per host exactly like any custom check, and it stays live as hosts join the
+scope. The catalog is grouped into **Core liveness** (agent, time sync, cron),
+**Security posture** (firewall, auditd, unattended-upgrades, SSH reachable,
+telnet closed), **Filesystem / OS** (no OOM-kill, no pending reboot, logins not
+disabled) and **Role-tagged** (Docker/nginx/PostgreSQL, applied to their tag).
+Applying is idempotent — a check already present for that scope is skipped.
+Defaults suit a Debian/Ubuntu fleet and are editable from the Check catalog
+afterwards (e.g. `crond.service` on RHEL, `firewalld`/`nftables`).

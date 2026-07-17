@@ -336,6 +336,54 @@ async function openCustomChecks() {
   openModal('custom-checks-modal');
   loadCustomCheckList();
 }
+
+// ── v6.2.3: Baseline checks — apply a recommended catalog set to a scope ──────
+let _bcCatalog = [];
+async function openBaselineChecks() {
+  const el = document.getElementById('bc-catalog');
+  if (el) el.innerHTML = '<div class="empty-state">Loading…</div>';
+  const r = document.getElementById('bc-result'); if (r) r.textContent = '';
+  const k = document.getElementById('bc-kind'); if (k) k.value = 'all';
+  bcKindChanged();
+  openModal('baseline-checks-modal');
+  const data = await api('GET', '/checks/baseline-catalog');
+  _bcCatalog = (data && data.catalog) || [];
+  _bcRenderCatalog();
+}
+function bcKindChanged() {
+  const k = document.getElementById('bc-kind')?.value || 'all';
+  document.getElementById('bc-target-grp')?.classList.toggle('hidden', k === 'all');
+}
+function _bcRenderCatalog() {
+  const el = document.getElementById('bc-catalog');
+  if (!el) return;
+  if (!_bcCatalog.length) { el.innerHTML = '<div class="empty-state">No catalog available.</div>'; return; }
+  const cats = {};
+  _bcCatalog.forEach(t => { (cats[t.cat] = cats[t.cat] || []).push(t); });
+  el.innerHTML = Object.keys(cats).map(cat =>
+    `<div class="section-title mt-8">${escHtml(cat)}</div>` +
+    cats[cat].map(t =>
+      `<label class="click-row-mb6"><input type="checkbox" class="bc-chk" value="${escAttr(t.id)}"> ` +
+      `<strong>${escHtml(t.name)}</strong> <span class="meta-sm">${escHtml(t.type)}` +
+      `${t.target_kind ? ' · tag:' + escHtml(t.target || '') : ''}</span>` +
+      `<div class="meta-sm c-muted">${escHtml(t.desc || '')}</div></label>`
+    ).join('')
+  ).join('');
+}
+async function applyBaselineChecks() {
+  const ids = Array.from(document.querySelectorAll('#bc-catalog .bc-chk:checked')).map(c => c.value);
+  if (!ids.length) { toast('Select at least one check', 'error'); return; }
+  const tk = document.getElementById('bc-kind')?.value || 'all';
+  const tv = (document.getElementById('bc-target')?.value || '').trim();
+  if (tk !== 'all' && !tv) { toast('Enter a ' + tk + ' name', 'error'); return; }
+  const r = await api('POST', '/checks/baseline-apply', { ids, target_kind: tk, target: tv });
+  if (r && r.ok) {
+    toast(`Applied — ${r.added} check(s) added${r.added === 0 ? ' (already present)' : ''}`, 'success');
+    closeModal('baseline-checks-modal');
+    if (typeof loadChecks === 'function') loadChecks();
+  } else toast((r && r.error) || 'Failed', 'error');
+}
+
 async function loadCustomCheckList() {
   const el = document.getElementById('cc-list');
   if (!el) return;

@@ -190,6 +190,8 @@
     'Download .conf':        { fr: 'Télécharger .conf', de: '.conf herunterladen', zh: '下载 .conf', hi: '.conf डाउनलोड करें', es: 'Descargar .conf', ar: 'تنزيل .conf' },
     'Reach':                 { fr: 'Portée', de: 'Erreichbarkeit', zh: '可达范围', hi: 'पहुँच', es: 'Alcance', ar: 'الوصول' },
     'Listen port':           { fr: "Port d'écoute", de: 'Listen-Port', zh: '监听端口', hi: 'लिसन पोर्ट', es: 'Puerto de escucha', ar: 'منفذ الاستماع' },
+    'Baseline checks':       { fr: 'Contrôles de référence', de: 'Basis-Checks', zh: '基线检查', hi: 'बेसलाइन जाँचें', es: 'Comprobaciones base', ar: 'فحوصات أساسية' },
+    'Apply selected':        { fr: 'Appliquer la sélection', de: 'Auswahl anwenden', zh: '应用所选', hi: 'चयनित लागू करें', es: 'Aplicar selección', ar: 'تطبيق المحدد' },
     'Transfer':              { fr: 'Transfert', de: 'Übertragung', zh: '传输量', hi: 'स्थानांतरण', es: 'Transferencia', ar: 'النقل' },
     'Address':               { fr: 'Adresse', de: 'Adresse', zh: '地址', hi: 'पता', es: 'Dirección', ar: 'العنوان' },
     'Endpoint':              { fr: 'Point de terminaison', de: 'Endpunkt', zh: '端点', hi: 'एंडपॉइंट', es: 'Extremo', ar: 'نقطة النهاية' },
