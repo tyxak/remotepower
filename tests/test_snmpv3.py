@@ -405,8 +405,11 @@ class TestApiWiring(unittest.TestCase):
 
     def test_get_redaction_never_echoes_v3_secrets(self):
         # Source-level pin: the GET response must only carry has_* booleans
-        # for the v3 passwords, never the values.
-        src = (_CGI / 'api.py').read_text()
+        # for the v3 passwords, never the values. handle_device_snmp moved to
+        # snmp_device_handlers.py — read the combined source.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from apisrc import api_source
+        src = api_source()
         self.assertIn("'has_v3_auth_secret': bool(snmp_cfg.get('v3_auth_secret'))", src)
         self.assertIn("'has_v3_priv_secret': bool(snmp_cfg.get('v3_priv_secret'))", src)
         self.assertNotIn("'v3_auth_secret': snmp_cfg.get", src)
