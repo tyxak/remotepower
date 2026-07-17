@@ -1120,6 +1120,25 @@ for _ds_name in (
 ):
     globals()[_ds_name] = getattr(snmp_device_handlers_mod, _ds_name)
 del _ds_name
+
+# On-call rotation + alert escalation. Same private-instance loader. The
+# module-global escalation-tick gate (_last_escalation_tick), _ESCALATION_INTERVAL
+# and the _NoEscalationChange sentinel move WITH the module and are re-imported
+# (so api's home-rollup _oncall_now caller + main()/scheduler's
+# _escalation_tick_if_due cadence resolve unchanged). CONFIG_FILE / ALERTS_FILE +
+# _send_webhook_to_url stay in api.py, read via A.
+_oc_spec = _tk_ilu.spec_from_file_location(
+    'oncall_handlers', Path(__file__).parent / 'oncall_handlers.py')
+oncall_handlers_mod = _tk_ilu.module_from_spec(_oc_spec)
+_oc_spec.loader.exec_module(oncall_handlers_mod)
+oncall_handlers_mod.bind(globals())
+for _oc_name in (
+        '_last_escalation_tick', '_ESCALATION_INTERVAL', '_NoEscalationChange',
+        '_oncall_index', '_oncall_at', '_oncall_upcoming', '_oncall_now',
+        '_escalation_tick', '_escalation_tick_if_due', 'handle_oncall',
+):
+    globals()[_oc_name] = getattr(oncall_handlers_mod, _oc_name)
+del _oc_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -51113,207 +51132,6 @@ def handle_nav_counts():
         pass
     _respond_with_etag(out, out)   # content-based (see the note above)
     respond(200, out)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# v3.4.2: on-call schedule + escalation policy
-# ─────────────────────────────────────────────────────────────────────────────
-# An alert that nobody acknowledges should get louder, not sit silent. An
-# escalation policy is a list of tiers ({after_minutes}); a periodic tick
-# re-notifies the configured webhook destinations for any open, unacknowledged
-# alert that has aged past a tier it hasn't fired yet, naming the current on-call
-# person. The on-call schedule is a simple contact rotation (N days each). No new
-# webhook event — escalation re-fires the original alert's event through the
-# existing channel fan-out, so it lands wherever that alert already routes.
-_last_escalation_tick = [0.0]
-_ESCALATION_INTERVAL = 60   # seconds
-
-
-def _oncall_index(now, anchor, period_s, n):
-    """Rotation index for `now` given the anchor (start) time and period. Before
-    the anchor, the first person holds it (index 0)."""
-    if now < anchor:
-        return 0
-    return int((now - anchor) // period_s) % n
-
-
-def _oncall_at(cfg, now=None):
-    """Resolve the on-call contact for `now`, honouring (in priority order):
-      1. a dated OVERRIDE window (handoff / swap) that covers `now`;
-      2. an anchored rotation SCHEDULE (who is on call THIS week — deterministic
-         from an anchor date + rotation length, not wall-clock modulo);
-      3. the legacy stateless modulo rotation (backwards compatible).
-    Returns '' when on-call isn't configured/enabled."""
-    oc = (cfg or {}).get('oncall') or {}
-    if not oc.get('enabled'):
-        return ''
-    contacts = [c for c in (oc.get('contacts') or []) if c]
-    now = int(now or time.time())
-
-    # 1. Overrides win — a specific dated assignment.
-    for ov in (oc.get('overrides') or []):
-        if not isinstance(ov, dict):
-            continue
-        who = ov.get('contact')
-        try:
-            start = int(ov.get('start') or 0)
-            end = int(ov.get('end') or 0)
-        except (TypeError, ValueError):
-            continue
-        if who and start <= now < end:
-            return who
-
-    # 2. Anchored schedule.
-    anchor = oc.get('anchor')
-    if contacts and anchor:
-        try:
-            anchor = int(anchor)
-            days = max(1, int(oc.get('rotation_days') or 7))
-        except (TypeError, ValueError):
-            anchor = None
-        if anchor:
-            return contacts[_oncall_index(now, anchor, days * 86400, len(contacts))]
-
-    # 3. Legacy stateless modulo (unchanged).
-    if not contacts:
-        return ''
-    try:
-        days = max(1, int(oc.get('rotation_days') or 7))
-    except (TypeError, ValueError):
-        days = 7
-    return contacts[(now // (days * 86400)) % len(contacts)]
-
-
-def _oncall_upcoming(cfg, now=None, count=4):
-    """The next `count` handoffs as [{start, contact}] from the anchored
-    schedule (empty if no anchor/contacts). Overrides are listed separately by
-    the handler; this is the base rotation timeline."""
-    oc = (cfg or {}).get('oncall') or {}
-    contacts = [c for c in (oc.get('contacts') or []) if c]
-    anchor = oc.get('anchor')
-    if not (oc.get('enabled') and contacts and anchor):
-        return []
-    try:
-        anchor = int(anchor)
-        days = max(1, int(oc.get('rotation_days') or 7))
-    except (TypeError, ValueError):
-        return []
-    now = int(now or time.time())
-    period = days * 86400
-    # Start of the current rotation slot.
-    slot = anchor if now < anchor else anchor + ((now - anchor) // period) * period
-    out = []
-    for k in range(count):
-        start = slot + k * period
-        idx = _oncall_index(start, anchor, period, len(contacts))
-        out.append({'start': start, 'contact': contacts[idx]})
-    return out
-
-
-def _oncall_now(cfg, now=None):
-    """Back-compat shim — the current on-call contact string. Delegates to the
-    calendar-aware resolver (overrides → anchored schedule → legacy modulo)."""
-    return _oncall_at(cfg, now)
-
-
-def _escalation_tick(now=None):
-    """Re-notify open, unacknowledged alerts that have aged past an escalation
-    tier. Idempotent per (alert, tier) via the alert's `escalated_tiers` list.
-    Best-effort; never raises into the caller."""
-    now = int(now or time.time())
-    try:
-        cfg = load(CONFIG_FILE) or {}
-        esc = cfg.get('escalation') or {}
-        if not esc.get('enabled'):
-            return
-        tiers = sorted(
-            [t for t in (esc.get('tiers') or []) if isinstance(t, dict)],
-            key=lambda t: int(t.get('after_minutes') or 0))
-        if not tiers:
-            return
-        sevs = esc.get('severities') or ['critical', 'high']
-        oncall = _oncall_now(cfg, now)
-        fired_any = False
-        pending_sends = []   # (event, payload, msg) — fired AFTER the lock releases
-        with _LockedUpdate(ALERTS_FILE) as store:
-            for a in store.get('alerts', []):
-                if a.get('acknowledged_at') or a.get('resolved_at'):
-                    continue
-                if a.get('severity') not in sevs:
-                    continue
-                age_min = (now - int(a.get('ts') or now)) / 60.0
-                done = set(a.get('escalated_tiers') or [])
-                for i, tier in enumerate(tiers):
-                    if i in done:
-                        continue
-                    try:
-                        after = int(tier.get('after_minutes') or 0)
-                    except (TypeError, ValueError):
-                        after = 0
-                    if age_min < after:
-                        continue
-                    msg = (f"ESCALATION tier {i + 1} — unacknowledged {int(age_min)}m: "
-                           f"{a.get('title', a.get('event', 'alert'))}"
-                           + (f" · on-call: {oncall}" if oncall else ""))
-                    # v5.0.1 (lock-nesting fix): buffer the send; fire it AFTER
-                    # the ALERTS_FILE lock releases. _send_webhook_to_url →
-                    # _dlq_record opens WEBHOOK_DLQ_FILE's own _LockedUpdate; under
-                    # SQLite a nested BEGIN IMMEDIATE errors and the failed-delivery
-                    # DLQ row was silently dropped (un-retryable missed escalation).
-                    pending_sends.append((a.get('event', 'alert_escalated'),
-                                          dict(a.get('payload') or {}), msg,
-                                          tier.get('target') or ''))   # v5.4.1 (G2)
-                    done.add(i)
-                    fired_any = True
-                a['escalated_tiers'] = sorted(done)
-            if not fired_any:
-                # nothing changed — avoid an unnecessary write
-                raise _NoEscalationChange()
-    except _NoEscalationChange:
-        pass
-    except Exception as e:
-        sys.stderr.write(f'[remotepower] escalation tick failed: {e}\n')
-        return
-    # Fire the buffered escalation webhooks OUTSIDE the ALERTS_FILE lock so a
-    # delivery failure's DLQ write (its own _LockedUpdate) isn't nested. Empty
-    # when nothing escalated.
-    for _ev, _pl, _msg, _tgt in pending_sends:
-        try:
-            _send_webhook_to_url(_ev, _pl, _msg, cfg,
-                                 only_dest_ids=({_tgt} if _tgt else None))   # v5.4.1 (G2)
-        except Exception:
-            pass
-
-
-class _NoEscalationChange(Exception):
-    """Sentinel to abort the _LockedUpdate write when nothing escalated."""
-
-
-def _escalation_tick_if_due():
-    now = time.time()
-    if now - _last_escalation_tick[0] < _ESCALATION_INTERVAL:
-        return
-    _last_escalation_tick[0] = now
-    _escalation_tick()
-
-
-def handle_oncall():
-    """GET /api/oncall — current on-call contact, the next handoffs, active/
-    upcoming overrides, and the rotation + escalation cfg."""
-    require_auth()
-    cfg = load(CONFIG_FILE) or {}
-    now = int(time.time())
-    oc = cfg.get('oncall') or {}
-    respond(200, {
-        'current':  _oncall_now(cfg, now),
-        # v5.8.0 (B3.3): the next 4 rotation handoffs (empty unless an anchored
-        # schedule is set) + any override windows still in effect / upcoming.
-        'upcoming': _oncall_upcoming(cfg, now, count=4),
-        'overrides': [o for o in (oc.get('overrides') or [])
-                      if isinstance(o, dict) and (o.get('end') or 0) > now],
-        'oncall': oc or {'enabled': False, 'contacts': [], 'rotation_days': 7},
-        'escalation': cfg.get('escalation') or {'enabled': False, 'tiers': [], 'severities': ['critical', 'high']},
-    })
 
 
 def handle_setup_status():

@@ -100,8 +100,10 @@ class TestWiring(unittest.TestCase):
         self.assertIn("new_oc['overrides']", src)
 
     def test_handler_returns_upcoming(self):
-        src = (_CGI / 'api.py').read_text()
-        self.assertIn("'upcoming': _oncall_upcoming(cfg, now, count=4)", src)
+        # handle_oncall moved to oncall_handlers.py — read the combined source
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from apisrc import api_source
+        self.assertIn("'upcoming': _oncall_upcoming(cfg, now, count=4)", api_source())
 
     def test_frontend_renders_schedule(self):
         js = (Path(__file__).parent.parent / 'server/html/static/js/app.js').read_text()
