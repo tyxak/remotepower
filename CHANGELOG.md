@@ -76,6 +76,23 @@ code, and de-duplicated docs.
   fields that duplicated the same controls on **Settings → Alert parameters**
   (they wrote the same config keys, so a save on one page could quietly reset
   the other). Alert parameters is now the single home for them.
+- **Fleet Query's `os` column works again** — it read a sysinfo field the
+  heartbeat sanitizer never stores, so `SELECT os` / `WHERE os contains …` was
+  always blank; it now reads the device-level field the agent actually sends.
+- **Status-page component builder: the monitor picker finds monitors.** It
+  fetched a route that doesn't exist (the 404 was swallowed), so it always
+  said "No matching monitors" — it now reads the monitor export.
+- **Linux agent honours a drawer/profile poll-interval change.** The server has
+  always sent `poll_interval` in every heartbeat response and the Windows/Mac
+  agents applied it, but the Linux agent only reacted to the queued command —
+  which the device-drawer save path never sends. It now applies the response
+  field like the other agents (clamped 10 s–1 h).
+- **Activity feed names the container again** — `container_stopped/_restarting/
+  _recovered` feed rows fell back to the host name because the fleet-event
+  whitelist dropped the `container` payload field (the alerts inbox kept it).
+- **Windows agent honours "Scan now" for the secrets scan** (the one-shot
+  `force_secrets_scan` flag — Linux/macOS already did), and the Exposed-secrets
+  page gains a **Scan now** button for the endpoint that was API-only.
 
 ### Security
 
@@ -108,6 +125,35 @@ code, and de-duplicated docs.
   scope/tenant filter and regression-tested. A new ungated body-device handler now
   fails the build.
   - Full write-up: [docs/security-review-6.2.3.md](docs/security-review-6.2.3.md).
+- **LDAP honours the group → role map.** The `sso_group_roles` matrix (any
+  builtin or custom role) now applies to LDAP logins too — matrix keys are
+  group DNs, matched case-insensitively like the legacy admin-group DN. LDAP
+  users were previously admin-or-viewer only. Promotions follow the SSO rules
+  (viewer → mapped role, any non-admin → admin on admin-group match; never
+  auto-demoted).
+
+### Docs, demo & polish (finalize sweep)
+
+- **Four new guides**: `docs/ipam.md` (racks + IPAM), `docs/oncall.md`
+  (rotation + escalation), `docs/sso.md` (OIDC / SAML / LDAP / SCIM setup) and
+  `docs/secret-scan.md` (secrets-on-disk scan + canary files — previously a
+  dead link from Settings). ~30 in-app "Documentation" pointers added across
+  the enterprise Settings sections and feature pages that lacked one.
+- **Translation coverage sweep**: ~225 dictionary entries added across all 6
+  languages — the Alert-parameters pane, on-call card, tickets/alerts/webhook-
+  log/logs tables and the JS-rendered ticket/alert/AI/CVE/compliance strings
+  were English-only.
+- **Demo refresh**: the demo seeder now reports v6.2.3 (was 5.6.0), seeds the
+  webhook log/DLQ, IPAM state, SNMP traps, quotes, PII findings, disk-usage,
+  WAN and portal-queue stores that previously rendered empty pages, and shows
+  a customized Alert-parameters page.
+- **UI consistency**: the dashboard's four remaining raw `<h3>` card headers
+  moved onto the canonical `.section-title` header band; icon-to-label gap
+  unified at 5px across all button families (`.btn-icon` double-spaced it);
+  the UniFi radios table gained the standard scroll wrap.
+- **Perf**: the NOC board, network-metrics rollup and scoped alert
+  list/summary no longer deepcopy the fleet per request (`_load_ro`); the
+  alert-mutation permission helpers read the config scalar without a deepcopy.
 
 ### Internal (consolidation sweep)
 
@@ -1661,6 +1707,11 @@ whole product, plus a batch of UI fixes and two new alerts.
 
 ### Added
 
+- **Canary files (honeytokens).** Agents plant decoy credential files at
+  operator-chosen paths (never over an existing file) and watch them; any
+  read/change/delete raises a critical `canary_accessed` alert. Configured
+  under Settings → Security. *(Backfilled 2026-07-17 — shipped in this release
+  without a changelog entry.)*
 - **10 new homelab connectors** (Settings → Integrations): Immich, Paperless-ngx,
   Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge
   and a **RemotePower (peer instance)** connector that surfaces another

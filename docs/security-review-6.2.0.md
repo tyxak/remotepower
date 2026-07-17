@@ -49,8 +49,8 @@ exists):
 | `GET /api/pii` | `require_auth` | read |
 | `POST /api/pii/scan` | `require_write_role('exec')` | mutating — write-role, not bare auth |
 | `GET /api/edr/coverage` | `require_auth` | read |
-| `POST /api/vault/checkout` | `require_admin_auth` | sensitive credential reveal |
-| `POST /api/vault/checkout/{id}/revoke` | `require_admin_auth` | admin-only |
+| `POST /api/cmdb/vault/checkout` | `require_admin_auth` | sensitive credential reveal |
+| `DELETE /api/cmdb/vault/checkouts/{id}` | `require_admin_auth` | admin-only |
 
 DNS-blocker control (pause blocking for a bounded window) is admin-only and
 audit-logged, with a hard maximum window and a self-re-enabling timer, so a debug

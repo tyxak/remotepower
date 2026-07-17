@@ -127,6 +127,9 @@ Older release notes (v6.1.2 and earlier) live in
  what you approve is what runs. Off by default.
 - **[pii-scan.md](pii-scan.md)** — Regulated-data (PII) scan *(v6.2.0)*: where your
  emails / card numbers / national IDs live, reported by file — never the values.
+- **[secret-scan.md](secret-scan.md)** — Exposed-secrets-on-disk scan (redacted
+ findings — keys/tokens/passwords by rule, path and fingerprint, never the value)
+ and canary (honeytoken) decoy files with the critical `canary_accessed` tripwire.
 - **[edr-coverage.md](edr-coverage.md)** — EDR coverage *(v6.2.0)*: Wazuh /
  CrowdStrike / SentinelOne connectors cross-referenced to name the hosts with no
  EDR at all.
@@ -148,6 +151,8 @@ Older release notes (v6.1.2 and earlier) live in
  `connected_to` links, with a site/group/tag scope filter for big fleets.
 - **[network-metrics.md](network-metrics.md)** — Per-device RX/TX throughput,
  rolled up fleet-wide or by group / tag / site.
+- **[ipam.md](ipam.md)** — Racks (elevation view, asset placement) and IPAM
+ (subnets, derived occupancy, reservations, duplicate-IP/MAC conflict alerts).
 - **[agentless-devices.md](agentless-devices.md)** — Manual records for
  switches, APs, printers, IPMI cards.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
@@ -163,6 +168,9 @@ Older release notes (v6.1.2 and earlier) live in
  and encrypted control-plane disaster recovery.
 - **[remote-access.md](remote-access.md)** — Browser web terminal, remote file
  manager, and host user / SSH-key / firewall management from the drawer.
+- **[sso.md](sso.md)** — Single sign-on & directory integration: OIDC, SAML 2.0
+ and LDAP/LDAPS sign-in, the shared IdP group→role mapping, SCIM provisioning /
+ deactivation, and SSO-only mode with break-glass local login.
 - **[storage.md](storage.md)** — Storage-RAID health (ZFS/mdadm/btrfs) + SMART;
  umbrella page linking the focused disk-health, GPU, thermal and power guides.
 - **[tls-selfsigned.md](tls-selfsigned.md)** — Built-in self-signed CA +
@@ -193,6 +201,9 @@ Older release notes (v6.1.2 and earlier) live in
  run server-side (Terraform Plan/Apply/Destroy behind the execute gate).
 - **[alert-tuning.md](alert-tuning.md)** — The Tuning page: surface the noisiest
  alerts and sources, and per-(host, event) mute to silence exactly one alert.
+- **[oncall.md](oncall.md)** — On-call rotation (anchored calendar schedule,
+ overrides) and tiered escalation of unacknowledged alerts, with per-tier
+ webhook targets.
 - **[alert-parameters.md](alert-parameters.md)** — Settings → Alert parameters:
  the one home for every numeric alert-firing threshold, the health-grade /
  risk / reliability cutoffs, and the per-factor score weights (with a filter box).
@@ -291,7 +302,8 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[schedule.md](schedule.md)** — Scheduled jobs.
 - **[cron.md](cron.md)** — Managing host crontabs and systemd timers.
 - **[tasks.md](tasks.md)** — The task list.
-- **[calendar.md](calendar.md)** — The operations calendar and on-call rotation.
+- **[calendar.md](calendar.md)** — The shared team events calendar (a memory
+ aid — it doesn't run anything; on-call lives in [oncall.md](oncall.md)).
 - **[maintenance.md](maintenance.md)** — Maintenance windows and alert suppression.
 - **[rollouts.md](rollouts.md)** — Health-gated staged rollouts.
 - **[command-library.md](command-library.md)** — Saved commands and scripts.

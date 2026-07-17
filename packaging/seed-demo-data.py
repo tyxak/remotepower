@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""seed-demo-data.py — populate /var/lib/remotepower/ with a fake homelab.
+"""seed-demo-data.py — populate /var/lib/remotepower-demo/ with a fake homelab.
 
 For the public demo sandbox at e.g. demoremote.tvipper.com. Pair this
-with ``RP_READ_ONLY=1`` in the systemd unit / fastcgi config so visitors
-can browse but not modify.
+with ``RP_READ_ONLY=1`` in the demo gunicorn unit's environment
+(install-demo.sh's ``remotepower-wsgi-demo`` service) so visitors can
+browse but not modify.
 
-Run as the CGI user so file ownership stays correct:
+Run as the app-server user so file ownership stays correct:
 
     sudo -u www-data python3 packaging/seed-demo-data.py --apply
 
@@ -48,6 +49,11 @@ from pathlib import Path
 # looks like production (real accounts present) or any non-empty dir that isn't
 # explicitly marked as a demo dir.
 DEFAULT_DATA_DIR = Path('/var/lib/remotepower-demo')
+
+# The dir actually being seeded this run. main() updates this from --data-dir
+# before calling the builders, so path-bearing config (backup_path) points into
+# the demo data dir rather than at the production install.
+TARGET_DIR = DEFAULT_DATA_DIR
 
 # A dir is treated as a sanctioned demo target if it contains this marker file.
 # The script drops it automatically after a successful seed of an empty dir, so
@@ -1448,8 +1454,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '5.6.0',
-        'agent_version':     '5.6.0',
+        'server_version':    '6.2.3',
+        'agent_version':     '6.2.3',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -1484,6 +1490,19 @@ def build_config() -> dict:
             'cpu_warn_load_ratio': 1.5, 'cpu_crit_load_ratio': 3.0,
         },
 
+        # v6.2.2 — a few Alert-parameter tunables (Settings → Alert parameters)
+        # set slightly off their defaults so the page demos real customization.
+        # Keys are from app.js _ALERT_PARAM_FIELDS / handle_config_save's int
+        # loop: TLS warn/crit earlier than stock (14/3), grade cutoffs raised
+        # a notch (90/70), thermal alert lowered to 80 °C (85), offline after
+        # 4 missed polls (5).
+        'tls_warn_days':            21,
+        'tls_crit_days':            5,
+        'health_grade_good':        92,
+        'health_grade_fair':        72,
+        'temp_alert_threshold_c':   80,
+        'offline_missed_polls':     4,
+
         # v3.0.2 — audit log age-based retention
         'audit_log_retention_days': 90,
 
@@ -1493,7 +1512,7 @@ def build_config() -> dict:
 
         # v3.0.2 — scheduled backup of /var/lib/remotepower
         'backup_enabled':         True,
-        'backup_path':            '/var/lib/remotepower/backups',
+        'backup_path':            str(TARGET_DIR / 'backups'),
         'backup_retention_days':  14,
 
         # v3.6.0 — Proxmox backup recency threshold (drives proxmox_backup NA)
@@ -1723,6 +1742,17 @@ def build_config() -> dict:
         'rdp_enabled':     True,
         'portal_enabled':  True,
         'portal_base_url': 'https://demoremote.tvipper.example/portal',
+        # master-improvement-scoping #84 — portal submissions queue for operator
+        # approval (build_portal_ticket_queue seeds the pending queue).
+        'portal_ticket_approval_required': True,
+
+        # ── v6.2.3 coverage fill: flags for the newly-seeded stores ────────
+        # WAN watch (wan_state.json), PII inventory (pii_findings.json) and
+        # disk-usage explain (disk_usage.json) each report `enabled` from
+        # config — without these the seeded pages render as "off".
+        'wan_watch_enabled': True,
+        'pii_scan_enabled':  True,
+        'du_scan_enabled':   True,
 
         # Proxmox connector — cosmetically "configured" but DISABLED (no
         # token secret, proxmox_enabled False), so Containers/Virtualization
@@ -4501,6 +4531,280 @@ def build_update_logs() -> dict:
     }
 
 
+# ─── v6.2.3 coverage fill: previously-unseeded stores ────────────────────────
+
+def build_webhook_log() -> dict:
+    """Outbound webhook delivery log → webhook_log.json. Shape verified
+    against _log_webhook (api.py ~6959: {entries: [{ts, event, url, status,
+    detail}]}) and handle_webhook_log (webhook_log_handlers.py — reverses the
+    list, so oldest-first on disk). Status strings mirror the real writer:
+    an int HTTP status stringified on success ('204'), 'error' on transport
+    failure, 'suppressed'/'disabled' for filtered sends."""
+    discord = 'https://discord.com/api/webhooks/000000000000000000/demo-not-a-real-webhook'
+    pushover = 'https://api.pushover.net/1/messages.json'
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    # (event, dev_id-or-None, url, status, detail, age_minutes)
+    specs = [
+        ('device_offline',      'jf01',  discord,  '204', 'OK (204) [discord]',  4020),
+        ('device_offline',      'jf01',  pushover, '200', 'OK (200) [pushover]', 4020),
+        ('smart_failure',       'tnas',  discord,  '204', 'OK (204) [discord]',  3610),
+        ('metric_critical',     'nc01',  discord,  '204', 'OK (204) [discord]',  2900),
+        ('metric_critical',     'nc01',  pushover, '200', 'OK (200) [pushover]', 2899),
+        ('cve_found',           'nc01',  discord,  '204', 'OK (204) [discord]',  2410),
+        ('brute_force_detected','fw01',  discord,  '204', 'OK (204) [discord]',  1980),
+        # A transient Discord outage: two failures (these also seeded the DLQ),
+        # then service recovers.
+        ('service_down',        'jf01',  discord,  'error',
+         'URLError [discord]: timed out', 1445),
+        ('backup_stale',        'gt01',  discord,  '429',
+         'HTTP 429 [discord]: Too Many Requests', 1430),
+        ('service_up',          'jf01',  discord,  '204', 'OK (204) [discord]',  1390),
+        ('drift_detected',      'fw01',  discord,  '204', 'OK (204) [discord]',  1120),
+        ('patch_alert',         'pmx01', discord,  '204', 'OK (204) [discord]',   840),
+        # Quiet-hours suppression (config seeds quiet_hours 22:00–07:00).
+        ('metric_warning',      'pmx01', discord,  'suppressed',
+         'quiet hours (min severity high)', 610),
+        ('kernel_outdated',     'pmx01', discord,  '204', 'OK (204) [discord]',   300),
+        ('tls_expiry',          None,    discord,  '204', 'OK (204) [discord]',    95),
+        ('device_online',       'pi1',   discord,  '204', 'OK (204) [discord]',    40),
+    ]
+    entries = []
+    for event, dev_id, url, status, detail, age_min in specs:
+        d = f'{name_of.get(dev_id, "")}: {detail}' if dev_id else detail
+        entries.append({'ts': now() - age_min * 60, 'event': event,
+                        'url': url, 'status': status, 'detail': d[:512]})
+    return {'entries': entries}
+
+
+def build_webhook_dlq() -> dict:
+    """Webhook dead-letter queue → webhook_dlq.json. Shape verified against
+    _dlq_record (api.py ~6996): {entries: [{id, ts, event, url, dest, payload,
+    message, title, priority, error, attempts}]}. The two entries match the
+    two failed deliveries in build_webhook_log. `dest` mirrors the discord
+    destination seeded in build_config's webhook_urls (the DLQ list view pops
+    it and reduces url to host, so nothing secret leaks on read)."""
+    discord_dest = {
+        'id': 'wh_discord_demo', 'name': 'Discord — operations channel',
+        'url': 'https://discord.com/api/webhooks/000000000000000000/demo-not-a-real-webhook',
+        'format': 'discord', 'enabled': True,
+    }
+    return {'entries': [
+        {'id': 'dlq_' + _stable_hex('dlq', 1, nbytes=8),
+         'ts': now() - 1445 * 60, 'event': 'service_down',
+         'url': discord_dest['url'], 'dest': discord_dest,
+         'payload': {'device_id': 'jf01', 'device_name': 'jellyfin.lab',
+                     'unit': 'jellyfin.service'},
+         'message': 'jellyfin.service is down on jellyfin.lab',
+         'title': 'RemotePower: service down', 'priority': 4,
+         'error': 'URLError: timed out', 'attempts': 2},
+        {'id': 'dlq_' + _stable_hex('dlq', 2, nbytes=8),
+         'ts': now() - 1430 * 60, 'event': 'backup_stale',
+         'url': discord_dest['url'], 'dest': discord_dest,
+         'payload': {'device_id': 'gt01', 'device_name': 'gitea.lab',
+                     'label': 'gitea-dump', 'age_hours': 52},
+         'message': 'Backup older than threshold on gitea.lab (gitea-dump, 52h)',
+         'title': 'RemotePower: backup stale', 'priority': 3,
+         'error': 'HTTP 429: Too Many Requests', 'attempts': 1},
+    ]}
+
+
+def build_ipam_state() -> dict:
+    """IP-conflict sweep state → ipam_state.json. Shape verified against
+    run_ipam_conflicts_if_due (rack_ipam_handlers.py ~433): {last_run,
+    conflicts: [ip], mac_conflicts: [mac]} — dedup state for the edge-triggered
+    ip_conflict/mac_conflict events, NOT the occupancy model (occupancy is
+    derived live from device/CMDB IPs vs the seeded subnets.json). The seeded
+    fleet has no duplicate IPs/MACs, so both lists are honestly empty; a fresh
+    last_run keeps the first real sweep from instantly rewriting the file."""
+    return {'last_run': now() - 120, 'conflicts': [], 'mac_conflicts': []}
+
+
+def build_snmp_traps() -> dict:
+    """Inbound SNMP traps → snmp_traps.json. Shape verified against
+    handle_snmp_trap_in (api.py ~51808: {device_id: [{ts, oid, value, type,
+    agent}]}) and the per-device drawer read (snmp_device_handlers.py ~73,
+    tail-50 newest-first). Seeded only for the agentless SNMP devices that
+    build_snmp_data covers; sw02's link flap lines up with the
+    snmp_unreachable/snmp_recover pair in build_fleet_events."""
+    ip_of = {d['id']: d['ip'] for d in FAKE_DEVICES}
+    # (dev_id, age_minutes, oid, value, type)
+    specs = [
+        # sw02: a port flap earlier today (linkDown → linkUp), then a config save.
+        ('sw02', 310, '1.3.6.1.6.3.1.1.5.3', 'ifIndex 14 (ge-0/0/14) down', 'linkDown'),
+        ('sw02', 305, '1.3.6.1.6.3.1.1.5.4', 'ifIndex 14 (ge-0/0/14) up',   'linkUp'),
+        ('sw02',  85, '1.3.6.1.4.1.41112.1.6.3.1', 'configuration committed', 'enterprise'),
+        # sw01: an authentication-failure trap from a mistyped community.
+        ('sw01', 950, '1.3.6.1.6.3.1.1.5.5', 'wrong community from 10.0.2.80',
+         'authenticationFailure'),
+        # ap01 rebooted overnight (coldStart on power restore).
+        ('ap01', 620, '1.3.6.1.6.3.1.1.5.1', 'agent restarted', 'coldStart'),
+    ]
+    out = {}
+    for dev_id, age_min, oid, value, typ in specs:
+        out.setdefault(dev_id, []).append({
+            'ts': now() - age_min * 60, 'oid': oid, 'value': value,
+            'type': typ, 'agent': ip_of.get(dev_id, ''),
+        })
+    for traps in out.values():
+        traps.sort(key=lambda t: t['ts'])
+    return out
+
+
+def build_quotes() -> dict:
+    """Sales quotes → quotes.json. Shape verified against handle_quotes /
+    _quote_row / billing.quote_effective_status (api.py ~13279): {quotes: [...],
+    quote_seq}. Line items are the sanitized {kind:'other', label, qty, unit,
+    amount} rows _quote_line_items builds; totals follow billing.invoice_totals
+    (VAT on the subtotal). Site ids + VAT rates match build_billing; the sent
+    quote with a lapsed valid_until renders as 'expired' at read time."""
+    def _q(seq, site, status, vat, items, created_days, valid_days, notes=''):
+        line_items = [{'kind': 'other', 'label': lbl, 'qty': qty, 'unit': unit,
+                       'amount': round(qty * unit, 2)} for lbl, qty, unit in items]
+        subtotal = round(sum(li['amount'] for li in line_items), 2)
+        vat_amount = round(subtotal * vat / 100, 2)
+        return {
+            'id': 'qte_' + _stable_hex('quote', seq),
+            'number': f'Q-{seq:05d}', 'site_id': site, 'status': status,
+            'currency': 'EUR', 'vat_rate': vat, 'line_items': line_items,
+            'subtotal': subtotal, 'vat_amount': vat_amount,
+            'total': round(subtotal + vat_amount, 2),
+            'created_at': now() - 86400 * created_days, 'created_by': 'alice',
+            'valid_until': now() + 86400 * valid_days,
+            'notes': notes, 'invoice_id': '',
+        }
+    quotes = [
+        # Stored 'sent' but valid_until has lapsed → reads as 'expired'.
+        _q(1, SITE_HQ, 'sent', 25.0,
+           [('Wi-Fi refresh — 4× U6-Pro AP', 4.0, 189.0),
+            ('Installation & survey (Standard rate)', 6.0, 110.0)],
+           created_days=45, valid_days=-10,
+           notes='Superseded by Q-00003 after scope change.'),
+        # Accepted — awaiting conversion to an invoice.
+        _q(2, SITE_DC, 'accepted', 19.0,
+           [('Backup target expansion — 2× 8 TB IronWolf', 2.0, 245.0),
+            ('Install + pool rebuild (Project rate)', 4.0, 130.0)],
+           created_days=12, valid_days=18),
+        # Freshly sent, still open.
+        _q(3, SITE_HQ, 'sent', 25.0,
+           [('Wi-Fi refresh — 3× U6-Pro AP (revised scope)', 3.0, 189.0),
+            ('Installation & survey (Standard rate)', 4.0, 110.0),
+            ('PoE budget upgrade — switch-core PSU', 1.0, 320.0)],
+           created_days=4, valid_days=26),
+    ]
+    return {'quotes': quotes, 'quote_seq': len(quotes)}
+
+
+def build_pii_findings() -> dict:
+    """Regulated-data inventory → pii_findings.json. Shape verified against
+    _ingest_pii_findings / handle_pii_list (api.py ~31014/31018): {device_id:
+    {findings: [{path, kind, count, lines}], ts}}. Kinds must be in _PII_KINDS
+    (email, credit_card, ssn, iban, phone). Counts only — the scanner never
+    ships values, so neither does the seed."""
+    return {
+        'nc01': {'ts': now() - 3600 * 9, 'findings': [
+            {'path': '/srv/nextcloud/data/mette/files/customers.csv',
+             'kind': 'email', 'count': 412, 'lines': [2, 3, 4, 5, 6]},
+            {'path': '/srv/nextcloud/data/mette/files/customers.csv',
+             'kind': 'phone', 'count': 388, 'lines': [2, 3, 4, 5, 6]},
+            {'path': '/srv/nextcloud/data/finance/sepa-batch-2026-06.xml',
+             'kind': 'iban', 'count': 37, 'lines': [14, 52, 90]},
+        ]},
+        'gt01': {'ts': now() - 3600 * 11, 'findings': [
+            {'path': '/home/git/repos/ops-scripts.git/hooks/notify.sh',
+             'kind': 'email', 'count': 3, 'lines': [12, 13, 14]},
+        ]},
+        'tnas': {'ts': now() - 3600 * 7, 'findings': [
+            {'path': '/tank/archive/2019-webshop-export/orders.sql',
+             'kind': 'credit_card', 'count': 6, 'lines': [1044, 2210]},
+            {'path': '/tank/archive/2019-webshop-export/orders.sql',
+             'kind': 'email', 'count': 1520, 'lines': [8, 9, 10]},
+        ]},
+    }
+
+
+def build_disk_usage() -> dict:
+    """Per-host du top-consumers → disk_usage.json. Shape verified against
+    _ingest_disk_usage / handle_disk_usage (api.py ~31151/30879): {device_id:
+    {paths: {mount: [{path, bytes}]}, ts}} (read back via _entity_read_one,
+    which is load()[dev_id] on the JSON backend). Mounts/fill levels line up
+    with the hosts the metrics builders show under disk pressure."""
+    G = 1024 ** 3
+    return {
+        'nc01': {'ts': now() - 3600 * 6, 'paths': {
+            '/': [
+                {'path': '/srv/nextcloud/data',        'bytes': int(212 * G)},
+                {'path': '/var/lib/mysql',             'bytes': int(18 * G)},
+                {'path': '/var/log',                   'bytes': int(6 * G)},
+                {'path': '/var/lib/docker/overlay2',   'bytes': int(5 * G)},
+            ],
+        }},
+        'pmx01': {'ts': now() - 3600 * 8, 'paths': {
+            '/': [
+                {'path': '/var/lib/vz/images',         'bytes': int(310 * G)},
+                {'path': '/var/lib/vz/dump',           'bytes': int(88 * G)},
+                {'path': '/var/log',                   'bytes': int(3 * G)},
+            ],
+        }},
+        'jf01': {'ts': now() - 3600 * 5, 'paths': {
+            '/': [
+                {'path': '/media/library/movies',      'bytes': int(640 * G)},
+                {'path': '/media/library/tv',          'bytes': int(410 * G)},
+                {'path': '/var/lib/jellyfin/transcodes', 'bytes': int(22 * G)},
+            ],
+        }},
+    }
+
+
+def build_wan_state() -> dict:
+    """Public-IP watch → wan_state.json. Shape verified against
+    run_wan_ip_check_if_due / handle_wan_status (api.py ~33586/33889): {ip,
+    checked, online, outages: [{start, end}], first_seen, since}. Two short
+    resolved outages in the 30-day window give the uptime% and outage log
+    something to show; no open outage (online: True)."""
+    return {
+        'ip': '203.0.113.42',                    # TEST-NET-3 — never routable
+        'checked': now() - 90,
+        'online': True,
+        'outages': [
+            {'start': now() - 86400 * 19 - 3600, 'end': now() - 86400 * 19 - 3600 + 840},
+            {'start': now() - 86400 * 3 - 7200,  'end': now() - 86400 * 3 - 7200 + 260},
+        ],
+        'first_seen': now() - 86400 * 45,
+        'since': now() - 86400 * 3 - 7200 + 260,   # online since the last outage ended
+    }
+
+
+def build_portal_ticket_queue() -> dict:
+    """Customer-portal submissions awaiting operator approval →
+    portal_ticket_queue.json. Shape verified against handle_portal_tickets /
+    handle_portal_ticket_queue (api.py ~8639/8656): {pending: [{id, subject,
+    message, site, contact_id, contact_name, contact_email, created_at}]}.
+    Contact/site ids reuse build_contacts' portal-enabled HQ contact.
+    (portal_state.json — magic-link nonces + live sessions — is deliberately
+    NOT seeded: it's auth state, nothing renders it.)"""
+    return {'pending': [
+        {'id': 'ptq_' + _stable_hex('ptq', 1, nbytes=5),
+         'subject': 'Guest Wi-Fi drops in the canteen',
+         'message': 'Since Monday the guest network drops every ~20 minutes in '
+                    'the canteen area. The office floor is fine. Can someone '
+                    'check the access point coverage?',
+         'site': SITE_HQ,
+         'contact_id': _stable_id('contact', 1),
+         'contact_name': 'Mette Sørensen',
+         'contact_email': 'mette@acme-hosting.example',
+         'created_at': now() - 3600 * 5},
+        {'id': 'ptq_' + _stable_hex('ptq', 2, nbytes=5),
+         'subject': 'Request: extra storage for the design team',
+         'message': 'The design share is at 90%. Could we get another 500 GB '
+                    'allocated before the end of the month?',
+         'site': SITE_HQ,
+         'contact_id': _stable_id('contact', 1),
+         'contact_name': 'Mette Sørensen',
+         'contact_email': 'mette@acme-hosting.example',
+         'created_at': now() - 3600 * 26},
+    ]}
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -4626,6 +4930,16 @@ BUILDERS = {
     'incidents.json':              build_incidents,
     'commands.json':               build_commands,
     'update_logs.json':            build_update_logs,
+    # ── v6.2.3 coverage fill ──────────────────────────────────────────────
+    'webhook_log.json':            build_webhook_log,
+    'webhook_dlq.json':            build_webhook_dlq,
+    'ipam_state.json':             build_ipam_state,
+    'snmp_traps.json':             build_snmp_traps,
+    'quotes.json':                 build_quotes,
+    'pii_findings.json':           build_pii_findings,
+    'disk_usage.json':             build_disk_usage,
+    'wan_state.json':              build_wan_state,
+    'portal_ticket_queue.json':    build_portal_ticket_queue,
 }
 
 
@@ -4644,6 +4958,10 @@ def main():
     args = p.parse_args()
 
     target = Path(args.data_dir)
+    # Let path-bearing builders (build_config's backup_path) point into the
+    # dir actually being seeded, not the compile-time default.
+    global TARGET_DIR
+    TARGET_DIR = target
     print(f"Target data dir: {target.resolve() if target.exists() else target}")
     if not args.apply:
         print(f"Dry-run. Would write {len(BUILDERS)} files to {target}/")
@@ -4721,7 +5039,8 @@ def main():
     if not args.quiet:
         print(f"\n✓ Seeded {len(BUILDERS)} files in {target}/")
         print("\nLogin: demo / demo (viewer role)")
-        print("Set RP_READ_ONLY=1 in the systemd / fcgiwrap environment to enforce read-only.")
+        print("Set RP_READ_ONLY=1 in the gunicorn (remotepower-wsgi-demo) unit's "
+              "environment to enforce read-only.")
     return 0
 
 

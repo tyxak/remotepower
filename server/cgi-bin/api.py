@@ -4198,28 +4198,39 @@ def _key_session_id(k):
 _SSO_BUILTIN_ROLES = ('admin', 'viewer', 'auditor', 'mcp')
 
 
-def _role_from_groups(groups, cfg, admin_group_key):
+def _role_from_groups(groups, cfg, admin_group_key, casefold=False):
     """v5.4.1 (D5): resolve an SSO/IdP user's RemotePower role from their group
     memberships. Honours a configurable group→role MATRIX (config
     ``sso_group_roles``: {group_name: role_name}) so a group can map to ANY builtin
     OR custom role (admin/auditor/finance/…), not just admin-or-viewer. Falls back
     to the legacy single ``<admin_group_key>`` (→ admin) for backward compatibility,
     then to ``viewer``. ``admin`` wins when several groups match; an unknown mapped
-    role name is ignored (fail-safe — never strand a user in a no-perms role)."""
+    role name is ignored (fail-safe — never strand a user in a no-perms role).
+    v6.2.3: ``casefold=True`` (the LDAP caller) matches groups, matrix keys and
+    the admin group case-insensitively — LDAP groups are DNs, whose case as the
+    directory returns them rarely matches what the operator typed (the legacy
+    ldap_admin_group check has always compared lowercased)."""
     if isinstance(groups, str):
         groups = [groups]
     groups = [str(g).strip() for g in (groups or []) if str(g).strip()]
-    gset = set(groups)
+    gset = set(g.lower() for g in groups) if casefold else set(groups)
     matched = []
     matrix = cfg.get('sso_group_roles')
     if isinstance(matrix, dict) and matrix:
         valid = set(_SSO_BUILTIN_ROLES) | _custom_role_names()
-        for g in groups:                       # input order; admin priority below
-            r = matrix.get(g)
+        if casefold:
+            _m = {str(k).strip().lower(): v for k, v in matrix.items()}
+            _lookup = _m.get
+            groups_for_lookup = [g.lower() for g in groups]
+        else:
+            _lookup = matrix.get
+            groups_for_lookup = groups
+        for g in groups_for_lookup:            # input order; admin priority below
+            r = _lookup(g)
             if isinstance(r, str) and r.strip() in valid:
                 matched.append(r.strip())
     admin_group = str(cfg.get(admin_group_key) or '').strip()
-    if admin_group and admin_group in gset:
+    if admin_group and (admin_group.lower() if casefold else admin_group) in gset:
         matched.append('admin')
     if not matched:
         return 'viewer'
@@ -7211,6 +7222,11 @@ def _record_fleet_event(event, payload):
                     'battery_pct',                      # ups_critical
                     'old_ip', 'new_ip',                 # wan_ip_changed
                     'mac',                              # mac_conflict
+                    # v6.2.3: container_* feed rows read p.container to name
+                    # WHICH container — the whitelist dropped it (the alerts-
+                    # inbox whitelist already keeps it), so the feed fell back
+                    # to the host name only.
+                    'container', 'restart_count',       # container_* events
                     'running', 'latest'):               # kernel_outdated
             if key in payload and payload[key] is not None:
                 v = payload[key]
@@ -11309,10 +11325,24 @@ def handle_login():
             try:
                 ldap_user_info = ldap_auth.authenticate(cfg, username, password)
                 valid = True
+                # v6.2.3: honour the shared sso_group_roles matrix for LDAP too
+                # (matrix keys = group DNs, matched case-insensitively like the
+                # legacy ldap_admin_group). _role_from_groups folds in the
+                # ldap_admin_group→admin fallback; ldap_user_info.role keeps the
+                # module's own legacy answer as a belt-and-braces floor.
+                _ldap_mapped = _role_from_groups(
+                    getattr(ldap_user_info, 'groups', None) or [],
+                    cfg, 'ldap_admin_group', casefold=True)
+                if ldap_user_info.role == 'admin' or _ldap_mapped == 'admin':
+                    _ldap_eff_role = 'admin'
+                elif _ldap_mapped != 'viewer':
+                    _ldap_eff_role = _ldap_mapped
+                else:
+                    _ldap_eff_role = ldap_user_info.role
                 # Auto-provision: if user doesn't exist in users.json yet,
                 # create them with the role determined by group membership.
                 if not user:
-                    new_role = ldap_user_info.role
+                    new_role = _ldap_eff_role
                     users[username] = {
                         'role':            new_role,
                         # Store a placeholder hash that nothing matches —
@@ -11332,13 +11362,23 @@ def handle_login():
                     # Existing user — if their role should change based on group
                     # membership, update it. (Admin may have manually demoted; we
                     # respect group-driven promotions on each login.)
-                    if user.get('role') != ldap_user_info.role:
-                        # Only auto-promote (viewer→admin) on group match — never auto-demote
-                        if ldap_user_info.role == 'admin' and user.get('role') != 'admin':
+                    if user.get('role') != _ldap_eff_role:
+                        # Only auto-promote — never auto-demote. admin group match
+                        # promotes any non-admin (legacy behaviour); a matrix-mapped
+                        # custom/auditor/finance role promotes a viewer only (same
+                        # semantics as _provision_or_promote_user for SAML/OIDC).
+                        if _ldap_eff_role == 'admin' and user.get('role') != 'admin':
                             user['role'] = 'admin'
                             users[username] = user
                             save(USERS_FILE, users)
                             audit_log(username, 'ldap_role_promoted', 'matched admin group')
+                        elif (_ldap_eff_role not in ('viewer', '') and
+                              user.get('role') in (None, '', 'viewer')):
+                            user['role'] = _ldap_eff_role
+                            users[username] = user
+                            save(USERS_FILE, users)
+                            audit_log(username, 'ldap_role_promoted',
+                                      f'group-mapped to {_ldap_eff_role}')
                 audit_log(username, 'login_ldap', f'authenticated via LDAP (dn={ldap_user_info.dn})')
             except ldap_auth.LdapAuthDenied:
                 # LDAP reachable but rejected the user — treat as plain auth failure.
@@ -12426,7 +12466,7 @@ def _materialize_smart_group(rules, devices, tenant=None):
 def run_smart_groups_if_due():
     """W5-6 cadence: re-materialize every smart group's membership. Cheap when no
     smart groups exist; ~60s cadence keyed off the store's own _meta."""
-    groups = load(SMART_GROUPS_FILE) or {}
+    groups = _load_ro(SMART_GROUPS_FILE) or {}
     real = {k: v for k, v in groups.items() if k != '_meta' and isinstance(v, dict)}
     if not real:
         return
@@ -25602,7 +25642,7 @@ def _qe_devices_rows():
         out.append({
             'device_id': dev_id, 'name': d.get('name', dev_id),
             'group': d.get('group', ''), 'site': d.get('site', ''),
-            'os': si.get('os', ''), 'agent_version': d.get('version', ''),
+            'os': d.get('os', ''), 'agent_version': d.get('version', ''),
             'monitored': d.get('monitored', True) is not False,
             'agentless': bool(d.get('agentless')),
             'reboot_required': bool(si.get('reboot_required')),
@@ -49913,7 +49953,7 @@ def _check_alert_mutation_perm():
     only), they set viewers_can_ack_alerts=false and these mutations
     require admin.
     """
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}
     if cfg.get('viewers_can_ack_alerts', True):
         return require_auth()
     return require_admin_auth()
@@ -49932,7 +49972,7 @@ def _alert_tenant_visible(alert):
     did = alert.get('device_id')
     if not did:
         return True
-    dev = (load(DEVICES_FILE) or {}).get(did, {})
+    dev = device_get(did) or {}
     return _device_tenant(dev) == gate
 
 
@@ -49944,7 +49984,7 @@ def _filter_alerts_for_caller(all_alerts):
     gate = _tenant_gate()
     if scope is None and gate is None:
         return list(all_alerts)
-    devs = load(DEVICES_FILE) or {}
+    devs = _load_ro(DEVICES_FILE) or {}
     out = []
     for a in all_alerts:
         did = a.get('device_id')
@@ -49967,7 +50007,7 @@ def _may_touch_alert_state():
     the ticket op itself stays allowed but its alert side-effect is suppressed
     unless the caller is admin. (Default viewers_can_ack_alerts=true → always True.)
     """
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}
     if cfg.get('viewers_can_ack_alerts', True):
         return True
     _u, role = verify_token(get_token_from_request())
@@ -50792,11 +50832,11 @@ def handle_board():
         ttl = get_online_ttl()
     except Exception:
         ttl = 180
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
     # Open high/critical alerts → which hosts read as 'warn' (online but alerting).
     alerted = {}
     try:
-        for a in (load(ALERTS_FILE) or {}).get('alerts', []):
+        for a in (_load_ro(ALERTS_FILE) or {}).get('alerts', []):
             if a.get('resolved_at'):
                 continue
             did = a.get('device_id')
@@ -50861,11 +50901,11 @@ def handle_network_metrics():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     by = (qs.get('by') or ['fleet'])[0]
     _site_names = {sid: (st.get('name') or sid)
-                   for sid, st in (load(SITES_FILE) or {}).items()
+                   for sid, st in (_load_ro(SITES_FILE) or {}).items()
                    if isinstance(st, dict)}
     if by not in ('fleet', 'group', 'tag', 'site'):
         by = 'fleet'
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    devices = _scope_filter_devices(_load_ro(DEVICES_FILE) or {})
 
     def _dev_io(d):
         rx = tx = 0

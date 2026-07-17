@@ -70,12 +70,16 @@ class LdapAuthDenied(Exception):
 
 
 class LdapResult:
-    def __init__(self, username, role, dn, full_name='', email=''):
+    def __init__(self, username, role, dn, full_name='', email='', groups=None):
         self.username = username
-        self.role     = role        # 'admin' | 'viewer'
+        self.role     = role        # 'admin' | 'viewer' (legacy ldap_admin_group match)
         self.dn       = dn
         self.full_name = full_name
         self.email     = email
+        # v6.2.3: raw memberOf DNs so the caller can apply the shared
+        # sso_group_roles matrix (custom/auditor/finance roles), which this
+        # module can't resolve itself (role validation lives in api.py).
+        self.groups   = list(groups or [])
 
 
 def authenticate(cfg: dict, username: str, password: str) -> LdapResult:
@@ -213,6 +217,7 @@ def authenticate(cfg: dict, username: str, password: str) -> LdapResult:
         dn=user_dn,
         full_name=full_name,
         email=email,
+        groups=member_of,
     )
 
 

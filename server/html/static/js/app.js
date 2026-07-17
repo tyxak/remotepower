@@ -14012,6 +14012,18 @@ async function loadExposure() {
 }
 
 // ─── v3.14.0 #35: exposed-secrets fleet card (redacted findings) ────────────
+// v6.2.3: "Scan now" — POST /api/secrets-scan/scan existed since v6.1.2 with
+// no UI caller (API-only), so the one-shot force flag was unreachable from
+// the app. Same shape as piiScanNow.
+async function secretsScanNow() {
+  const r = await api('POST', '/secrets-scan/scan', {});
+  if (!r || !r.ok) {
+    toast((r && r.error) || 'Could not queue the scan', 'error');
+    return;
+  }
+  toast(r.message || 'Secrets scan queued', 'success');
+}
+
 let _secretsResp = null;
 async function loadSecrets() {
   const tbody = document.getElementById('secrets-tbody');
@@ -18470,7 +18482,7 @@ async function _spMonResults(i, term) {
   const box = document.querySelector(`#sp-components .sp-monres[data-i="${i}"]`); if (!box) return;
   if (!_spMonCache) {
     try {
-      const r = await api('GET', '/monitors');
+      const r = await api('GET', '/export/monitors');
       const list = Array.isArray(r) ? r : (r && Array.isArray(r.monitors) ? r.monitors : []);
       _spMonCache = list.map(x => (typeof x === 'string' ? x : (x.label || x.name || x.target || ''))).filter(Boolean);
     } catch (e) { _spMonCache = []; }
@@ -20950,11 +20962,11 @@ async function _loadAuditSection(key) {
           }
           h += '</table>';
           if (Array.isArray(data.ubnt.radios) && data.ubnt.radios.length) {
-            h += '<table class="fs-13 mt-8"><thead><tr><th>Radio</th><th class="ta-right">Clients</th></tr></thead><tbody>';
+            h += '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13 mt-8"><thead><tr><th>Radio</th><th class="ta-right">Clients</th></tr></thead><tbody>';
             for (const r of data.ubnt.radios) {
               h += `<tr><td>${escHtml(r.name || `radio${r.index}`)}</td><td class="ta-right">${r.clients ?? 0}</td></tr>`;
             }
-            h += '</tbody></table>';
+            h += '</tbody></table></div>';
           }
         }
         // Host Resources MIB
@@ -22584,7 +22596,7 @@ async function _loadSigningRejections() {
   const r = await api('GET', '/fleet/agent-integrity').catch(() => null);
   const rej = ((r && r.devices) || []).filter(d => d.update_rejected);
   if (!rej.length) { out.innerHTML = ''; return; }
-  out.innerHTML = `<div class="settings-section"><h3>Agents that refused an update</h3>`
+  out.innerHTML = `<div class="settings-section"><div class="section-title">Agents that refused an update</div>`
     + `<p class="hint">These agents declined a self-update because it wasn't validly signed — tamper, a missing signature, or the wrong key.</p>`
     + `<div class="table-card"><table><thead><tr><th>Device</th><th>Reason</th></tr></thead><tbody>`
     + rej.map(d => `<tr><td>${escHtml(d.name)}</td><td class="c-red fs-12">${escHtml(d.update_rejected)}</td></tr>`).join('')

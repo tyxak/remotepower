@@ -1646,7 +1646,9 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
 # + REDACTING — never sends a secret's value, only rule/location/masked-preview/
 # sha256 fingerprint. Opt-in (server pushes secrets_scan_enabled); bounded hard.
 SECRETS_SCAN_EVERY = 360
-_secrets_cfg = {'on': False, 'paths': None}   # updated from each heartbeat response
+# 'force' is the server's one-shot "Scan now" (force_secrets_scan) — v6.2.3:
+# it was honoured by the Linux/mac agents but ignored here.
+_secrets_cfg = {'on': False, 'paths': None, 'force': False}   # updated from each heartbeat response
 _SECRET_RULES = [
     ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
     ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
@@ -2237,7 +2239,9 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['av'] = av
     # v3.14.0 #35: opt-in secrets scan on its own ~6h cadence (config from the
     # previous heartbeat response, stashed in _secrets_cfg by heartbeat_once).
-    if _secrets_cfg.get('on') and (poll_count <= 1 or poll_count % SECRETS_SCAN_EVERY == 0):
+    if _secrets_cfg.get('on') and (_secrets_cfg.get('force') or poll_count <= 1
+                                   or poll_count % SECRETS_SCAN_EVERY == 0):
+        _secrets_cfg['force'] = False
         try:
             payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
         except Exception:
@@ -2306,6 +2310,8 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['on'] = bool(resp.get('secrets_scan_enabled'))
         _ssp = resp.get('secrets_scan_paths')
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
+        if resp.get('force_secrets_scan'):
+            _secrets_cfg['force'] = True   # one-shot "Scan now" from the server
         # v6.2.0: watched services pushed by the server (parity with Linux).
         global _watched_services, _watched_files, _watched_agent_checks
         _sw = resp.get('services_watched')

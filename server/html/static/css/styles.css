@@ -1261,8 +1261,7 @@
      together. Only when the svg has a text sibling — icon-only buttons (the svg
      is the only child) keep no trailing space. Covers btn-icon too. */
   .btn-primary svg:not(:only-child),
-  .btn-secondary svg:not(:only-child),
-  .btn-icon svg:not(:only-child) { margin-right: 5px; }
+  .btn-secondary svg:not(:only-child) { margin-right: 5px; }
   .btn-icon {
     background: transparent;
     border: 1px solid var(--hair);
@@ -1272,7 +1271,7 @@
     font-size: 13px;
     cursor: pointer;
     transition: background 0.2s, border-color 0.2s, color 0.2s;
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 5px;
     font-family: var(--font);
   }
   .btn-icon:hover { background: var(--hair-2); color: var(--text); }
@@ -2755,6 +2754,13 @@ body.density-compact .dash-card > .section-header:first-child {
   margin: -11px -13px 12px;
   padding: 9px 13px;
 }
+/* v6.2.3: a muted-ink .btn-icon fails WCAG contrast on the band's --surface2
+   strip (axe: color-contrast, serious) — inside a band header, buttons use
+   full ink. */
+.dash-card > .section-header:first-child .btn-icon,
+.settings-section > .section-header:first-child .btn-icon {
+  color: var(--text);
+}
 .dash-feed-item {
   display: flex;
   align-items: flex-start;
@@ -2764,8 +2770,6 @@ body.density-compact .dash-card > .section-header:first-child {
   font-size: 13px;
 }
 .dash-feed-item:last-child { border-bottom: none; }
-.isl-750 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.isl-750 h3 { margin: 0; }
 .isl-751 { font-size: 11px; padding: 2px 8px; opacity: 0.7; color: #abb3bb; }
 .isl-751:hover { opacity: 1; }
 .isl-754 { width: 64px !important; text-align: center; }

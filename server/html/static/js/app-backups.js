@@ -221,11 +221,12 @@ async function removeBackupMonitor(idx) {
 async function runBackupNow() {
   const btn = document.getElementById('self-backup-btn');
   if (!await uiConfirm('Run a backup snapshot of /var/lib/remotepower now? This may take a few seconds depending on data size.')) return;
+  const origLabel = btn.innerHTML;
   btn.disabled = true;
   btn.textContent = 'Running…';
   const r = await api('POST', '/self/backup-now');
   btn.disabled = false;
-  btn.textContent = '↓ Run backup now';
+  btn.innerHTML = origLabel;
   if (!r || r.error) { toast('Backup failed: ' + (r?.error || 'unknown'), 'error'); return; }
   if (r.skipped) { toast('Skipped: ' + (r.reason || ''), 'warning'); return; }
   toast(`Backup written: ${_selfFmtBytes(r.bytes)} (${r.pruned || 0} old files pruned)`, 'success');

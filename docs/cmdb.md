@@ -341,7 +341,8 @@ hosted on the server you're trying to back up. Putting the vault
 passphrase in the documentation field of the asset that hosts the
 vault would be funny but unhelpful.
 
-The standard backup endpoint (`/api/backup`) includes both files.
+The standard backup endpoints (`/api/backup/download` and
+`/api/backup/restore`) include both files.
 
 ---
 

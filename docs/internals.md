@@ -42,7 +42,7 @@ By the numbers (v6.1.2):
 
 | Thing | Count |
 |---|---|
-| Server Python (`server/cgi-bin/`) | ~96,000 lines |
+| Server Python (`server/cgi-bin/`) | ~102,000 lines |
 | The main API module (`api.py`) | ~64,000 lines |
 | Focused sibling modules | 56 |
 | HTTP routes (exact + templated) | ~419 exact, ~329 pattern |
@@ -196,7 +196,7 @@ costs almost nothing — important when it runs on every request.
 A recurring bug class in any JSON API is the request body: a field silently
 missed, an integer arriving as a string, a top-level array where a dict was
 expected (which 500s the first `.get()`). RemotePower's answer is
-`server/cgi-bin/request_models.py` — a pydantic v2 layer wired into 243 handlers.
+`server/cgi-bin/request_models.py` — a pydantic v2 layer wired into ~250 handlers.
 
 The design choice worth calling out is that it's **additive and never
 narrowing**. A model validates the body as a *superset* of what the handler

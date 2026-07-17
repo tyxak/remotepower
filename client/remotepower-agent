@@ -9748,6 +9748,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             delta_ok = bool(resp.get('delta_ok'))
             for _f in (resp.get('delta_resend') or []):
                 delta_hashes.pop(_f, None)
+            # v6.2.3: honour the server-sent poll_interval directly, like the
+            # Windows/Mac agents. The device drawer / profile apply set the
+            # device FIELD without queuing a `poll_interval:` command, so
+            # field-only changes never reached this agent (the command path
+            # still works and takes effect via the STATE_DIR override read at
+            # the top of the loop). Clamped like the command path.
+            _srv_iv = resp.get('poll_interval')
+            if isinstance(_srv_iv, int) and not isinstance(_srv_iv, bool):
+                _srv_iv = max(10, min(3600, _srv_iv))
+                if _srv_iv != interval:
+                    log.info(f"Poll interval updated by server: {interval}s → {_srv_iv}s")
+                    interval = _srv_iv
             # v1.8.0: pick up server-pushed watch config
             # v1.8.3: log at info when it *changes* so ops can see config pushes
             if 'services_watched' in resp:

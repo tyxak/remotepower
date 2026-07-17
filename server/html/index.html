@@ -680,11 +680,11 @@
         <div class="dash-card mb-16" id="home-tickets" data-widget="tickets">
           <div class="dash-cols">
             <div>
-              <div class="row-8-center mb-6"><h3 class="m-0">Open alerts</h3><span class="fs-12 c-muted" id="home-tickets-open-count"></span></div>
+              <div class="row-8-center mb-6"><div class="section-title">Open alerts</div><span class="fs-12 c-muted" id="home-tickets-open-count"></span></div>
               <div id="home-tickets-open" class="scroll-cap"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
             </div>
             <div>
-              <h3>Recently acknowledged</h3>
+              <div class="row-8-center mb-6"><div class="section-title">Recently acknowledged</div></div>
               <div id="home-tickets-acked" class="scroll-cap"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
             </div>
           </div>
@@ -716,7 +716,7 @@
             </div>
           </div>
           <div class="dash-card">
-            <div class="isl-750"><h3>Recent activity</h3><button class="btn-icon isl-751" data-action="clearHomeActivity" title="Hide everything up to now — persists across reloads; newer events still appear"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-b4990b7e"/></svg>Clear</button></div>
+            <div class="section-header"><div class="section-title">Recent activity</div><button class="btn-icon isl-751" data-action="clearHomeActivity" title="Hide everything up to now — persists across reloads; newer events still appear"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-b4990b7e"/></svg>Clear</button></div>
             <div id="home-activity" class="scroll-cap">
               <div class="skeleton skeleton-line long mb-6"></div>
               <div class="skeleton skeleton-line med mb-6"></div>
@@ -738,7 +738,7 @@
 
         <!-- Links widget — hidden until at least one link is saved -->
         <div class="dash-card mt-16 d-none" id="home-links" data-widget="links">
-          <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
+          <div class="section-header"><div class="section-title">Quick links</div><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
           <div id="home-links-body" class="isl-762 scroll-cap"></div>
         </div>
 
@@ -1374,7 +1374,7 @@
       <template data-page-tpl="settings">
       <div id="page-settings" class="page">
         <div class="page-title">Settings</div>
-        <div class="page-subtitle">Server configuration <a href="docs/admin-guide.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Server configuration <a href="docs/settings.md" class="c-accent">Settings guide</a> · <a href="docs/admin-guide.md" class="c-accent">Admin guide</a></div>
 
         <!-- v3.0.2: search bar — filters visible settings sections live -->
         <div class="isl-19">
@@ -1811,7 +1811,7 @@
           <!-- v3.14.0 #32: cloud inventory import (AWS EC2) -->
           <div class="settings-section">
             <div class="section-title">Cloud import (AWS EC2 · Hetzner · DigitalOcean)</div>
-            <p class="hint">Pull cloud instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / provider / region). Read-only — AWS uses an IAM access key with <code>ec2:DescribeInstances</code>; Hetzner Cloud and DigitalOcean use a read API token (paste it in the token field). Re-running updates in place.</p>
+            <p class="hint">Pull cloud instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / provider / region). Read-only — AWS uses an IAM access key with <code>ec2:DescribeInstances</code>; Hetzner Cloud and DigitalOcean use a read API token (paste it in the token field). Re-running updates in place. <a href="docs/settings.md" class="c-accent">Documentation</a></p>
             <div id="cloud-accounts-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row isl-82">
               <div class="form-group"><label for="cloud-provider" class="form-label">Provider</label>
@@ -1889,7 +1889,7 @@
           <!-- v5.1.0: public status page (component groups + incident history) -->
           <div class="settings-section">
             <div class="section-title">Public status page</div>
-            <p class="hint">A shareable, read-only status page at <code>/status.html?token=…</code> — group your devices and monitors into named components and show recent incident history. No login required. It uses the status token above; generate one if you haven't.</p>
+            <p class="hint">A shareable, read-only status page at <code>/status.html?token=…</code> — group your devices and monitors into named components and show recent incident history. No login required. It uses the status token above; generate one if you haven't. <a href="docs/status-board.md" class="c-accent">Documentation</a></p>
             <label class="click-row-mb6"><input type="checkbox" id="cfg-sp-enabled"> Enable the public status page</label>
             <div class="form-group">
               <label for="cfg-sp-title" class="form-label">Public title</label>
@@ -1950,7 +1950,7 @@
           <!-- v3.12.0: relay satellites -->
           <div class="settings-section">
             <div class="section-title">Relay satellites</div>
-            <p class="hint">Run a satellite (<code>client/remotepower-satellite.py</code>) inside a segmented network — agents there reach this server <em>through</em> it (<code>agent → satellite → server</code>). Each satellite authenticates with its own token, so you can see and revoke relays independently of the agents. Set the minted token as <code>RP_SATELLITE_TOKEN</code> and <code>RP_UPSTREAM</code> on the satellite host, then point that segment's agents at <code>http://&lt;satellite&gt;:8800</code>.</p>
+            <p class="hint">Run a satellite (<code>client/remotepower-satellite.py</code>) inside a segmented network — agents there reach this server <em>through</em> it (<code>agent → satellite → server</code>). Each satellite authenticates with its own token, so you can see and revoke relays independently of the agents. Set the minted token as <code>RP_SATELLITE_TOKEN</code> and <code>RP_UPSTREAM</code> on the satellite host, then point that segment's agents at <code>http://&lt;satellite&gt;:8800</code>. <a href="docs/satellites.md" class="c-accent">Documentation</a></p>
             <button class="enroll-btn" data-action="createSatellite"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-8a2aac00"/></svg> New satellite</button>
             <pre id="satellite-new-token" class="sb-result" hidden></pre>
             <div id="satellites-list" class="sb-result">Loading…</div>
@@ -1958,7 +1958,7 @@
 
           <div class="settings-section">
             <div class="section-title">OIDC / OpenID Connect</div>
-            <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel.</p>
+            <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
             <form id="oidc-config-form" data-submit="saveOidcConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
                 <input type="checkbox" id="oidc-enabled" data-config="oidc_enabled">
@@ -1995,7 +1995,7 @@
           <!-- v4.2.0 (B1): SAML 2.0 SSO -->
           <div class="settings-section">
             <div class="section-title">SAML 2.0 (enterprise SSO)</div>
-            <p class="hint">Sign in via a SAML identity provider (Okta, Azure AD / Entra, OneLogin, Ping, ADFS, …). Paste the IdP's entity ID, SSO URL and signing certificate; users arrive with the role mapped from their group attribute. Requires the <code class="ff-mono">pysaml2</code> library and the <code class="ff-mono">xmlsec1</code> binary on the server — when either is missing this stays disabled.</p>
+            <p class="hint">Sign in via a SAML identity provider (Okta, Azure AD / Entra, OneLogin, Ping, ADFS, …). Paste the IdP's entity ID, SSO URL and signing certificate; users arrive with the role mapped from their group attribute. Requires the <code class="ff-mono">pysaml2</code> library and the <code class="ff-mono">xmlsec1</code> binary on the server — when either is missing this stays disabled. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
             <form id="saml-config-form" data-submit="saveSamlConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
                 <input type="checkbox" id="saml-enabled" data-config="saml_enabled">
@@ -2035,7 +2035,7 @@
           <!-- v3.14.0 (#30): SCIM 2.0 provisioning -->
           <div class="settings-section">
             <div class="section-title">SCIM provisioning (auto user lifecycle)</div>
-            <p class="hint">Let your identity provider (Okta, Azure AD, OneLogin, …) create and — importantly — <strong>deactivate</strong> users automatically. When the IdP offboards someone, their access and live sessions are revoked at once. SSO (OIDC/LDAP) only ever <em>creates</em> on first login; SCIM closes the offboarding gap. Endpoint base URL: <code class="ff-mono">&lt;your-server&gt;/api/scim/v2</code>. Provisioned users start as <strong>viewer</strong>.</p>
+            <p class="hint">Let your identity provider (Okta, Azure AD, OneLogin, …) create and — importantly — <strong>deactivate</strong> users automatically. When the IdP offboards someone, their access and live sessions are revoked at once. SSO (OIDC/LDAP) only ever <em>creates</em> on first login; SCIM closes the offboarding gap. Endpoint base URL: <code class="ff-mono">&lt;your-server&gt;/api/scim/v2</code>. Provisioned users start as <strong>viewer</strong>. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-scim-enabled"> <span>Enable SCIM provisioning</span></label>
             <div class="form-group">
               <label for="cfg-scim-token" class="form-label">Bearer token <span class="c-muted fs-12">(the IdP authenticates with this)</span></label>
@@ -2053,7 +2053,7 @@
                category as OIDC/SAML/SCIM above, not a security control. ── -->
           <div class="settings-section">
             <div class="section-title">LDAP / LDAPS authentication</div>
-            <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership.</p>
+            <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-ldap-enabled" class="isl-34">
               <span>Enable LDAP authentication</span>
@@ -2133,7 +2133,7 @@
                of the security audit trail, not a generic integration. -->
           <div class="settings-section">
             <div class="section-title">SIEM event streaming</div>
-            <p class="hint">Stream every fleet event and alert to a SIEM in its native ingest format. Distinct from audit-log forwarding (Settings → Security), which streams the audit trail. Best-effort and non-blocking.</p>
+            <p class="hint">Stream every fleet event and alert to a SIEM in its native ingest format. Distinct from audit-log forwarding (Settings → Security), which streams the audit trail. Best-effort and non-blocking. <a href="docs/settings.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-siem-enabled"> Enable streaming</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-siem-format">Format</label>
               <select id="cfg-siem-format" class="form-input mw-200">
@@ -2153,7 +2153,7 @@
                from Security (v6.1.1), same reasoning as SIEM above. -->
           <div class="settings-section">
             <div class="section-title">OpenTelemetry export (OTLP)</div>
-            <p class="hint">Push rolled-up fleet gauges (devices online/offline, alerts by severity, health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, or any OTLP endpoint. The push piggybacks on agent heartbeats, rate-limited to the interval below. Same metrics Prometheus scrapes at <code>/api/metrics</code>, pushed instead of pulled.</p>
+            <p class="hint">Push rolled-up fleet gauges (devices online/offline, alerts by severity, health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, or any OTLP endpoint. The push piggybacks on agent heartbeats, rate-limited to the interval below. Same metrics Prometheus scrapes at <code>/api/metrics</code>, pushed instead of pulled. <a href="docs/settings.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-enabled"> Enable OTLP export</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-otlp-endpoint">Collector endpoint</label>
               <input type="url" id="cfg-otlp-endpoint" class="form-input" placeholder="http://collector:4318 (›/v1/metrics added)"></div>
@@ -2234,7 +2234,7 @@
           <!-- v6.1.1 (#76): UPS-critical auto-shutdown -->
           <div class="settings-section">
             <div class="section-title">UPS auto-shutdown</div>
-            <p class="hint">When a device's monitored UPS crosses the critical-battery threshold below, any OTHER device marked as powered by that UPS (device drawer → UPS dependency) is automatically queued a graceful shutdown — bypassing change-approval above, since this is an unattended safety action, not an operator-initiated one. <strong>Off by default</strong> — a device still needs its own UPS dependency mapping for anything to happen.</p>
+            <p class="hint">When a device's monitored UPS crosses the critical-battery threshold below, any OTHER device marked as powered by that UPS (device drawer → UPS dependency) is automatically queued a graceful shutdown — bypassing change-approval above, since this is an unattended safety action, not an operator-initiated one. <strong>Off by default</strong> — a device still needs its own UPS dependency mapping for anything to happen. <a href="docs/power.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ups-auto-shutdown-enabled"> Auto-shutdown devices dependent on a UPS that goes critical</label></div>
             <p class="hint">The critical battery and runtime thresholds live in Settings → Alert parameters.</p>
           </div>
@@ -2282,17 +2282,17 @@
               <textarea id="cfg-du-scan-paths" class="form-input" rows="3" placeholder="/var&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
             <div class="section-title mt-16">Regulated-data scan (PII)</div>
-            <p class="hint">Answers the GDPR/PCI question no amount of monitoring does: <em>where is our regulated data?</em> Agents walk the paths below (~24h cadence) and report which files contain emails, card numbers (Luhn-checked, so a long order id isn't mistaken for a card), national IDs, IBANs or phone numbers — <strong>by kind and count only</strong>. The matched values are <strong>never</strong> sent, stored, or even hashed: hashing does not anonymise a national ID, because the number of possible values is small enough to reverse. A scanner that shipped your PII into its own database would be a second breach, not a control. Results appear on the <strong>Compliance</strong> page. <strong>Off by default</strong> — it walks the filesystem.</p>
+            <p class="hint">Answers the GDPR/PCI question no amount of monitoring does: <em>where is our regulated data?</em> Agents walk the paths below (~24h cadence) and report which files contain emails, card numbers (Luhn-checked, so a long order id isn't mistaken for a card), national IDs, IBANs or phone numbers — <strong>by kind and count only</strong>. The matched values are <strong>never</strong> sent, stored, or even hashed: hashing does not anonymise a national ID, because the number of possible values is small enough to reverse. A scanner that shipped your PII into its own database would be a second breach, not a control. Results appear on the <strong>Compliance</strong> page. <strong>Off by default</strong> — it walks the filesystem. <a href="docs/pii-scan.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-pii-scan-enabled"> Enable regulated-data scanning (~24h cadence)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-pii-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-pii-scan-paths" class="form-input" rows="3" placeholder="/home&#10;/srv&#10;/var/www&#10;/opt"></textarea></div>
 
             <div class="section-title mt-16">Credential checkout (JIT access)</div>
-            <p class="hint">Turns standing credential access into <strong>active, justified, expiring</strong> access. When enabled, revealing a CMDB credential first requires <em>checking it out</em> with a reason; the grant lasts a bounded window (15 min – 24 h) and lapses on its own. Who currently holds live access — and why — is visible to admins and auditors. This is a <strong>floor, not a ceiling</strong>: a credential flagged <code>break_glass</code> still needs its two-person approval as well. <strong>Off by default</strong> — switching it on immediately requires every admin to check out before revealing anything.</p>
+            <p class="hint">Turns standing credential access into <strong>active, justified, expiring</strong> access. When enabled, revealing a CMDB credential first requires <em>checking it out</em> with a reason; the grant lasts a bounded window (15 min – 24 h) and lapses on its own. Who currently holds live access — and why — is visible to admins and auditors. This is a <strong>floor, not a ceiling</strong>: a credential flagged <code>break_glass</code> still needs its two-person approval as well. <strong>Off by default</strong> — switching it on immediately requires every admin to check out before revealing anything. <a href="docs/cmdb.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-vault-checkout-required"> Require a checkout before a credential can be revealed</label></div>
 
             <div class="section-title mt-16">Canary files (honeytokens)</div>
-            <p class="hint">Agents plant a decoy file at each absolute path below (never over an existing file) with realistic-but-fake credentials, then watch it. Any access — a read, a change, or deletion — raises a <strong>critical</strong> <code>canary_accessed</code> alert. A tripwire on your own hosts; decoys are removed when the agent uninstalls. One path per line; blank = off.</p>
+            <p class="hint">Agents plant a decoy file at each absolute path below (never over an existing file) with realistic-but-fake credentials, then watch it. Any access — a read, a change, or deletion — raises a <strong>critical</strong> <code>canary_accessed</code> alert. A tripwire on your own hosts; decoys are removed when the agent uninstalls. One path per line; blank = off. <a href="docs/secret-scan.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label" for="cfg-canary-paths">Canary file paths (one absolute path per line)</label>
               <textarea id="cfg-canary-paths" class="form-input ff-mono" rows="3" placeholder="/root/.aws/credentials.bak&#10;/home/deploy/.ssh/id_rsa.old"></textarea></div>
             <div class="row-6"><button class="btn-primary" data-action="saveCanaryFiles">Save canary files</button></div>
@@ -2364,7 +2364,7 @@
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
           <div class="settings-section">
             <div class="section-title">Audit log forwarding</div>
-            <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging.</p>
+            <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging. <a href="docs/security.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label" for="cfg-audit-worm-path">Append-only (WORM) sink — absolute file path (each audit entry is appended; make it immutable with <code>chattr +a</code> or a WORM mount for a tamper-resistant copy)</label>
               <input type="text" id="cfg-audit-worm-path" class="form-input mw-380" placeholder="/var/log/remotepower-audit.jsonl (blank = off)"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-enabled"> Enable forwarding</label></div>
@@ -2390,7 +2390,7 @@
           <!-- v3.14.0 #24 P2: tenant isolation -->
           <div class="settings-section">
             <div class="section-title">Multi-tenancy</div>
-            <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it deliberately. Tenants, user-to-tenant and device-to-tenant assignment are managed via the API (<code>/api/tenants</code>, a user's <code>tenant_id</code>, and a device's <code>tenant</code>).</p>
+            <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it deliberately. Tenants, user-to-tenant and device-to-tenant assignment are managed via the API (<code>/api/tenants</code>, a user's <code>tenant_id</code>, and a device's <code>tenant</code>). <a href="docs/scaling.md" class="c-accent">Documentation</a></p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-enforced"> Enforce tenant isolation</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-rls"> Also enforce at the database (Postgres row-level security)</label>
               <span class="hint">Defense-in-depth: partitions the <code>devices</code> roster at the database via RLS, so a tenant's rows are unreachable cross-tenant even if an application scope check is missed. <strong>Postgres backend only</strong>; requires "Enforce tenant isolation" above. Applied on next start.</span></div>
@@ -2436,7 +2436,7 @@
           <!-- ── v5.0.0 (#C1): mutual TLS for agents ─────────────────────────── -->
           <div class="settings-section">
             <div class="section-title">Agent mutual TLS (mTLS)</div>
-            <p class="hint">Require every agent to present a client certificate signed by your RemotePower CA — defence-in-depth on top of the per-device token, so a stolen token alone can't impersonate a host. <strong>Enable the nginx <code>ssl_verify_client optional</code> block first</strong> (see <code>deploy/nginx/remotepower.conf</code>) and run agents with <code>RP_CLIENT_CERT</code>/<code>RP_CLIENT_KEY</code>, or healthy agents will be locked out.</p>
+            <p class="hint">Require every agent to present a client certificate signed by your RemotePower CA — defence-in-depth on top of the per-device token, so a stolen token alone can't impersonate a host. <strong>Enable the nginx <code>ssl_verify_client optional</code> block first</strong> (see <code>deploy/nginx/remotepower.conf</code>) and run agents with <code>RP_CLIENT_CERT</code>/<code>RP_CLIENT_KEY</code>, or healthy agents will be locked out. <a href="docs/security.md" class="c-accent">Documentation</a></p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-require-agent-mtls" class="isl-34">
               <span>Require a verified client certificate on agent requests</span>
@@ -2447,7 +2447,7 @@
                relocated to Settings → Alert parameters. -->
           <div class="settings-section">
             <div class="section-title">Compose drift watch</div>
-            <p class="hint">The drift engine can watch any file, but you had to know each path and add it by hand, per host — while the agent <em>already</em> discovers every compose file on the box (that's how the Containers page offers up/down/pull against them). The two halves were never connected, so a hand-edited <code>docker-compose.yml</code> — the most common "why did this stack change?" — drifted unwatched. Turn this on to fold each host's discovered compose files into its drift watch list. Appended, never replacing what you chose to watch.</p>
+            <p class="hint">The drift engine can watch any file, but you had to know each path and add it by hand, per host — while the agent <em>already</em> discovers every compose file on the box (that's how the Containers page offers up/down/pull against them). The two halves were never connected, so a hand-edited <code>docker-compose.yml</code> — the most common "why did this stack change?" — drifted unwatched. Turn this on to fold each host's discovered compose files into its drift watch list. Appended, never replacing what you chose to watch. <a href="docs/drift.md" class="c-accent">Documentation</a></p>
             <div class="settings-row">
               <label class="form-label"><input type="checkbox" id="cfg-drift-watch-compose"> Watch discovered <code>docker-compose.yml</code> files for drift</label>
             </div>
@@ -3246,7 +3246,7 @@
 
         <div class="settings-section" id="oncall-card">
           <div class="section-title">On-call &amp; escalation</div>
-          <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup.</p>
+          <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup. <a href="docs/oncall.md" class="c-accent">Documentation</a></p>
           <div class="mb-8 fs-13">Currently on call: <strong id="oncall-current">—</strong></div>
           <div id="oncall-schedule" class="mb-8"></div>
           <div class="settings-row isl-57">
@@ -4227,8 +4227,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.2.3 un1fymatters unify consolidation tidy sweep create tunnel listen port udp wireguard hub acme certificates loading refresh tls panel package snapshot empty inventory feedback metric snmp dampening duplicate general alert parameters read_valid helper request body validation dead code removed formatter escape byte relative time uiconfirm storage umbrella docs">
-            <summary><strong>What's new — v6.2.3 &ldquo;Un1fyMatters&rdquo;</strong> — a consolidation and tidy-up pass. <strong>Create tunnel</strong> gains an optional listen port; the <strong>ACME certificates</strong> page now loads on navigation instead of needing a manual Refresh; <strong>Package Snapshots</strong> explains an empty capture; and a duplicated dampening setting was removed. Underneath, a project-wide sweep collapsed repeated code idioms, deleted dead code and de-duplicated the docs — no behaviour change beyond the fixes.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.2.3 un1fymatters unify baseline checks catalog cve exposure ranking criticality tickets recovery heal self-observability sweeps consolidation tidy sweep create tunnel listen port udp wireguard hub acme certificates loading refresh tls panel package snapshot empty inventory feedback metric snmp dampening duplicate general alert parameters ldap group role map sso translations i18n docs pointers demo secret scan read_valid helper request body validation dead code removed formatter escape byte relative time uiconfirm storage umbrella docs">
+            <summary><strong>What's new — v6.2.3 &ldquo;Un1fyMatters&rdquo;</strong> — one monitoring surface: a <strong>baseline checks catalog</strong> applied by scope, an <strong>exposure-weighted CVE ranking</strong> ("fix this first", weighted by CMDB criticality), tickets that carry the <strong>full alert and auto-update on recovery</strong>, and a <strong>self-observability</strong> page for RemotePower's own sweeps. Plus: LDAP honours the group→role map, four new guides with in-app pointers everywhere, ~225 new translations, an optional tunnel listen port, and a project-wide consolidation + finalize sweep.</summary>
             <div class="doc-body">
               <p><strong>Create tunnel — optional listen port.</strong> The WG Access <em>Create tunnel</em> dialog gains an optional <strong>Listen port</strong>: leave it blank to auto-assign the next free UDP port (unchanged), or set it to pin the hub to a specific port. It's validated (1–65535), rejected if another tunnel uses it, and — like the interface and address pool — fixed once the tunnel exists.</p>
               <p><strong>Fixes.</strong> The ACME certificate panel loads automatically when you open the TLS page (no more manual Refresh). Creating a Package Snapshot when no host has reported a full package inventory now says so, instead of a success toast that was easy to miss. Settings → General no longer repeats the &ldquo;Metric/SNMP alert dampening&rdquo; fields that also live on Settings → Alert parameters — they wrote the same values, so saving one page could quietly reset the other; Alert parameters is now their single home.</p>
@@ -6036,7 +6036,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- W5-3: rack elevation -->
         <div class="dash-card mt-16">
           <div class="section-title">Racks</div>
-          <p class="hint">Model your racks and place assets in them (set rack, bottom U and height on an asset in the CMDB). Overlapping units are flagged. Front elevation view.</p>
+          <p class="hint">Model your racks and place assets in them (set rack, bottom U and height on an asset in the CMDB). Overlapping units are flagged. Front elevation view. <a href="docs/ipam.md" class="c-accent">Documentation</a></p>
           <div id="racks-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
           <div class="row-6 mt-8"><button class="btn-primary" data-action="openRackCreate">New rack</button></div>
           <div id="rack-elevation-wrap" class="hidden mt-12"></div>
@@ -6045,7 +6045,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- W5-2: IPAM -->
         <div class="dash-card mt-16">
           <div class="section-title">IP address management</div>
-          <p class="hint">Define subnets; occupancy is derived from known device addresses (device IP + CMDB interfaces incl. NAT) plus static reservations. A duplicate IP across two devices raises an <code>ip_conflict</code> alert.</p>
+          <p class="hint">Define subnets; occupancy is derived from known device addresses (device IP + CMDB interfaces incl. NAT) plus static reservations. A duplicate IP across two devices raises an <code>ip_conflict</code> alert. <a href="docs/ipam.md" class="c-accent">Documentation</a></p>
           <div id="ipam-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
           <div class="row-6 mt-8"><button class="btn-primary" data-action="openSubnetCreate">New subnet</button></div>
           <div id="ipam-occupancy-wrap" class="hidden mt-12"></div>
@@ -6937,10 +6937,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v3.14.0 #35: secrets-on-disk findings (opt-in agent scan) -->
         <div class="dash-card">
         <div class="section-title">Exposed secrets on disk</div>
-        <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting.</div>
+        <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting. <a href="docs/secret-scan.md" class="c-accent">Documentation</a></div>
         <div id="secrets-summary" class="hint mb-8"></div>
         <div class="toolbar-mb24">
           <input type="text" id="secrets-filter" class="form-input" placeholder="Filter by device, type, path, preview…" data-input-debounce="150" aria-label="Filter by device, type, path, preview">
+          <button class="btn-icon" data-action="secretsScanNow" title="Queue a one-shot secrets scan on every agent host — the agent runs it on its next heartbeat"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Scan now</button>
         </div>
         <div class="table-card">
           <table class="data-table w-full">
