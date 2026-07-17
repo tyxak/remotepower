@@ -4771,6 +4771,27 @@ function startRefreshCycle() {
     paint();
   }, 1000);
 }
+
+// v6.2.3 FIX: the refresh cycle above PAUSES while the tab is hidden
+// (_refreshShouldPause → document.hidden) and refreshNavCounts() bails on
+// document.hidden — so the sidebar counts (Status Board offline count, alerts,
+// tickets, …) and the grid stayed frozen for up to 60s after the tab came back
+// to the foreground. The comment on refreshNavCounts long PROMISED a re-fetch
+// "on the visibilitychange back to foreground", but no such listener was ever
+// wired. Wire it: on becoming visible again, freshen immediately instead of
+// waiting out the paused countdown. Idempotent + cheap (nav-counts is a 304 on
+// no change), and only fires the transition to visible.
+if (typeof document !== 'undefined' && !window.__rpVisibilityWired) {
+  window.__rpVisibilityWired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || (typeof getToken === 'function' && !getToken())) return;
+    try { _refreshTopBadges(); } catch (e) {}
+    try { loadDevices(); } catch (e) {}
+    try {
+      if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
+    } catch (e) {}
+  });
+}
 // v2.2.6: opening a modal also closes the mobile nav drawer (two
 // slide-in surfaces fighting was the "windows over each other" bug on
 // mobile) and locks body scroll so the page behind doesn't scroll

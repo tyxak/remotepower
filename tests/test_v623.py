@@ -144,5 +144,20 @@ class TestWebtermSilencesCryptoDeprecation(unittest.TestCase):
                         'the warning filter must run before asyncssh is imported')
 
 
+class TestNavCountsRefreshOnRefocus(unittest.TestCase):
+    """The nav-counts poll pauses while the tab is hidden; a visibilitychange
+    listener must re-fetch the badges when the tab returns to the foreground, or
+    the sidebar counts freeze for up to 60s (they did — the comment promised the
+    re-fetch but no listener was ever wired)."""
+
+    def test_visibilitychange_refreshes_badges(self):
+        app = (_ROOT / 'server/html/static/js/app.js').read_text()
+        i = app.find("addEventListener('visibilitychange'")
+        self.assertNotEqual(i, -1, 'no visibilitychange listener wired')
+        block = app[i:i + 400]
+        self.assertIn('_refreshTopBadges', block,
+                      'the visibilitychange listener must re-fetch nav-counts badges')
+
+
 if __name__ == "__main__":
     unittest.main()
