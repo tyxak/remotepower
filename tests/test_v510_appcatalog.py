@@ -40,11 +40,16 @@ class TestApiWiring(unittest.TestCase):
     def test_handlers_and_routes(self):
         self.assertTrue(hasattr(api, 'handle_app_catalog'))
         self.assertTrue(hasattr(api, 'handle_app_catalog_deploy'))
-        src = (_CGI / 'api.py').read_text()
+        src = (_CGI / 'api.py').read_text()   # route table stays in api.py
         self.assertIn("('GET', '/api/app-catalog'): handle_app_catalog", src)
         self.assertIn("('POST', '/api/app-catalog/deploy'): handle_app_catalog_deploy", src)
-        h = src[src.index('def handle_app_catalog_deploy'):
-                src.index('def handle_app_catalog_deploy') + 2200]
+        # handle_app_catalog_deploy moved to apps_compose_handlers.py — read the
+        # combined source and extract the whole handler (growth-proof, srcpin).
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from apisrc import api_source
+        from srcpin import py_function
+        h = py_function(api_source(), 'handle_app_catalog_deploy')
         self.assertIn("require_perm('containers')", h)
         self.assertIn("compose deploys are disabled", h)       # compose_enabled gate
         self.assertIn("audit_log(actor, 'app_catalog_deploy'", h)
@@ -59,11 +64,16 @@ class TestCustomApps(unittest.TestCase):
         api.save(api.APP_CATALOG_CUSTOM_FILE, {})
 
     def test_custom_add_route_and_admin_gate(self):
-        src = (_CGI / 'api.py').read_text()
+        src = (_CGI / 'api.py').read_text()   # route table stays in api.py
         self.assertIn("('POST', '/api/app-catalog/custom'): handle_app_catalog_custom_add", src)
         self.assertIn("('POST', '/api/app-catalog/custom/delete'): handle_app_catalog_custom_delete", src)
+        # handlers moved to apps_compose_handlers.py — read the combined source
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from apisrc import api_source
+        from srcpin import py_function
         for fn in ('handle_app_catalog_custom_add', 'handle_app_catalog_custom_delete'):
-            seg = src[src.index('def ' + fn): src.index('def ' + fn) + 2600]
+            seg = py_function(api_source(), fn)
             self.assertIn('require_admin_auth()', seg, f'{fn} not admin-gated')
             self.assertIn('audit_log(', seg, f'{fn} not audited')
 

@@ -22,7 +22,10 @@ sys.path.insert(0, str(_CGI))
 
 import unittest
 
-SRC = (_CGI / "api.py").read_text()
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from apisrc import api_source   # api.py + *_handlers.py (compose handlers moved out)
+
+SRC = api_source()
 
 
 def _body(fn):

@@ -1056,14 +1056,15 @@ class TestGranularRBAC(unittest.TestCase):
         self.assertEqual(cm.exception.status, 403)
 
     def test_handlers_regated_to_granular(self):
-        src = (Path(api.__file__)).read_text()
+        # combined source: handle_compose_stack_action moved to apps_compose_handlers.py
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from apisrc import api_source
+        from srcpin import py_function
         for fn, perm in (('handle_device_container_action', "require_perm('containers'"),
                          ('handle_device_compose_action', "require_perm('containers'"),
                          ('handle_compose_stack_action', "require_perm('containers'"),
                          ('handle_services_config', "require_perm('services'")):
-            i = src.find('def ' + fn + '(')
-            self.assertGreater(i, 0, fn)
-            self.assertIn(perm, src[i:i + 600], f'{fn} should use {perm}')
+            self.assertIn(perm, py_function(api_source(), fn), f'{fn} should use {perm}')
 
     def test_apikey_dropdown_has_mcp(self):
         html = (_ROOT / 'server' / 'html' / 'index.html').read_text()

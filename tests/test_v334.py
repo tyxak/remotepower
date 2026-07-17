@@ -15,6 +15,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from apisrc import api_source   # api.py + *_handlers.py (compose handlers moved out)
 import re
 import unittest
 from pathlib import Path
@@ -98,7 +99,8 @@ class TestComposeStacksShipped(unittest.TestCase):
     """The compose-stacks feature (upload + deploy) must be present + wired."""
 
     def setUp(self):
-        self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        # combined source: compose handlers moved to apps_compose_handlers.py
+        self.api = api_source()
         self.agent = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
         self.html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
         self.appjs = client_js()
