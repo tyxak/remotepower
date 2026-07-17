@@ -7980,7 +7980,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <!-- v6.2.3: Docker cleanup — checkbox target picker + run-and-wait result -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="docker-prune-title" id="docker-prune-modal"><div class="modal">
   <div class="modal-title" id="docker-prune-title">Clean up Docker</div>
-  <div class="modal-subtitle" id="docker-prune-sub">Choose what to reclaim. The first four only remove things Docker can recreate; volumes delete data.</div>
+  <div class="modal-subtitle" id="docker-prune-sub">Choose what to reclaim. The first four remove unused or regenerable artifacts (a locally-built image with no source would need rebuilding); volumes delete data.</div>
   <div id="docker-prune-choices" class="scroll-cap"></div>
   <div class="form-group d-none" id="docker-prune-confirm-row">
     <label class="form-label" for="docker-prune-confirm-input">Removing volumes deletes data in every volume no running container uses — type <code>DELETE VOLUMES</code> to allow it</label>

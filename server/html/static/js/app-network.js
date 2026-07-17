@@ -172,12 +172,14 @@ async function addDeadmanJob() {
   const grace = parseInt(document.getElementById('dm-grace')?.value ?? '0', 10);
   if (!name) { toast('Give the job a name', 'error'); return; }
   if (!(period > 0)) { toast('Set how often the job runs', 'error'); return; }
+  let r;
   try {
-    await api('POST', '/deadman', {name: name, period_minutes: period, grace_minutes: grace});
+    r = await api('POST', '/deadman', {name: name, period_minutes: period, grace_minutes: grace});
   } catch (e) {
     toast(e.message || 'Could not add the job', 'error');
     return;
   }
+  if (!r || r.error) { toast((r && r.error) || 'Could not add the job', 'error'); return; }
   const n = document.getElementById('dm-name'); if (n) n.value = '';
   toast('Job added — have it curl the ping URL when it finishes');
   loadDeadman();
@@ -185,12 +187,14 @@ async function addDeadmanJob() {
 
 async function deleteDeadmanJob(id) {
   if (!await uiConfirm('Delete this check-in job? Its ping URL stops working.')) return;
+  let r;
   try {
-    await api('DELETE', '/deadman/' + encodeURIComponent(id));
+    r = await api('DELETE', '/deadman/' + encodeURIComponent(id));
   } catch (e) {
     toast(e.message || 'Could not delete the job', 'error');
     return;
   }
+  if (!r || r.error) { toast((r && r.error) || 'Could not delete the job', 'error'); return; }
   loadDeadman();
 }
 

@@ -424,8 +424,9 @@ async function driftAcceptPath(path) {
   if (!_driftCurrentDevice) return;
   if (!await uiConfirm(`Accept current hash as new baseline for:\n${path}\n\nFuture changes from this hash will count as drift.`)) return;
   try {
-    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
+    const r = await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
               {paths: [path]});
+    if (!r || r.error) { toast((r && r.error) || 'Failed to update baseline', 'error'); return; }
     toast('Baseline updated', 'success');
     openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
   } catch (e) {
@@ -443,8 +444,9 @@ async function driftSetIgnore(path, ignored) {
     if (reason === null) return;   // operator cancelled
   }
   try {
-    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/ignore`,
+    const r = await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/ignore`,
               {path: path, ignored: ignored, reason: reason || ''});
+    if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
     toast(ignored ? 'File ignored' : 'File no longer ignored', 'success');
     openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
   } catch (e) {
@@ -456,8 +458,9 @@ async function driftAcceptAll() {
   if (!_driftCurrentDevice) return;
   if (!await uiConfirm('Accept current hashes as new baseline for all drifted files on this device?\n\nFuture changes from these new baselines will count as drift.')) return;
   try {
-    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
+    const r = await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
               {all: true});
+    if (!r || r.error) { toast((r && r.error) || 'Failed to update baselines', 'error'); return; }
     toast('All drifted baselines updated', 'success');
     openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
   } catch (e) {

@@ -129,7 +129,8 @@ async function firewallRuleAdd(devId, backend) {
     if (!pv || pv.error) { toast('Failed: ' + (pv?.error || 'invalid spec'), 'error'); return; }
     const go = await uiConfirm({ title: 'Confirm firewall rule', message: `This will run on the host:\n\n${pv.command}\n\nApplies on the next agent check-in.`, confirmText: 'Queue rule' });
     if (!go) return;
-    await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec });
+    const ar = await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec });
+    if (!ar || ar.error) { toast('Failed: ' + (ar?.error || 'apply failed'), 'error'); return; }
     toast('Rule queued — applies on the next agent check-in', 'success');
     _fwQueuedNote('firewall-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
@@ -141,7 +142,8 @@ async function firewallRuleDelete(devId, backend, ref, btn) {
     if (!pv || pv.error) { toast('Failed: ' + (pv?.error || 'invalid rule'), 'error'); return; }
     const ok = await uiConfirm({ title: 'Delete firewall rule', message: `This will run on the host:\n\n${pv.command}\n\nIt is removed on the next agent check-in.`, confirmText: 'Delete', danger: true });
     if (!ok) return;
-    await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref) });
+    const dr = await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref) });
+    if (!dr || dr.error) { toast('Failed: ' + (dr?.error || 'delete failed'), 'error'); return; }
     toast('Delete queued', 'success');
     _fwMarkPending(btn); _fwQueuedNote('firewall-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }

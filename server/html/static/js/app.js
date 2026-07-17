@@ -3119,7 +3119,19 @@ async function addMonitor() {
     runMonitor();
   } else toast(res?.error || 'Failed', 'error');
 }
-async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
+async function removeMonitor(idx) {
+  const cfg = await api('GET', '/config'); if (!cfg) return;
+  const mon = (cfg.monitors || [])[idx];
+  const label = (mon && (mon.label || mon.target)) || 'this monitor';
+  if (!await uiConfirm({
+        title: 'Delete monitor',
+        message: `Delete "${label}"? Its probe history is permanently removed and cannot be undone.\n\nTo stop probing without losing history, use Pause instead.`,
+        confirmText: 'Delete', danger: true })) return;
+  const monitors = (cfg.monitors || []).filter((_, i) => i !== idx);
+  const res = await api('POST', '/config', {monitors});
+  if (res?.ok) { toast('Monitor deleted', 'info'); runMonitor(); }
+  else toast(res?.error || 'Failed', 'error');
+}
 // v6.1.2: pause/resume a monitor without deleting it (which used to be the only
 // way to stop it probing — and threw away its history).
 async function toggleMonitorPause(label, paused) {
@@ -9831,12 +9843,13 @@ async function saveCatalogApp() {
   if (!name) { toast('Name is required', 'error'); return; }
   if (!yaml.includes('services:')) { toast('Compose YAML must contain a "services:" block', 'error'); return; }
   try {
-    await api('POST', '/app-catalog/custom', {
+    const r = await api('POST', '/app-catalog/custom', {
       name, yaml,
       category: val('catalog-add-category'),
       description: val('catalog-add-desc'),
       port: parseInt(val('catalog-add-port'), 10) || 0,
     });
+    if (!r || r.error) { toast((r && r.error) || 'Failed to add', 'error'); return; }
     toast(`${name} added to the catalog`, 'success');
     closeModal('catalog-add-modal');
     _catalogApps = [];
@@ -9848,7 +9861,8 @@ async function removeCatalogApp(appId, label) {
   appId = String(appId);   // dispatcher coerces all-numeric args to Number
   if (!await uiConfirm({ message: `Remove ${label || appId} from the catalog? This does not affect already-deployed stacks.`, confirmText: 'Remove', danger: true })) return;
   try {
-    await api('POST', '/app-catalog/custom/delete', { id: appId });
+    const r = await api('POST', '/app-catalog/custom/delete', { id: appId });
+    if (!r || r.error) { toast((r && r.error) || 'Failed to remove', 'error'); return; }
     toast('Removed from the catalog', 'success');
     _catalogApps = [];
     loadCatalog();
@@ -9938,7 +9952,8 @@ async function cronSaveUser() {
   const user = (document.getElementById('cron-user').value || 'root').trim() || 'root';
   const content = document.getElementById('cron-content').value;
   try {
-    await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'set', user, content });
+    const r = await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'set', user, content });
+    if (!r || r.error) { toast((r && r.error) || 'Failed to queue', 'error'); return; }
     toast(`Crontab for ${user} queued`, 'success');
   } catch (e) { toast(String(e), 'error'); }
 }
@@ -9948,7 +9963,8 @@ async function cronDelUser() {
   const user = (document.getElementById('cron-user').value || 'root').trim() || 'root';
   if (!await uiConfirm({ message: `Remove ${user}'s crontab on ${_cronDev.name}?`, danger: true, confirmText: 'Remove' })) return;
   try {
-    await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'del', user });
+    const r = await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'del', user });
+    if (!r || r.error) { toast((r && r.error) || 'Failed to queue', 'error'); return; }
     toast('Removal queued', 'success');
   } catch (e) { toast(String(e), 'error'); }
 }
@@ -9956,7 +9972,8 @@ async function cronDelUser() {
 async function cronTimer(action, unit) {
   if (!_cronDev) return;
   try {
-    await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'timer', action, unit });
+    const r = await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'timer', action, unit });
+    if (!r || r.error) { toast((r && r.error) || 'Failed to queue', 'error'); return; }
     toast(`${action} ${unit} queued`, 'success');
   } catch (e) { toast(String(e), 'error'); }
 }
@@ -10419,6 +10436,10 @@ async function deleteScan(scanId) {
 }
 
 async function clearScans() {
+  if (!await uiConfirm({
+        title: 'Clear finished scans',
+        message: 'Remove every finished scan (done / failed / cancelled) and all of their findings? This cannot be undone.',
+        confirmText: 'Clear', danger: true })) return;
   const res = await api('POST', '/scans/clear');
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
@@ -10490,9 +10511,14 @@ async function scanTarget(id) {
 }
 
 async function deleteScanTarget(id) {
+  if (!await uiConfirm({
+        title: 'Remove scan target',
+        message: 'Remove this saved scan target? Its ownership proof is discarded, so you\'d re-verify before scanning it again.',
+        confirmText: 'Remove', danger: true })) return;
   const res = await api('DELETE', '/scan-targets/' + encodeURIComponent(id));
   if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
   delete _scanTargetProofs[id];
+  toast('Scan target removed', 'info');
   loadScanTargets();
 }
 
@@ -10556,8 +10582,10 @@ async function toggleScanSchedule(id) {
 }
 
 async function deleteScanSchedule(id) {
+  if (!await uiConfirm({ message: 'Delete this scan schedule? It stops running on its cron.', confirmText: 'Delete', danger: true })) return;
   const res = await api('DELETE', '/scan-schedules/' + encodeURIComponent(id));
   if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
+  toast('Schedule deleted', 'info');
   loadScanSchedules();
 }
 
@@ -11580,7 +11608,7 @@ async function loadPasskeys() {
   const d = await api('GET', '/webauthn/credentials');
   const creds = (d && d.credentials) || [];
   box.innerHTML = creds.length
-    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? new Date(c.created * 1000).toLocaleDateString() : '—'}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}">${_icon('trash',14)}</button></div>`).join('')
+    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? new Date(c.created * 1000).toLocaleDateString() : '—'}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || 'passkey')}">${_icon('trash',14)}</button></div>`).join('')
     : '<div class="hint">No passkeys yet.</div>';
 }
 
@@ -11603,7 +11631,11 @@ async function addPasskey() {
   else toast(res?.error || 'Failed', 'error');
 }
 
-async function deletePasskey(id) {
+async function deletePasskey(id, name) {
+  if (!await uiConfirm({
+        title: 'Remove passkey',
+        message: `Remove ${name ? `"${name}"` : 'this passkey'}? It stops working as a login factor immediately — if it's your only one, make sure you can still sign in another way. You'd need to re-register it to use it again.`,
+        confirmText: 'Remove', danger: true })) return;
   const res = await api('DELETE', '/webauthn/credentials/' + encodeURIComponent(id));
   if (res?.ok) { toast('Passkey removed.', 'success'); loadPasskeys(); }
   else toast(res?.error || 'Failed', 'error');
@@ -13928,7 +13960,8 @@ async function fail2banBan(devId, jail) {
   const ip = await uiPrompt({ title: `Ban IP in ${jail}`, message: 'Enter an IPv4 or IPv6 address to ban.', placeholder: '203.0.113.10', confirmText: 'Ban' });
   if (!ip) return;
   try {
-    await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'ban', jail, ip });
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'ban', jail, ip });
+    if (!r || r.error) { toast((r && r.error) || 'Ban failed', 'error'); return; }
     toast('Ban queued', 'success');
     _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
@@ -13936,7 +13969,8 @@ async function fail2banBan(devId, jail) {
 
 async function fail2banUnban(devId, jail, ip, btn) {
   try {
-    await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'unban', jail, ip: String(ip) });
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'unban', jail, ip: String(ip) });
+    if (!r || r.error) { toast((r && r.error) || 'Unban failed', 'error'); return; }
     toast('Unban queued', 'success');
     _fwMarkPending(btn); _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
@@ -13947,7 +13981,8 @@ async function fail2banJail(devId, jail, action) {
   const ok = await uiConfirm({ title: `${stop ? 'Stop' : 'Start'} jail ${jail}`, message: `${stop ? 'Stop' : 'Start'} the "${jail}" jail on this host?`, confirmText: stop ? 'Stop' : 'Start', danger: stop });
   if (!ok) return;
   try {
-    await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action, jail });
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action, jail });
+    if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
     toast('Queued', 'success');
     _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
@@ -18244,8 +18279,9 @@ async function saveMailwatch() {
     return;
   }
   try {
-    await api('POST', `/devices/${encodeURIComponent(devId)}/mailwatch`,
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/mailwatch`,
               {paths: paths, dashboard: dashboard, threshold: threshold});
+    if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return; }
     toast('Mailbox monitor saved — the agent picks it up on its next heartbeat', 'success');
     loadMailwatchSettings();   // refresh cache
   } catch (e) {

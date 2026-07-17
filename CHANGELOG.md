@@ -93,6 +93,22 @@ code, and de-duplicated docs.
 - **Windows agent honours "Scan now" for the secrets scan** (the one-shot
   `force_secrets_scan` flag — Linux/macOS already did), and the Exposed-secrets
   page gains a **Scan now** button for the endpoint that was API-only.
+- **Actions no longer report false success.** Roughly twenty config/security
+  actions (crontab + systemd-timer edits, fail2ban ban/unban/jail, drift
+  baseline/ignore, dead-man's-switch add/delete, app-catalog add/delete,
+  mailbox-monitor save, Proxmox power + settings, firewall rule apply/delete)
+  discarded the server's response and toasted "queued/saved" even when the
+  request was rejected — because the API helper returns a 4xx `{error}` rather
+  than throwing. They now surface the real error.
+- **Destructive actions ask first.** Deleting a monitor (which permanently
+  drops its probe history — Pause is offered instead), removing a passkey
+  (a login factor), clearing all finished scans, and deleting a custom
+  check / scan target / scan schedule now confirm, name what's affected, and
+  warn when it can't be undone.
+- **Two buttons stopped losing their icon.** "Clear backup archives" and the
+  CVE "Scan all devices" button restored a text-only label after running,
+  wiping their inline SVG; they now preserve it (same fix as the backup-now
+  button).
 - **Docker cleanup is a proper picker with real feedback.** The Containers
   "Prune…" button now opens a checkbox modal — stopped containers, unused
   images, build cache, unused networks, unused volumes — each showing what it

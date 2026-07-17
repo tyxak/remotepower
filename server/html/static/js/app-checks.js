@@ -402,7 +402,7 @@ async function loadCustomCheckList() {
     : `${c.target_kind}: ${escHtml(c.target)}`;
   const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check">${_icon('edit',14)}</button>`;
   el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
-    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
+    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
   }</tbody></table></div>`;
 }
 function editCustomCheck(id) {
@@ -449,7 +449,12 @@ async function saveCustomCheck() {
     loadCustomCheckList();
   } else { toast((r && r.error) || 'Failed', 'error'); }
 }
-async function deleteCustomCheck(id) {
+async function deleteCustomCheck(id, name) {
+  if (!await uiConfirm({
+        title: 'Delete check',
+        message: `Delete ${name ? `the "${name}" check` : 'this custom check'}? It stops evaluating on every host it was applied to.`,
+        confirmText: 'Delete', danger: true })) return;
   const r = await api('POST', '/checks/custom/delete', {id});
-  if (r && r.ok) { loadCustomCheckList(); } else { toast((r && r.error) || 'Failed', 'error'); }
+  if (r && r.ok) { toast('Check deleted', 'info'); loadCustomCheckList(); }
+  else { toast((r && r.error) || 'Failed', 'error'); }
 }

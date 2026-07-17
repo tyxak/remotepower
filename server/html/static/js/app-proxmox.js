@@ -129,7 +129,8 @@ async function proxmoxAction(kind, vmid, action, name) {
   const verb = action === 'shutdown' ? 'Shut down' : 'Start';
   if (!await uiConfirm(`${verb} ${kind.toUpperCase()} ${vmid} (${name})?`)) return;
   try {
-    await api('POST', `/proxmox/${kind}/${vmid}/${action}`, {});
+    const r = await api('POST', `/proxmox/${kind}/${vmid}/${action}`, {});
+    if (!r || r.error) { toast(`Action failed: ${(r && r.error) || 'unknown'}`, 'error'); return; }
     toast(`${verb} sent to ${name}`, 'success');
     // Proxmox actions are async on its side — give it a moment, then
     // refresh the relevant view.
@@ -158,7 +159,8 @@ function _collectProxmoxForm() {
 
 async function saveProxmoxSettings() {
   try {
-    await api('POST', '/config', _collectProxmoxForm());
+    const r = await api('POST', '/config', _collectProxmoxForm());
+    if (!r || r.error) { toast(`Save failed: ${(r && r.error) || 'unknown'}`, 'error'); return; }
     toast('Proxmox settings saved', 'success');
     // Clear the secret field + refresh the masked placeholder state
     document.getElementById('proxmox-token-secret').value = '';

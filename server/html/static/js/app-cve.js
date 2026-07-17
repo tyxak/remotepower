@@ -190,13 +190,13 @@ async function triggerCVEScan(devId, btn) {
   // string id). Normalise so we never POST the element as device_id — that
   // serialised to {} and the server rejected it with 400 Bad Request.
   if (devId && typeof devId === 'object') { btn = devId; devId = null; }
-  const origText = btn?.textContent || '';
+  const origText = btn ? btn.innerHTML : '';   // innerHTML: preserve the SVG icon on restore
   if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
   const r = await api('POST', '/cve/scan', devId ? { device_id: devId } : {});
   if (!r || !(r.queued || r.ok)) {
     const msg = (r && r.error) || 'Could not queue the scan';
     toast(r && r.status && r.status.running ? 'A scan is already running' : msg, 'error');
-    if (btn) { btn.disabled = false; btn.textContent = origText; }
+    if (btn) { btn.disabled = false; btn.innerHTML = origText; }
     return;
   }
   toast(`Scan started${r.total ? ` (${r.total} device${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
@@ -211,7 +211,7 @@ async function triggerCVEScan(devId, btn) {
     if (btn) {
       btn.disabled = false;
       btn.style.color = (st && st.errors) ? 'var(--red)' : 'var(--green)';
-      setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
+      setTimeout(() => { if (btn.isConnected) { btn.innerHTML = origText; btn.style.color = ''; } }, 4000);
     }
     if (st && !st.running) {
       toast(`Scan complete: ${st.scanned || 0} scanned, ${st.skipped || 0} skipped, ${st.errors || 0} errors`,
