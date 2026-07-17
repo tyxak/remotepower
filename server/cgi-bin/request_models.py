@@ -290,6 +290,16 @@ if _AVAILABLE:
         baselines: list
         _v_baselines = field_validator('baselines', mode='before')(_require_list)
 
+    class CheckBaselineApplyRequest(BaseModel):
+        """handle_check_baselines_apply — `ids` must be a non-empty list; the
+        handler also validates. target_kind ∈ all/tag/group; target free string."""
+        model_config = ConfigDict(extra='ignore')
+        ids: list
+        target: str = ''
+        target_kind: str = 'all'
+        _v_ids = field_validator('ids', mode='before')(_require_list)
+        _v0 = field_validator('target', 'target_kind', mode='before')(_coerce_str_loose)
+
     class PushSubscribeRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')
         subscription: dict = {}

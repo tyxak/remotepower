@@ -929,6 +929,7 @@ del _tc_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
+    CHECK_BASELINE_CATALOG,
 )
 # Back-compat namespace binding — call sites and the test suite reference
 # these through the api module; the implementations live in notify.py.
@@ -41133,6 +41134,62 @@ def handle_custom_checks_delete():
     respond(200, {'ok': True, 'id': cid})
 
 
+def handle_check_baseline_catalog():
+    """GET /api/checks/baseline-catalog — the shipped catalog of recommended
+    baseline checks (grouped by `cat`). The UI lets an admin apply a selection to
+    a scope; each becomes a scoped custom_check."""
+    require_auth()
+    respond(200, {'catalog': [dict(t) for t in CHECK_BASELINE_CATALOG]})
+
+
+def handle_check_baselines_apply():
+    """POST /api/checks/baseline-apply {ids:[...], target_kind, target} — turn each
+    selected catalog template into a scoped custom_check (target_kind all/tag/group).
+    Admin. Idempotent: de-dupes on (type, param, scope), so re-applying adds nothing.
+    A role-tagged template keeps its own default tag scope when the request scope is
+    'all', so applying 'docker running' fleet-wide really lands on the 'docker' tag."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = _read_valid(request_models.CheckBaselineApplyRequest)
+    ids = body.get('ids')
+    if not isinstance(ids, list) or not ids:
+        respond(400, {'error': 'ids must be a non-empty list'})
+    ids = {str(i) for i in ids}
+    tk = body.get('target_kind', 'all')
+    if tk not in ('all', 'tag', 'group'):
+        respond(400, {'error': 'target_kind must be all, tag or group'})
+    tv = _sanitize_str(str(body.get('target', '')), 128).strip()
+    if tk != 'all' and not tv:
+        respond(400, {'error': f'a {tk} target is required'})
+    catalog = {t['id']: t for t in CHECK_BASELINE_CATALOG}
+    added = 0
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        checks = cfg.setdefault('custom_checks', [])
+        existing = {(c.get('type'), c.get('param'), c.get('target_kind'), c.get('target'))
+                    for c in checks if isinstance(c, dict)}
+        _seq = max([0] + [int(re.sub(r'\D', '', c.get('id', '')) or 0)
+                          for c in checks if isinstance(c, dict)])
+        for cid in ids:
+            tmpl = catalog.get(cid)
+            if not tmpl:
+                continue
+            e_tk, e_tv = tk, tv
+            if tk == 'all' and tmpl.get('target_kind'):   # role-tagged default scope
+                e_tk, e_tv = tmpl['target_kind'], tmpl.get('target', '')
+            key = (tmpl['type'], tmpl['param'], e_tk, e_tv)
+            if key in existing:
+                continue
+            existing.add(key)
+            _seq += 1
+            checks.append({'id': f'ck_{_seq:05d}', 'name': tmpl['name'], 'type': tmpl['type'],
+                           'param': tmpl['param'], 'target_kind': e_tk, 'target': e_tv,
+                           **(tmpl.get('extras') or {})})
+            added += 1
+    audit_log(actor, 'check_baselines_apply', f'added={added} scope={tk}:{tv}')
+    respond(200, {'ok': True, 'added': added})
+
+
 def _compute_attention():
     """Build the fleet-wide list of things needing attention.
 
@@ -62285,6 +62342,8 @@ def _build_exact_routes():
         ('GET', '/api/checks/custom'): handle_custom_checks_list,     # v4.1.0
         ('POST', '/api/checks/custom'): handle_custom_checks_save,    # v4.1.0
         ('POST', '/api/checks/custom/delete'): handle_custom_checks_delete,  # v4.1.0
+        ('GET', '/api/checks/baseline-catalog'): handle_check_baseline_catalog,  # v6.2.3
+        ('POST', '/api/checks/baseline-apply'): handle_check_baselines_apply,    # v6.2.3
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,

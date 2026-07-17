@@ -530,6 +530,65 @@ AGENT_CHECK_TYPES = (
 )
 
 
+# v6.2.3: a shipped catalog of RECOMMENDED baseline checks — the checks analogue
+# of "service baselines". The operator applies a selection to a scope (all / a
+# group / a tag) in one click and each becomes a scoped custom_check (target_kind
+# all/group/tag), so it evaluates, shows OK/WARN/CRIT, alerts and can be silenced
+# per host exactly like any custom check — and stays live as hosts join the scope.
+# `param` defaults suit a Debian/Ubuntu fleet and are EDITABLE after applying
+# (e.g. crond.service on RHEL, firewalld/nftables, chrony vs systemd-timesyncd).
+# Adding a template = one dict; the apply handler and UI read this list.
+CHECK_BASELINE_CATALOG = (
+    # ── Core liveness ────────────────────────────────────────────────────────
+    {"cat": "Core liveness", "id": "agent_running", "type": "systemd_unit",
+     "param": "remotepower-agent.service", "name": "Monitoring agent running",
+     "desc": "The RemotePower agent service is active."},
+    {"cat": "Core liveness", "id": "time_sync", "type": "systemd_unit",
+     "param": "systemd-timesyncd.service", "name": "Time sync active",
+     "desc": "Clock sync daemon is running (chrony.service on some hosts)."},
+    {"cat": "Core liveness", "id": "cron_running", "type": "systemd_unit",
+     "param": "cron.service", "name": "Cron/scheduler running",
+     "desc": "The system scheduler is up (crond.service on RHEL family)."},
+    # ── Security posture ─────────────────────────────────────────────────────
+    {"cat": "Security posture", "id": "firewall_active", "type": "systemd_unit",
+     "param": "ufw.service", "name": "Firewall active",
+     "desc": "Host firewall is running (firewalld.service / nftables.service elsewhere)."},
+    {"cat": "Security posture", "id": "auditd_running", "type": "systemd_unit",
+     "param": "auditd.service", "name": "Audit daemon running",
+     "desc": "The Linux audit daemon is active."},
+    {"cat": "Security posture", "id": "unattended_upgrades", "type": "systemd_unit",
+     "param": "unattended-upgrades.service", "name": "Unattended upgrades running",
+     "desc": "Automatic security updates are enabled (Debian/Ubuntu)."},
+    {"cat": "Security posture", "id": "ssh_reachable", "type": "port_open",
+     "param": "22", "name": "SSH port 22 reachable",
+     "desc": "The host is listening on SSH."},
+    {"cat": "Security posture", "id": "telnet_closed", "type": "port_closed",
+     "param": "23", "name": "Telnet (23) not listening",
+     "desc": "Cleartext telnet must never be exposed."},
+    # ── Filesystem / OS ──────────────────────────────────────────────────────
+    {"cat": "Filesystem / OS", "id": "nologin_absent", "type": "file_absent",
+     "param": "/etc/nologin", "name": "Logins not disabled",
+     "desc": "/etc/nologin present means all non-root logins are blocked (stuck maintenance)."},
+    {"cat": "Filesystem / OS", "id": "no_oom", "type": "log_errors",
+     "param": "Out of memory|oom-kill|Killed process", "name": "No OOM-kill in the last hour",
+     "desc": "Watches the journal for kernel out-of-memory kills.",
+     "extras": {"window_min": 60, "warn": 1, "crit": 1}},
+    {"cat": "Filesystem / OS", "id": "reboot_not_pending", "type": "file_absent",
+     "param": "/run/reboot-required", "name": "No pending reboot",
+     "desc": "A kernel/library update is waiting for a reboot (Debian/Ubuntu)."},
+    # ── Role-tagged (apply to the matching tag, not fleet-wide) ───────────────
+    {"cat": "Role-tagged", "id": "docker_running", "type": "systemd_unit",
+     "param": "docker.service", "name": "Docker running",
+     "desc": "Container runtime is up.", "target_kind": "tag", "target": "docker"},
+    {"cat": "Role-tagged", "id": "nginx_running", "type": "systemd_unit",
+     "param": "nginx.service", "name": "nginx running",
+     "desc": "Web server is up.", "target_kind": "tag", "target": "web"},
+    {"cat": "Role-tagged", "id": "postgres_running", "type": "systemd_unit",
+     "param": "postgresql.service", "name": "PostgreSQL running",
+     "desc": "Database server is up.", "target_kind": "tag", "target": "db"},
+)
+
+
 def _custom_check_applies(cdef, dev_id, dev):
     """True if a custom-check definition targets this device."""
     tk = cdef.get("target_kind", "all")
