@@ -286,6 +286,19 @@ class TestLdapAuth(unittest.TestCase):
         with self.assertRaises(ldap_auth.LdapTransientError):
             ldap_auth.authenticate(cfg, 'alice', 'pw')
 
+    def test_empty_password_is_denied_before_any_bind(self):
+        # v6.2.3 hardening: an empty password must be rejected up front (RFC 4513
+        # unauthenticated-bind class), never reaching the user re-bind. Denied
+        # (not transient), and it must NOT fall through to the ldap_url/host
+        # checks — so a valid config with an empty password is still denied.
+        _install_fake_ldap3([])
+        cfg = {'ldap_enabled': True, 'ldap_url': 'ldaps://dir:636',
+               'ldap_user_base': 'ou=u,dc=ex,dc=com'}
+        with self.assertRaises(ldap_auth.LdapAuthDenied):
+            ldap_auth.authenticate(cfg, 'alice', '')
+        with self.assertRaises(ldap_auth.LdapAuthDenied):
+            ldap_auth.authenticate(cfg, '', 'pw')
+
     def test_successful_auth_returns_result(self):
         # Service bind succeeds, search returns one entry, user bind succeeds
         svc_conn = MagicMock()

@@ -167,6 +167,14 @@ code, and de-duplicated docs.
   per-host toggle/mute/scan and terminal-auth actions) — all given the same
   scope/tenant filter and regression-tested. A new ungated body-device handler now
   fails the build.
+  - A second pre-production hunt added: an **empty-password LDAP bind is now
+    rejected** before any bind (RFC 4513 unauthenticated-bind class); the
+    **`GET /api/sites` per-site device counts are scoped** to the caller's
+    visible devices (a scoped/tenant caller could otherwise read other tenants'
+    true site sizes); and two run-and-wait feedback nits. One reported item —
+    ACME DNS-provider keys "leaking" via config/diagnostics/backup — was
+    verified a false positive (the whole `acme_dns_credentials` subtree is
+    already scrubbed by its container key) and left unchanged.
   - Full write-up: [docs/security-review-6.2.3.md](docs/security-review-6.2.3.md).
 - **LDAP honours the group → role map.** The `sso_group_roles` matrix (any
   builtin or custom role) now applies to LDAP logins too — matrix keys are

@@ -650,7 +650,7 @@ async function dockerPruneRun() {
   // Done — swap the primary button out, turn Cancel into Close.
   runBtn.classList.add('d-none');
   document.getElementById('docker-prune-cancel').textContent = 'Close';
-  res.innerHTML = r.timeout
+  res.innerHTML = (r.timeout || r.shutdown)
     ? `<div class="c-amber mt-8">${escHtml(r.message || 'Still running — the footprint will refresh shortly.')}</div>`
     : _renderPruneResult(r.output);
   // Refresh the footprint panel so the numbers reflect the reclaim.
@@ -673,7 +673,7 @@ function _renderPruneResult(output) {
   DOCKER_PRUNE_UI.forEach(t => {
     if (!sections[t.id]) return;
     const seg = sections[t.id].join('\n');
-    const mm = seg.match(/Total reclaimed space:\s*([0-9.]+\s*[KMGTP]?i?B)/i);
+    const mm = seg.match(/Total reclaimed space:\s*([0-9.]+\s*[KkMGTP]?i?B)/i);
     const recl = mm ? mm[1].replace(/\s+/g, '') : '0B';
     totalBytes += _parseSize(recl) || 0;
     const delVols = /Deleted Volumes:/.test(seg)

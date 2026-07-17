@@ -102,6 +102,16 @@ def authenticate(cfg: dict, username: str, password: str) -> LdapResult:
     if not cfg.get('ldap_enabled'):
         raise LdapAuthDenied('ldap not enabled')
 
+    # v6.2.3 hardening: reject an empty password up front. RFC 4513 §5.1.2 makes
+    # a bind with a non-empty DN + empty password an UNAUTHENTICATED bind that
+    # many directories accept as success — so the user re-bind below
+    # (auto_bind=True) could "succeed" for an empty password and reach role
+    # assignment. Authentication must always require a real password.
+    if not password:
+        raise LdapAuthDenied('empty password')
+    if not username:
+        raise LdapAuthDenied('empty username')
+
     url = (cfg.get('ldap_url') or '').strip()
     if not url:
         raise LdapTransientError('ldap_url is empty')

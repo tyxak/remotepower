@@ -5554,7 +5554,7 @@ async function sendExecCmd() {
     if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
     if (!data || data.error) { if (res) res.innerHTML = `<div class="c-red mt-8">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
     if (data.approval_required) { if (res) res.innerHTML = ''; toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); return; }
-    if (data.timeout) { if (res) res.innerHTML = '<div class="c-amber mt-8">No output within the wait window — the command runs on the next heartbeat; check the device’s command history.</div>'; return; }
+    if (data.timeout || data.shutdown) { if (res) res.innerHTML = `<div class="c-amber mt-8">${escHtml(data.message || 'No output within the wait window — the command runs on the next heartbeat; check the device’s command history.')}</div>`; return; }
     const out = data.output || {};
     const text = (out && out.output != null) ? out.output : (typeof out === 'string' ? out : '');
     const rc = out && typeof out.rc === 'number' ? out.rc : null;

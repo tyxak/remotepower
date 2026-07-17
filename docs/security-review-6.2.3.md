@@ -88,6 +88,35 @@ regression tests before this release:
   port value returned a 500 instead of a clean 400; a defensive confirmation
   fallback had become self-referential) were also fixed.
 
+A second, pre-production adversarial hunt (SAST re-run plus independent passes over
+the session's own changes, the frontend, the read-only cache optimisations, and a
+broad server sweep) added:
+
+- **Empty-password LDAP bind rejected up front.** LDAP authentication re-binds as
+  the user with their submitted password; RFC 4513 §5.1.2 makes a bind with a
+  non-empty DN and an *empty* password an "unauthenticated" bind that some
+  directories accept as success. `ldap_auth.authenticate` now rejects an empty
+  password (and empty username) before any bind, so an empty password can never
+  reach role assignment regardless of directory configuration.
+- **Per-site device counts scoped.** `GET /api/sites` tallied device counts over
+  the whole fleet, so a scoped operator or tenant admin could read the true
+  device count of every other tenant's site. The tally is now filtered to the
+  caller's visible devices, matching the already-correct sites-map handler (a
+  no-op on a single-tenant, unscoped install).
+- **Two frontend feedback nits**: the "server is restarting" (503) response from
+  the run-and-wait exec / Docker-prune paths now shows its message instead of an
+  empty result, and the Docker-prune reclaim summary parses docker's lowercase
+  `kB` unit.
+
+One reported item was **triaged as a false positive and left unchanged**: the ACME
+DNS-provider credential fields (Cloudflare/AWS/OVH/… API keys) whose names do not
+end in a secret-shaped word were flagged as leaking through the config GET,
+diagnostics bundle and backup export. They do not: the recursive config-secret
+scrub matches the *container* key `acme_dns_credentials` (it ends in
+`credentials`) and drops or masks the entire subtree before it ever recurses to
+the individual fields — verified by driving the real scrub. No code change was
+warranted, and adding one would have implied a leak that does not exist.
+
 ## From audit to invariant: a structural guardrail
 
 The isolation gaps above belong to a class that had been "fixed" in several prior

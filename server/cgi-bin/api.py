@@ -13936,7 +13936,13 @@ def handle_sites_list():
     """GET /api/sites — registry + device counts per site."""
     require_auth()
     sites = load(SITES_FILE)
-    devices = load(DEVICES_FILE)
+    # v6.2.3 (SECURITY): scope the per-site counts to the caller's visible
+    # devices — matching the sibling handle_sites_map. An unscoped tally let a
+    # scoped operator / tenant admin (whose _caller_scope() is None) read the
+    # true fleet size of every other tenant's site. No-op on a single-tenant,
+    # unscoped install. (The site registry itself carries no tenant attribution
+    # — it is a shared list of physical locations by design.)
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     counts = {}
     for d in devices.values():
         sid = d.get('site') or ''

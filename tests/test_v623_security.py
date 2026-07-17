@@ -246,6 +246,12 @@ class TestSourceLevelFixesPresent(unittest.TestCase):
         self.assertIn('_redact_nonname_config_secrets', self._fn_src('handle_diagnostics_bundle'))
         self.assertIn('_redact_nonname_config_secrets', self._fn_src('handle_export'))
 
+    def test_sites_list_scopes_device_counts(self):
+        # v6.2.3: the per-site device tally must be over the caller's VISIBLE
+        # devices (like the sibling handle_sites_map), not the whole fleet —
+        # else a scoped/tenant caller reads other tenants' true site sizes.
+        self.assertIn('_scope_filter_devices', self._fn_src('handle_sites_list'))
+
 
 if __name__ == '__main__':
     unittest.main()
