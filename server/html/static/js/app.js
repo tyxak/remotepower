@@ -12780,8 +12780,29 @@ async function refreshNavCounts() {
     { const bb = document.getElementById('board-badge');
       if (bb) {
         const off = typeof c.fleet === 'number' ? c.fleet : 0;
-        if (off > 0) { bb.classList.remove('d-none'); bb.classList.add('nav-badge-alert'); bb.textContent = off > 99 ? '99+' : String(off); bb.title = `${off} device(s) offline`; }
-        else bb.classList.add('d-none');
+        if (off > 0) {
+          bb.classList.remove('d-none');
+          bb.textContent = off > 99 ? '99+' : String(off);
+          // v6.2.3: role-aware + name the hosts. A workstation/laptop offline
+          // (asleep) is expected; a server offline is an incident. Classify from
+          // the device cache the client already has; only go red (nav-badge-alert)
+          // when a NON-workstation is down, and list the hosts in the tooltip so
+          // you never have to hunt for which one.
+          const _EXP = ['workstation', 'workstations', 'laptop', 'laptops', 'desktop', 'desktops'];
+          const _isWs = d => ((d.tags || []).some(t => _EXP.includes(String(t).toLowerCase()))
+                              || _EXP.includes(String(d.group || '').toLowerCase()));
+          const _offDevs = (window._devicesCache || [])
+            .filter(d => d && d.online === false && d.monitored !== false);
+          const _servers = _offDevs.filter(d => !_isWs(d));
+          bb.classList.toggle('nav-badge-alert', _servers.length > 0 || _offDevs.length === 0);
+          if (_offDevs.length) {
+            const _names = _offDevs.slice(0, 8).map(d =>
+              d.name + (d.last_seen ? ` (${timeAgo(d.last_seen)})` : '')).join(', ');
+            let tip = `${off} offline: ${_names}${_offDevs.length > 8 ? ', …' : ''}`;
+            if (_servers.length === 0) tip += ' — all workstations/laptops (expected)';
+            bb.title = tip;
+          } else bb.title = `${off} device(s) offline`;
+        } else bb.classList.add('d-none');
       } }
     // v5.5.0: keep the sidebar Tickets badge live on the 60s poll (it used to
     // only update on a full dashboard load, so the count lingered after a
