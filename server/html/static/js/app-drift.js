@@ -297,7 +297,7 @@ function closeDriftDetail() {
 
 async function openDriftDetail(devId, devName) {
   _ensureDriftModal();
-  _driftDeviceModal.classList.add('active');
+  _driftDeviceModal.classList.add('active'); _raiseModalZ(_driftDeviceModal);
   _driftCurrentDevice = {id: devId, name: devName};
   document.getElementById('drift-detail-title').textContent = `Drift detail — ${devName}`;
   const body = document.getElementById('drift-detail-body');
@@ -510,7 +510,7 @@ function closeDriftDiff() {
 
 async function openDriftDiff(devId, path) {
   _ensureDriftDiffModal();
-  _driftDiffModal.classList.add('active');
+  _driftDiffModal.classList.add('active'); _raiseModalZ(_driftDiffModal);
   _driftDiffCurrent = {devId, path, startedAt: Date.now()};
   document.getElementById('drift-diff-title').textContent = 'Drift diff';
   document.getElementById('drift-diff-path').textContent = path;

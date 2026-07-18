@@ -443,7 +443,7 @@ function aiModalDebug() {
 
 async function openAIModal({title, system, userMsg, context, onResult, actionLabel, maxTokens}) {
   _ensureAIModal();
-  _aiModalEl.classList.add('active');
+  _aiModalEl.classList.add('active'); _raiseModalZ(_aiModalEl);
   document.getElementById('ai-modal-title').textContent = title || 'AI';
   document.getElementById('ai-modal-meta').textContent  =
     `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
@@ -1006,7 +1006,7 @@ async function aiInsightDebug(key) {
 // button, so EVERY AI action can be inspected — not just the insight cards.
 async function _aiRunDebug({ title, system, userMsg, context }) {
   _ensureAIModal();
-  _aiModalEl.classList.add('active');
+  _aiModalEl.classList.add('active'); _raiseModalZ(_aiModalEl);
   document.getElementById('ai-modal-title').textContent = title || 'AI — debug';
   document.getElementById('ai-modal-meta').textContent = 'debug — no model call, no cost';
   const body = document.getElementById('ai-modal-body');
@@ -1338,7 +1338,7 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
 
 async function aiGenerateRunbook(devId, deviceName) {
   _ensureRunbookModal();
-  _runbookModalEl.classList.add('active');
+  _runbookModalEl.classList.add('active'); _raiseModalZ(_runbookModalEl);
   _runbookCurrentDevice = {id: devId, name: deviceName};
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent =
@@ -1377,7 +1377,7 @@ async function aiGenerateRunbook(devId, deviceName) {
 
 async function aiViewRunbook(devId, deviceName) {
   _ensureRunbookModal();
-  _runbookModalEl.classList.add('active');
+  _runbookModalEl.classList.add('active'); _raiseModalZ(_runbookModalEl);
   _runbookCurrentDevice = {id: devId, name: deviceName};
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent = 'Loading…';

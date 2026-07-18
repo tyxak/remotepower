@@ -4864,6 +4864,25 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
+// v6.2.3: raise a just-activated overlay ABOVE anything already on screen. A
+// modal opened from another modal (e.g. Containers modal → Prune) must never
+// render behind its opener — body-level DOM order alone doesn't guarantee it
+// (a modal earlier in the source loses to a later one at the same z-index).
+// Only ever RAISES, never lowers a modal's own CSS z-index (ui-prompt/drift-diff
+// sit at 1100); stays under the toast layer (9999). Shared by openModal and the
+// few modals that activate themselves directly (drift, AI, runbook).
+function _raiseModalZ(el) {
+  if (!el) return;
+  el.style.zIndex = '';   // drop any prior inline raise before measuring
+  let top = 0;
+  document.querySelectorAll('.modal-overlay.active').forEach(m => {
+    if (m === el) return;
+    const z = parseInt(getComputedStyle(m).zIndex, 10);
+    if (!isNaN(z)) top = Math.max(top, z);
+  });
+  const ownZ = parseInt(getComputedStyle(el).zIndex, 10) || 1000;
+  if (top && top + 10 > ownZ) el.style.zIndex = String(top + 10);
+}
 function openModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -4873,6 +4892,7 @@ function openModal(id) {
   if (!_modalStack.includes(id)) _modalStack.push(id);
   el.classList.add('active');
   document.body.classList.add('modal-open');
+  _raiseModalZ(el);
   // Move focus into the modal (first focusable element) for keyboard + SR users.
   requestAnimationFrame(() => {
     const f = _modalFocusable(el);
@@ -4886,7 +4906,7 @@ function openModal(id) {
 }
 function closeModal(id) {
   const el = document.getElementById(id);
-  if (el) el.classList.remove('active');
+  if (el) { el.classList.remove('active'); el.style.zIndex = ''; }  // drop the stacked-modal raise
   const idx = _modalStack.indexOf(id);
   if (idx !== -1) _modalStack.splice(idx, 1);
   // Only release the scroll lock if no modal-overlay is still active
