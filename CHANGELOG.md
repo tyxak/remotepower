@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.2.3 — "Un1fyMatters" — unreleased (test)
+## v6.2.3 — "Un1fyMatters" — 2026-07-18
 
 A release built around **unifying the monitoring surface** — one catalog of
 baseline checks you apply by scope, a single "fix this first" CVE ranking that
