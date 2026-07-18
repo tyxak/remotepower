@@ -274,5 +274,74 @@ class TestTicketsBulkActions(unittest.TestCase):
         self.assertIn("'PATCH', '/tickets/'", fn)
 
 
+class TestWave2QuickWins(unittest.TestCase):
+    """UX wave 2: Ctrl-Enter submit, auto in-flight buttons, click-to-copy,
+    pager size/export, palette recents, SW update toast, skeleton blocks."""
+
+    def test_ctrl_enter_submits_topmost_modal(self):
+        app = _js("app.js")
+        i = app.index("Ctrl/Cmd-Enter submits the topmost modal")
+        chunk = app[i:i + 600]
+        self.assertIn("_modalStackTop()", chunk)
+        self.assertIn(".btn-primary:not([disabled])", chunk)
+
+    def test_dispatcher_auto_inflight(self):
+        app = _js("app.js")
+        i = app.index("automatic in-flight state")
+        chunk = app[i:i + 900]
+        self.assertIn("btn-inflight", chunk)
+        self.assertIn("aria-busy", chunk)
+        # restore must run on BOTH resolve and reject
+        self.assertIn("_ret.then(_restore, _restore)", chunk)
+
+    def test_data_copy_handler_and_sites(self):
+        app = _js("app.js")
+        self.assertIn("closest('[data-copy]')", app)
+        self.assertIn("navigator.clipboard.writeText", app)
+        # at least the CVE ids and the command-library command are wired
+        self.assertIn('data-copy=""', _js("app-cve.js"))
+        self.assertIn('data-copy=""', app)
+
+    def test_pager_gains_size_select_and_export(self):
+        app = _js("app.js")
+        self.assertIn("tablepagesize-", app)
+        self.assertIn("tblExportCsv", app)
+        self.assertIn("function tblPageSize", app)
+        # render honors the per-table pref
+        self.assertIn("prefs.pageSize || opts.pageSize || 15", app)
+
+    def test_page_size_persisted_server_side(self):
+        from tests import apisrc, srcpin
+        fn = srcpin.py_function(apisrc.api_source(), "_sanitise_ui_prefs")
+        self.assertIn("pageSize", fn,
+                      "pageSize must be whitelisted or the pref silently drops")
+
+    def test_export_csv_quotes_fields(self):
+        app = _js("app.js")
+        i = app.index("function exportCsv")
+        chunk = app[i:app.index("function clearFilter")]
+        self.assertIn('replace(/"/g', chunk)
+
+    def test_palette_recents(self):
+        app = _js("app.js")
+        self.assertIn("_recordRecentDevice", app)
+        self.assertIn("rp_recent_devices", app)
+        self.assertIn("Recently viewed", app)
+
+    def test_sw_update_toast(self):
+        sw = _js("sw-register.js")
+        self.assertIn("updatefound", sw)
+        self.assertIn("statechange", sw)
+        self.assertIn("Reload", sw)
+        # only notify when an OLD worker still controls the page
+        self.assertIn("navigator.serviceWorker.controller", sw)
+
+    def test_skeleton_block_helper_swept(self):
+        self.assertIn("function _skeletonBlock", _js("app.js"))
+        for f in ("app-cve.js", "app-kb.js", "app-containers.js",
+                  "app-drift.js", "app-dns.js", "app-remote.js"):
+            self.assertIn("_skeletonBlock(", _js(f), f)
+
+
 if __name__ == "__main__":
     unittest.main()

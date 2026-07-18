@@ -380,7 +380,8 @@ const tableCtl = (() => {
       return;
     }
     // v3.12.0: paginate so a large fleet never renders an endless table.
-    const pageSize = opts.pageSize || 15;
+    // v6.3.0 (UX wave 2): rows-per-page is a per-table pref (pager select).
+    const pageSize = prefs.pageSize || opts.pageSize || 15;
     const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
     let page = _page[opts.name] || 0;
     if (page >= pages) page = pages - 1;
@@ -415,6 +416,54 @@ const tableCtl = (() => {
       + `<button class="btn-icon" data-action="tblClearFilter" data-arg="${escAttr(opts.name)}">${_icon('x', 12)} Clear filter</button>`;
   }
 
+  // v6.3.0 (UX wave 2): rows-per-page — reads the pager select, persists to
+  // the same per-table prefs as filter/sort (server-side, cross-device).
+  function setPageSize(name) {
+    const sel = document.getElementById('tablepagesize-' + name);
+    const opts = _registry[name];
+    if (!sel || !opts) return;
+    const n = parseInt(sel.value, 10);
+    getTablePrefs(name).pageSize = (n === 50 || n === 100) ? n : 15;
+    _page[name] = 0;
+    _scheduleFlushUiPrefs();
+    if (opts.refresh) opts.refresh();
+    else if (opts._lastRows) render(name, opts._lastRows);
+  }
+
+  // v6.3.0 (UX wave 2): export the VISIBLE rows (current filter + sort, all
+  // pages) as CSV. Columns come from getColumns (the sortable projection) so
+  // the file matches what the table shows, not raw record internals.
+  function exportCsv(name) {
+    const opts = _registry[name];
+    if (!opts || !opts._lastRows || !opts._lastRows.length) return;
+    const prefs = getTablePrefs(name);
+    const filter = (prefs.filter || '').toLowerCase().trim();
+    const matchFn = opts.match || _defaultMatch;
+    let rows = filter ? opts._lastRows.filter(r => matchFn(r, filter)) : opts._lastRows.slice();
+    rows = _applySort(rows, prefs.sort || [], opts.getColumns);
+    if (!rows.length) { toast('Nothing to export', 'info'); return; }
+    const proj = r => (opts.getColumns ? opts.getColumns(r) : r);
+    const cols = (opts.columns && opts.columns.slice()) || Object.keys(proj(rows[0]));
+    const esc = v => {
+      v = (v === null || v === undefined) ? '' : String(v);
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    };
+    const lines = [cols.join(',')];
+    for (const r of rows) {
+      const rec = proj(r);
+      lines.push(cols.map(c => esc(rec[c])).join(','));
+    }
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `remotepower-${name}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast(`Exported ${rows.length} row(s)`, 'success');
+  }
+
   // Reset a table's stored filter (chip button + anything else that needs it).
   function clearFilter(name) {
     const opts = _registry[name];
@@ -438,7 +487,10 @@ const tableCtl = (() => {
     if (!anchor || !anchor.parentNode) return;
     const pid = 'tablepager-' + opts.name;
     let pgr = document.getElementById(pid);
-    if (total <= pageSize) { if (pgr) pgr.remove(); return; }
+    // v6.3.0 (UX wave 2): the bar appears past 15 rows regardless of the
+    // chosen page size (so a 100-rows/page view of 40 rows keeps its size
+    // select + CSV export), and gains both of those controls.
+    if (total <= 15) { if (pgr) pgr.remove(); return; }
     if (!pgr) {
       pgr = document.createElement('div');
       pgr.id = pid;
@@ -448,10 +500,18 @@ const tableCtl = (() => {
     const pages = Math.ceil(total / pageSize);
     const start = page * pageSize + 1;
     const end = Math.min(total, (page + 1) * pageSize);
-    pgr.innerHTML =
-      `<button class="btn-icon" data-action="tblPage" data-arg="${escAttr(opts.name)}" data-arg2="-1"${page <= 0 ? ' disabled' : ''}>‹ Prev</button>`
-      + `<span class="table-pager-info">${start}–${end} of ${total}</span>`
-      + `<button class="btn-icon" data-action="tblPage" data-arg="${escAttr(opts.name)}" data-arg2="1"${page >= pages - 1 ? ' disabled' : ''}>Next ›</button>`;
+    const nav = pages > 1
+      ? `<button class="btn-icon" data-action="tblPage" data-arg="${escAttr(opts.name)}" data-arg2="-1"${page <= 0 ? ' disabled' : ''}>‹ Prev</button>`
+        + `<span class="table-pager-info">${start}–${end} of ${total}</span>`
+        + `<button class="btn-icon" data-action="tblPage" data-arg="${escAttr(opts.name)}" data-arg2="1"${page >= pages - 1 ? ' disabled' : ''}>Next ›</button>`
+      : `<span class="table-pager-info">${total} rows</span>`;
+    const sizeSel =
+      `<select class="form-input table-pager-size" id="tablepagesize-${escAttr(opts.name)}" data-change="tblPageSize" data-change-arg="${escAttr(opts.name)}" aria-label="Rows per page">`
+      + [15, 50, 100].map(n => `<option value="${n}"${n === pageSize ? ' selected' : ''}>${n}/page</option>`).join('')
+      + '</select>';
+    const exportBtn =
+      `<button class="btn-icon" data-action="tblExportCsv" data-arg="${escAttr(opts.name)}" title="Export visible rows (CSV — honors filter & sort)" aria-label="Export visible rows as CSV">${_icon('download', 12)}</button>`;
+    pgr.innerHTML = nav + sizeSel + exportBtn;
   }
 
   function goPage(name, delta) {
@@ -551,12 +611,15 @@ const tableCtl = (() => {
   }
 
   return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage,
-           renderChunked, clearFilter };
+           renderChunked, clearFilter, setPageSize, exportCsv };
 })();
 // v3.12.0: pager button handler (data-action="tblPage")
 function tblPage(name, delta) { tableCtl.goPage(name, delta); }
 // v6.3.0: filter-info chip handler (data-action="tblClearFilter")
 function tblClearFilter(name) { tableCtl.clearFilter(name); }
+// v6.3.0 (UX wave 2): pager rows-per-page select + CSV export button
+function tblPageSize(name) { tableCtl.setPageSize(name); }
+function tblExportCsv(name) { tableCtl.exportCsv(name); }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // v1.11.5: densityCtl — three-mode density toggle, persisted to ui_prefs.
@@ -4928,6 +4991,16 @@ function _modalStackTop() {
   return null;
 }
 document.addEventListener('keydown', e => {
+  // v6.3.0 (UX wave 2): Ctrl/Cmd-Enter submits the topmost modal — clicks its
+  // last visible primary button (forms put Cancel first, submit last).
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    const m = _modalStackTop();
+    if (!m) return;
+    const primary = Array.from(m.querySelectorAll('.btn-primary:not([disabled])'))
+      .filter(b => b.offsetParent !== null).pop();
+    if (primary) { e.preventDefault(); primary.click(); }
+    return;
+  }
   if (e.key !== 'Escape' && e.key !== 'Tab') return;
   const el = _modalStackTop();
   if (!el) return;
@@ -5155,6 +5228,18 @@ function _skeletonRows(colspan, count) {
          + '<div class="skeleton skeleton-line ' + widths[i % widths.length] + '"></div></td></tr>';
   }
   return out;
+}
+
+// v6.3.0 (UX wave 2): the div-container sibling of _skeletonRows — for modal
+// bodies / cards / lists that used to show a bare "Loading…" line.
+function _skeletonBlock(count) {
+  const n = count || 4;
+  const widths = ['long', 'med', 'long', 'short', 'med'];
+  let out = '<div class="skeleton-block">';
+  for (let i = 0; i < n; i++) {
+    out += '<div class="skeleton skeleton-line ' + widths[i % widths.length] + '"></div>';
+  }
+  return out + '</div>';
 }
 
 // v3.12.0: generic client-side row/card filter for large-fleet pages. Wire an
@@ -5392,6 +5477,22 @@ function uiRetry(key) {
   delete _retryReg[key];
   if (typeof fn === 'function') fn();
 }
+
+// v6.3.0 (UX wave 2): click-to-copy. Any element carrying data-copy copies its
+// value (the attribute if non-empty, else its trimmed text) to the clipboard
+// with a confirming toast. One delegated handler; renderers just add
+// data-copy="" (+ a title) to monospace values worth grabbing — ids, IPs,
+// CVE ids, commands. Don't put data-copy inside a clickable row (both fire).
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-copy]');
+  if (!el) return;
+  const val = el.getAttribute('data-copy') || el.textContent.trim();
+  if (!val) return;
+  if (!navigator.clipboard) { toast('Clipboard unavailable', 'error'); return; }
+  navigator.clipboard.writeText(val).then(
+    () => toast('Copied to clipboard', 'success'),
+    () => toast('Could not copy', 'error'));
+});
 
 // v6.3.0 (UX wave 1b): global undo/redo stack behind the topbar arrows
 // (MikroTik-style). Flows that know how to invert themselves push an entry
@@ -9352,7 +9453,7 @@ function _registerCmdLibTable() {
     }),
     row: (s) => {
       const sKey = _storeEvtData(s);
-      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></td></tr>`;
+      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358" data-copy="" title="Click to copy">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
@@ -19655,6 +19756,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   // [A-Za-z0-9_-]{1,64} (server _validate_id); anything else can't be a real
   // device and must never reach a fetch URL or a drawer-panel innerHTML.
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return;
+  _recordRecentDevice(id, name);   // v6.3.0 (UX wave 2): palette recents
   _drawerDeviceId   = id;
   _drawerDeviceName = name;
   _drawerAuditLoaded = {};
@@ -25052,7 +25154,23 @@ document.addEventListener('click', e => {
   if (el.dataset.argBool !== undefined) args[0] = el.dataset.argBool === 'true';
   if (el.dataset.passBtn) args.push(el);
 
-  fn(...args);
+  // v6.3.0 (UX wave 2): automatic in-flight state — when an async handler is
+  // still running, its button dims and stops accepting clicks (kills the
+  // double-submit class app-wide with zero per-handler wiring). Restore is
+  // guarded so a handler that re-renders/replaces the button is unaffected.
+  const _ret = fn(...args);
+  if (_ret && typeof _ret.then === 'function'
+      && el.tagName === 'BUTTON' && !el.disabled) {
+    el.disabled = true;
+    el.classList.add('btn-inflight');
+    el.setAttribute('aria-busy', 'true');
+    const _restore = () => {
+      el.disabled = false;
+      el.classList.remove('btn-inflight');
+      el.removeAttribute('aria-busy');
+    };
+    _ret.then(_restore, _restore);
+  }
 
   if (el.dataset.action2) {
     const fn2 = window[el.dataset.action2];
@@ -25576,8 +25694,39 @@ function downloadDiagnostics() {
 let _palOpen = false;
 let _palItems = [];      // [{label, kind, action: () => void}]
 let _palCursor = 0;
+// v6.3.0 (UX wave 2): recently-viewed devices — recorded on every drawer open
+// (localStorage, per-browser, cap 8), surfaced at the TOP of the palette so
+// the hosts you keep coming back to are one Ctrl-K + Enter away.
+function _recordRecentDevice(id, name) {
+  try {
+    const key = 'rp_recent_devices';
+    let list = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(list)) list = [];
+    list = list.filter(d => d && d.id !== id);
+    list.unshift({ id, name: name || id });
+    localStorage.setItem(key, JSON.stringify(list.slice(0, 8)));
+  } catch (_) {}
+}
+function _recentDevices() {
+  try {
+    const list = JSON.parse(localStorage.getItem('rp_recent_devices') || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch (_) { return []; }
+}
+
 function _palBuildIndex() {
   const items = [];
+  // v6.3.0 (UX wave 2): recents first — the empty-query view shows the first
+  // 20 items, so these are always visible the moment the palette opens.
+  for (const d of _recentDevices()) {
+    if (typeof d.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(d.id)) continue;
+    items.push({
+      label: d.name || d.id,
+      kind: 'device',
+      sub: 'Recently viewed',
+      action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(d.id, d.name || d.id), 100); },
+    });
+  }
   // Static pages (sidebar destinations)
   const pages = [
     ['Dashboard', 'home'], ['Devices', 'devices'], ['Containers', 'containers'],

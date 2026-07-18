@@ -2094,6 +2094,12 @@
     flex-shrink: 0;
   }
   .toast-action:hover { background: var(--accent-soft, rgba(94,141,255,0.12)); }
+  /* v6.3.0 (UX wave 2): async data-action buttons dim while their handler runs */
+  .btn-inflight { opacity: .55; pointer-events: none; cursor: progress; }
+  /* v6.3.0 (UX wave 2): click-to-copy affordance */
+  [data-copy] { cursor: copy; }
+  /* v6.3.0 (UX wave 2): pager rows-per-page select — compact, pager-scale */
+  .table-pager-size { width: auto; padding: 2px 6px; font-size: 11px; }
   /* v6.3.0 (UX wave 1b): topbar undo/redo arrows dim when their stack is empty */
   #topbar-undo[disabled], #topbar-redo[disabled] { opacity: .35; cursor: default; }
   /* v6.3.0 (UX wave 1): failed-load state with inline Retry */

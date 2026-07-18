@@ -301,7 +301,7 @@ async function openDriftDetail(devId, devName) {
   _driftCurrentDevice = {id: devId, name: devName};
   document.getElementById('drift-detail-title').textContent = `Drift detail — ${devName}`;
   const body = document.getElementById('drift-detail-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock(4);
   document.getElementById('drift-accept-all').style.display = 'none';
 
   try {

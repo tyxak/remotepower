@@ -341,7 +341,7 @@ async function openCustomChecks() {
 let _bcCatalog = [];
 async function openBaselineChecks() {
   const el = document.getElementById('bc-catalog');
-  if (el) el.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (el) el.innerHTML = _skeletonBlock(4);
   const r = document.getElementById('bc-result'); if (r) r.textContent = '';
   const k = document.getElementById('bc-kind'); if (k) k.value = 'all';
   bcKindChanged();

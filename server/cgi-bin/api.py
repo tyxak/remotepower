@@ -26690,6 +26690,12 @@ def _sanitise_ui_prefs(raw):
         if density in UI_DENSITY_VALUES:
             clean['density'] = density
 
+        # v6.3.0 (UX wave 2): per-table rows-per-page. Fixed vocabulary — the
+        # pager select offers exactly these, anything else is a client bug.
+        page_size = prefs.get('pageSize')
+        if page_size in (15, 50, 100):
+            clean['pageSize'] = page_size
+
         filt = prefs.get('filter')
         if isinstance(filt, str) and filt:
             clean['filter'] = filt[:MAX_UI_PREFS_FILTER_LEN]

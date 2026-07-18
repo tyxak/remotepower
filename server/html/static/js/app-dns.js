@@ -529,7 +529,7 @@ async function deleteDnsRecord(id) {
 async function openAcmeDnsCreds() {
   openModal('acme-dns-creds-modal');
   const body = document.getElementById('acme-dns-creds-body');
-  if (body) body.innerHTML = '<div class="isl-78">Loading…</div>';
+  if (body) body.innerHTML = _skeletonBlock(3);
   const data = await api('GET', '/acme/dns-credentials').catch(() => null);
   if (!data || !data.providers) {
     if (body) body.innerHTML = '<div class="hint">Failed to load credentials.</div>';

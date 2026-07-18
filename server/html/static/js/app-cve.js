@@ -14,7 +14,7 @@ function renderCveSeverityRow(severities, current) {
 // v6.2.3: exposure-weighted CVE ranking — hosts ordered by exploitability.
 async function openCveExposure() {
   const el = document.getElementById('cve-exp-body');
-  if (el) el.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (el) el.innerHTML = _skeletonBlock(4);
   openModal('cve-exposure-modal');
   const d = await api('GET', '/cve/exposure-ranked').catch(() => null);
   if (!el) return;
@@ -231,7 +231,7 @@ async function triggerCVEScan(devId, btn) {
 
 async function openDeviceCVE(devId, devName) {
   document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
-  document.getElementById('cve-detail-body').innerHTML = '<div class="empty-state">Loading…</div>';
+  document.getElementById('cve-detail-body').innerHTML = _skeletonBlock(6);
   openModal('cve-detail-modal');
   const data = await api('GET', `/devices/${devId}/cve`);
   if (!data) return;
@@ -251,7 +251,7 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${escAttr(color)}">${escHtml(f.severity)}</span><code class="isl-393" data-copy="" title="Click to copy">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;

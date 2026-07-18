@@ -505,7 +505,7 @@ async function openAvScan(id, name) {
   document.getElementById('avscan-devid').value = id;
   document.querySelector('#avscan-modal .modal-title').textContent = `AV / malware — ${name}`;
   const body = document.getElementById('avscan-status');
-  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  body.innerHTML = _skeletonBlock(5);
   openModal('avscan-modal');
   const r = await api('GET', `/devices/${id}/av`);
   const av = (r && r.av) || {};

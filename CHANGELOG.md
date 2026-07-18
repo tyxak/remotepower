@@ -42,8 +42,29 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   bulk bar: *Resolve selected* and *Assign to me* (the multi-select pattern's
   first outing beyond the Alerts inbox).
 
+### Wave 2 — quick wins
+- **Ctrl/Cmd-Enter submits the active modal** (clicks its primary button);
+  Esc already cancels via the modal stack.
+- **Double-submit killed app-wide** — any button whose action is still running
+  dims and stops accepting clicks until it settles (automatic, zero
+  per-handler wiring, `aria-busy` for screen readers).
+- **Click-to-copy** — monospace values carrying the new `data-copy` attribute
+  (CVE ids, command-library commands) copy to the clipboard with a toast;
+  cursor shows the affordance.
+- **Table pager grows a rows-per-page select (15/50/100, persisted per table
+  server-side) and a CSV export icon** — export honors the current filter and
+  sort and covers all pages, not just the visible one.
+- **Recently-viewed devices** surface at the top of the command palette
+  (recorded on every drawer open, per browser, last 8).
+- **"A new version is available — Reload"** toast when the service worker
+  installs an update behind a running page (ends the stale-bundle class).
+- **Skeleton loading everywhere** — the remaining bare "Loading…" modal bodies
+  and cards (CVE detail, KB, containers, drift, DNS, remote) now show
+  skeleton lines like the tables do.
+
 Internal: the UX program's full 50-item scoped backlog lives in the internal
-docs repo; the two `showPage` fixed-window test pins were migrated to srcpin.
+docs repo; the two `showPage` fixed-window test pins were migrated to srcpin,
+and `srcpin.js_function` now handles default-object parameters.
 
 ## v6.2.3 — "Un1fyMatters" — 2026-07-18
 

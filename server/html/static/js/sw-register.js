@@ -58,6 +58,31 @@
         .then(function (reg) {
           _swDone = true;
           reg.update();
+          // v6.3.0 (UX wave 2): "new version deployed" detection. When an
+          // updated SW finishes installing while an old one still controls
+          // the page, the fresh assets sit unused until a reload — surface
+          // that as a toast with a one-click Reload instead of letting the
+          // operator run a stale bundle indefinitely (the recurring
+          // cache-bust complaint). toast() lives in app.js; if it isn't
+          // there (app.js failed to load), skip silently.
+          var _notifyUpdate = function () {
+            if (typeof window.toast !== 'function') return;
+            window.toast('A new version of RemotePower is available', 'info', {
+              duration: 30000,
+              action: { label: 'Reload', icon: 'refresh',
+                        fn: function () { location.reload(); } },
+            });
+          };
+          if (reg.waiting && navigator.serviceWorker.controller) _notifyUpdate();
+          reg.addEventListener('updatefound', function () {
+            var nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', function () {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                _notifyUpdate();
+              }
+            });
+          });
         })
         .catch(function (err) {
           if (err && err.name === 'InvalidStateError' && _swAttempts < 4) {

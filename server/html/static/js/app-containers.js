@@ -305,7 +305,7 @@ async function enableComposeOnDevice(deviceId, deviceName) {
 
 async function viewComposeStack(stackId) {
   const body = document.getElementById('compose-view-body');
-  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  body.innerHTML = _skeletonBlock(5);
   openModal('compose-view-modal');
   const s = await api('GET', `/compose/stacks/${encodeURIComponent(stackId)}`);
   if (!s || s.error) { body.innerHTML = `<div class="c-red">${escHtml((s && s.error) || 'Failed')}</div>`; return; }
@@ -458,7 +458,7 @@ async function containersOpen(deviceId, name) {
   _containersOpenDeviceId = deviceId;
   document.getElementById('containers-detail-title').textContent = `Containers — ${name}`;
   const body = document.getElementById('containers-detail-body');
-  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  body.innerHTML = _skeletonBlock(5);
   openModal('containers-detail-modal');
   const data = await api('GET', `/devices/${encodeURIComponent(deviceId)}/containers`);
   if (!data) return;

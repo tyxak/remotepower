@@ -11,7 +11,7 @@ let _kbSelId = '';       // currently-open article id
 
 async function loadKb() {
   const list = document.getElementById('kb-list');
-  if (list) list.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (list) list.innerHTML = _skeletonBlock(5);
   const d = await api('GET', '/kb').catch(() => null);
   if (!d) return;
   if (!d.ok) {
@@ -131,7 +131,7 @@ async function openKbArticle(id) {
   _kbSelId = id;
   _renderKbList();
   const view = document.getElementById('kb-view');
-  if (view) view.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (view) view.innerHTML = _skeletonBlock(6);
   const d = await api('GET', '/kb/' + encodeURIComponent(id)).catch(() => null);
   if (!d || !d.ok || !d.article) {
     if (view) view.innerHTML = '<div class="empty-state">Could not load this article.</div>';
