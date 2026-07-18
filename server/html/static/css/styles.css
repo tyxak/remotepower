@@ -2094,6 +2094,15 @@
     flex-shrink: 0;
   }
   .toast-action:hover { background: var(--accent-soft, rgba(94,141,255,0.12)); }
+  /* v6.3.0 (UX wave 4): column show/hide popover */
+  #tbl-cols-pop {
+    position: fixed; z-index: 960; width: 220px;
+    background: var(--surface); border: 1px solid var(--hair);
+    border-radius: 11px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    padding: 10px 12px; max-height: 340px; overflow-y: auto;
+  }
+  #tbl-cols-pop.hidden { display: none; }
+  .tbl-cols-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; cursor: pointer; }
   /* v6.3.0 (UX wave 3): notification center — bell + popover */
   #toast-history-btn { position: relative; }
   #toast-history-btn.has-unread::after {

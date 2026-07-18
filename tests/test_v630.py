@@ -397,5 +397,60 @@ class TestWave3(unittest.TestCase):
         self.assertIn(".ap-reset", css)
 
 
+class TestWave4(unittest.TestCase):
+    """UX wave 4: column show/hide, dashboard-layout undo, page-aware help."""
+
+    def test_columns_menu_and_visibility(self):
+        app = _js("app.js")
+        self.assertIn("function _applyColumnVis", app)
+        self.assertIn("function colsMenu", app)
+        self.assertIn("function tblColsMenu", app)
+        self.assertIn("hiddenCols", app)
+        # applied on every render
+        i = app.index("function render(name, rows)")
+        render_fn = app[i:app.index("function _renderPager")]
+        self.assertIn("_applyColumnVis", render_fn)
+
+    def test_last_visible_column_protected(self):
+        app = _js("app.js")
+        i = app.index("function toggleCol")
+        chunk = app[i:i + 1500]
+        self.assertIn("At least one column must stay visible", chunk)
+
+    def test_hidden_cols_persisted_server_side(self):
+        from tests import apisrc, srcpin
+        fn = srcpin.py_function(apisrc.api_source(), "_sanitise_ui_prefs")
+        self.assertIn("hiddenCols", fn)
+
+    def test_dashboard_layout_undoable(self):
+        from tests import srcpin
+        app = _js("app.js")
+        fn = srcpin.js_function(app, "_dashSave")
+        self.assertIn("uiUndoCtl.push", fn)
+        # the snapshot must be taken BEFORE _uiPrefs.dashboard is assigned
+        self.assertLess(fn.index("uiUndoCtl.push"), fn.index("_uiPrefs.dashboard = layout"))
+        reset = srcpin.js_function(app, "dashReset")
+        self.assertIn("uiUndoCtl.push", reset)
+        self.assertIn("'Undo'", reset)
+
+    def test_page_aware_cheat_sheet(self):
+        app = _js("app.js")
+        self.assertIn("const _PAGE_HELP", app)
+        self.assertIn("function _pageHelpRows", app)
+        from tests import srcpin
+        fn = srcpin.js_function(app, "showKeyboardShortcuts")
+        self.assertIn("_pageHelpRows()", fn)
+
+    def test_page_help_docs_exist(self):
+        """Every doc referenced by _PAGE_HELP must actually ship — a deleted
+        guide would otherwise leave a dead link in the cheat sheet."""
+        import re as _re
+        app = _js("app.js")
+        i = app.index("const _PAGE_HELP")
+        block = app[i:app.index("function _pageHelpRows")]
+        for doc in _re.findall(r"doc:\s*'([^']+)'", block):
+            self.assertTrue((_ROOT / doc).exists(), doc)
+
+
 if __name__ == "__main__":
     unittest.main()

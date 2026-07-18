@@ -392,6 +392,7 @@ const tableCtl = (() => {
     _applyScrollWrap(tbody, pageRows.length);
     _renderPager(opts, tbody, filtered.length, page, pageSize);
     _renderFilterInfo(opts, tbody, filtered.length, rows.length, filter);
+    _applyColumnVis(opts);   // v6.3.0 (UX wave 4): column show/hide
   }
 
   // v6.3.0 (UX wave 1): when the filter hides rows, say so — "N of M shown" +
@@ -511,7 +512,94 @@ const tableCtl = (() => {
       + '</select>';
     const exportBtn =
       `<button class="btn-icon" data-action="tblExportCsv" data-arg="${escAttr(opts.name)}" title="Export visible rows (CSV — honors filter & sort)" aria-label="Export visible rows as CSV">${_icon('download', 12)}</button>`;
-    pgr.innerHTML = nav + sizeSel + exportBtn;
+    // v6.3.0 (UX wave 4): columns show/hide — only for tables whose thead
+    // carries data-col headers (the register/render contract).
+    const colsBtn = opts.sortHeaders
+      ? `<button class="btn-icon" data-action="tblColsMenu" data-arg="${escAttr(opts.name)}" data-pass-btn="1" title="Show / hide columns" aria-label="Show or hide columns">${_icon('columns', 12)}</button>`
+      : '';
+    pgr.innerHTML = nav + sizeSel + colsBtn + exportBtn;
+  }
+
+  // v6.3.0 (UX wave 4): column show/hide. Hidden column keys live in the same
+  // per-table prefs as filter/sort (server-persisted). The row renderers are
+  // custom HTML strings, so hiding is applied AFTER render by cell index —
+  // cheap at page size (≤100 rows). Full-width rows (empty state, chunk
+  // sentinel) are skipped by the cell-count guard.
+  function _applyColumnVis(opts) {
+    const thead = opts.sortHeaders && document.getElementById(opts.sortHeaders);
+    const tbody = document.getElementById(opts.tbody);
+    if (!thead || !tbody) return;
+    const hidden = new Set(getTablePrefs(opts.name).hiddenCols || []);
+    const ths = Array.from(thead.querySelectorAll('th'));
+    const hideIdx = new Set();
+    ths.forEach((th, i) => {
+      const col = th.getAttribute('data-col');
+      const hide = !!col && hidden.has(col);
+      th.style.display = hide ? 'none' : '';
+      if (hide) hideIdx.add(i);
+    });
+    if (!hideIdx.size && !tbody._hadHiddenCols) return;
+    tbody._hadHiddenCols = hideIdx.size > 0;
+    for (const tr of tbody.rows) {
+      if (tr.cells.length !== ths.length) continue;
+      for (let i = 0; i < tr.cells.length; i++) {
+        tr.cells[i].style.display = hideIdx.has(i) ? 'none' : '';
+      }
+    }
+  }
+
+  function colsMenu(name, btn) {
+    const opts = _registry[name];
+    const thead = opts && opts.sortHeaders && document.getElementById(opts.sortHeaders);
+    if (!thead || !btn) return;
+    let pop = document.getElementById('tbl-cols-pop');
+    if (pop && pop.dataset.table === name && !pop.classList.contains('hidden')) {
+      pop.classList.add('hidden');   // second click on the same button closes
+      return;
+    }
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.id = 'tbl-cols-pop';
+      document.body.appendChild(pop);
+    }
+    pop.dataset.table = name;
+    const hidden = new Set(getTablePrefs(name).hiddenCols || []);
+    const rows = Array.from(thead.querySelectorAll('th[data-col]')).map(th => {
+      const col = th.getAttribute('data-col');
+      const label = th.getAttribute('data-label') || th.textContent.replace(/[▲▼↕²³⁴⁵\s]+$/g, '').trim();
+      return `<label class="tbl-cols-row"><input type="checkbox" data-change="tblToggleCol" data-change-arg="${escAttr(name + '|' + col)}"${hidden.has(col) ? '' : ' checked'}> ${escHtml(label || col)}</label>`;
+    }).join('');
+    pop.innerHTML = `<div class="section-title">Columns</div>${rows}`;
+    pop.classList.remove('hidden');
+    const r = btn.getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + 6) + 'px';
+    pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 228, r.left - 180))) + 'px';
+  }
+
+  function toggleCol(arg, checked) {
+    const [name, col] = String(arg).split('|');
+    const opts = _registry[name];
+    if (!opts || !col) return;
+    const prefs = getTablePrefs(name);
+    const hidden = new Set(prefs.hiddenCols || []);
+    if (checked) hidden.delete(col);
+    else {
+      // never allow hiding the last visible column
+      const thead = document.getElementById(opts.sortHeaders);
+      const all = thead ? thead.querySelectorAll('th[data-col]').length : 0;
+      if (all && hidden.size >= all - 1) {
+        toast('At least one column must stay visible', 'info');
+        const cb = document.querySelector(
+          `#tbl-cols-pop input[data-change-arg="${name}|${col}"]`);
+        if (cb) cb.checked = true;
+        return;
+      }
+      hidden.add(col);
+    }
+    prefs.hiddenCols = [...hidden];
+    _scheduleFlushUiPrefs();
+    if (opts.refresh) opts.refresh();
+    else if (opts._lastRows) render(name, opts._lastRows);
   }
 
   function goPage(name, delta) {
@@ -611,7 +699,8 @@ const tableCtl = (() => {
   }
 
   return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage,
-           renderChunked, clearFilter, setPageSize, exportCsv };
+           renderChunked, clearFilter, setPageSize, exportCsv, colsMenu,
+           toggleCol };
 })();
 // v3.12.0: pager button handler (data-action="tblPage")
 function tblPage(name, delta) { tableCtl.goPage(name, delta); }
@@ -620,6 +709,15 @@ function tblClearFilter(name) { tableCtl.clearFilter(name); }
 // v6.3.0 (UX wave 2): pager rows-per-page select + CSV export button
 function tblPageSize(name) { tableCtl.setPageSize(name); }
 function tblExportCsv(name) { tableCtl.exportCsv(name); }
+// v6.3.0 (UX wave 4): column show/hide menu + checkbox handler
+function tblColsMenu(name, btn) { tableCtl.colsMenu(name, btn); }
+function tblToggleCol(arg, checked) { tableCtl.toggleCol(arg, checked); }
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('tbl-cols-pop');
+  if (!pop || pop.classList.contains('hidden')) return;
+  if (e.target.closest('#tbl-cols-pop') || e.target.closest('[data-action="tblColsMenu"]')) return;
+  pop.classList.add('hidden');
+});
 
 // ══════════════════════════════════════════════════════════════════════════════
 // v1.11.5: densityCtl — three-mode density toggle, persisted to ui_prefs.
@@ -16966,7 +17064,19 @@ function dashAddSelected() {
   if (sel && sel.value) dashToggle(sel.value);   // toggles the picked widget on
 }
 
-function _dashSave(layout) {
+function _dashSave(layout, opts) {
+  // v6.3.0 (UX wave 4): every layout change (toggle/move/size/align) is
+  // undoable from the topbar arrows — _dashLayout() still reflects the
+  // PRE-change state here (callers mutate a fresh normalized copy, which
+  // only lands in _uiPrefs on the assignment below).
+  if (!opts || !opts.noUndo) {
+    const prev = _dashLayout();
+    uiUndoCtl.push({
+      label: 'Dashboard layout change',
+      undo: () => _dashSave(prev, { noUndo: true }),
+      redo: () => _dashSave(layout, { noUndo: true }),
+    });
+  }
   _uiPrefs.dashboard = layout;
   applyDashboardLayout();
   _renderDashEditPanel();
@@ -17003,11 +17113,16 @@ function dashSize(key, size) {
 
 async function dashReset() {
   if (!await uiConfirm('Reset the dashboard to its default layout?')) return;
+  // v6.3.0 (UX wave 4): the reset itself is undoable (topbar arrow / toast).
+  const prev = _dashLayout();
+  const restore = () => _dashSave(prev, { noUndo: true });
+  uiUndoCtl.push({ label: 'Dashboard reset', undo: restore,
+                   redo: () => { _uiPrefs.dashboard = []; applyDashboardLayout(); _renderDashEditPanel(); _scheduleFlushUiPrefs(); } });
   _uiPrefs.dashboard = [];          // empty → _dashLayout() rebuilds defaults
   applyDashboardLayout();
   _renderDashEditPanel();
   _scheduleFlushUiPrefs();
-  toast('Dashboard reset', 'info');
+  toast('Dashboard reset', 'info', { action: { label: 'Undo', icon: 'undo', fn: restore } });
 }
 
 function dashAlign() {
@@ -19995,6 +20110,7 @@ const _ICONS = {
   undo:        '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo:        '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   bell:        '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  columns:     '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
   link:        '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   users:       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mail:        '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
@@ -26093,6 +26209,48 @@ const _G_NAV = [
 const _G_NAV_MAP = Object.fromEntries(_G_NAV.map(([k, page]) => [k, page]));
 
 // ─── v3.0.2: Keyboard shortcuts cheat sheet ────────────────────────────────
+// v6.3.0 (UX wave 4): page-aware help — the "?" cheat sheet appends a "This
+// page" section for the page you're on: its guide + any page-specific keys.
+// Keys here are DISPLAY copy only; the real handlers live with their pages.
+const _PAGE_HELP = {
+  home:       { doc: 'docs/dashboard.md' },
+  alerts:     { doc: 'docs/alerts.md',
+                keys: [['j / k', 'Move selection'], ['a', 'Acknowledge (undoable)'],
+                       ['r', 'Resolve'], ['m', 'Mute'], ['x', 'Select row']] },
+  checks:     { doc: 'docs/checks.md' },
+  cve:        { doc: 'docs/cve.md' },
+  cmdb:       { doc: 'docs/cmdb.md' },
+  containers: { doc: 'docs/containers.md' },
+  compliance: { doc: 'docs/compliance.md' },
+  contacts:   { doc: 'docs/contacts.md' },
+  cron:       { doc: 'docs/cron.md' },
+  dns:        { doc: 'docs/dns.md' },
+  dmarc:      { doc: 'docs/dmarc.md' },
+  drift:      { doc: 'docs/drift.md' },
+  backups:    { doc: 'docs/backups.md' },
+  calendar:   { doc: 'docs/calendar.md' },
+  'disk-health': { doc: 'docs/disk-health.md' },
+  cmdlib:     { doc: 'docs/command-library.md' },
+  catalog:    { doc: 'docs/app-catalog.md' },
+  autopatch:  { doc: 'docs/auto-patch.md' },
+  scripts:    { doc: 'docs/custom-scripts.md' },
+  automation: { doc: 'docs/automations.md' },
+  ai:         { doc: 'docs/ai.md' },
+};
+function _pageHelpRows() {
+  const active = document.querySelector('.page.active');
+  const page = active ? active.id.replace(/^page-/, '') : '';
+  const help = _PAGE_HELP[page];
+  if (!help) return '';
+  let rows = '';
+  for (const [k, label] of (help.keys || [])) {
+    rows += `<tr><td class="cell-padl"><kbd class="code-pill">${escHtml(k)}</kbd></td><td>${escHtml(label)}</td></tr>`;
+  }
+  if (help.doc) {
+    rows += `<tr><td class="cell-padl">${_icon('bookOpen', 13)}</td><td><a href="${escAttr(help.doc)}" target="_blank" rel="noopener" class="c-accent">Guide for this page</a></td></tr>`;
+  }
+  return rows ? `<tr><td colspan="2" class="hint cell-padl">This page</td></tr>${rows}` : '';
+}
 function showKeyboardShortcuts() {
   if (document.getElementById('kbd-cheat-overlay')) return;
   const o = document.createElement('div');
@@ -26109,9 +26267,12 @@ function showKeyboardShortcuts() {
       <table class="isl-728">
         <tr><td class="cell-padl"><kbd class="code-pill">/</kbd></td><td>Open command palette</td></tr>
         <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-K</kbd></td><td>Open command palette</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-Z</kbd></td><td>Undo (topbar arrows)</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-Enter</kbd></td><td>Submit the open dialog</td></tr>
         <tr><td class="cell-padl"><kbd class="code-pill">?</kbd></td><td>Show this cheat sheet</td></tr>
         ${navRows}
         <tr><td class="cell-padl"><kbd class="code-pill">Esc</kbd></td><td>Close any modal</td></tr>
+        ${_pageHelpRows()}
       </table>
     </div>`;
   o.addEventListener('click', e => { if (e.target === o) o.remove(); });

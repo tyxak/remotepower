@@ -62,6 +62,17 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 4
+- **Column show/hide on every paged table** — a columns icon in the pager opens
+  a checkbox menu; hidden columns persist per table on your user record
+  (alongside filter/sort/page-size). The last visible column can't be hidden.
+- **Dashboard layout changes are undoable** — every widget toggle / move /
+  resize / align and the full reset register with the topbar undo arrows;
+  reset also offers Undo in its toast.
+- **Page-aware help** — the `?` cheat sheet now ends with a "This page"
+  section: the current page's guide link plus its page-specific keys (the
+  alert-inbox j/k map, for a start), and documents Ctrl-Z / Ctrl-Enter.
+
 ### Wave 3
 - **Per-alert deep links** — every alert row (open *and* resolved) gets a small
   link icon that copies `#alerts/<id>`; opening such a link navigates to the

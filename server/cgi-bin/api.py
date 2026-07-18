@@ -26696,6 +26696,20 @@ def _sanitise_ui_prefs(raw):
         if page_size in (15, 50, 100):
             clean['pageSize'] = page_size
 
+        # v6.3.0 (UX wave 4): hidden columns — short column identifiers, same
+        # vocabulary rule as sort keys. Empty list simply drops the key.
+        hcols = prefs.get('hiddenCols')
+        if isinstance(hcols, list):
+            clean_cols = []
+            for c in hcols[:30]:
+                if not isinstance(c, str):
+                    continue
+                cc = re.sub(r'[^a-zA-Z0-9_]', '', c)[:64]
+                if cc:
+                    clean_cols.append(cc)
+            if clean_cols:
+                clean['hiddenCols'] = clean_cols
+
         filt = prefs.get('filter')
         if isinstance(filt, str) and filt:
             clean['filter'] = filt[:MAX_UI_PREFS_FILTER_LEN]
