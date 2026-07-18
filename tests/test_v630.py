@@ -1,0 +1,278 @@
+"""v6.3.0 "UndoMatters" — release pins.
+
+The CURRENT release carries the strict version pins (older test_vXYZ.py files
+have theirs loosened to the live version). Headline: UX wave 1 — toast action
+buttons + the deferred-commit undoable delete, optimistic alert ack/resolve,
+the "N of M shown" filter chip, the _errorState Retry helper, the Settings
+unsaved-changes guard, and Tickets bulk actions.
+"""
+
+import importlib.util
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_ROOT = Path(__file__).parent.parent
+_CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(_CGI))
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v630-"))
+_spec = importlib.util.spec_from_file_location("api_v630_pins", _CGI / "api.py")
+api = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(api)
+
+V = "6.3.0"
+CODENAME = "UndoMatters"
+
+_JS = _ROOT / "server/html/static/js"
+
+
+def _html():
+    return (_ROOT / "server/html/index.html").read_text()
+
+
+def _js(name):
+    return (_JS / name).read_text()
+
+
+class TestVersionBumps(unittest.TestCase):
+    def test_server_version(self):
+        self.assertEqual(api.SERVER_VERSION, V)
+
+    def test_agent_versions(self):
+        self.assertIn(
+            f"VERSION      = '{V}'",
+            (_ROOT / "client/remotepower-agent.py").read_text(),
+        )
+        for rel in ("client/remotepower-agent-win.py", "client/remotepower-agent-mac.py"):
+            self.assertIn(f"VERSION = '{V}'", (_ROOT / rel).read_text(), rel)
+
+    def test_agent_extensionless_in_sync(self):
+        self.assertEqual(
+            (_ROOT / "client/remotepower-agent.py").read_bytes(),
+            (_ROOT / "client/remotepower-agent").read_bytes(),
+        )
+
+    def test_sw_and_cachebust(self):
+        self.assertIn(f"remotepower-shell-v{V}", (_ROOT / "server/html/sw.js").read_text())
+        self.assertIn(f"?v={V}", _html())
+
+    def test_no_stale_cachebust(self):
+        self.assertNotIn("?v=6.2.3", _html())
+
+    def test_readme_and_changelog(self):
+        self.assertIn(f"version-{V}-blue", (_ROOT / "README.md").read_text())
+        self.assertIn(f"v{V}", (_ROOT / "CHANGELOG.md").read_text()[:2000])
+
+    def test_version_doc_exists(self):
+        self.assertTrue((_ROOT / f"docs/v{V}.md").exists())
+
+    def test_doc_set_keeps_three_versions(self):
+        vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))
+        self.assertEqual(len(vdocs), 3, f"expected exactly 3 version docs, got {vdocs}")
+
+    def test_whats_new_card_present(self):
+        self.assertIn(f"What's new — v{V}", _html())
+
+    def test_whats_new_cards_capped_at_three(self):
+        self.assertEqual(_html().count("What's new — v"), 3)
+
+    def test_whats_new_card_is_doc_searchable(self):
+        """The data-keywords attribute embeds the codename as a lowercase search
+        term — the surface a visible-text rename always misses."""
+        html = _html()
+        i = html.index(f"What's new — v{V}")
+        card = html[max(0, i - 2200):i]
+        self.assertIn(CODENAME.lower(), card)
+
+    def test_changelog_header(self):
+        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
+        self.assertIn(f'## v{V} — "{CODENAME}"', head)
+
+    def test_gen_wiki_codename(self):
+        p = _ROOT / "tools/gen-wiki.py"
+        if not p.exists():
+            self.skipTest("excluded from dist tree")
+        self.assertIn(CODENAME, p.read_text(),
+                      "gen-wiki.py's Home line hardcodes the codename — bump it")
+
+    def test_readme_recent_releases_capped_at_five(self):
+        readme = (_ROOT / "README.md").read_text()
+        block = readme[readme.index("### Recent releases"):]
+        block = block[: block.index("Full history")]
+        bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
+        self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
+        self.assertTrue(bullets[0].startswith(f'- **v{V} "{CODENAME}"'))
+
+
+class TestToastActions(unittest.TestCase):
+    """UX wave 1 item 1: toast() grew an opts arg with an action button."""
+
+    def test_toast_accepts_opts(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "toast")
+        self.assertIn("opts.action", fn)
+        self.assertIn("onTimeout", fn)
+        # settle-once: the action and the timeout can never both fire
+        self.assertIn("settled", fn)
+
+    def test_debug_wrapper_passes_opts_through(self):
+        # The dbg instrumentation wrapper must forward the third arg, or every
+        # action toast silently loses its button when debug mode is on.
+        self.assertIn("_origToast(msg, type, opts)", _js("app.js"))
+
+    def test_toast_action_styled(self):
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.assertIn(".toast-action", css)
+
+    def test_undo_translated(self):
+        self.assertIn("'Undo':", _js("i18n.js"))
+
+
+class TestTopbarUndoRedo(unittest.TestCase):
+    """UX wave 1b: MikroTik-style global undo/redo arrows in the topbar."""
+
+    def test_topbar_buttons_exist(self):
+        html = _html()
+        self.assertIn('id="topbar-undo"', html)
+        self.assertIn('id="topbar-redo"', html)
+        # icon-only buttons must carry accessible names
+        i = html.index('id="topbar-undo"')
+        self.assertIn('aria-label', html[i:i + 200])
+
+    def test_controller_and_wiring(self):
+        app = _js("app.js")
+        self.assertIn("const uiUndoCtl", app)
+        self.assertIn("function uiUndoAction", app)
+        self.assertIn("function uiRedoAction", app)
+        # flows push entries
+        self.assertIn("uiUndoCtl.push", app)
+        self.assertIn("uiUndoCtl.push", _js("app-alerts.js"))
+
+    def test_ctrl_z_skips_form_fields(self):
+        app = _js("app.js")
+        i = app.index("e.key.toLowerCase() !== 'z'")
+        self.assertIn("isContentEditable", app[i:i + 400])
+
+    def test_undo_redo_icons_registered(self):
+        app = _js("app.js")
+        self.assertIn("undo:", app)
+        self.assertIn("redo:", app)
+
+
+class TestUndoableDelete(unittest.TestCase):
+    """UX wave 1 item 2: deferred-commit delete with an Undo toast."""
+
+    def test_helper_exists_and_defers(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "undoableDelete")
+        # The commit must live in onTimeout — NOT run before the toast.
+        self.assertIn("onTimeout", fn)
+        self.assertIn("_pendingDeletes", fn)
+
+    def test_pagehide_flushes_pending_commits(self):
+        app = _js("app.js")
+        i = app.index("window.addEventListener('pagehide'")
+        self.assertIn("_pendingDeletes", app[i:i + 300])
+
+    def test_wired_call_sites(self):
+        self.assertIn("undoableDelete({", _js("app-tickets.js"))   # contacts
+        self.assertIn("undoableDelete({", _js("app-network.js"))   # links
+        # command snippets + the client-side saved-view undo
+        app = _js("app.js")
+        self.assertIn("undoableDelete({", app)
+        from tests import srcpin
+        view_fn = srcpin.js_function(app, "deleteDeviceView")
+        self.assertIn("Undo", view_fn)
+
+    def test_no_confirm_left_on_wired_deletes(self):
+        # These flows moved from confirm-before to undo-after; a reintroduced
+        # uiConfirm would stack both dialogs.
+        from tests import srcpin
+        for f, name in (("app-tickets.js", "deleteContact"),
+                        ("app-network.js", "linkDelete")):
+            fn = srcpin.js_function(_js(f), name)
+            self.assertNotIn("uiConfirm", fn, f"{name} should be undoable, not confirmed")
+
+
+class TestOptimisticAlertActions(unittest.TestCase):
+    def test_kbd_ack_is_optimistic_with_undo(self):
+        from tests import srcpin
+        alerts = _js("app-alerts.js")
+        fn = srcpin.js_function(alerts, "_ackAlertOptimistic")
+        self.assertIn("/unack", fn)
+        self.assertIn("renderAlerts()", fn)
+        # the keyboard 'a' branch routes through it
+        self.assertIn("_ackAlertOptimistic(id)", alerts)
+
+    def test_resolve_flips_then_reverts(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app-alerts.js"), "resolveAlert")
+        self.assertIn("resolved_at", fn)
+        self.assertIn("uiConfirm", fn)   # no /unresolve exists — keep the confirm
+
+    def test_server_unack_route_exists(self):
+        # The Undo toast depends on this endpoint staying alive.
+        from tests import apisrc
+        self.assertIn("def handle_alert_unack", apisrc.api_source())
+
+
+class TestFilterChipAndRetry(unittest.TestCase):
+    def test_filter_info_chip(self):
+        app = _js("app.js")
+        self.assertIn("_renderFilterInfo", app)
+        self.assertIn("tblClearFilter", app)
+        self.assertIn("of ${total} shown", app)
+
+    def test_error_state_helper(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "_errorState")
+        self.assertIn("uiRetry", fn)
+        self.assertIn("Retry", fn)
+
+    def test_retry_swept_into_modules(self):
+        for f in ("app-checks.js", "app-cve.js", "app-power.js", "app-firewall.js",
+                  "app-drift.js", "app-gpu.js", "app-rollouts.js", "app-tuning.js",
+                  "app-compliance.js", "app-backups.js", "app-cmdb.js"):
+            self.assertIn("_errorState(", _js(f), f)
+
+
+class TestSettingsUnsavedGuard(unittest.TestCase):
+    def test_dirty_tracking_and_guard(self):
+        app = _js("app.js")
+        self.assertIn("_settingsDirty", app)
+        from tests import srcpin
+        show = srcpin.js_function(app, "showPage")
+        self.assertIn("Unsaved changes", show)
+
+    def test_config_save_clears_flag(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "api")
+        self.assertIn("_settingsDirty = false", fn)
+
+    def test_filter_boxes_do_not_dirty(self):
+        app = _js("app.js")
+        i = app.index("document.addEventListener('change'")
+        self.assertIn("/filter|search/i", app[i:i + 500])
+
+
+class TestTicketsBulkActions(unittest.TestCase):
+    def test_bulk_bar_and_functions(self):
+        tk = _js("app-tickets.js")
+        for marker in ("tk-row-cb", "bulkResolveTickets", "bulkAssignTicketsMe",
+                       "_tkBulkBar"):
+            self.assertIn(marker, tk)
+        html = _html()
+        self.assertIn('id="tk-bulk-bar"', html)
+        # 4 theads gained the checkbox column
+        self.assertEqual(html.count('tk-th-cb'), 4)
+
+    def test_bulk_uses_existing_patch_api(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app-tickets.js"), "_tkBulkPatch")
+        self.assertIn("'PATCH', '/tickets/'", fn)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1312,11 +1312,14 @@ async function linkSave() {
 }
 
 async function linkDelete(linkId, title) {
-  if (!await uiConfirm(`Delete link "${title}"?`)) return;
-  const r = await api('DELETE', '/links/' + encodeURIComponent(linkId));
-  if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
-  toast('Link deleted', 'info');
-  loadLinks();
+  // v6.3.0 (UX wave 1): confirm-dialog → undoable delete (deferred commit).
+  undoableDelete({
+    label: title ? `Link “${title}” deleted` : 'Link deleted',
+    hide: () => _hideRowByAction('linkDelete', linkId),
+    commit: () => api('DELETE', '/links/' + encodeURIComponent(linkId)),
+    undo: () => loadLinks(),
+    after: () => loadLinks(),
+  });
 }
 
 

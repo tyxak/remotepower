@@ -11,7 +11,7 @@ async function loadTuning() {
   if (!d || !d.ok) {
     ['tuning-noisy', 'tuning-sources', 'tuning-mutes'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.innerHTML = '<div class="empty-state-sm">Failed to load.</div>';
+      if (el) _errorState(el, loadTuning);
     });
     return;
   }

@@ -23,7 +23,7 @@ async function loadChecks() {
     }
     renderChecks();
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="6" class="c-red">Failed to load checks.</td></tr>';
+    _errorState(tbody, loadChecks, {msg: 'Failed to load checks.', colspan: 6});
   }
 }
 const _CHK_RANK = { critical: 0, warning: 1, unknown: 2, ok: 3 };

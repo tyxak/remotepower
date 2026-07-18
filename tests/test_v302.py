@@ -590,13 +590,10 @@ class TestUrlBarSync(unittest.TestCase):
 
     def test_show_page_writes_url_hash(self):
         js = client_js()
-        # showPage should call replaceState
-        import re
-        m = re.search(r'function showPage\([^)]*\)\s*\{([^}]+(?:\{[^}]+\}[^}]+)*?)', js)
-        self.assertIsNotNone(m)
-        # Look in a generous window
-        idx = js.find('function showPage(')
-        block = js[idx:idx + 3000]
+        # v6.3.0: srcpin (brace-balanced) instead of a fixed char window — the
+        # unsaved-settings guard grew showPage past the old 3000-char slice.
+        from tests import srcpin
+        block = srcpin.js_function(js, 'showPage')
         self.assertIn('history.replaceState', block,
             'showPage must call history.replaceState to keep URL bar in sync')
 

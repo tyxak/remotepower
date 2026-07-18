@@ -40,7 +40,7 @@ async function loadFirewall() {
     }
     _renderFirewall();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="hint">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    _errorState(tbody, loadFirewall, {msg: `Failed to load: ${String(e)}`, colspan: 6});
   }
   loadFail2ban();   // sibling table on the same page
 }

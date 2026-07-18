@@ -564,6 +564,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | ClarityMatters interface | Flat, calm v6 UI — `--surface` panels with hairline borders, system font stack, accent-soft active states; a 12-domain sidebar accordion and a left-nav Settings *(v6.0.0)* |
+| Undo instead of confirm | Low-risk deletes (contacts, links, command snippets, saved views) hide the row instantly and show an Undo toast — the API delete only fires when the toast expires, so an interrupted delete fails toward "still there". Alert ack is optimistic with a real un-ack Undo; resolve flips the row before the round-trip *(v6.3.0)* |
+| Table & error affordances | Filtered tables show "N of M shown" + a one-click Clear filter chip; failed loads render an inline Retry button; Settings guards unsaved changes on nav-away; Tickets gain bulk resolve / assign-to-me *(v6.3.0)* |
 | Themes | 13 palettes + Follow system + accent presets, persisted per browser |
 | Browser-tab alert badge | Open alerts put a count in the tab title and a dot on the favicon, so a dashboard sitting in a background tab tells you something is wrong without switching to it. Redrawn on a canvas from your own favicon, so branding survives *(v6.1.2)* |
 | Temperature unit | Per-user °C / °F display toggle (My Account → Display units). Everything is stored and alerted on in Celsius — this converts at render time only, so switching it can never move a threshold *(v6.1.2)* |

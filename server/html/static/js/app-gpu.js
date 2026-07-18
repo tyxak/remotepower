@@ -63,6 +63,6 @@ async function loadGpus() {
     // CSP-safe: set the meter widths from data-w via JS (no inline style attrs).
     grid.querySelectorAll('.gpu-bar-fill').forEach(el => { el.style.width = (el.dataset.w || 0) + '%'; });
   } catch (e) {
-    grid.innerHTML = '<div class="empty-state">Failed to load GPU data.</div>';
+    _errorState(grid, loadGpus, {msg: 'Failed to load GPU data.'});
   }
 }

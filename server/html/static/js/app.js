@@ -376,6 +376,7 @@ const tableCtl = (() => {
       tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">${msg}</td></tr>`;
       _applyScrollWrap(tbody, 0);
       _renderPager(opts, tbody, 0, 0, 1);
+      _renderFilterInfo(opts, tbody, 0, rows.length, filter);
       return;
     }
     // v3.12.0: paginate so a large fleet never renders an endless table.
@@ -389,6 +390,44 @@ const tableCtl = (() => {
     tbody.innerHTML = pageRows.map(opts.row).join('');
     _applyScrollWrap(tbody, pageRows.length);
     _renderPager(opts, tbody, filtered.length, page, pageSize);
+    _renderFilterInfo(opts, tbody, filtered.length, rows.length, filter);
+  }
+
+  // v6.3.0 (UX wave 1): when the filter hides rows, say so — "N of M shown" +
+  // a one-click Clear chip above the table. The stored filter persists across
+  // sessions, so without this a user can come back days later to a mysteriously
+  // short table with no visible cause (the top "where did my data go?" trap).
+  function _renderFilterInfo(opts, tbody, shown, total, filter) {
+    const table = tbody.closest('table');
+    const anchor = (tbody.closest('.table-card') || table);
+    if (!anchor || !anchor.parentNode) return;
+    const fid = 'tablefilterinfo-' + opts.name;
+    let el = document.getElementById(fid);
+    if (!filter || shown >= total) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = fid;
+      el.className = 'table-filter-info';
+      anchor.parentNode.insertBefore(el, anchor);
+    }
+    el.innerHTML =
+      `<span>${shown} of ${total} shown — filter active</span>`
+      + `<button class="btn-icon" data-action="tblClearFilter" data-arg="${escAttr(opts.name)}">${_icon('x', 12)} Clear filter</button>`;
+  }
+
+  // Reset a table's stored filter (chip button + anything else that needs it).
+  function clearFilter(name) {
+    const opts = _registry[name];
+    if (!opts) return;
+    getTablePrefs(name).filter = '';
+    if (opts.filterInput) {
+      const el = document.getElementById(opts.filterInput);
+      if (el) el.value = '';
+    }
+    _page[name] = 0;
+    _scheduleFlushUiPrefs();
+    if (opts.refresh) opts.refresh();
+    else if (opts._lastRows) render(name, opts._lastRows);
   }
 
   // v3.12.0: Prev / "x–y of N" / Next pager, placed just after the table card.
@@ -512,10 +551,12 @@ const tableCtl = (() => {
   }
 
   return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage,
-           renderChunked };
+           renderChunked, clearFilter };
 })();
 // v3.12.0: pager button handler (data-action="tblPage")
 function tblPage(name, delta) { tableCtl.goPage(name, delta); }
+// v6.3.0: filter-info chip handler (data-action="tblClearFilter")
+function tblClearFilter(name) { tableCtl.clearFilter(name); }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // v1.11.5: densityCtl — three-mode density toggle, persisted to ui_prefs.
@@ -1240,6 +1281,11 @@ async function api(method, path, body, extra) {
   }
   _rpLoad(-1);
   _setApiDown(false);
+  // v6.3.0 (UX wave 1): a successful config save clears the Settings
+  // unsaved-changes flag (set by the #page-settings change listener).
+  if (r.ok && method === 'POST' && (path === '/config' || path === '/ai/config')) {
+    window._settingsDirty = false;
+  }
   if (r.status === 401) { doLogout(); return null; }
   if (_useEtag) {
     if (r.status === 304) {
@@ -1927,6 +1973,23 @@ function _loadAllLazyJs() {
   return Promise.all(_ALL_LAZY_MODULES.map(_loadJsModule));
 }
 
+// v6.3.0 (UX wave 1): unsaved-changes guard for the Settings page. Any commit
+// ('change') on a form control inside #page-settings marks the page dirty —
+// EXCEPT the page's own filter/search boxes, which aren't settings edits. The
+// flag clears on a successful config save (see api()) and on (re)entering the
+// page, whose loaders repopulate every input from the server anyway.
+window._settingsDirty = false;
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!t || !t.closest || !t.closest('#page-settings')) return;
+  if (!/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+  if (/filter|search/i.test(t.id || '')) return;
+  window._settingsDirty = true;
+});
+window.addEventListener('beforeunload', (e) => {
+  if (window._settingsDirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
 function showPage(name, btn) {
   // A disabled module's page must not be reachable by deep link / bookmark /
   // command palette either — the nav entry is gone, but the route isn't.
@@ -1934,6 +1997,23 @@ function showPage(name, btn) {
     toast('That module is switched off (Settings → Advanced).', 'error');
     return;
   }
+  // v6.3.0 (UX wave 1): unsaved Settings edits get a chance to stay instead of
+  // silently vanishing on nav (every pane reloads its inputs on next entry).
+  const _leavingDirtySettings = window._settingsDirty && name !== 'settings'
+    && document.getElementById('page-settings')?.classList.contains('active');
+  if (_leavingDirtySettings) {
+    uiConfirm({
+      title: 'Unsaved changes',
+      message: 'You have unsaved Settings changes. Leave without saving?',
+      confirmText: 'Leave', danger: true,
+    }).then(ok => {
+      if (!ok) return;
+      window._settingsDirty = false;
+      showPage(name, btn);
+    });
+    return;
+  }
+  if (name === 'settings') window._settingsDirty = false;
   // v6.2.2 lazy JS: fetch this page's module on first visit, then re-enter.
   // Early return BEFORE any DOM mutation, so the re-entry runs the whole
   // (idempotent) body against a ready module.
@@ -5244,7 +5324,190 @@ function fmtTempDelta(c, digits = 1) {
   return `${v.toFixed(digits)}${f ? '°F' : '°C'}`;
 }
 let toastId = 0;
-function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: 'check', error: 'x', info: 'info'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
+// v6.3.0 (UX wave 1): optional third arg `opts` —
+//   { action: {label, fn}, duration: ms, onTimeout: fn }
+// `action` renders a button inside the toast (the "Undo" pattern); clicking it
+// dismisses the toast and runs fn. `onTimeout` fires only if the toast expires
+// WITHOUT the action being clicked (deferred-commit deletes hang off this).
+// Action toasts default to a longer 6s window so there's time to react.
+function toast(msg, type = 'info', opts = {}) {
+  const id = 'toast-' + (++toastId);
+  const icons = {success: 'check', error: 'x', info: 'info'};
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.id = id;
+  el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`;
+  let settled = false;   // action clicked OR timed out — never both
+  const dismiss = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); };
+  const act = opts.action;
+  if (act && act.label && typeof act.fn === 'function') {
+    const btn = document.createElement('button');
+    btn.className = 'toast-action';
+    btn.type = 'button';
+    // v6.3.0 (1b): optional small icon before the label (act.icon = _ICONS key)
+    btn.innerHTML = (act.icon ? _icon(act.icon, 12) + ' ' : '') + escHtml(act.label);
+    btn.addEventListener('click', () => {
+      if (settled) return;
+      settled = true;
+      dismiss();
+      act.fn();
+    });
+    el.appendChild(btn);
+  }
+  document.getElementById('toast-container').appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const ms = opts.duration || (act ? 6000 : 3500);
+  setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    dismiss();
+    if (typeof opts.onTimeout === 'function') opts.onTimeout();
+  }, ms);
+}
+// v6.3.0 (UX wave 1): standard failed-load state WITH a Retry button that
+// re-invokes the loader — replaces the static "Failed to load / refresh to
+// retry" dead ends. Works on a container div or a tbody (pass colspan for
+// tables). The retry fn is stashed in a registry keyed by a generated id so
+// the button routes through the data-action dispatcher (no inline handlers —
+// CSP). Keys are 'r'-prefixed so the dispatcher's numeric coercion can't
+// mangle them.
+const _retryReg = {};
+let _retrySeq = 0;
+function _errorState(elOrId, retryFn, opts = {}) {
+  const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+  if (!el) return;
+  const key = 'r' + (++_retrySeq);
+  _retryReg[key] = retryFn;
+  const msg = escHtml(opts.msg || 'Failed to load.');
+  const btn = `<button class="btn-icon" data-action="uiRetry" data-arg="${key}">${_icon('refresh', 12)} Retry</button>`;
+  if (el.tagName === 'TBODY') {
+    el.innerHTML = `<tr><td colspan="${opts.colspan || 9}"><div class="error-state">`
+      + `<span class="c-red">${msg}</span> ${btn}</div></td></tr>`;
+  } else {
+    el.innerHTML = `<div class="error-state"><span class="c-red">${msg}</span> ${btn}</div>`;
+  }
+}
+function uiRetry(key) {
+  const fn = _retryReg[key];
+  delete _retryReg[key];
+  if (typeof fn === 'function') fn();
+}
+
+// v6.3.0 (UX wave 1b): global undo/redo stack behind the topbar arrows
+// (MikroTik-style). Flows that know how to invert themselves push an entry
+// {label, undo(), redo?(), alive?()}; alive() lets an entry whose window has
+// closed (a deferred delete that already committed, an undo already taken via
+// its toast) drop off silently instead of failing. redo() re-invokes the
+// ORIGINAL action, which pushes its own fresh undo entry — the controller
+// never re-pushes a spent entry itself.
+const uiUndoCtl = (() => {
+  const undoStack = [];
+  const redoStack = [];
+  const MAX = 20;
+  const _prune = (stack) => {
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (stack[i].alive && !stack[i].alive()) stack.splice(i, 1);
+    }
+  };
+  function paint() {
+    _prune(undoStack); _prune(redoStack);
+    const u = document.getElementById('topbar-undo');
+    const r = document.getElementById('topbar-redo');
+    const uTop = undoStack[undoStack.length - 1];
+    const rTop = redoStack[redoStack.length - 1];
+    if (u) { u.disabled = !uTop; u.title = uTop ? `Undo: ${uTop.label}` : 'Undo'; }
+    if (r) { r.disabled = !rTop; r.title = rTop ? `Redo: ${rTop.label}` : 'Redo'; }
+  }
+  function push(entry) {
+    undoStack.push(entry);
+    if (undoStack.length > MAX) undoStack.shift();
+    redoStack.length = 0;      // a new action invalidates the redo chain
+    paint();
+  }
+  async function undo() {
+    _prune(undoStack);
+    const e = undoStack.pop();
+    if (!e) { paint(); return; }
+    try {
+      await e.undo();
+      if (e.redo) redoStack.push(e);
+    } catch (_) { toast('Could not undo', 'error'); }
+    paint();
+  }
+  async function redo() {
+    _prune(redoStack);
+    const e = redoStack.pop();
+    if (!e) { paint(); return; }
+    try { await e.redo(); } catch (_) { toast('Could not redo', 'error'); }
+    paint();
+  }
+  return { push, undo, redo, paint };
+})();
+function uiUndoAction() { uiUndoCtl.undo(); }
+function uiRedoAction() { uiUndoCtl.redo(); }
+// Ctrl/Cmd-Z → undo, +Shift → redo — outside form fields and modals only, so
+// native text-editing undo is never intercepted.
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+            t.tagName === 'SELECT' || t.isContentEditable)) return;
+  if (document.body.classList.contains('modal-open')) return;
+  e.preventDefault();
+  if (e.shiftKey) uiUndoCtl.redo(); else uiUndoCtl.undo();
+});
+
+// v6.3.0 (UX wave 1): undoable delete — the deferred-commit pattern.
+// The row is hidden immediately and the REAL api delete only fires when the
+// undo toast expires; Undo cancels the commit outright (nothing ever left the
+// server, so "restore" is just a re-render). The failure direction is always
+// "not deleted" — a lost commit means the item survives, never silent loss.
+// Use for low-risk operator-authored CRUD (contacts, links, snippets, views);
+// destructive fan-out ops (prune, device remove, VM rollback) keep their
+// typed/explicit confirms.
+const _pendingDeletes = new Set();
+function undoableDelete(opts) {
+  if (typeof opts.hide === 'function') { try { opts.hide(); } catch (_) {} }
+  const entry = { commit: opts.commit };
+  _pendingDeletes.add(entry);
+  const cancel = () => {
+    if (!_pendingDeletes.has(entry)) return;   // already committed or undone
+    _pendingDeletes.delete(entry);
+    if (typeof opts.undo === 'function') { try { opts.undo(); } catch (_) {} }
+    uiUndoCtl.paint();
+  };
+  // v6.3.0 (1b): the same cancel is reachable from the topbar undo arrow /
+  // Ctrl-Z while the commit window is open; alive() drops the entry once the
+  // delete has committed (or the toast Undo already took it).
+  uiUndoCtl.push({
+    label: opts.label || 'Delete',
+    alive: () => _pendingDeletes.has(entry),
+    undo: cancel,
+    redo: () => undoableDelete(opts),
+  });
+  toast(opts.label || 'Deleted', 'info', {
+    action: { label: 'Undo', icon: 'undo', fn: cancel },
+    onTimeout: async () => {
+      _pendingDeletes.delete(entry);
+      try { await opts.commit(); } catch (_) {}
+      if (typeof opts.after === 'function') { try { opts.after(); } catch (_) {} }
+      uiUndoCtl.paint();
+    },
+  });
+}
+// Find the table row that hosts a delete button and hide it optimistically.
+function _hideRowByAction(action, arg) {
+  const esc = (window.CSS && CSS.escape) ? CSS.escape(String(arg)) : String(arg);
+  const btn = document.querySelector(`[data-action="${action}"][data-arg="${esc}"]`);
+  const row = btn && btn.closest('tr');
+  if (row) row.classList.add('d-none');
+}
+// Best-effort: if the tab goes away inside the undo window, fire the pending
+// commits now. If the request is lost anyway the item simply survives.
+window.addEventListener('pagehide', () => {
+  for (const e of _pendingDeletes) { try { e.commit(); } catch (_) {} }
+  _pendingDeletes.clear();
+});
 // v3.13.0: store the tag as a string. The data-action dispatcher coerces
 // all-numeric args to Number, which broke the strict `activeTagFilter===t`
 // highlight test (t is always a string) for purely numeric tags.
@@ -9141,7 +9404,16 @@ async function addCmdSnippet() {
     loadCmdLib();
   } else toast(data?.error || 'Failed', 'error');
 }
-async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
+// v6.3.0 (UX wave 1): undoable (deferred commit) — was an instant no-confirm delete.
+async function deleteCmdSnippet(id) {
+  undoableDelete({
+    label: 'Snippet deleted',
+    hide: () => _hideRowByAction('deleteCmdSnippet', id),
+    commit: () => api('DELETE', '/cmd-library/' + id),
+    undo: () => loadCmdLib(),
+    after: () => loadCmdLib(),
+  });
+}
 function generateQRCode(containerId, text) {
   if (window.qrcode) { _renderQR(containerId, text); return; }
   // qrcode-generator@1.4.4, self-hosted under /static/vendor/ so the
@@ -9267,7 +9539,29 @@ function applyDeviceView(name) {
 function deleteDeviceView(name) {
   const views = _getViews();
   const i = views.findIndex(v => v.page === 'devices' && v.name === name);
-  if (i >= 0) { views.splice(i, 1); _scheduleFlushUiPrefs(); renderViewsMenu(); }
+  if (i < 0) return;
+  // v6.3.0 (UX wave 1): undoable — views are pure client prefs, so undo is a
+  // straight re-insert at the old position before the debounced flush lands.
+  const removed = views.splice(i, 1)[0];
+  _scheduleFlushUiPrefs();
+  renderViewsMenu();
+  let restored = false;
+  const reinsert = () => {
+    if (restored) return;
+    restored = true;
+    const vs = _getViews();
+    vs.splice(Math.min(i, vs.length), 0, removed);
+    _scheduleFlushUiPrefs();
+    renderViewsMenu();
+    uiUndoCtl.paint();
+  };
+  uiUndoCtl.push({
+    label: `View “${name}” deleted`,
+    alive: () => !restored,
+    undo: reinsert,
+    redo: () => deleteDeviceView(name),
+  });
+  toast(`View “${name}” deleted`, 'info', { action: { label: 'Undo', icon: 'undo', fn: reinsert } });
 }
 // v5.6.x fix (#17): the device-drawer "Remove device" action has always called
 // deleteDevice(id, name), but that function was never defined — the click threw
@@ -19481,6 +19775,8 @@ function switchDrawerTab(tab) {
 // applied by _icon() below. New icons should be added with body-only
 // markup from https://lucide.dev/icons/.
 const _ICONS = {
+  undo:        '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo:        '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   users:       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mail:        '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
   eye:         '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
@@ -23764,9 +24060,9 @@ if (typeof _origApi === 'function') {
 // Instrument toast() — log every toast shown
 const _origToast = window.toast;
 if (typeof _origToast === 'function') {
-  window.toast = function(msg, type) {
+  window.toast = function(msg, type, opts) {
     dbg(`toast(${type || 'info'}): ${msg}`, 'toast');
-    return _origToast(msg, type);
+    return _origToast(msg, type, opts);
   };
 }
 

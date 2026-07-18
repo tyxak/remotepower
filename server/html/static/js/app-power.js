@@ -14,7 +14,7 @@ async function loadThermal() {
     if (summary) summary.textContent = `${data.count} host${data.count === 1 ? '' : 's'} · ${data.hot} hot`;
     _renderThermal();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="9" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    _errorState(tbody, loadThermal, {msg: `Failed to load: ${String(e)}`, colspan: 9});
   }
 }
 
@@ -119,7 +119,7 @@ async function loadPower() {
     _powerResp = await api('GET', '/fleet/power');
     _renderPower();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    _errorState(tbody, loadPower, {msg: `Failed to load: ${String(e)}`, colspan: 6});
   }
   loadChargeback();   // v3.14.0 (#41): cost allocation card
 }
@@ -193,7 +193,7 @@ async function loadDiskHealth() {
     if (summary) summary.innerHTML = `${_diskHealthResp.count} disk(s) at risk · <span class="${_diskHealthResp.critical > 0 ? 'c-red fw-600' : ''}">${_diskHealthResp.critical}</span> critical · <span class="${_diskHealthResp.high > 0 ? 'c-amber' : ''}">${_diskHealthResp.high}</span> high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
     _renderDiskHealth();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    _errorState(tbody, loadDiskHealth, {msg: `Failed to load: ${String(e)}`, colspan: 6});
   }
   // v6.2.0: the composite failure-likelihood table. Loaded separately so a
   // failure here can never blank the disk table above it.

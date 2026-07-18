@@ -59,7 +59,14 @@ function _tkRowHtml(t, byId, childrenOf) {
       : (slaLeft < 0
         ? `<span class="sev-pill sev-critical fs-11" title="Was due ${escAttr(new Date(t._slaDue * 1000).toLocaleString())}">overdue ${escHtml(_fmtDuration(-slaLeft))}</span>`
         : `<span class="meta-sm-nm" title="Due ${escAttr(new Date(t._slaDue * 1000).toLocaleString())}">${escHtml(_fmtDuration(slaLeft))} left</span>`));
+  // v6.3.0 (UX wave 1): row checkbox feeds the bulk bar (open tickets only).
+  // The dispatcher fires only the INNERMOST data-action, so ticking the box
+  // never triggers the row's openTicket.
+  const cbCell = open
+    ? `<td><input type="checkbox" class="tk-row-cb" data-id="${escAttr(t.id)}" data-action="_tkBulkBar" aria-label="Select ticket"></td>`
+    : '<td></td>';
   return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}">
+    ${cbCell}
     <td class="mono-12">${numCell}</td>
     <td>${subjCell}</td>
     <td class="fs-12">${escHtml(t.type || '')}</td>
@@ -95,7 +102,7 @@ async function loadTickets() {
   let slaPol = {};
   try { const sr = await api('GET', '/tickets/sla'); if (sr && sr.sla) slaPol = sr.sla; } catch (e) { slaPol = {}; }
   const data = await api('GET', '/tickets' + (qs.toString() ? '?' + qs.toString() : ''));
-  const fail = '<tr><td colspan="9" class="empty-state-sm">Failed to load.</td></tr>';
+  const fail = '<tr><td colspan="10" class="empty-state-sm">Failed to load.</td></tr>';
   if (!data) { ['new', 'mine', 'team', 'other'].forEach(k => { const e = document.getElementById('tk-tbody-' + k); if (e) e.innerHTML = fail; }); return; }
   const tks = data.tickets || [];
   const nowS = Math.floor(Date.now() / 1000);
@@ -136,7 +143,7 @@ async function loadTickets() {
     const cnt = document.getElementById(countId);
     if (cnt) cnt.textContent = rows.length ? `(${rows.length})` : '';
     if (!tb) return;
-    if (!rows.length) { tb.innerHTML = `<tr><td colspan="9" class="empty-state-sm">${emptyMsg || 'None.'}</td></tr>`; return; }
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="10" class="empty-state-sm">${emptyMsg || 'None.'}</td></tr>`; return; }
     // sort by column (default: priority then newest), then nest children under parents
     rows.sort((a, b) => _coercePrio(a.priority) - _coercePrio(b.priority) || (b.updated_at || 0) - (a.updated_at || 0));
     let sorted = _tkArrange(tableCtl.sortRows(prefs, rows, getCols));
@@ -147,7 +154,7 @@ async function loadTickets() {
     if (cap && sorted.length > cap) {
       const hidden = sorted.length - cap;
       sorted = sorted.slice(0, cap);
-      moreRow = `<tr><td colspan="9" class="ta-center"><button class="btn-icon btn-xs" data-action="_tkShowMoreOther">Show ${Math.min(hidden, _TK_OTHER_STEP)} more (${hidden} hidden)</button></td></tr>`;
+      moreRow = `<tr><td colspan="10" class="ta-center"><button class="btn-icon btn-xs" data-action="_tkShowMoreOther">Show ${Math.min(hidden, _TK_OTHER_STEP)} more (${hidden} hidden)</button></td></tr>`;
     }
     tb.innerHTML = sorted.map(t => _tkRowHtml(t, byId, childrenOf)).join('') + moreRow;
   };
@@ -529,11 +536,55 @@ async function saveContact() {
   if (r?.ok) { toast(_ctEditId ? 'Contact updated' : 'Contact added', 'success'); closeModal('contact-modal'); loadContacts(); }
   else toast(r?.error || 'Failed', 'error');
 }
+// ── v6.3.0 (UX wave 1): bulk actions over the open-ticket tables ─────────────
+// Client-side loop of the same PATCHes the single-row flows use — no new
+// server surface. Selection lives in the row checkboxes (.tk-row-cb).
+function _tkSelectedIds() {
+  return [...document.querySelectorAll('#page-tickets .tk-row-cb:checked')]
+    .map(cb => cb.dataset.id);
+}
+function _tkBulkBar() {
+  const n = _tkSelectedIds().length;
+  const bar = document.getElementById('tk-bulk-bar');
+  if (bar) bar.classList.toggle('hidden', n === 0);
+  const cnt = document.getElementById('tk-bulk-count');
+  if (cnt) cnt.textContent = n ? `${n} selected` : '';
+}
+async function _tkBulkPatch(ids, body) {
+  let ok = 0;
+  for (const id of ids) {
+    const r = await api('PATCH', '/tickets/' + encodeURIComponent(id), body).catch(() => null);
+    if (r && r.ok) ok++;
+  }
+  return ok;
+}
+async function bulkResolveTickets() {
+  const ids = _tkSelectedIds();
+  if (!ids.length) return;
+  if (!await uiConfirm(`Resolve ${ids.length} ticket(s)?`)) return;
+  const ok = await _tkBulkPatch(ids, { status: 'resolved' });
+  toast(`Resolved ${ok} of ${ids.length}`, ok === ids.length ? 'success' : 'error');
+  _tkBulkBar();
+  loadTickets();
+}
+async function bulkAssignTicketsMe() {
+  const ids = _tkSelectedIds();
+  if (!ids.length) return;
+  const ok = await _tkBulkPatch(ids, { assignee: getMe() });
+  toast(`Assigned ${ok} of ${ids.length} to you`, ok === ids.length ? 'success' : 'error');
+  _tkBulkBar();
+  loadTickets();
+}
+
 async function deleteContact(cid, name) {
-  if (!await uiConfirm(`Delete contact ${name || ''}?`)) return;
-  const r = await api('DELETE', '/contacts/' + encodeURIComponent(cid));
-  if (r?.ok) { toast('Contact deleted', 'success'); loadContacts(); }
-  else toast(r?.error || 'Failed', 'error');
+  // v6.3.0 (UX wave 1): confirm-dialog → undoable delete (deferred commit).
+  undoableDelete({
+    label: name ? `Contact “${name}” deleted` : 'Contact deleted',
+    hide: () => _hideRowByAction('deleteContact', cid),
+    commit: () => api('DELETE', '/contacts/' + encodeURIComponent(cid)),
+    undo: () => loadContacts(),
+    after: () => loadContacts(),
+  });
 }
 async function addTicketMessage(tid, direction) {
   const ta = document.getElementById('tk-d-msg');

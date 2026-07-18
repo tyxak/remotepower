@@ -97,7 +97,7 @@ async function loadProxmoxBackups() {
   const body = document.getElementById('pmbackup-body');
   if (!card || !body) return;
   const d = await api('GET', '/proxmox/backups');
-  if (!d) { body.innerHTML = '<div class="empty-state">Failed to load.</div>'; return; }
+  if (!d) { _errorState(body, loadProxmoxBackups); return; }
   if (!d.enabled || !d.configured) {
     body.innerHTML = '<div class="hint">No Proxmox node connected. Configure one under Settings → Proxmox to see per-guest backup recency here.</div>';
     return;

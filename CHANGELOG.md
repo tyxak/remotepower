@@ -2,6 +2,49 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.3.0 — "UndoMatters" — unreleased (test)
+
+The first wave of a UX improvement program (50 scoped items): **undo instead of
+"are you sure?"**, plus the everyday friction fixes operators hit most.
+
+### Undo & optimistic UI
+- **Topbar undo/redo arrows** (MikroTik-style) — small icon buttons in the top
+  bar (plus Ctrl/Cmd-Z / Ctrl-Shift-Z outside form fields) drive a global
+  undo/redo stack; every undoable flow (deferred deletes, alert ack) registers
+  there as well as in its toast. Buttons dim when their stack is empty and
+  their tooltip names the next action.
+- **Toasts can carry an action button** — the "Undo" pattern; action toasts stay
+  up 6s (was 3.5s) and know whether they expired or were clicked; the wave's
+  buttons are small Lucide-icon buttons matching the rest of the chrome.
+- **Undoable deletes (deferred commit)** for low-risk operator objects: contacts,
+  links, command-library snippets and saved device views. The row hides
+  instantly, the real API delete fires only when the undo toast expires, and
+  Undo cancels it outright — nothing leaves the server, so a lost commit can
+  only ever mean "not deleted". Command-snippet delete previously had *no*
+  confirmation at all; it is now undoable instead.
+- **Optimistic alert actions** — the keyboard `a` ack flips the row instantly
+  and offers Undo (wired to the existing `POST /api/alerts/<id>/unack`);
+  Resolve flips the row before the server round-trip and reverts with an error
+  toast if declined.
+
+### Everyday friction
+- **"N of M shown" + one-click Clear filter chip** on every tableCtl table —
+  a stored filter persists across sessions, so a filtered-down table now says
+  so instead of silently looking half-empty.
+- **Retry buttons on failed loads** — a shared `_errorState()` helper replaces
+  ~14 static "Failed to load / refresh to retry" dead ends (Checks, CVE, CMDB,
+  Thermal/Power/Disk-health, Firewall, Rollouts, GPUs, Drift, Backups,
+  Compliance, Tuning) with an inline Retry that re-invokes the loader.
+- **Unsaved-changes guard on Settings** — editing any setting marks the page
+  dirty; navigating away (or closing the tab) asks before discarding, and a
+  successful save clears the flag.
+- **Tickets bulk actions** — row checkboxes on all four ticket tables with a
+  bulk bar: *Resolve selected* and *Assign to me* (the multi-select pattern's
+  first outing beyond the Alerts inbox).
+
+Internal: the UX program's full 50-item scoped backlog lives in the internal
+docs repo; the two `showPage` fixed-window test pins were migrated to srcpin.
+
 ## v6.2.3 — "Un1fyMatters" — 2026-07-18
 
 A release built around **unifying the monitoring surface** — one catalog of

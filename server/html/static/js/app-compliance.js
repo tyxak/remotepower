@@ -12,7 +12,7 @@ async function loadComplianceBaseline() {
   const body = document.getElementById('cis-baseline-body');
   if (!body) return;
   const r = await api('GET', '/compliance/baseline').catch(() => null);
-  if (!r || !Array.isArray(r.checks)) { body.innerHTML = '<div class="c-red">Failed to load baseline.</div>'; return; }
+  if (!r || !Array.isArray(r.checks)) { _errorState(body, loadComplianceBaseline, {msg: 'Failed to load baseline.'}); return; }
   _cisDisabled = new Set(r.disabled || []);
   const scoreEl = document.getElementById('cis-score');
   if (scoreEl) {

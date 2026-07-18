@@ -374,6 +374,11 @@
     'AI prioritise': { fr: 'Priorisation IA', de: 'KI-Priorisierung', zh: 'AI 优先级排序', hi: 'AI प्राथमिकता', es: 'Priorizar con IA', ar: 'ترتيب أولويات الذكاء الاصطناعي' },
     'Search':      { fr: 'Rechercher', de: 'Suchen', zh: '搜索', hi: 'खोजें', es: 'Buscar', ar: 'بحث' },
     'Delete':      { fr: 'Supprimer', de: 'Löschen', zh: '删除', hi: 'हटाएँ', es: 'Eliminar', ar: 'حذف' },
+    'Undo':        { fr: 'Annuler', de: 'Rückgängig', zh: '撤销', hi: 'पूर्ववत करें', es: 'Deshacer', ar: 'تراجع' },
+    'Clear filter': { fr: 'Effacer le filtre', de: 'Filter löschen', zh: '清除筛选', hi: 'फ़िल्टर हटाएँ', es: 'Borrar filtro', ar: 'مسح عامل التصفية' },
+    'Retry':       { fr: 'Réessayer', de: 'Erneut versuchen', zh: '重试', hi: 'पुनः प्रयास करें', es: 'Reintentar', ar: 'إعادة المحاولة' },
+    'Assign to me': { fr: 'Me l’assigner', de: 'Mir zuweisen', zh: '分配给我', hi: 'मुझे सौंपें', es: 'Asignármelo', ar: 'إسناد إليّ' },
+    'Resolve selected': { fr: 'Résoudre la sélection', de: 'Ausgewählte lösen', zh: '解决所选', hi: 'चयनित हल करें', es: 'Resolver seleccionados', ar: 'حل المحدد' },
     'Prune':       { fr: 'Nettoyer', de: 'Bereinigen', zh: '清理', hi: 'साफ़ करें', es: 'Purgar', ar: 'تنظيف' },
     'Close':       { fr: 'Fermer', de: 'Schließen', zh: '关闭', hi: 'बंद करें', es: 'Cerrar', ar: 'إغلاق' },
     // ── section titles (.section-title) — coverage gate: test_v430_i18n_gate ──

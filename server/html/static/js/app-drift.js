@@ -224,7 +224,7 @@ async function loadDrift() {
     const totalMissing = (data.devices || []).reduce((s, d) => s + (d.missing || 0), 0);
     summary.textContent = `${(data.devices || []).length} devices reporting · ${totalDrift} files drifted · ${totalMissing} files missing`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    _errorState(tbody, loadDrift, {msg: `Failed to load: ${String(e)}`, colspan: 7});
   }
 }
 

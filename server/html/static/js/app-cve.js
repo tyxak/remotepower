@@ -18,7 +18,7 @@ async function openCveExposure() {
   openModal('cve-exposure-modal');
   const d = await api('GET', '/cve/exposure-ranked').catch(() => null);
   if (!el) return;
-  if (!d || d.error) { el.innerHTML = '<div class="c-red">' + escHtml((d && d.error) || 'Failed to load') + '</div>'; return; }
+  if (!d || d.error) { _errorState(el, openCveExposure, {msg: (d && d.error) || 'Failed to load'}); return; }
   const hosts = d.hosts || [];
   if (!hosts.length) { el.innerHTML = '<div class="empty-state">No hosts with open CVEs.</div>'; return; }
   const trs = hosts.map((h, i) => {
@@ -65,7 +65,7 @@ async function loadImageCves() {
   const box = document.getElementById('image-cve-list');
   if (!box) return;
   const r = await api('GET', '/image-cves').catch(() => null);
-  if (!r) { box.innerHTML = '<div class="c-red">Failed to load.</div>'; return; }
+  if (!r) { _errorState(box, loadImageCves); return; }
   const imgs = r.images || [];
   if (!imgs.length) {
     // v6.1.2: distinguish "on, but no host has reported yet" from "off" and

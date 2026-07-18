@@ -83,7 +83,16 @@ def js_function(src, name, start=0):
             break
     else:
         raise ValueError(f'JS function not found: {name}')
+    # v6.3.0: the body brace is the first '{' AFTER the parameter list — a
+    # default object parameter (`function toast(msg, type, opts = {})`) puts
+    # a '{' inside the params, which the old "first brace" scan mistook for
+    # the body (returning just the signature). Balance the parens first
+    # whenever a '(' precedes the first '{'.
+    o_paren = src.find('(', a)
     o = src.find('{', a)
+    if o_paren != -1 and (o == -1 or o_paren < o):
+        params_end = _scan_balanced(src, o_paren, '(', ')')
+        o = src.find('{', params_end)
     if o < 0:
         raise ValueError(f'no body brace for {name}')
     return src[a:_scan_balanced(src, o)]

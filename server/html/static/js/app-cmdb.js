@@ -154,7 +154,7 @@ async function loadScopedCreds() {
   if (!tb) return;
   tableCtl.wireSortOnly('scoped-creds-thead', 'scoped_creds', () => _renderScopedCreds());
   const res = await cmdbApi('GET', '/scoped-credentials');
-  if (!res || !res.ok) { tb.innerHTML = '<tr><td colspan="5" class="c-red">Failed to load.</td></tr>'; return; }
+  if (!res || !res.ok) { _errorState(tb, loadScopedCreds, {colspan: 5}); return; }
   _scopedCredsCache = (res.data && res.data.credentials) || [];
   _renderScopedCreds();
 }

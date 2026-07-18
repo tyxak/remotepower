@@ -2080,6 +2080,33 @@
   .toast.error   { border-left: 3px solid var(--red); }
   .toast.info    { border-left: 3px solid var(--accent); }
   .toast-icon    { font-size: 16px; }
+  /* v6.3.0 (UX wave 1): inline action button — the "Undo" pattern */
+  .toast-action {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--hair);
+    border-radius: 7px;
+    color: var(--accent);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toast-action:hover { background: var(--accent-soft, rgba(94,141,255,0.12)); }
+  /* v6.3.0 (UX wave 1b): topbar undo/redo arrows dim when their stack is empty */
+  #topbar-undo[disabled], #topbar-redo[disabled] { opacity: .35; cursor: default; }
+  /* v6.3.0 (UX wave 1): failed-load state with inline Retry */
+  .error-state {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 18px 12px; font-size: 12.5px;
+  }
+  /* v6.3.0 (UX wave 1): "N of M shown" chip above a filtered table */
+  .table-filter-info {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--muted);
+    margin: 0 0 6px;
+  }
   .refresh-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border); z-index: 50; }
   /* v3.8.0: the countdown bar drains via a single CSS animation per refresh
      cycle (set in startRefreshCycle), not a per-second JS width write. Fewer
@@ -6486,6 +6513,7 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 [dir="rtl"] .toast.success { border-left: none; border-right: 3px solid var(--green); }
 [dir="rtl"] .toast.error   { border-left: none; border-right: 3px solid var(--red); }
 [dir="rtl"] .toast.info    { border-left: none; border-right: 3px solid var(--accent); }
+[dir="rtl"] .toast-action  { margin-left: 0; margin-right: auto; }
 
 /* 6. Chrome margin utilities actually used in the nav/header — swap the side. */
 [dir="rtl"] .ml-8  { margin-left: 0; margin-right: 8px; }

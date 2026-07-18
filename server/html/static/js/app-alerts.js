@@ -314,9 +314,61 @@ async function bulkAckAlerts() {
 
 async function resolveAlert(id) {
   if (!await uiConfirm('Mark this alert resolved?')) return;
+  // v6.3.0 (UX wave 1): optimistic — the row flips to resolved instantly, the
+  // POST runs after, and a server decline reverts the flip with an error toast.
+  // (There is no /unresolve endpoint, so resolve keeps its confirm dialog
+  // rather than moving to the undo-toast pattern the way ack did.)
+  const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+  const prev = a ? { at: a.resolved_at, by: a.resolved_by } : null;
+  if (a) {
+    a.resolved_at = Math.floor(Date.now() / 1000);
+    a.resolved_by = getMe() || 'me';
+    renderAlerts();
+  }
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
   if (r && r.ok) { toast('Alert resolved', 'success'); loadAlerts(); refreshAlertsBadge(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  else {
+    if (a && prev) { a.resolved_at = prev.at; a.resolved_by = prev.by; renderAlerts(); }
+    toast((r && r.error) || 'Failed', 'error');
+  }
+}
+
+// v6.3.0 (UX wave 1): optimistic single-alert ack with a real Undo — the row
+// flips instantly, the POST runs in the background, and the success toast
+// carries Undo wired to POST /alerts/<id>/unack (which exists server-side for
+// exactly this). A failed POST reverts the flip; a successful Undo reloads
+// from the server rather than patching the (possibly refreshed) cache.
+function _ackAlertOptimistic(id) {
+  const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+  if (!a || a.acknowledged_at || a.resolved_at) return;
+  const prev = { at: a.acknowledged_at, by: a.acknowledged_by };
+  a.acknowledged_at = Math.floor(Date.now() / 1000);
+  a.acknowledged_by = getMe() || 'me';
+  renderAlerts();
+  const revert = () => {
+    a.acknowledged_at = prev.at; a.acknowledged_by = prev.by; renderAlerts();
+  };
+  let unacked = false;
+  const doUnack = async () => {
+    if (unacked) return;
+    unacked = true;
+    const u = await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {});
+    if (u && u.ok) { loadAlerts(); refreshAlertsBadge(); }
+    else toast((u && u.error) || 'Could not undo', 'error');
+  };
+  api('POST', '/alerts/bulk-ack', { ids: [String(id)] }).then(r => {
+    if (r && r.ok) {
+      refreshAlertsBadge();
+      // v6.3.0 (1b): reachable from the toast AND the topbar undo arrow.
+      uiUndoCtl.push({
+        label: 'Alert acknowledged',
+        alive: () => !unacked,
+        undo: doUnack,
+        redo: () => _ackAlertOptimistic(id),
+      });
+      toast('Acknowledged', 'success', { action: { label: 'Undo', icon: 'undo', fn: doUnack } });
+    } else { revert(); toast((r && r.error) || 'Failed', 'error'); }
+  }).catch(() => { revert(); toast('Failed', 'error'); });
 }
 
 
@@ -426,10 +478,7 @@ document.addEventListener('keydown', (e) => {
     const cb = row.querySelector('.alerts-row-cb');
     if (cb) { cb.checked = !cb.checked; _updateBulkResolveBtn(); }
   } else if (key === 'a') {
-    api('POST', '/alerts/bulk-ack', { ids: [id] }).then(r => {
-      if (r && r.ok) { toast('Acknowledged', 'success'); loadAlerts(); refreshAlertsBadge(); }
-      else toast((r && r.error) || 'Failed', 'error');
-    });
+    _ackAlertOptimistic(id);   // v6.3.0: instant flip + undo toast
   } else if (key === 'r') {
     resolveAlert(id);          // keeps its own confirm dialog
   } else if (key === 'm') {

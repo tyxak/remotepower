@@ -7,7 +7,7 @@ async function loadRollouts() {
   const out = document.getElementById('rollouts-list');
   if (!out) return;
   const r = await api('GET', '/rollouts').catch(() => null);
-  if (!r || !Array.isArray(r.rollouts)) { out.innerHTML = '<div class="c-red">Failed to load rollouts.</div>'; return; }
+  if (!r || !Array.isArray(r.rollouts)) { _errorState(out, loadRollouts, {msg: 'Failed to load rollouts.'}); return; }
   if (!r.rollouts.length) { out.innerHTML = '<div class="empty-state">No rollouts yet. Click <strong>New rollout</strong> to stage one.</div>'; return; }
   out.innerHTML = r.rollouts.map(_renderRollout).join('');
 }

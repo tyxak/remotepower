@@ -15,7 +15,7 @@ inbound ports. Up and running in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.2.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.3.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -168,6 +168,12 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.3.0 "UndoMatters"** — the first wave of a UX program: **undo instead of
+  "are you sure?"** — low-risk deletes (contacts, links, snippets, saved views)
+  show an Undo toast and only commit when it expires; alert acknowledge is
+  instant with a real server-side Undo; filtered tables say "N of M shown" with
+  one-click Clear; failed loads get Retry buttons; Settings guards unsaved
+  changes; and Tickets gain bulk resolve / assign-to-me.
 - **v6.2.3 "Un1fyMatters"** — a consolidation and tidy-up pass: an optional
   listen port on Create tunnel, an ACME certificates page that loads on
   navigation (no manual Refresh), clearer feedback when a package snapshot
@@ -196,11 +202,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   real-time-protection-off), a USB physical-access tripwire, a host-wide
   disk-usage explorer ("disk 94% — of *what*?"), and a composite
   device-reliability prediction.
-- **v6.1.2 "AfterglowMatters"** — a correctness-and-fit release: muting an alert
-  now actually lifts the health score, the trivy image-CVE scan can finally be
-  triggered, `POST /api/cve/scan` no longer 500s on Postgres, a sweep of frontend
-  defects, the first wave of performance work, and optional modules a minimal
-  homelab can switch off.
 Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security

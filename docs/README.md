@@ -87,6 +87,11 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.3.0.md](v6.3.0.md)** — "UndoMatters": the first wave of a UX program —
+ undo toasts instead of confirm dialogs for low-risk deletes (deferred commit),
+ optimistic alert ack/resolve with a real un-ack Undo, "N of M shown" + Clear
+ chips on filtered tables, Retry buttons on failed loads, an unsaved-changes
+ guard on Settings, and bulk resolve/assign on Tickets.
 - **[v6.2.3.md](v6.2.3.md)** — "Un1fyMatters": a consolidation and tidy-up pass —
  an optional listen port on Create tunnel, an ACME page that loads on navigation,
  clearer empty-snapshot feedback, and a removed duplicate dampening setting; plus
@@ -98,11 +103,6 @@ The three most recent per-release notes are kept here:
  an always-on kernel-module visibility check that flags the v6.2.1 failure
  class before patch day; an upgrade-in-place installer; keyboard-driven alert
  inbox, device hover cards and tab-level device deep links.
-- **[v6.2.1.md](v6.2.1.md)** — "In1tMatters": a critical fix for Linux hosts
- booting via initramfs (Debian/Ubuntu) — agent-unit sandboxing could make
- upgrades run through RemotePower rebuild the initramfs without kernel modules
- (unbootable at next reboot). Unit fixed; the upgrade command now refuses to
- run in that situation; patch-window reboots verify the initrd first.
 Older release notes (v6.1.2 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 

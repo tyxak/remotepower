@@ -23,8 +23,12 @@ _spec = importlib.util.spec_from_file_location("api_v623_pins", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
-V = "6.2.3"
-CODENAME = "Un1fyMatters"
+# v6.3.0: loosened from the "6.2.3" literals to the live version, per the
+# convention. Strict pins for the current release live in tests/test_v630.py;
+# what stays valuable here is version-surface lockstep with SERVER_VERSION plus
+# the v6.2.3-specific history checks below.
+V = api.SERVER_VERSION
+CODENAME = "Un1fyMatters"      # this file's own release (history pins only)
 
 
 def _html():
@@ -75,22 +79,18 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_whats_new_card_is_doc_searchable(self):
         """The data-keywords attribute embeds the codename as a lowercase search
-        term — the surface a visible-text rename always misses."""
+        term — the surface a visible-text rename always misses. Pinned to the
+        v6.2.3 card this file owns (still present as one of the last three)."""
         html = _html()
-        i = html.index(f"What's new — v{V}")
+        i = html.index("What's new — v6.2.3")
         card = html[max(0, i - 2200):i]
-        self.assertIn(CODENAME.lower(), card)
+        self.assertIn("un1fymatters", card)
 
     def test_changelog_header(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn(f'## v{V} — "{CODENAME}"', head)
-
-    def test_gen_wiki_codename(self):
-        p = _ROOT / "tools/gen-wiki.py"
-        if not p.exists():
-            self.skipTest("excluded from dist tree")
-        self.assertIn(CODENAME, p.read_text(),
-                      "gen-wiki.py's Home line hardcodes the codename — bump it")
+        # v6.3.0: loosened from the [:400] head window (newer releases sit
+        # above this one now) — the v6.2.3 entry itself must remain.
+        self.assertIn('## v6.2.3 — "Un1fyMatters"',
+                      (_ROOT / "CHANGELOG.md").read_text())
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()
@@ -98,7 +98,8 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        self.assertTrue(bullets[0].startswith(f'- **v{V} "{CODENAME}"'))
+        # v6.3.0: codename dropped from the pin (the live top release owns it).
+        self.assertTrue(bullets[0].startswith(f'- **v{V} "'))
 
 
 class TestConsolidationSweep(unittest.TestCase):
