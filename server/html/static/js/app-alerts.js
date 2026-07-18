@@ -108,7 +108,35 @@ function _renderAlertsSummary(summary) {
     `<span class="alerts-summary-pill">Acknowledged: <strong>${summary.acknowledged || 0}</strong></span>` +
     `<span class="alerts-summary-pill">Resolved: <strong>${summary.resolved || 0}</strong></span>` +
     (bs.critical ? `<span class="alerts-summary-pill sev-pill sev-critical">Critical: ${bs.critical}</span>` : '') +
-    (bs.high ? `<span class="alerts-summary-pill sev-pill sev-high">High: ${bs.high}</span>` : '');
+    (bs.high ? `<span class="alerts-summary-pill sev-pill sev-high">High: ${bs.high}</span>` : '') +
+    _alertsHeatStrip();
+}
+
+// v6.3.0 (UX wave 10): per-day volume strip over the LOADED alerts (a
+// GitHub-graph miniature) — weekly patterns and "what changed Tuesday" at a
+// glance. Intensity via inline opacity steps on the accent (CSS class based,
+// no style attributes — CSP).
+function _alertsHeatStrip() {
+  const byDay = new Map();
+  for (const a of (_alertsCache || [])) {
+    if (!a.ts) continue;
+    const d = new Date(a.ts * 1000);
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    byDay.set(key, (byDay.get(key) || 0) + 1);
+  }
+  if (byDay.size < 2) return '';
+  const cells = [];
+  const now = new Date();
+  let max = 1;
+  for (const v of byDay.values()) max = Math.max(max, v);
+  for (let i = 41; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    const n = byDay.get(key) || 0;
+    const lvl = n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3));
+    cells.push(`<span class="alert-heat-cell heat-l${lvl}" title="${escAttr(d.toLocaleDateString())}: ${n} alert${n === 1 ? '' : 's'}"></span>`);
+  }
+  return `<span class="alert-heat-row" title="Alert volume per day (last 6 weeks, loaded alerts)">${cells.join('')}</span>`;
 }
 
 const _ALERT_SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -163,7 +191,7 @@ function _alertRowHtml(a, role) {
   const kbLink = (a.kb_link && a.kb_link.id)
     ? ` <a href="#" data-action="openKbFromAlert" data-arg="${_escapeHtml(a.kb_link.id)}" data-prevent-default class="patch-badge fs-10" title="Open the runbook for this alert">${_icon('bookOpen',11)} ${_escapeHtml(a.kb_link.title || 'Runbook')}</a>`
     : '';
-  return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}" data-alert-id="${_escapeHtml(String(a.id))}">
+  return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}${(sev === 'critical' && !isResolved) ? ' alert-crit' : ''}" data-alert-id="${_escapeHtml(String(a.id))}">
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
@@ -187,7 +215,11 @@ function renderAlerts() {
   const tbody = document.getElementById('alerts-tbody');
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No alerts in this view.</td></tr>';
+    // v6.3.0 (UX wave 10): calm geometric all-clear mark instead of bare text.
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">'
+      + '<svg class="rp-empty-art" aria-hidden="true" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">'
+      + '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6" opacity=".4"/><polyline points="9 12 11 14 15 10"/></svg>'
+      + 'No alerts in this view.</td></tr>';
     _updateBulkResolveBtn();
     return;
   }

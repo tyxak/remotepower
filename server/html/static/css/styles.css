@@ -576,6 +576,10 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .status-badge-dot { animation: none; }
+    /* v6.3.0 (UX wave 10): every informative-motion addition goes still */
+    .page.active, .status-dot, tr.alert-crit, tr.row-flash,
+    tbody.first-paint tr { animation: none; }
+    .rp-ring .rp-ring-fg { transition: none; }
   }
   /* ── v6.0.0 "ClarityMatters" sidebar (chosen-design.html .side/.nav) ────
      Flat rail: --side ground, hairline right edge, sentence-case group
@@ -2094,6 +2098,43 @@
     flex-shrink: 0;
   }
   .toast-action:hover { background: var(--accent-soft, rgba(94,141,255,0.12)); }
+  /* ── v6.3.0 (UX wave 10): informative eye candy ──────────────────────────
+     Motion = meaning: only changes/criticals animate; everything sits behind
+     the prefers-reduced-motion override further down. */
+  .page.active { animation: rp-page-in .12s ease-out; }
+  @keyframes rp-page-in { from { opacity: 0; transform: translateY(4px); } }
+  .status-dot { animation: rp-breathe 3s ease-in-out infinite; }
+  @keyframes rp-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+  tr.alert-crit > td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+  tr.alert-crit { animation: rp-crit-pulse 1.4s ease-in-out 2; }
+  @keyframes rp-crit-pulse { 50% { background: rgba(220, 60, 60, 0.07); } }
+  tr.row-flash { animation: rp-row-flash 1.2s ease-out 1; }
+  @keyframes rp-row-flash { 0% { background: var(--accent-soft); } 100% { background: transparent; } }
+  tbody.first-paint tr { animation: rp-row-in .25s ease-out backwards; }
+  tbody.first-paint tr:nth-child(1) { animation-delay: 0ms; }
+  tbody.first-paint tr:nth-child(2) { animation-delay: 25ms; }
+  tbody.first-paint tr:nth-child(3) { animation-delay: 50ms; }
+  tbody.first-paint tr:nth-child(4) { animation-delay: 75ms; }
+  tbody.first-paint tr:nth-child(5) { animation-delay: 100ms; }
+  tbody.first-paint tr:nth-child(n+6) { animation-delay: 120ms; }
+  @keyframes rp-row-in { from { opacity: 0; transform: translateY(3px); } }
+  .stat-delta-up { color: var(--red); font-size: 10px; margin-left: 3px; }
+  .stat-delta-down { color: var(--green); font-size: 10px; margin-left: 3px; }
+  #fleet-pulse { display: inline-block; vertical-align: middle; opacity: .8; }
+  .pos-rel { position: relative; }
+  .hh-bar-tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--amber, #d29922); opacity: .65; }
+  .hh-bar-tick.crit { background: var(--red); }
+  .alert-heat-cell { width: 10px; height: 10px; border-radius: 2px; background: var(--hair); display: inline-block; }
+  .alert-heat-cell.heat-l1 { background: var(--accent); opacity: .25; }
+  .alert-heat-cell.heat-l2 { background: var(--accent); opacity: .45; }
+  .alert-heat-cell.heat-l3 { background: var(--accent); opacity: .7; }
+  .alert-heat-cell.heat-l4 { background: var(--accent); opacity: 1; }
+  .alert-heat-row { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+  .rp-empty-art { display: block; margin: 0 auto 10px; opacity: .5; }
+  .rp-ring { transform: rotate(-90deg); }
+  .rp-ring circle { fill: none; stroke-width: 3; }
+  .rp-ring .rp-ring-bg { stroke: var(--hair); }
+  .rp-ring .rp-ring-fg { stroke: var(--accent); transition: stroke-dashoffset .4s ease; }
   /* v6.3.0 (UX wave 9): undo-history popover (right-click the undo arrow) */
   #undo-hist-pop {
     position: fixed; z-index: 960; width: 250px;

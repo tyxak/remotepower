@@ -49,11 +49,12 @@ async function loadCVEReport() {
   const data = await api('GET', '/cve/findings');
   if (!data) return;
   cveReportData = data;
-  document.getElementById('cve-stat-critical').textContent = data.summary.critical;
-  document.getElementById('cve-stat-high').textContent = data.summary.high;
-  document.getElementById('cve-stat-medium').textContent = data.summary.medium;
-  document.getElementById('cve-stat-low').textContent = data.summary.low;
-  document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
+  // v6.3.0 (UX wave 10): stats animate old→new with a fading delta arrow.
+  animateStat('cve-stat-critical', data.summary.critical);
+  animateStat('cve-stat-high', data.summary.high);
+  animateStat('cve-stat-medium', data.summary.medium);
+  animateStat('cve-stat-low', data.summary.low);
+  animateStat('cve-stat-devices', data.summary.devices_scanned);
   _renderKevFeedStatus(data.kev_feed);
   tableCtl.render('cves', data.devices || []);
   loadCveCampaigns();
@@ -222,7 +223,9 @@ async function triggerCVEScan(devId, btn) {
   const tick = async () => {
     ticks++;
     const st = await api('GET', '/cve/scan-status').catch(() => null);
-    if (st && btn && st.total) btn.textContent = st.running ? `Scanning ${st.done}/${st.total}…` : 'Done';
+    if (st && btn && st.total) btn.innerHTML = st.running
+      ? `${_progressRing(st.done / st.total)} Scanning ${st.done}/${st.total}…`
+      : 'Done';   // v6.3.0 (wave 10): real-fraction progress ring
     if (!st || !st.running || ticks > MAX_TICKS) { finish(st); return; }
     setTimeout(tick, 2000);              // schedule the next poll only now
   };

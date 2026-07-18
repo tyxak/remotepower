@@ -393,6 +393,35 @@ const tableCtl = (() => {
     _renderPager(opts, tbody, filtered.length, page, pageSize);
     _renderFilterInfo(opts, tbody, filtered.length, rows.length, filter);
     _applyColumnVis(opts);   // v6.3.0 (UX wave 4): column show/hide
+    // v6.3.0 (UX wave 10): staggered entrance on a table's FIRST paint only —
+    // re-renders (filter keystrokes, polls) must never re-animate.
+    if (!opts._painted) {
+      opts._painted = true;
+      tbody.classList.add('first-paint');
+      setTimeout(() => tbody.classList.remove('first-paint'), 600);
+    }
+    // v6.3.0 (UX wave 10): a row whose projection CHANGED since the last
+    // render gets a one-shot highlight wash (identity = first column value).
+    const idCol = opts.columns && opts.columns[0];
+    if (idCol && opts.getColumns) {
+      const prev = opts._projPrev;
+      const next = new Map();
+      pageRows.forEach((r, i) => {
+        let p;
+        try { p = opts.getColumns(r); } catch (_) { return; }
+        const idv = String(p[idCol]);
+        const j = JSON.stringify(p);
+        next.set(idv, j);
+        if (prev && prev.has(idv) && prev.get(idv) !== j) {
+          const tr = tbody.rows[i];
+          if (tr) {
+            tr.classList.add('row-flash');
+            setTimeout(() => tr.classList.remove('row-flash'), 1300);
+          }
+        }
+      });
+      opts._projPrev = next;
+    }
   }
 
   // v6.3.0 (UX wave 1): when the filter hides rows, say so — "N of M shown" +
@@ -16404,7 +16433,12 @@ function _renderHomeHealth(health, history) {
     +   `<div class="hh-sub c-muted">${health.total_devices} device(s)</div>`
     + `</div>`
     + `<div class="hh-detail">`
-    +   `<div class="hh-bar-track"><div class="hh-bar-fill" data-pct="${health.score}" data-bg="${color}"></div></div>`
+    // v6.3.0 (UX wave 10): grade-cutoff ticks — the bar shows where "good"
+    // and "fair" begin, so distance-to-a-worse-grade is visible at a glance.
+    +   `<div class="hh-bar-track pos-rel"><div class="hh-bar-fill" data-pct="${health.score}" data-bg="${color}"></div>`
+    +     `<span class="hh-bar-tick" data-tickleft="${_HEALTH_CUTS.good}" title="'Good' begins at ${_HEALTH_CUTS.good}"></span>`
+    +     `<span class="hh-bar-tick crit" data-tickleft="${_HEALTH_CUTS.fair}" title="'Fair' begins at ${_HEALTH_CUTS.fair}"></span>`
+    +   `</div>`
     +   `<div class="hh-counts">`
     +     `<span class="sev-pill sev-critical">${c.critical || 0} critical</span>`
     +     `<span class="sev-pill sev-medium">${c.warning || 0} warning</span>`
@@ -16455,9 +16489,89 @@ function _paintVitals(c) {
     + `<span class="vitals-sep"></span>`
     + `<span class="vital${openAlerts ? ' bad' : ''}" title="Open alerts">${_icon('alertTriangle', 12)}<b>${openAlerts}</b> alerts</span>`
     + `<span class="vitals-sep"></span>`
-    + `<span class="vital${down ? ' bad' : ''}" title="Monitors currently down">${_icon('activity', 12)}<b>${down}</b> down</span>`;
+    + `<span class="vital${down ? ' bad' : ''}" title="Monitors currently down">${_icon('activity', 12)}<b>${down}</b> down</span>`
+    + `<span class="vitals-sep"></span>`
+    + `<canvas id="fleet-pulse" width="64" height="16" title="Open-alerts trend (this session, one point per badge poll)"></canvas>`;
+  _drawFleetPulse(openAlerts);
   // The site-health pill is RemotePower's OWN control-plane health (c.site_health),
   // painted from refreshNavCounts — NOT the fleet vitals above.
+}
+
+// v6.3.0 (UX wave 10): fleet pulse — a tiny always-on trend line of the
+// open-alert count, one point per nav-counts poll (session-scoped). A flat
+// line IS information ("quiet"); a step draws the eye before a badge reddens.
+const _pulseHist = [];
+function _drawFleetPulse(openAlerts) {
+  if (typeof openAlerts === 'number'
+      && _pulseHist[_pulseHist.length - 1] !== openAlerts) {
+    _pulseHist.push(openAlerts);
+    if (_pulseHist.length > 40) _pulseHist.shift();
+  } else if (typeof openAlerts === 'number' && !_pulseHist.length) {
+    _pulseHist.push(openAlerts);
+  }
+  const cv = document.getElementById('fleet-pulse');
+  if (!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const pts = _pulseHist.length > 1 ? _pulseHist : [..._pulseHist, ..._pulseHist];
+  const max = Math.max(1, ...pts);
+  let stroke = '#7f8b98';
+  try { stroke = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || stroke; } catch (_) {}
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  pts.forEach((v, i) => {
+    const x = (i / (pts.length - 1)) * (W - 2) + 1;
+    const y = H - 2 - (v / max) * (H - 5);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  // latest-point dot
+  const lv = pts[pts.length - 1];
+  ctx.fillStyle = stroke;
+  ctx.beginPath();
+  ctx.arc(W - 1.5, H - 2 - (lv / max) * (H - 5), 1.8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// v6.3.0 (UX wave 10): animated stat swap — the number interpolates to its
+// new value with a brief ▲/▼ that fades, so a changed stat is SEEN changing.
+const _statPrev = {};
+function animateStat(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const n = Number(val) || 0;
+  const prev = _statPrev[id];
+  _statPrev[id] = n;
+  const reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prev === undefined || prev === n || reduced) { el.textContent = String(val); return; }
+  const t0 = performance.now(), dur = 400;
+  const step = (t) => {
+    const f = Math.min(1, (t - t0) / dur);
+    el.textContent = String(Math.round(prev + (n - prev) * f));
+    if (f < 1) requestAnimationFrame(step);
+    else {
+      const d = document.createElement('span');
+      d.className = n > prev ? 'stat-delta-up' : 'stat-delta-down';
+      d.textContent = n > prev ? `▲${n - prev}` : `▼${prev - n}`;
+      el.appendChild(d);
+      setTimeout(() => d.remove(), 4000);
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+// v6.3.0 (UX wave 10): SVG progress ring — driven by REAL done/total fractions
+// from the pollers, never indeterminate spin.
+function _progressRing(frac, size = 14) {
+  const r = (size / 2) - 2;
+  const c = 2 * Math.PI * r;
+  const off = c * (1 - Math.max(0, Math.min(1, frac || 0)));
+  return `<svg class="rp-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">`
+    + `<circle class="rp-ring-bg" cx="${size / 2}" cy="${size / 2}" r="${r}"></circle>`
+    + `<circle class="rp-ring-fg" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"></circle>`
+    + '</svg>';
 }
 
 // v5.6.0: top-bar pill = RemotePower's OWN control-plane health (its own
@@ -27154,6 +27268,7 @@ const _dynColorObserver = new MutationObserver((muts) => {
       }
       // v3.2.0: data-pct → percentage width (Server Status performance bars)
       if (node.dataset?.pct) node.style.width = node.dataset.pct + '%';
+      if (node.dataset?.tickleft) node.style.left = node.dataset.tickleft + '%';   // v6.3.0 wave 10
       // v3.4.2: data-h → pixel height (compliance trend spark bars)
       if (node.dataset?.h) node.style.height = node.dataset.h + 'px';
       if (node.querySelectorAll) {
@@ -27165,6 +27280,8 @@ const _dynColorObserver = new MutationObserver((muts) => {
         });
         node.querySelectorAll('[data-pct]').forEach(el => { el.style.width = el.dataset.pct + '%'; });
         node.querySelectorAll('[data-h]').forEach(el => { el.style.height = el.dataset.h + 'px'; });
+        // v6.3.0 (UX wave 10): data-tickleft → percentage left (threshold ticks)
+        node.querySelectorAll('[data-tickleft]').forEach(el => { el.style.left = el.dataset.tickleft + '%'; });
       }
     }
   }

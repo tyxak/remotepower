@@ -62,6 +62,29 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 10 — informative eye candy
+Motion only where it means something; everything honors reduced-motion.
+- **Fleet pulse** — a tiny live trend line of the open-alert count in the
+  topbar; a flat line is "quiet", a step draws the eye before a badge reddens.
+- **Stat count-up** — CVE stat tiles animate old→new with a fading ▲/▼ delta.
+- **Real progress rings** — the CVE scan button renders an SVG ring driven by
+  the actual done/total fraction.
+- **Row-change flash** — a table row whose data changed since the last render
+  gets a one-shot highlight wash (all tableCtl tables).
+- **Critical-alert salience** — critical open alerts carry a red edge and a
+  brief two-pulse highlight on render.
+- **Alert heat strip** — a 6-week per-day volume miniature above the inbox
+  (weekly patterns at a glance).
+- **Health-bar grade ticks** — the fleet-health bar marks where "good" and
+  "fair" begin, so distance-to-a-worse-grade is visible.
+- **Micro-polish** — 120ms page fade-in, staggered first-paint of table rows,
+  a calm geometric all-clear mark on the empty inbox, breathing live-dot.
+
+Deferred with findings: sparkline gradient/threshold bands and a shared chart
+crosshair (the charts are bespoke per page — needs a chart-subsystem pass),
+and the security-posture radar (device rows only carry health/cve/drift —
+the other posture axes need data plumbing first).
+
 ### Wave 9
 - **Undo history** — right-click the topbar undo arrow to see the whole stack
   and undo several steps at once.

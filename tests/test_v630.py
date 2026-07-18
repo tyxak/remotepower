@@ -634,5 +634,53 @@ class TestWave9(unittest.TestCase):
         self.assertIn('id="cfg-ui-scale"', _html())
 
 
+class TestWave10EyeCandy(unittest.TestCase):
+    """UX wave 10: informative eye candy — motion means something."""
+
+    def test_fleet_pulse(self):
+        app = _js("app.js")
+        self.assertIn("function _drawFleetPulse", app)
+        self.assertIn('id="fleet-pulse"', app)
+
+    def test_stat_animation_and_ring(self):
+        app = _js("app.js")
+        self.assertIn("function animateStat", app)
+        self.assertIn("function _progressRing", app)
+        # reduced-motion short-circuits the interpolation
+        from tests import srcpin
+        self.assertIn("prefers-reduced-motion", srcpin.js_function(app, "animateStat"))
+        cve = _js("app-cve.js")
+        self.assertIn("animateStat('cve-stat-critical'", cve)
+        self.assertIn("_progressRing(st.done / st.total)", cve)
+
+    def test_row_flash_and_first_paint(self):
+        app = _js("app.js")
+        self.assertIn("row-flash", app)
+        self.assertIn("first-paint", app)
+        self.assertIn("_projPrev", app)
+
+    def test_alert_crit_class_and_heat_strip(self):
+        alerts = _js("app-alerts.js")
+        self.assertIn("alert-crit", alerts)
+        self.assertIn("function _alertsHeatStrip", alerts)
+        self.assertIn("rp-empty-art", alerts)
+
+    def test_health_bar_ticks(self):
+        app = _js("app.js")
+        self.assertIn("hh-bar-tick", app)
+        self.assertIn("data-tickleft", app)
+        # the observer applies the tick position (no inline style attrs — CSP)
+        self.assertIn("data-tickleft]", app)
+
+    def test_css_motion_is_reduced_motion_safe(self):
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        for cls in ("rp-page-in", "rp-breathe", "rp-crit-pulse", "rp-row-flash", "rp-row-in"):
+            self.assertIn(cls, css)
+        i = css.index("prefers-reduced-motion")
+        block = css[i:i + 600]
+        self.assertIn("first-paint", block)
+        self.assertIn("row-flash", block)
+
+
 if __name__ == "__main__":
     unittest.main()
