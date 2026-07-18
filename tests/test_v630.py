@@ -452,5 +452,58 @@ class TestWave4(unittest.TestCase):
             self.assertTrue((_ROOT / doc).exists(), doc)
 
 
+class TestWave5ConfigRevisions(unittest.TestCase):
+    """UX wave 5: config revision history + rollback, pinned devices."""
+
+    def test_module_bound_and_routed(self):
+        self.assertTrue(callable(api.handle_config_revisions_list))
+        self.assertTrue(callable(api.handle_config_revision_restore))
+        routes = api._build_exact_routes()
+        self.assertIn(("GET", "/api/config/revisions"), routes)
+        self.assertIn(("POST", "/api/config/revisions/restore"), routes)
+
+    def test_recorder_stores_pre_save_state(self):
+        api.record_config_revision({"x": 1}, {"x": 2, "y": 3}, "tester")
+        revs = (api.load(api.CONFIG_REVS_FILE) or {}).get("revisions") or []
+        self.assertTrue(revs)
+        last = revs[-1]
+        self.assertEqual(last["changed_keys"], ["x", "y"])
+        self.assertEqual(last["config"], {"x": 1})
+        self.assertTrue(str(last["id"]).startswith("rev-"))  # non-numeric id
+
+    def test_recorder_noop_when_unchanged(self):
+        before = len((api.load(api.CONFIG_REVS_FILE) or {}).get("revisions") or [])
+        api.record_config_revision({"a": 1}, {"a": 1}, "tester")
+        after = len((api.load(api.CONFIG_REVS_FILE) or {}).get("revisions") or [])
+        self.assertEqual(before, after)
+
+    def test_config_save_hook_present(self):
+        from tests import apisrc, srcpin
+        fn = srcpin.py_function(apisrc.api_source(), "handle_config_save")
+        self.assertIn("record_config_revision(_cfg_before, cfg, _cfg_actor)", fn)
+
+    def test_list_never_returns_config_bodies(self):
+        src = (_CGI / "config_revisions_handlers.py").read_text()
+        i = src.index("def handle_config_revisions_list")
+        j = src.index("def handle_config_revision_restore")
+        # the list projection must not include the stored config dicts
+        self.assertNotIn("'config':", src[i:j].replace("r.get('config')", ""))
+
+    def test_ui_wired(self):
+        app = _js("app.js")
+        self.assertIn("function loadConfigRevisions", app)
+        self.assertIn("restoreConfigRevision", app)
+        self.assertIn('id="config-revisions-list"', _html())
+
+    def test_pinned_devices(self):
+        app = _js("app.js")
+        self.assertIn("function toggleDevicePin", app)
+        self.assertIn("pinned_devices", app)
+        self.assertIn("'Pinned'", app)
+        from tests import apisrc, srcpin
+        fn = srcpin.py_function(apisrc.api_source(), "_sanitise_ui_prefs")
+        self.assertIn("pinned_devices", fn)
+
+
 if __name__ == "__main__":
     unittest.main()

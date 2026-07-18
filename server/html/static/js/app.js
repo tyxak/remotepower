@@ -3857,6 +3857,7 @@ async function loadSettings() {
   // v3.12.0: refresh the Advanced → Storage backend card (best-effort).
   try { loadStorageBackendStatus(); } catch (e) {}
   try { loadSatellites(); } catch (e) {}
+  try { loadConfigRevisions(); } catch (e) {}   // v6.3.0: Advanced → Configuration history
   try { _loadStatusPageInto(data); } catch (e) {}
   // General
   document.getElementById('cfg-server-name').value = data.server_name || '';
@@ -19509,6 +19510,40 @@ for (const [idPfx, keyPfx, weights] of _SCORE_WEIGHT_DEFAULTS) {
   }
 }
 
+// ── v6.3.0 (UX): Settings → Advanced → Configuration history ─────────────────
+async function loadConfigRevisions() {
+  const box = document.getElementById('config-revisions-list');
+  if (!box) return;
+  const r = await api('GET', '/config/revisions').catch(() => null);
+  if (!r || !Array.isArray(r.revisions)) { box.innerHTML = ''; return; }
+  if (!r.revisions.length) {
+    box.innerHTML = '<div class="empty-state-sm">No configuration changes recorded yet — the first settings save will create one.</div>';
+    return;
+  }
+  box.innerHTML = r.revisions.map(v => {
+    const keys = v.changed_keys || [];
+    const preview = keys.slice(0, 6).join(', ') + (keys.length > 6 ? '…' : '');
+    return `<div class="rdef-row">
+      <span class="fs-12">${escHtml(new Date((v.ts || 0) * 1000).toLocaleString())} · <strong>${escHtml(v.user || '—')}</strong> · <span class="hint">${keys.length} key(s): ${escHtml(preview)}</span></span>
+      <button class="btn-icon" data-action="restoreConfigRevision" data-arg="${escAttr(v.id)}" title="Restore this configuration state">${_icon('undo', 12)} Restore</button>
+    </div>`;
+  }).join('');
+}
+async function restoreConfigRevision(id) {
+  if (!await uiConfirm({
+        title: 'Restore configuration',
+        message: 'Swap the live configuration for this snapshot? The current state is saved as a revision first, so you can restore back.',
+        confirmText: 'Restore', danger: true })) return;
+  const r = await api('POST', '/config/revisions/restore', { id });
+  if (r?.ok) {
+    toast('Configuration restored', 'success');
+    loadSettings();
+    loadAlertParams();
+  } else {
+    toast(r?.error || 'Failed', 'error');
+  }
+}
+
 async function loadAlertParams() {
   const cfg = await api('GET', '/config');
   if (!cfg) return;
@@ -20111,6 +20146,7 @@ const _ICONS = {
   redo:        '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   bell:        '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   columns:     '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+  star:        '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   link:        '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   users:       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mail:        '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
@@ -20337,6 +20373,7 @@ function _renderDrawerActions() {
     ['power',     'Power (PDU)',     () => { closeDeviceDrawer(); openPduModal(id, name); },                                                                                      false, false],
     ['zap',       'UPS dependency',  () => { closeDeviceDrawer(); openUpsDependencyModal(id, name); },                                                                             false, false],
     ['copy',      'Copy summary',    () => _copyDeviceSummary(d),                                                                                                                  false, false],
+    ['star',      _pinnedDevices().includes(id) ? 'Unpin device' : 'Pin device', () => toggleDevicePin(id, name),                                                                  false, false],
     ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
     ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
@@ -25927,6 +25964,22 @@ function downloadDiagnostics() {
 let _palOpen = false;
 let _palItems = [];      // [{label, kind, action: () => void}]
 let _palCursor = 0;
+// v6.3.0 (UX wave 5): pinned devices — a star in the drawer actions pins a
+// host; pinned hosts rank FIRST in the command palette (above recents) and
+// the list lives server-side in ui_prefs, so pins follow you across browsers.
+function _pinnedDevices() {
+  return Array.isArray(_uiPrefs.pinned_devices) ? _uiPrefs.pinned_devices : [];
+}
+function toggleDevicePin(id, name) {
+  const pins = _pinnedDevices().slice();
+  const i = pins.indexOf(id);
+  if (i >= 0) { pins.splice(i, 1); toast(`Unpinned ${name || id}`, 'info'); }
+  else { pins.unshift(id); if (pins.length > 20) pins.pop(); toast(`Pinned ${name || id}`, 'success'); }
+  _uiPrefs.pinned_devices = pins;
+  _scheduleFlushUiPrefs();
+  try { _renderDrawerActions(); } catch (_) {}   // refresh the Pin/Unpin label
+}
+
 // v6.3.0 (UX wave 2): recently-viewed devices — recorded on every drawer open
 // (localStorage, per-browser, cap 8), surfaced at the TOP of the palette so
 // the hosts you keep coming back to are one Ctrl-K + Enter away.
@@ -25949,9 +26002,23 @@ function _recentDevices() {
 
 function _palBuildIndex() {
   const items = [];
+  // v6.3.0 (UX wave 5): pinned devices rank first of all.
+  const cachedById = {};
+  for (const d of (window._devicesCache || [])) cachedById[d.id] = d;
+  for (const pid of _pinnedDevices()) {
+    if (typeof pid !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(pid)) continue;
+    const dev = cachedById[pid];
+    items.push({
+      label: (dev && dev.name) || pid,
+      kind: 'device',
+      sub: 'Pinned',
+      action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(pid, (dev && dev.name) || pid), 100); },
+    });
+  }
   // v6.3.0 (UX wave 2): recents first — the empty-query view shows the first
   // 20 items, so these are always visible the moment the palette opens.
   for (const d of _recentDevices()) {
+    if (_pinnedDevices().includes(d.id)) continue;   // already listed above
     if (typeof d.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(d.id)) continue;
     items.push({
       label: d.name || d.id,

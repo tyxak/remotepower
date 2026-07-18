@@ -62,6 +62,19 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 5
+- **Configuration history + one-click rollback** — every settings save that
+  changed something keeps the previous state (last 10, per-key change list,
+  who and when) under Settings → Advanced → Configuration history. Restore
+  swaps the live config for a snapshot; the replaced state is saved as a
+  revision first, so a restore is always undoable. Revision listings never
+  expose the stored config bodies (they hold secrets); restore is admin-only
+  and audited. New module `config_revisions_handlers.py`
+  (`GET /api/config/revisions`, `POST /api/config/revisions/restore`).
+- **Pinned devices** — a star in the device drawer pins a host; pinned hosts
+  rank first in the command palette (above recents) and the list lives on
+  your user record, so pins follow you across browsers.
+
 ### Wave 4
 - **Column show/hide on every paged table** — a columns icon in the pager opens
   a checkbox menu; hidden columns persist per table on your user record

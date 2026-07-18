@@ -383,6 +383,7 @@
     'Notifications': { fr: 'Notifications', de: 'Benachrichtigungen', zh: '通知', hi: 'सूचनाएँ', es: 'Notificaciones', ar: 'الإشعارات' },
     'Changed only': { fr: 'Modifiés seulement', de: 'Nur geänderte', zh: '仅显示已更改', hi: 'केवल बदले हुए', es: 'Solo modificados', ar: 'المعدّلة فقط' },
     'Columns':     { fr: 'Colonnes', de: 'Spalten', zh: '列', hi: 'कॉलम', es: 'Columnas', ar: 'الأعمدة' },
+    'Configuration history': { fr: 'Historique de configuration', de: 'Konfigurationsverlauf', zh: '配置历史', hi: 'कॉन्फ़िगरेशन इतिहास', es: 'Historial de configuración', ar: 'سجل الإعدادات' },
     'Prune':       { fr: 'Nettoyer', de: 'Bereinigen', zh: '清理', hi: 'साफ़ करें', es: 'Purgar', ar: 'تنظيف' },
     'Close':       { fr: 'Fermer', de: 'Schließen', zh: '关闭', hi: 'बंद करें', es: 'Cerrar', ar: 'إغلاق' },
     // ── section titles (.section-title) — coverage gate: test_v430_i18n_gate ──

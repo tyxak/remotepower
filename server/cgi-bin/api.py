@@ -46,6 +46,7 @@ ENROLL_TOKENS_FILE = DATA_DIR / 'enrollment_tokens.json'
 TOKENS_FILE      = DATA_DIR / 'tokens.json'
 CMDS_FILE        = DATA_DIR / 'commands.json'
 CONFIG_FILE      = DATA_DIR / 'config.json'
+CONFIG_REVS_FILE = DATA_DIR / 'config_revisions.json'   # v6.3.0: rollback history
 HISTORY_FILE     = DATA_DIR / 'history.json'
 SCHEDULE_FILE    = DATA_DIR / 'schedule.json'
 UPTIME_FILE      = DATA_DIR / 'uptime.json'
@@ -967,6 +968,21 @@ for _ri_name in (
 ):
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
+
+# Config revision history + one-click rollback (v6.3.0, UX program item 4).
+# CONFIG_REVS_FILE stays in api.py, read via A; handle_config_save's audit
+# tail calls record_config_revision with the pre-save snapshot.
+_cr_spec = _tk_ilu.spec_from_file_location(
+    'config_revisions_handlers', Path(__file__).parent / 'config_revisions_handlers.py')
+config_revisions_handlers_mod = _tk_ilu.module_from_spec(_cr_spec)
+_cr_spec.loader.exec_module(config_revisions_handlers_mod)
+config_revisions_handlers_mod.bind(globals())
+for _cr_name in (
+        'record_config_revision', 'handle_config_revisions_list',
+        'handle_config_revision_restore',
+):
+    globals()[_cr_name] = getattr(config_revisions_handlers_mod, _cr_name)
+del _cr_name
 
 # OpenSCAP compliance — scan queue + agent result intake + HTML-report download +
 # fleet overview. Same private-instance loader as tickets_handlers. The
@@ -25571,6 +25587,9 @@ def handle_config_save():
         if _changed:
             audit_log(_cfg_actor, 'config_changed',
                       f'keys={",".join(_changed)[:480]}')
+            # v6.3.0 (UX): the pre-save state becomes a restorable revision
+            # (Settings → Advanced → Configuration history).
+            record_config_revision(_cfg_before, cfg, _cfg_actor)
     except Exception as _ce:
         log_json('error', 'config_changed audit failed', error=str(_ce))
     # v3.14.0 (#30): if we just minted a SCIM token, return it once so the
@@ -26628,6 +26647,15 @@ def _sanitise_ui_prefs(raw):
     team = raw.get('team')
     if isinstance(team, str):
         out['team'] = _sanitize_str(team, 64)
+
+    # v6.3.0 (UX wave 5): pinned devices — device ids, palette-ranked first.
+    # An empty list is kept (it means "unpinned everything").
+    pinned = raw.get('pinned_devices')
+    if isinstance(pinned, list):
+        out['pinned_devices'] = [
+            d for d in pinned[:20]
+            if isinstance(d, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', d)
+        ]
 
     # v3.14.0: saved & shareable views — named snapshots of a page's filter
     # controls. A top-level list, not a per-table pref. Each entry is
@@ -60570,6 +60598,8 @@ def _build_exact_routes():
         ('GET', '/api/config/declarative'): handle_config_declarative,   # v5.8.0 (B3.5)
         ('POST', '/api/config/declarative'): handle_config_declarative,  # v5.8.0 (B3.5 import)
         ('POST', '/api/config'): handle_config_save,
+        ('GET', '/api/config/revisions'): handle_config_revisions_list,        # v6.3.0
+        ('POST', '/api/config/revisions/restore'): handle_config_revision_restore,  # v6.3.0
         ('DELETE', '/api/confirmations'): handle_confirmations_clear,
         ('GET', '/api/confirmations'): handle_confirmations_list,
         ('GET', '/api/containers'): handle_containers_overview,
