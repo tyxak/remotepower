@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-2">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-3">
 
 </head>
 <body>
@@ -114,6 +114,9 @@
         <button class="site-health ok" id="site-health" data-action="gotoSiteHealth" title="RemotePower health" aria-label="RemotePower control-plane health"></button>
         <!-- v5.0.0 (T6): fleet vitals readout — populated from /nav-counts -->
         <div class="vitals" id="header-vitals" role="group" aria-label="Fleet vitals"></div>
+        <!-- v6.3.0 (UX wave 3): notification center — last ~30 toasts of this
+             session, so a missed "Failed"/"Saved" is recoverable. -->
+        <button class="btn-icon" id="toast-history-btn" data-action="toggleToastHistory" title="Notifications (recent messages)" aria-label="Notification history"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>
         <!-- v6.3.0 (UX wave 1b): global undo/redo — small topbar arrows (MikroTik
              style). Enabled/labelled by uiUndoCtl (app.js); disabled when empty. -->
         <button class="btn-icon" id="topbar-undo" data-action="uiUndoAction" title="Undo" aria-label="Undo last action" disabled><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
@@ -134,6 +137,15 @@
       </div>
     </div>
   </header>
+  <!-- v6.3.0 (UX wave 3): notification-center popover (body level — never
+       trapped by a stacking context; see the overlay rule in project notes). -->
+  <div id="toast-history-pop" class="hidden" role="dialog" aria-label="Notification history">
+    <div class="toast-hist-head">
+      <div class="section-title">Notifications</div>
+      <button class="btn-icon" data-action="clearToastHistory" title="Clear the list" aria-label="Clear notification history"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+    </div>
+    <div id="toast-history-list" class="scroll-cap"></div>
+  </div>
   <!-- v4.1.0: floating restore button — only visible when the top bar is hidden. -->
   <button id="banner-restore" data-action="toggleBanner" title="Show the top bar" aria-label="Show top bar"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-362ebcd7"/></svg></button>
 
@@ -3366,6 +3378,7 @@
                  data-filter-count="ap-filter-count"
                  aria-label="Filter alert parameters">
           <span id="ap-filter-count" class="hint"></span>
+          <label class="hint nowrap" for="ap-only-modified"><input type="checkbox" id="ap-only-modified" data-change="apToggleOnlyModified"> Changed only</label>
           <div class="hint mt-4">Every field is a numeric alert-firing threshold, a grade/level cutoff or a score weight; blank a field to restore its default. Distinct from Monitoring → Tuning (which mutes alerts). <a href="docs/alert-parameters.md" class="c-accent">Documentation</a></div>
         </div>
 
@@ -4238,6 +4251,7 @@
               <p><strong>Topbar undo/redo.</strong> Two small arrow buttons in the top bar (and <kbd>Ctrl/Cmd-Z</kbd> / <kbd>Ctrl-Shift-Z</kbd> outside text fields) drive a global undo/redo stack — every undoable action registers there as well as in its toast, and the tooltip names what will be undone.</p>
               <p><strong>Optimistic alert actions.</strong> Pressing <code>a</code> in the alert inbox acknowledges instantly and the toast carries Undo (a real server-side un-ack). Resolve updates the row before the server answers and reverts with an error toast if it declines.</p>
               <p><strong>Everyday friction.</strong> Every table with an active filter shows <strong>&ldquo;N of M shown — filter active&rdquo;</strong> with a one-click <em>Clear filter</em> (stored filters persist across sessions, which used to make tables look mysteriously short). About a dozen &ldquo;Failed to load — refresh to retry&rdquo; dead ends across Checks, CVE, Hardware, Drift and more now have an inline <strong>Retry</strong> button. Settings tracks unsaved edits and asks before you navigate away. The Tickets page gains row checkboxes and a bulk bar: <em>Resolve selected</em> and <em>Assign to me</em>.</p>
+              <p><strong>Wave 3.</strong> Every alert row gets a <strong>copy-link</strong> icon — <code>#alerts/&lt;id&gt;</code> opens the inbox scrolled to that alert (paste it into a ticket or chat) · a <strong>notification bell</strong> in the topbar replays the last 30 toasts of the session · on Settings → Alert parameters, overridden fields get an accent edge + a <strong>per-field reset</strong>, and <strong>&ldquo;Changed only&rdquo;</strong> shows just your overrides.</p>
               <p><strong>Quick wins (wave 2).</strong> <kbd>Ctrl/Cmd-Enter</kbd> submits the active modal · a button whose action is still running dims until it settles (no more double submits, anywhere) · CVE ids and library commands are <strong>click-to-copy</strong> · every paged table gains a <strong>rows-per-page</strong> select and a <strong>CSV export</strong> icon honoring filter &amp; sort · <strong>recently-viewed devices</strong> sit at the top of the command palette · a <strong>&ldquo;new version — Reload&rdquo;</strong> toast appears when an update is deployed behind a running page · the last bare &ldquo;Loading…&rdquo; panels got skeleton lines.</p>
               <p class="hint">See <code>docs/v6.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -10338,34 +10352,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-2"></script>
+<script defer src="static/js/app.js?v=6.3.0-3"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-2"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-3"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-2"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-3"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-2"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-3"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-2"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-2"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-3"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-3"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10374,6 +10388,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-2"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-3"></script>
 </body>
 </html>

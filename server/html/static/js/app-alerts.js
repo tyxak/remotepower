@@ -17,9 +17,47 @@ async function loadAlerts() {
     _alertsAckCommentEnabled = !data || data.ack_comment_enabled !== false;
     _renderAlertsSummary(data && data.summary);
     renderAlerts();
+    _focusPendingAlert();   // v6.3.0 (UX wave 3): #alerts/<id> deep link
   } catch (e) {
     toast('Failed to load alerts', 'error');
   }
+}
+
+// ── v6.3.0 (UX wave 3): per-alert deep links ─────────────────────────────────
+// #alerts/<id> — the id is stashed in _pendingAlertDeepLink by the boot router
+// / hashchange listener (app.js) before showPage rewrites the hash; consumed
+// here once rows exist. If the alert isn't in the current status filter
+// (e.g. already resolved), widen to "all" ONCE and retry.
+function copyAlertLink(id) {
+  const url = `${location.origin}${location.pathname}#alerts/${encodeURIComponent(String(id))}`;
+  if (!navigator.clipboard) { toast('Clipboard unavailable', 'error'); return; }
+  navigator.clipboard.writeText(url).then(
+    () => toast('Alert link copied', 'success'),
+    () => toast('Could not copy', 'error'));
+}
+function _focusPendingAlert() {
+  const id = window._pendingAlertDeepLink;
+  if (!id || !/^[A-Za-z0-9_-]{1,64}$/.test(String(id))) return;
+  const row = document.querySelector(`#page-alerts .alerts-row[data-alert-id="${id}"]`);
+  if (!row) {
+    const st = document.getElementById('alerts-filter-status');
+    if (st && st.value !== 'all' && !window._alertDeepLinkWidened) {
+      window._alertDeepLinkWidened = true;
+      st.value = 'all';
+      loadAlerts();
+      return;
+    }
+    window._pendingAlertDeepLink = null;
+    window._alertDeepLinkWidened = false;
+    toast('Alert not found — it may have been purged', 'info');
+    return;
+  }
+  window._pendingAlertDeepLink = null;
+  window._alertDeepLinkWidened = false;
+  row.scrollIntoView({ block: 'center' });
+  const rows = _kbAlertRows();
+  _kbAlertIdx = rows.indexOf(row);
+  _kbAlertPaint(rows);
 }
 
 // ── v4.9.0 ResolutionMatters #4: alert-resolution timeline (MTTR) ────────────
@@ -98,13 +136,15 @@ function _alertRowHtml(a, role) {
       actions += `<button class="btn-icon btn-xs" data-action="mitigateAlert" data-arg="${a.id}" title="Fix: run the guided remediation playbook for this alert">${_icon('wrench',14)} Fix</button> `;
     }
     actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button> `;
-    actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
+    actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button> `;
+    actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
       actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;
     }
   } else {
     const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
-    actions = `<span class="c-muted">resolved by ${byWho}</span>`;
+    actions = `<span class="c-muted">resolved by ${byWho}</span> `
+      + `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
   }
   const cb = isResolved ? '' :
     `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;

@@ -380,6 +380,8 @@
     'Assign to me': { fr: 'Me l’assigner', de: 'Mir zuweisen', zh: '分配给我', hi: 'मुझे सौंपें', es: 'Asignármelo', ar: 'إسناد إليّ' },
     'Resolve selected': { fr: 'Résoudre la sélection', de: 'Ausgewählte lösen', zh: '解决所选', hi: 'चयनित हल करें', es: 'Resolver seleccionados', ar: 'حل المحدد' },
     'Reload':      { fr: 'Recharger', de: 'Neu laden', zh: '重新加载', hi: 'फिर लोड करें', es: 'Recargar', ar: 'إعادة التحميل' },
+    'Notifications': { fr: 'Notifications', de: 'Benachrichtigungen', zh: '通知', hi: 'सूचनाएँ', es: 'Notificaciones', ar: 'الإشعارات' },
+    'Changed only': { fr: 'Modifiés seulement', de: 'Nur geänderte', zh: '仅显示已更改', hi: 'केवल बदले हुए', es: 'Solo modificados', ar: 'المعدّلة فقط' },
     'Prune':       { fr: 'Nettoyer', de: 'Bereinigen', zh: '清理', hi: 'साफ़ करें', es: 'Purgar', ar: 'تنظيف' },
     'Close':       { fr: 'Fermer', de: 'Schließen', zh: '关闭', hi: 'बंद करें', es: 'Cerrar', ar: 'إغلاق' },
     // ── section titles (.section-title) — coverage gate: test_v430_i18n_gate ──

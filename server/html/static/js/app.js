@@ -863,6 +863,11 @@ function _routeFromHashOnBoot() {
     const raw = (location.hash || '').replace(/^#/, '');
     if (!raw || raw === 'home') return;
     if (raw.startsWith('device/') || raw.startsWith('devices?')) return;  // own handlers
+    // v6.3.0 (UX wave 3): #alerts/<id> deep link — stash the id BEFORE
+    // showPage's hash sync rewrites the hash to plain #alerts; loadAlerts
+    // consumes it (scroll + highlight) once the rows render.
+    const am = raw.match(/^alerts\/([A-Za-z0-9_-]{1,64})$/);
+    if (am) window._pendingAlertDeepLink = am[1];
     const page = raw.split(/[/?]/)[0];
     // v5.6.x lazy pages: a not-yet-instantiated page exists as a <template>
     // — count it as known (showPage clones it), or a refresh on a lazy
@@ -5408,6 +5413,55 @@ function fmtTempDelta(c, digits = 1) {
   const v = f ? (Number(c) * 9 / 5) : Number(c);
   return `${v.toFixed(digits)}${f ? '°F' : '°C'}`;
 }
+// ── v6.3.0 (UX wave 3): notification center ──────────────────────────────────
+// Toasts vanish in seconds; the bell in the topbar keeps the last 30 of this
+// session so a missed "Failed" or "Saved" is recoverable. Session-only by
+// design (alerts/audit are the durable records — this is UI feedback replay).
+const _toastHistory = [];
+function _recordToast(msg, type) {
+  _toastHistory.unshift({ msg: String(msg), type: type || 'info', ts: Math.floor(Date.now() / 1000) });
+  if (_toastHistory.length > 30) _toastHistory.pop();
+  const pop = document.getElementById('toast-history-pop');
+  if (pop && !pop.classList.contains('hidden')) _renderToastHistory();
+  else document.getElementById('toast-history-btn')?.classList.add('has-unread');
+}
+function _renderToastHistory() {
+  const list = document.getElementById('toast-history-list');
+  if (!list) return;
+  if (!_toastHistory.length) {
+    list.innerHTML = '<div class="empty-state-sm">No notifications this session.</div>';
+    return;
+  }
+  const icons = { success: 'check', error: 'x', info: 'info' };
+  list.innerHTML = _toastHistory.map(t =>
+    `<div class="toast-hist-row th-${escAttr(t.type)}">`
+    + `<span class="toast-hist-ic">${_icon(icons[t.type] || 'info', 13)}</span>`
+    + `<span class="toast-hist-msg">${escHtml(t.msg)}</span>`
+    + `<span class="toast-hist-ts">${escHtml(timeAgo(t.ts, { clamp: true }))}</span>`
+    + '</div>').join('');
+}
+function toggleToastHistory() {
+  const pop = document.getElementById('toast-history-pop');
+  if (!pop) return;
+  const opening = pop.classList.contains('hidden');
+  pop.classList.toggle('hidden', !opening);
+  if (opening) {
+    document.getElementById('toast-history-btn')?.classList.remove('has-unread');
+    _renderToastHistory();
+  }
+}
+function clearToastHistory() {
+  _toastHistory.length = 0;
+  _renderToastHistory();
+}
+// Click anywhere else closes the popover.
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('toast-history-pop');
+  if (!pop || pop.classList.contains('hidden')) return;
+  if (e.target.closest('#toast-history-pop') || e.target.closest('#toast-history-btn')) return;
+  pop.classList.add('hidden');
+});
+
 let toastId = 0;
 // v6.3.0 (UX wave 1): optional third arg `opts` —
 //   { action: {label, fn}, duration: ms, onTimeout: fn }
@@ -5416,6 +5470,7 @@ let toastId = 0;
 // WITHOUT the action being clicked (deferred-commit deletes hang off this).
 // Action toasts default to a longer 6s window so there's time to react.
 function toast(msg, type = 'info', opts = {}) {
+  _recordToast(msg, type);   // v6.3.0 (UX wave 3): notification-center history
   const id = 'toast-' + (++toastId);
   const icons = {success: 'check', error: 'x', info: 'info'};
   const el = document.createElement('div');
@@ -5477,6 +5532,15 @@ function uiRetry(key) {
   delete _retryReg[key];
   if (typeof fn === 'function') fn();
 }
+
+// v6.3.0 (UX wave 3): #alerts/<id> pasted into a RUNNING app (hashchange, not
+// boot) — stash the id and navigate; loadAlerts (called by showPage) consumes.
+window.addEventListener('hashchange', () => {
+  const m = (location.hash || '').match(/^#alerts\/([A-Za-z0-9_-]{1,64})$/);
+  if (!m) return;
+  window._pendingAlertDeepLink = m[1];
+  showPage('alerts', document.querySelector('.nav-btn[data-page="alerts"]'));
+});
 
 // v6.3.0 (UX wave 2): click-to-copy. Any element carrying data-copy copies its
 // value (the attribute if non-empty, else its trimmed text) to the clipboard
@@ -19338,8 +19402,59 @@ async function loadAlertParams() {
     if (!el) continue;
     const v = cfg[key];
     el.value = (v === undefined || v === null || v === '') ? dflt : v;
+    _apMarkModified(el, dflt);   // v6.3.0 (UX wave 3): modified-from-default dot
   }
 }
+
+// ── v6.3.0 (UX wave 3): Alert parameters — modified indicators + reset ───────
+// A field whose value differs from its default gets an accent edge on the
+// input and a small per-field reset button; the "Changed only" checkbox
+// collapses the ~120-field page down to just the overrides. Blank still means
+// "use the default" (the save loop pops blank overrides), so blank ≡ clean.
+function _apDefaultFor(id) {
+  const row = _ALERT_PARAM_FIELDS.find(f => f[0] === id);
+  return row ? row[2] : undefined;
+}
+function _apMarkModified(el, dflt) {
+  const grp = el.closest('.form-group');
+  if (!grp) return;
+  const modified = String(el.value) !== '' && String(el.value) !== String(dflt);
+  grp.classList.toggle('ap-modified', modified);
+  let btn = grp.querySelector('.ap-reset');
+  if (modified && !btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-icon ap-reset';
+    btn.setAttribute('data-action', 'apResetField');
+    btn.setAttribute('data-arg', el.id);
+    btn.title = `Reset to default (${dflt})`;
+    btn.setAttribute('aria-label', 'Reset to default');
+    btn.innerHTML = _icon('undo', 11);
+    grp.appendChild(btn);
+  } else if (!modified && btn) {
+    btn.remove();
+  }
+}
+function apResetField(id) {
+  const el = document.getElementById(id);
+  const dflt = _apDefaultFor(id);
+  if (!el || dflt === undefined) return;
+  el.value = dflt;
+  _apMarkModified(el, dflt);
+  toast('Reset to default — Save to apply', 'info');
+}
+function apToggleOnlyModified() {
+  const pane = document.getElementById('settings-pane-alertparams');
+  const cb = document.getElementById('ap-only-modified');
+  if (pane && cb) pane.classList.toggle('ap-mod-only', cb.checked);
+}
+// Live re-mark while typing (delegated — fields are static markup).
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el || !el.id || !el.closest || !el.closest('#settings-pane-alertparams')) return;
+  const dflt = _apDefaultFor(el.id);
+  if (dflt !== undefined) _apMarkModified(el, dflt);
+});
 
 async function saveAlertParams(btn) {
   const payload = {};
@@ -19879,6 +19994,8 @@ function switchDrawerTab(tab) {
 const _ICONS = {
   undo:        '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo:        '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+  bell:        '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  link:        '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   users:       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mail:        '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
   eye:         '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',

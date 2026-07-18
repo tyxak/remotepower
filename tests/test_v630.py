@@ -343,5 +343,59 @@ class TestWave2QuickWins(unittest.TestCase):
             self.assertIn("_skeletonBlock(", _js(f), f)
 
 
+class TestWave3(unittest.TestCase):
+    """UX wave 3: per-alert deep links, notification center, alert-params
+    modified-from-default indicators + reset + changed-only view."""
+
+    def test_alert_deep_link_plumbing(self):
+        app = _js("app.js")
+        # boot router stashes the id BEFORE showPage rewrites the hash
+        self.assertIn("_pendingAlertDeepLink", app)
+        self.assertIn(r"alerts\/([A-Za-z0-9_-]{1,64})", app)
+        alerts = _js("app-alerts.js")
+        self.assertIn("_focusPendingAlert", alerts)
+        self.assertIn("copyAlertLink", alerts)
+        # the copy button exists on BOTH open and resolved rows
+        self.assertEqual(alerts.count('data-action="copyAlertLink"'), 2)
+
+    def test_alert_deep_link_widens_filter_once(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app-alerts.js"), "_focusPendingAlert")
+        self.assertIn("_alertDeepLinkWidened", fn)
+        self.assertIn("'all'", fn)
+
+    def test_notification_center(self):
+        app = _js("app.js")
+        self.assertIn("_toastHistory", app)
+        self.assertIn("function toggleToastHistory", app)
+        # toast() records into the history
+        from tests import srcpin
+        fn = srcpin.js_function(app, "toast")
+        self.assertIn("_recordToast", fn)
+        html = _html()
+        self.assertIn('id="toast-history-btn"', html)
+        self.assertIn('id="toast-history-pop"', html)
+        # The popover must sit OUTSIDE .container (the z-index stacking-context
+        # trap) — as a direct #app child before <main>, sibling of the sidebar,
+        # so it inherits logged-out hiding and still stacks above the sidebar.
+        self.assertLess(html.index('id="toast-history-pop"'),
+                        html.index('<div class="container">'))
+
+    def test_alert_params_modified_and_reset(self):
+        app = _js("app.js")
+        self.assertIn("_apMarkModified", app)
+        self.assertIn("function apResetField", app)
+        self.assertIn("function apToggleOnlyModified", app)
+        # loadAlertParams marks every field after populating it
+        from tests import srcpin
+        fn = srcpin.js_function(app, "loadAlertParams")
+        self.assertIn("_apMarkModified", fn)
+        html = _html()
+        self.assertIn('id="ap-only-modified"', html)
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.assertIn("ap-mod-only", css)
+        self.assertIn(".ap-reset", css)
+
+
 if __name__ == "__main__":
     unittest.main()

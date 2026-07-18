@@ -2094,6 +2094,46 @@
     flex-shrink: 0;
   }
   .toast-action:hover { background: var(--accent-soft, rgba(94,141,255,0.12)); }
+  /* v6.3.0 (UX wave 3): notification center — bell + popover */
+  #toast-history-btn { position: relative; }
+  #toast-history-btn.has-unread::after {
+    content: ''; position: absolute; top: 3px; right: 3px;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  }
+  #toast-history-pop {
+    position: fixed; top: 52px; right: 16px; z-index: 950;
+    width: 320px; max-width: calc(100vw - 24px);
+    background: var(--surface); border: 1px solid var(--hair);
+    border-radius: 11px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    padding: 10px 12px;
+  }
+  #toast-history-pop.hidden { display: none; }
+  .toast-hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .toast-hist-row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 5px 2px; font-size: 12.5px;
+    border-top: 1px solid var(--hair-2, var(--hair));
+  }
+  .toast-hist-row:first-child { border-top: none; }
+  .toast-hist-ic { flex-shrink: 0; position: relative; top: 2px; }
+  .toast-hist-row.th-error .toast-hist-ic { color: var(--red); }
+  .toast-hist-row.th-success .toast-hist-ic { color: var(--green); }
+  .toast-hist-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .toast-hist-ts { flex-shrink: 0; font-size: 10px; color: var(--muted); }
+  [dir="rtl"] #toast-history-pop { right: auto; left: 16px; }
+  [dir="rtl"] #toast-history-btn.has-unread::after { right: auto; left: 3px; }
+  /* v6.3.0 (UX wave 3): Alert parameters — modified-from-default markers */
+  #settings-pane-alertparams .form-group { position: relative; }
+  #settings-pane-alertparams .form-group.ap-modified input {
+    border-left: 2px solid var(--accent);
+  }
+  [dir="rtl"] #settings-pane-alertparams .form-group.ap-modified input {
+    border-left: 1px solid var(--border); border-right: 2px solid var(--accent);
+  }
+  .ap-reset { position: absolute; top: -2px; right: 0; padding: 1px 5px; }
+  [dir="rtl"] .ap-reset { right: auto; left: 0; }
+  #settings-pane-alertparams.ap-mod-only .form-group:not(.ap-modified) { display: none; }
+  #settings-pane-alertparams.ap-mod-only .settings-section:not(:has(.form-group.ap-modified)) { display: none; }
   /* v6.3.0 (UX wave 2): async data-action buttons dim while their handler runs */
   .btn-inflight { opacity: .55; pointer-events: none; cursor: progress; }
   /* v6.3.0 (UX wave 2): click-to-copy affordance */

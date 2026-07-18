@@ -62,6 +62,19 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 3
+- **Per-alert deep links** — every alert row (open *and* resolved) gets a small
+  link icon that copies `#alerts/<id>`; opening such a link navigates to the
+  inbox, scrolls to the alert and highlights it, widening the status filter to
+  "all" once if the alert has since resolved. Paste-able into tickets/chat.
+- **Notification center** — a bell in the topbar keeps the last 30 toasts of
+  the session (with an unread dot), so a missed "Failed"/"Saved" is
+  recoverable instead of gone in 3.5 seconds.
+- **Alert parameters: see and undo your overrides** — a field that differs
+  from its default gets an accent edge + a small per-field reset button
+  (tooltip shows the default), and a **"Changed only"** checkbox collapses the
+  ~120-field page down to just your overrides.
+
 Internal: the UX program's full 50-item scoped backlog lives in the internal
 docs repo; the two `showPage` fixed-window test pins were migrated to srcpin,
 and `srcpin.js_function` now handles default-object parameters.
