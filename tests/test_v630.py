@@ -505,5 +505,28 @@ class TestWave5ConfigRevisions(unittest.TestCase):
         self.assertIn("pinned_devices", fn)
 
 
+class TestWave6(unittest.TestCase):
+    """UX wave 6: script duplicate + undoable delete, cross-tab alert sync."""
+
+    def test_script_duplicate_and_undoable_delete(self):
+        app = _js("app.js")
+        self.assertIn("function duplicateScript", app)
+        self.assertIn('data-action="duplicateScript"', app)
+        from tests import srcpin
+        fn = srcpin.js_function(app, "deleteScript")
+        self.assertIn("undoableDelete", fn)
+        self.assertNotIn("uiConfirm", fn)
+
+    def test_cross_tab_alert_sync(self):
+        app = _js("app.js")
+        self.assertIn("BroadcastChannel", app)
+        self.assertIn("'rp-sync'", app)
+        self.assertIn("_bcast('alerts')", app)
+        # sender is central in api(): any successful non-GET under /alerts
+        from tests import srcpin
+        fn = srcpin.js_function(app, "api")
+        self.assertIn("_bcast('alerts')", fn)
+
+
 if __name__ == "__main__":
     unittest.main()

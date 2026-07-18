@@ -1452,6 +1452,13 @@ async function api(method, path, body, extra) {
   if (r.ok && method === 'POST' && (path === '/config' || path === '/ai/config')) {
     window._settingsDirty = false;
   }
+  // v6.3.0 (UX wave 6): cross-tab nudge — an alert mutation in this tab tells
+  // other open tabs to refresh their badge/inbox instead of waiting for the
+  // next poll. Central here so every ack/resolve/mute/bulk path is covered.
+  if (r.ok && method !== 'GET'
+      && (path.startsWith('/alerts') || path.startsWith('/alert-mutes'))) {
+    _bcast('alerts');
+  }
   if (r.status === 401) { doLogout(); return null; }
   if (_useEtag) {
     if (r.status === 304) {
@@ -5512,6 +5519,24 @@ function fmtTempDelta(c, digits = 1) {
   const v = f ? (Number(c) * 9 / 5) : Number(c);
   return `${v.toFixed(digits)}${f ? '°F' : '°C'}`;
 }
+// ── v6.3.0 (UX wave 6): cross-tab sync (BroadcastChannel) ───────────────────
+// An alert action in one tab refreshes the badge/inbox in every other open
+// tab immediately instead of waiting out the poll interval. Sender lives in
+// api() (any successful non-GET under /alerts). No-op where unsupported.
+const _rpBC = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('rp-sync') : null;
+function _bcast(kind) {
+  try { if (_rpBC) _rpBC.postMessage({ kind }); } catch (_) {}
+}
+if (_rpBC) {
+  _rpBC.addEventListener('message', (e) => {
+    if (!e.data || e.data.kind !== 'alerts') return;
+    try { if (typeof refreshAlertsBadge === 'function') refreshAlertsBadge(); } catch (_) {}
+    if (document.getElementById('page-alerts')?.classList.contains('active')) {
+      try { if (typeof loadAlerts === 'function') loadAlerts(); } catch (_) {}
+    }
+  });
+}
+
 // ── v6.3.0 (UX wave 3): notification center ──────────────────────────────────
 // Toasts vanish in seconds; the bell in the topbar keeps the last 30 of this
 // session so a missed "Failed" or "Saved" is recoverable. Session-only by
@@ -13672,6 +13697,7 @@ function renderScriptsList() {
       <td>${dangerBadge}</td>
       <td class="nowrap">
         <button class="btn-icon isl-352" title="Edit" data-action="openScriptEdit" data-arg="${escAttr(s.id)}" >${_icon('edit',14)}</button>
+        <button class="btn-icon isl-352" title="Duplicate — prefill a new script from this one" data-action="duplicateScript" data-arg="${escAttr(s.id)}">${_icon('copy',14)}</button>
         <button class="btn-icon isl-352" data-action="dryRunScript" data-arg="${escAttr(s.id)}" >Dry run</button>
         <button class="btn-icon isl-502 c-danger-outline" title="Delete" data-action="deleteScript" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name||'')}">${_icon('trash',14)}</button>
       </td>
@@ -13792,11 +13818,28 @@ async function dryRunScript(id) {
   loadScripts();
 }
 
+// v6.3.0 (UX wave 6): duplicate — the clone-as-prefill pattern (cloneMonitor):
+// opens the editor as a NEW script carrying the source's body, so saving mints
+// a fresh id and the original is untouched.
+async function duplicateScript(id) {
+  const data = await api('GET', '/scripts/' + encodeURIComponent(id)).catch(() => null);
+  if (!data || data.error) { toast((data && data.error) || 'Could not load the script', 'error'); return; }
+  openScriptAdd();
+  document.getElementById('script-edit-name').value = `${data.name || 'script'} (copy)`;
+  document.getElementById('script-edit-desc').value = data.description || '';
+  document.getElementById('script-edit-body').value = data.body || '';
+  document.getElementById('script-edit-title').textContent = `New script — copy of ${data.name || ''}`;
+}
+
 async function deleteScript(id, name) {
-  if (!await uiConfirm(`Delete script ${name || id}?`)) return;
-  const data = await api('DELETE', '/scripts/' + encodeURIComponent(id));
-  if (data?.ok) { toast('Script deleted', 'info'); loadScripts(); }
-  else toast(data?.error || 'Failed', 'error');
+  // v6.3.0 (UX wave 6): confirm-dialog → undoable delete (deferred commit).
+  undoableDelete({
+    label: name ? `Script “${name}” deleted` : 'Script deleted',
+    hide: () => _hideRowByAction('deleteScript', id),
+    commit: () => api('DELETE', '/scripts/' + encodeURIComponent(id)),
+    undo: () => loadScripts(),
+    after: () => loadScripts(),
+  });
 }
 
 // ── Run-script modal: single device OR batch (current selection) ──────────

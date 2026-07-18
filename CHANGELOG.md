@@ -62,6 +62,15 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 6
+- **Duplicate for saved scripts** — the clone-as-prefill pattern monitors and
+  fleet queries already had: one click opens the editor as a new script
+  carrying the source's body. Script delete also moved from confirm-dialog to
+  the undoable (deferred-commit) pattern.
+- **Cross-tab sync** — an alert action in one tab (ack/resolve/mute/bulk)
+  refreshes the badge and inbox in every other open tab immediately via
+  BroadcastChannel, instead of waiting out the poll interval.
+
 ### Wave 5
 - **Configuration history + one-click rollback** — every settings save that
   changed something keeps the previous state (last 10, per-key change list,
