@@ -400,7 +400,7 @@ async function loadCustomCheckList() {
   const scope = c => c.target_kind === 'all' ? 'whole fleet'
     : c.target_kind === 'host' ? `host: ${escHtml(_ccDevNames[c.target] || c.target)}`
     : `${c.target_kind}: ${escHtml(c.target)}`;
-  const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check">${_icon('edit',14)}</button>`;
+  const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check">${_icon('edit',14)}</button><button class="btn-icon btn-xs" data-action="duplicateCustomCheck" data-arg="${escAttr(id)}" title="Duplicate — prefill a new check from this one">${_icon('copy',14)}</button>`;
   el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
     checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
   }</tbody></table></div>`;
@@ -420,6 +420,18 @@ function editCustomCheck(id) {
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Save changes';
   const nm = document.getElementById('cc-name'); if (nm) nm.focus();
 }
+// v6.3.0 (UX wave 8): duplicate — the clone-as-prefill pattern: reuse the
+// edit prefill, then detach from the source id so saving ADDS a new check.
+function duplicateCustomCheck(id) {
+  editCustomCheck(id);
+  _ccEditId = null;
+  const nm = document.getElementById('cc-name');
+  if (nm) nm.value = (nm.value || 'check') + ' (copy)';
+  const b = document.getElementById('cc-save-btn');
+  if (b) b.textContent = 'Add check';
+  toast('Prefilled — saving adds a new check', 'info');
+}
+
 async function saveCustomCheck() {
   const body = {
     name: document.getElementById('cc-name')?.value.trim() || '',

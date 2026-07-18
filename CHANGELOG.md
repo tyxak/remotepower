@@ -62,6 +62,17 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 8
+- **Draft autosave in the KB editor** (same pattern as the script editor).
+- **Duplicate for custom checks** — prefill-clone; saving adds a new check.
+- **Theme follows across tabs** — switching theme/accent in one tab applies
+  to every other open tab instantly (native storage events).
+- **Alert purge confirms state their blast radius** — "Clear resolved (37)?"
+  and a full open/acknowledged/resolved breakdown on "Clear all".
+- **Page-aware help covers ~37 pages** — the `?` overlay's "This page" doc
+  map grew by 16 (Tickets, WG Access, Settings, Monitoring, Exposure,
+  Firewall, GPUs, Integrations, Patches, Reports, Risk, Storage, Thermal, …).
+
 ### Wave 7
 - **Draft autosave in the script editor** — every keystroke snapshots to the
   browser; reopening the editor with unsaved work pending offers a "Restore

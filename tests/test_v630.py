@@ -541,5 +541,39 @@ class TestWave7ScriptDrafts(unittest.TestCase):
         self.assertIn("removeItem('rp_draft_script_' + (id || 'new'))", fn)
 
 
+class TestWave8(unittest.TestCase):
+    """UX wave 8: KB drafts, check duplicate, theme cross-tab, purge counts."""
+
+    def test_kb_draft_autosave(self):
+        kb = _js("app-kb.js")
+        self.assertIn("rp_draft_kb_", kb)
+        self.assertIn("function _maybeOfferKbDraft", kb)
+        self.assertEqual(kb.count("_maybeOfferKbDraft();"), 2)
+        self.assertIn("removeItem('rp_draft_kb_' + (id || 'new'))", kb)
+
+    def test_custom_check_duplicate(self):
+        checks = _js("app-checks.js")
+        self.assertIn("function duplicateCustomCheck", checks)
+        self.assertIn('data-action="duplicateCustomCheck"', checks)
+        # must detach from the source id or "duplicate" would overwrite it
+        from tests import srcpin
+        fn = srcpin.js_function(checks, "duplicateCustomCheck")
+        self.assertIn("_ccEditId = null", fn)
+
+    def test_theme_follows_across_tabs(self):
+        app = _js("app.js")
+        i = app.index("window.addEventListener('storage'")
+        chunk = app[i:i + 500]
+        self.assertIn("rp_theme", chunk)
+        self.assertIn("applyTheme", chunk)
+
+    def test_alert_purge_confirms_state_counts(self):
+        alerts = _js("app-alerts.js")
+        self.assertIn("_alertsSummary", alerts)
+        from tests import srcpin
+        self.assertIn("resolved", srcpin.js_function(alerts, "clearResolvedAlerts"))
+        self.assertIn("acknowledged", srcpin.js_function(alerts, "clearAllAlerts"))
+
+
 if __name__ == "__main__":
     unittest.main()

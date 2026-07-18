@@ -1155,6 +1155,14 @@ function setAccent(name) {
   try { localStorage.setItem('rp_accent', name); } catch (_) {}
   applyAccent();
 }
+// v6.3.0 (UX wave 8): theme/accent changes follow across open tabs — the
+// native `storage` event fires in every OTHER tab on a localStorage write,
+// so no broadcast plumbing is needed for these.
+window.addEventListener('storage', (e) => {
+  if (!e || !e.key) return;
+  if (e.key === 'rp_theme' || e.key === 'rp_theme_sched') { try { applyTheme(); } catch (_) {} }
+  else if (e.key === 'rp_accent') { try { applyAccent(); } catch (_) {} }
+});
 const _ACCENT_COLORS = { blue: '#3b7eff', emerald: '#10b981', violet: '#8b5cf6', amber: '#f59e0b', rose: '#f43f5e', cyan: '#06b6d4' };
 function _buildThemeGrid() {
   const grid = document.getElementById('acct-theme-grid');
@@ -26387,6 +26395,23 @@ const _PAGE_HELP = {
   scripts:    { doc: 'docs/custom-scripts.md' },
   automation: { doc: 'docs/automations.md' },
   ai:         { doc: 'docs/ai.md' },
+  // v6.3.0 (wave 8): second sweep of the map
+  tickets:    { doc: 'docs/ticket-system.md' },
+  vpn:        { doc: 'docs/wg-access.md' },
+  settings:   { doc: 'docs/settings.md' },
+  monitor:    { doc: 'docs/monitors.md' },
+  exposure:   { doc: 'docs/exposure.md' },
+  firewall:   { doc: 'docs/firewall.md' },
+  gpus:       { doc: 'docs/gpus.md' },
+  integrations: { doc: 'docs/integrations.md' },
+  netmetrics: { doc: 'docs/network-metrics.md' },
+  patches:    { doc: 'docs/patches.md' },
+  patchsnapshots: { doc: 'docs/patch-snapshots.md' },
+  power:      { doc: 'docs/power.md' },
+  reports:    { doc: 'docs/reports.md' },
+  risk:       { doc: 'docs/risk.md' },
+  storage:    { doc: 'docs/storage.md' },
+  thermal:    { doc: 'docs/thermal.md' },
 };
 function _pageHelpRows() {
   const active = document.querySelector('.page.active');

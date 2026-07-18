@@ -13,6 +13,7 @@ async function loadAlerts() {
   try {
     const data = await api('GET', `/alerts?status=${encodeURIComponent(status)}&limit=500`);
     _alertsCache = (data && data.alerts) || [];
+    window._alertsSummary = (data && data.summary) || null;   // v6.3.0 (wave 8): blast-radius counts
     // v4.1.0 (#56): whether to prompt for an optional comment on ack.
     _alertsAckCommentEnabled = !data || data.ack_comment_enabled !== false;
     _renderAlertsSummary(data && data.summary);
@@ -446,7 +447,9 @@ async function bulkResolveAlerts() {
 
 // v3.2.0 follow-up: bulk-purge resolved or all alerts
 async function clearResolvedAlerts() {
-  if (!await uiConfirm('Remove every alert in "resolved" state? Open and acknowledged rows stay.')) return;
+  // v6.3.0 (wave 8): state the blast radius — the concrete count, not "every".
+  const n = window._alertsSummary && window._alertsSummary.resolved;
+  if (!await uiConfirm(`Remove every alert in "resolved" state${n ? ` (${n})` : ''}? Open and acknowledged rows stay.`)) return;
   const r = await api('DELETE', '/alerts?scope=resolved');
   if (r && r.ok) {
     toast(`Cleared ${r.removed} resolved alert(s)`, 'success');
@@ -455,7 +458,9 @@ async function clearResolvedAlerts() {
 }
 
 async function clearAllAlerts() {
-  if (!await uiConfirm('Remove EVERY alert — including open and acknowledged ones?\n\nThis cannot be undone. Use "Clear resolved" if you only want to purge resolved.')) return;
+  const s = window._alertsSummary || {};
+  const n = (s.open || 0) + (s.acknowledged || 0) + (s.resolved || 0);
+  if (!await uiConfirm(`Remove EVERY alert${n ? ` (${n} total: ${s.open || 0} open, ${s.acknowledged || 0} acknowledged, ${s.resolved || 0} resolved)` : ' — including open and acknowledged ones'}?\n\nThis cannot be undone. Use "Clear resolved" if you only want to purge resolved.`)) return;
   const r = await api('DELETE', '/alerts?scope=all');
   if (r && r.ok) {
     toast(`Cleared ${r.removed} alert(s)`, 'success');

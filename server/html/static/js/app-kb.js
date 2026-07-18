@@ -156,6 +156,38 @@ async function openKbArticle(id) {
     + `<div class="kb-view-body ai-content">${renderMarkdown(a.body || '_(empty)_')}</div>`;
 }
 
+// ── v6.3.0 (UX wave 8): draft autosave — same pattern as the script editor ───
+function _kbDraftKey() {
+  return 'rp_draft_kb_' + (document.getElementById('kb-edit-id').value || 'new');
+}
+document.addEventListener('input', (e) => {
+  if (!e.target.closest || !e.target.closest('#kb-edit-modal')) return;
+  try {
+    localStorage.setItem(_kbDraftKey(), JSON.stringify({
+      title: document.getElementById('kb-edit-title-input').value,
+      category: document.getElementById('kb-edit-category').value,
+      tags: document.getElementById('kb-edit-tags').value,
+      body: document.getElementById('kb-edit-body').value,
+      ts: Date.now(),
+    }));
+  } catch (_) {}
+});
+function _maybeOfferKbDraft() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(_kbDraftKey()) || 'null'); } catch (_) {}
+  if (!d || !d.body) return;
+  if (d.body === document.getElementById('kb-edit-body').value) return;
+  toast('An unsaved draft of this article exists', 'info', {
+    duration: 8000,
+    action: { label: 'Restore draft', icon: 'undo', fn: () => {
+      document.getElementById('kb-edit-title-input').value = d.title || '';
+      document.getElementById('kb-edit-category').value = d.category || '';
+      document.getElementById('kb-edit-tags').value = d.tags || '';
+      document.getElementById('kb-edit-body').value = d.body || '';
+    } },
+  });
+}
+
 function openKbCreate() {
   document.getElementById('kb-edit-id').value = '';
   document.getElementById('kb-edit-title').textContent = 'New article';
@@ -167,6 +199,7 @@ function openKbCreate() {
   const btn = document.getElementById('kb-save-btn');
   if (btn) btn.textContent = 'Create';
   openModal('kb-edit-modal');
+  _maybeOfferKbDraft();   // v6.3.0 (wave 8)
 }
 
 async function openKbEdit(id) {
@@ -183,6 +216,7 @@ async function openKbEdit(id) {
   const btn = document.getElementById('kb-save-btn');
   if (btn) btn.textContent = 'Save';
   openModal('kb-edit-modal');
+  _maybeOfferKbDraft();   // v6.3.0 (wave 8)
 }
 
 async function saveKbArticle() {
@@ -200,6 +234,8 @@ async function saveKbArticle() {
     ? await api('PATCH', '/kb/' + encodeURIComponent(id), payload).catch(() => null)
     : await api('POST', '/kb', payload).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return; }
+  // v6.3.0 (wave 8): a successful save clears the draft (pre-save id).
+  try { localStorage.removeItem('rp_draft_kb_' + (id || 'new')); } catch (_) {}
   toast('Article saved', 'success');
   closeModal('kb-edit-modal');
   const openId = id || r.id;
