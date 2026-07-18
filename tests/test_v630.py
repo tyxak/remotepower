@@ -528,5 +528,18 @@ class TestWave6(unittest.TestCase):
         self.assertIn("_bcast('alerts')", fn)
 
 
+class TestWave7ScriptDrafts(unittest.TestCase):
+    def test_draft_autosave_wired(self):
+        app = _js("app.js")
+        self.assertIn("rp_draft_script_", app)
+        self.assertIn("function _maybeOfferScriptDraft", app)
+        # offered on BOTH editor-open paths (new + edit)
+        self.assertEqual(app.count("_maybeOfferScriptDraft();"), 2)
+        # cleared on successful save using the PRE-save id
+        from tests import srcpin
+        fn = srcpin.js_function(app, "saveScriptFromEditor")
+        self.assertIn("removeItem('rp_draft_script_' + (id || 'new'))", fn)
+
+
 if __name__ == "__main__":
     unittest.main()

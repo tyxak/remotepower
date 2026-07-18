@@ -62,6 +62,12 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 7
+- **Draft autosave in the script editor** — every keystroke snapshots to the
+  browser; reopening the editor with unsaved work pending offers a "Restore
+  draft" toast, and a successful save clears it. No more losing 40 minutes of
+  bash to a crashed tab.
+
 ### Wave 6
 - **Duplicate for saved scripts** — the clone-as-prefill pattern monitors and
   fleet queries already had: one click opens the editor as a new script

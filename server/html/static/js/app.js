@@ -13713,6 +13713,7 @@ function openScriptAdd() {
   document.getElementById('script-edit-body').value = '#!/usr/bin/env bash\nset -euo pipefail\n\n';
   document.getElementById('script-edit-lint').style.display = 'none';
   openModal('script-edit-modal');
+  _maybeOfferScriptDraft();   // v6.3.0 (wave 7): offer an unsaved draft
   setTimeout(() => document.getElementById('script-edit-name').focus(), 50);
 }
 
@@ -13726,6 +13727,7 @@ async function openScriptEdit(id) {
   document.getElementById('script-edit-body').value = data.body || '';
   _renderLintIntoBox('script-edit-lint', data.last_lint || null);
   openModal('script-edit-modal');
+  _maybeOfferScriptDraft();   // v6.3.0 (wave 7): offer an unsaved draft
 }
 
 function _renderLintIntoBox(boxId, lint) {
@@ -13770,6 +13772,40 @@ async function runScriptDryRunFromEditor() {
   loadScripts();
 }
 
+// ── v6.3.0 (UX wave 7): draft autosave for the script editor ─────────────────
+// Every keystroke in the editor snapshots to localStorage (keyed by script id,
+// or 'new'); reopening the editor with a differing draft offers a Restore
+// toast. A successful save clears the draft. Kills the "browser crashed with
+// 40 minutes of bash in the textarea" failure mode.
+function _scriptDraftKey() {
+  return 'rp_draft_script_' + (document.getElementById('script-edit-id').value || 'new');
+}
+document.addEventListener('input', (e) => {
+  if (!e.target.closest || !e.target.closest('#script-edit-modal')) return;
+  try {
+    localStorage.setItem(_scriptDraftKey(), JSON.stringify({
+      name: document.getElementById('script-edit-name').value,
+      desc: document.getElementById('script-edit-desc').value,
+      body: document.getElementById('script-edit-body').value,
+      ts: Date.now(),
+    }));
+  } catch (_) {}
+});
+function _maybeOfferScriptDraft() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(_scriptDraftKey()) || 'null'); } catch (_) {}
+  if (!d || !d.body) return;
+  if (d.body === document.getElementById('script-edit-body').value) return;
+  toast('An unsaved draft of this script exists', 'info', {
+    duration: 8000,
+    action: { label: 'Restore draft', icon: 'undo', fn: () => {
+      document.getElementById('script-edit-name').value = d.name || '';
+      document.getElementById('script-edit-desc').value = d.desc || '';
+      document.getElementById('script-edit-body').value = d.body || '';
+    } },
+  });
+}
+
 async function saveScriptFromEditor(reopenAfter) {
   const id   = document.getElementById('script-edit-id').value;
   const name = document.getElementById('script-edit-name').value.trim();
@@ -13782,6 +13818,11 @@ async function saveScriptFromEditor(reopenAfter) {
     resp = await api('PUT', '/scripts/' + encodeURIComponent(id), {name, description: desc, body});
   } else {
     resp = await api('POST', '/scripts', {name, description: desc, body});
+  }
+  // v6.3.0 (wave 7): a successful save clears the draft (key computed from the
+  // PRE-save id — a create's draft lived under 'new').
+  if (resp && !resp.error) {
+    try { localStorage.removeItem('rp_draft_script_' + (id || 'new')); } catch (_) {}
   }
   if (!resp || resp.error) { toast(resp?.error || 'Save failed', 'error'); return; }
   toast(id ? 'Script updated' : 'Script created', 'success');
