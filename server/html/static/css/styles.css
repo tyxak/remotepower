@@ -2094,6 +2094,31 @@
     flex-shrink: 0;
   }
   .toast-action:hover { background: var(--accent-soft, rgba(94,141,255,0.12)); }
+  /* v6.3.0 (UX wave 9): undo-history popover (right-click the undo arrow) */
+  #undo-hist-pop {
+    position: fixed; z-index: 960; width: 250px;
+    background: var(--surface); border: 1px solid var(--hair);
+    border-radius: 11px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    padding: 10px 12px; max-height: 300px; overflow-y: auto;
+  }
+  .undo-hist-row {
+    display: flex; align-items: center; gap: 7px; width: 100%;
+    background: none; border: none; color: var(--text);
+    font-size: 12.5px; padding: 4px 2px; cursor: pointer; text-align: left;
+  }
+  .undo-hist-row:hover { color: var(--accent); }
+  /* v6.3.0 (UX wave 9): sticky first column on scrollable tables */
+  .scrollable-table-wrap.sticky-first th:first-child,
+  .scrollable-table-wrap.sticky-first td:first-child {
+    position: sticky; left: 0; background: var(--surface); z-index: 2;
+  }
+  [dir="rtl"] .scrollable-table-wrap.sticky-first th:first-child,
+  [dir="rtl"] .scrollable-table-wrap.sticky-first td:first-child {
+    left: auto; right: 0;
+  }
+  /* v6.3.0 (UX wave 9): reset-view row + alert-param human-unit hint */
+  .tbl-reset-view { margin-top: 8px; width: 100%; justify-content: center; }
+  .ap-human { display: block; font-size: 11px; margin-top: 2px; }
   /* v6.3.0 (UX wave 4): column show/hide popover */
   #tbl-cols-pop {
     position: fixed; z-index: 960; width: 220px;

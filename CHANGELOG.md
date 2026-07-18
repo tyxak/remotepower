@@ -62,6 +62,27 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   and cards (CVE detail, KB, containers, drift, DNS, remote) now show
   skeleton lines like the tables do.
 
+### Wave 9
+- **Undo history** — right-click the topbar undo arrow to see the whole stack
+  and undo several steps at once.
+- **"While you were away" digest** — returning to a tab after 30+ minutes
+  summarizes what changed ("3 new open alerts · 1 more host offline") with a
+  jump to the inbox.
+- **Command-queue completion nudge** — the queue draining while you're on
+  another page toasts with a jump to History.
+- **Quiet-hours indicator** — a moon in the topbar while the quiet window is
+  open (answers "why am I not being paged?"); click → the Alerting settings.
+- **Drawer prev/next** — step through the device list from inside the drawer
+  (arrows in the header, `[` / `]` keys).
+- **Sticky first column** on horizontally-scrolling tables.
+- **Reset view** (columns menu) clears filter+sort+columns+page-size at once;
+  **copy rows as JSON** joins the CSV export in the pager.
+- **Palette scopes** — `>` searches actions only, `#` devices only.
+- **Human-unit hints on Alert parameters** — "4320" hours reads "≈ 180 days".
+- **Interface size** — S/M/L UI scale per browser (My Account → Display
+  units), complementing density; follows across tabs.
+- **Pull-to-refresh** on touch devices re-runs the current page's loader.
+
 ### Wave 8
 - **Draft autosave in the KB editor** (same pattern as the script editor).
 - **Duplicate for custom checks** — prefill-clone; saving adds a new check.

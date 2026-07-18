@@ -575,5 +575,64 @@ class TestWave8(unittest.TestCase):
         self.assertIn("acknowledged", srcpin.js_function(alerts, "clearAllAlerts"))
 
 
+class TestWave9(unittest.TestCase):
+    """UX wave 9: the post-program idea batch (safe variants)."""
+
+    def test_quiet_hours_flag_in_nav_counts(self):
+        from tests import apisrc, srcpin
+        fn = srcpin.py_function(apisrc.api_source(), "handle_nav_counts")
+        self.assertIn("quiet_hours_active", fn)
+        self.assertIn('id="quiet-hours-ind"', _html())
+
+    def test_queue_drained_and_away_digest(self):
+        app = _js("app.js")
+        self.assertIn("_prevCmdPending", app)
+        self.assertIn("Command queue drained", app)
+        self.assertIn("While you were away", app)
+        self.assertIn("_awaySnap", app)
+
+    def test_undo_history_menu(self):
+        app = _js("app.js")
+        self.assertIn("function _undoHistoryMenu", app)
+        self.assertIn("undoMany", app)
+        self.assertIn("contextmenu", app)
+
+    def test_drawer_prev_next(self):
+        app = _js("app.js")
+        self.assertIn("function drawerStep", app)
+        html = _html()
+        self.assertEqual(html.count('data-action="drawerStep"'), 2)
+
+    def test_table_view_extras(self):
+        app = _js("app.js")
+        self.assertIn("function resetView", app)
+        self.assertIn("function copyJson", app)
+        self.assertIn("tblResetView", app)
+        self.assertIn("tblCopyJson", app)
+        self.assertIn("sticky-first", app)
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.assertIn("sticky-first", css)
+
+    def test_palette_prefixes(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "_palRender")
+        self.assertIn("startsWith('>')", fn)
+        self.assertIn("startsWith('#')", fn)
+
+    def test_alert_param_human_hints(self):
+        app = _js("app.js")
+        self.assertIn("function _apHumanHint", app)
+        from tests import srcpin
+        fn = srcpin.js_function(app, "_apMarkModified")
+        self.assertIn("_apHumanHint", fn)
+
+    def test_ui_scale_and_pull_to_refresh(self):
+        app = _js("app.js")
+        self.assertIn("rp_uiscale", app)
+        self.assertIn("function applyUiScale", app)
+        self.assertIn("pointer: coarse", app)
+        self.assertIn('id="cfg-ui-scale"', _html())
+
+
 if __name__ == "__main__":
     unittest.main()

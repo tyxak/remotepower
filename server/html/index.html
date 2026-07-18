@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-8">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-9">
 
 </head>
 <body>
@@ -114,6 +114,9 @@
         <button class="site-health ok" id="site-health" data-action="gotoSiteHealth" title="RemotePower health" aria-label="RemotePower control-plane health"></button>
         <!-- v5.0.0 (T6): fleet vitals readout — populated from /nav-counts -->
         <div class="vitals" id="header-vitals" role="group" aria-label="Fleet vitals"></div>
+        <!-- v6.3.0 (UX wave 9): quiet-hours indicator — visible only while the
+             quiet window is open (why am I not being paged?). -->
+        <button class="btn-icon d-none" id="quiet-hours-ind" data-action="gotoQuietHours" title="Quiet hours are active — non-critical notifications are held until the window ends" aria-label="Quiet hours active"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
         <!-- v6.3.0 (UX wave 3): notification center — last ~30 toasts of this
              session, so a missed "Failed"/"Saved" is recoverable. -->
         <button class="btn-icon" id="toast-history-btn" data-action="toggleToastHistory" title="Notifications (recent messages)" aria-label="Notification history"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>
@@ -1349,6 +1352,15 @@
               <select id="cfg-temp-unit" class="form-input">
                 <option value="c">Celsius (°C)</option>
                 <option value="f">Fahrenheit (°F)</option>
+              </select>
+            </div>
+            <!-- v6.3.0 (UX wave 9): S/M/L interface scale — per browser, like the theme -->
+            <div class="form-group isl-49">
+              <label for="cfg-ui-scale" class="form-label">Interface size</label>
+              <select id="cfg-ui-scale" class="form-input" data-change="setUiScale">
+                <option value="s">Small</option>
+                <option value="m" selected>Default</option>
+                <option value="l">Large</option>
               </select>
             </div>
           </div>
@@ -4252,13 +4264,14 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.3.0 undomatters undo redo topbar arrows ctrl z mikrotik columns show hide dashboard layout undo this page help configuration history rollback restore revision pinned devices star duplicate script cross tab sync broadcastchannel draft autosave restore kb article theme sync tabs purge counts toast action button undoable delete deferred commit ctrl enter submit modal double submit inflight click to copy clipboard rows per page csv export download recently viewed palette recents new version reload service worker skeleton loading contacts links snippets saved views optimistic ack resolve unack alert instant filter chip n of m shown clear filter retry button failed to load error state unsaved changes guard settings dirty leave without saving tickets bulk resolve assign to me checkboxes multi select ux wave">
+          <details class="doc-card" open data-keywords="release notes changelog v6.3.0 undomatters undo redo topbar arrows ctrl z mikrotik columns show hide dashboard layout undo this page help configuration history rollback restore revision pinned devices star duplicate script cross tab sync broadcastchannel draft autosave restore kb article theme sync tabs purge counts undo history while you were away quiet hours moon drawer next previous sticky column reset view copy json palette scope interface size zoom pull to refresh toast action button undoable delete deferred commit ctrl enter submit modal double submit inflight click to copy clipboard rows per page csv export download recently viewed palette recents new version reload service worker skeleton loading contacts links snippets saved views optimistic ack resolve unack alert instant filter chip n of m shown clear filter retry button failed to load error state unsaved changes guard settings dirty leave without saving tickets bulk resolve assign to me checkboxes multi select ux wave">
             <summary><strong>What's new — v6.3.0 &ldquo;UndoMatters&rdquo;</strong> — the first wave of a UX program: <strong>undo instead of &ldquo;are you sure?&rdquo;</strong> — deleting a contact, link, command snippet or saved view now shows an Undo toast and only commits when it expires; alert acknowledge is <strong>instant with Undo</strong>, resolve flips the row optimistically. Plus: every filtered table says <strong>&ldquo;N of M shown&rdquo;</strong> with a one-click Clear, failed loads get a <strong>Retry</strong> button, Settings warns before discarding <strong>unsaved changes</strong>, and Tickets gain <strong>bulk resolve / assign-to-me</strong>.</summary>
             <div class="doc-body">
               <p><strong>Undo instead of confirm.</strong> Low-risk deletes (contacts, links, command-library snippets, saved device views) no longer interrupt with a dialog: the row disappears immediately and a toast offers <strong>Undo</strong> for a few seconds. The actual delete is only sent to the server when the toast expires — Undo cancels it entirely, so an interrupted delete always fails toward &ldquo;still there&rdquo;. Destructive fan-out operations (Docker prune, device removal, VM rollback) keep their explicit typed confirmations.</p>
               <p><strong>Topbar undo/redo.</strong> Two small arrow buttons in the top bar (and <kbd>Ctrl/Cmd-Z</kbd> / <kbd>Ctrl-Shift-Z</kbd> outside text fields) drive a global undo/redo stack — every undoable action registers there as well as in its toast, and the tooltip names what will be undone.</p>
               <p><strong>Optimistic alert actions.</strong> Pressing <code>a</code> in the alert inbox acknowledges instantly and the toast carries Undo (a real server-side un-ack). Resolve updates the row before the server answers and reverts with an error toast if it declines.</p>
               <p><strong>Everyday friction.</strong> Every table with an active filter shows <strong>&ldquo;N of M shown — filter active&rdquo;</strong> with a one-click <em>Clear filter</em> (stored filters persist across sessions, which used to make tables look mysteriously short). About a dozen &ldquo;Failed to load — refresh to retry&rdquo; dead ends across Checks, CVE, Hardware, Drift and more now have an inline <strong>Retry</strong> button. Settings tracks unsaved edits and asks before you navigate away. The Tickets page gains row checkboxes and a bulk bar: <em>Resolve selected</em> and <em>Assign to me</em>.</p>
+              <p><strong>Wave 9.</strong> Right-click the undo arrow for the full <strong>undo history</strong> · returning after 30+ min shows a <strong>&ldquo;while you were away&rdquo;</strong> digest · a topbar <strong>moon</strong> shows when quiet hours hold your notifications · <strong>prev/next</strong> in the device drawer (<kbd>[</kbd>/<kbd>]</kbd>) · sticky first column, Reset view and copy-as-JSON on tables · palette scopes (<code>&gt;</code> actions, <code>#</code> devices) · human-unit hints on thresholds · an S/M/L <strong>interface size</strong> · pull-to-refresh on touch.</p>
               <p><strong>Wave 8.</strong> Draft autosave reaches the <strong>KB editor</strong> · custom checks gain <strong>Duplicate</strong> · switching the <strong>theme follows across tabs</strong> · alert purge dialogs state exactly <strong>how many</strong> they will remove · the &ldquo;This page&rdquo; help map now covers ~37 pages.</p>
               <p><strong>Wave 7.</strong> The script editor <strong>autosaves a draft</strong> on every keystroke — a crashed tab or accidental close offers &ldquo;Restore draft&rdquo; on reopen.</p>
               <p><strong>Wave 6.</strong> Saved scripts gain <strong>Duplicate</strong> and an <strong>undoable delete</strong> · alert actions in one browser tab refresh the badge and inbox in <strong>every other open tab</strong> instantly.</p>
@@ -7954,6 +7967,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="drawer-device-name" id="drawer-device-name">Device</div>
         <div class="drawer-device-sub"  id="drawer-device-sub"></div>
       </div>
+      <!-- v6.3.0 (UX wave 9): step through the device list without closing -->
+      <button class="btn-icon isl-91" data-action="drawerStep" data-arg="-1" title="Previous device ([)" aria-label="Previous device"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <button class="btn-icon isl-91" data-action="drawerStep" data-arg="1" title="Next device (])" aria-label="Next device"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
       <button class="btn-icon isl-91" data-action="copyDrawerLink" title="Copy a direct link to this device view" aria-label="Copy link"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
       <button class="btn-icon isl-91" data-action="closeDeviceDrawer" title="Close" aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#ic-b4990b7e"/></svg></button>
     </div>
@@ -10365,34 +10381,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-8"></script>
+<script defer src="static/js/app.js?v=6.3.0-9"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-8"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-9"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-8"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-9"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-8"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-9"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-8"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-8"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-9"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-9"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10401,6 +10417,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-8"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-9"></script>
 </body>
 </html>

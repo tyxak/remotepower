@@ -51277,6 +51277,18 @@ def handle_nav_counts():
                               'issues': len(_sh_fail), 'failing': _sh_fail}
     except Exception:
         pass
+    # v6.3.0 (UX wave 9): is the quiet-hours WINDOW currently open? Purely the
+    # time window (per-event severity bypasses still apply at delivery) — this
+    # drives the topbar moon indicator answering "why am I not being paged?".
+    try:
+        _qh = (_config_ro().get('quiet_hours') or {})
+        _qs = (_qh.get('start') or '').strip()
+        _qe = (_qh.get('end') or '').strip()
+        out['quiet_hours_active'] = bool(
+            _qh.get('enabled') and len(_qs) == 5 and len(_qe) == 5
+            and _in_time_window(time.strftime('%H:%M', time.localtime(now)), _qs, _qe))
+    except Exception:
+        pass
     try:
         # v6.1.1: scope + tenant filter so the badge matches the Alerts page.
         out['alerts'] = _alerts_summary(

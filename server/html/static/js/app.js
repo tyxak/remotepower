@@ -465,6 +465,45 @@ const tableCtl = (() => {
     toast(`Exported ${rows.length} row(s)`, 'success');
   }
 
+  // v6.3.0 (UX wave 9): reset EVERY stored view pref for a table — filter,
+  // sort, hidden columns, rows-per-page — in one click (columns menu).
+  function resetView(name) {
+    const opts = _registry[name];
+    if (!opts) return;
+    const prefs = getTablePrefs(name);
+    delete prefs.filter; delete prefs.sort;
+    delete prefs.hiddenCols; delete prefs.pageSize;
+    if (opts.filterInput) {
+      const el = document.getElementById(opts.filterInput);
+      if (el) el.value = '';
+    }
+    _page[name] = 0;
+    _scheduleFlushUiPrefs();
+    document.getElementById('tbl-cols-pop')?.classList.add('hidden');
+    if (opts.sortHeaders) _renderSortIndicators(opts);
+    if (opts.refresh) opts.refresh();
+    else if (opts._lastRows) render(name, opts._lastRows);
+    toast('Table view reset', 'info');
+  }
+
+  // v6.3.0 (UX wave 9): copy the visible rows (filter+sort, all pages) as
+  // JSON — the CSV exporter's sibling, for pasting into tickets/scripts.
+  function copyJson(name) {
+    const opts = _registry[name];
+    if (!opts || !opts._lastRows || !opts._lastRows.length) return;
+    const prefs = getTablePrefs(name);
+    const filter = (prefs.filter || '').toLowerCase().trim();
+    const matchFn = opts.match || _defaultMatch;
+    let rows = filter ? opts._lastRows.filter(r => matchFn(r, filter)) : opts._lastRows.slice();
+    rows = _applySort(rows, prefs.sort || [], opts.getColumns);
+    const proj = r => (opts.getColumns ? opts.getColumns(r) : r);
+    const text = JSON.stringify(rows.map(proj), null, 2);
+    if (!navigator.clipboard) { toast('Clipboard unavailable', 'error'); return; }
+    navigator.clipboard.writeText(text).then(
+      () => toast(`Copied ${rows.length} row(s) as JSON`, 'success'),
+      () => toast('Could not copy', 'error'));
+  }
+
   // Reset a table's stored filter (chip button + anything else that needs it).
   function clearFilter(name) {
     const opts = _registry[name];
@@ -517,7 +556,9 @@ const tableCtl = (() => {
     const colsBtn = opts.sortHeaders
       ? `<button class="btn-icon" data-action="tblColsMenu" data-arg="${escAttr(opts.name)}" data-pass-btn="1" title="Show / hide columns" aria-label="Show or hide columns">${_icon('columns', 12)}</button>`
       : '';
-    pgr.innerHTML = nav + sizeSel + colsBtn + exportBtn;
+    const jsonBtn =
+      `<button class="btn-icon" data-action="tblCopyJson" data-arg="${escAttr(opts.name)}" title="Copy visible rows as JSON (honors filter & sort)" aria-label="Copy visible rows as JSON">${_icon('copy', 12)}</button>`;
+    pgr.innerHTML = nav + sizeSel + colsBtn + jsonBtn + exportBtn;
   }
 
   // v6.3.0 (UX wave 4): column show/hide. Hidden column keys live in the same
@@ -569,7 +610,9 @@ const tableCtl = (() => {
       const label = th.getAttribute('data-label') || th.textContent.replace(/[▲▼↕²³⁴⁵\s]+$/g, '').trim();
       return `<label class="tbl-cols-row"><input type="checkbox" data-change="tblToggleCol" data-change-arg="${escAttr(name + '|' + col)}"${hidden.has(col) ? '' : ' checked'}> ${escHtml(label || col)}</label>`;
     }).join('');
-    pop.innerHTML = `<div class="section-title">Columns</div>${rows}`;
+    pop.innerHTML = `<div class="section-title">Columns</div>${rows}`
+      // v6.3.0 (wave 9): one-click reset of every stored view pref for this table
+      + `<button class="btn-icon tbl-reset-view" data-action="tblResetView" data-arg="${escAttr(name)}">${_icon('refresh', 11)} Reset view</button>`;
     pop.classList.remove('hidden');
     const r = btn.getBoundingClientRect();
     pop.style.top = Math.round(r.bottom + 6) + 'px';
@@ -621,8 +664,10 @@ const tableCtl = (() => {
     if (!card) return;
     if (count > SCROLL_THRESHOLD) {
       card.classList.add('scrollable-table-wrap');
+      card.classList.add('sticky-first');   // v6.3.0 (wave 9): pin col 1
     } else {
       card.classList.remove('scrollable-table-wrap');
+      card.classList.remove('sticky-first');
     }
   }
 
@@ -700,7 +745,7 @@ const tableCtl = (() => {
 
   return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage,
            renderChunked, clearFilter, setPageSize, exportCsv, colsMenu,
-           toggleCol };
+           toggleCol, resetView, copyJson };
 })();
 // v3.12.0: pager button handler (data-action="tblPage")
 function tblPage(name, delta) { tableCtl.goPage(name, delta); }
@@ -712,6 +757,9 @@ function tblExportCsv(name) { tableCtl.exportCsv(name); }
 // v6.3.0 (UX wave 4): column show/hide menu + checkbox handler
 function tblColsMenu(name, btn) { tableCtl.colsMenu(name, btn); }
 function tblToggleCol(arg, checked) { tableCtl.toggleCol(arg, checked); }
+// v6.3.0 (UX wave 9): reset-view + copy-as-JSON handlers
+function tblResetView(name) { tableCtl.resetView(name); }
+function tblCopyJson(name) { tableCtl.copyJson(name); }
 document.addEventListener('click', (e) => {
   const pop = document.getElementById('tbl-cols-pop');
   if (!pop || pop.classList.contains('hidden')) return;
@@ -1155,6 +1203,48 @@ function setAccent(name) {
   try { localStorage.setItem('rp_accent', name); } catch (_) {}
   applyAccent();
 }
+// v6.3.0 (UX wave 9): interface scale — S/M/L, per browser (like the theme).
+// zoom scales the whole layout uniformly, so the typography scale's px stops
+// keep their RELATIVE design; complements density (rows) rather than
+// replacing it (glyph size).
+function applyUiScale() {
+  let v = 'm';
+  try { v = localStorage.getItem('rp_uiscale') || 'm'; } catch (_) {}
+  document.documentElement.style.zoom = v === 's' ? '0.9' : v === 'l' ? '1.1' : '';
+  const sel = document.getElementById('cfg-ui-scale');
+  if (sel && sel.value !== v) sel.value = v;
+}
+function setUiScale() {
+  const sel = document.getElementById('cfg-ui-scale');
+  if (!sel) return;
+  try { localStorage.setItem('rp_uiscale', sel.value); } catch (_) {}
+  applyUiScale();
+}
+applyUiScale();
+
+// v6.3.0 (UX wave 9): pull-to-refresh on touch devices — a >110px downward
+// pull at the very top of the page re-runs the current page's loader
+// (showPage is idempotent and re-invokes it). Coarse pointers only.
+(() => {
+  if (!window.matchMedia || !matchMedia('(pointer: coarse)').matches) return;
+  let startY = null;
+  window.addEventListener('touchstart', (e) => {
+    startY = (window.scrollY === 0 && e.touches.length === 1)
+      ? e.touches[0].clientY : null;
+  }, { passive: true });
+  window.addEventListener('touchend', (e) => {
+    if (startY === null) return;
+    const dy = ((e.changedTouches[0] || {}).clientY || 0) - startY;
+    startY = null;
+    if (dy < 110) return;
+    if (document.body.classList.contains('modal-open')) return;
+    const page = document.querySelector('.page.active');
+    if (!page) return;
+    showPage(page.id.replace(/^page-/, ''));
+    toast('Refreshed', 'info', { duration: 1500 });
+  }, { passive: true });
+})();
+
 // v6.3.0 (UX wave 8): theme/accent changes follow across open tabs — the
 // native `storage` event fires in every OTHER tab on a localStorage write,
 // so no broadcast plumbing is needed for these.
@@ -1162,6 +1252,7 @@ window.addEventListener('storage', (e) => {
   if (!e || !e.key) return;
   if (e.key === 'rp_theme' || e.key === 'rp_theme_sched') { try { applyTheme(); } catch (_) {} }
   else if (e.key === 'rp_accent') { try { applyAccent(); } catch (_) {} }
+  else if (e.key === 'rp_uiscale') { try { applyUiScale(); } catch (_) {} }   // wave 9
 });
 const _ACCENT_COLORS = { blue: '#3b7eff', emerald: '#10b981', violet: '#8b5cf6', amber: '#f59e0b', rose: '#f43f5e', cyan: '#06b6d4' };
 function _buildThemeGrid() {
@@ -5665,6 +5756,63 @@ function uiRetry(key) {
   if (typeof fn === 'function') fn();
 }
 
+// v6.3.0 (UX wave 9): quiet-hours moon → jump to the Alerting pane where the
+// quiet-hours window is configured.
+function gotoQuietHours() {
+  showPage('settings');
+  try { switchSettingsTab('dashboard'); } catch (_) {}
+}
+
+// v6.3.0 (UX wave 9): "while you were away" digest. Snapshot the badge counts
+// when the tab hides; on return after 30+ minutes, say what changed in one
+// line instead of making the operator diff the UI from memory.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    const c = window._navCounts;
+    if (c) window._awaySnap = { ts: Date.now(), open: (c.alerts && c.alerts.open) || 0,
+                                fleet: typeof c.fleet === 'number' ? c.fleet : 0 };
+    return;
+  }
+  const s = window._awaySnap;
+  window._awaySnap = null;
+  if (!s || Date.now() - s.ts < 30 * 60 * 1000) return;
+  // let the visibility-triggered nav-counts refresh land first
+  setTimeout(() => {
+    const c = window._navCounts;
+    if (!c) return;
+    const parts = [];
+    const dOpen = ((c.alerts && c.alerts.open) || 0) - s.open;
+    if (dOpen > 0) parts.push(`${dOpen} new open alert${dOpen === 1 ? '' : 's'}`);
+    const nowFleet = typeof c.fleet === 'number' ? c.fleet : 0;
+    if (nowFleet > s.fleet) parts.push(`${nowFleet - s.fleet} more host${nowFleet - s.fleet === 1 ? '' : 's'} offline`);
+    if (parts.length) {
+      toast(`While you were away: ${parts.join(' · ')}`, 'info',
+            { duration: 12000, action: { label: 'Alerts', fn: () => showPage('alerts') } });
+    }
+  }, 3000);
+});
+
+// v6.3.0 (UX wave 9): drawer prev/next — step through the current device list
+// without closing the drawer ([ and ] while it's open).
+function drawerStep(dir) {
+  const list = window._devicesCache || [];
+  if (!list.length || !_drawerDeviceId) return;
+  const i = list.findIndex(d => d.id === _drawerDeviceId);
+  const next = list[(i + (dir > 0 ? 1 : -1) + list.length) % list.length];
+  if (next) openDeviceDrawer(next.id, next.name || next.id);
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '[' && e.key !== ']') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+            t.tagName === 'SELECT' || t.isContentEditable)) return;
+  const drawer = document.getElementById('device-drawer');
+  if (!drawer || !drawer.classList.contains('open')) return;
+  e.preventDefault();
+  drawerStep(e.key === ']' ? 1 : -1);
+});
+
 // v6.3.0 (UX wave 3): #alerts/<id> pasted into a RUNNING app (hashchange, not
 // boot) — stash the id and navigate; loadAlerts (called by showPage) consumes.
 window.addEventListener('hashchange', () => {
@@ -5738,10 +5886,50 @@ const uiUndoCtl = (() => {
     try { await e.redo(); } catch (_) { toast('Could not redo', 'error'); }
     paint();
   }
-  return { push, undo, redo, paint };
+  // v6.3.0 (UX wave 9): the history dropdown (right-click the undo arrow).
+  function peek() {
+    _prune(undoStack);
+    return undoStack.slice().reverse().map(e => e.label);
+  }
+  async function undoMany(n) {
+    for (let k = 0; k < n; k++) await undo();
+  }
+  return { push, undo, redo, paint, peek, undoMany };
 })();
 function uiUndoAction() { uiUndoCtl.undo(); }
 function uiRedoAction() { uiUndoCtl.redo(); }
+// v6.3.0 (UX wave 9): right-click (or long-press context menu) on the undo
+// arrow shows the whole stack, editor-style; clicking an entry undoes back
+// to and including it.
+function _undoHistoryMenu(x, y) {
+  let pop = document.getElementById('undo-hist-pop');
+  if (pop) { pop.remove(); return; }
+  const labels = uiUndoCtl.peek();
+  if (!labels.length) return;
+  pop = document.createElement('div');
+  pop.id = 'undo-hist-pop';
+  pop.innerHTML = '<div class="section-title">Undo history</div>'
+    + labels.map((l, i) =>
+        `<button class="undo-hist-row" data-action="uiUndoTo" data-arg="u${i + 1}">${_icon('undo', 11)} ${escHtml(l)}</button>`).join('');
+  document.body.appendChild(pop);
+  pop.style.top = Math.round(y + 6) + 'px';
+  pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 260, x - 200))) + 'px';
+}
+function uiUndoTo(arg) {
+  const n = parseInt(String(arg).replace(/^u/, ''), 10) || 1;
+  document.getElementById('undo-hist-pop')?.remove();
+  uiUndoCtl.undoMany(n);
+}
+document.addEventListener('contextmenu', (e) => {
+  const btn = e.target.closest && e.target.closest('#topbar-undo');
+  if (!btn) return;
+  e.preventDefault();
+  _undoHistoryMenu(e.clientX || 0, e.clientY || 40);
+});
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('undo-hist-pop');
+  if (pop && !e.target.closest('#undo-hist-pop')) pop.remove();
+});
 // Ctrl/Cmd-Z → undo, +Shift → redo — outside form fields and modals only, so
 // native text-editing undo is never intercepted.
 document.addEventListener('keydown', (e) => {
@@ -13472,6 +13660,20 @@ async function refreshNavCounts() {
       typeof c.confirmations_pending === 'number' ? c.confirmations_pending : null);
     _paintVitals(c);
     _paintSiteHealth(c.site_health);   // v5.6.0: RP's own control-plane health
+    // v6.3.0 (UX wave 9): quiet-hours moon — visible while the window is open.
+    document.getElementById('quiet-hours-ind')
+      ?.classList.toggle('d-none', !c.quiet_hours_active);
+    // v6.3.0 (UX wave 9): the command queue draining while you're elsewhere is
+    // worth a nudge — the results landed in History.
+    { const qn = typeof c.commands_pending === 'number' ? c.commands_pending : 0;
+      if (window._prevCmdPending > 0 && qn === 0
+          && !document.getElementById('page-cmdqueue')?.classList.contains('active')
+          && !document.getElementById('page-history')?.classList.contains('active')) {
+        toast('Command queue drained — results are in History', 'info',
+              { action: { label: 'View', fn: () => showPage('history') } });
+      }
+      window._prevCmdPending = qn; }
+    window._navCounts = c;   // v6.3.0 (wave 9): away-digest baseline
     // v5.0.0 (T6): Status Board nav badge = offline-host count (red when > 0).
     { const bb = document.getElementById('board-badge');
       if (bb) {
@@ -19657,9 +19859,34 @@ function _apDefaultFor(id) {
   const row = _ALERT_PARAM_FIELDS.find(f => f[0] === id);
   return row ? row[2] : undefined;
 }
+// v6.3.0 (UX wave 9): human-unit hint — raw "4320" hours means nothing at a
+// glance; render "≈ 180 days" next to it. Heuristic on the config-key suffix.
+function _apHumanHint(el) {
+  const row = _ALERT_PARAM_FIELDS.find(f => f[0] === el.id);
+  const grp = el.closest('.form-group');
+  if (!row || !grp) return;
+  const key = row[1];
+  const v = parseFloat(el.value);
+  let txt = '';
+  if (!Number.isNaN(v)) {
+    if (/hours?$/.test(key) && v >= 48) txt = `≈ ${+(v / 24).toFixed(1)} days`;
+    else if (/(minutes|_min)$/.test(key) && v >= 120) txt = `≈ ${+(v / 60).toFixed(1)} h`;
+    else if (/seconds?$/.test(key) && v >= 120) txt = `≈ ${+(v / 60).toFixed(1)} min`;
+    else if (/days?$/.test(key) && v >= 60) txt = `≈ ${+(v / 30).toFixed(1)} months`;
+  }
+  let span = grp.querySelector('.ap-human');
+  if (!txt) { if (span) span.remove(); return; }
+  if (!span) {
+    span = document.createElement('span');
+    span.className = 'ap-human hint';
+    grp.appendChild(span);
+  }
+  span.textContent = txt;
+}
 function _apMarkModified(el, dflt) {
   const grp = el.closest('.form-group');
   if (!grp) return;
+  _apHumanHint(el);   // v6.3.0 (wave 9)
   const modified = String(el.value) !== '' && String(el.value) !== String(dflt);
   grp.classList.toggle('ap-modified', modified);
   let btn = grp.querySelector('.ap-reset');
@@ -26292,10 +26519,16 @@ function closeCommandPalette() {
   document.getElementById('cmd-palette-overlay')?.remove();
 }
 function _palRender() {
-  const q = (document.getElementById('cmd-palette-input')?.value || '').toLowerCase().trim();
+  let q = (document.getElementById('cmd-palette-input')?.value || '').toLowerCase().trim();
+  // v6.3.0 (UX wave 9): scope prefixes (VS Code convention) — '>' actions
+  // only, '#' devices only. The prefix is stripped before matching.
+  let kindFilter = null;
+  if (q.startsWith('>')) { kindFilter = 'action'; q = q.slice(1).trim(); }
+  else if (q.startsWith('#')) { kindFilter = 'device'; q = q.slice(1).trim(); }
+  const pool = kindFilter ? _palItems.filter(i => i.kind === kindFilter) : _palItems;
   const filtered = q
-    ? _palItems.filter(i => i.label.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q))
-    : _palItems.slice(0, 20);
+    ? pool.filter(i => i.label.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q))
+    : pool.slice(0, 20);
   if (_palCursor >= filtered.length) _palCursor = 0;
   const html = filtered.map((it, idx) => `
     <div class="cmd-palette-row ${idx === _palCursor ? 'cmd-palette-active' : ''} isl-721"
