@@ -640,22 +640,19 @@ def handle_backup_run():
     A.respond(200, result)
 
 
-def handle_backup_test_restore():
-    """POST /api/backup/test-restore — v5.4.1 (G1): verify the LATEST backup is
-    actually restorable without touching the live data. Decrypts it (if encrypted +
-    RP_BACKUP_PASSPHRASE set), opens the gzip/tar stream, and confirms it carries
-    the expected ``remotepower/`` tree — exercising the whole decrypt→decompress→
-    parse path. Nothing is extracted to a real location. Admin only; audited."""
-    actor = A.require_admin_auth()
-    if A.method() != 'POST':
-        A.respond(405, {'error': 'Method not allowed'})
+def _restore_drill_core():
+    """Decrypt → decompress → structure-check the LATEST self-DR archive into a
+    scratch dir; nothing touches live data. Returns a result dict — shared by
+    the manual POST /api/backup/test-restore and the scheduled drill (v6.3.0).
+    `http` in the result is a status hint for the manual handler only."""
     cfg = A.load(A.CONFIG_FILE) or {}
     base = (cfg.get('backup') or {}).get('path') or '/var/lib/remotepower/backups'
     p_base = A.Path(base)
     files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
                          + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]
     if not files:
-        A.respond(404, {'error': 'no backup archives found to test'})
+        return {'ok': False, 'no_archives': True, 'http': 404,
+                'error': 'no backup archives found to test'}
     latest = max(files, key=lambda f: f.stat().st_mtime)
     import tarfile
     import tempfile as _tf
@@ -666,9 +663,11 @@ def handle_backup_test_restore():
         if str(latest).endswith('.enc'):
             pp = A._backup_passphrase()
             if not pp:
-                A.respond(400, {'error': 'latest backup is encrypted but RP_BACKUP_PASSPHRASE is not set'})
+                return {'ok': False, 'file': latest.name, 'http': 400,
+                        'error': 'latest backup is encrypted but RP_BACKUP_PASSPHRASE is not set'}
             if not A.backup_crypto.available():
-                A.respond(400, {'error': "encrypted backup but the 'cryptography' library is missing"})
+                return {'ok': False, 'file': latest.name, 'http': 400,
+                        'error': "encrypted backup but the 'cryptography' library is missing"}
             dec = scratch / 'dec.tar.gz'
             A.backup_crypto.decrypt_file(latest, dec, pp)
             src = dec
@@ -687,26 +686,99 @@ def handle_backup_test_restore():
         # service restore, so it's surfaced as a floor, never implied to BE
         # the RTO measurement.
         elapsed = round(time.time() - started, 2)
-        try:
-            with A._LockedUpdate(A.DATA_DIR / 'self_backup_state.json') as state:
-                state['last_test_restore_at'] = int(time.time())
-                state['last_test_restore_seconds'] = elapsed
-                state['last_test_restore_ok'] = ok
-        except Exception:
-            pass
-        A.audit_log(actor, 'backup_test_restore', f'file={latest.name} members={members} ok={ok}')
-        A.respond(200, {'ok': ok, 'file': latest.name, 'members': members,
-                      'encrypted': str(latest).endswith('.enc'),
-                      'seconds': elapsed,
-                      'message': ('Backup is restorable (decrypted, decompressed, '
-                                  f'{members} entries, data tree present, '
-                                  f'checked in {elapsed}s).' if ok
-                                  else 'Archive opened but the expected remotepower/ tree was missing.')})
+        return {'ok': ok, 'file': latest.name, 'members': members,
+                'encrypted': str(latest).endswith('.enc'), 'seconds': elapsed,
+                'error': None if ok
+                         else 'Archive opened but the expected remotepower/ tree was missing.'}
     except Exception as e:
-        A.audit_log(actor, 'backup_test_restore', f'file={latest.name} FAILED: {str(e)[:120]}')
-        A.respond(200, {'ok': False, 'file': latest.name, 'error': f'restore test failed: {str(e)[:200]}'})
+        return {'ok': False, 'file': latest.name,
+                'error': f'restore test failed: {str(e)[:200]}'}
     finally:
         shutil.rmtree(str(scratch), ignore_errors=True)
+
+
+def _maybe_run_restore_drill():
+    """v6.3.0: scheduled restore drill for the SERVER'S OWN DR backup — the
+    manual test-restore (v5.4.1) proved restorability only when an admin
+    remembered to click it. Weekly by default (`backup.drill_days`, 0
+    disables), gated cheaply off `_config_ro()` on the not-due path.
+
+    Edge-fires `restore_drill_failed` / `restore_drill_ok` with
+    path='self:dr-archive' — DISTINCT from the per-device W6-43 backup-monitor
+    drills, whose open alerts auto-resolve by their own path (rule 3b)."""
+    cfg = A._config_ro()
+    bk = cfg.get('backup') or {}
+    if not bk.get('enabled', True):
+        return
+    try:
+        days = int(bk.get('drill_days', 7))
+    except (TypeError, ValueError):
+        days = 7
+    if days <= 0:
+        return
+    state_file = A.DATA_DIR / 'self_backup_state.json'
+    # backend_exists, NOT Path.exists() — same v5.0.0 gotcha as the backup gate.
+    state = A.load(state_file) if A.backend_exists(state_file) else {}
+    now = int(time.time())
+    if now - (state.get('last_drill_at') or 0) < days * 86400:
+        return
+    if not (state.get('last_run') or 0):
+        return   # never backed up — backup_stale owns alerting for that
+    r = _restore_drill_core()
+    drill_ok = None if r.get('no_archives') else bool(r.get('ok'))
+    prev_failed = bool(state.get('drill_alerted'))
+    events = []
+    with A._LockedUpdate(state_file) as st:
+        st['last_drill_at'] = now   # re-arm even on no-archives (no hot rescan)
+        if drill_ok is not None:
+            st['last_drill_ok'] = drill_ok
+            st['last_drill_seconds'] = r.get('seconds')
+            st['last_drill_file'] = r.get('file')
+            payload = {'path': 'self:dr-archive', 'file': r.get('file') or '',
+                       'seconds': r.get('seconds'),
+                       'error': (r.get('error') or '')[:200]}
+            if not drill_ok and not prev_failed:
+                st['drill_alerted'] = True
+                events.append(('restore_drill_failed', payload))
+            elif drill_ok and prev_failed:
+                st['drill_alerted'] = False
+                events.append(('restore_drill_ok', payload))
+    for ev, payload in events:   # fire AFTER the lock (collect-then-fire)
+        A.fire_webhook(ev, payload)
+
+
+def handle_backup_test_restore():
+    """POST /api/backup/test-restore — v5.4.1 (G1): verify the LATEST backup is
+    actually restorable without touching the live data. Decrypts it (if encrypted +
+    RP_BACKUP_PASSPHRASE set), opens the gzip/tar stream, and confirms it carries
+    the expected ``remotepower/`` tree — exercising the whole decrypt→decompress→
+    parse path. Nothing is extracted to a real location. Admin only; audited.
+    v6.3.0: the check itself moved to _restore_drill_core (shared with the
+    scheduled drill); responses are unchanged."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    r = _restore_drill_core()
+    if r.get('http'):
+        A.respond(r['http'], {'error': r['error']})
+    if r.get('error') and 'restore test failed' in r['error']:
+        A.audit_log(actor, 'backup_test_restore', f"file={r.get('file')} FAILED: {r['error'][:120]}")
+        A.respond(200, {'ok': False, 'file': r.get('file'), 'error': r['error']})
+    try:
+        with A._LockedUpdate(A.DATA_DIR / 'self_backup_state.json') as state:
+            state['last_test_restore_at'] = int(time.time())
+            state['last_test_restore_seconds'] = r['seconds']
+            state['last_test_restore_ok'] = r['ok']
+    except Exception:
+        pass
+    A.audit_log(actor, 'backup_test_restore', f"file={r['file']} members={r['members']} ok={r['ok']}")
+    A.respond(200, {'ok': r['ok'], 'file': r['file'], 'members': r['members'],
+                  'encrypted': r['encrypted'],
+                  'seconds': r['seconds'],
+                  'message': ('Backup is restorable (decrypted, decompressed, '
+                              f"{r['members']} entries, data tree present, "
+                              f"checked in {r['seconds']}s).") if r['ok']
+                             else r['error']})
 
 
 def _backup_321_score(items, monitors):

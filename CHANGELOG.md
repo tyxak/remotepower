@@ -186,6 +186,20 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Scheduled restore drills — backups are proven, not assumed
+- The manual `POST /api/backup/test-restore` check (v5.4.1) now also runs on
+  a **weekly cadence** (`backup.drill_days`, 0 disables, saved via the
+  config API): decrypt → decompress → structure-check of the latest self-DR
+  archive into a scratch dir, never touching live data. A failing drill
+  edge-fires `restore_drill_failed` (path `self:dr-archive`, distinct from
+  the per-device W6-43 backup-monitor drills); the next pass auto-resolves
+  via `restore_drill_ok`. Passphrase rot, a missing cryptography library, or
+  corrupt archives now surface within a week instead of during a disaster.
+  Guardrail: `tests/test_v630_restore_drill.py` drives the real sweep with
+  real (and deliberately corrupt) archives. Also fixed while there:
+  `test_v541.py` was missing the module-scope `RP_DATA_DIR` guard (the
+  dangerous /var/lib class) — found by running it standalone.
+
 ### Prod promotion is now a script, not prose
 - **`tools/promote.sh vX.Y.Z '"Codename"'`** — the 13-step release checklist
   (pre-release gate → CHANGELOG date flip → signed tag → prod push →

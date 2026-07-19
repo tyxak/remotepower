@@ -22,6 +22,12 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
+# MUST be set before exec'ing api.py — import-time ensure_default_user() writes
+# to DATA_DIR, and without this a standalone run targets the REAL
+# /var/lib/remotepower (the documented dangerous class).
+import os
+import tempfile
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v541-"))
 _spec = importlib.util.spec_from_file_location("api_v541_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)

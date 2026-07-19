@@ -50,6 +50,16 @@ the server after a loss:
   24h (`backup.enabled`, state in `self_backup_state.json`, guarded by a
   `.backup_in_progress` sentinel). The gate uses the storage-aware
   `backend_exists()` so it behaves correctly on the SQLite/Postgres backends.
+- A **scheduled restore drill** *(v6.3.0)* runs the same
+  decrypt→decompress→structure-check as the manual test-restore against the
+  latest archive, weekly by default (`backup.drill_days`, 0 disables, max 90 —
+  settable via `POST /api/config` `{"backup": {"drill_days": N}}`). A failing
+  drill fires `restore_drill_failed` (path `self:dr-archive`) into the alert
+  inbox and notification channels; the next passing drill auto-resolves it via
+  `restore_drill_ok`. So "the backup is restorable" is continuously proven,
+  not assumed — if the passphrase changes, the cryptography library breaks, or
+  archives corrupt, you hear about it within a week instead of during a
+  disaster.
 - An optional **WORM audit sink** (`audit_worm_path`) appends the hash-chained
   audit log to a tamper-resistant location (an append-only mount or S3 Object
   Lock), so the audit trail survives even a full compromise.

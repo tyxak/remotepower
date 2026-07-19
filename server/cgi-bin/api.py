@@ -862,7 +862,8 @@ _bk_spec.loader.exec_module(backups_handlers_mod)
 backups_handlers_mod.bind(globals())
 for _bk_name in (
         '_backup_include', '_backup_jobs_load', '_backup_passphrase',
-        '_maybe_run_scheduled_backup', '_refresh_proxmox_backup_cache', '_run_data_backup',
+        '_maybe_run_scheduled_backup', '_maybe_run_restore_drill', '_restore_drill_core',
+        '_refresh_proxmox_backup_cache', '_run_data_backup',
         'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
         'handle_backup_job_create', 'handle_backup_job_delete', 'handle_backup_job_run',
         'handle_backup_job_update', 'handle_backup_jobs_list', 'handle_backup_restore',
@@ -25365,6 +25366,15 @@ def handle_config_save():
             if any(c in p for c in ('\n', '\r', '\x00', ';', '|', '`', '$', '<', '>')):
                 respond(400, {'error': 'backup.path has illegal characters'})
             clean_bk['path'] = p
+        if 'drill_days' in bk:
+            # v6.3.0: scheduled restore-drill cadence (0 disables the drill).
+            try:
+                v = int(bk['drill_days'])
+                if not (0 <= v <= 90):
+                    respond(400, {'error': 'backup.drill_days must be 0..90'})
+                clean_bk['drill_days'] = v
+            except (TypeError, ValueError):
+                respond(400, {'error': 'backup.drill_days must be an integer'})
         if 'retain_days' in bk:
             try:
                 v = int(bk['retain_days'])
@@ -61829,6 +61839,7 @@ def main():
     # unconditionally, even with the out-of-band scheduler on) and into the
     # normal gated cadence with everything else. See handle_heartbeat.
     _safe(_maybe_run_scheduled_backup, '_maybe_run_scheduled_backup')
+    _safe(_maybe_run_restore_drill, '_maybe_run_restore_drill')   # v6.3.0
     _safe(_maybe_check_disk_space, '_maybe_check_disk_space')
     _safe(_maybe_export_otlp, '_maybe_export_otlp')
     _safe(run_scheduled_scans_if_due, 'run_scheduled_scans_if_due')
