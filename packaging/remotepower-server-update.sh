@@ -122,6 +122,20 @@ if command -v systemctl >/dev/null 2>&1; then
   else
     log "WARNING: no ${API_SERVICE}.service unit found — the app server was NOT restarted, it is still running the OLD code. Set RP_API_SERVICE if your unit has a different name." >&2
   fi
+  # Sidecar daemons (scheduler, push relay, webterm, scanner satellite) are
+  # persistent processes too — after an update they keep running the OLD code
+  # until restarted. Git installs that ran deploy-server.sh are already
+  # covered (it also refreshes the webterm/scanner file copies); handle the
+  # package branches and bare-git installs here. Restart only units that are
+  # actually running — never START an optional daemon the operator left off.
+  if [ "$UPDATED" != "git+deploy" ]; then
+    for svc in remotepower-scheduler remotepower-push remotepower-webterm remotepower-scanner; do
+      if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        log "restarting ${svc} ..."
+        systemctl restart "$svc" || log "WARNING: ${svc} restart failed — it is still running the OLD code" >&2
+      fi
+    done
+  fi
   systemctl reload nginx 2>/dev/null || true
 fi
 

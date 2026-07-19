@@ -169,6 +169,17 @@ the other posture axes need data plumbing first).
   (tooltip shows the default), and a **"Changed only"** checkbox collapses the
   ~120-field page down to just your overrides.
 
+### Ops
+- **Self-update / deploy now restarts the sidecar daemons.**
+  `deploy-server.sh` refreshes the webterm (`/usr/local/bin/remotepower-webterm`)
+  and scanner-satellite (`/opt/remotepower/remotepower-scanner.py`) file copies
+  and restarts their units when active, and
+  `packaging/remotepower-server-update.sh` restarts active
+  scheduler/push/webterm/scanner units on the package-install branches.
+  Previously only `remotepower-wsgi` was restarted, so a shipped sidecar fix
+  (e.g. v6.2.3's webterm deprecation-warning suppression) stayed dead in the
+  long-running old process until someone restarted it by hand.
+
 Internal: the UX program's full 50-item scoped backlog lives in the internal
 docs repo; the two `showPage` fixed-window test pins were migrated to srcpin,
 and `srcpin.js_function` now handles default-object parameters.
