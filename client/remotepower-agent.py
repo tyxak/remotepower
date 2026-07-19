@@ -5826,6 +5826,59 @@ def get_mdns_services(limit=60):
     return list(seen.values())
 
 
+def get_battery():
+    """v6.3.0: laptop battery health from /sys/class/power_supply/BAT*.
+
+    Laptop fleets care about wear long before failure: charge percent, cycle
+    count and current-vs-design full capacity are free sysfs reads. Returns []
+    on hosts without a battery (servers, VMs) so the feature is invisible
+    there. External UPSes are a separate channel (NUT/apcupsd -> 'ups').
+    """
+    base = host_path('/sys/class/power_supply')
+    if not os.path.isdir(base):
+        return []
+    out = []
+    try:
+        for name in sorted(os.listdir(base)):
+            if not name.startswith('BAT'):
+                continue
+            d = os.path.join(base, name)
+
+            def _r(f):
+                v = _safe_read(os.path.join(d, f), 64)
+                return v.strip() if v else None
+            ent = {'name': name[:16]}
+            cap = _r('capacity')
+            if cap is not None:
+                try:
+                    ent['percent'] = max(0, min(100, int(cap)))
+                except ValueError:
+                    pass
+            status = _r('status')
+            if status:
+                ent['status'] = status[:32]
+            cycles = _r('cycle_count')
+            if cycles:
+                try:
+                    ent['cycles'] = int(cycles)
+                except ValueError:
+                    pass
+            # Wear: current full charge vs design capacity (energy_* on most
+            # laptops, charge_* on some ACPI implementations).
+            full = _r('energy_full') or _r('charge_full')
+            design = _r('energy_full_design') or _r('charge_full_design')
+            try:
+                if full and design and int(design) > 0:
+                    ent['health_pct'] = min(100, round(int(full) * 100 / int(design)))
+            except (ValueError, TypeError):
+                pass
+            if len(ent) > 1:
+                out.append(ent)
+    except OSError:
+        return []
+    return out
+
+
 def get_ecc_errors():
     """v6.1.2: ECC memory error counters from EDAC.
 
@@ -9641,6 +9694,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['usb'] = usb
             except Exception as e:
                 log.debug(f'usb probe error: {e}')
+            try:
+                # v6.3.0: laptop battery health. Inside `if send_sysinfo:` and
+                # AFTER `sysinfo = {...}` — the v6.1.2 scope gotcha applies.
+                bat = get_battery()
+                if bat:
+                    sysinfo['battery'] = bat
+            except Exception as e:
+                log.debug(f'battery probe error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # v6.2.2: delta sysinfo — drop the heavy fields whose content is

@@ -87,7 +87,7 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
-- **[v6.3.0.md](v6.3.0.md)** — "UndoMatters": the first wave of a UX program —
+- **[v6.3.0.md](v6.3.0.md)** — "Fl0wMatters": the first wave of a UX program —
  undo toasts instead of confirm dialogs for low-risk deletes (deferred commit),
  optimistic alert ack/resolve with a real un-ack Undo, "N of M shown" + Clear
  chips on filtered tables, Retry buttons on failed loads, an unsaved-changes

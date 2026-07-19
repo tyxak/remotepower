@@ -1,4 +1,4 @@
-"""v6.3.0 "UndoMatters" — release pins.
+"""v6.3.0 "Fl0wMatters" — release pins.
 
 The CURRENT release carries the strict version pins (older test_vXYZ.py files
 have theirs loosened to the live version). Headline: UX wave 1 — toast action
@@ -23,7 +23,7 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 V = "6.3.0"
-CODENAME = "UndoMatters"
+CODENAME = "Fl0wMatters"
 
 _JS = _ROOT / "server/html/static/js"
 
@@ -732,9 +732,9 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-12", _html())
+        self.assertIn("?v=6.3.0-13", _html())
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-12", sw)
+        self.assertIn("remotepower-shell-v6.3.0-13", sw)
 
 
 class TestWave12TransientToasts(unittest.TestCase):
@@ -760,6 +760,43 @@ class TestWave12TransientToasts(unittest.TestCase):
         for f in sorted(_JS.glob("app*.js")):
             hits = pat.findall(f.read_text())
             self.assertEqual(hits, [], f"{f.name}: validation toast(s) missing transient flag: {hits}")
+
+
+class TestWave13FleetVisibility(unittest.TestCase):
+    """Wave 13: battery health, version-skew chip, check remediation."""
+
+    AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
+
+    def test_battery_collector_in_agent(self):
+        self.assertIn("def get_battery", self.AGENT)
+        self.assertIn("/sys/class/power_supply", self.AGENT)
+        # placed inside `if send_sysinfo:` AFTER sysinfo is built — the
+        # AST scope guard (test_v612_agent_sysinfo_scope) enforces ordering;
+        # this pins that the store happens at all.
+        self.assertIn("sysinfo['battery'] = bat", self.AGENT)
+
+    def test_battery_survives_safe_si(self):
+        # safe_si is a whitelist — without this the field silently dies.
+        self.assertIn("safe_si['battery']", (_CGI / "api.py").read_text())
+
+    def test_battery_shown_in_drawer(self):
+        app = _js("app.js")
+        self.assertIn("['Battery', (si.battery && si.battery.length)", app)
+
+    def test_version_skew_chip(self):
+        app = _js("app.js")
+        self.assertIn("function toggleSkewFilter", app)
+        self.assertIn("function _verCmp", app)
+        self.assertIn("_staleAgentIds", app)
+        self.assertIn("agent${_staleAgentIds.size === 1 ? '' : 's'} outdated", app)
+
+    def test_check_remediate_deep_link(self):
+        checks = _js("app-checks.js")
+        self.assertIn("function checkRemediate", checks)
+        self.assertIn("generate_runbook", checks)
+        self.assertIn("data-action=\"checkRemediate\"", checks)
+        # lazy-module guard: openAIModal may not be loaded yet
+        self.assertIn("_loadAllLazyJs", checks)
 
 
 if __name__ == "__main__":

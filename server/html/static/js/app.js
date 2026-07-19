@@ -2624,12 +2624,26 @@ function renderDevices() {
   _onEl.classList.toggle('c-green', online > 0);
   _offEl.classList.toggle('c-red', _offline > 0);
   const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
+  // v6.3.0 (UX wave 13): agent version skew — agents older than the newest
+  // agent version in the fleet get a clickable warn chip that filters to
+  // them. Matters because a stale agent misses collectors, fixes and (on
+  // some OSes) can't self-update out of trouble.
+  const _agents = devices.filter(d => d.version && !d.agentless && !d.agent_uninstalled);
+  let _maxAgentVer = '';
+  _agents.forEach(d => { if (!_maxAgentVer || _verCmp(d.version, _maxAgentVer) > 0) _maxAgentVer = d.version; });
+  const _staleAgentIds = new Set(
+    _agents.filter(d => _verCmp(d.version, _maxAgentVer) < 0).map(d => d.id));
+  if (!_staleAgentIds.size) _skewFilterOn = false;
   const filterBar = document.getElementById('tag-filter-bar');
   if (filterBar) {
     filterBar.innerHTML = allTags.map(t => `<button data-action="setTagFilter" data-arg="${escAttr(t)}" class="isl-311 ${activeTagFilter===t ? 'active' : ''}">${escHtml(t)}</button>`).join('');
     if (activeTagFilter) filterBar.innerHTML += `<button data-action="_setTagFilterClear" class="isl-312">✕ clear</button>`;
+    if (_staleAgentIds.size) {
+      filterBar.innerHTML += `<button data-action="toggleSkewFilter" class="isl-311 c-amber ${_skewFilterOn ? 'active' : ''}" title="Agents running an older version than the newest in the fleet (${escAttr(_maxAgentVer)}) — click to show only those">${_icon('refresh', 11)} ${_staleAgentIds.size} agent${_staleAgentIds.size === 1 ? '' : 's'} outdated</button>`;
+    }
   }
   let filtered = activeTagFilter ? devices.filter(d => (d.tags || []).includes(activeTagFilter)) : devices;
+  if (_skewFilterOn) filtered = filtered.filter(d => _staleAgentIds.has(d.id));
   const deviceSearchTerm = (document.getElementById('device-search-input')?.value || '').toLowerCase();
   if (deviceSearchTerm) filtered = filtered.filter(d => (d.name||'').toLowerCase().includes(deviceSearchTerm) || (d.hostname||'').toLowerCase().includes(deviceSearchTerm) || (d.ip||'').toLowerCase().includes(deviceSearchTerm) || (d.os||'').toLowerCase().includes(deviceSearchTerm) || (d.group||'').toLowerCase().includes(deviceSearchTerm) || (d.tags||[]).some(t => t.toLowerCase().includes(deviceSearchTerm)));
   const deviceStatusFilter = document.getElementById('device-status-filter')?.value || 'all';
@@ -6052,6 +6066,15 @@ window.addEventListener('pagehide', () => {
 // all-numeric args to Number, which broke the strict `activeTagFilter===t`
 // highlight test (t is always a string) for purely numeric tags.
 function setTagFilter(tag) { activeTagFilter = (tag == null ? null : String(tag)); renderDevices(); }
+// v6.3.0 (UX wave 13): agent version-skew filter (chip lives in the tag bar).
+let _skewFilterOn = false;
+function toggleSkewFilter() { _skewFilterOn = !_skewFilterOn; renderDevices(); }
+function _verCmp(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
+  return 0;
+}
 
 // v5.8.0 (B2.3): reset every Devices-page filter to its default and re-render.
 // Filter state lives in the DOM inputs (read per render) plus the activeTagFilter
@@ -21433,6 +21456,16 @@ async function _loadAuditSection(key) {
             : null],
           ['ECC memory', si.ecc
             ? `${si.ecc.ce || 0} correctable · ${si.ecc.ue || 0} uncorrectable`
+            : null],
+          // v6.3.0 (wave 13): laptop battery wear — percent/status plus cycle
+          // count and current-vs-design health when the hardware exposes them.
+          ['Battery', (si.battery && si.battery.length)
+            ? si.battery.map(b => {
+                let s = `${b.percent != null ? b.percent + '%' : '—'}${b.status ? ' ' + b.status : ''}`;
+                if (b.health_pct != null) s += ` · health ${b.health_pct}%`;
+                if (b.cycles != null) s += ` · ${b.cycles} cycles`;
+                return si.battery.length > 1 ? `${b.name}: ${s}` : s;
+              }).join('\n')
             : null],
           // v6.1.2 (#40): the host's own SSH host-key fingerprints. Shown so that
           // when `hostkey_changed` fires you can compare against what ssh is

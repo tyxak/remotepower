@@ -67,14 +67,38 @@ function renderChecks() {
     const toggle = r.enabled
       ? `<button class="btn-icon btn-xs" data-action="toggleHostCheck" data-arg="${escAttr(arg)}|0" title="Disable this check on ${escAttr(r.host)}">Disable</button>`
       : `<button class="btn-icon btn-xs" data-action="toggleHostCheck" data-arg="${escAttr(arg)}|1">Enable</button>`;
+    // v6.3.0 (UX wave 13): a failing check gets a remediation deep-link — an
+    // AI runbook scoped to this host + check, instead of a dead-end row.
+    const fix = (r.enabled && r.status !== 'ok')
+      ? `<button class="btn-icon btn-xs" data-action="checkRemediate" data-arg="${escAttr(arg)}" title="Remediation runbook for this check on ${escAttr(r.host)}">${_icon('wrench', 13)}</button> `
+      : '';
     return `<tr class="chk-row${r.enabled ? '' : ' disabled'}">
       <td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(r.device_id)}" data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.host)}</button></td>
       <td class="hint">${escHtml(r.group || '—')}</td>
       <td>${escHtml(r.check)}<div class="hint">${escHtml(r.cgroup)}</div></td>
       <td><span class="chk-pill chk-${r.status}">${r.status}</span></td>
       <td class="fs-12">${escHtml(r.output)}</td>
-      <td class="nowrap">${toggle}</td></tr>`;
+      <td class="nowrap">${fix}${toggle}</td></tr>`;
   }), {colspan: 6});
+}
+// v6.3.0 (UX wave 13): remediation deep-link — generate a runbook for the
+// failing check, scoped to the device (uses the existing generate_runbook
+// advisor; the AI modal itself explains if no provider is configured).
+function checkRemediate(arg) {
+  // openAIModal lives in app-ai.js, which may not be lazy-loaded yet.
+  if (typeof openAIModal !== 'function') {
+    _loadAllLazyJs().then(() => { if (typeof openAIModal === 'function') checkRemediate(arg); });
+    return;
+  }
+  const [devId, key] = String(arg).split('|');
+  const r = _checksRows.find(x => x.device_id === devId && x.key === key);
+  if (!r) return;
+  openAIModal({
+    title: `Remediate: ${r.check} on ${r.host}`,
+    system: 'generate_runbook',
+    userMsg: `The health check "${r.check}" (${r.cgroup || 'general'}) on host "${r.host}" is in status ${r.status.toUpperCase()}. Check output: ${r.output || '(none)'}. Write a short, safe, step-by-step remediation runbook for an operator fixing this on that host, including verification steps.`,
+    context: `device:${devId}`, maxTokens: 1800,
+  });
 }
 async function toggleHostCheck(arg) {
   const [device_id, key, en] = String(arg).split('|');

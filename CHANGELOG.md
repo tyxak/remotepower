@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.3.0 — "UndoMatters" — unreleased (test)
+## v6.3.0 — "Fl0wMatters" — unreleased (test)
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of
 "are you sure?"**, plus the everyday friction fixes operators hit most.
@@ -185,6 +185,25 @@ the other posture axes need data plumbing first).
   visible row is selected, indeterminate on a partial selection.
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
+
+### Wave 13 — fleet visibility (from the project-wide ideas sweep)
+- **Laptop battery health** — the Linux agent reports charge %, status, cycle
+  count and current-vs-design wear for `BAT*` supplies (free sysfs reads,
+  `host_path`-aware, invisible on battery-less hosts); persisted through
+  `safe_si` and shown in the device drawer's sysinfo pills.
+- **Agent version-skew chip** — the Devices page tag bar shows
+  "N agents outdated" (vs the newest agent version present in the fleet);
+  clicking filters to exactly those hosts.
+- **Remediate from a failing check** — non-OK rows on the Checks page get a
+  wrench button that generates a host-scoped remediation runbook via the
+  existing `generate_runbook` AI advisor (`context: device:<id>`).
+- **UI ratchet gates** (`tests/test_v630_ui_ratchets.py`) — every id'd
+  `<thead>` must wire sorting (87/88 already did; the query explorer's
+  dynamic columns are the one allowlisted exception), and no NEW uncapped
+  static `<table>` may land in index.html (4 baselined). Both rules had
+  "shipped broken repeatedly" histories; now they fail the build instead.
+- **Codename renamed**: UndoMatters → **Fl0wMatters** (full-chain grep sweep,
+  incl. the doc-search `data-keywords`).
 
 ### Wave 12 — quieter notification center
 - **Form-validation toasts no longer pollute the notification bell.** `toast()`

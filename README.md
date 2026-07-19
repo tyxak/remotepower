@@ -168,12 +168,13 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.3.0 "UndoMatters"** — the first wave of a UX program: **undo instead of
-  "are you sure?"** — low-risk deletes (contacts, links, snippets, saved views)
-  show an Undo toast and only commit when it expires; alert acknowledge is
-  instant with a real server-side Undo; filtered tables say "N of M shown" with
-  one-click Clear; failed loads get Retry buttons; Settings guards unsaved
-  changes; and Tickets gain bulk resolve / assign-to-me.
+- **v6.3.0 "Fl0wMatters"** — a thirteen-wave UX program: **undo instead of
+  "are you sure?"** (topbar undo/redo, deferred-commit deletes, optimistic
+  alert ack), a notification center, configuration history with rollback,
+  draft autosave, column show/hide, shift-click range selection, per-alert
+  deep links and calm informative motion — plus laptop battery health, an
+  "agents outdated" version-skew filter, remediation runbooks from failing
+  checks, and deploy/self-update now restarting the sidecar daemons.
 - **v6.2.3 "Un1fyMatters"** — a consolidation and tidy-up pass: an optional
   listen port on Create tunnel, an ACME certificates page that loads on
   navigation (no manual Refresh), clearer feedback when a package snapshot

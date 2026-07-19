@@ -17365,6 +17365,27 @@ def handle_heartbeat():
                     'enabled': bool(_au.get('enabled')),
                     'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
                 }
+            # v6.3.0: laptop battery health (percent/status/cycles/wear).
+            # safe_si is a WHITELIST — without this the agent's battery field
+            # would silently never reach the UI.
+            _bat = si.get('battery')
+            if isinstance(_bat, list):
+                _bs = []
+                for b in _bat[:4]:
+                    if not isinstance(b, dict):
+                        continue
+                    _b = {'name': _sanitize_str(str(b.get('name', '')), 16)}
+                    for k in ('percent', 'cycles', 'health_pct'):
+                        v = b.get(k)
+                        if isinstance(v, (int, float)) and 0 <= v < 1e6:
+                            _b[k] = int(v)
+                    st = b.get('status')
+                    if isinstance(st, str):
+                        _b['status'] = _sanitize_str(st, 32)
+                    if len(_b) > 1:
+                        _bs.append(_b)
+                if _bs:
+                    safe_si['battery'] = _bs
             # v6.2.2: kernel-module visibility from the agent's own execution
             # context. safe_si is a WHITELIST — drop it here and the forced
             # 'modules' check + the modules_hidden alert can never fire.

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-12">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-13">
 
 </head>
 <body>
@@ -4264,8 +4264,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.3.0 undomatters undo redo topbar arrows ctrl z mikrotik columns show hide dashboard layout undo this page help configuration history rollback restore revision pinned devices star duplicate script cross tab sync broadcastchannel draft autosave restore kb article theme sync tabs purge counts undo history while you were away quiet hours moon drawer next previous sticky column reset view copy json palette scope interface size zoom pull to refresh fleet pulse sparkline count up delta progress ring row flash heat strip heatmap grade ticks page fade toast action button undoable delete deferred commit ctrl enter submit modal double submit inflight click to copy clipboard rows per page csv export download recently viewed palette recents new version reload service worker skeleton loading contacts links snippets saved views optimistic ack resolve unack alert instant filter chip n of m shown clear filter retry button failed to load error state unsaved changes guard settings dirty leave without saving tickets bulk resolve assign to me checkboxes multi select ux wave">
-            <summary><strong>What's new — v6.3.0 &ldquo;UndoMatters&rdquo;</strong> — the first wave of a UX program: <strong>undo instead of &ldquo;are you sure?&rdquo;</strong> — deleting a contact, link, command snippet or saved view now shows an Undo toast and only commits when it expires; alert acknowledge is <strong>instant with Undo</strong>, resolve flips the row optimistically. Plus: every filtered table says <strong>&ldquo;N of M shown&rdquo;</strong> with a one-click Clear, failed loads get a <strong>Retry</strong> button, Settings warns before discarding <strong>unsaved changes</strong>, and Tickets gain <strong>bulk resolve / assign-to-me</strong>.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.3.0 fl0wmatters undo redo topbar arrows ctrl z mikrotik columns show hide dashboard layout undo this page help configuration history rollback restore revision pinned devices star duplicate script cross tab sync broadcastchannel draft autosave restore kb article theme sync tabs purge counts undo history while you were away quiet hours moon drawer next previous sticky column reset view copy json palette scope interface size zoom pull to refresh fleet pulse sparkline count up delta progress ring row flash heat strip heatmap grade ticks page fade toast action button undoable delete deferred commit ctrl enter submit modal double submit inflight click to copy clipboard rows per page csv export download recently viewed palette recents new version reload service worker skeleton loading contacts links snippets saved views optimistic ack resolve unack alert instant filter chip n of m shown clear filter retry button failed to load error state unsaved changes guard settings dirty leave without saving tickets bulk resolve assign to me checkboxes multi select ux wave shift click range select escape clear selection select all indeterminate absolute time tooltip battery health cycles wear laptop agent outdated version skew stale agents remediate runbook failing check wrench notification center transient validation toast sidecar restart webterm scanner scheduler push">
+            <summary><strong>What's new — v6.3.0 &ldquo;Fl0wMatters&rdquo;</strong> — a thirteen-wave UX program: <strong>undo instead of &ldquo;are you sure?&rdquo;</strong> (topbar undo/redo arrows, deferred-commit deletes, optimistic alert ack), a <strong>notification center</strong> replaying the session's toasts, <strong>configuration history with rollback</strong>, draft autosave in the script and KB editors, column show/hide, shift-click <strong>range selection</strong> on devices, per-alert deep links, and calm informative motion. New fleet visibility: <strong>laptop battery health</strong> in the drawer, an <strong>&ldquo;N agents outdated&rdquo;</strong> version-skew filter chip, and a <strong>remediation runbook</strong> button on failing checks. Ops: deploy/self-update now restart the sidecar daemons.</summary>
             <div class="doc-body">
               <p><strong>Undo instead of confirm.</strong> Low-risk deletes (contacts, links, command-library snippets, saved device views) no longer interrupt with a dialog: the row disappears immediately and a toast offers <strong>Undo</strong> for a few seconds. The actual delete is only sent to the server when the toast expires — Undo cancels it entirely, so an interrupted delete always fails toward &ldquo;still there&rdquo;. Destructive fan-out operations (Docker prune, device removal, VM rollback) keep their explicit typed confirmations.</p>
               <p><strong>Topbar undo/redo.</strong> Two small arrow buttons in the top bar (and <kbd>Ctrl/Cmd-Z</kbd> / <kbd>Ctrl-Shift-Z</kbd> outside text fields) drive a global undo/redo stack — every undoable action registers there as well as in its toast, and the tooltip names what will be undone.</p>
@@ -10382,34 +10382,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-12"></script>
+<script defer src="static/js/app.js?v=6.3.0-13"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-12"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-13"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-12"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-13"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-12"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-13"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-12"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-12"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-13"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-13"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10418,6 +10418,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-12"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-13"></script>
 </body>
 </html>
