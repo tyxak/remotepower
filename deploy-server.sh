@@ -299,12 +299,12 @@ done
 if [[ -f /usr/local/bin/remotepower-webterm ]]; then
     install -m 755 "$SCRIPT_DIR/server/webterm/remotepower-webterm.py" \
         /usr/local/bin/remotepower-webterm
-    if [[ -f "$SCRIPT_DIR/packaging/remotepower-webterm.service" \
-          && -f /etc/systemd/system/remotepower-webterm.service ]]; then
-        install -m 644 "$SCRIPT_DIR/packaging/remotepower-webterm.service" \
-            /etc/systemd/system/remotepower-webterm.service
-        systemctl daemon-reload
-    fi
+    # ⛔ NEVER copy packaging/remotepower-webterm.service over the installed
+    # unit: install-webterm.sh RENDERS it per host (sed's in the chosen
+    # --daemon-user and CGI group). The raw template hardcodes rp-webterm/
+    # rp-www — overwriting a rendered unit bricks the service with 217/USER
+    # on any host that picked different names (bit tviweb01, 2026-07-19).
+    # Unit changes ship via install-webterm.sh re-runs only.
     if systemctl is-active --quiet remotepower-webterm 2>/dev/null; then
         systemctl restart remotepower-webterm
         info "remotepower-webterm refreshed + restarted (service was active)"
