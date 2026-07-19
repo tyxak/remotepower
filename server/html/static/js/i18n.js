@@ -2253,6 +2253,7 @@
     'Swap': { fr: 'Swap', de: 'Swap', zh: '交换空间', hi: 'स्वैप', es: 'Swap', ar: 'التبديل' },
     'Auto-updates': { fr: 'Mises à jour auto', de: 'Auto-Updates', zh: '自动更新', hi: 'स्वचालित अपडेट', es: 'Actualizaciones automáticas', ar: 'التحديثات التلقائية' },
     'ECC memory': { fr: 'Mémoire ECC', de: 'ECC-Speicher', zh: 'ECC 内存', hi: 'ECC मेमोरी', es: 'Memoria ECC', ar: 'ذاكرة ECC' },
+    'Chassis': { fr: 'Châssis', de: 'Gehäuse', zh: '机箱类型', hi: 'चेसिस', es: 'Chasis', ar: 'الهيكل' },
     'Battery': { fr: 'Batterie', de: 'Akku', zh: '电池', hi: 'बैटरी', es: 'Batería', ar: 'البطارية' },
     'SSH host keys': { fr: 'Clés d\'hôte SSH', de: 'SSH-Hostschlüssel', zh: 'SSH 主机密钥', hi: 'SSH होस्ट कुंजियाँ', es: 'Claves de host SSH', ar: 'مفاتيح مضيف SSH' },
     'Last boot': { fr: 'Dernier démarrage', de: 'Letzter Start', zh: '上次启动', hi: 'अंतिम बूट', es: 'Último arranque', ar: 'آخر إقلاع' },

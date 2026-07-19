@@ -5826,6 +5826,21 @@ def get_mdns_services(limit=60):
     return list(seen.values())
 
 
+def get_chassis():
+    """v6.3.0: DMI chassis class ('laptop'/'desktop'/'server'/...) — one sysfs
+    read. The server's offline sweep uses it to give roaming laptop-class
+    hosts a longer leash (laptop_offline_grace_hours) so a lid-close doesn't
+    page like a dead server. Empty string on VMs/containers/unknown codes."""
+    code = (_safe_read('/sys/class/dmi/id/chassis_type', 8) or '').strip()
+    names = {'3': 'desktop', '4': 'desktop', '6': 'desktop', '7': 'desktop',
+             '8': 'portable', '9': 'laptop', '10': 'notebook',
+             '13': 'all-in-one', '14': 'notebook', '17': 'server',
+             '23': 'server', '25': 'server', '30': 'tablet',
+             '31': 'convertible', '32': 'detachable', '34': 'server',
+             '35': 'mini-pc'}
+    return names.get(code, '')
+
+
 def get_battery():
     """v6.3.0: laptop battery health from /sys/class/power_supply/BAT*.
 
@@ -9702,6 +9717,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['battery'] = bat
             except Exception as e:
                 log.debug(f'battery probe error: {e}')
+            try:
+                # v6.3.0: chassis class (same placement rule as battery).
+                ch = get_chassis()
+                if ch:
+                    sysinfo['chassis'] = ch
+            except Exception as e:
+                log.debug(f'chassis probe error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # v6.2.2: delta sysinfo — drop the heavy fields whose content is

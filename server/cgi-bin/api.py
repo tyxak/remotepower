@@ -2249,6 +2249,18 @@ def _offline_thresholds(dev, ttl):
     except (TypeError, ValueError):
         extra_min = 0
     offline_after += max(0, min(1440, extra_min)) * 60
+    # v6.3.0: chassis-aware grace — a laptop that closed its lid is not a down
+    # server. When the agent reports a laptop-class chassis AND the operator
+    # set laptop_offline_grace_hours (>0; default 0 = behaviour unchanged),
+    # extend this device's candidate window by that many hours. Same
+    # in-function _config_ro() read as offline_missed_polls above.
+    try:
+        _lg = int(_config_ro().get('laptop_offline_grace_hours', 0))
+    except (TypeError, ValueError):
+        _lg = 0
+    if _lg > 0 and (dev.get('sysinfo') or {}).get('chassis') in (
+            'laptop', 'notebook', 'portable', 'tablet', 'convertible', 'detachable'):
+        offline_after += max(0, min(168, _lg)) * 3600
     debounce = max(OFFLINE_GRACE_S, poll)
     return offline_after, debounce
 
@@ -17368,6 +17380,11 @@ def handle_heartbeat():
                     'enabled': bool(_au.get('enabled')),
                     'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
                 }
+            # v6.3.0: chassis class — the offline sweep's laptop grace and the
+            # drawer read this; safe_si is a WHITELIST, drop = feature dead.
+            _ch = si.get('chassis')
+            if isinstance(_ch, str) and _ch:
+                safe_si['chassis'] = _sanitize_str(_ch, 16)
             # v6.3.0: laptop battery health (percent/status/cycles/wear).
             # safe_si is a WHITELIST — without this the agent's battery field
             # would silently never reach the UI.
@@ -23299,6 +23316,7 @@ def handle_config_get():
     safe.setdefault('conntrack_warn_percent', 80)      # conntrack fullness → warning
     safe.setdefault('conntrack_crit_percent', 95)      # conntrack fullness → critical
     safe.setdefault('offline_missed_polls', OFFLINE_MISSED_POLLS)             # offline after N missed polls
+    safe.setdefault('laptop_offline_grace_hours', 0)  # v6.3.0: extra hours before a laptop-chassis host is offline-flagged (0 = same as servers)
     safe.setdefault('resolver_failures_before_alert', RESOLVER_HEALTH_CONFIRM)  # resolver_unhealthy confirm
     safe.setdefault('ip_rep_confirm_scans', IP_REP_CONFIRM)                  # ip_blacklisted confirm
     safe.setdefault('tls_warn_days', TLS_DEFAULT_WARN_DAYS)                  # TLS expiry warn (days)
@@ -24475,6 +24493,7 @@ def handle_config_save():
         ('conntrack_crit_percent',    1,   100,    True),
         # Reachability — offline / resolver / IP-reputation confirm counts.
         ('offline_missed_polls',      1,   100,    True),
+        ('laptop_offline_grace_hours', 0,  168,    True),   # v6.3.0 chassis-aware
         ('resolver_failures_before_alert', 1, 100, True),
         ('ip_rep_confirm_scans',      1,   100,    True),
         # Certificates — TLS + local cert-file expiry windows (days).

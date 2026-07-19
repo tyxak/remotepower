@@ -19918,6 +19918,7 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-conntrack-warn',            'conntrack_warn_percent',     80],
   ['ap-conntrack-crit',            'conntrack_crit_percent',     95],
   ['ap-offline-polls',             'offline_missed_polls',       5],
+  ['ap-laptop-grace',              'laptop_offline_grace_hours', 0],
   ['ap-resolver-fails',            'resolver_failures_before_alert', 2],
   ['ap-iprep-scans',               'ip_rep_confirm_scans',       2],
   ['ap-tls-warn-days',             'tls_warn_days',              14],
@@ -21457,6 +21458,7 @@ async function _loadAuditSection(key) {
           ['ECC memory', si.ecc
             ? `${si.ecc.ce || 0} correctable · ${si.ecc.ue || 0} uncorrectable`
             : null],
+          ['Chassis', si.chassis || null],
           // v6.3.0 (wave 13): laptop battery wear — percent/status plus cycle
           // count and current-vs-design health when the hardware exposes them.
           ['Battery', (si.battery && si.battery.length)

@@ -186,6 +186,16 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Chassis-aware offline alerting — a closed lid is not a dead server
+- The Linux agent reports its **DMI chassis class** (`sysinfo.chassis`:
+  laptop/notebook/desktop/server/…, one sysfs read, absent on VMs); shown as
+  a drawer pill. A new **"Laptop offline grace (hours)"** knob (Settings →
+  Alert parameters → Reachability, `laptop_offline_grace_hours`, 0–168,
+  default 0 = unchanged) extends the offline-candidate window for
+  laptop-class hosts only — so a lid-close or commute stops paging like an
+  outage, while servers keep the tight threshold. Full 5-spot tunable
+  wiring + real-path tests (`tests/test_v630_laptop_grace.py`).
+
 ### Per-page E2E smoke sweep — every page opens clean, verified in a browser
 - `tests/test_v630_e2e_page_smokes.py`: one stack boot + one login, then all
   ~67 sidebar pages — navigate, wait for activation, fail on any uncaught JS
