@@ -73,5 +73,6 @@ C:*
 
 # pre-release push stamp + CI-parity artifacts (local gate state, never shipped)
 .pre-release-ok
+.promote-state
 .ci-parity-run.log
 .ci-parity-venv/

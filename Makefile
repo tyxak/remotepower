@@ -356,6 +356,8 @@ dist: clean
 	  --exclude='*.enc' \
 	  --exclude='.ssh' \
 	  --exclude='scan-*' \
+	  --exclude='./.pre-release-ok' \
+	  --exclude='./.promote-state' \
 	  .
 	@# Leak gate (v5.8.0): the tarball packs the WORKING TREE, so untracked/
 	@# gitignored local files ship unless the exclude list above names them —

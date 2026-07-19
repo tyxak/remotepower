@@ -186,6 +186,21 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Prod promotion is now a script, not prose
+- **`tools/promote.sh vX.Y.Z '"Codename"'`** — the 13-step release checklist
+  (pre-release gate → CHANGELOG date flip → signed tag → prod push →
+  artifacts + tarball leak-check → GitHub release → ghcr → AUR → site →
+  wiki+sidebar → CodeQL triage → keep-5/lockstep) as a checkpointed,
+  resumable orchestrator. Gates hard-fail (stamp, date flip, leak-check);
+  pushes/publishes and all gpg signing stay with the operator as printed
+  commands — the script never touches prod by itself and never automates
+  signing. `--plan` prints the steps; `.promote-state` checkpoints between
+  runs (gitignored + dist-excluded, along with `.pre-release-ok` which was
+  missing from the dist excludes). Guardrail:
+  `tests/test_v630_promote_script.py` pins the steps and the encoded
+  gotchas (tags-before-fetch, canonical title, NEVER --cleanup-tag, no
+  unattended signing).
+
 ### i18n backfill + a trustworthy parallel test suite
 - **~32 DICT entries backfilled** (all 6 languages): the notification-center
   and undo/draft strings from the UX waves, plus the device drawer's entire
