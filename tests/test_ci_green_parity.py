@@ -153,6 +153,11 @@ class TestTestModulesImportableOnCi(unittest.TestCase):
         local = _local_module_names()
         problems = []
         for path in sorted((ROOT / 'tests').glob('*.py')):
+            if path.name == 'conftest.py':
+                # pytest-only by definition: unittest discover imports test*.py
+                # patterns only, so CI never loads it — and pytest, the only
+                # loader that does, is by construction installed when it runs.
+                continue
             for name in sorted(_top_level_imports(path)):
                 if name in STDLIB or name in local:
                     continue

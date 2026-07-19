@@ -186,6 +186,17 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### i18n backfill + a trustworthy parallel test suite
+- **~32 DICT entries backfilled** (all 6 languages): the notification-center
+  and undo/draft strings from the UX waves, plus the device drawer's entire
+  sysinfo pill-label family (CPU model, Kernel, Battery, ECC memory, SSH host
+  keys, …) which had never been swept.
+- **`make test-fast` is now reliable** — a pytest-only `tests/conftest.py`
+  guards `RP_DATA_DIR` per module, closing the leak where a test popping the
+  var sent every later module in the same xdist worker at the REAL
+  `/var/lib/remotepower`. 7524 parallel tests green; a red test-fast now
+  means a real failure.
+
 ### Backend migration CLI covers Postgres
 - `tools/migrate_storage.py --to postgres --dsn …` (and back off Postgres) —
   wraps the same `_migrate_storage_pg` engine the in-app migrate and the
