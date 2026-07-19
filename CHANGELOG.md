@@ -186,6 +186,15 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Backend migration CLI covers Postgres
+- `tools/migrate_storage.py --to postgres --dsn …` (and back off Postgres) —
+  wraps the same `_migrate_storage_pg` engine the in-app migrate and the
+  Docker entrypoint use (copy → verify → flip, with catch-up passes).
+  `docs/scaling.md` already documented the CLI as the Postgres migration
+  path, but the tool only accepted json/sqlite — an existing install had no
+  supported CLI route onto the enterprise backend. Also marker-aware: a
+  same-backend invocation is a friendly no-op.
+
 ### macOS agent self-update (closing the last self-heal gap)
 - The mac agent's `update` command now **actually updates** (it was an honest
   rc:1 "not implemented" stub; before that, a v6.2.0 bug reported rc:0 while

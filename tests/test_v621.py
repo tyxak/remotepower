@@ -79,6 +79,10 @@ class TestVersionBumps(unittest.TestCase):
         """The data-keywords attribute embeds the codename as a lowercase search
         term — the surface a visible-text rename always misses."""
         html = _html()
+        if "What's new — v6.2.1" not in html:
+            # v6.3.0: the in-app cards keep only the last 3 releases — this
+            # card rotated out; the durable history lives in CHANGELOG.md.
+            self.skipTest("v6.2.1 What's-new card rotated out (keep-3)")
         i = html.index("What's new — v6.2.1")
         card = html[max(0, i - 1600):i]
         self.assertIn("in1tmatters", card)

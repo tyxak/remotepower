@@ -3456,10 +3456,11 @@ class TestLargeFleetCapsAndUX(unittest.TestCase):
     HTML = (_ROOT / "server/html/index.html").read_text()
 
     def test_device_card_grid_is_capped(self):
-        i = self.APP.find('function renderDevices')
-        # Window widened v5.8.0: the split empty-state CTA (B2.3) grew the
-        # pre-cap body of renderDevices; DEVICE_CARD_CAP now sits deeper.
-        chunk = self.APP[i:i + 10000]
+        # v6.3.0: srcpin (whole function), not a fixed [i:i+N] window — the
+        # window was re-widened v5.8.0 and outgrown again by the wave-13
+        # version-skew chip; the srcpin form is growth-proof.
+        from tests import srcpin
+        chunk = srcpin.js_function(self.APP, 'renderDevices')
         self.assertIn('DEVICE_CARD_CAP', chunk)
         self.assertIn('_cardOverflow', chunk)
         # the overflow notice (rendered after the long card template) + its CSS
