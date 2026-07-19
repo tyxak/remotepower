@@ -160,6 +160,42 @@ class TestAccessibilityAxe(unittest.TestCase):
         results = _run_axe(self.page, self.axe, _AXE_OPTIONS)
         self._assert_no_serious_violations(results, 'devices page')
 
+    def test_every_sidebar_page(self):
+        """v6.3.0: the full walk — axe on ALL sidebar pages, not just two.
+
+        axe skips non-rendered elements, so each run audits the ACTIVE page
+        plus the shared chrome. Same two harness lessons as the smoke sweep:
+        pre-dismiss the first-run tour (its backdrop intercepts clicks) and
+        re-expand the accordion before every nav."""
+        import re as _re
+        from pathlib import Path as _P
+        html = (_P(__file__).parent.parent / 'server/html/index.html').read_text()
+        pages, seen = [], set()
+        for m in _re.finditer(r'class="nav-btn[^"]*" data-page="([a-z-]+)"', html):
+            if m.group(1) not in seen:
+                seen.add(m.group(1))
+                pages.append(m.group(1))
+        self.assertGreater(len(pages), 50)
+        self.page.goto(self.base + '/index.html')
+        self.page.evaluate("localStorage.setItem('rp_tour_done', '1')")
+        self.page.fill('#login-user', 'admin')
+        self.page.fill('#login-pass', 'remotepower')
+        self.page.click('#login-form button[type="submit"]')
+        self.page.wait_for_selector('#app', state='visible', timeout=15000)
+        self.page.evaluate(self.axe.axe_script)   # inject once; SPA keeps it
+        for p in pages:
+            with self.subTest(page=p):
+                self.page.evaluate(
+                    "document.body.classList.remove('autohide-sidebar', 'sidebar-collapsed');"
+                    "document.querySelectorAll('.sidebar-group.collapsed')"
+                    ".forEach(g => g.classList.remove('collapsed'))")
+                self.page.click(f'.nav-btn[data-page="{p}"]', timeout=5000)
+                self.page.wait_for_selector(f'#page-{p}.active', timeout=10000)
+                self.page.wait_for_timeout(250)
+                results = self.page.evaluate(
+                    "axe.run(%s).then(r => r)" % json.dumps(_AXE_OPTIONS))
+                self._assert_no_serious_violations(results, f'page {p!r}')
+
 
 if __name__ == '__main__':
     unittest.main()

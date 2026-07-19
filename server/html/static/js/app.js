@@ -12288,7 +12288,9 @@ function renderTimeSeries(elId, series, opts) {
   const spanX = (maxX - minX) || 1, spanY = (yMax - yMin) || 1;
   const sx = x => padL + (x - minX) / spanX * plotW;
   const sy = y => padT + plotH - (y - yMin) / spanY * plotH;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" class="ts-chart" preserveAspectRatio="xMidYMid meet" role="img">`;
+  // v6.3.0 (a11y): role="img" requires an accessible name (axe svg-img-alt).
+  const _alabel = opts.label || (series.map(s => s.name).filter(Boolean).join(', ') || 'Time-series chart');
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="ts-chart" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escAttr(_alabel)}">`;
   // y gridlines + labels (5 ticks)
   for (let i = 0; i <= 4; i++) {
     const yv = yMin + spanY * i / 4;

@@ -1593,7 +1593,9 @@
      in the product rendered as unstyled plain text, indistinguishable from a
      label. The one badge that must never be missable was the only one with no
      colour. */
-  .patch-badge.crit { background: rgba(239,68,68,0.15);  color: var(--red); }
+  /* v6.3.0 (a11y): var(--red) composites to 4.48:1 on this tinted background
+     — 0.02 under AA (axe serious, users page). Dedicated color, #62 pattern. */
+  .patch-badge.crit { background: rgba(239,68,68,0.15);  color: #ec7a70; }
   .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
   /* Dropdown menu styles - clean, no icons, properly positioned */
@@ -2400,7 +2402,12 @@
     overflow: hidden;
   }
   .cal-day:hover { background: var(--surface2); }
-  .cal-day-num { font-size: 13px; font-weight: 500; color: var(--muted); }
+  /* v6.3.0 (a11y): current-month days get full ink and other-month days keep
+     readable muted — the old whole-cell `opacity: .35` dim bottomed out at
+     1.7:1 contrast (axe serious), and no opacity value can both de-emphasize
+     and clear 4.5:1 when --muted is the base. Hierarchy now comes from
+     ink-vs-muted instead of an opacity veil. */
+  .cal-day-num { font-size: 13px; font-weight: 500; color: var(--text); }
   .cal-day.today .cal-day-num {
     font-weight: 600;
     background: var(--accent); color: var(--accent-contrast, #fff);
@@ -2408,7 +2415,8 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 12px;
   }
-  .cal-day.other-month { opacity: 0.35; }
+  .cal-day.other-month { background: transparent; }
+  .cal-day.other-month .cal-day-num { color: var(--muted); font-weight: 400; }
   .cal-event {
     font-size: 11px; padding: 2px 6px; border-radius: 4px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -5609,7 +5617,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .sev-pill.sev-high     { background: rgba(255,140,0,0.15); color: #ff8c00; border: 1px solid #ff8c00; }
 .sev-pill.sev-medium   { background: rgba(255,193,7,0.15); color: #d4a017; border: 1px solid #d4a017; }
 .sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: #8a95a1; border: 1px solid var(--muted); }
-.sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
+/* v6.3.0 (a11y): #28a745 sat at 4.48:1 on its own tinted background — 0.02
+   under the WCAG AA bar (axe serious on compliance/reports/self). Same
+   dedicated-color treatment sev-low got in the #62 pass. */
+.sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #32c455; border: 1px solid #32c455; }
 .sev-pill.sev-info     { background: rgba(59,130,246,0.15); color: var(--accent); border: 1px solid var(--accent); }
 .tl-dot.sev-info       { background: var(--accent); }
 .alerts-row.resolved   { opacity: 0.55; }

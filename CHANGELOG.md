@@ -186,6 +186,21 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Accessibility: axe-clean on every page, not just three
+- The axe-core gate now walks **all ~67 sidebar pages** (was login +
+  dashboard + devices) with the same zero-critical/serious bar and no
+  disabled rules. The first full walk found 4 real issue classes, all
+  fixed: the `sev-success` pill green sat at 4.48:1 (0.02 under AA — now
+  `#32c455`); the calendar's adjacent-month day dim used a whole-cell
+  `opacity:.35` that bottomed out at 1.69:1 and *no* opacity can pass while
+  `--muted` is the base — hierarchy now comes from ink-vs-muted color;
+  `patch-badge.crit` composited to another 4.48:1 near-miss (dedicated
+  `#ec7a70`); and `renderTimeSeries` SVGs carried `role="img"` with no
+  accessible name (now an `aria-label` from the series names). The rest of
+  the claimed a11y backlog turned out already shipped (focus traps on
+  modals AND the drawer, `role="dialog"`+labels on all 124 modals,
+  skip-link, contrast pass, nested-interactive).
+
 ### Chassis-aware offline alerting — a closed lid is not a dead server
 - The Linux agent reports its **DMI chassis class** (`sysinfo.chassis`:
   laptop/notebook/desktop/server/…, one sysfs read, absent on VMs); shown as
