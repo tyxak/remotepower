@@ -152,6 +152,14 @@ const tableCtl = (() => {
   const _page = {};                 // v3.12.0: current page index per table
 
   function register(opts) {
+    // v6.3.0 (UX wave 11): tables that re-register on every render (the
+    // devices minimal table re-wires its sort headers each paint) must not
+    // lose the render-state the wave-10 animations key on. A fresh opts
+    // object made every re-render look like a first paint — the entrance
+    // stagger replayed on each checkbox select ("the table blinks") — and
+    // emptied the projection diff so the row-change flash never fired there.
+    const prev = _registry[opts.name];
+    if (prev) { opts._painted = prev._painted; opts._projPrev = prev._projPrev; }
     _registry[opts.name] = opts;
     // Wire the filter input if present — restore stored value, attach
     // listener that re-renders + persists.
@@ -2791,7 +2799,7 @@ function renderDevices() {
     const ticketMark = (window._ticketDevices && window._ticketDevices.has(d.id))
       ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1">${_icon('ticket',13)}</span>`
       : '';
-    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}${d.decommissioned ? ' decommissioned' : ''}">
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${escAttr(d.id)}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
@@ -2802,7 +2810,7 @@ function renderDevices() {
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')}${_signedBadge(d)} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
       ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
-      <div class="last-seen">Last seen: ${lastSeen}</div>
+      <div class="last-seen" title="${escAttr(_absTs(d.last_seen))}">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('')
     + (_cardOverflow > 0 && _shown < DEVICE_CARD_CAP
@@ -2938,7 +2946,7 @@ function _registerDevicesMinimalTable() {
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
         <td class="dev-ip-cell mono-12">${escHtml(d.ip || '—')}</td>
         <td class="dev-version-cell fs-12">${escHtml(d.version || '—')}${_signedBadge(d)}${patchHtml}</td>
-        <td class="dev-lastseen-cell hint">${lastSeen}</td>
+        <td class="dev-lastseen-cell hint" title="${escAttr(_absTs(d.last_seen))}">${lastSeen}</td>
         <td class="dev-actions-cell ta-right">${dropdownHtml}</td>
       </tr>`;
     },
@@ -2991,6 +2999,17 @@ function _renderDevicesMinimal(filtered) {
   </div>`;
   _registerDevicesMinimalTable();
   tableCtl.render('devices_minimal', filtered);
+  // v6.3.0 (UX wave 11): make the select-all header checkbox reflect reality —
+  // checked when every visible row is selected, indeterminate on a partial
+  // selection (it used to sit unchecked no matter what was selected).
+  const sa = document.getElementById('dev-min-select-all');
+  if (sa) {
+    const ids = [...document.querySelectorAll('#devices-minimal-tbody tr.dev-row[data-dev-id]')]
+      .map(el => el.getAttribute('data-dev-id'));
+    const sel = ids.filter(i => selectedDevices.has(i)).length;
+    sa.checked = ids.length > 0 && sel === ids.length;
+    sa.indeterminate = sel > 0 && sel < ids.length;
+  }
 }
 
 // v2.1.0: track the live close-handler so a subsequent toggleDropdown()
@@ -5619,6 +5638,9 @@ function enhanceDeviceCombos(root) {
 // opts (all optional, defaults preserve the original behaviour for every
 // existing caller): {empty} — label returned for a falsy ts; {clamp} — floor
 // the delta at 0 so a future/skewed ts never reads "-5s ago".
+// v6.3.0 (UX wave 11): absolute-timestamp tooltip companion to timeAgo() —
+// "3h ago" answers "roughly when"; hovering answers "exactly when".
+function _absTs(ts) { return ts ? new Date(parseInt(ts) * 1000).toLocaleString() : ''; }
 function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty; let diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
@@ -7061,8 +7083,52 @@ async function loadDeviceMetrics() {
 
 async function clearHistory() { if (!await uiConfirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
 let selectedDevices = new Set();
-function toggleSelect(id) { if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id); updateBatchBar(); renderDevices(); }
-function clearSelection() { selectedDevices.clear(); updateBatchBar(); renderDevices(); }
+// v6.3.0 (UX wave 11): remember whether the last real click held Shift —
+// the data-action dispatcher doesn't pass the event through. Capture phase,
+// so it's recorded before any handler runs.
+let _rpShiftClick = false;
+document.addEventListener('click', (e) => { _rpShiftClick = e.shiftKey; }, true);
+let _lastToggledDev = null;
+function toggleSelect(id) {
+  id = String(id);
+  // v6.3.0 (UX wave 11): shift-click selects (or clears — it follows what
+  // happened to the anchor row) the whole visible range between the previous
+  // checkbox and this one, the file-manager idiom. Order comes from the DOM,
+  // so it respects the active filter + sort in both densities.
+  if (_rpShiftClick && _lastToggledDev && _lastToggledDev !== id) {
+    const order = [...document.querySelectorAll(
+      '#devices-minimal-tbody tr.dev-row[data-dev-id], #devices-container .device-card[data-dev-id]'
+    )].map(el => el.getAttribute('data-dev-id'));
+    const a = order.indexOf(_lastToggledDev), b = order.indexOf(id);
+    if (a !== -1 && b !== -1) {
+      const on = selectedDevices.has(_lastToggledDev);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
+        if (on) selectedDevices.add(order[i]); else selectedDevices.delete(order[i]);
+      }
+      _lastToggledDev = id;
+      updateBatchBar(); renderDevices();
+      return;
+    }
+  }
+  if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id);
+  _lastToggledDev = id;
+  updateBatchBar(); renderDevices();
+}
+function clearSelection() { selectedDevices.clear(); _lastToggledDev = null; updateBatchBar(); renderDevices(); }
+// v6.3.0 (UX wave 11): Escape clears the batch selection — only when nothing
+// else owns the key (no modal / drawer / palette open, not typing in a field)
+// and the Devices page is actually showing.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !selectedDevices.size) return;
+  if (typeof _drawerDeviceId !== 'undefined' && _drawerDeviceId) return;
+  if (document.body.classList.contains('modal-open')) return;
+  if (document.getElementById('cmd-palette-overlay')) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  const pg = document.getElementById('page-devices');
+  if (!pg || !pg.classList.contains('active')) return;
+  clearSelection();
+});
 // v1.12.1: select-all checkbox in the minimal table's header. Selects /
 // deselects every currently-rendered row (i.e. respects the visible filter,
 // not the entire device fleet). If you've filtered to "production" tag,

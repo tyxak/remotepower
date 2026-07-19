@@ -169,6 +169,23 @@ the other posture axes need data plumbing first).
   (tooltip shows the default), and a **"Changed only"** checkbox collapses the
   ~120-field page down to just your overrides.
 
+### Wave 11 — blink fix + conflict-free selection wins
+- **Fixed: the Devices table "blinked" on every checkbox select.** The wave-10
+  first-paint entrance animation keyed its once-only guard on the table's
+  registration object, but the devices minimal table re-registers on every
+  render (to re-wire its sort headers) — so each select replayed the entrance
+  stagger. `tableCtl.register` now carries the render state across
+  re-registration; the same fix un-breaks the row-change flash there.
+- **Shift-click range selection** on device checkboxes — selects (or clears,
+  following the anchor row) the whole visible range in one go; respects the
+  active filter and sort in both densities.
+- **Escape clears the batch selection** on the Devices page — only when no
+  modal, drawer, or palette owns the key and focus isn't in a field.
+- **The select-all header checkbox now reflects reality** — checked when every
+  visible row is selected, indeterminate on a partial selection.
+- **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
+  and device card) shows the exact local timestamp.
+
 ### Ops
 - **Self-update / deploy now restarts the sidecar daemons.**
   `deploy-server.sh` refreshes the webterm (`/usr/local/bin/remotepower-webterm`)

@@ -682,5 +682,60 @@ class TestWave10EyeCandy(unittest.TestCase):
         self.assertIn("row-flash", block)
 
 
+class TestWave11(unittest.TestCase):
+    """UX wave 11: the re-register blink fix + safe selection/tooltip wins."""
+
+    def test_register_carries_render_state(self):
+        # The wave-10 first-paint/row-flash state lives on the registration
+        # object; tables that re-register per render (devices_minimal) must
+        # carry it over or every re-render replays the entrance stagger
+        # (the "table blinks on every checkbox select" bug).
+        from tests import srcpin
+        app = _js("app.js")
+        reg = srcpin.js_function(app, "register")
+        self.assertIn("prev._painted", reg)
+        self.assertIn("prev._projPrev", reg)
+
+    def test_shift_click_range_select(self):
+        from tests import srcpin
+        app = _js("app.js")
+        ts = srcpin.js_function(app, "toggleSelect")
+        self.assertIn("_rpShiftClick", ts)
+        self.assertIn("_lastToggledDev", ts)
+        # order comes from the DOM in BOTH densities
+        self.assertIn("tr.dev-row[data-dev-id]", ts)
+        self.assertIn(".device-card[data-dev-id]", ts)
+        # cards actually carry the id the range walker reads
+        self.assertIn('class="device-card', app)
+        self.assertIn('decommissioned\' : \'\'}" data-dev-id="${escAttr(d.id)}"', app)
+
+    def test_escape_clears_selection_guarded(self):
+        app = _js("app.js")
+        i = app.index("Escape clears the batch selection")
+        block = app[i:i + 900]
+        # every "someone else owns Escape" guard is present
+        self.assertIn("_drawerDeviceId", block)
+        self.assertIn("modal-open", block)
+        self.assertIn("cmd-palette-overlay", block)
+        self.assertIn("page-devices", block)
+        self.assertIn("clearSelection()", block)
+
+    def test_select_all_reflects_partial_selection(self):
+        app = _js("app.js")
+        block = app[app.index("select-all header checkbox reflect reality"):][:700]
+        self.assertIn("sa.indeterminate", block)
+        self.assertIn("sa.checked", block)
+
+    def test_absolute_time_tooltips(self):
+        app = _js("app.js")
+        self.assertIn("function _absTs", app)
+        self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
+
+    def test_cache_bust_is_wave11(self):
+        self.assertIn("?v=6.3.0-11", _html())
+        sw = (_ROOT / "server/html/sw.js").read_text()
+        self.assertIn("remotepower-shell-v6.3.0-11", sw)
+
+
 if __name__ == "__main__":
     unittest.main()
