@@ -71,7 +71,7 @@ async function saveBackupJob() {
     cron: document.getElementById('backupjob-cron').value.trim(),
   };
   if (!id) body.device_id = dsel.value;
-  if (!body.name || !body.command) { toast('Name and command required', 'error'); return; }
+  if (!body.name || !body.command) { toast('Name and command required', 'error', {transient: true}); return; }
   if (body.cron && body.cron.split(/\s+/).length !== 5) { toast('Cron needs 5 fields (min hour day month weekday)', 'error'); return; }
   const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
                : await api('POST', '/backup-jobs', body);
@@ -131,7 +131,7 @@ async function loadProxmoxBackups() {
 
 async function saveProxmoxBackupThreshold() {
   const days = parseInt(document.getElementById('pmbackup-threshold').value, 10);
-  if (!days || days < 1 || days > 365) { toast('Enter 1–365 days', 'error'); return; }
+  if (!days || days < 1 || days > 365) { toast('Enter 1–365 days', 'error', {transient: true}); return; }
   const d = await api('POST', '/proxmox/backups/threshold', { days });
   if (d?.ok) { toast(`Threshold set to ${d.warn_days} days`, 'success'); loadProxmoxBackups(); }
   else toast(d?.error || 'Failed', 'error');
@@ -184,7 +184,7 @@ async function addBackupMonitor() {
   const path  = document.getElementById('bm-path').value.trim();
   const label = document.getElementById('bm-label').value.trim();
   const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
-  if (!path) { toast('Path required', 'error'); return; }
+  if (!path) { toast('Path required', 'error', {transient: true}); return; }
   const verify = !!document.getElementById('bm-verify')?.checked;
   const drill = !!document.getElementById('bm-drill')?.checked;
   const drillSample = (document.getElementById('bm-drill-sample')?.value || '').trim();

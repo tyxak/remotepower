@@ -190,7 +190,7 @@ async function scopedCredAdd() {
     password:    document.getElementById('scoped-cred-password').value,
   };
   if (!body.scope_value || !body.label || !body.password) {
-    toast('Scope value, label and password are required.', 'error'); return;
+    toast('Scope value, label and password are required.', 'error', {transient: true}); return;
   }
   const res = await cmdbApi('POST', '/scoped-credentials', body, true);
   if (!res) return;
@@ -899,7 +899,7 @@ async function cmdbDocSave() {
   const body    = document.getElementById('cmdb-doc-modal-body').value;
 
   if (!title) {
-    toast('Title is required.', 'error');
+    toast('Title is required.', 'error', {transient: true});
     return;
   }
   let res;
@@ -1170,7 +1170,7 @@ async function cmdbCredSave() {
   };
   const pw = document.getElementById('cmdb-cred-password').value;
   if (mode === 'add') {
-    if (!pw) { toast('Password required.', 'error'); return; }
+    if (!pw) { toast('Password required.', 'error', {transient: true}); return; }
     body.password = pw;
     const res = await cmdbApi('POST',
       '/cmdb/' + encodeURIComponent(deviceId) + '/credentials',

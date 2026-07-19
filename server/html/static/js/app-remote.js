@@ -486,7 +486,7 @@ function openUserMgmt(id, name) {
 async function userAction(action) {
   const id = document.getElementById('usermgmt-devid').value;
   const username = document.getElementById('usermgmt-username').value.trim();
-  if (!username) { toast('Username required', 'error'); return; }
+  if (!username) { toast('Username required', 'error', {transient: true}); return; }
   const body = { action, username };
   if (action === 'addkey' || action === 'revokekey') {
     body.sshkey = document.getElementById('usermgmt-sshkey').value.trim();

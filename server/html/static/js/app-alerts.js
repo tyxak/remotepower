@@ -340,7 +340,7 @@ async function muteAlert(id) {
   const h = parseFloat(hours);
   if (String(hours).trim() !== '') {
     if (isNaN(h) || h < 0.25 || h > 8760) {
-      toast('Enter hours between 0.25 and 8760, or leave blank for permanent', 'error');
+      toast('Enter hours between 0.25 and 8760, or leave blank for permanent', 'error', {transient: true});
       return;
     }
     body.hours = h;

@@ -57,9 +57,9 @@ function openProfileCreate() {
 }
 async function saveProfile() {
   const name = document.getElementById('cs-profile-name').value.trim();
-  if (!name) { toast('Name required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const ids = Array.from(document.querySelectorAll('.cs-prof-script:checked')).map(c => c.value);
-  if (!ids.length) { toast('Select at least one script', 'error'); return; }
+  if (!ids.length) { toast('Select at least one script', 'error', {transient: true}); return; }
   const r = await api('POST', '/monitoring-profiles', { name, script_ids: ids });
   if (r?.ok) { toast('Profile created', 'success'); closeModal('cs-profile-create-modal'); loadMonitoringProfiles(); }
   else toast(r?.error || 'Failed', 'error');
@@ -105,7 +105,7 @@ function unpickProfileDev(id) { _csProfileSelDevs.delete(String(id)); _renderPro
 async function applyProfile() {
   const pid = document.getElementById('cs-profile-apply-id').value;
   const ids = Array.from(_csProfileSelDevs);
-  if (!ids.length) { toast('Select at least one asset', 'error'); return; }
+  if (!ids.length) { toast('Select at least one asset', 'error', {transient: true}); return; }
   const r = await api('POST', '/monitoring-profiles/apply', { profile_id: pid, device_ids: ids });
   if (r?.ok) { toast(`Applied ${r.scripts_applied} script(s) to ${r.devices} device(s)`, 'success'); closeModal('cs-profile-apply-modal'); }
   else toast(r?.error || 'Failed', 'error');
@@ -384,8 +384,8 @@ async function saveCustomScript() {
   const body  = document.getElementById('cs-modal-body').value.trim();
   const assigned = [...document.querySelectorAll('.cs-device-cb:checked')].map(cb => cb.value);
 
-  if (!name) { toast('Script name is required', 'error'); return; }
-  if (!body) { toast('Script body is required', 'error'); return; }
+  if (!name) { toast('Script name is required', 'error', {transient: true}); return; }
+  if (!body) { toast('Script body is required', 'error', {transient: true}); return; }
 
   const payload = { name, description: desc, body, assigned_devices: assigned };
   let result;

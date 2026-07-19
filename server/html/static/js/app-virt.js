@@ -237,7 +237,7 @@ async function virtSnapshotCreate() {
   if (!ctx) return;
   const name = document.getElementById('virt-snapshot-new-name').value.trim();
   const desc = document.getElementById('virt-snapshot-new-desc').value.trim();
-  if (!name) { toast('Enter a snapshot name', 'error'); return; }
+  if (!name) { toast('Enter a snapshot name', 'error', {transient: true}); return; }
   try {
     const r = await api('POST', `/virt/${encodeURIComponent(ctx.id)}/snapshot`,
       { vm_id: ctx.vmId, action: 'create', name, desc });

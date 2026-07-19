@@ -83,7 +83,7 @@ function onRolloutActionChange() {
 
 async function saveRollout() {
   const name = document.getElementById('ro-name').value.trim();
-  if (!name) { toast('Name is required', 'error'); return; }
+  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
   const action = document.getElementById('ro-action').value;
   const rings = [];
   document.querySelectorAll('#ro-rings .ro-ring').forEach(row => {
@@ -108,7 +108,7 @@ async function saveRollout() {
   };
   if (action === 'script') {
     body.script_id = document.getElementById('ro-script').value;
-    if (!body.script_id) { toast('Pick a saved script', 'error'); return; }
+    if (!body.script_id) { toast('Pick a saved script', 'error', {transient: true}); return; }
     const rb = document.getElementById('ro-rollback-script')?.value || '';
     if (rb) body.rollback_script_id = rb;   // v5.0.0 #F5
   }

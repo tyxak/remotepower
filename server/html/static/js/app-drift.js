@@ -41,7 +41,7 @@ async function addDriftPolicy() {
   const scope = document.getElementById('dpol-scope').value;
   const value = document.getElementById('dpol-value').value.trim();
   const mode = document.getElementById('dpol-mode').value;
-  if (!value) { toast('Enter a tag or group value', 'error'); return; }
+  if (!value) { toast('Enter a tag or group value', 'error', {transient: true}); return; }
   _driftPolicies = _driftPolicies.concat([{ scope, value, mode }]);
   if (await _saveDriftPolicies()) {
     document.getElementById('dpol-value').value = '';
@@ -120,7 +120,7 @@ async function saveDriftProfile() {
   const name = document.getElementById('drift-profile-name').value.trim();
   const files = document.getElementById('drift-profile-files').value
     .split('\n').map(s => s.trim()).filter(Boolean);
-  if (!name) { toast('Name is required', 'error'); return; }
+  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
   const r = id
     ? await api('PUT', `/drift/profiles/${encodeURIComponent(id)}`, {name, files})
     : await api('POST', '/drift/profiles', {name, files});
@@ -194,7 +194,7 @@ async function assignDriftProfile() {
   const pid = document.getElementById('drift-assign-pid').value;
   const scope_type = document.getElementById('drift-assign-type').value;
   const scope_value = document.getElementById('drift-assign-value').value.trim();
-  if (!scope_value) { toast('Enter a device, group, or tag', 'error'); return; }
+  if (!scope_value) { toast('Enter a device, group, or tag', 'error', {transient: true}); return; }
   const r = await api('POST', '/drift/assign', {scope_type, scope_value, profile_id: pid});
   if (!r || r.error) { toast('Assign failed: ' + (r?.error || 'unknown'), 'error'); return; }
   closeModal('drift-assign-modal');

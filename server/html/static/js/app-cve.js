@@ -135,7 +135,7 @@ async function loadCveCampaigns() {
 }
 async function createCveCampaign() {
   const name = (document.getElementById('camp-name')?.value || '').trim();
-  if (!name) { toast('Campaign name required', 'error'); return; }
+  if (!name) { toast('Campaign name required', 'error', {transient: true}); return; }
   const sevs = [];
   if (document.getElementById('camp-sev-critical')?.checked) sevs.push('critical');
   if (document.getElementById('camp-sev-high')?.checked) sevs.push('high');

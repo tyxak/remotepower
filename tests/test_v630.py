@@ -732,9 +732,34 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-11", _html())
+        self.assertIn("?v=6.3.0-12", _html())
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-11", sw)
+        self.assertIn("remotepower-shell-v6.3.0-12", sw)
+
+
+class TestWave12TransientToasts(unittest.TestCase):
+    """Form-validation toasts must not pollute the notification center."""
+
+    def test_toast_skips_history_when_transient(self):
+        from tests import srcpin
+        t = srcpin.js_function(_js("app.js"), "toast")
+        self.assertIn("if (!opts.transient) _recordToast", t)
+
+    def test_the_reported_site_is_transient(self):
+        self.assertIn(
+            "toast('Subject required', 'error', {transient: true})",
+            _js("app-tickets.js"))
+
+    def test_no_validation_nag_left_without_the_flag(self):
+        # Ratchet: a required/Enter/Pick/Choose/Select-at-least validation
+        # toast with NO third arg would land in the bell again.
+        import re
+        pat = re.compile(
+            r"toast\('(?:[^']*[Rr]equired[^']*|(?:Enter|Choose|Pick|Select at least)[^']*)', "
+            r"'(?:error|warning)'\)")
+        for f in sorted(_JS.glob("app*.js")):
+            hits = pat.findall(f.read_text())
+            self.assertEqual(hits, [], f"{f.name}: validation toast(s) missing transient flag: {hits}")
 
 
 if __name__ == "__main__":

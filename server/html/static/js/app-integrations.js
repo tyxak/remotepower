@@ -358,7 +358,7 @@ async function addOpnsenseFilterRule() {
     destination_port: document.getElementById('opn-fw-dport')?.value.trim() || '',
     description:      document.getElementById('opn-fw-desc')?.value.trim() || '',
   };
-  if (!rule.interface) { toast('interface is required', 'error'); return; }
+  if (!rule.interface) { toast('interface is required', 'error', {transient: true}); return; }
   if (!await uiConfirm(`Add a ${rule.action} rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_filter_rule', rule });
   if (r && r.ok) { toast('Filter rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }
@@ -378,8 +378,8 @@ async function addOpnsenseNatRule() {
     target_port:      document.getElementById('opn-nat-tport')?.value.trim() || '',
     description:      document.getElementById('opn-nat-desc')?.value.trim() || '',
   };
-  if (!rule.interface) { toast('interface is required', 'error'); return; }
-  if (!rule.target) { toast('target (translation address) is required for outbound NAT', 'error'); return; }
+  if (!rule.interface) { toast('interface is required', 'error', {transient: true}); return; }
+  if (!rule.target) { toast('target (translation address) is required for outbound NAT', 'error', {transient: true}); return; }
   if (!await uiConfirm(`Add an outbound NAT rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_nat_rule', rule });
   if (r && r.ok) { toast('NAT rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }

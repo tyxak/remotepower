@@ -139,7 +139,7 @@ function dnsVaultLock() {
 
 async function dnsVaultImport() {
   const prov = _dnsCurrentProvider();
-  if (!prov) { toast('Pick a provider first', 'error'); return; }
+  if (!prov) { toast('Pick a provider first', 'error', {transient: true}); return; }
   if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
   if (!prov.creds_set) {
     toast(`No ${prov.label} credentials in config to import — set them under ACME → DNS credentials first`, 'error');
@@ -158,7 +158,7 @@ async function dnsVaultImport() {
 
 async function dnsVaultStore() {
   const prov = _dnsCurrentProvider();
-  if (!prov) { toast('Pick a provider first', 'error'); return; }
+  if (!prov) { toast('Pick a provider first', 'error', {transient: true}); return; }
   if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
   const fields = prov.cred_fields || [];
   if (!fields.length) { toast('No credential fields for this provider', 'error'); return; }
@@ -236,7 +236,7 @@ async function dnsResolve() {
   const type = document.getElementById('dns-resolve-type')?.value || 'A';
   const status = document.getElementById('dns-resolve-status');
   const box = document.getElementById('dns-resolve-results');
-  if (!name) { toast('Enter a name to resolve', 'error'); return; }
+  if (!name) { toast('Enter a name to resolve', 'error', {transient: true}); return; }
   if (status) status.textContent = 'Resolving…';
   if (box) box.innerHTML = '';
   const data = await api('GET', `/dns/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`);
@@ -261,7 +261,7 @@ async function dnsPropagation(name, type, expected) {
   type = type || document.getElementById('dns-resolve-type')?.value || 'A';
   const status = document.getElementById('dns-resolve-status');
   const box = document.getElementById('dns-resolve-results');
-  if (!name) { toast('Enter a name to check', 'error'); return; }
+  if (!name) { toast('Enter a name to check', 'error', {transient: true}); return; }
   if (status) status.textContent = 'Checking propagation…';
   if (box) box.innerHTML = '';
   let url = `/dns/propagation?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`;
@@ -329,7 +329,7 @@ async function resolverHealthAdd() {
   const name = (document.getElementById('rslv-name')?.value || '').trim();
   const type = document.getElementById('rslv-type')?.value || 'A';
   const label = (document.getElementById('rslv-label')?.value || '').trim();
-  if (!name) { toast('Enter a name to monitor', 'error'); return; }
+  if (!name) { toast('Enter a name to monitor', 'error', {transient: true}); return; }
   const r = await api('POST', '/resolver-health/targets', { name, type, label });
   if (r && r.ok) {
     toast('Monitoring — checking…', 'success');
@@ -459,7 +459,7 @@ function _dnsSyncModalFields() {
 function openDnsRecord(id) {
   const prov = _dnsCurrentProvider();
   const zone = _dnsCurrentZone();
-  if (!prov || !zone) { toast('Pick a provider and zone first', 'error'); return; }
+  if (!prov || !zone) { toast('Pick a provider and zone first', 'error', {transient: true}); return; }
   const typeSel = document.getElementById('dns-rec-type');
   typeSel.innerHTML = (prov.record_types || []).map(t => `<option value="${escAttr(t)}">${escHtml(t)}</option>`).join('');
   document.getElementById('dns-record-zone').textContent = `${prov.label} · ${zone.name}`;
@@ -978,7 +978,7 @@ function acmeIssueStep(delta) {
   // Validate before advancing
   if (delta > 0 && _acmeIssueStep === 1) {
     const d = document.getElementById('acme-issue-domain').value.trim();
-    if (!d) { toast('Primary domain is required', 'error'); return; }
+    if (!d) { toast('Primary domain is required', 'error', {transient: true}); return; }
     // very loose client-side check; server re-validates
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) { toast('Domain looks invalid', 'error'); return; }
   }
@@ -1024,7 +1024,7 @@ async function acmeIssueSubmit() {
   const dns = document.getElementById('acme-issue-dns').value;
   const keylen = document.getElementById('acme-issue-keylen').value;
   const alts = altRaw.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) { toast('Enter a valid domain name', 'warning'); return; }
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) { toast('Enter a valid domain name', 'warning', {transient: true}); return; }
   if (wildcard) alts.push(`*.${domain}`);
   const body = {
     domain, alt_names: alts, dns_provider: dns, key_length: keylen,

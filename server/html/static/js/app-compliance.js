@@ -284,7 +284,7 @@ async function runScapScan() {
 
 async function runInstall() {
   const pkgs = document.getElementById('install-pkgs').value.trim();
-  if (!pkgs) { toast('Enter one or more package names', 'error'); return; }
+  if (!pkgs) { toast('Enter one or more package names', 'error', {transient: true}); return; }
   const type = document.getElementById('install-target-type').value;
   const value = document.getElementById('install-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Enter a ' + type, 'error'); return; }
@@ -300,7 +300,7 @@ async function runInstall() {
 
 async function runUninstall() {
   const pkgs = document.getElementById('install-pkgs').value.trim();
-  if (!pkgs) { toast('Enter one or more package names to remove', 'error'); return; }
+  if (!pkgs) { toast('Enter one or more package names to remove', 'error', {transient: true}); return; }
   const type = document.getElementById('install-target-type').value;
   const value = document.getElementById('install-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
@@ -317,7 +317,7 @@ async function runUninstall() {
 // v3.14.0 (#39): pin/unpin packages so a fleet upgrade-all skips them.
 async function _runHold(hold) {
   const pkgs = document.getElementById('install-pkgs').value.trim();
-  if (!pkgs) { toast('Enter one or more package names', 'error'); return; }
+  if (!pkgs) { toast('Enter one or more package names', 'error', {transient: true}); return; }
   const type = document.getElementById('install-target-type').value;
   const value = document.getElementById('install-target-value').value.trim();
   if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
@@ -355,12 +355,12 @@ function onOtiTargetChange() {
 }
 async function runOneTimeInstall() {
   const pkgs = document.getElementById('oti-pkgs').value.trim();
-  if (!pkgs) { toast('Enter one or more package names', 'error'); return; }
+  if (!pkgs) { toast('Enter one or more package names', 'error', {transient: true}); return; }
   const type = document.getElementById('oti-target-type').value;
   let body, scope;
   if (type === 'device') {
     const id = document.getElementById('oti-device').value;
-    if (!id) { toast('Pick a device', 'error'); return; }
+    if (!id) { toast('Pick a device', 'error', {transient: true}); return; }
     body = { device_ids: [id] };
     scope = 'this device';
   } else {

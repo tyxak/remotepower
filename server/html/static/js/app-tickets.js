@@ -244,7 +244,7 @@ function removeTicketDev(id) {
 }
 async function saveNewTicket() {
   const subject = document.getElementById('tk-create-subject').value.trim();
-  if (!subject) { toast('Subject required', 'error'); return; }
+  if (!subject) { toast('Subject required', 'error', {transient: true}); return; }
   const body = { subject, type: document.getElementById('tk-create-type').value };
   const prio = document.getElementById('tk-create-priority');
   if (prio) body.priority = parseInt(prio.value) || 4;
@@ -460,7 +460,7 @@ async function takeTicket(tid) {
 async function assignTicketGroup(tid) {
   // Hand off to the group currently picked in the Group dropdown.
   const grp = (document.getElementById('tk-d-group')?.value || '').trim();
-  if (!grp) { toast('Pick a group from the dropdown first', 'warning'); return; }
+  if (!grp) { toast('Pick a group from the dropdown first', 'warning', {transient: true}); return; }
   if (!await uiConfirm(`Assign this ticket to "${grp}"? This clears the assignee and sets it to Pending Internal.`)) return;
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { group: grp, assignee: '', status: 'pending_internal' });
   if (r?.ok) { toast('Ticket assigned to group', 'success'); openTicket(tid); loadTickets(); }
@@ -525,9 +525,9 @@ function openContactEdit(cid) {
 async function saveContact() {
   const v = id => document.getElementById(id)?.value.trim() || '';
   const name = v('ct-name');
-  if (!name) { toast('Name required', 'warning'); return; }
+  if (!name) { toast('Name required', 'warning', {transient: true}); return; }
   const email = v('ct-email');
-  if (email && !/.+@.+\..+/.test(email)) { toast('Enter a valid email address', 'warning'); return; }
+  if (email && !/.+@.+\..+/.test(email)) { toast('Enter a valid email address', 'warning', {transient: true}); return; }
   const body = { name, role: v('ct-role'), company: v('ct-company'), email, phone: v('ct-phone'), notes: v('ct-notes'),
     site: v('ct-site'), portal_enabled: !!document.getElementById('ct-portal-enabled')?.checked };  // W6-28
   const r = _ctEditId
@@ -831,7 +831,7 @@ async function _tkPostTemplates(tpls, okMsg) {
 function saveTicketTemplate() {
   const name = (document.getElementById('tk-tpl-name')?.value || '').trim();
   const body = document.getElementById('tk-tpl-body')?.value || '';
-  if (!name || !body.trim()) { toast('Name and reply text are required', 'error'); return; }
+  if (!name || !body.trim()) { toast('Name and reply text are required', 'error', {transient: true}); return; }
   const tpls = [...(window._tkTemplates || [])];
   const i = tpls.findIndex(t => (t.name || '').toLowerCase() === name.toLowerCase());
   if (i >= 0) tpls[i] = { name, body }; else tpls.push({ name, body });
@@ -882,7 +882,7 @@ async function _tkPostSchedules(scheds, okMsg) {
 function addTicketSchedule() {
   const subject = (document.getElementById('tk-sched-subject')?.value || '').trim();
   const cron = (document.getElementById('tk-sched-cron')?.value || '').trim();
-  if (!subject || !cron) { toast('Subject and cron are required', 'error'); return; }
+  if (!subject || !cron) { toast('Subject and cron are required', 'error', {transient: true}); return; }
   const sched = {
     subject, cron,
     body: document.getElementById('tk-sched-body')?.value || '',

@@ -689,7 +689,7 @@ async function tunnelRenderList() {
 async function tunnelAdd() {
   const a = document.getElementById('tun-from').value;
   const b = document.getElementById('tun-to').value;
-  if (!a || !b) { toast('Pick both endpoints', 'error'); return; }
+  if (!a || !b) { toast('Pick both endpoints', 'error', {transient: true}); return; }
   if (a === b)  { toast('Endpoints must differ',  'error'); return; }
   const r = await api('POST', '/network-map/tunnels', {endpoints: [a, b]});
   if (!r || !r.ok) {
@@ -900,7 +900,7 @@ async function tlsAddSave() {
     label:           document.getElementById('tls-add-label').value.trim(),
     dane_check:      document.getElementById('tls-add-dane').checked,
   };
-  if (!body.host) { toast('Host required', 'error'); return; }
+  if (!body.host) { toast('Host required', 'error', {transient: true}); return; }
   const r = _tlsEditId
     ? await api('PUT',  '/tls/targets/' + encodeURIComponent(_tlsEditId), body)
     : await api('POST', '/tls/targets', body);
@@ -1098,7 +1098,7 @@ async function agentlessSave() {
     connected_to:  document.getElementById('al-connected-to').value || '',
     manual_status: document.getElementById('al-status').checked,
   };
-  if (!body.name) { toast('Name required', 'error'); return; }
+  if (!body.name) { toast('Name required', 'error', {transient: true}); return; }
   const r = await api('POST', '/devices/agentless', body);
   if (!r || !r.ok) { toast(r?.error || 'Failed to add', 'error'); return; }
   closeModal('agentless-add-modal');
@@ -1296,8 +1296,8 @@ async function linkSave() {
     description: document.getElementById('link-edit-description').value.trim(),
     scope:       scopeRadio ? scopeRadio.value : 'external',
   };
-  if (!body.title) { toast('Title required', 'error'); return; }
-  if (!body.url)   { toast('URL required', 'error'); return; }
+  if (!body.title) { toast('Title required', 'error', {transient: true}); return; }
+  if (!body.url)   { toast('URL required', 'error', {transient: true}); return; }
 
   let r;
   if (mode === 'edit' && id) {

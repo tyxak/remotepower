@@ -400,10 +400,10 @@ async function saveLogRule() {
   const pattern    = document.getElementById('log-rule-pattern').value.trim();
   const threshold  = parseInt(document.getElementById('log-rule-threshold').value) || 1;
   const severity   = document.getElementById('log-rule-severity')?.value || 'WARN';
-  if (sourceType === 'unit' && !unit) { toast('Unit is required', 'error'); return; }
-  if (sourceType === 'path' && !path) { toast('File path is required', 'error'); return; }
+  if (sourceType === 'unit' && !unit) { toast('Unit is required', 'error', {transient: true}); return; }
+  if (sourceType === 'path' && !path) { toast('File path is required', 'error', {transient: true}); return; }
   if (sourceType === 'path' && !path.startsWith('/')) { toast('File path must be absolute (start with /)', 'error'); return; }
-  if (!pattern) { toast('Pattern is required', 'error'); return; }
+  if (!pattern) { toast('Pattern is required', 'error', {transient: true}); return; }
   const excludePattern = document.getElementById('log-rule-exclude').value.trim();
   const displayTemplate = document.getElementById('log-rule-template').value.trim();
   // Validate regex client-side
@@ -450,7 +450,7 @@ async function saveLogRule() {
   // Per-device rule. For both add and edit, we POST the full
   // services-config back to the server.
   const devId = document.getElementById('log-rule-device').value;
-  if (!devId) { toast('Device is required', 'error'); return; }
+  if (!devId) { toast('Device is required', 'error', {transient: true}); return; }
   const existing = await api('GET', `/devices/${devId}/services/config`);
   if (!existing) return;
   let log_watch = existing.log_watch || [];

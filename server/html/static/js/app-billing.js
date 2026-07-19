@@ -450,7 +450,7 @@ async function addTimesheetWatcher() {
   const watcher = document.getElementById('tw-watcher')?.value.trim();
   const scope = document.getElementById('tw-scope')?.value;
   const value = document.getElementById('tw-value')?.value.trim();
-  if (!watcher || !value) { toast('Watcher and target are required', 'error'); return; }
+  if (!watcher || !value) { toast('Watcher and target are required', 'error', {transient: true}); return; }
   const r = await api('POST', '/timesheet/watchers', { watcher, scope, value });
   if (r?.ok) {
     toast('Watch grant added', 'success');
@@ -612,7 +612,7 @@ async function _billingWorksheet() {
 async function wsCompute() {
   const site = document.getElementById('ws-site')?.value || '';
   const month = document.getElementById('ws-month')?.value || '';
-  if (!site) { toast('Pick a site', 'error'); return; }
+  if (!site) { toast('Pick a site', 'error', {transient: true}); return; }
   window._wsSite = site; window._wsMonth = month;
   const r = await api('GET', '/billing/worksheet?site=' + encodeURIComponent(site) + '&month=' + encodeURIComponent(month));
   const out = document.getElementById('ws-result');

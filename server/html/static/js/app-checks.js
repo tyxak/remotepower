@@ -372,7 +372,7 @@ function _bcRenderCatalog() {
 }
 async function applyBaselineChecks() {
   const ids = Array.from(document.querySelectorAll('#bc-catalog .bc-chk:checked')).map(c => c.value);
-  if (!ids.length) { toast('Select at least one check', 'error'); return; }
+  if (!ids.length) { toast('Select at least one check', 'error', {transient: true}); return; }
   const tk = document.getElementById('bc-kind')?.value || 'all';
   const tv = (document.getElementById('bc-target')?.value || '').trim();
   if (tk !== 'all' && !tv) { toast('Enter a ' + tk + ' name', 'error'); return; }
@@ -441,7 +441,7 @@ async function saveCustomCheck() {
     target: document.getElementById('cc-target')?.value.trim() || '',
   };
   if (_ccEditId) body.id = _ccEditId;   // update-in-place keyed on id
-  if (!body.param) { toast('A value is required', 'error'); return; }
+  if (!body.param) { toast('A value is required', 'error', {transient: true}); return; }
   const numOf = id => { const v = parseInt(document.getElementById(id)?.value, 10); return isNaN(v) ? undefined : v; };
   if (body.type === 'log_errors') {
     body.window_min = numOf('cc-window');

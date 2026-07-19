@@ -275,7 +275,7 @@ async function submitComposeStack() {
   const device_id = document.getElementById('compose-create-device').value;
   const yaml = document.getElementById('compose-create-yaml').value;
   if (!name || !device_id || !yaml.trim()) {
-    toast('Name, device, and compose file are all required', 'error'); return;
+    toast('Name, device, and compose file are all required', 'error', {transient: true}); return;
   }
   const r = await api('POST', '/compose/stacks', { name, device_id, yaml });
   if (r && r.ok) { toast('Stack created', 'success'); closeModal('compose-create-modal'); loadComposeStacks(); }
@@ -627,7 +627,7 @@ function _dockerPruneSyncConfirm() {
 
 async function dockerPruneRun() {
   const targets = Array.from(document.querySelectorAll('.docker-prune-cb:checked')).map(c => c.value);
-  if (!targets.length) { toast('Pick at least one thing to prune', 'error'); return; }
+  if (!targets.length) { toast('Pick at least one thing to prune', 'error', {transient: true}); return; }
   const body = { targets, wait: true };
   if (targets.includes('volumes')) {
     const typed = (document.getElementById('docker-prune-confirm-input').value || '').trim();

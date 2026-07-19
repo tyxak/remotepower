@@ -191,10 +191,10 @@ function isoToLocalInput(iso) {
 
 async function saveEvent() {
   const title = document.getElementById('event-title').value.trim();
-  if (!title) { toast('Title is required', 'error'); return; }
+  if (!title) { toast('Title is required', 'error', {transient: true}); return; }
   const startLocal = document.getElementById('event-start').value;
   const endLocal   = document.getElementById('event-end').value;
-  if (!startLocal) { toast('Start time is required', 'error'); return; }
+  if (!startLocal) { toast('Start time is required', 'error', {transient: true}); return; }
 
   const body = {
     title,
@@ -391,7 +391,7 @@ async function openTaskModal(taskId) {
 
 async function saveTask() {
   const title = document.getElementById('task-title').value.trim();
-  if (!title) { toast('Title is required', 'error'); return; }
+  if (!title) { toast('Title is required', 'error', {transient: true}); return; }
   const body = {
     title,
     description: document.getElementById('task-description').value,

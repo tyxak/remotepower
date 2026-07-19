@@ -3476,7 +3476,7 @@ async function addMonitor() {
   const target = document.getElementById('mon-target').value.trim();
   // W4-13: http_flow builds from steps, not a single target.
   if (type === 'http_flow') { return _addHttpFlowMonitor(label); }
-  if (!target) { toast('Target is required', 'error'); return; }
+  if (!target) { toast('Target is required', 'error', {transient: true}); return; }
   // Client-side format checks before the server 400, for the two easy-to-typo
   // fields: an http target must be a real URL, and a tcp port must be 1–65535.
   if (type === 'http') {
@@ -3718,7 +3718,7 @@ async function openUserAdd() {
   }
   openModal('user-add-modal');
 }
-async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
+async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error', {transient: true}); return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!await uiConfirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: flip a user between admin and viewer without delete+recreate.
@@ -3734,7 +3734,7 @@ async function editUserRole(username, currentRole) {
   else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error');
 }
 function openPasswd(username) { document.getElementById('passwd-username').value = username; document.getElementById('passwd-old').value = ''; document.getElementById('passwd-new').value = ''; document.getElementById('passwd-old-wrap').style.display = 'block'; openModal('passwd-modal'); }
-async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error'); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
+async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
 
 // v6.1.1 (#33): step-up re-auth. A handful of sensitive actions (minting or
 // promoting an admin account) 403 with {code:'step_up_required'} unless the
@@ -3752,7 +3752,7 @@ function _openStepUpModal() {
 async function stepUpSubmit() {
   const password = document.getElementById('step-up-password').value;
   const totp_code = document.getElementById('step-up-totp').value.trim();
-  if (!password && !totp_code) { toast('Enter your password or a 2FA code', 'error'); return; }
+  if (!password && !totp_code) { toast('Enter your password or a 2FA code', 'error', {transient: true}); return; }
   const data = await api('POST', '/auth/step-up', {password, totp_code});
   if (data?.ok) {
     closeModal('step-up-modal');
@@ -4545,7 +4545,7 @@ async function saveSettings(btn) {
   const cve_severity_filter = Array.from(document.querySelectorAll('.cfg-cve-sev'))
     .filter(cb => cb.checked).map(cb => cb.value);
   if (cve_severity_filter.length === 0) {
-    toast('Pick at least one CVE severity to alert on', 'error');
+    toast('Pick at least one CVE severity to alert on', 'error', {transient: true});
     return;
   }
   const sessShortHours = parseInt(document.getElementById('cfg-session-short').value) || 24;
@@ -4971,7 +4971,7 @@ async function runLdapTestUser() {
   const username = document.getElementById('ldap-test-user-name').value.trim();
   const password = document.getElementById('ldap-test-user-pw').value;
   const resultEl = document.getElementById('ldap-test-user-result');
-  if (!username || !password) { toast('Username and password required', 'error'); return; }
+  if (!username || !password) { toast('Username and password required', 'error', {transient: true}); return; }
   resultEl.style.display = 'block';
   resultEl.style.background = 'rgba(100,116,139,0.1)';
   resultEl.style.color = 'var(--muted)';
@@ -5076,7 +5076,7 @@ async function toggleLitigationHold() {
   const reason = (document.getElementById('cfg-litigation-hold-reason')?.value || '').trim();
   const enabled = !!cb?.checked;
   if (enabled && !reason) {
-    toast('A reason is required to start a litigation hold', 'error');
+    toast('A reason is required to start a litigation hold', 'error', {transient: true});
     if (cb) cb.checked = false;
     return;
   }
@@ -5743,8 +5743,12 @@ let toastId = 0;
 // dismisses the toast and runs fn. `onTimeout` fires only if the toast expires
 // WITHOUT the action being clicked (deferred-commit deletes hang off this).
 // Action toasts default to a longer 6s window so there's time to react.
+// v6.3.0 (UX wave 12): `transient: true` keeps a toast OUT of the notification
+// center — for form-validation nags ("Subject required") that are feedback
+// about a field the user is looking at right now, not an event worth an
+// unread dot minutes later. Server failures/successes still land in the bell.
 function toast(msg, type = 'info', opts = {}) {
-  _recordToast(msg, type);   // v6.3.0 (UX wave 3): notification-center history
+  if (!opts.transient) _recordToast(msg, type);   // v6.3.0 (UX wave 3): notification-center history
   const id = 'toast-' + (++toastId);
   const icons = {success: 'check', error: 'x', info: 'info'};
   const el = document.createElement('div');
@@ -6354,7 +6358,7 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() {
   const id = document.getElementById('exec-device-id').value;
   const cmd = document.getElementById('exec-cmd').value.trim();
-  if (!cmd) { toast('Enter a command', 'error'); return; }
+  if (!cmd) { toast('Enter a command', 'error', {transient: true}); return; }
   const wait = !!document.getElementById('exec-wait')?.checked;
   const body = {device_id: id, cmd};
   const to = parseInt(document.getElementById('exec-timeout')?.value || '0', 10);
@@ -8571,7 +8575,7 @@ async function psDiff() {
   const b = document.getElementById('ps-diff-b')?.value;
   const out = document.getElementById('ps-diff-result');
   if (!a || !b || !out) return;
-  if (a === b) { toast('Pick two different snapshots', 'error'); return; }
+  if (a === b) { toast('Pick two different snapshots', 'error', {transient: true}); return; }
   const r = await api('GET', `/patch-snapshots/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).catch(() => null);
   if (!r || !r.ok) { toast((r && r.error) || 'Diff failed', 'error'); return; }
   const rows = [
@@ -8645,7 +8649,7 @@ function editApiKey(id) {
 async function createApiKey() {
   const name = document.getElementById('apikey-name').value.trim();
   const role = document.getElementById('apikey-role').value;
-  if (!name) { toast('Name required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const exVal = (document.getElementById('apikey-expires')?.value || '').trim();
   let expires_at = null;
   if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } expires_at = ts; }
@@ -8938,7 +8942,7 @@ function vpnReachPreview() {
 
 async function vpnTunnelSave() {
   const name = document.getElementById('vpn-tunnel-name').value.trim();
-  if (!name) { toast('Name required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const reach_scope_type = document.getElementById('vpn-tunnel-reach-type').value;
   const reach_scope_value = document.getElementById('vpn-tunnel-reach-value').value.trim();
   if ((reach_scope_type === 'site' || reach_scope_type === 'group' || reach_scope_type === 'tag') && !reach_scope_value) {
@@ -9108,7 +9112,7 @@ async function vpnClientCreate() {
   if (!_vpnSelectedTunnel) { toast('Select a tunnel first', 'error'); return; }
   if (!window.WGAccess) { toast('WireGuard helper script not loaded', 'error'); return; }
   const name = document.getElementById('vpn-client-name').value.trim();
-  if (!name) { toast('Name required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const expires_at = _vpnReadTtl('vpn-client-ttl-num', 'vpn-client-ttl-unit');
   const btn = document.getElementById('vpn-client-create-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
@@ -9181,7 +9185,7 @@ function editVpnClient(id) {
   uiPrompt({ title: 'Rename client', message: 'New name for this client.', value: c.name || '' }).then(async (name) => {
     if (name == null) return;
     name = String(name).trim();
-    if (!name) { toast('Name required', 'error'); return; }
+    if (!name) { toast('Name required', 'error', {transient: true}); return; }
     const data = await api('PATCH', '/vpn-tunnels/' + encodeURIComponent(_vpnSelectedTunnel.id) +
       '/clients/' + encodeURIComponent(id), { name });
     if (data?.ok) { toast('Client updated', 'info'); reloadVpnClients(); }
@@ -9302,7 +9306,7 @@ async function saveDeviceProfile() {
   const val = id => (document.getElementById(id)?.value || '').trim();
   const lines = id => val(id).split('\n').map(s => s.trim()).filter(Boolean);
   const name = val('dp-name');
-  if (!name) { toast('Name is required', 'error'); return; }
+  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
   const body = { name, services_watched: lines('dp-units'), log_watch: lines('dp-logs'), drift_files: lines('dp-drift') };
   const poll = parseInt(val('dp-poll'), 10);
   if (!isNaN(poll)) body.poll_interval = poll;
@@ -9355,7 +9359,7 @@ function _renderProfileApplyList(filter) {
 }
 function filterProfileApply() { _renderProfileApplyList(document.getElementById('dp-apply-search')?.value || ''); }
 async function applyDeviceProfile() {
-  if (!_profileApplySel.size) { toast('Pick at least one device', 'error'); return; }
+  if (!_profileApplySel.size) { toast('Pick at least one device', 'error', {transient: true}); return; }
   const r = await api('POST', `/device-profiles/${encodeURIComponent(_profileApplyId)}/apply`, { device_ids: [..._profileApplySel] });
   if (r && r.ok) { toast(`Applied to ${r.applied} device(s)`, 'success'); closeModal('device-profile-apply-modal'); }
   else toast((r && r.error) || 'Apply failed', 'error');
@@ -9469,7 +9473,7 @@ function editRack(i) {
 }
 async function saveRack() {
   const name = document.getElementById('rack-name').value.trim();
-  if (!name) { toast('Name required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const body = { name, height_u: parseInt(document.getElementById('rack-height').value, 10) || 42,
                  site: document.getElementById('rack-site').value || '' };
   const r = _rackEditId
@@ -9561,7 +9565,7 @@ function openSubnetCreate() {
 }
 async function saveSubnet() {
   const cidr = document.getElementById('subnet-cidr').value.trim();
-  if (!cidr) { toast('CIDR required', 'error'); return; }
+  if (!cidr) { toast('CIDR required', 'error', {transient: true}); return; }
   // Basic client check: a.b.c.d/len (IPv4) or an IPv6 …/len — reject obvious typos
   // before the server 400. Permissive: only rejects a clearly-malformed value.
   if (!/^([0-9]{1,3}\.){3}[0-9]{1,3}\/\d{1,2}$/.test(cidr) && !/^[0-9a-fA-F:]+\/\d{1,3}$/.test(cidr)) {
@@ -9632,7 +9636,7 @@ async function _postEnrolRules(rules, okMsg) {
 function addEnrolRule() {
   const mtype = document.getElementById('enrol-rule-mtype')?.value || 'hostname';
   const pattern = (document.getElementById('enrol-rule-pattern')?.value || '').trim();
-  if (!pattern) { toast('A pattern is required', 'error'); return; }
+  if (!pattern) { toast('A pattern is required', 'error', {transient: true}); return; }
   const rule = { match_type: mtype, pattern };
   const g = (document.getElementById('enrol-rule-group')?.value || '').trim();
   const s = (document.getElementById('enrol-rule-site')?.value || '').trim();
@@ -9675,7 +9679,7 @@ function _editSiteBtn(btn) {
 async function saveSite() {
   const id = document.getElementById('site-edit-id').value;
   const name = document.getElementById('site-name-input').value.trim();
-  if (!name) { toast('Name required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
   const note = document.getElementById('site-note-input').value;
   const lat = document.getElementById('site-lat-input').value.trim();
   const lng = document.getElementById('site-lng-input').value.trim();
@@ -9865,7 +9869,7 @@ async function saveAutopatch() {
   const _tval = _ttype === 'device'
     ? document.getElementById('autopatch-target-device').value
     : document.getElementById('autopatch-target-value').value.trim();
-  if (_ttype === 'device' && !_tval) { toast('Pick a device for this policy', 'error'); return; }
+  if (_ttype === 'device' && !_tval) { toast('Pick a device for this policy', 'error', {transient: true}); return; }
   const body = {
     name: document.getElementById('autopatch-name').value.trim(),
     target: { type: _ttype, value: _tval },
@@ -9885,7 +9889,7 @@ async function saveAutopatch() {
   } else {
     body.rings = [];   // explicit clear on save
   }
-  if (!body.name) { toast('Name required', 'error'); return; }
+  if (!body.name) { toast('Name required', 'error', {transient: true}); return; }
   const d = id ? await api('PUT', '/autopatch/' + encodeURIComponent(id), body)
                : await api('POST', '/autopatch', body);
   if (d?.ok) { toast(id ? 'Policy saved' : 'Policy created', 'success'); closeModal('autopatch-modal'); loadAutopatch(); }
@@ -9972,7 +9976,7 @@ async function addCmdSnippet() {
   const name = document.getElementById('cmdlib-name').value.trim();
   const cmd  = document.getElementById('cmdlib-cmd').value.trim();
   const desc = document.getElementById('cmdlib-desc').value.trim();
-  if (!name || !cmd) { toast('Name and command required', 'error'); return; }
+  if (!name || !cmd) { toast('Name and command required', 'error', {transient: true}); return; }
   const body = {name, cmd, description: desc};
   const data = _cmdLibEditId
     ? await api('PUT',  '/cmd-library/' + _cmdLibEditId, body)
@@ -10031,7 +10035,7 @@ async function regenerateRecoveryCodes() {
   else toast(data?.error || 'Failed', 'error');
 }
 async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${escAttr(data.secret)}" title="Click to copy" class="isl-368">${escHtml(data.secret)}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
-async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); if (data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); } else { loadTotpStatus(); } } else toast(data?.error || 'Invalid code', 'error'); }
+async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error', {transient: true}); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); if (data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); } else { loadTotpStatus(); } } else toast(data?.error || 'Invalid code', 'error'); }
 async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
 function filterDevices() {
   // v1.11.5: persist filter input across reloads. The actual filter logic
@@ -10457,7 +10461,7 @@ async function _savePatchSla(rules, okMsg) {
 function addPatchSlaRule() {
   const mt = document.getElementById('psla-mtype')?.value || 'all';
   const pattern = (document.getElementById('psla-pattern')?.value || '').trim();
-  if (mt !== 'all' && !pattern) { toast('Enter a group or tag name', 'error'); return; }
+  if (mt !== 'all' && !pattern) { toast('Enter a group or tag name', 'error', {transient: true}); return; }
   const sec = parseInt(document.getElementById('psla-sec')?.value || '', 10);
   const all = parseInt(document.getElementById('psla-all')?.value || '', 10);
   if (!(sec > 0) && !(all > 0)) { toast('Set a security or all-updates day limit', 'error'); return; }
@@ -10764,7 +10768,7 @@ function _renderCatalog() {
 
 async function catalogDeploy(appId) {
   appId = String(appId);   // the data-action dispatcher coerces all-numeric args to Number
-  if (!_catalogDev) { toast('Pick a target host first', 'error'); return; }
+  if (!_catalogDev) { toast('Pick a target host first', 'error', {transient: true}); return; }
   const app = _catalogApps.find(a => a.id === appId);
   const label = app ? app.name : appId;
   if (!await uiConfirm({ message: `Deploy ${label} to ${_catalogDev.name}? It will run via Docker Compose on the host.`, confirmText: 'Deploy' })) return;
@@ -10787,7 +10791,7 @@ async function saveCatalogApp() {
   const val = id => (document.getElementById(id)?.value || '').trim();
   const name = val('catalog-add-name');
   const yaml = document.getElementById('catalog-add-yaml')?.value || '';
-  if (!name) { toast('Name is required', 'error'); return; }
+  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
   if (!yaml.includes('services:')) { toast('Compose YAML must contain a "services:" block', 'error'); return; }
   try {
     const r = await api('POST', '/app-catalog/custom', {
@@ -10895,7 +10899,7 @@ function cronLoadUser() {
 }
 
 async function cronSaveUser() {
-  if (!_cronDev) { toast('Pick a host first', 'error'); return; }
+  if (!_cronDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   const user = (document.getElementById('cron-user').value || 'root').trim() || 'root';
   const content = document.getElementById('cron-content').value;
   try {
@@ -10969,7 +10973,7 @@ function pickFmDevice(id, name) {
 }
 
 async function fmListPath(p) {
-  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  if (!_fmDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   const path = (typeof p === 'string' && p) ? p : (document.getElementById('fm-path').value.trim() || '/');
   _fmCwd = path;
   document.getElementById('fm-path').value = path;
@@ -11055,12 +11059,12 @@ async function fmDownload(path, name) {
 // own endpoint, so this starts a job then polls status instead of a single
 // request/response call. See docs/feature-buildout-scoping-internal.md #9.
 function fmArchiveCwd() {
-  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  if (!_fmDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   fmArchiveDir(_fmCwd);
 }
 
 async function fmArchiveDir(path) {
-  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  if (!_fmDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   if (_fmArchiveJob) { toast('An archive is already running — cancel it first', 'error'); return; }
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files/archive`, { path });
@@ -11138,7 +11142,7 @@ async function fmArchiveCancel() {
 
 // W3-50: upload a picked file (base64) into the current directory.
 function fmUpload() {
-  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  if (!_fmDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   const input = document.createElement('input');
   input.type = 'file';
   input.onchange = () => {
@@ -11187,7 +11191,7 @@ function fmCloseEditor() {
 }
 
 async function fmMkdir() {
-  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  if (!_fmDev) { toast('Pick a host first', 'error', {transient: true}); return; }
   const name = await uiPrompt({ title: 'New folder', message: `Created under ${_fmCwd}`, placeholder: 'folder-name' });
   if (!name) return;
   const base = _fmCwd.endsWith('/') ? _fmCwd : _fmCwd + '/';
@@ -12111,7 +12115,7 @@ function onMaintTypeChange() {
 // Weekly day-picker → cron string in #maint-cron (server cron is day-of-week 0-6).
 function buildMaintWeeklyCron() {
   const days = Array.from(document.querySelectorAll('.maint-dow-cb:checked')).map(c => c.value);
-  if (!days.length) { toast('Pick at least one day', 'warning'); return; }
+  if (!days.length) { toast('Pick at least one day', 'warning', {transient: true}); return; }
   const t = (document.getElementById('maint-dow-time').value || '03:00').split(':');
   const hh = parseInt(t[0], 10) || 0;
   const mm = parseInt(t[1], 10) || 0;
@@ -12134,7 +12138,7 @@ async function saveMaintenance() {
   if (type === 'oneshot') {
     const s = document.getElementById('maint-start').value;
     const e = document.getElementById('maint-end').value;
-    if (!s || !e) { toast('Start and end are required', 'error'); return; }
+    if (!s || !e) { toast('Start and end are required', 'error', {transient: true}); return; }
     // Convert local datetime-local → ISO UTC
     body.start = new Date(s).toISOString();
     body.end   = new Date(e).toISOString();
@@ -12432,7 +12436,7 @@ async function genSelfSignedCert() {
   const inp = document.getElementById('tls-gen-hosts');
   const box = document.getElementById('tls-gen-result');
   const hosts = (inp?.value || '').trim();
-  if (!hosts) { toast('Enter at least one hostname or IP', 'error'); return; }
+  if (!hosts) { toast('Enter at least one hostname or IP', 'error', {transient: true}); return; }
   if (box) box.innerHTML = '<div class="c-muted">Generating…</div>';
   const r = await api('POST', '/tls/gen-self-signed', { hosts }).catch(() => null);
   if (!r || !r.ok) { if (box) box.innerHTML = ''; toast(r?.error || 'Generation failed', 'error'); return; }
@@ -12456,7 +12460,7 @@ async function importP12() {
   const f = document.getElementById('p12-file')?.files?.[0];
   const pass = document.getElementById('p12-pass')?.value || '';
   const box = document.getElementById('p12-result');
-  if (!f) { toast('Choose a .p12 / .pfx file first', 'error'); return; }
+  if (!f) { toast('Choose a .p12 / .pfx file first', 'error', {transient: true}); return; }
   if (f.size > 1024 * 1024) { toast('File too large (max 1 MB)', 'error'); return; }
   if (box) box.innerHTML = '<div class="c-muted">Importing…</div>';
   let b64;
@@ -13581,7 +13585,7 @@ function updateInboundWebhookKindHint() {
 
 async function createInboundWebhook() {
   const label = document.getElementById('inbound-wh-label').value.trim();
-  if (!label) { toast('Label required', 'error'); return; }
+  if (!label) { toast('Label required', 'error', {transient: true}); return; }
   const kind = document.getElementById('inbound-wh-kind').value;
   const scope_device_id = document.getElementById('inbound-wh-device').value || null;
   if ((kind === 'syslog' || kind === 'snmp_trap') && !scope_device_id) {
@@ -14116,8 +14120,8 @@ async function saveScriptFromEditor(reopenAfter) {
   const name = document.getElementById('script-edit-name').value.trim();
   const desc = document.getElementById('script-edit-desc').value;
   const body = document.getElementById('script-edit-body').value;
-  if (!name) { toast('Name required', 'error'); return; }
-  if (!body.trim()) { toast('Body required', 'error'); return; }
+  if (!name) { toast('Name required', 'error', {transient: true}); return; }
+  if (!body.trim()) { toast('Body required', 'error', {transient: true}); return; }
   let resp;
   if (id) {
     resp = await api('PUT', '/scripts/' + encodeURIComponent(id), {name, description: desc, body});
@@ -14233,7 +14237,7 @@ function onScriptRunPick() {
 }
 async function confirmScriptRun() {
   const sid = document.getElementById('script-run-pick').value;
-  if (!sid) { toast('Pick a script first', 'error'); return; }
+  if (!sid) { toast('Pick a script first', 'error', {transient: true}); return; }
   const mode = document.getElementById('script-run-mode').value;
   const confirmDangerous = document.getElementById('script-run-confirm-dangerous').checked;
   let payload = {script_id: sid, confirm_dangerous: confirmDangerous};
@@ -14363,7 +14367,7 @@ async function openComposeModal(deviceId, deviceName) {
 async function runCompose(action) {
   const deviceId = document.getElementById('compose-device-id').value;
   const dir = document.getElementById('compose-project-pick').value;
-  if (!dir) { toast('Pick a project first', 'error'); return; }
+  if (!dir) { toast('Pick a project first', 'error', {transient: true}); return; }
   // Down is the most disruptive — confirm explicitly.
   if (action === 'down' && !await uiConfirm(`Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`)) return;
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
@@ -15282,7 +15286,7 @@ async function addExposureMute() {
   const process = (document.getElementById('mute-process')?.value || '').trim();
   const proto = (document.getElementById('mute-proto')?.value || '').trim();
   const port = (document.getElementById('mute-port')?.value || '').trim();
-  if (!process && !proto && !port) { toast('Enter a process and/or proto/port', 'error'); return; }
+  if (!process && !proto && !port) { toast('Enter a process and/or proto/port', 'error', {transient: true}); return; }
   const body = { action: 'add' };
   if (process) body.process = process;
   if (proto) body.proto = proto;
@@ -15482,7 +15486,7 @@ async function storageDeleteSnapshot() {
   const c = _storageMaintCtx;
   if (!c) return;
   const snap = (document.getElementById('storage-maint-snap')?.value || '').trim();
-  if (!snap) { toast('Enter the exact snapshot name to delete', 'error'); return; }
+  if (!snap) { toast('Enter the exact snapshot name to delete', 'error', {transient: true}); return; }
   if (!await uiConfirm(`Permanently DELETE snapshot:\n\n${snap}\n\nThis cannot be undone.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(c.deviceId)}/storage-action`,
                       { kind: c.kind, action: c.kind === 'zfs' ? 'destroy' : 'delete', target: c.target, snapshot: snap });
@@ -15624,7 +15628,7 @@ function _spParams() {
 async function spPreview() {
   const devId = document.getElementById('sp-device-select')?.value;
   const recipe = document.getElementById('sp-recipe')?.value;
-  if (!devId) { toast('Pick a device', 'error'); return; }
+  if (!devId) { toast('Pick a device', 'error', {transient: true}); return; }
   const r = await api('POST', `/devices/${encodeURIComponent(devId)}/storage-provision`,
     { recipe, params: _spParams(), dry_run: true }).catch(e => ({ error: String(e) }));
   const out = document.getElementById('sp-preview');
@@ -18972,7 +18976,7 @@ async function snapshotCreate() {
   if (!_snapCtx) return;
   const name = document.getElementById('snapshot-new-name').value.trim();
   const desc = document.getElementById('snapshot-new-desc').value.trim();
-  if (!name) { toast('Enter a snapshot name', 'error'); return; }
+  if (!name) { toast('Enter a snapshot name', 'error', {transient: true}); return; }
   try {
     await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'create',
@@ -19181,7 +19185,7 @@ async function saveHealthchecks() {
 
 async function testHealthchecks() {
   const url = document.getElementById('cfg-healthchecks-url').value.trim();
-  if (!url) { toast('Enter a URL first', 'error'); return; }
+  if (!url) { toast('Enter a URL first', 'error', {transient: true}); return; }
   // The server will fire the ping the next time the periodic check is
   // due. For an immediate test, fire it client-side as the operator —
   // confirms the URL is reachable from this browser at least.
@@ -19539,7 +19543,7 @@ async function loadIncidents() {
 }
 async function postIncident() {
   const title = (document.getElementById('incident-title')?.value || '').trim();
-  if (!title) { toast('Title required', 'error'); return; }
+  if (!title) { toast('Title required', 'error', {transient: true}); return; }
   const body = {
     title,
     impact: document.getElementById('incident-impact')?.value || 'minor',
@@ -20418,8 +20422,8 @@ async function addCloudAccount() {
   const akid = (document.getElementById('cloud-akid')?.value || '').trim();
   const secret = document.getElementById('cloud-secret')?.value || '';
   if (provider === 'aws') {
-    if (!region || !akid) { toast('Region and access key ID required', 'error'); return; }
-  } else if (!secret) { toast('API token required', 'error'); return; }
+    if (!region || !akid) { toast('Region and access key ID required', 'error', {transient: true}); return; }
+  } else if (!secret) { toast('API token required', 'error', {transient: true}); return; }
   _cloudAccounts.push({ provider, region: provider === 'aws' ? region : '',
     access_key_id: provider === 'aws' ? akid : '', secret_key: secret, secret_key_set: !!secret });
   const r = await _saveCloudAccounts();
@@ -20483,7 +20487,7 @@ async function addProcessWatch() {
   const name = document.getElementById('pw-name').value.trim();
   const metric = document.getElementById('pw-metric').value === 'mem' ? 'mem' : 'cpu';
   let threshold = parseFloat(document.getElementById('pw-threshold').value);
-  if (!name) { toast('Process name required', 'error'); return; }
+  if (!name) { toast('Process name required', 'error', {transient: true}); return; }
   if (!(threshold > 0 && threshold <= 100)) threshold = 80;
   _processWatches.push({name, metric, threshold});
   const r = await api('POST', '/config', {process_watches: _processWatches});
@@ -23616,7 +23620,7 @@ async function saveAutomationRule() {
   const atag = document.getElementById('auto-act-tag').value.trim();
   if (atag) actions.push({ type: 'add_tag', tag: atag });
   if (document.getElementById('auto-act-mute').checked) actions.push({ type: 'mute_alert' });
-  if (!actions.length) { toast('Pick at least one action (script, notify, ticket, tag or mute)', 'error'); return; }
+  if (!actions.length) { toast('Pick at least one action (script, notify, ticket, tag or mute)', 'error', {transient: true}); return; }
   if (!events.length && !severities.length) { toast('Specify at least one event or severity', 'error'); return; }
   const rule = {
     name: document.getElementById('auto-name').value.trim() || 'Rule',
@@ -24212,7 +24216,7 @@ async function saveReportSchedule() {
   const cron = document.getElementById('report-sched-cron').value.trim();
   const recipients = document.getElementById('report-sched-recipients').value
     .split(',').map(s => s.trim()).filter(s => s.includes('@'));
-  if (enabled && !cron) { toast('Enter a cron schedule (or disable the schedule)', 'error'); return; }
+  if (enabled && !cron) { toast('Enter a cron schedule (or disable the schedule)', 'error', {transient: true}); return; }
   const r = await api('PUT', '/report/schedule', { enabled, cron, recipients }).catch(() => null);
   if (!r || r.error) {
     toast((r && r.error) || 'Save failed', 'error');
@@ -24302,10 +24306,10 @@ async function saveReportDef() {
   const name = document.getElementById('rdef-name').value.trim();
   if (!name) { toast('Name the report', 'error'); return; }
   const sections = _rdefSelectedSections();
-  if (!sections.length) { toast('Pick at least one section', 'error'); return; }
+  if (!sections.length) { toast('Pick at least one section', 'error', {transient: true}); return; }
   const enabled = document.getElementById('rdef-enabled').checked;
   const cron = document.getElementById('rdef-cron').value.trim();
-  if (enabled && !cron) { toast('Enter a cron schedule (or untick Email on schedule)', 'error'); return; }
+  if (enabled && !cron) { toast('Enter a cron schedule (or untick Email on schedule)', 'error', {transient: true}); return; }
   const recipients = document.getElementById('rdef-recipients').value
     .split(',').map(s => s.trim()).filter(s => s.includes('@'));
   const destinations = _rdefSelectedDests();
@@ -25992,7 +25996,7 @@ document.addEventListener('input', e => {
 
 async function mitigateRunFix() {
   const cmd = document.getElementById('mitigate-fix-cmd').value.trim();
-  if (!cmd) { toast('Enter a command first', 'error'); return; }
+  if (!cmd) { toast('Enter a command first', 'error', {transient: true}); return; }
   const confirmation = document.getElementById('mitigate-fix-confirm').value.trim();
   const btn = document.getElementById('mitigate-fix-go');
   const orig = btn.textContent;

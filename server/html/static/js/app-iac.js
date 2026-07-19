@@ -55,7 +55,7 @@ async function saveAnsiblePlaybook() {
   const id = document.getElementById('ansible-edit-id').value;
   const body = { name: document.getElementById('ansible-name').value.trim(),
                  content: document.getElementById('ansible-content').value };
-  if (!body.name || !body.content.trim()) { toast('Name and playbook content required', 'error'); return; }
+  if (!body.name || !body.content.trim()) { toast('Name and playbook content required', 'error', {transient: true}); return; }
   const d = id ? await api('PUT', '/ansible/playbooks/' + encodeURIComponent(id), body)
                : await api('POST', '/ansible/playbooks', body);
   if (d?.ok) { toast(id ? 'Playbook saved' : 'Playbook created', 'success'); closeModal('ansible-modal'); loadAnsible(); }
@@ -90,7 +90,7 @@ async function runAnsiblePlaybook() {
     ssh_password: document.getElementById('ansible-ssh-pass').value,
     become: document.getElementById('ansible-become').checked,
   };
-  if (!body.ssh_user) { toast('SSH user required', 'error'); return; }
+  if (!body.ssh_user) { toast('SSH user required', 'error', {transient: true}); return; }
   if (!body.ssh_key.trim() && !body.ssh_password) { toast('Provide an SSH key or password', 'error'); return; }
   const out = document.getElementById('ansible-run-output');
   const btn = document.getElementById('ansible-run-btn');
@@ -182,7 +182,7 @@ async function iacGenerate(btn, withAi) {
   const cats  = _iacSelectedCategories();
 
   if (!devId)       { toast('Select a device first', 'error'); return; }
-  if (!cats.length) { toast('Select at least one category', 'error'); return; }
+  if (!cats.length) { toast('Select at least one category', 'error', {transient: true}); return; }
   if (!fmt)         { toast('Select an output format', 'error'); return; }
 
   // Check AI is configured before going further

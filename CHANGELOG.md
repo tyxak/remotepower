@@ -186,6 +186,14 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Wave 12 — quieter notification center
+- **Form-validation toasts no longer pollute the notification bell.** `toast()`
+  grew a `transient: true` option that keeps a toast out of the session
+  history, applied to ~124 pure pre-submit validation nags ("Subject
+  required", "Pick a host first", …) across all modules. Server-side
+  failures and success confirmations still land in the bell. A test ratchet
+  fails any future validation nag added without the flag.
+
 ### Ops
 - **Self-update / deploy now restarts the sidecar daemons.**
   `deploy-server.sh` refreshes the webterm (`/usr/local/bin/remotepower-webterm`)

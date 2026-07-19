@@ -14,7 +14,7 @@ async function firewallAction(action) {
   const backend = document.getElementById('firewall-backend').value;
   const proto = document.getElementById('firewall-proto').value;
   const port = parseInt(document.getElementById('firewall-port').value, 10);
-  if (!port || port < 1 || port > 65535) { toast('Enter a valid port', 'error'); return; }
+  if (!port || port < 1 || port > 65535) { toast('Enter a valid port', 'error', {transient: true}); return; }
   const r = await api('POST', `/devices/${id}/firewall-action`, { backend, action, port, proto });
   if (r?.ok) toast(`Queued: ${backend} ${action} ${port}/${proto}`, 'success');
   else toast(r?.error || 'Failed', 'error');

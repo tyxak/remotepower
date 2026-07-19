@@ -72,7 +72,7 @@ async function _saveKbRunbooks(map, okMsg) {
 function addKbRunbookLink() {
   const ev = document.getElementById('kb-runbook-event')?.value;
   const aid = document.getElementById('kb-runbook-article')?.value;
-  if (!ev || !aid) { toast('Pick an alert type and an article', 'error'); return; }
+  if (!ev || !aid) { toast('Pick an alert type and an article', 'error', {transient: true}); return; }
   _saveKbRunbooks({ ..._kbRunbookMap, [ev]: aid }, 'Runbook linked');
 }
 function deleteKbRunbookLink(ev) {
@@ -222,7 +222,7 @@ async function openKbEdit(id) {
 async function saveKbArticle() {
   const id = document.getElementById('kb-edit-id').value;
   const title = document.getElementById('kb-edit-title-input').value.trim();
-  if (!title) { toast('Title is required', 'error'); return; }
+  if (!title) { toast('Title is required', 'error', {transient: true}); return; }
   const payload = {
     title,
     category: document.getElementById('kb-edit-category').value.trim(),
