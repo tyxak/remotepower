@@ -186,6 +186,18 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Per-page E2E smoke sweep — every page opens clean, verified in a browser
+- `tests/test_v630_e2e_page_smokes.py`: one stack boot + one login, then all
+  ~67 sidebar pages — navigate, wait for activation, fail on any uncaught JS
+  error attributed to the open page. Closes the gap where only the core path
+  (login/dashboard/devices/settings) ever ran in a real browser and
+  runtime-only regressions on the other pages shipped repeatedly. First full
+  walk: all pages clean (~39 s). Self-skips without playwright, like its
+  sibling. Two harness lessons encoded in comments: the sidebar accordion
+  re-collapses on every navigation (re-expand before each click), and a
+  fresh install's onboarding tour backdrop intercepts every click
+  (pre-set `rp_tour_done`).
+
 ### Scheduled restore drills — backups are proven, not assumed
 - The manual `POST /api/backup/test-restore` check (v5.4.1) now also runs on
   a **weekly cadence** (`backup.drill_days`, 0 disables, saved via the
