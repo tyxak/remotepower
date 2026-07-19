@@ -589,6 +589,81 @@ def _exec_timeout_override(cmd):
     return None
 
 
+def _http_get_json(url, timeout=HTTP_TIMEOUT):
+    """GET a JSON body over HTTPS via the no-redirect opener (token-free)."""
+    if not url.startswith('https://'):
+        raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
+    req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Mac/{VERSION}'})
+    with _OPENER.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
+def _http_get_bytes(url, timeout=90):
+    """GET raw bytes over HTTPS via the no-redirect opener (token-free)."""
+    if not url.startswith('https://'):
+        raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
+    req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower-Mac/{VERSION}'})
+    with _OPENER.open(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+# Set by a successful _self_update(); the run loop re-execs into the NEW file
+# only AFTER the update's cmd_output has been reported to the server.
+_RESTART_AFTER_REPORT = [False]
+
+
+def _self_update():
+    """v6.3.0: download + sha256-verify + atomically install a fresh mac agent.
+
+    Mirrors the Windows agent's flow against /api/agent/mac/{version,download}.
+    sha256 over HTTPS with a no-redirect opener is the trust anchor (same as
+    the Linux agent's default; detached-signature pinning is not yet wired on
+    macOS). rc 0 ONLY on a verified install or a genuine already-current no-op.
+    The process re-execs into the new file after reporting, so launchd
+    KeepAlive supervision (or a manual --run) continues seamlessly.
+    """
+    if _audit_mode():
+        return {'cmd': 'update', 'output': 'audit (read-only) mode: self-update refused', 'rc': 126}
+    creds = load_creds()
+    server = (creds.get('server_url') or '').rstrip('/')
+    if not server:
+        return {'cmd': 'update', 'output': 'no server URL on record', 'rc': 1}
+    try:
+        info = _http_get_json(f'{server}/api/agent/mac/version', timeout=15)
+    except Exception as e:
+        return {'cmd': 'update', 'output': f'version check failed: {e}', 'rc': 1}
+    remote_sha = (info.get('sha256') or '').strip().lower()
+    remote_ver = info.get('version') or '?'
+    if not remote_sha:
+        return {'cmd': 'update', 'output': 'server publishes no macOS agent — nothing to update', 'rc': 0}
+    local_sha = self_sha256().lower()
+    import hmac as _hmac
+    if local_sha and _hmac.compare_digest(local_sha, remote_sha):
+        return {'cmd': 'update', 'output': f'already current (v{VERSION})', 'rc': 0}
+    try:
+        data = _http_get_bytes(f'{server}/api/agent/mac/download', timeout=90)
+    except Exception as e:
+        return {'cmd': 'update', 'output': f'download failed: {e}', 'rc': 1}
+    actual_sha = hashlib.sha256(data).hexdigest().lower()
+    if not _hmac.compare_digest(actual_sha, remote_sha):
+        return {'cmd': 'update',
+                'output': f'sha256 mismatch (got {actual_sha[:12]}…, expected {remote_sha[:12]}…) '
+                          '— refusing to install', 'rc': 1}
+    self_path = os.path.abspath(__file__)
+    try:
+        tmp = self_path + '.rp-new'
+        with open(tmp, 'wb') as f:
+            f.write(data)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, self_path)   # atomic on APFS
+    except Exception as e:
+        return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}
+    _RESTART_AFTER_REPORT[0] = True
+    return {'cmd': 'update',
+            'output': f'updated v{VERSION} → v{remote_ver} (sha {actual_sha[:12]}…); '
+                      'restarting into the new agent after this report', 'rc': 0}
+
+
 def handle_command(cmd):
     if not cmd:
         return None
@@ -604,10 +679,9 @@ def handle_command(cmd):
             pass
         return None
     if cmd == 'update':
-        # v6.2.0 (BUG): this returned rc:0, so a fleet-wide agent-update rollout
-        # recorded SUCCESS on every mac while nothing installed. Report an honest
-        # non-success until self-update is implemented for macOS.
-        return {'cmd': cmd, 'output': 'self-update is not yet implemented on the macOS agent', 'rc': 1}
+        # v6.3.0: real self-update (was an honest rc:1 "not implemented" stub;
+        # the v6.2.0 bug before THAT reported rc:0 while installing nothing).
+        return _self_update()
     argv = command_argv(cmd)
     if argv is None:
         # W6-32: an upgrade command with no brew installed → a clear message.
@@ -731,8 +805,17 @@ def run():
             sys.stderr.write('[remotepower] not enrolled — run with --enroll first\n')
             return 1
         poll_count += 1
+        sent = pending
         try:
             _resp, pending = heartbeat_once(creds, poll_count, pending)
+            # v6.3.0: a successful self-update swapped the file on disk; once
+            # its result has been REPORTED (it was `sent` this iteration),
+            # re-exec into the new file. Works under launchd KeepAlive and a
+            # manual --run alike — execv replaces this process in place.
+            if _RESTART_AFTER_REPORT[0] and sent and sent.get('cmd') == 'update':
+                sys.stderr.write('[remotepower] update installed — re-exec into the new agent\n')
+                os.execv(sys.executable,
+                         [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
         except Exception as e:
             sys.stderr.write(f'[remotepower] heartbeat error: {e}\n')
         time.sleep(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))

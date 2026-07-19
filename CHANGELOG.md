@@ -186,6 +186,19 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### macOS agent self-update (closing the last self-heal gap)
+- The mac agent's `update` command now **actually updates** (it was an honest
+  rc:1 "not implemented" stub; before that, a v6.2.0 bug reported rc:0 while
+  installing nothing). Flow mirrors Windows: HTTPS + no-redirect fetch of
+  `/api/agent/mac/version`, constant-time sha256 verify of
+  `/api/agent/mac/download`, atomic `os.replace` install, then re-exec into
+  the new file only AFTER the result is reported (launchd KeepAlive and
+  manual `--run` both survive). Audit-mode agents refuse, as everywhere.
+- Server: `/api/agent/mac/{version,signature,download}` — the three Windows
+  handlers parametrized by request path (inline-handler ratchet unchanged);
+  mac version/download join the IP-allowlist exemptions like their siblings.
+  Guardrail: `tests/test_v630_mac_selfupdate.py`.
+
 ### Wave 13 — fleet visibility (from the project-wide ideas sweep)
 - **Laptop battery health** — the Linux agent reports charge %, status, cycle
   count and current-vs-design wear for `BAT*` supplies (free sysfs reads,

@@ -4689,6 +4689,8 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/agent/download',
     '/api/agent/win/version',      # v6.2.0: Windows agent self-update (token-free, like Linux)
     '/api/agent/win/download',
+    '/api/agent/mac/version',      # v6.3.0: macOS agent self-update (token-free, like the others)
+    '/api/agent/mac/download',
     '/api/agent/win/install',      # v6.2.0: Windows onboarding one-liner (baked one-time token)
     '/api/agent/install',
     '/api/csp-report',
@@ -27555,13 +27557,24 @@ def _canonical_agent_sha_for(dev):
         return _sha256_file_cached(_AGENT_MAC_PATH)
     return _get_agent_sha256()
 _AGENT_WIN_SIG_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-win.py.asc'
+_AGENT_MAC_SIG_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-mac.py.asc'
+
+
+def _os_agent_dist():
+    """(agent_path, sig_path, filename, label) for the OS-agent distribution
+    endpoints, chosen by the REQUEST PATH — /api/agent/mac/* and
+    /api/agent/win/* share the three handlers below (v6.3.0: macOS self-update;
+    parametrizing by path keeps the inline-handler ratchet count unchanged)."""
+    if '/agent/mac/' in (_env('PATH_INFO', '') or ''):
+        return _AGENT_MAC_PATH, _AGENT_MAC_SIG_PATH, 'remotepower-agent-mac.py', 'macOS'
+    return _AGENT_WIN_PATH, _AGENT_WIN_SIG_PATH, 'remotepower-agent-win.py', 'windows'
 
 
 def handle_win_agent_version():
-    """GET /api/agent/win/version — canonical identity of the served WINDOWS agent.
+    """GET /api/agent/{win|mac}/version — canonical identity of the served OS agent.
 
     Same shape as /api/agent/version: sha256 is the update trigger, version is
-    informational. Returns nulls (not 404) when no Windows agent is published, so
+    informational. Returns nulls (not 404) when no such agent is published, so
     an agent polling a server that only ships Linux simply never updates rather
     than erroring every poll.
     """
@@ -27569,49 +27582,52 @@ def handle_win_agent_version():
     # token-free before every self-update decision, and the agent source is not a
     # secret (it ships to every managed host). Registered in the IP-allowlist
     # exempt list alongside its Linux sibling.
-    sha = _sha256_file(_AGENT_WIN_PATH)
+    path, sig_path, _fn, _label = _os_agent_dist()
+    sha = _sha256_file(path)
     if sha is None:
         respond(200, {'version': None, 'sha256': None, 'size': None})
     try:
-        size = _AGENT_WIN_PATH.stat().st_size
+        size = path.stat().st_size
     except OSError:
         size = None
     cfg = load(CONFIG_FILE)
     respond(200, {
-        'version': _read_agent_version(_AGENT_WIN_PATH) or cfg.get('agent_version', 'unknown'),
+        'version': _read_agent_version(path) or cfg.get('agent_version', 'unknown'),
         'sha256':  sha,
         'size':    size,
-        'signed':  _AGENT_WIN_SIG_PATH.exists(),
+        'signed':  sig_path.exists(),
         'key_fingerprint': (cfg.get('release_key_fingerprint') or '').upper(),
     })
 
 
 def handle_win_agent_signature():
-    """GET /api/agent/win/signature — detached signature over the Windows agent."""
+    """GET /api/agent/{win|mac}/signature — detached signature over that agent."""
     require_auth()
-    if not _AGENT_WIN_SIG_PATH.exists():
-        respond(404, {'error': 'windows agent release is not signed'})
+    _path, sig_path, _fn, label = _os_agent_dist()
+    if not sig_path.exists():
+        respond(404, {'error': f'{label} agent release is not signed'})
     try:
-        sig = _AGENT_WIN_SIG_PATH.read_text()
+        sig = sig_path.read_text()
     except OSError:
-        respond(404, {'error': 'windows agent release is not signed'})
+        respond(404, {'error': f'{label} agent release is not signed'})
     respond(200, {'signature': sig,
                   'key_fingerprint': (load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
 
 
 def handle_win_agent_download():
-    """GET /api/agent/win/download — the raw Windows agent .py bytes.
+    """GET /api/agent/{win|mac}/download — the raw OS-agent .py bytes.
 
     Auth-exempt like the Linux binary download: the bytes are the agent source,
     already present on every managed host, and the agent fetches them token-free
-    during self-update. The sha256 (from win/version) + the optional detached
-    signature are what make the download trustworthy, not access control.
+    during self-update. The sha256 (from the version endpoint) + the optional
+    detached signature are what make the download trustworthy, not access control.
     """
-    if not _AGENT_WIN_PATH.exists():
-        respond(404, {'error': 'windows agent not found'})
-    data = _AGENT_WIN_PATH.read_bytes()
+    path, _sig, filename, label = _os_agent_dist()
+    if not path.exists():
+        respond(404, {'error': f'{label} agent not found'})
+    data = path.read_bytes()
     print("Status: 200 OK"); print("Content-Type: application/octet-stream")
-    print("Content-Disposition: attachment; filename=remotepower-agent-win.py")
+    print(f"Content-Disposition: attachment; filename={filename}")
     print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store"); print()
     sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
 
@@ -60507,6 +60523,10 @@ def _build_exact_routes():
         ('GET', '/api/agent/win/version'): handle_win_agent_version,     # v6.2.0
         ('GET', '/api/agent/win/signature'): handle_win_agent_signature,  # v6.2.0
         ('GET', '/api/agent/win/download'): handle_win_agent_download,   # v6.2.0
+        # v6.3.0: macOS self-update — same three handlers, path-parametrized.
+        ('GET', '/api/agent/mac/version'): handle_win_agent_version,
+        ('GET', '/api/agent/mac/signature'): handle_win_agent_signature,
+        ('GET', '/api/agent/mac/download'): handle_win_agent_download,
         ('GET', '/api/signing/status'): handle_signing_status,
         ('POST', '/api/signing/generate'): handle_signing_generate,
         ('POST', '/api/signing/sign'): handle_signing_sign,
