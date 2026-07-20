@@ -2869,6 +2869,20 @@ input.form-input[type="text"][data-token],
   border-color: var(--green-edge);
 }
 .tile.ok .tile-value { color: var(--green); }
+/* v6.3.0: tone-coloured icon chip, top-right — the persistent visual the hero
+   tiles lacked (matches the stat-card icon aesthetic). */
+.tile-ic {
+  position: absolute; top: 14px; right: 14px;
+  width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent);
+}
+.tile-ic svg { width: 17px; height: 17px; }
+.tile.ok .tile-ic    { background: var(--green-soft); color: var(--green); }
+.tile.warn .tile-ic  { background: var(--amber-soft); color: var(--amber); }
+.tile.alert .tile-ic { background: var(--red-soft);   color: var(--red); }
+/* keep the number clear of the corner chip on narrow tiles */
+.tile-label { padding-right: 38px; }
 
 /* Two-column dashboard layout for activity + attention */
 .dash-cols {

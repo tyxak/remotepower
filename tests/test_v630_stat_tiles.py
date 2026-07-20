@@ -101,6 +101,17 @@ class TestStatTileModule(unittest.TestCase):
         self.assertIn("alert", tone)
         self.assertIn("warn", tone)
 
+    def test_home_tiles_have_icon_chips(self):
+        # persistent, always-visible visual (independent of the count-up/motion):
+        # a tone-coloured Lucide icon chip per hero tile.
+        app, css = _app(), _css()
+        self.assertIn("const TICON", app)
+        self.assertIn('<div class="tile-ic">', app)
+        for key in ("devices:", "updates:", "drift:", "cve:", "mail:"):
+            self.assertIn(key, app)
+        self.assertIn(".tile-ic", css)
+        self.assertIn(".tile.alert .tile-ic", css)   # tone-matched
+
     def test_home_tiles_clickable(self):
         # each hero tile drills into its page via CSP-safe data-action dispatch
         app = _app()

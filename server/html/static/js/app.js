@@ -17981,6 +17981,17 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   const totalCves    = criticalCves + highCves +
                        (cveSummary.medium || 0) + (cveSummary.low || 0);
 
+  // v6.3.0: a tone-coloured Lucide icon chip per hero tile — the persistent
+  // visual the tiles were missing (the stat-cards already have icons). Always
+  // visible, independent of the count-up animation / reduced-motion.
+  const _svg = (inner) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+  const TICON = {
+    devices: _svg('<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>'),
+    updates: _svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
+    drift: _svg('<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/>'),
+    cve: _svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'),
+    mail: _svg('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/>'),
+  };
   const tiles = [
     {
       label: 'Devices online',
@@ -17988,7 +17999,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       sub: offline === 0 ? 'All devices reporting in' :
            offline === 1 ? '1 device offline' : `${offline} devices offline`,
       cls: offline > 0 ? 'warn' : 'ok',
-      nav: 'devices',
+      nav: 'devices', ic: TICON.devices,
     },
     {
       label: 'Pending updates',
@@ -17997,7 +18008,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
         ? `${criticalPending} device${criticalPending === 1 ? '' : 's'} with 20+ pending`
         : pending === 0 ? 'Fleet fully patched' : 'Across monitored devices',
       cls: criticalPending > 0 ? 'warn' : pending === 0 ? 'ok' : '',
-      nav: 'patches',
+      nav: 'patches', ic: TICON.updates,
     },
     {
       label: 'Drift events',
@@ -18006,7 +18017,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
         ? 'All watched files at baseline'
         : `${driftDevsMon.filter(d => d.drifted > 0).length} device${driftDevsMon.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
       cls: driftedFiles > 0 ? 'warn' : 'ok',
-      nav: 'drift',
+      nav: 'drift', ic: TICON.drift,
     },
     {
       label: 'Critical CVEs',
@@ -18017,7 +18028,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
           ? `${highCves} high · ${totalCves - highCves} med/low`
           : totalCves > 0 ? `${totalCves} total (med/low only)` : 'No active CVEs',
       cls: criticalCves > 0 ? 'alert' : highCves > 0 ? 'warn' : 'ok',
-      nav: 'cve',
+      nav: 'cve', ic: TICON.cve,
     },
   ];
 
@@ -18041,7 +18052,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       sub: !reported
         ? 'Waiting for first agent report'
         : `Across ${mailboxes} mailbox${mailboxes === 1 ? '' : 'es'}`,
-      cls: '',
+      cls: '', ic: TICON.mail,
     });
   }
 
@@ -18050,7 +18061,9 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
     const act = t.nav
       ? ` data-action="statNav" data-arg="${t.nav}" role="button" tabindex="0"`
       : '';
+    const ic = t.ic ? `<div class="tile-ic">${t.ic}</div>` : '';
     return `<div class="tile ${t.cls}"${act}>
+      ${ic}
       <div class="tile-label">${t.label}</div>
       <div class="tile-value">${t.value}</div>
       <div class="tile-subtle">${t.sub}</div>
