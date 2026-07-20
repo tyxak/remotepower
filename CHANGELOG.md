@@ -376,6 +376,11 @@ the other posture axes need data plumbing first).
   host). Each file job gets a **Restore** action that pulls the backup back to a
   chosen directory (admin-only, typed `RESTORE` confirmation, audited).
   `POST /api/backup-jobs/{id}/restore`. See [backups.md](docs/backups.md).
+- **Backup baseline — one job, many devices.** A backup job can target multiple
+  devices at once (a filterable device picker), so a single definition applies
+  across the fleet; the run and the cron schedule fan out to every targeted device
+  (tenant/scope-filtered). **Run now** on a single-device job shows live output in
+  a progress dialog (incl. rsync progress); a multi-device run queues on all.
 - **Proxmox Backup Server on the Backups page.** Configure a PBS instance under
   Settings → Integrations and its datastores surface under Backups — fill %, dedup
   factor, free/total space and estimated-full date, with the usual down/recover

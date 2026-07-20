@@ -144,5 +144,72 @@ class TestRestore(_Base):
         self.assertEqual(self.cap.get('s'), 400)
 
 
+class TestMultiDeviceBaseline(_Base):
+    """v6.3.0 baseline: one job → many devices."""
+
+    def setUp(self):
+        super().setUp()
+        self.api.save(self.api.DEVICES_FILE, {
+            'd1': {'id': 'd1', 'name': 'h1', 'token': 't'},
+            'd2': {'id': 'd2', 'name': 'h2', 'token': 't'},
+            'd3': {'id': 'd3', 'name': 'h3', 'token': 't'},
+        })
+
+    def test_create_multi_device_job(self):
+        self._create({'name': 'fleet', 'device_ids': ['d1', 'd2', 'd3'],
+                      'command': 'restic backup /etc'})
+        j = self._jobs()[0]
+        self.assertEqual(sorted(j['device_ids']), ['d1', 'd2', 'd3'])
+        self.assertIn('+2 more', j['device_name'])
+
+    def test_run_fans_out_to_all_targets(self):
+        self._create({'name': 'fleet', 'device_ids': ['d1', 'd2', 'd3'],
+                      'command': 'restic backup /etc'})
+        jid = self._jobs()[0]['id']
+        self.cap.clear()
+        self.api.get_json_obj = lambda: {}
+        try:
+            self.api.handle_backup_job_run(jid)
+        except (self.api.HTTPError, SystemExit):
+            pass
+        cmds = self._cmds()
+        self.assertTrue(all(d in cmds for d in ('d1', 'd2', 'd3')),
+                        'run should queue on every target')
+        self.assertEqual(self.cap.get('d', {}).get('queued'), 3)
+
+    def test_restore_needs_device_when_multi(self):
+        self._create({'name': 'fleet', 'device_ids': ['d1', 'd2'], 'spec': self._spec()})
+        jid = self._jobs()[0]['id']
+        self.cap.clear()
+        self.api.get_json_obj = lambda: {'restore_path': '/r', 'confirm': 'RESTORE'}
+        try:
+            self.api.handle_backup_job_restore(jid)
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('s'), 400)   # must specify device_id
+
+    def test_restore_to_named_target(self):
+        self._create({'name': 'fleet', 'device_ids': ['d1', 'd2'], 'spec': self._spec()})
+        jid = self._jobs()[0]['id']
+        self.cap.clear()
+        self.api.get_json_obj = lambda: {'restore_path': '/r', 'confirm': 'RESTORE', 'device_id': 'd2'}
+        try:
+            self.api.handle_backup_job_restore(jid)
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertIn('d2', self._cmds())
+
+    def test_restore_rejects_non_target_device(self):
+        self._create({'name': 'fleet', 'device_ids': ['d1'], 'spec': self._spec()})
+        jid = self._jobs()[0]['id']
+        self.cap.clear()
+        self.api.get_json_obj = lambda: {'restore_path': '/r', 'confirm': 'RESTORE', 'device_id': 'd3'}
+        try:
+            self.api.handle_backup_job_restore(jid)
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('s'), 400)   # d3 not a target
+
+
 if __name__ == '__main__':
     unittest.main()

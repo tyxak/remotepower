@@ -68,9 +68,45 @@ async function loadPbsBackups() {
   }).join('');
 }
 
-function _backupPopulateDevices(sel, current) {
+// v6.3.0 baseline: a job can target one OR many devices — a filterable checkbox
+// list. Selection is held on the container's dataset so a filter re-render keeps
+// the ticks.
+let _backupSelDevs = new Set();
+function _backupRenderDeviceChecks(filter) {
+  const box = document.getElementById('backupjob-devices');
+  if (!box) return;
   const list = (typeof devices !== 'undefined' ? devices : []);
-  sel.innerHTML = list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id===current?' selected':''}>${escHtml(dv.name)}</option>`).join('');
+  const q = (filter || '').toLowerCase();
+  const rows = list.filter(dv => !q || (dv.name || '').toLowerCase().includes(q)
+      || (dv.group || '').toLowerCase().includes(q) || (dv.ip || '').toLowerCase().includes(q));
+  box.innerHTML = rows.length ? rows.map(dv =>
+    `<label class="click-row"><input type="checkbox" class="backupjob-devchk" value="${escAttr(dv.id)}"${_backupSelDevs.has(dv.id) ? ' checked' : ''}> <span>${escHtml(dv.name)}</span> <span class="meta-sm-nm">${escHtml(dv.group || '')}</span></label>`
+  ).join('') : '<div class="empty-state">No devices match.</div>';
+}
+function _backupWireDeviceFilter() {
+  const box = document.getElementById('backupjob-devices');
+  const flt = document.getElementById('backupjob-devfilter');
+  if (box && !box._wired) {
+    box._wired = true;
+    // Track ticks as they change (survives filtering).
+    box.addEventListener('change', (e) => {
+      const cb = e.target;
+      if (cb && cb.classList.contains('backupjob-devchk')) {
+        if (cb.checked) _backupSelDevs.add(cb.value); else _backupSelDevs.delete(cb.value);
+      }
+    });
+  }
+  if (flt && !flt._wired) {
+    flt._wired = true;
+    flt.addEventListener('input', () => _backupRenderDeviceChecks(flt.value));
+  }
+}
+function _backupSetDevices(ids) {
+  _backupSelDevs = new Set(ids || []);
+  const flt = document.getElementById('backupjob-devfilter');
+  if (flt) flt.value = '';
+  _backupWireDeviceFilter();
+  _backupRenderDeviceChecks('');
 }
 
 let _backupTypeWired = false;
@@ -110,7 +146,7 @@ function openBackupJobCreate() {
   _backupResetFileFields();
   _backupWireTypeToggle();
   _backupJobToggleType();
-  _backupPopulateDevices(document.getElementById('backupjob-device'), '');
+  _backupSetDevices([]);
   document.getElementById('backupjob-modal-title').textContent = 'New backup job';
   document.getElementById('backupjob-save-btn').textContent = 'Create';
   openModal('backupjob-modal');
@@ -139,8 +175,7 @@ function _backupEditBtn(btn) {
   }
   _backupWireTypeToggle();
   _backupJobToggleType();
-  _backupPopulateDevices(document.getElementById('backupjob-device'), j.device_id);
-  document.getElementById('backupjob-device').disabled = true;   // device is fixed after creation
+  _backupSetDevices(j.device_ids && j.device_ids.length ? j.device_ids : (j.device_id ? [j.device_id] : []));
   document.getElementById('backupjob-modal-title').textContent = 'Edit backup job';
   document.getElementById('backupjob-save-btn').textContent = 'Save';
   openModal('backupjob-modal');
@@ -172,15 +207,16 @@ function _backupBuildSpec() {
 
 async function saveBackupJob() {
   const id = document.getElementById('backupjob-edit-id').value;
-  const dsel = document.getElementById('backupjob-device');
   const type = document.getElementById('backupjob-type').value;
+  const deviceIds = [...document.querySelectorAll('.backupjob-devchk:checked')].map(c => c.value);
   const body = {
     name: document.getElementById('backupjob-name').value.trim(),
     cron: document.getElementById('backupjob-cron').value.trim(),
     type,
+    device_ids: deviceIds,
   };
-  if (!id) body.device_id = dsel.value;
   if (!body.name) { toast('Name is required', 'error', {transient: true}); return; }
+  if (!deviceIds.length) { toast('Select at least one device', 'error', {transient: true}); return; }
   if (type === 'file') {
     body.spec = _backupBuildSpec();
     if (!body.spec.paths.length) { toast('Add at least one source path', 'error', {transient: true}); return; }
@@ -192,15 +228,62 @@ async function saveBackupJob() {
   if (body.cron && body.cron.split(/\s+/).length !== 5) { toast('Cron needs 5 fields (min hour day month weekday)', 'error'); return; }
   const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
                : await api('POST', '/backup-jobs', body);
-  dsel.disabled = false;
   if (d?.ok) { toast(id ? 'Job saved' : 'Job created', 'success'); closeModal('backupjob-modal'); loadBackupJobs(); }
   else toast(d?.error || 'Failed', 'error');
 }
 
+// v6.3.0: on-demand run. For a single-device job, run-and-wait with a live
+// progress modal (the server blocks for the agent's output, incl. rsync
+// progress). For a multi-device baseline, queue on all and toast (a synchronous
+// wait for many isn't meaningful).
 async function _backupRunBtn(btn) {
-  const d = await api('POST', '/backup-jobs/' + encodeURIComponent(btn.dataset.id) + '/run', {});
-  if (d?.ok) toast('Backup queued — output (incl. rsync progress) appears in the device command history', 'success');
-  else toast(d?.error || 'Failed', 'error');
+  const j = _backupJobsCache.find(x => x.id === btn.dataset.id);
+  const targets = j && j.device_ids && j.device_ids.length ? j.device_ids : (j && j.device_id ? [j.device_id] : []);
+  const id = btn.dataset.id;
+  if (targets.length > 1) {
+    const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/run', {});
+    if (d?.ok) toast(`Backup queued on ${d.queued || targets.length} devices — output appears in each device's command history`, 'success');
+    else toast(d?.error || 'Failed', 'error');
+    return;
+  }
+  // single device → run-and-wait with progress feedback
+  _backupProgressOpen(j ? j.name : 'Backup');
+  try {
+    const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/run', { wait: true });
+    if (!d) { _backupProgressDone('error', 'No response'); return; }
+    if (d.output) {
+      const out = (d.output.stdout || d.output.output || '') + (d.output.stderr ? '\n' + d.output.stderr : '');
+      const rc = d.output.rc;
+      _backupProgressDone(rc === 0 || rc === undefined ? 'ok' : 'error',
+        (out || 'Backup finished.') + (rc !== undefined ? `\n\n(exit code ${rc})` : ''));
+    } else if (d.running) {
+      _backupProgressDone('running', d.message || 'Still running — output will appear in the device command history.');
+    } else if (d.error) {
+      _backupProgressDone('error', d.error);
+    } else {
+      _backupProgressDone('ok', 'Backup queued.');
+    }
+  } catch (e) {
+    _backupProgressDone('error', String(e));
+  }
+}
+
+function _backupProgressOpen(name) {
+  document.getElementById('backup-progress-title').textContent = 'Running: ' + name;
+  document.getElementById('backup-progress-bar').classList.remove('d-none');
+  document.getElementById('backup-progress-status').textContent = 'Running backup on the host — waiting for output…';
+  document.getElementById('backup-progress-output').textContent = '';
+  document.getElementById('backup-progress-close').disabled = true;
+  openModal('backup-progress-modal');
+}
+function _backupProgressDone(state, text) {
+  document.getElementById('backup-progress-bar').classList.add('d-none');
+  const s = document.getElementById('backup-progress-status');
+  s.textContent = state === 'ok' ? 'Backup completed'
+    : state === 'running' ? 'Still running' : 'Backup reported an error';
+  s.className = state === 'ok' ? 'c-green' : state === 'running' ? 'c-amber' : 'c-red';
+  document.getElementById('backup-progress-output').textContent = text || '';
+  document.getElementById('backup-progress-close').disabled = false;
 }
 
 // v6.3.0: restore a structured file-backup back to the host. Destructive, so the

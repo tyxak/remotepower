@@ -14,6 +14,14 @@ pipeline.
 - `GET/POST /api/backup-jobs`, `PUT/DELETE /api/backup-jobs/{id}`, and
   **Run now** (`POST /api/backup-jobs/{id}/run`).
 - Cron expressions are validated; up to 100 jobs per fleet.
+- **Apply one job to many devices (a baseline).** Pick one or more devices when
+  you create the job — the same backup runs on every one, on demand or on the
+  schedule. (Cross-tenant / out-of-scope devices are filtered out for you.)
+- **On-demand feedback.** For a single-device job, **Run now** waits for the
+  agent's output and shows it in a progress dialog (including rsync's progress
+  lines); a backup that outlasts the wait window keeps running and its output
+  lands in the device's command history. A multi-device run queues on all and
+  reports the count.
 
 ### File backup (structured — no shell required)
 

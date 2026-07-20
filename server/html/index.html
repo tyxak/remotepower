@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-21">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-22">
 
 </head>
 <body>
@@ -8548,7 +8548,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="backupjob-modal-title">New backup job</div>
   <input type="hidden" id="backupjob-edit-id">
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="backupjob-name" class="form-input" placeholder="Nightly restic to B2" maxlength="80" aria-label="Name"></div>
-  <div class="form-group"><label class="form-label">Device</label><select id="backupjob-device" class="form-input device-combo" aria-label="Device"></select></div>
+  <div class="form-group"><label class="form-label">Devices — apply this job to one or more (a baseline)</label>
+    <input type="text" id="backupjob-devfilter" class="form-input mb-6" placeholder="Filter devices…" aria-label="Filter devices">
+    <div id="backupjob-devices" class="scroll-cap-sm" role="group" aria-label="Devices"></div>
+  </div>
   <div class="form-group"><label class="form-label">Job type</label><select id="backupjob-type" class="form-input" aria-label="Job type"><option value="command">Command (restic / borg / rsync …)</option><option value="file">File backup (select paths → ssh / nfs / smb)</option></select></div>
   <div class="form-group" id="backupjob-command-group"><label class="form-label">Backup command</label><textarea id="backupjob-command" class="form-textarea" rows="3" placeholder="restic backup /etc /home --tag rp" aria-label="Backup command"></textarea></div>
   <div id="backupjob-file-group" class="d-none">
@@ -8566,6 +8569,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group"><label class="form-label">Schedule (cron, optional)</label><input type="text" id="backupjob-cron" class="form-input" placeholder="0 2 * * *" aria-label="Schedule (cron, optional)"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="backupjob-modal">Cancel</button><button class="btn-primary" id="backupjob-save-btn" data-action="saveBackupJob">Create</button></div>
+</div></div>
+
+<!-- v6.3.0: on-demand backup run progress (single-device run-and-wait feedback) -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="backup-progress-title" id="backup-progress-modal"><div class="modal">
+  <div class="modal-title" id="backup-progress-title">Running backup</div>
+  <div id="backup-progress-bar" class="progress-indet" aria-hidden="true"></div>
+  <div id="backup-progress-status" class="hint mb-8">Running backup on the host — waiting for output…</div>
+  <pre id="backup-progress-output" class="mono-12 scroll-cap" aria-live="polite"></pre>
+  <div class="modal-actions"><button class="btn-primary" id="backup-progress-close" data-action="closeModal" data-arg="backup-progress-modal">Close</button></div>
 </div></div>
 
 <!-- v3.7.0: Ansible playbook create/edit -->
@@ -10418,34 +10430,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-21"></script>
+<script defer src="static/js/app.js?v=6.3.0-22"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-22"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-22"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-22"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-21"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-22"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-22"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10454,6 +10466,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-21"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-22"></script>
 </body>
 </html>

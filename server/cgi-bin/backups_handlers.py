@@ -455,7 +455,6 @@ def handle_backup_job_create():
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()
     name = A._sanitize_str(body.get('name', ''), 80).strip()
-    dev_id = str(body.get('device_id', '')).strip()
     cron = A._sanitize_str(body.get('cron', ''), 64).strip()
     # v6.3.0: a job is EITHER a raw command (legacy default) OR a structured
     # 'file' backup (paths[] + method + dest ssh/nfs/smb). For a file job the
@@ -476,26 +475,52 @@ def handle_backup_job_create():
             A.respond(400, {'error': f'command too long (max {A.MAX_BACKUP_CMD_LEN})'})
     if not name:
         A.respond(400, {'error': 'name is required'})
-    if not A._validate_id(dev_id):
-        A.respond(400, {'error': 'valid device_id required'})
+    # v6.3.0 "baseline": a job can target MULTIPLE devices — define once, apply to
+    # many. _resolve_targets reads device_ids / tag / group / device_id AND
+    # tenant/scope-filters the set at the same chokepoint the command family uses
+    # (so a cross-tenant id can't be assigned). Keep only ids that name a real
+    # device the caller may manage.
     devices = A.load(A.DEVICES_FILE)
-    if dev_id not in devices:
-        A.respond(404, {'error': 'Device not found'})
-    A._scope_block_device(dev_id)   # SEC: body device_id, not under /api/devices/ — the run/cron path execs a command on it
+    targets = [d for d in A._resolve_targets(body) if d in devices]
+    if not targets:
+        A.respond(400, {'error': 'select at least one device you can manage'})
     if cron and not A._valid_cron(cron):
         A.respond(400, {'error': 'invalid cron expression'})
     data = A._backup_jobs_load()
     if len(data['jobs']) >= A.MAX_BACKUP_JOBS:
         A.respond(400, {'error': f'job limit reached (max {A.MAX_BACKUP_JOBS})'})
-    job = {'id': secrets.token_urlsafe(8), 'name': name, 'device_id': dev_id,
-           'device_name': devices[dev_id].get('name', dev_id),
+    job = {'id': secrets.token_urlsafe(8), 'name': name,
+           'device_ids': targets,
+           'device_id': targets[0],   # legacy field = first target (old readers)
+           'device_name': _backup_targets_summary(targets, devices),
            'type': jtype, 'command': command, 'spec': spec,
            'cron': cron or None, 'enabled': True, 'created': int(time.time()),
            'created_by': actor, 'last_run': 0, 'last_fired_minute': None}
     data['jobs'].append(job)
     A.save(A.BACKUP_JOBS_FILE, data)
-    A.audit_log(actor, 'backup_job_create', detail=f'job={job["id"]} device={dev_id} type={jtype}')
+    A.audit_log(actor, 'backup_job_create',
+                detail=f'job={job["id"]} devices={len(targets)} type={jtype}')
     A.respond(200, {'ok': True, 'id': job['id']})
+
+
+def _backup_targets_summary(target_ids, devices):
+    """A short display label for a job's device set: 'host1' or 'host1 +2 more'."""
+    names = [devices.get(d, {}).get('name', d) for d in target_ids]
+    if not names:
+        return ''
+    if len(names) == 1:
+        return names[0]
+    return f'{names[0]} +{len(names) - 1} more'
+
+
+def _backup_job_targets(job):
+    """The device ids a job applies to — the v6.3.0 device_ids list, or the
+    legacy single device_id. Always a list."""
+    ids = job.get('device_ids')
+    if isinstance(ids, list) and ids:
+        return [str(d) for d in ids]
+    d = job.get('device_id')
+    return [str(d)] if d else []
 
 
 def handle_backup_job_delete(job_id):
@@ -527,15 +552,49 @@ def _backup_job_command(job):
     return job.get('command') or ''
 
 
+def _backup_run_and_wait(dev_id, cmd, actor, dev_name, timeout=120):
+    """Queue a backup command on ONE device and block for its output so the UI can
+    show live feedback. Reuses the longpoll slot the file-manager round-trip uses
+    (LONGPOLL_FILE + _longpoll_wait) — the command is server-generated and admin-
+    gated, so it bypasses the exec allowlist that the operator-typed run-and-wait
+    path applies. Responds 200 with the captured output, or a graceful 'still
+    running' when a long backup outlasts the timeout."""
+    lp = A.load(A.LONGPOLL_FILE)
+    lp[dev_id] = {'cmd': cmd, 'ready': False, 'output': None, 'ts': int(time.time())}
+    A.save(A.LONGPOLL_FILE, lp)
+    cmds = A.load(A.CMDS_FILE)
+    cmds.setdefault(dev_id, [])
+    _q = f'exec:{cmd}'
+    if _q not in cmds[dev_id]:
+        cmds[dev_id].append(_q)
+    A.save(A.CMDS_FILE, cmds)
+    A.log_command(actor, dev_id, dev_name, 'backup(run-and-wait)')
+    status, output = A._longpoll_wait(dev_id, timeout)
+    if status == 'ok':
+        A.respond(200, {'ok': True, 'output': output})
+    elif status == 'shutdown':
+        A.respond(503, {'ok': False, 'message': 'Server restarting — the backup is queued; check the device command history.'})
+    else:
+        A.respond(200, {'ok': True, 'running': True,
+                        'message': 'Backup is taking longer than the wait window — it keeps running; output appears in the device command history.'})
+
+
 def handle_backup_job_run(job_id):
-    """POST /api/backup-jobs/{id}/run — queue the backup command now."""
+    """POST /api/backup-jobs/{id}/run — run the backup now on all of the job's
+    devices. Body: {wait?} — with a single target, wait for output (live feedback);
+    with multiple, queue on all and return the count."""
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     data = A._backup_jobs_load()
     job = next((j for j in data['jobs'] if j['id'] == job_id), None)
     if not job:
         A.respond(404, {'error': 'job not found'})
-    actor = A.require_perm('command', [job['device_id']])
+    # v6.3.0 baseline: fan out to every device the job targets, re-filtered to the
+    # caller's scope/tenant at run time (device set can change after creation).
+    targets = [d for d in A._resolve_targets({'device_ids': _backup_job_targets(job)})]
+    if not targets:
+        A.respond(400, {'error': 'no devices you can manage are targeted by this job'})
+    actor = A.require_perm('command', targets)
     try:
         cmd = _backup_job_command(job)
     except ValueError as e:
@@ -544,8 +603,15 @@ def handle_backup_job_run(job_id):
         A.respond(400, {'error': 'job has no command'})
     job['last_run'] = int(time.time())
     A.save(A.BACKUP_JOBS_FILE, data)
-    A.audit_log(actor, 'backup_job_run', detail=f'job={job_id} device={job["device_id"]}')
-    A._queue_command(job['device_id'], f'exec:{cmd}', actor)  # responds + exits
+    A.audit_log(actor, 'backup_job_run', detail=f'job={job_id} devices={len(targets)}')
+    body = A.get_json_obj()
+    devices = A.load(A.DEVICES_FILE)
+    if body.get('wait') and len(targets) == 1:
+        _backup_run_and_wait(targets[0], cmd, actor,
+                             devices.get(targets[0], {}).get('name', targets[0]))  # responds
+        return
+    A._queue_command_batch(targets, f'exec:{cmd}', actor)
+    A.respond(200, {'ok': True, 'queued': len(targets)})
 
 
 def handle_backup_job_restore(job_id):
@@ -559,10 +625,19 @@ def handle_backup_job_restore(job_id):
     job = next((j for j in data['jobs'] if j['id'] == job_id), None)
     if not job:
         A.respond(404, {'error': 'job not found'})
-    A._scope_block_device(job['device_id'])
     if job.get('type') != 'file' or job.get('spec') is None:
         A.respond(400, {'error': 'restore is only available for structured file-backup jobs'})
     body = A.get_json_obj()
+    # v6.3.0 baseline: a job can target several devices — restore goes to ONE
+    # host (you restore TO a specific machine). Pick it from the body; default to
+    # the sole target when there's only one. Must be a device the caller manages.
+    job_targets = _backup_job_targets(job)
+    dev_id = str(body.get('device_id', '')).strip() or (job_targets[0] if len(job_targets) == 1 else '')
+    if not dev_id:
+        A.respond(400, {'error': 'this job targets multiple devices — specify device_id to restore to'})
+    if dev_id not in job_targets:
+        A.respond(400, {'error': 'device is not one of this job\'s targets'})
+    A._scope_block_device(dev_id)   # tenant + role scope for the chosen host
     if str(body.get('confirm', '')).strip().upper() != 'RESTORE':
         A.respond(400, {'error': 'type RESTORE to confirm — this overwrites the restore path'})
     restore_path = str(body.get('restore_path', '')).strip()
@@ -576,8 +651,8 @@ def handle_backup_job_restore(job_id):
         A.respond(400, {'error': str(e)})
         return
     A.audit_log(actor, 'backup_job_restore',
-                detail=f'job={job_id} device={job["device_id"]} target={restore_path}')
-    A._queue_command(job['device_id'], f'exec:{cmd}', actor)  # responds + exits
+                detail=f'job={job_id} device={dev_id} target={restore_path}')
+    A._queue_command(dev_id, f'exec:{cmd}', actor)  # responds + exits
 
 
 def handle_backup_job_update(job_id):
@@ -597,6 +672,21 @@ def handle_backup_job_update(job_id):
         if not c or len(c) > A.MAX_BACKUP_CMD_LEN:
             A.respond(400, {'error': 'invalid command'})
         job['command'] = c
+    if 'spec' in body and body['spec'] is not None:
+        ok, err = A.filebackup_mod.validate_spec(body['spec'])
+        if not ok:
+            A.respond(400, {'error': f'invalid file-backup spec: {err}'})
+        job['spec'] = body['spec']
+        job['type'] = 'file'
+    if 'device_ids' in body or 'device_id' in body:
+        # v6.3.0 baseline: re-target the job (tenant/scope-filtered).
+        devices = A.load(A.DEVICES_FILE)
+        targets = [d for d in A._resolve_targets(body) if d in devices]
+        if not targets:
+            A.respond(400, {'error': 'select at least one device you can manage'})
+        job['device_ids'] = targets
+        job['device_id'] = targets[0]
+        job['device_name'] = A._backup_targets_summary(targets, devices)
     if 'cron' in body:
         cron = A._sanitize_str(body['cron'], 64).strip()
         if cron and not A._valid_cron(cron):
@@ -1043,25 +1133,27 @@ def process_backup_jobs():
             continue
         if not A._cron_matches(job['cron'], now):
             continue
-        dev_id = job['device_id']
         devices = A.load(A.DEVICES_FILE)
-        if dev_id in devices and not A._device_quarantined(devices[dev_id]):
-            if cmds is None:
-                cmds = A.load(A.CMDS_FILE)
-            cmds.setdefault(dev_id, [])
-            try:
-                _bc = _backup_job_command(job)   # v6.3.0: generated for file jobs
-            except ValueError as _e:
-                A.log_command(f'backup({job["created_by"]})', dev_id,
-                              job.get('device_name', dev_id),
-                              f'backup:{job["name"]} SKIPPED ({_e})')
-                _bc = ''
-            if _bc:
+        try:
+            _bc = _backup_job_command(job)   # v6.3.0: generated for file jobs
+        except ValueError as _e:
+            A.log_command(f'backup({job["created_by"]})', job.get('device_id', '?'),
+                          job.get('device_name', '?'),
+                          f'backup:{job["name"]} SKIPPED ({_e})')
+            _bc = ''
+        # v6.3.0 baseline: fan out to every targeted device (skipping quarantined).
+        if _bc:
+            for dev_id in _backup_job_targets(job):
+                if dev_id not in devices or A._device_quarantined(devices[dev_id]):
+                    continue
+                if cmds is None:
+                    cmds = A.load(A.CMDS_FILE)
+                cmds.setdefault(dev_id, [])
                 queued = f'exec:{_bc}'
                 if queued not in cmds[dev_id]:
                     cmds[dev_id].append(queued)
                 A.log_command(f'backup({job["created_by"]})', dev_id,
-                            job.get('device_name', dev_id), f'backup:{job["name"]}')
+                            devices[dev_id].get('name', dev_id), f'backup:{job["name"]}')
         job['last_fired_minute'] = current_minute
         job['last_run'] = now
         changed = True
