@@ -18126,7 +18126,7 @@ function _renderHomeActivity(fleetEvents) {
     'port_exposed_world', 'port_unexposed', 'software_policy_violation',
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
     'snapshot_stale', 'snapshot_ok',   // v6.1.2
-    'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
+    'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed', 'timer_failed_cleared',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
     // v6.0.1: read-only remount (silent data-loss) + mail-queue backlog
@@ -18370,7 +18370,7 @@ function _homeActivityAttrs(event, p) {
     case 'login_new_source':
     case 'login_geo_anomaly':
     case 'firewall_changed':
-    case 'timer_failed':
+    case 'timer_failed': case 'timer_failed_cleared':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'db_integrity_failed':
       return `${base} data-home-act="self"`;

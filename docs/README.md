@@ -55,7 +55,15 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.2.3.md](security-review-6.2.3.md)** — Latest review: the
+- **[security-review-6.3.0.md](security-review-6.3.0.md)** — Latest review: the
+ v6.3.0 "Fl0wMatters" pass — SAST clean (Bandit 0 new, gitleaks clean; the one
+ CodeQL result is the by-design agentless syslog listener, triaged and
+ documented), a live black-box check of the production edge, and an adversarial
+ audit that fixed pre-existing cross-tenant isolation gaps (ACME certificate
+ control, alert-data reads, credential metadata) and a stored-XSS vector via
+ unescaped SNMP data — each no-op on a single-tenant install and regression-
+ tested; no Critical/High/Medium ships.
+- **[security-review-6.2.3.md](security-review-6.2.3.md)** — the
  v6.2.3 "Un1fyMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 new,
  gitleaks clean, Semgrep triaged) plus an exhaustive six-dimension adversarial
  audit prompted by the release's shared-helper refactors. Confirmed the config-
@@ -73,13 +81,6 @@ holds long-form docs that don't fit there.
  a live header/auth-boundary check of production. One agent-side hardening (a
  billion-laughs guard on the OpenSCAP XML parse) was made from the scan; no
  Critical/High/Medium ships.
-- **[security-review-6.2.0.md](security-review-6.2.0.md)** — the v6.2.0
- "Daem0nMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 High,
- gitleaks clean) plus an authorization audit of the new attack surface (the
- supervised-service installers, governed AI executor, PII scan, EDR coverage,
- DNS-blocker control, JIT vault checkout) and a prompt-injection analysis of the AI
- executor (which cannot author commands — it may only pick a saved catalog action
- by exact id); no Critical/High/Medium ships.
 ## Release notes
 
 The full release history — every version, newest first — lives in

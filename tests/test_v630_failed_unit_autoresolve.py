@@ -181,5 +181,39 @@ class TestHeartbeatEdgeTrigger(unittest.TestCase):
             [ev for ev, _ in self.fired if ev == 'failed_unit_cleared'], [])
 
 
+class TestTimerFailedCleared(unittest.TestCase):
+    """v6.3.0: timer_failed (scheduled-job failure) now auto-resolves via
+    timer_failed_cleared — a per-unit recover event (one alert per timer, so a
+    plain 'unit' sub_match, unlike failed_unit's batch)."""
+
+    def setUp(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+
+    def _open(self):
+        return [a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
+                if not a.get('resolved_at')]
+
+    def test_registry_wired(self):
+        reg = api.EVENT_REGISTRY['timer_failed_cleared']
+        self.assertEqual(reg.get('resolves'), ('timer_failed',))
+        self.assertEqual(reg.get('kind'), 'timer')
+        self.assertNotIn('severity', reg)
+        self.assertEqual(api._ALERT_RECOVER.get('timer_failed_cleared'),
+                         'timer_failed')
+
+    def test_recover_clears_only_the_recovered_timer(self):
+        api._record_alert('timer_failed', {'device_id': 'd1', 'name': 'h',
+                                           'unit': 'a.timer'})
+        api._record_alert('timer_failed', {'device_id': 'd1', 'name': 'h',
+                                           'unit': 'b.timer'})
+        self.assertEqual(len(self._open()), 2)
+        api._auto_resolve_alerts('timer_failed_cleared',
+                                 {'device_id': 'd1', 'unit': 'a.timer',
+                                  'still_failed': ['b.timer']})
+        still = self._open()
+        self.assertEqual(len(still), 1)
+        self.assertEqual(still[0]['payload'].get('unit'), 'b.timer')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -33,15 +33,18 @@ whitelisted, capability-negotiated) and the reused HTTPS transport (same
 certificate/mTLS verification, redirects still refused), and a live header and
 auth-boundary check of production. One agent hardening — a billion-laughs guard on
 the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships** — see
-[security-review-6.2.3.md](security-review-6.2.3.md), an exhaustive six-dimension
-adversarial audit that verified the release's shared-helper refactors are
-behaviour-preserving and closed a set of pre-existing multi-tenant isolation gaps
-and an off-box-export redaction drift. It builds on **v6.2.2** (see
+High, or Medium finding ships**. The latest pass is
+[security-review-6.3.0.md](security-review-6.3.0.md) for **v6.3.0** — SAST clean
+across the stack, a live black-box check of the production edge, and an
+adversarial audit that closed a set of pre-existing cross-tenant isolation gaps
+(certificate control, alert-data reads, credential metadata) and a stored-XSS
+vector via unescaped SNMP data. It builds on
+[security-review-6.2.3.md](security-review-6.2.3.md) for **v6.2.3** (an exhaustive
+six-dimension audit that verified the release's shared-helper refactors are
+behaviour-preserving and closed a set of pre-existing multi-tenant isolation gaps)
+and **v6.2.2** (see
 [security-review-6.2.2.md](security-review-6.2.2.md), a trust-boundary review of
-the delta-heartbeat protocol and reused HTTPS transport) and **v6.2.0** (see
-[security-review-6.2.0.md](security-review-6.2.0.md), an authorization audit of the
-governed AI executor and the supervised-service surface). The v4.10.0
+the delta-heartbeat protocol and reused HTTPS transport). The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
 construction: every edit is **server-validated against a strict character

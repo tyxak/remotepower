@@ -1649,6 +1649,10 @@ EVENT_REGISTRY = {
     'timer_failed': dict(
         label='Scheduled job (systemd timer) failed', kind='timer',
         title='Scheduled Job Failed', severity='medium', tags='warning,alarm_clock'),
+    'timer_failed_cleared': dict(
+        label='A scheduled job (systemd timer) left the failed state (recovered)',
+        kind='timer', title='Scheduled Job Recovered',
+        resolves=('timer_failed',), tags='white_check_mark,alarm_clock'),
     'db_integrity_failed': dict(
         label='Database integrity check failed (possible corruption)', kind='database',
         title='Database Integrity Check Failed', severity='critical',
@@ -7926,6 +7930,8 @@ def _alert_title(event, payload):
         return f'Mount {_iw} on {name}: {p.get("path","?")} ({p.get("fstype","?")})'
     if event == 'timer_failed':
         return f'Scheduled job failed on {name}: {p.get("unit","?")}'
+    if event == 'timer_failed_cleared':
+        return f'Scheduled job recovered on {name}: {p.get("unit","?")}'
     # v3.14.0 events
     if event == 'disk_predict_fail':
         eta = p.get('eta_days')
@@ -9454,6 +9460,11 @@ def _auto_resolve_alerts(event, payload):
         # its units remain in the event's still_failed set (the host's current
         # failed set as of this heartbeat).
         pass
+    elif event == 'timer_failed_cleared':
+        # v6.3.0: timer_failed fires one alert per unit, so a recovered timer
+        # clears exactly its own open alert by unit (no batch, unlike
+        # failed_unit_cleared).
+        sub_match['unit'] = p.get('unit')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -31922,6 +31933,14 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 act = next((t.get('activates') for t in timers
                             if t.get('unit') == u), '')
                 _fire('timer_failed', {'unit': u, 'activates': act})
+        # v6.3.0: timers leaving the failed set fire the recover event, which
+        # auto-resolves the open timer_failed alert (per-unit — timer_failed
+        # fires one alert per unit, so a plain 'unit' sub_match closes exactly
+        # the recovered one). Parallel to failed_unit_cleared.
+        if not first_seen:
+            for u in sorted(prev_failed - set(failed_now)):
+                _fire('timer_failed_cleared', {'unit': u,
+                                               'still_failed': sorted(failed_now)})
         new['failed_timers'] = failed_now
 
     # ── new-source logins ──────────────────────────────────────────
@@ -57229,7 +57248,7 @@ SUPPRESSIBLE_EVENTS = (
     'metric_warning', 'metric_critical',
     'config_drift',   'drift_detected',
     'failed_unit',    'failed_unit_cleared',
-    'timer_failed',
+    'timer_failed',   'timer_failed_cleared',
     'reboot_required',
     'container_stopped', 'container_restarting', 'containers_stale',
     'backup_stale',

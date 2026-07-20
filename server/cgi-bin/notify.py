@@ -698,6 +698,8 @@ def _webhook_message(event, payload):
         act = payload.get("activates", "")
         extra = f" → {act}" if act else ""
         return f'{name}: scheduled job {payload.get("unit","?")} failed{extra}'
+    elif event == "timer_failed_cleared":
+        return f'{name}: scheduled job {payload.get("unit","?")} recovered'
     elif event == "disk_predict_fail":
         eta = payload.get("eta_days")
         when = f" (~{eta}d to failure)" if isinstance(eta, int) else ""

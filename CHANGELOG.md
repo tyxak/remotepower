@@ -351,6 +351,10 @@ the other posture axes need data plumbing first).
   left the failed state — the event carries the host's current failed set so a
   partially-fixed host keeps its alert open. Pre-existing single-unit alerts
   from before this release resolve too (unit-key fallback).
+- **Scheduled-job (systemd timer) alerts now auto-resolve.** `timer_failed` gains
+  a matching `timer_failed_cleared` recover event, fired per-unit when a timer
+  leaves the failed state — the open alert closes itself instead of sitting in
+  the inbox after the job recovers.
 
 ### Security & hardening
 - **Pre-release security hunt (SAST + adversarial audit).** CodeQL / bandit /
