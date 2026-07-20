@@ -695,6 +695,28 @@ class TestWinPosture(unittest.TestCase):
     def test_off_windows_empty(self):
         self.assertEqual(agent.get_win_posture(), {})
 
+    def test_v630_posture_gaps_parsed(self):
+        wp = agent._parse_win_posture(json.dumps({
+            "tamper_protection": False, "secure_boot": True,
+            "uac_enabled": True, "pending_reboot": True}))
+        self.assertIs(wp["tamper_protection"], False)
+        self.assertIs(wp["secure_boot"], True)
+        self.assertIs(wp["uac_enabled"], True)
+        self.assertIs(wp["pending_reboot"], True)
+
+    def test_v630_posture_gaps_absent_when_null(self):
+        # a host that couldn't determine Secure Boot (BIOS / no admin) → null → omit
+        wp = agent._parse_win_posture(json.dumps({
+            "secure_boot": None, "defender_realtime": True}))
+        self.assertNotIn("secure_boot", wp)
+        self.assertNotIn("tamper_protection", wp)
+        self.assertEqual(wp["defender_realtime"], True)
+
+    def test_v630_posture_ps_snippet_has_gap_fields(self):
+        ps = agent._WIN_POSTURE_PS
+        for tok in ("tamper_protection", "secure_boot", "uac_enabled", "pending_reboot"):
+            self.assertIn(tok, ps)
+
 
 class TestAgentSideChecks(unittest.TestCase):
     """The Windows agent evaluated NO agent-side checks before v6.2.0 — every
@@ -834,6 +856,53 @@ class TestWinPostureChecks(unittest.TestCase):
         dev = {"last_seen": time.time(), "sysinfo": {"loadavg_1m": 0.2, "cpu_count": 4}}
         keys = {r["key"] for r in self.checks._host_checks("d1", dev)}
         self.assertFalse(keys & {"win_av_realtime", "win_bitlocker", "win_firewall"})
+
+    # v6.3.0 posture-gap rows
+    def test_tamper_protection_off_warns(self):
+        self.assertEqual(self._rows({"tamper_protection": False})["win_tamper_protection"]["status"], "warning")
+        self.assertEqual(self._rows({"tamper_protection": True})["win_tamper_protection"]["status"], "ok")
+
+    def test_secure_boot_and_uac(self):
+        self.assertEqual(self._rows({"secure_boot": False})["win_secure_boot"]["status"], "warning")
+        self.assertEqual(self._rows({"uac_enabled": False})["win_uac"]["status"], "warning")
+
+    def test_pending_reboot_row_only_when_true(self):
+        self.assertIn("win_pending_reboot", self._rows({"pending_reboot": True}))
+        self.assertNotIn("win_pending_reboot", self._rows({"pending_reboot": False}))
+
+
+class TestMacPostureChecks(unittest.TestCase):
+    """v6.3.0: the macOS posture rows (checks.py), parity with the Windows ones."""
+
+    def setUp(self):
+        sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
+        import checks
+        self.checks = checks
+
+    def _rows(self, mp):
+        import time
+        dev = {"last_seen": time.time(), "sysinfo": {"mac_posture": mp}}
+        return {r["key"]: r for r in self.checks._host_checks("d1", dev)}
+
+    def test_filevault_off_warns(self):
+        self.assertEqual(self._rows({"filevault": False})["mac_filevault"]["status"], "warning")
+        self.assertEqual(self._rows({"filevault": True})["mac_filevault"]["status"], "ok")
+
+    def test_all_five_rows(self):
+        rows = self._rows({"filevault": True, "firewall": True, "gatekeeper": True,
+                           "sip": True, "auto_security_update": True})
+        for k in ("mac_filevault", "mac_firewall", "mac_gatekeeper", "mac_sip", "mac_auto_update"):
+            self.assertEqual(rows[k]["status"], "ok")
+
+    def test_sip_and_gatekeeper_off_warn(self):
+        self.assertEqual(self._rows({"sip": False})["mac_sip"]["status"], "warning")
+        self.assertEqual(self._rows({"gatekeeper": False})["mac_gatekeeper"]["status"], "warning")
+
+    def test_non_mac_host_gets_no_rows(self):
+        import time
+        dev = {"last_seen": time.time(), "sysinfo": {"loadavg_1m": 0.1}}
+        keys = {r["key"] for r in self.checks._host_checks("d1", dev)}
+        self.assertFalse(keys & {"mac_filevault", "mac_sip", "mac_gatekeeper"})
 
 
 if __name__ == "__main__":

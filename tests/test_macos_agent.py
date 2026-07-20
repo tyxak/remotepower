@@ -74,5 +74,50 @@ class TestSecretsRedaction(unittest.TestCase):
             self.assertEqual(len(f['fingerprint']), 16)
 
 
+class TestMacPosture(unittest.TestCase):
+    """v6.3.0: macOS security-posture collector (FileVault/firewall/Gatekeeper/
+    SIP/auto-update). The parse is pure, so it runs on Linux without a Mac."""
+
+    def test_parse_all_on(self):
+        p = agent._parse_mac_posture(
+            "FileVault is On.",
+            "Firewall is enabled. (State = 1)",
+            "assessments enabled",
+            "System Integrity Protection status: enabled.",
+            "1")
+        self.assertEqual(p, {"filevault": True, "firewall": True, "gatekeeper": True,
+                             "sip": True, "auto_security_update": True})
+
+    def test_parse_all_off(self):
+        p = agent._parse_mac_posture(
+            "FileVault is Off.",
+            "Firewall is disabled. (State = 0)",
+            "assessments disabled",
+            "System Integrity Protection status: disabled.",
+            "0")
+        self.assertEqual(p["filevault"], False)
+        self.assertEqual(p["firewall"], False)
+        self.assertEqual(p["gatekeeper"], False)
+        self.assertEqual(p["sip"], False)
+        self.assertEqual(p["auto_security_update"], False)
+
+    def test_parse_undeterminable_omits(self):
+        # empty outputs (tool missing / no permission) → the key is absent, never a
+        # false "off" (which would raise a spurious warning check).
+        p = agent._parse_mac_posture("", "", "", "", "")
+        self.assertEqual(p, {})
+
+    def test_off_mac_returns_empty(self):
+        # get_mac_posture is darwin-gated; on the Linux CI box it returns {}.
+        self.assertEqual(agent.get_mac_posture(), {})
+
+    def test_sysinfo_includes_posture_key_path(self):
+        # collect_sysinfo must route the posture dict into info['mac_posture'];
+        # off-Mac it's simply absent (get_mac_posture → {}), never a crash.
+        si = agent.collect_sysinfo()
+        self.assertIsInstance(si, dict)
+        self.assertNotIn("mac_posture", si)  # Linux box → no posture
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -317,6 +317,23 @@ the other posture axes need data plumbing first).
   mac version/download join the IP-allowlist exemptions like their siblings.
   Guardrail: `tests/test_v630_mac_selfupdate.py`.
 
+### Cross-platform security posture — macOS + Windows parity
+- **macOS security-posture checks.** The mac agent now reports a `mac_posture`
+  block (FileVault full-disk encryption, Application Firewall, Gatekeeper, System
+  Integrity Protection, and automatic security updates) and the Checks engine
+  renders one row per signal — the direct analogue of the Windows `win_posture`
+  rows, and the first security posture macOS hosts have had. Rows appear only on a
+  Mac (a Linux/Windows host never shows an empty FileVault row) and feed the
+  drawer posture radar automatically. Each probe is bounded and rides the sysinfo
+  cadence, not every heartbeat.
+- **Windows posture gaps closed.** `win_posture` gained Defender **tamper
+  protection** (AV that can be silently switched off), **Secure Boot**, **UAC**,
+  and a **pending-reboot** signal (a host stuck pending-reboot has not finished
+  patching) — each rendered as a Checks row. All four are tri-state, so a host
+  that can't determine one (BIOS, no admin) simply omits it rather than reporting
+  a false "off". Guardrails: `tests/test_windows_agent.py` (posture parse + check
+  rows), `tests/test_macos_agent.py` (posture parse).
+
 ### Wave 13 — fleet visibility (from the project-wide ideas sweep)
 - **Laptop battery health** — the Linux agent reports charge %, status, cycle
   count and current-vs-design wear for `BAT*` supplies (free sysfs reads,

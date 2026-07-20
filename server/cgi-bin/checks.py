@@ -485,6 +485,95 @@ def _host_checks(
                 "ok" if running else "warning",
                 "running" if running else f"{wu} (not running)",
             )
+        # v6.3.0 posture gaps. Tamper protection guards Defender from being
+        # silently switched off by malware — off is a real weakening.
+        if "tamper_protection" in wp:
+            tp = bool(wp["tamper_protection"])
+            add(
+                "win_tamper_protection",
+                "Defender tamper protection",
+                "security",
+                "ok" if tp else "warning",
+                "enabled" if tp else "DISABLED",
+            )
+        if "secure_boot" in wp:
+            sb = bool(wp["secure_boot"])
+            add(
+                "win_secure_boot",
+                "Secure Boot",
+                "security",
+                "ok" if sb else "warning",
+                "enabled" if sb else "off / unsupported",
+            )
+        if "uac_enabled" in wp:
+            uac = bool(wp["uac_enabled"])
+            add(
+                "win_uac",
+                "User Account Control",
+                "security",
+                "ok" if uac else "warning",
+                "enabled" if uac else "DISABLED",
+            )
+        # A host stuck pending-reboot has not finished applying its updates.
+        if wp.get("pending_reboot"):
+            add(
+                "win_pending_reboot",
+                "Pending reboot",
+                "patch",
+                "warning",
+                "reboot required to finish patching",
+            )
+
+    # ── v6.3.0: macOS security-posture checks (from sysinfo.mac_posture) ──
+    # Parity with the Windows posture rows above; render ONLY when the macOS agent
+    # reported posture, so a Linux/Windows host never shows an empty FileVault row.
+    mp = si.get("mac_posture")
+    if isinstance(mp, dict):
+        if "filevault" in mp:
+            fv = bool(mp["filevault"])
+            add(
+                "mac_filevault",
+                "FileVault disk encryption",
+                "security",
+                "ok" if fv else "warning",
+                "on" if fv else "OFF",
+            )
+        if "firewall" in mp:
+            mfw = bool(mp["firewall"])
+            add(
+                "mac_firewall",
+                "Application Firewall",
+                "security",
+                "ok" if mfw else "warning",
+                "enabled" if mfw else "OFF",
+            )
+        if "gatekeeper" in mp:
+            gk = bool(mp["gatekeeper"])
+            add(
+                "mac_gatekeeper",
+                "Gatekeeper",
+                "security",
+                "ok" if gk else "warning",
+                "enabled" if gk else "DISABLED",
+            )
+        if "sip" in mp:
+            sip = bool(mp["sip"])
+            add(
+                "mac_sip",
+                "System Integrity Protection",
+                "security",
+                "ok" if sip else "warning",
+                "enabled" if sip else "DISABLED",
+            )
+        if "auto_security_update" in mp:
+            au = bool(mp["auto_security_update"])
+            add(
+                "mac_auto_update",
+                "Automatic security updates",
+                "patch",
+                "ok" if au else "warning",
+                "on" if au else "off",
+            )
 
     # v4.1.0: operator-defined custom checks (process/port), scoped to this host.
     if custom_defs:

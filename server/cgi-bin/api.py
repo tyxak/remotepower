@@ -17926,10 +17926,28 @@ def handle_heartbeat():
                     safe_wp['defender_realtime'] = bool(_wp['defender_realtime'])
                 if isinstance(_wp.get('defender_sig_age_days'), (int, float)):
                     safe_wp['defender_sig_age_days'] = int(_wp['defender_sig_age_days'])
+                # v6.3.0 posture-gap bools (tamper protection / Secure Boot / UAC /
+                # pending reboot) — same "sanitizer must persist any field a check
+                # reads" rule as the fields above.
+                for _bk in ('tamper_protection', 'secure_boot', 'uac_enabled', 'pending_reboot'):
+                    if isinstance(_wp.get(_bk), bool):
+                        safe_wp[_bk] = _wp[_bk]
                 if _wp.get('wu_service'):
                     safe_wp['wu_service'] = _sanitize_str(str(_wp['wu_service']), 24)
                 if safe_wp:
                     safe_si['win_posture'] = safe_wp
+            # v6.3.0: macOS security posture (parity with win_posture) — FileVault /
+            # Application Firewall / Gatekeeper / SIP / auto-security-update. All
+            # bools; the Checks engine renders rows only when present.
+            if isinstance(si.get('mac_posture'), dict):
+                _mp = si['mac_posture']
+                safe_mp = {}
+                for _bk in ('filevault', 'firewall', 'gatekeeper', 'sip',
+                            'auto_security_update'):
+                    if isinstance(_mp.get(_bk), bool):
+                        safe_mp[_bk] = _mp[_bk]
+                if safe_mp:
+                    safe_si['mac_posture'] = safe_mp
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])

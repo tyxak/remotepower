@@ -2045,10 +2045,21 @@ _WIN_POSTURE_PS = (
     "  ForEach-Object { @{mount=$_.MountPoint; status=$_.ProtectionStatus.ToString()} });"
     "$def=Get-MpComputerStatus;"
     "$wu=Get-Service -Name wuauserv;"
+    # v6.3.0 posture gaps: tamper protection (AV that can be silently killed),
+    # Secure Boot, UAC, and a pending-reboot signal (a host stuck pending-reboot
+    # has not finished patching). Each is guarded so a BIOS/older host still emits.
+    "$sb=$null; try { $sb=[bool](Confirm-SecureBootUEFI) } catch { $sb=$null };"
+    "$uac=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA).EnableLUA;"
+    "$pr=[bool]((Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') "
+    "  -or (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired'));"
     "[pscustomobject]@{"
     "  firewall=$fw; bitlocker=$bl;"
     "  defender_realtime=[bool]$def.RealTimeProtectionEnabled;"
     "  defender_sig_age_days=[int]$def.AntivirusSignatureAge;"
+    "  tamper_protection=[bool]$def.IsTamperProtected;"
+    "  secure_boot=$sb;"
+    "  uac_enabled=($uac -eq 1);"
+    "  pending_reboot=$pr;"
     "  wu_service=$wu.Status.ToString()"
     "} | ConvertTo-Json -Compress -Depth 4"
 )
@@ -2095,6 +2106,11 @@ def _parse_win_posture(stdout):
     age = o.get('defender_sig_age_days')
     if isinstance(age, (int, float)) and 0 <= age < 100000:
         out['defender_sig_age_days'] = int(age)
+    # v6.3.0 posture gaps — each is a tri-state (true/false/absent); only a real
+    # bool survives, so a host that couldn't determine one (BIOS, no admin) omits it.
+    for k in ('tamper_protection', 'secure_boot', 'uac_enabled', 'pending_reboot'):
+        if isinstance(o.get(k), bool):
+            out[k] = o[k]
     if o.get('wu_service'):
         out['wu_service'] = str(o.get('wu_service'))[:24]
     return out

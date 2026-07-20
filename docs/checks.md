@@ -25,6 +25,14 @@ sortable, filterable table.
 
 - **Built-ins** — reachability, CPU/RAM/disk thresholds, posture (world-
   exposed ports honour exposure mutes), SMART, patch backlog, CVEs.
+- **OS security posture** — reported by the agent and rendered only on the
+  matching OS, so a host never shows an irrelevant empty row:
+  - **Windows** (`win_posture`) — Defender real-time protection, signature age,
+    tamper protection, BitLocker (OS volume), Windows Firewall profiles, Secure
+    Boot, UAC, the Windows Update service, and a pending-reboot signal.
+  - **macOS** (`mac_posture`) — FileVault disk encryption, the Application
+    Firewall, Gatekeeper, System Integrity Protection (SIP), and automatic
+    security updates.
 - **Custom checks** — server-side process/port checks and agent-side
   file/journal/log checks defined in the Check catalog.
 - **Custom scripts** — a [custom script](custom-scripts.md) whose exit code

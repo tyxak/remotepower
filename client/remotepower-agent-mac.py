@@ -272,6 +272,69 @@ def _audit_mode():
         return False
 
 
+def _posture_cmd(argv, timeout=5):
+    """Run a short posture probe → combined stdout+stderr, or '' on any failure.
+    (Several macOS security tools print their status to stderr.)"""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        return (r.stdout or '') + (r.stderr or '')
+    except Exception:
+        return ''
+
+
+def _parse_mac_posture(fv, fw, gk, sip, au):
+    """The five raw command outputs → a compact posture sub-dict. Pure/testable
+    (no darwin needed), mirroring the Windows agent's _parse_win_posture shape."""
+    out = {}
+    low = (fv or '').lower()
+    if 'filevault is on' in low:
+        out['filevault'] = True
+    elif 'filevault is off' in low:
+        out['filevault'] = False
+    low = (fw or '').lower()
+    m = re.search(r'state\s*=\s*(\d)', low)
+    if m:                                   # "(State = 1)" — 1/2 = on, 0 = off
+        out['firewall'] = m.group(1) in ('1', '2')
+    elif 'disabled' in low:
+        out['firewall'] = False
+    elif 'enabled' in low:
+        out['firewall'] = True
+    low = (gk or '').lower()
+    if 'assessments enabled' in low:
+        out['gatekeeper'] = True
+    elif 'assessments disabled' in low:
+        out['gatekeeper'] = False
+    low = (sip or '').lower()               # "System Integrity Protection status: enabled."
+    if 'status: enabled' in low or low.strip().endswith('enabled.'):
+        out['sip'] = True
+    elif 'status: disabled' in low or 'disabled' in low:
+        out['sip'] = False
+    au = (au or '').strip()
+    if au in ('0', '1'):
+        out['auto_security_update'] = au == '1'
+    return out
+
+
+def get_mac_posture():
+    """macOS security-posture signals (FileVault / Application Firewall / Gatekeeper
+    / SIP / automatic security updates) for the Checks catalog, or {}. Mirrors
+    get_win_posture's contract: the server renders posture check rows ONLY when this
+    sub-dict is present, so a Linux/Windows host never shows an empty FileVault row.
+    Runs on the sysinfo cadence (not every heartbeat); each probe is bounded."""
+    if sys.platform != 'darwin':
+        return {}
+    fv = _posture_cmd(['fdesetup', 'status'])
+    fw = _posture_cmd(['/usr/libexec/ApplicationFirewall/socketfilterfw', '--getglobalstate'])
+    gk = _posture_cmd(['spctl', '--status'])
+    sip = _posture_cmd(['csrutil', 'status'])
+    au = _posture_cmd(['defaults', 'read', '/Library/Preferences/com.apple.SoftwareUpdate',
+                       'CriticalUpdateInstall'])
+    try:
+        return _parse_mac_posture(fv, fw, gk, sip, au)
+    except Exception:
+        return {}
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available, else a best-effort subset so a
     host without psutil still reports OS / cpu model / hostname."""
@@ -367,6 +430,14 @@ def collect_sysinfo():
         _brew = brew_outdated()
         if _brew is not None:
             info['packages'] = _brew
+    except Exception:
+        pass
+    # v6.3.0: macOS security posture (FileVault / firewall / Gatekeeper / SIP /
+    # auto-update) → the Checks catalog, parity with the Windows agent's win_posture.
+    try:
+        _mp = get_mac_posture()
+        if _mp:
+            info['mac_posture'] = _mp
     except Exception:
         pass
     return info
