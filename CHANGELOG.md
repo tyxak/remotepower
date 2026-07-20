@@ -17,11 +17,14 @@ The first wave of a UX improvement program (50 scoped items): **undo instead of
   up 6s (was 3.5s) and know whether they expired or were clicked; the wave's
   buttons are small Lucide-icon buttons matching the rest of the chrome.
 - **Undoable deletes (deferred commit)** for low-risk operator objects: contacts,
-  links, command-library snippets and saved device views. The row hides
-  instantly, the real API delete fires only when the undo toast expires, and
-  Undo cancels it outright — nothing leaves the server, so a lost commit can
-  only ever mean "not deleted". Command-snippet delete previously had *no*
-  confirmation at all; it is now undoable instead.
+  links, command-library snippets and saved device views — plus (v6.3.0 finalize)
+  drift profiles, CVE campaigns, provisioning blueprints, Ansible playbooks and
+  monitoring/host-config profiles. The row hides instantly, the real API delete
+  fires only when the undo toast expires, and Undo cancels it outright — nothing
+  leaves the server, so a lost commit can only ever mean "not deleted".
+  Command-snippet delete previously had *no* confirmation at all; it is now
+  undoable instead. (Side-effectful deletes — DNS records, firewall rules, cert
+  revoke, VM snapshots, bulk alert-clear — deliberately keep their confirmations.)
 - **Optimistic alert actions** — the keyboard `a` ack flips the row instantly
   and offers Undo (wired to the existing `POST /api/alerts/<id>/unack`);
   Resolve flips the row before the server round-trip and reverts with an error
