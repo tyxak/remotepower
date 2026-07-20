@@ -798,6 +798,7 @@ except Exception as _e:   # pragma: no cover - defensive
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
 import dns_control as dns_control_mod  # v6.2.0: Pi-hole/AdGuard blocking control (pure)
 import notify as notify_mod    # notification-channel payload builders (pure)
+import filebackup as filebackup_mod   # v6.3.0: structured file-backup command gen (pure)
 import checks as checks_mod    # per-host Checks engine (pure)
 import query_engine   # v6.1.1: ad-hoc fleet query engine -- predicate tree (pure)
 # Helpdesk tickets (bound-module pilot): exec'd as a PRIVATE module instance
@@ -865,7 +866,9 @@ for _bk_name in (
         '_maybe_run_scheduled_backup', '_maybe_run_restore_drill', '_restore_drill_core',
         '_refresh_proxmox_backup_cache', '_run_data_backup',
         'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
+        '_backup_job_command',
         'handle_backup_job_create', 'handle_backup_job_delete', 'handle_backup_job_run',
+        'handle_backup_job_restore',
         'handle_backup_job_update', 'handle_backup_jobs_list', 'handle_backup_restore',
         'handle_backup_run', 'handle_backup_test_restore', 'handle_device_backups',
         'handle_proxmox_backup_threshold', 'handle_proxmox_backups_get',
@@ -61266,6 +61269,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PUT',), '/api/sites/', '', 'handle_site_update', "pi.startswith('/api/sites/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/sites/', '', 'handle_site_delete', "pi.startswith('/api/sites/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/backup-jobs/', '/run', 'handle_backup_job_run', "pi.startswith('/api/backup-jobs/') and pi.endswith('/run') and m == 'POST'"),
+    ('pat', ('POST',), '/api/backup-jobs/', '/restore', 'handle_backup_job_restore', "pi.startswith('/api/backup-jobs/') and pi.endswith('/restore') and m == 'POST'"),
     ('pat', ('PUT',), '/api/backup-jobs/', '', 'handle_backup_job_update', "pi.startswith('/api/backup-jobs/') and m == 'PUT'"),
     ('pat', ('DELETE',), '/api/backup-jobs/', '', 'handle_backup_job_delete', "pi.startswith('/api/backup-jobs/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/autopatch/', '/run', 'handle_autopatch_run', "pi.startswith('/api/autopatch/') and pi.endswith('/run') and m == 'POST'"),

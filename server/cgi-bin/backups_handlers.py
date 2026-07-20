@@ -456,12 +456,26 @@ def handle_backup_job_create():
     body = A.get_json_obj()
     name = A._sanitize_str(body.get('name', ''), 80).strip()
     dev_id = str(body.get('device_id', '')).strip()
-    command = str(body.get('command', '')).strip()
     cron = A._sanitize_str(body.get('cron', ''), 64).strip()
-    if not name or not command:
-        A.respond(400, {'error': 'name and command are required'})
-    if len(command) > A.MAX_BACKUP_CMD_LEN:
-        A.respond(400, {'error': f'command too long (max {A.MAX_BACKUP_CMD_LEN})'})
+    # v6.3.0: a job is EITHER a raw command (legacy default) OR a structured
+    # 'file' backup (paths[] + method + dest ssh/nfs/smb). For a file job the
+    # server GENERATES the command at run time from the validated spec, so the
+    # operator never supplies shell text.
+    jtype = 'file' if body.get('spec') is not None or body.get('type') == 'file' else 'command'
+    command = str(body.get('command', '')).strip()
+    spec = None
+    if jtype == 'file':
+        spec = body.get('spec')
+        ok, err = A.filebackup_mod.validate_spec(spec)
+        if not ok:
+            A.respond(400, {'error': f'invalid file-backup spec: {err}'})
+    else:
+        if not command:
+            A.respond(400, {'error': 'name and command are required'})
+        if len(command) > A.MAX_BACKUP_CMD_LEN:
+            A.respond(400, {'error': f'command too long (max {A.MAX_BACKUP_CMD_LEN})'})
+    if not name:
+        A.respond(400, {'error': 'name is required'})
     if not A._validate_id(dev_id):
         A.respond(400, {'error': 'valid device_id required'})
     devices = A.load(A.DEVICES_FILE)
@@ -474,12 +488,13 @@ def handle_backup_job_create():
     if len(data['jobs']) >= A.MAX_BACKUP_JOBS:
         A.respond(400, {'error': f'job limit reached (max {A.MAX_BACKUP_JOBS})'})
     job = {'id': secrets.token_urlsafe(8), 'name': name, 'device_id': dev_id,
-           'device_name': devices[dev_id].get('name', dev_id), 'command': command,
+           'device_name': devices[dev_id].get('name', dev_id),
+           'type': jtype, 'command': command, 'spec': spec,
            'cron': cron or None, 'enabled': True, 'created': int(time.time()),
            'created_by': actor, 'last_run': 0, 'last_fired_minute': None}
     data['jobs'].append(job)
     A.save(A.BACKUP_JOBS_FILE, data)
-    A.audit_log(actor, 'backup_job_create', detail=f'job={job["id"]} device={dev_id}')
+    A.audit_log(actor, 'backup_job_create', detail=f'job={job["id"]} device={dev_id} type={jtype}')
     A.respond(200, {'ok': True, 'id': job['id']})
 
 
@@ -498,6 +513,20 @@ def handle_backup_job_delete(job_id):
     A.respond(200, {'ok': True})
 
 
+def _backup_job_command(job):
+    """The shell command a job runs: the raw `command` for a legacy job, or the
+    server-generated command for a structured 'file' job (validated at run time,
+    so a spec edited out-of-band can never produce an unsafe command). Raises
+    ValueError for an invalid file spec — callers decide how to surface it
+    (respond for a request, skip+log for the cron sweep)."""
+    if job.get('type') == 'file' and job.get('spec') is not None:
+        ok, err = A.filebackup_mod.validate_spec(job['spec'])
+        if not ok:
+            raise ValueError(f'file-backup spec invalid: {err}')
+        return A.filebackup_mod.build_backup_command(job['spec'], job['id'])
+    return job.get('command') or ''
+
+
 def handle_backup_job_run(job_id):
     """POST /api/backup-jobs/{id}/run — queue the backup command now."""
     if A.method() != 'POST':
@@ -507,10 +536,48 @@ def handle_backup_job_run(job_id):
     if not job:
         A.respond(404, {'error': 'job not found'})
     actor = A.require_perm('command', [job['device_id']])
+    try:
+        cmd = _backup_job_command(job)
+    except ValueError as e:
+        A.respond(400, {'error': str(e)}); return
+    if not cmd:
+        A.respond(400, {'error': 'job has no command'})
     job['last_run'] = int(time.time())
     A.save(A.BACKUP_JOBS_FILE, data)
     A.audit_log(actor, 'backup_job_run', detail=f'job={job_id} device={job["device_id"]}')
-    A._queue_command(job['device_id'], f'exec:{job["command"]}', actor)  # responds + exits
+    A._queue_command(job['device_id'], f'exec:{cmd}', actor)  # responds + exits
+
+
+def handle_backup_job_restore(job_id):
+    """POST /api/backup-jobs/{id}/restore — pull a structured file-backup back to
+    the host. Destructive (overwrites the restore target), so: admin-only, a
+    typed confirmation, and fully audited. Body: {restore_path, confirm, archive?}."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    data = A._backup_jobs_load()
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job:
+        A.respond(404, {'error': 'job not found'})
+    A._scope_block_device(job['device_id'])
+    if job.get('type') != 'file' or job.get('spec') is None:
+        A.respond(400, {'error': 'restore is only available for structured file-backup jobs'})
+    body = A.get_json_obj()
+    if str(body.get('confirm', '')).strip().upper() != 'RESTORE':
+        A.respond(400, {'error': 'type RESTORE to confirm — this overwrites the restore path'})
+    restore_path = str(body.get('restore_path', '')).strip()
+    archive = A._sanitize_str(body.get('archive', ''), 128).strip() or None
+    ok, err = A.filebackup_mod.validate_spec(job['spec'])
+    if not ok:
+        A.respond(400, {'error': f'file-backup spec no longer valid: {err}'})
+    try:
+        cmd = A.filebackup_mod.build_restore_command(job['spec'], restore_path, job['id'], archive)
+    except ValueError as e:
+        A.respond(400, {'error': str(e)})
+        return
+    A.audit_log(actor, 'backup_job_restore',
+                detail=f'job={job_id} device={job["device_id"]} target={restore_path}')
+    A._queue_command(job['device_id'], f'exec:{cmd}', actor)  # responds + exits
 
 
 def handle_backup_job_update(job_id):
@@ -982,11 +1049,19 @@ def process_backup_jobs():
             if cmds is None:
                 cmds = A.load(A.CMDS_FILE)
             cmds.setdefault(dev_id, [])
-            queued = f'exec:{job["command"]}'
-            if queued not in cmds[dev_id]:
-                cmds[dev_id].append(queued)
-            A.log_command(f'backup({job["created_by"]})', dev_id,
-                        job.get('device_name', dev_id), f'backup:{job["name"]}')
+            try:
+                _bc = _backup_job_command(job)   # v6.3.0: generated for file jobs
+            except ValueError as _e:
+                A.log_command(f'backup({job["created_by"]})', dev_id,
+                              job.get('device_name', dev_id),
+                              f'backup:{job["name"]} SKIPPED ({_e})')
+                _bc = ''
+            if _bc:
+                queued = f'exec:{_bc}'
+                if queued not in cmds[dev_id]:
+                    cmds[dev_id].append(queued)
+                A.log_command(f'backup({job["created_by"]})', dev_id,
+                            job.get('device_name', dev_id), f'backup:{job["name"]}')
         job['last_fired_minute'] = current_minute
         job['last_run'] = now
         changed = True
