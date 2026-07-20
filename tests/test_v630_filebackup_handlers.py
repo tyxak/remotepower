@@ -100,7 +100,8 @@ class TestRunGeneratesCommand(_Base):
             pass
         queued = self._cmds().get('d1', [])
         self.assertEqual(len(queued), 1)
-        self.assertTrue(queued[0].startswith('exec:rsync -a --info=progress2'))
+        self.assertTrue(queued[0].startswith('exec:: rp-bk:'))   # job-id marker prefix
+        self.assertIn('rsync -a --info=progress2', queued[0])
         self.assertIn('bak@nas:', queued[0])
 
 
@@ -153,28 +154,42 @@ class TestJobStatus(_Base):
                       'command': 'restic backup /etc --tag rp'})
         return self._jobs()[0]
 
+    def _cmd(self, j):
+        # the exact string the host echoes back (incl. the rp-bk: job marker)
+        return 'exec:' + self.api._backup_job_command(j)
+
     def test_never_run(self):
         j = self._job()
         self.assertEqual(self.api._backup_job_status(j)['state'], 'never')
 
     def test_running_when_queued(self):
         j = self._job()
-        self.api.save(self.api.CMDS_FILE, {'d1': ['exec:restic backup /etc --tag rp']})
+        self.api.save(self.api.CMDS_FILE, {'d1': [self._cmd(j)]})
         self.api._invalidate_load_cache(self.api.CMDS_FILE)
         self.assertEqual(self.api._backup_job_status(j)['state'], 'running')
 
     def test_ok_and_failed(self):
         j = self._job()
-        self.api.save(self.api.CMD_OUTPUT_FILE,
-                      {'d1': [{'ts': 5, 'cmd': 'exec:restic backup /etc --tag rp', 'rc': 0}]})
+        self.api.save(self.api.CMD_OUTPUT_FILE, {'d1': [{'ts': 5, 'cmd': self._cmd(j), 'rc': 0}]})
         self.api._invalidate_load_cache(self.api.CMD_OUTPUT_FILE)
         self.assertEqual(self.api._backup_job_status(j)['state'], 'ok')
-        self.api.save(self.api.CMD_OUTPUT_FILE,
-                      {'d1': [{'ts': 6, 'cmd': 'exec:restic backup /etc --tag rp', 'rc': 2}]})
+        self.api.save(self.api.CMD_OUTPUT_FILE, {'d1': [{'ts': 6, 'cmd': self._cmd(j), 'rc': 2}]})
         self.api._invalidate_load_cache(self.api.CMD_OUTPUT_FILE)
         st = self.api._backup_job_status(j)
         self.assertEqual(st['state'], 'failed')
         self.assertEqual(st['rc'], 2)
+
+    def test_distinct_jobs_dont_cross_correlate(self):
+        # Two jobs with byte-identical base commands must NOT share status (the
+        # rp-bk:<id> marker keeps them distinct). Regression for the v6.3.0 hunt.
+        self._create({'name': 'a', 'device_id': 'd1', 'command': 'restic backup /etc'})
+        self._create({'name': 'b', 'device_id': 'd1', 'command': 'restic backup /etc'})
+        ja, jb = self._jobs()[0], self._jobs()[1]
+        # only job A ran, and it succeeded
+        self.api.save(self.api.CMD_OUTPUT_FILE, {'d1': [{'ts': 9, 'cmd': self._cmd(ja), 'rc': 0}]})
+        self.api._invalidate_load_cache(self.api.CMD_OUTPUT_FILE)
+        self.assertEqual(self.api._backup_job_status(ja)['state'], 'ok')
+        self.assertEqual(self.api._backup_job_status(jb)['state'], 'never')
 
     def test_list_endpoint_attaches_status(self):
         self._job()

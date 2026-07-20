@@ -62,6 +62,17 @@ class TestValidation(unittest.TestCase):
         s = _ssh_rsync(); s['dest']['transport'] = 'ftp'
         self.assertFalse(F.validate_spec(s)[0])
 
+    def test_rejects_smb_share_traversal(self):
+        # A CIFS share is a single component — '/', '..' must be rejected so the
+        # //host/share UNC can't traverse (found in the v6.3.0 pentest).
+        for bad in ('../../etc', 'a/b', '..', 'x/../y'):
+            s = {'paths': ['/d'], 'method': 'tar',
+                 'dest': {'transport': 'smb', 'host': 'n', 'share': bad, 'remote_path': '/h'}}
+            self.assertFalse(F.validate_spec(s)[0], f'accepted share {bad!r}')
+        good = {'paths': ['/d'], 'method': 'tar',
+                'dest': {'transport': 'smb', 'host': 'n', 'share': 'backups', 'remote_path': '/h'}}
+        self.assertTrue(F.validate_spec(good)[0])
+
     def test_rejects_bad_port(self):
         for bad in [0, 70000, 'x', -1]:
             s = _ssh_rsync(); s['dest']['port'] = bad

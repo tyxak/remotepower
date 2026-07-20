@@ -868,6 +868,7 @@ for _bk_name in (
         'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
         '_backup_job_command', '_backup_job_targets', '_backup_targets_summary',
         '_backup_run_and_wait', '_backup_job_status', '_backup_queue_and_wait',
+        '_backup_job_visible', '_backup_wait_timeout',
         'handle_backup_job_create', 'handle_backup_job_delete', 'handle_backup_job_run',
         'handle_backup_job_restore', 'handle_backup_job_archives',
         'handle_backup_job_update', 'handle_backup_jobs_list', 'handle_backup_restore',

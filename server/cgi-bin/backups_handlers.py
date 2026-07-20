@@ -523,6 +523,24 @@ def _backup_job_targets(job):
     return [str(d)] if d else []
 
 
+def _backup_job_visible(job):
+    """v6.3.0 SECURITY: a backup job is device-keyed (device_ids), so — like the
+    alerts store (v6.1.1) — list/update/delete must tenant/scope-gate it, not just
+    RBAC. The /api/backup-jobs routes are NOT under /api/devices/<id>/, so main()'s
+    _enforce_device_scope never covers them. A job is visible only if every one of
+    its KNOWN target devices is in the caller's scope (role scope AND tenant, via
+    _scope_filter_devices — a no-op for a superadmin / non-tenant admin). A job
+    whose targets were all deleted is manageable only by a fully-unrestricted
+    caller. run/restore/archives already re-filter via _resolve_targets /
+    _scope_block_device; this closes list/update/delete."""
+    devs = A.load(A.DEVICES_FILE) or {}
+    allowed = A._scope_filter_devices(devs)
+    known = [t for t in _backup_job_targets(job) if t in devs]
+    if known:
+        return all(t in allowed for t in known)
+    return len(allowed) == len(devs)   # all-deleted targets → only an unrestricted caller
+
+
 def _backup_job_status(job):
     """v6.3.0 (UX): derive a job's last-run OUTCOME so the table can show ✓/✗/
     running, not just a timestamp. Correlates by the (deterministic) generated
@@ -571,6 +589,13 @@ def _backup_job_status(job):
         state = 'never'
     else:
         state = 'unknown'
+    # v6.3.0: the command is popped off the queue when dispatched, BEFORE the
+    # (often multi-minute) backup finishes — during that window it's neither
+    # queued nor yet in the output, so the loop reports 'never'. If the job was
+    # dispatched recently and has no fresher result, it's actually running.
+    last_run = int(job.get('last_run') or 0)
+    if state == 'never' and last_run and (int(time.time()) - last_run) < 900 and last_run > newest_ts:
+        state = 'running'
     return {'state': state, 'ts': newest_ts, 'rc': worst_rc, 'per_device': per}
 
 
@@ -580,10 +605,10 @@ def handle_backup_job_delete(job_id):
     if A.method() != 'DELETE':
         A.respond(405, {'error': 'Method not allowed'})
     data = A._backup_jobs_load()
-    n = len(data['jobs'])
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job or not _backup_job_visible(job):
+        A.respond(404, {'error': 'job not found'})   # 404, not 403 — don't confirm cross-tenant existence
     data['jobs'] = [j for j in data['jobs'] if j['id'] != job_id]
-    if len(data['jobs']) == n:
-        A.respond(404, {'error': 'job not found'})
     A.save(A.BACKUP_JOBS_FILE, data)
     A.audit_log(actor, 'backup_job_delete', detail=f'job={job_id}')
     A.respond(200, {'ok': True})
@@ -594,13 +619,39 @@ def _backup_job_command(job):
     server-generated command for a structured 'file' job (validated at run time,
     so a spec edited out-of-band can never produce an unsafe command). Raises
     ValueError for an invalid file spec — callers decide how to surface it
-    (respond for a request, skip+log for the cron sweep)."""
+    (respond for a request, skip+log for the cron sweep).
+
+    v6.3.0: prefix a `: rp-bk:<job_id>;` shell no-op that carries the JOB ID. It
+    runs as a no-op on the host but is echoed back verbatim in the command result,
+    so _backup_job_status can tell TWO jobs with byte-identical commands apart
+    (e.g. a baseline split across device sets, same paths + same dest). The job id
+    is a URL-safe token (no shell metacharacters), so the prefix is injection-safe.
+    Both the run/cron path and the status read call this, so they stay in sync."""
     if job.get('type') == 'file' and job.get('spec') is not None:
         ok, err = A.filebackup_mod.validate_spec(job['spec'])
         if not ok:
             raise ValueError(f'file-backup spec invalid: {err}')
-        return A.filebackup_mod.build_backup_command(job['spec'], job['id'])
-    return job.get('command') or ''
+        base = A.filebackup_mod.build_backup_command(job['spec'], job['id'])
+    else:
+        base = job.get('command') or ''
+    if not base:
+        return ''
+    return f': rp-bk:{job["id"]}; {base}'
+
+
+def _backup_wait_timeout(dev):
+    """How long to run-and-wait for a device's backup/list output. The round-trip
+    is ~2 heartbeats (dispatch on one, result on the next), so derive it from the
+    device's poll interval. Returns 0 to SKIP the wait entirely when the host polls
+    too slowly for a synchronous wait to be meaningful — otherwise the wait always
+    timed out (the v6.3.0 'run-and-wait dead on slow pollers' bug)."""
+    try:
+        interval = int(dev.get('poll_interval') or 60)
+    except (TypeError, ValueError):
+        interval = 60
+    if interval > 80:
+        return 0
+    return min(180, 2 * interval + 20)
 
 
 def _backup_queue_and_wait(dev_id, cmd, actor, dev_name, label, timeout=120):
@@ -664,11 +715,22 @@ def handle_backup_job_run(job_id):
     body = A.get_json_obj()
     devices = A.load(A.DEVICES_FILE)
     if body.get('wait') and len(targets) == 1:
-        _backup_run_and_wait(targets[0], cmd, actor,
-                             devices.get(targets[0], {}).get('name', targets[0]))  # responds
+        dev = devices.get(targets[0], {})
+        tmo = _backup_wait_timeout(dev)
+        if tmo:
+            _backup_run_and_wait(targets[0], cmd, actor,
+                                 dev.get('name', targets[0]), timeout=tmo)  # responds
+            return
+        # Host polls too slowly to wait synchronously — queue and let the output
+        # land in the command history (avoids a dead 120s wait that always times out).
+        A._queue_command_batch(targets, f'exec:{cmd}', actor)
+        A.respond(200, {'ok': True, 'queued': 1, 'running': True,
+                        'message': 'Backup queued — this host polls slowly, so its output will appear in the command history.'})
         return
-    A._queue_command_batch(targets, f'exec:{cmd}', actor)
-    A.respond(200, {'ok': True, 'queued': len(targets)})
+    res = A._queue_command_batch(targets, f'exec:{cmd}', actor)
+    # Count only devices actually queued (batch skips quarantined / audit-mode / unknown).
+    n = sum(1 for r in res.values() if isinstance(r, dict) and r.get('ok')) if isinstance(res, dict) else len(targets)
+    A.respond(200, {'ok': True, 'queued': n})
 
 
 def handle_backup_job_archives(job_id):
@@ -701,15 +763,21 @@ def handle_backup_job_archives(job_id):
         A.respond(400, {'error': f'file-backup spec no longer valid: {err}'})
     cmd = A.filebackup_mod.build_list_command(job['spec'], job['id'])
     devices = A.load(A.DEVICES_FILE)
+    dev = devices.get(dev_id, {})
+    tmo = _backup_wait_timeout(dev)   # poll-interval-aware; 0 = too slow to wait
+    if not tmo:
+        A._queue_command_batch([dev_id], f'exec:{cmd}', actor)
+        A.respond(200, {'ok': True, 'archives': [], 'pending': True,
+                        'message': 'This host polls slowly — the archive list is queued; try again shortly, or type the archive name.'})
     status, output = _backup_queue_and_wait(dev_id, cmd, actor,
-                                            devices.get(dev_id, {}).get('name', dev_id),
-                                            'backup(list-archives)', timeout=60)
+                                            dev.get('name', dev_id),
+                                            'backup(list-archives)', timeout=tmo)
     if status != 'ok':
         A.respond(200, {'ok': True, 'archives': [], 'pending': True,
                         'message': 'The host has not reported yet — try again in a moment, or type the archive name.'})
     raw = ''
     if isinstance(output, dict):
-        raw = str(output.get('stdout') or output.get('output') or '')
+        raw = str(output.get('output') or output.get('stdout') or '')
     # Parse filenames, keep only well-formed archive names for THIS job.
     names = []
     for ln in raw.splitlines():
@@ -769,7 +837,10 @@ def handle_backup_job_update(job_id):
     body = A.get_json_obj()
     data = A._backup_jobs_load()
     job = next((j for j in data['jobs'] if j['id'] == job_id), None)
-    if not job:
+    if not job or not _backup_job_visible(job):
+        # SECURITY: without the visibility gate a tenant admin could edit another
+        # tenant's job's command/spec/cron (leaving its device_ids intact) → the
+        # cron sweep then runs it as root on the victim's hosts. 404, not 403.
         A.respond(404, {'error': 'job not found'})
     if 'name' in body:
         job['name'] = A._sanitize_str(body['name'], 80).strip() or job['name']
@@ -809,7 +880,10 @@ def handle_backup_jobs_list():
     """GET /api/backup-jobs — all defined backup jobs, each with its last-run
     outcome (v6.3.0) so the table shows ✓/✗/running, not just a timestamp."""
     A.require_auth()
-    jobs = A._backup_jobs_load()['jobs']
+    # SECURITY: jobs are device-keyed — show only jobs whose targets the caller may
+    # see (else a viewer / other-tenant admin reads every tenant's destinations and
+    # legacy command text, which can embed secrets). run/restore/archives re-filter.
+    jobs = [j for j in A._backup_jobs_load()['jobs'] if _backup_job_visible(j)]
     for j in jobs:
         try:
             j['status'] = _backup_job_status(j)

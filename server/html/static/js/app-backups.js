@@ -325,16 +325,18 @@ async function restoreBackupJob(id) {
   if (targets.length > 1) {
     const byId = {};
     for (const dv of (typeof devices !== 'undefined' ? devices : [])) byId[dv.id] = dv.name || dv.id;
-    const names = targets.map(t => byId[t] || t);
+    // Numbered, id-suffixed labels so duplicate display names can't restore to the
+    // wrong host — the operator picks by NUMBER (unambiguous).
+    const labels = targets.map((t, i) => `${i + 1}. ${byId[t] || t} [${String(t).slice(-6)}]`);
     const pick = await uiPrompt({
       title: 'Restore to which host?',
-      message: `This job targets ${targets.length} devices. Type the host to restore into:\n\n` + names.join(', '),
-      value: names[0],
+      message: `This job targets ${targets.length} devices. Enter the NUMBER of the host to restore into:\n\n` + labels.join('\n'),
+      value: '1',
       confirmText: 'Continue',
     });
     if (pick === null) return;
-    const idx = names.findIndex(n => n.toLowerCase() === pick.trim().toLowerCase());
-    if (idx < 0) { toast('Type one of the job\'s target hosts', 'error'); return; }
+    const idx = parseInt(pick.trim(), 10) - 1;
+    if (!(idx >= 0 && idx < targets.length)) { toast('Enter a number from the list', 'error'); return; }
     devId = targets[idx];
   }
   const path = await uiPrompt({

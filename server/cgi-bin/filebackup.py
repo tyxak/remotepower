@@ -27,7 +27,9 @@ TRANSPORTS = ('ssh', 'nfs', 'smb')
 _PATH_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/")
 _HOST_OK = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 _USER_OK = _HOST_OK
-_SHARE_OK = _HOST_OK | set("/")
+# A CIFS share is a SINGLE name component — no '/', no '..' traversal (a subpath
+# belongs in remote_path). Restricting it keeps the //host/share UNC well-formed.
+_SHARE_OK = _HOST_OK
 
 
 def _is_abs_path(p, allow_space=False):
@@ -87,8 +89,9 @@ def validate_spec(spec):
         if not _is_abs_path(dest.get('export')):
             return False, 'nfs transport requires a valid export path'
     elif transport == 'smb':
-        if not _ok(dest.get('share'), _SHARE_OK, 255):
-            return False, 'smb transport requires a valid share'
+        share = dest.get('share')
+        if not _ok(share, _SHARE_OK, 255) or (isinstance(share, str) and '..' in share):
+            return False, 'smb transport requires a valid single-component share (no "/" or "..")'
         cf = dest.get('credentials_file')
         if cf and not _is_abs_path(cf):
             return False, 'invalid credentials_file path'
