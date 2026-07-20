@@ -1,0 +1,45 @@
+[Unit]
+Description=RemotePower agentless syslog receiver (UDP -> per-device ingest API)
+Documentation=https://github.com/tyxak/remotepower
+After=network-online.target remotepower-wsgi.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# No state, no secrets of its own — it reads the shared stores read-only via
+# the storage backend and forwards over loopback. DynamicUser keeps it fully
+# sandboxed with zero user management (NO install-time User= rendering — see
+# the deploy-server.sh "rendered unit" rule; this unit is deliberately static).
+DynamicUser=yes
+# Read access to the data dir for the storage marker / JSON-backend stores.
+ReadOnlyPaths=/var/lib/remotepower
+ExecStart=/usr/local/bin/remotepower-syslogd
+Environment=RP_DATA_DIR=/var/lib/remotepower
+# Defaults: udp/5514 (unprivileged). For classic udp/514 uncomment:
+#Environment=RP_SYSLOG_BIND=0.0.0.0:514
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
+Environment=RP_SYSLOG_SERVER_URL=http://127.0.0.1:8090
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-syslogd
+
+[Install]
+WantedBy=multi-user.target

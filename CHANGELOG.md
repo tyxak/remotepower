@@ -186,6 +186,22 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Native syslog listener — appliances that can't run an agent, onboarded
+- **`remotepower-syslogd`** (new sidecar, `server/syslog/`): listens for
+  classic UDP syslog (5514 default; capability-gated 514 via the unit),
+  maps each datagram's **source IP** to the enrolled device with that IP +
+  an enabled `syslog` inbound-webhook token, batches lines (2s/200), and
+  forwards over loopback to the existing `POST /api/syslog/in/<token>` —
+  parsing, the log buffer, `log_alert` rules and token accounting all stay
+  in the one server-side handler. Switches, firewalls, printers and NAS
+  boxes now feed the alert pipeline with zero new auth surface (unknown
+  sources are dropped, rate-limited logging). Backend-aware store reads
+  (the push-daemon StoreReader pattern — no raw file reads); static
+  `DynamicUser` unit (deliberately NOT install-rendered, so the sidecar
+  refresh may safely update it); deploy + self-update wiring included.
+  Driven end-to-end in `tests/test_v630_syslogd.py` (real daemon, real UDP,
+  captured POSTs).
+
 ### Accessibility: axe-clean on every page, not just three
 - The axe-core gate now walks **all ~67 sidebar pages** (was login +
   dashboard + devices) with the same zero-critical/serious bar and no

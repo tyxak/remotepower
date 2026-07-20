@@ -51,6 +51,26 @@ glance which are which.
   switches and APs.
 - **Audit log** — creation, deletion, credential operations are
   all logged.
+- **Native syslog** *(v6.3.0)* — devices that only speak classic
+  syslog/UDP (switches, firewalls, printers, NAS appliances) can feed the
+  log-alert pipeline via the `remotepower-syslogd` sidecar. Install:
+
+  ```
+  install -m 755 server/syslog/remotepower-syslogd.py /usr/local/bin/remotepower-syslogd
+  install -m 644 packaging/remotepower-syslogd.service /etc/systemd/system/
+  systemctl daemon-reload && systemctl enable --now remotepower-syslogd
+  ```
+
+  Point the appliance's syslog output at the server (udp/5514 by default;
+  uncomment the unit's `CAP_NET_BIND_SERVICE` lines for classic 514). A
+  source is accepted when an enrolled device has that **IP** and carries an
+  enabled **syslog inbound-webhook token** (Settings → Integrations →
+  Inbound webhooks, kind `syslog`, pinned to the device) — the daemon is a
+  thin shim that batches lines to the same `POST /api/syslog/in/<token>`
+  endpoint rsyslog/fluent-bit users already use, so `log_watch` rules with
+  unit `syslog` fire `log_alert` identically. Unknown sources are dropped.
+  The deploy/self-update flows refresh and restart the daemon like the
+  other sidecars.
 
 ## Reachability and health
 
