@@ -732,9 +732,9 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-16", _html())
+        self.assertIn("?v=6.3.0-17", _html())
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-16", sw)
+        self.assertIn("remotepower-shell-v6.3.0-17", sw)
 
 
 class TestWave12TransientToasts(unittest.TestCase):
@@ -797,6 +797,34 @@ class TestWave13FleetVisibility(unittest.TestCase):
         self.assertIn("data-action=\"checkRemediate\"", checks)
         # lazy-module guard: openAIModal may not be loaded yet
         self.assertIn("_loadAllLazyJs", checks)
+
+
+class TestWave14ChartPolish(unittest.TestCase):
+    """The two wave-10 deferrals, landed on the SHARED helpers: sparkline
+    gradient fills + a crosshair/tooltip on the axis chart."""
+
+    def test_sparkline_gradient(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "renderSparkline")
+        self.assertIn("linearGradient", fn)
+        self.assertIn("stop-opacity", fn)
+        # unique per render — SVG ids are document-global
+        self.assertIn("_sparkGradSeq", fn)
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.assertIn(".sparkline .area.grad { opacity: 1; }", css)
+
+    def test_timeseries_crosshair(self):
+        from tests import srcpin
+        fn = srcpin.js_function(_js("app.js"), "renderTimeSeries")
+        self.assertIn("ts-xhair", fn)
+        self.assertIn("mousemove", fn)
+        self.assertIn("mouseleave", fn)
+        self.assertIn("ts-tip", fn)
+        # no inline handlers (CSP) — wired via addEventListener
+        self.assertNotIn("onmousemove=", fn)
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        for cls in (".ts-wrap", ".ts-xhair", ".ts-tip"):
+            self.assertIn(cls, css)
 
 
 if __name__ == "__main__":

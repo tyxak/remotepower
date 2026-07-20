@@ -12318,6 +12318,62 @@ function renderTimeSeries(elId, series, opts) {
       `<span class="ts-leg"><span class="ts-dot" data-bg="${_CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name)}</span>`).join('') + '</div>';
   }
   el.innerHTML = svg + legend;
+  // v6.3.0 (wave 10 deferral, done): hover crosshair + value tooltip on the
+  // SHARED axis-chart helper — every consumer gets it at once. Pointer-only
+  // enhancement (no keyboard/reduced-motion implications: nothing animates,
+  // the data remains readable without it). Listeners are wired here, not via
+  // inline handlers (CSP).
+  const svgEl = el.querySelector('svg.ts-chart');
+  if (svgEl && opts.crosshair !== false) {
+    el.classList.add('ts-wrap');
+    const tip = document.createElement('div');
+    tip.className = 'ts-tip d-none';
+    el.appendChild(tip);
+    const NS = 'http://www.w3.org/2000/svg';
+    const vline = document.createElementNS(NS, 'line');
+    vline.setAttribute('class', 'ts-xhair');
+    vline.setAttribute('y1', padT); vline.setAttribute('y2', padT + plotH);
+    vline.setAttribute('visibility', 'hidden');
+    svgEl.appendChild(vline);
+    const allPts = series.map(s => (s.points || []).slice().sort((a, b) => a.x - b.x));
+    const fmtFull = ts => new Date(ts * 1000).toLocaleString();
+    svgEl.addEventListener('mousemove', (ev) => {
+      const r = svgEl.getBoundingClientRect();
+      if (!r.width) return;
+      const fx = (ev.clientX - r.left) * (W / r.width);
+      if (fx < padL || fx > W - padR) {
+        vline.setAttribute('visibility', 'hidden'); tip.classList.add('d-none'); return;
+      }
+      const targetX = minX + (fx - padL) / plotW * spanX;
+      let anchor = null;   // nearest point overall → the crosshair x
+      allPts.forEach(pts => pts.forEach(p => {
+        const d = Math.abs(p.x - targetX);
+        if (!anchor || d < anchor.d) anchor = { d, x: p.x };
+      }));
+      if (!anchor) return;
+      const px = sx(anchor.x);
+      vline.setAttribute('x1', px.toFixed(1)); vline.setAttribute('x2', px.toFixed(1));
+      vline.setAttribute('visibility', 'visible');
+      const rows = series.map((s, i) => {
+        const pts = allPts[i];
+        if (!pts.length) return '';
+        let nearest = pts[0];
+        pts.forEach(p => { if (Math.abs(p.x - anchor.x) < Math.abs(nearest.x - anchor.x)) nearest = p; });
+        const val = Math.round(nearest.y * 10) / 10;
+        return `<div><span class="ts-tip-dot" data-bg="${_CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name || 'value')}: <strong>${val}${escHtml(opts.yUnit || '')}</strong></div>`;
+      }).join('');
+      tip.innerHTML = `<div class="ts-tip-t">${escHtml(fmtFull(anchor.x))}</div>` + rows;
+      tip.classList.remove('d-none');
+      const er = el.getBoundingClientRect();
+      let lx = ev.clientX - er.left + 12;
+      if (lx + 150 > er.width) lx = Math.max(0, ev.clientX - er.left - 162);
+      tip.style.left = lx + 'px';
+      tip.style.top = (ev.clientY - er.top + 12) + 'px';
+    });
+    svgEl.addEventListener('mouseleave', () => {
+      vline.setAttribute('visibility', 'hidden'); tip.classList.add('d-none');
+    });
+  }
 }
 
 async function loadTrends() {
@@ -16248,6 +16304,7 @@ function getDistroIcon(osField) {
 // if no color is passed: trending-up gets accent, trending-down gets
 // amber for capacity metrics (caller can override).
 
+let _sparkGradSeq = 0;   // v6.3.0: unique gradient ids (SVG ids are global)
 function renderSparkline(values, opts) {
   opts = opts || {};
   const w = opts.width || 60;
@@ -16287,8 +16344,17 @@ function renderSparkline(values, opts) {
   let svg = `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">`;
 
   if (opts.fill !== false) {
+    // v6.3.0 (wave 10 deferral, done): vertical fade-out gradient under the
+    // line instead of a flat wash — every sparkline consumer gets it for
+    // free. Unique id per render (SVG ids are document-global); stop-color
+    // takes the same var(--x) the line uses.
+    const gid = 'spg' + (++_sparkGradSeq);
+    svg += `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">`
+        + `<stop offset="0" stop-color="${color}" stop-opacity="0.32"/>`
+        + `<stop offset="1" stop-color="${color}" stop-opacity="0.02"/>`
+        + `</linearGradient></defs>`;
     const areaPath = linePath + ` L${(w).toFixed(1)},${h} L0,${h} Z`;
-    svg += `<path class="area" d="${areaPath}" fill="${color}"/>`;
+    svg += `<path class="area grad" d="${areaPath}" fill="url(#${gid})"/>`;
   }
   svg += `<path d="${linePath}" stroke="${color}"/>`;
   if (opts.lastDot !== false) {

@@ -2675,6 +2675,9 @@ input.form-input[type="text"][data-token],
 .sparkline:hover { opacity: 1; }
 .sparkline path { fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .sparkline .area { stroke: none; opacity: 0.18; }
+/* v6.3.0: the gradient variant carries its own fade in its stops — the flat
+   0.18 wash would double-dim it to near-invisible. */
+.sparkline .area.grad { opacity: 1; }
 .sparkline .dot  { stroke: none; }
 
 /* ─── Distro logos ─────────────────────────────────────────────────────
@@ -6064,6 +6067,17 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .ts-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .ts-leg { display: inline-flex; align-items: center; gap: 6px; }
 .ts-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+/* v6.3.0 (wave 10 deferral): shared-chart crosshair + hover tooltip. */
+.ts-wrap { position: relative; }
+.ts-xhair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.65; pointer-events: none; }
+.ts-tip {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: var(--surface2); border: 1px solid var(--hair);
+  border-radius: 8px; padding: 6px 9px; font-size: 11px; line-height: 1.5;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25); max-width: 220px; white-space: nowrap;
+}
+.ts-tip-t { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
+.ts-tip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
 
 /* v3.4.2: Settings → Install checklist */
 .setup-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px;

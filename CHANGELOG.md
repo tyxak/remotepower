@@ -186,6 +186,19 @@ the other posture axes need data plumbing first).
 - **Absolute-time tooltips** — hovering a "3h ago" last-seen value (table cell
   and device card) shows the exact local timestamp.
 
+### Wave 14 — the chart polish the wave-10 deferral asked for
+- Both deferred items landed **on the shared helpers**, so every consumer
+  gets them at once rather than per-page rework: **sparkline gradient
+  fills** (vertical fade-out under the line, unique per-render gradient
+  ids, `renderSparkline` — device cards, drawer metrics, everywhere) and a
+  **crosshair + value tooltip** on the shared axis chart
+  (`renderTimeSeries` — trends/forecast/etc.): hover snaps a dashed line to
+  the nearest data point and shows per-series values with the full
+  timestamp. CSP-clean (no inline handlers/styles; the `data-bg` observer
+  pattern), pointer-only enhancement, page smokes green across all 67
+  pages. The remaining wave-10 deferral is the posture radar (needs
+  server-side data plumbing for its axes).
+
 ### Native syslog listener — appliances that can't run an agent, onboarded
 - **`remotepower-syslogd`** (new sidecar, `server/syslog/`): listens for
   classic UDP syslog (5514 default; capability-gated 514 via the unit),
