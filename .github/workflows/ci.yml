@@ -36,7 +36,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
 
       # bcrypt + cryptography + dnspython are the runtime deps the

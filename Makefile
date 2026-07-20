@@ -226,9 +226,9 @@ check: test-both lint
 # `make check` alone has THREE blind spots that each shipped a broken prod
 # release (v6.2.0): a test that reads a dist-excluded file passes in the source
 # tree but errors in the tarball; CodeQL default setup on prod ignores the
-# config and fires FP rules local never shows; and prod CI runs Python 3.12
-# with a fixed dep list while dev is 3.14. This target closes all three.
-#   make pre-release            # check + dist + CodeQL-parity + CI-3.12 parity
+# config and fires FP rules local never shows; and prod CI runs Python 3.14
+# (matching dev) with a fixed dep list. This target closes all three.
+#   make pre-release            # check + dist + CodeQL-parity + CI-3.14 parity
 # CodeQL parity uses PARITY=1 (simulates prod DEFAULT setup) UNLESS the advanced
 # codeql.yml workflow is active on prod — then a plain `tools/codeql-local.sh`
 # predicts prod and you can set PARITY=0.
@@ -247,7 +247,7 @@ pre-release: check dist ci-parity
 	@# — it's belt-and-braces in case prod is ever reverted to default setup.
 	@PARITY=1 tools/codeql-local.sh || echo "  ⓘ PARITY preview reported the documented FP classes — non-fatal (prod is on advanced setup)."
 	@echo ""
-	@echo "✓ pre-release gate passed: check + dist + CI-3.12 parity + CodeQL (config-honoring)"
+	@echo "✓ pre-release gate passed: check + dist + CI-3.14 parity + CodeQL (config-honoring)"
 	@# Push stamp for tools/git-hooks/pre-push: records the exact commit this
 	@# gate ran against. Only written on a CLEAN tree — a gate run over dirty
 	@# state proves nothing about the commit that would actually be pushed.
@@ -258,12 +258,12 @@ pre-release: check dist ci-parity
 		echo "✓ push stamp written: prod pushes of this commit pass the pre-push hook"; \
 	fi
 
-# Reproduce prod CI's environment: Python 3.12 (dev is 3.14) with the EXACT
+# Reproduce prod CI's environment: Python 3.14 (matches dev) with the EXACT
 # fixed dep list from .github/workflows/ci.yml, run against the release tree.
 # Catches a new hard runtime import (flask in 6.1.0, pydantic in 6.1.2) that
 # dev has but the CI dep list doesn't — the class that red-X'd prod CI on the
 # release push. Needs `uv` (falls back to a warning if absent).
-CI_PY := 3.12
+CI_PY := 3.14
 # EXACTLY the ci.yml "Install runtime dependencies" pip list — nothing more.
 # The extra local-only packages (pytest, hypothesis) were removed on purpose:
 # CI runs `python -m unittest discover` WITHOUT them, so a module-level

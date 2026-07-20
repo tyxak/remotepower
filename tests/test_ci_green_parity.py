@@ -1,6 +1,6 @@
 """CI-green parity guards (v6.2.3).
 
-Prod CI (`.github/workflows/ci.yml`) runs Python 3.12 with a FIXED pip list
+Prod CI (`.github/workflows/ci.yml`) runs Python 3.14 with a FIXED pip list
 and `python -m unittest discover`. Historically every "red CI on the release
 push" came from a local/CI environment delta:
 
