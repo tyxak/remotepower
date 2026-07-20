@@ -256,10 +256,10 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
             'campaign_completed',                    # W2-35 CVE campaigns
             'service_down', 'service_up',
-            'unit_flapping',                         # v6.1.2 systemd flap detection
+            'unit_flapping', 'unit_flapping_cleared',   # v6.1.2 systemd flap detection
             'log_alert',
             # v1.11.4: container alerts
-            'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale',
+            'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale',
             # v3.2.x: container image update tracking
             'image_update_available', 'image_updated',
             # v1.11.10: metric thresholds
@@ -269,7 +269,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v2.2.0: configuration drift detection
             'drift_detected',
             # v2.4.7: mailbox count threshold alert
-            'mailbox_threshold',
+            'mailbox_threshold', 'mailbox_recovered',
             # v2.5.0: custom monitoring script alerts
             'custom_script_fail', 'custom_script_recover',
             # v5.6.0: custom Check-catalog check failures
@@ -279,7 +279,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v2.6.1: TLS expiry + pending reboot
             'tls_expiry', 'reboot_required',
             # v2.7.0: stale Proxmox snapshot
-            'snapshot_old',
+            'snapshot_old', 'snapshot_recovered',
             # v2.8.0: security & audit
             'new_port_detected', 'ssh_key_added', 'brute_force_detected',
             'vault_break_glass',  # v5.0.0 #C3

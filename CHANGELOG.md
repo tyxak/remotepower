@@ -355,6 +355,14 @@ the other posture axes need data plumbing first).
   a matching `timer_failed_cleared` recover event, fired per-unit when a timer
   leaves the failed state — the open alert closes itself instead of sitting in
   the inbox after the job recovers.
+- **Four more stateful alerts now auto-resolve** (they used to sit open in the
+  inbox after the condition cleared): **service flapping** (`unit_flapping_cleared`
+  when a unit's restart count goes stable), **container restart loops**
+  (`container_restarting_cleared` when a container stops restart-looping),
+  **old Proxmox snapshots** (`snapshot_recovered` when a guest no longer has
+  stale snapshots), and **mailbox thresholds** (`mailbox_recovered` when a count
+  drops back below its threshold). Each is edge-triggered from the same sweep
+  that fires the original alert and matched per-resource.
 
 ### Security & hardening
 - **Pre-release security hunt (SAST + adversarial audit).** CodeQL / bandit /

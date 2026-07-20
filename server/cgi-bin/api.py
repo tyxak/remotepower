@@ -1388,6 +1388,10 @@ EVENT_REGISTRY = {
         label='Watched systemd unit is restarting repeatedly (flapping)',
         kind='service', title='Service Flapping', severity='high', priority=4,
         tags='warning,arrows_counterclockwise', symptom=True),
+    'unit_flapping_cleared': dict(
+        label='A watched systemd unit stopped flapping (restart count stable)',
+        kind='service', title='Service Flapping Cleared',
+        resolves=('unit_flapping',), tags='white_check_mark'),
     'log_alert': dict(
         label='Log pattern matched threshold', kind='log_alert', title='Log Pattern Matched',
         severity=None, priority=4, tags='warning,scroll', symptom=True),
@@ -1401,6 +1405,10 @@ EVENT_REGISTRY = {
     'container_restarting': dict(
         label='Container restart count climbing', kind='container',
         title='Container Restarting', severity='medium', tags='warning,whale', symptom=True),
+    'container_restarting_cleared': dict(
+        label='A container stopped restart-looping (restart count stable)',
+        kind='container', title='Container Restart Loop Cleared',
+        resolves=('container_restarting',), tags='white_check_mark,whale'),
     'containers_stale': dict(
         label='No container report for >TTL', kind='container', title='Container Data Stale',
         severity='medium', priority=4, tags='warning,hourglass', symptom=True),
@@ -1435,6 +1443,10 @@ EVENT_REGISTRY = {
     'mailbox_threshold': dict(
         label='Mailbox count crossed its alert threshold', kind='mailbox',
         title='Mailbox Threshold Reached', severity='medium'),
+    'mailbox_recovered': dict(
+        label='A mailbox count dropped back below its alert threshold',
+        kind='mailbox', title='Mailbox Below Threshold',
+        resolves=('mailbox_threshold',), tags='white_check_mark'),
     'custom_script_fail': dict(
         label='Custom monitoring script returned non-zero', kind='script',
         title='Custom Script Failed', severity='high', priority=4, tags='red_circle,test_tube'),
@@ -1463,6 +1475,10 @@ EVENT_REGISTRY = {
     'snapshot_old': dict(
         label='Proxmox snapshot older than threshold', kind='snapshot',
         title='Old Proxmox Snapshot', severity='medium', priority=4, tags='warning,floppy_disk'),
+    'snapshot_recovered': dict(
+        label='A Proxmox guest no longer has snapshots older than the threshold',
+        kind='snapshot', title='Proxmox Snapshots Current',
+        resolves=('snapshot_old',), tags='white_check_mark,floppy_disk'),
     'new_port_detected': dict(
         label='New listening port appeared on host', kind='new_port',
         title='New Listening Port Detected', severity='medium', priority=4, tags='warning,door'),
@@ -9203,7 +9219,7 @@ def _record_alert(event, payload):
                                    # unit stored (a batch alert closes only when
                                    # ALL of them have left the failed state)
                     'user', 'fingerprint', 'proto', 'port', 'process',
-                    'age_hours', 'vm_name', 'snap_name', 'days_old',
+                    'age_hours', 'vm_name', 'vmid', 'snap_name', 'days_old',
                     # v6.2.0: which AV engine fired (clamav/rkhunter/defender).
                     # av_infected/av_warning have set this since v5.1.0 but it
                     # was never whitelisted, so the STORED alert lost it and the
@@ -9465,6 +9481,18 @@ def _auto_resolve_alerts(event, payload):
         # clears exactly its own open alert by unit (no batch, unlike
         # failed_unit_cleared).
         sub_match['unit'] = p.get('unit')
+    elif event == 'unit_flapping_cleared':
+        # v6.3.0: per watched unit — clears only that unit's flapping alert.
+        sub_match['unit'] = p.get('unit')
+    elif event == 'container_restarting_cleared':
+        # v6.3.0: per container name (matches container_stopped/restarting).
+        sub_match['container'] = p.get('container')
+    elif event == 'snapshot_recovered':
+        # v6.3.0: per Proxmox guest — clears that VM's snapshot_old alert by vmid.
+        sub_match['vmid'] = p.get('vmid')
+    elif event == 'mailbox_recovered':
+        # v6.3.0: per mailbox path — clears that path's mailbox_threshold alert.
+        sub_match['path'] = p.get('path')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -18599,13 +18627,18 @@ def handle_heartbeat():
     # and fire container_stopped / container_restarting webhooks.
     if 'containers' in body:
         normalised = containers_mod.normalize_listing(body.get('containers'))
+        _restarting_alerted = []
         try:
-            process_container_report(dev_id, normalised, now)
+            _restarting_alerted = process_container_report(dev_id, normalised, now) or []
         except Exception:
             # never let container processing break the heartbeat, but don't
             # hide a recurring processing bug either (mirror the metric path).
             traceback.print_exc(file=sys.stderr)
         _rec = {'ts': now, 'items': normalised}
+        # v6.3.0: persist the open-restart-loop name set so container_restarting
+        # recovery is edge-triggered across heartbeats.
+        if _restarting_alerted:
+            _rec['restarting_alerted'] = _restarting_alerted
         # v6.1.2: `docker system df` — the disk-footprint breakdown, on its own
         # slow cadence (the agent only sends it ~hourly, since docker has to walk
         # the layer store). It arrives on SOME container reports, not all, so
@@ -32321,6 +32354,7 @@ def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
     cfg     = load(CONFIG_FILE)
     warn_days = int(cfg.get('proxmox_snapshot_warn_days', 7))
 
+    snapshot_recovers = []   # v6.3.0: VMs whose snapshot_old alert should clear
     for guest in guests:
         vmid = guest.get('vmid')
         if not vmid:
@@ -32362,11 +32396,25 @@ def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
             except Exception:
                 pass
         elif not old_snaps:
-            entry.pop('notified_at', None)   # reset so next crossing fires
+            was_notified = entry.pop('notified_at', None)   # reset so next crossing fires
+            # v6.3.0: a guest that had an open snapshot_old alert now has no
+            # stale snapshots → fire the recover event to auto-resolve it
+            # (per-VM, matched by vmid). Only when it was actually notified.
+            if was_notified:
+                snapshot_recovers.append({
+                    'vmid':    vmid,
+                    'vm_name': guest.get('name', str(vmid)),
+                })
 
         cache[key] = entry
 
     save(PROXMOX_SNAPSHOT_CACHE, cache)
+    # Fire recover events AFTER the cache save (fire_webhook is self-locking).
+    for _sp in snapshot_recovers:
+        try:
+            fire_webhook('snapshot_recovered', _sp)
+        except Exception:
+            pass
 
 
 
@@ -38752,21 +38800,31 @@ def _ingest_mailbox_counts(dev_id, counts):
                 now_over = cnt >= threshold
                 alerted[path] = now_over
                 if now_over and not was:
-                    to_fire.append({
+                    to_fire.append(('mailbox_threshold', {
                         'name':      dev.get('name', dev_id),
                         'device_id': dev_id,
                         'path':      path,
                         'count':     cnt,
                         'threshold': threshold,
-                    })
+                    }))
+                elif was and not now_over:
+                    # v6.3.0: dropped back below the threshold → recover event
+                    # auto-resolves the open mailbox_threshold alert (per-path).
+                    to_fire.append(('mailbox_recovered', {
+                        'name':      dev.get('name', dev_id),
+                        'device_id': dev_id,
+                        'path':      path,
+                        'count':     cnt,
+                        'threshold': threshold,
+                    }))
         dev['mailbox_state'] = {
             'counts':      clean,
             'reported_at': int(time.time()),
             'alerted':     alerted,
         }
-    for payload in to_fire:
+    for _ev, payload in to_fire:
         try:
-            fire_webhook('mailbox_threshold', payload)
+            fire_webhook(_ev, payload)
         except Exception:
             pass
 
@@ -57672,9 +57730,12 @@ def process_service_report(dev_id, services_payload):
         flap_threshold = int(_config_ro().get('unit_flap_restarts') or 0)
     except (TypeError, ValueError):
         flap_threshold = 0
+    flap_recovers = []            # v6.3.0: units that stopped flapping
     with _LockedUpdate(SERVICES_FILE) as store:
         prev_dev = store.get(dev_id) or {}
         prev_by_unit = {s['unit']: s for s in (prev_dev.get('services') or [])}
+        prev_flapping = set(prev_dev.get('flapping') or [])   # v6.3.0
+        flapped_now = set()
 
         for entry in clean:
             prev = prev_by_unit.get(entry['unit'])
@@ -57698,8 +57759,17 @@ def process_service_report(dev_id, services_payload):
                     delta = now_r - was_r
                     if delta >= flap_threshold:
                         flaps.append((entry['unit'], delta, now_r))
+                        flapped_now.add(entry['unit'])
 
-        store[dev_id] = {'updated_at': now, 'services': clean}
+        # v6.3.0: a unit that was flapping, is still present this cycle, and did
+        # NOT flap again (restart count stable) → recovered. Persist the live
+        # flapping set so the recover is edge-triggered exactly once.
+        present = {e['unit'] for e in clean}
+        recovered = (prev_flapping & present) - flapped_now
+        new_flapping = (prev_flapping | flapped_now) - recovered
+        flap_recovers = sorted(recovered)
+        store[dev_id] = {'updated_at': now, 'services': clean,
+                         'flapping': sorted(new_flapping)}
 
     # Fire transitions outside the lock to keep the hot path short.
     for entry, prev, is_up in transitions:
@@ -57716,6 +57786,8 @@ def process_service_report(dev_id, services_payload):
         _fire_service_webhook('unit_flapping', dev_id, unit, {
             'restarts': delta, 'total_restarts': total,
         })
+    for unit in flap_recovers:
+        _fire_service_webhook('unit_flapping_cleared', dev_id, unit, {})
 
 
 # ─── v1.11.4: container alerting ────────────────────────────────────────────
@@ -58420,7 +58492,7 @@ def process_container_report(dev_id, normalised, now):
         now: Current Unix timestamp.
     """
     if not isinstance(normalised, list):
-        return
+        return []
 
     # v5.0.0 (perf): O(1) per-device read of the previous container list instead
     # of load()ing the whole-fleet blob every heartbeat.
@@ -58428,11 +58500,17 @@ def process_container_report(dev_id, normalised, now):
     prev_items = prev_entry.get('items') or []
     if not isinstance(prev_items, list):
         prev_items = []
+    # v6.3.0: names currently under an open container_restarting alert. Returned
+    # (updated) so the caller persists it on the entry — the recover event is
+    # edge-triggered against it. Tracked by NAME (matches the by-name auto-resolve
+    # of container_stopped/restarting).
+    prev_restarting = set(prev_entry.get('restarting_alerted') or [])
+    restarting_now = set()
 
     # First report ever for this device — nothing to diff against.
     # Skip transition detection but DO let storage proceed (caller's job).
     if not prev_items:
-        return
+        return sorted(prev_restarting)
 
     # Index by (runtime, name) to make k8s pods in different namespaces
     # collide-free, and to keep docker/podman containers separate even
@@ -58515,6 +58593,20 @@ def process_container_report(dev_id, normalised, now):
                 'restart_count': cur_n,
                 'delta':         delta,
             })
+            if cur.get('name'):
+                restarting_now.add(cur['name'])
+    # v6.3.0: a container that had an open container_restarting alert, is still
+    # present this cycle, and did NOT climb its restart count again → recovered.
+    present_names = {c.get('name') for c in normalised if c.get('name')}
+    recovered_names = (prev_restarting & present_names) - restarting_now
+    _cur_by_name = {c.get('name'): c for c in normalised if c.get('name')}
+    for _nm in sorted(recovered_names):
+        _c = _cur_by_name.get(_nm, {})
+        _fire_container_webhook('container_restarting_cleared', dev_id, _nm, {
+            'runtime':   _c.get('runtime', 'unknown'),
+            'namespace': _c.get('namespace', ''),
+        })
+    return sorted((prev_restarting | restarting_now) - recovered_names)
 
 
 def get_container_stale_ttl():

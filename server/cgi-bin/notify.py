@@ -700,6 +700,14 @@ def _webhook_message(event, payload):
         return f'{name}: scheduled job {payload.get("unit","?")} failed{extra}'
     elif event == "timer_failed_cleared":
         return f'{name}: scheduled job {payload.get("unit","?")} recovered'
+    elif event == "unit_flapping_cleared":
+        return f'{name}: unit {payload.get("unit","?")} stopped flapping'
+    elif event == "container_restarting_cleared":
+        return f'{name}: container {payload.get("container","?")} stopped restart-looping'
+    elif event == "snapshot_recovered":
+        return f'{name}: {payload.get("vm_name","?")} snapshots now current'
+    elif event == "mailbox_recovered":
+        return f'{name}: mailbox {payload.get("path","?")} back below threshold'
     elif event == "disk_predict_fail":
         eta = payload.get("eta_days")
         when = f" (~{eta}d to failure)" if isinstance(eta, int) else ""

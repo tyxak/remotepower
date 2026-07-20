@@ -16508,14 +16508,15 @@ const EVENT_CLASS = {
   'metric_warning': 'warn', 'metric_critical': 'critical',
   'metric_recovered': 'ok',
   'container_stopped': 'warn', 'container_recovered': 'ok', 'container_restarting': 'warn',
+  'container_restarting_cleared': 'ok', 'unit_flapping_cleared': 'ok',
   'containers_stale': 'warn',
   'log_alert': 'warn',
-  'mailbox_threshold': 'warn',
+  'mailbox_threshold': 'warn', 'mailbox_recovered': 'ok',
   'command_queued': 'info', 'command_executed': 'info',
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
   'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'crit', 'canary_accessed': 'crit',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
-  'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn',
+  'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn', 'snapshot_recovered': 'ok',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
   'custom_script_recover': 'ok', 'config_drift': 'warn',
   'custom_check_failed': 'critical', 'custom_check_recovered': 'ok',
@@ -18095,16 +18096,16 @@ function _renderHomeActivity(fleetEvents) {
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
     'monitor_down', 'monitor_up', 'path_changed', 'mailflow_delayed', 'mailflow_ok',
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
-    'service_down', 'service_up', 'unit_flapping',   // v6.1.2
+    'service_down', 'service_up', 'unit_flapping', 'unit_flapping_cleared',   // v6.1.2
     'log_alert',
-    'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current',
+    'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale', 'containers_current',
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
-    'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
+    'drift_detected', 'mailbox_threshold', 'mailbox_recovered', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
-    'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old',
+    'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old', 'snapshot_recovered',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'restore_drill_failed', 'restore_drill_ok', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
@@ -18255,6 +18256,8 @@ function _renderHomeActivity(fleetEvents) {
         detail = `${p.domain}: ${p.issuer || p.cn || 'new cert'}`; break;
       case 'snapshot_old':
         detail = `${p.vm_name}: "${p.snap_name}" ${p.days_old}d old`; break;
+      case 'snapshot_recovered':
+        detail = `${p.vm_name}: snapshots current`; break;
       case 'log_alert':
         // Show the actual matched log line, not the pattern regex
         detail = (p.sample && p.sample[0])
@@ -18299,7 +18302,7 @@ function _homeActivityAttrs(event, p) {
   switch (event) {
     case 'device_offline': case 'device_online':
     case 'agent_stopped': case 'agent_started':
-    case 'mailbox_threshold': case 'reboot_required': case 'reboot_cleared':
+    case 'mailbox_threshold': case 'mailbox_recovered': case 'reboot_required': case 'reboot_cleared':
     case 'new_port_detected': case 'ssh_key_added':
     case 'backup_size_anomaly':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
@@ -18326,10 +18329,10 @@ function _homeActivityAttrs(event, p) {
     // v5.6.0: custom Check-catalog failures → the host drawer (or Checks fleet-wide)
     case 'custom_check_failed': case 'custom_check_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
-    case 'unit_flapping':   // v6.1.2 — same Services page as up/down
+    case 'unit_flapping': case 'unit_flapping_cleared':   // v6.1.2 — same Services page as up/down
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
-    case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'containers_stale': case 'containers_current':
+    case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'container_restarting_cleared': case 'containers_stale': case 'containers_current':
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
     case 'log_alert':      return `${base} data-home-act="logs"`;
@@ -18338,7 +18341,7 @@ function _homeActivityAttrs(event, p) {
     case 'config_drift':   return `${base} data-home-act="devices"`;
     case 'tls_expiry':     return `${base} data-home-act="tls"`;
     case 'ct_new_certificate': return `${base} data-home-act="tls"`;
-    case 'snapshot_old':   return `${base} data-home-act="virtualization"`;
+    case 'snapshot_old': case 'snapshot_recovered':   return `${base} data-home-act="virtualization"`;
     case 'snmp_unreachable': case 'snmp_dead': case 'snmp_recover': case 'snmp_trap_received':
       // SNMP events surface on agentless device cards; clicking opens the
       // device drawer if we have an id, else routes to Devices.
