@@ -48,3 +48,13 @@ query-filters:
   # connect-src 'self' blocks anything else). Not server-side SSRF.
   - exclude:
       id: js/request-forgery
+  # The agentless syslog receiver (server/syslog/remotepower-syslogd.py) MUST
+  # listen on the network to receive UDP syslog from switches/firewalls/printers
+  # across the fleet — binding to all interfaces is its whole purpose. It is
+  # opt-in (disabled by default), validates every datagram's SOURCE IP against
+  # the enrolled-device set (unknown sources dropped), holds no secrets, and
+  # forwards only over loopback. The bind address is operator-overridable via
+  # RP_SYSLOG_BIND (e.g. pin one interface). Same by-design pattern bandit
+  # already baselines as B104; scoped out here for consistency + transparency.
+  - exclude:
+      id: py/bind-socket-all-network-interfaces

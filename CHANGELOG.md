@@ -352,6 +352,48 @@ the other posture axes need data plumbing first).
   partially-fixed host keeps its alert open. Pre-existing single-unit alerts
   from before this release resolve too (unit-key fallback).
 
+### Security & hardening
+- **Pre-release security hunt (SAST + adversarial audit).** CodeQL / bandit /
+  gitleaks all clean; a black-box pass over the live edge (tight CSP, HSTS
+  preload, nosniff, frame-DENY) and a focused code audit fixed a set of
+  cross-tenant isolation gaps and a stored-XSS vector before release:
+  - **Cross-tenant ACME control** — the ACME write routes (issue / force-renew /
+    revoke / cancel) live under `/api/acme/`, so the device-scope pre-dispatch
+    never covered them; a tenant admin could queue a certificate command on
+    another tenant's host. Now tenant + role-scope gated at the shared funnel.
+  - **Cross-tenant alert leaks** — the dashboard Tickets card, the
+    alert resolution-stats (MTTR/MTTA) endpoint, and the alert-tuning endpoint
+    all filtered by role scope only, so a tenant admin (no role scope) saw every
+    tenant's alert data. All three now apply the shared visibility filter
+    (role scope **and** tenant gate).
+  - **Cross-tenant credential metadata** — `GET /api/cmdb/{id}/inherited-credentials`
+    confirmed another tenant's device and returned its scoped-credential metadata;
+    now blocked by the tenant gate.
+  - **Stored XSS via SNMP** — `sysUpTime` from a polled device was rendered
+    unescaped; a hostile/spoofed SNMP responder could inject markup. Escaped at
+    the UI sinks and coerced to an integer on ingest.
+- **Backups warn when written unencrypted at rest.** A scheduled backup with no
+  `RP_BACKUP_PASSPHRASE` set is written in plaintext (it contains session tokens,
+  hashed passwords, config secrets and the CMDB vault blob) — this used to be
+  entirely silent. It now logs a clear warning on every write; the self-status
+  page already surfaces the plaintext-archive count, and "Encrypt existing
+  backups" remediates archives already on disk. See [backups.md](docs/backups.md).
+
+### Performance
+- **Cheaper activity feeds.** The channel-routing matrix is built once per poll
+  instead of once per event (it was doing a full-config deepcopy per stored event
+  in `/api/home` and `/api/fleet/events` — up to ~1000 each), and the offline /
+  container webhook sweeps now read the fleet through the no-deepcopy read view.
+
+### UI polish
+- Box-overflow caps added to a few lists that could grow with data (ticket
+  create-form device chips, on-call schedule, AI cron next-runs, drift-profile
+  assignments), matching the project's cap-and-scroll rule.
+
+### Docs
+- New [syslog.md](docs/syslog.md) covering both the HTTP receiver and the native
+  `remotepower-syslogd` UDP listener for agentless appliances.
+
 ### Ops
 - **Self-update / deploy now restarts the sidecar daemons.**
   `deploy-server.sh` refreshes the webterm (`/usr/local/bin/remotepower-webterm`)

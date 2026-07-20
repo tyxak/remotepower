@@ -155,6 +155,8 @@ Older release notes (v6.1.2 and earlier) live in
  (subnets, derived occupancy, reservations, duplicate-IP/MAC conflict alerts).
 - **[agentless-devices.md](agentless-devices.md)** — Manual records for
  switches, APs, printers, IPMI cards.
+- **[syslog.md](syslog.md)** — Syslog ingestion from agentless appliances: the
+ HTTP receiver and the native `remotepower-syslogd` UDP listener.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
 - **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),

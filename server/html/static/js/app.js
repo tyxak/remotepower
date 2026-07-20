@@ -21269,7 +21269,7 @@ async function _drawerSnmpPollNow() {
       return;
     }
     if (r.data && r.data.last_ok) {
-      if (fb) fb.innerHTML = `<span class="sev-pill sev-success">ok</span> sysName: ${_escapeHtml(r.data.sysName || '?')} · uptime ${r.data.sysUpTime}`;
+      if (fb) fb.innerHTML = `<span class="sev-pill sev-success">ok</span> sysName: ${_escapeHtml(r.data.sysName || '?')} · uptime ${_escapeHtml(String(r.data.sysUpTime ?? '?'))}`;
       _drawerLoadSnmpConfig(id);   // refresh the status block
     } else {
       if (fb) fb.innerHTML = `<span class="sev-pill sev-critical">poll failed</span> ${_escapeHtml(r.data && r.data.last_error || 'unknown error')}`;

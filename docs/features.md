@@ -121,7 +121,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Metric alerts | Disk/memory/swap/CPU-load thresholds with hysteresis *(v1.11.10)*; per-device + per-mount overrides *(v1.12.0)* |
-| Webhook event registry | 139 event types (incl. ticket lifecycle: opened/resolved/SLA-breached), per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.5.0)* |
+| Webhook event registry | 150+ event types (incl. ticket lifecycle: opened/resolved/SLA-breached), per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.5.0)* |
 | Notification sandbox mode | `notifications_test_mode` (or per-destination `dry_run`) logs webhook + email deliveries without sending — validate event routing on a staging instance without spamming recipients *(v5.5.0)* |
 | Notification digest window | Per-destination `digest_minutes` batches non-critical events into one periodic summary delivery; critical/urgent always page immediately *(v6.0.0)* |
 | Channel routing matrix | Per event-kind, which surfaces it reaches — Needs Attention / Recent Activity / Alerts inbox / Webhook *(v3.3.0)* |
@@ -131,7 +131,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Fix from the Alerts page | An alert whose event maps to a remediation playbook shows a **Fix** button that opens the guided diagnostic → AI → remediation runner directly from the inbox *(v6.0.0)* |
 | Alert correlation | Tags `_root_cause` / `_symptom_of` for the grouped inbox |
 | Duplicate-alert coalescing | Repeat firings fold into the open alert (count bump) *(v5.0.1)* |
-| Recovery auto-resolve | A recover event closes the matching open alert when the condition clears — service/metric/mount/integration/resolver/IP/SNMP/disk, plus **container** (`container_recovered`) and **backup** (`backup_recovered`), matched per-identity *(container/backup v5.6.0)* |
+| Recovery auto-resolve | A recover event closes the matching open alert when the condition clears — service/metric/mount/integration/resolver/IP/SNMP/disk, plus **container** (`container_recovered`), **backup** (`backup_recovered`) and **failed systemd units** (`failed_unit_cleared`, matched per-unit so a batch alert closes only when every unit recovers), matched per-identity *(container/backup v5.6.0; failed units v6.3.0)* |
 | Alert-resolution timeline (MTTR) | Time-to-resolve / ack mean+median 7/30/90d, per-host, close-classification *(v4.9.0)* |
 | Quiet hours | Hold non-critical delivery during a daily window; critical always pages *(v3.4.1)* |
 | Maintenance windows | Suppress alerts and/or gate command execution; per-device/group/fleet; one-shot or recurring cron+duration; audit trail *(v3.4.2)* |

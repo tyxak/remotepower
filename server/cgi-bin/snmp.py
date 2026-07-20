@@ -414,7 +414,7 @@ def snmp_walk(host, community, root_oid, port=161, timeout=2.0, retries=1,
             try:
                 got = _v3_request(host, community, PDU_GET_NEXT, [current],
                                   port=port, timeout=timeout, retries=retries)
-            except SnmpError as e:
+            except SnmpError:
                 if results:
                     return results          # partial walk — keep what we have
                 raise
@@ -836,6 +836,16 @@ def poll_system(host, community, port=161, timeout=2.0):
     out = {}
     for name, oid in SYSTEM_OIDS.items():
         out[name] = raw.get(oid)
+    # v6.3.0 defense-in-depth: sysUpTime is TimeTicks (an integer). A hostile /
+    # spoofed SNMP responder (v1/v2c is unauthenticated UDP) can return it as an
+    # OCTET STRING carrying markup; coerce to int or None so it can never reach a
+    # UI sink as attacker-controlled text (the frontend also escapes it now).
+    _ut = out.get('sysUpTime')
+    if not isinstance(_ut, int):
+        try:
+            out['sysUpTime'] = int(str(_ut).strip())
+        except (TypeError, ValueError):
+            out['sysUpTime'] = None
     out['_oids'] = raw
     return out
 

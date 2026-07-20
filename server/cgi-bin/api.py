@@ -7533,8 +7533,14 @@ def _kind_default(kind):
 def _channel_routing():
     """Load the channel routing matrix, lazy-migrating from legacy
     config fields if `channel_routing` is absent. Returns
-    {kind: {channel: bool}} populated for every known kind."""
-    cfg = load(CONFIG_FILE) or {}
+    {kind: {channel: bool}} populated for every known kind.
+
+    v6.3.0 (perf): reads config via _config_ro() (shared cached object, no
+    deepcopy) — this is called once per stored event inside the two per-poll
+    activity comprehensions (handle_home / handle_fleet_events, up to
+    MAX_FLEET_EVENTS each), so a full-config deepcopy here cost O(events) copies
+    per dashboard poll. Builds only fresh out/migrated dicts, never mutates cfg."""
+    cfg = _config_ro() or {}
     routing = cfg.get('channel_routing')
     if isinstance(routing, dict) and routing:
         # Backfill any kinds that exist in code but not in the saved map
@@ -7624,12 +7630,16 @@ def _render_log_template(template, payload, device_name):
         return None
 
 
-def _channel_allowed(event_or_kind, channel):
+def _channel_allowed(event_or_kind, channel, routing=None):
     """True if this event (or kind) should reach the channel. Unknown
     event types route as if allowed — better to over-report than to
-    silently drop a brand-new event we haven't mapped yet."""
+    silently drop a brand-new event we haven't mapped yet.
+
+    v6.3.0 (perf): pass a pre-built `routing` (from one _channel_routing() call)
+    when checking many events in a loop, so the matrix isn't rebuilt per event."""
     kind = EVENT_KIND_MAP.get(event_or_kind, event_or_kind)
-    routing = _channel_routing()
+    if routing is None:
+        routing = _channel_routing()
     slot = routing.get(kind)
     if not isinstance(slot, dict):
         return True
@@ -10891,7 +10901,7 @@ def check_offline_webhooks(skip_dev_id=None):
         it silent. A live device beats in between and clears the
         candidate. Recovery (ONLINE) stays immediate.
     """
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)   # v6.3.0 perf: read-only sweep, no deepcopy
     now = int(time.time())
     ttl = get_online_ttl()
     webhook_enabled = is_webhook_event_enabled('device_offline')
@@ -43589,8 +43599,9 @@ def handle_home():
         events = [e for e in events
                   if (e.get('payload') or {}).get('device_id') not in devices_raw
                   or (e.get('payload') or {}).get('device_id') in _visible_ids]
+        _routing = _channel_routing()   # v6.3.0 perf: build once, not per event
         events = [e for e in events
-                  if _channel_allowed(e.get('event', ''), 'recent_activity')]
+                  if _channel_allowed(e.get('event', ''), 'recent_activity', _routing)]
         fleet_events = list(reversed(events))[:50]
     except Exception:
         fleet_events = []
@@ -50739,6 +50750,11 @@ def handle_alert_resolution_stats():
     cutoff = int(time.time()) - days * 86400
     store = load(ALERTS_FILE) or {}
     alerts = store.get('alerts', []) if isinstance(store, dict) else []
+    # v6.3.0 security fix: restrict to the caller's visible alerts (role scope
+    # AND tenant gate) BEFORE computing MTTR/MTTA + the per-host timeline —
+    # otherwise a tenant admin (scope None) or a scoped viewer got fleet-wide
+    # resolution stats incl. cross-tenant hostnames, notes and who-acked.
+    alerts = _filter_alerts_for_caller(alerts)
     resolved = [a for a in alerts if isinstance(a, dict) and a.get('resolved_at')
                 and int(a.get('resolved_at') or 0) >= cutoff]
     mttrs, mttas, per_host, timeline = [], [], {}, []
@@ -50963,6 +50979,14 @@ def handle_alert_tuning():
     days = max(1, min(days, 365))
     cutoff = int(time.time()) - days * 86400
     events = (load(FLEET_EVENTS_FILE) or {}).get('events') or []
+    # v6.3.0 security fix: scope + tenant isolation over the fleet timeline —
+    # same class as the v6.1.1 handle_fleet_events fix. Keep an event only if
+    # it's fleet-level (no device_id), names an already-deleted device, or its
+    # device is in the caller's visible set. Without this a tenant admin (scope
+    # None) or a scoped viewer saw every tenant's noisiest hosts/events + their
+    # resolved hostnames.
+    _devs_raw = load(DEVICES_FILE) or {}
+    _visible_ids = set(_scope_filter_devices(_devs_raw).keys())
     pair_counts = {}     # (device_id, device_name, event) -> count
     src_counts = {}      # event -> count
     for e in events:
@@ -50972,6 +50996,9 @@ def handle_alert_tuning():
         p = e.get('payload') or {}
         if not ev or not _alert_severity(ev, p):   # only alert-able events are "noise"
             continue
+        _eid = p.get('device_id') or ''
+        if _eid and _eid in _devs_raw and _eid not in _visible_ids:
+            continue     # a device that exists but isn't visible to this caller
         src_counts[ev] = src_counts.get(ev, 0) + 1
         dev_id = p.get('device_id') or ''
         if dev_id:
@@ -54054,8 +54081,9 @@ def handle_fleet_events():
     # whose kind has recent_activity=true. Centralised here so the home
     # feed, mobile app, and any other reader of /api/fleet/events all
     # respect the same operator preferences.
+    _routing = _channel_routing()   # v6.3.0 perf: build once, not per event
     events = [e for e in events
-              if _channel_allowed(e.get('event', ''), 'recent_activity')]
+              if _channel_allowed(e.get('event', ''), 'recent_activity', _routing)]
 
     # Newest first
     out = list(reversed(events))[:limit]
@@ -58501,10 +58529,10 @@ def check_container_webhooks():
     """
     if not is_webhook_event_enabled('containers_stale'):
         return
-    store = load(CONTAINERS_FILE)
+    store = _load_ro(CONTAINERS_FILE)   # v6.3.0 perf: read-only sweep, no deepcopy
     if not isinstance(store, dict) or not store:
         return
-    devices = load(DEVICES_FILE)
+    devices = _load_ro(DEVICES_FILE)   # v6.3.0 perf: read-only sweep, no deepcopy
     # v6.1.1 perf: read the notified map through the no-copy config view (this
     # sweep runs every request when container tracking is on); COPY it so the
     # loop never mutates the shared cache, and take a real config load only if

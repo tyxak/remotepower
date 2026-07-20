@@ -421,7 +421,11 @@ def build_devices() -> dict:
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '6.2.2' if not dev['agentless'] else None,
+            # Most of the fleet runs the current agent; a minority lag one/two
+            # minors so the "upgrade available" affordance has something to show.
+            'version':     (None if dev['agentless']
+                            else rng.choice(['6.3.0', '6.3.0', '6.3.0',
+                                             '6.2.3', '6.2.2'])),
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),

@@ -3,8 +3,8 @@
 Most of the docs here tell you *what* RemotePower does and *how to use it*. This
 one is for the curious — and for anyone hacking on the code. It's the engineering
 tour: the shape of the codebase, the decisions behind it, and the load-bearing
-patterns that hold ~96,000 lines of server Python together without a framework in
-sight.
+patterns that hold ~102,000 lines of server Python together — a hand-rolled
+request dispatcher and handler layer, with Flask/gunicorn as the thin WSGI shell.
 
 If you just want to run the thing, start with [install.md](install.md) and
 [architecture.md](architecture.md) (which covers the deployment topology and the

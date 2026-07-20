@@ -3284,7 +3284,7 @@
           <div class="section-title">On-call &amp; escalation</div>
           <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup. <a href="docs/oncall.md" class="c-accent">Documentation</a></p>
           <div class="mb-8 fs-13">Currently on call: <strong id="oncall-current">—</strong></div>
-          <div id="oncall-schedule" class="mb-8"></div>
+          <div id="oncall-schedule" class="mb-8 scroll-cap"></div>
           <div class="settings-row isl-57">
             <div class="form-group"><label for="oncall-enabled" class="form-label">On-call rotation</label>
               <select id="oncall-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
@@ -8727,7 +8727,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Affected devices (optional)</label>
     <input type="text" id="tk-create-dev-search" class="form-input mb-6" placeholder="Search a device…" autocomplete="off" aria-label="Search a device to attach to the ticket">
     <div id="tk-create-dev-results" class="scroll-cap-sm"></div>
-    <div id="tk-create-dev-chip" class="mt-6 meta-sm-nm"></div>
+    <div id="tk-create-dev-chip" class="mt-6 meta-sm-nm scroll-cap-sm"></div>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-create-modal">Cancel</button><button class="btn-primary" data-action="saveNewTicket">Create</button></div>
 </div></div>

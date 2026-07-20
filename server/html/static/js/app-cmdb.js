@@ -711,7 +711,7 @@ function _renderCmdbSnmpData(data) {
     `<div><strong>sysLocation:</strong> ${_escapeHtml(data.sysLocation || '—')}</div>` +
     `<div><strong>sysContact:</strong> ${_escapeHtml(data.sysContact || '—')}</div>` +
     `<div><strong>sysObjectID:</strong> <code>${_escapeHtml(data.sysObjectID || '—')}</code></div>` +
-    `<div><strong>sysUpTime:</strong> ${data.sysUpTime || '?'} (≈ ${upDays}d)</div>` +
+    `<div><strong>sysUpTime:</strong> ${_escapeHtml(String(data.sysUpTime ?? '?'))} (≈ ${upDays}d)</div>` +
     (data.last_error ? `<div class="c-muted mt-12"><em>Note: most recent error — ${_escapeHtml(data.last_error)}</em></div>` : '');
 }
 

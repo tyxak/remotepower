@@ -354,6 +354,12 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
     devices = A.load(A.DEVICES_FILE) or {}
     if dev_id not in devices:
         A.respond(404, {'error': 'device not found'}); return None
+    # v6.3.0 security fix: these ACME write routes live under /api/acme/, NOT
+    # /api/devices/, so main()'s _enforce_device_scope() never covers them. A
+    # tenant admin (role scope None) could otherwise queue an exec: (issue/
+    # renew/revoke) on another tenant's host. Gate tenant + role scope here —
+    # the one funnel for issue/force-renew/revoke. (Read siblings already do.)
+    A._scope_block_device(dev_id)
     action_id = secrets.token_hex(6)
     # Reserve the log file so it shows up in the detail view immediately
     try:
@@ -455,6 +461,10 @@ def handle_acme_cancel(dev_id, action_id):
     A.require_admin_auth()
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'invalid device id'}); return
+    # v6.3.0 security fix: cancel bypasses _acme_queue_command's gate — apply
+    # the same tenant + role-scope block (route is under /api/acme/, not covered
+    # by _enforce_device_scope).
+    A._scope_block_device(dev_id)
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         A.respond(400, {'error': 'invalid action id'}); return
     log_path = A._acme_log_path(dev_id, action_id)

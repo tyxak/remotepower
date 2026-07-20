@@ -1400,11 +1400,12 @@ def _dashboard_tickets(open_limit=5, acked_limit=5):
     (with state + who) for the dashboard Tickets card. Scope-filtered."""
     al = A.load(A.ALERTS_FILE) or {}
     alerts = al.get('alerts') or []
-    scope = A._caller_scope()
-    if scope is not None:
-        devs = A.load(A.DEVICES_FILE) or {}
-        alerts = [a for a in alerts if not a.get('device_id')
-                  or A._device_in_scope(scope, devs.get(a.get('device_id'), {}))]
+    # v6.3.0 security fix: fold in BOTH role scope AND the tenant gate. The old
+    # `if scope is not None` guard skipped filtering entirely for a tenant admin
+    # (role scope None), leaking every tenant's alerts onto the dashboard card.
+    # _filter_alerts_for_caller is the shared visibility filter (used by the
+    # alerts list + summary) and gets tenant isolation right.
+    alerts = A._filter_alerts_for_caller(alerts)
 
     def slim(a):
         return {'id': a.get('id'), 'alertid': a.get('alertid'),

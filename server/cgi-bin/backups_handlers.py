@@ -259,6 +259,20 @@ def _run_data_backup(triggered_by='scheduled'):
             pass
         out_path = enc_path
         encrypted = True
+    else:
+        # v6.3.0: a scheduled backup written without RP_BACKUP_PASSPHRASE is
+        # plaintext at rest — and the archive contains the whole data dir
+        # (session tokens, hashed passwords, config secrets, the CMDB vault
+        # blob). This used to be entirely silent, so plaintext DR archives
+        # accumulated unnoticed. Warn on every scheduled write; the operator
+        # sees it in the journal + the self-status page flags plaintext_archives,
+        # and "Encrypt existing backups" remediates what's already on disk.
+        sys.stderr.write(
+            f'[remotepower] WARNING: scheduled backup written UNENCRYPTED at '
+            f'rest ({out_path.name}) — RP_BACKUP_PASSPHRASE is not set, so the '
+            f'archive holds tokens/secrets in plaintext. Set RP_BACKUP_PASSPHRASE '
+            f'(or RP_BACKUP_PASSPHRASE_CMD) to encrypt new snapshots, and use '
+            f'"Encrypt existing backups" for archives already on disk.\n')
     # Prune — retain BOTH plaintext and encrypted archives (a fleet may have a mix
     # across a passphrase change).
     cutoff = time.time() - keep * 86400

@@ -1413,8 +1413,12 @@ def handle_device_inherited_credentials(dev_id: str) -> None:
     dev = (A.load(A.DEVICES_FILE) or {}).get(dev_id)
     if not dev:
         A.respond(404, {'error': 'device not found'})
-    if not A._device_in_scope(A._caller_scope(), dev):
-        A.respond(403, {'error': 'this device is outside your role scope'})
+    # v6.3.0 security fix: _device_in_scope(None, dev) is True, so the old check
+    # let a tenant admin (role scope None) confirm another tenant's device and
+    # read its inherited-credential metadata. _scope_block_device enforces the
+    # tenant gate AND role scope (route is under /api/cmdb/, not covered by
+    # _enforce_device_scope).
+    A._scope_block_device(dev_id)
     out = [A._scoped_cred_meta(c) for c in A._scoped_creds_load()['creds']
            if isinstance(c, dict) and A._scoped_cred_applies(c, dev)
            and A._caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value'))]
