@@ -157,10 +157,15 @@ async function createCveCampaign() {
   } else toast(r?.error || 'Failed', 'error');
 }
 async function deleteCveCampaign(cid) {
-  if (!await uiConfirm('Delete this campaign?')) return;
-  const r = await api('DELETE', '/cve/campaigns/' + encodeURIComponent(cid));
-  if (r && r.ok) { toast('Campaign deleted', 'success'); loadCveCampaigns(); }
-  else toast(r?.error || 'Failed', 'error');
+  // v6.3.0 (UX): undoable deferred delete — a campaign is a RemotePower-local
+  // tracking record, so Undo beats an irreversible confirm.
+  undoableDelete({
+    label: 'Campaign deleted',
+    hide: () => _hideRowByAction('deleteCveCampaign', cid),
+    commit: () => api('DELETE', '/cve/campaigns/' + encodeURIComponent(cid)),
+    undo: () => loadCveCampaigns(),
+    after: () => loadCveCampaigns(),
+  });
 }
 
 function _renderKevFeedStatus(f) {

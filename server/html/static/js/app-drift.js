@@ -131,11 +131,16 @@ async function saveDriftProfile() {
 }
 
 async function deleteDriftProfile(pid, name) {
-  if (!await uiConfirm(`Delete drift profile "${name}"? Devices assigned to it fall back to their group/global watched-file set.`)) return;
-  const r = await api('DELETE', `/drift/profiles/${encodeURIComponent(pid)}`);
-  if (!r || r.error) { toast('Delete failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  toast('Profile deleted', 'success');
-  loadDriftProfiles();
+  // v6.3.0 (UX): undoable deferred delete — the profile is a RemotePower-local
+  // record (assigned devices just fall back to their group/global set), so a
+  // deferred commit with Undo is safer than a confirm dialog.
+  undoableDelete({
+    label: name ? `Drift profile “${name}” deleted` : 'Drift profile deleted',
+    hide: () => _hideRowByAction('deleteDriftProfile', pid),
+    commit: () => api('DELETE', `/drift/profiles/${encodeURIComponent(pid)}`),
+    undo: () => loadDriftProfiles(),
+    after: () => loadDriftProfiles(),
+  });
 }
 
 function _ensureDriftAssignModal() {

@@ -144,10 +144,15 @@ async function saveBlueprint() {
 
 async function deleteBlueprint(id) {
   id = String(id);
-  if (!await uiConfirm('Delete this blueprint?')) return;
-  const d = await api('DELETE', '/provisioning/blueprints/' + encodeURIComponent(id));
-  if (d?.ok) { toast('Blueprint deleted', 'info'); loadProvisioning(); }
-  else toast(d?.error || 'Failed', 'error');
+  // v6.3.0 (UX): undoable deferred delete — a blueprint is a RemotePower-local
+  // record; deferring the commit with Undo is safer than a confirm dialog.
+  undoableDelete({
+    label: 'Blueprint deleted',
+    hide: () => _hideRowByAction('deleteBlueprint', id),
+    commit: () => api('DELETE', '/provisioning/blueprints/' + encodeURIComponent(id)),
+    undo: () => loadProvisioning(),
+    after: () => loadProvisioning(),
+  });
 }
 
 // ── render ────────────────────────────────────────────────────────────────

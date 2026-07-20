@@ -111,10 +111,15 @@ async function applyProfile() {
   else toast(r?.error || 'Failed', 'error');
 }
 async function deleteProfile(id, name) {
-  if (!await uiConfirm(`Delete profile "${name}"? (Already-assigned scripts stay assigned.)`)) return;
-  const r = await api('DELETE', '/monitoring-profiles/' + encodeURIComponent(id));
-  if (r?.ok) { toast('Profile deleted', 'success'); loadMonitoringProfiles(); }
-  else toast(r?.error || 'Failed', 'error');
+  // v6.3.0 (UX): undoable deferred delete — assigned scripts stay assigned, so
+  // the profile record is safe to defer-commit with Undo.
+  undoableDelete({
+    label: name ? `Profile “${name}” deleted` : 'Profile deleted',
+    hide: () => _hideRowByAction('deleteProfile', id),
+    commit: () => api('DELETE', '/monitoring-profiles/' + encodeURIComponent(id)),
+    undo: () => loadMonitoringProfiles(),
+    after: () => loadMonitoringProfiles(),
+  });
 }
 
 function renderCustomScriptsLoading() {

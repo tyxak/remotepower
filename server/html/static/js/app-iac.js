@@ -63,9 +63,14 @@ async function saveAnsiblePlaybook() {
 }
 
 async function deleteAnsiblePlaybook(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!await uiConfirm('Delete this playbook?')) return;
-  const d = await api('DELETE', '/ansible/playbooks/' + encodeURIComponent(id));
-  if (d?.ok) { toast('Playbook deleted', 'info'); loadAnsible(); } else toast(d?.error || 'Failed', 'error');
+  // v6.3.0 (UX): undoable deferred delete — a stored playbook is a local record.
+  undoableDelete({
+    label: 'Playbook deleted',
+    hide: () => _hideRowByAction('deleteAnsiblePlaybook', id),
+    commit: () => api('DELETE', '/ansible/playbooks/' + encodeURIComponent(id)),
+    undo: () => loadAnsible(),
+    after: () => loadAnsible(),
+  });
 }
 
 function _ansibleRunBtn(btn) {
