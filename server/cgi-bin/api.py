@@ -1804,6 +1804,10 @@ EVENT_REGISTRY = {
     'failed_unit': dict(
         label='a systemd unit entered the failed state on a host', kind='failed_units',
         title='Failed systemd Unit', severity='medium'),
+    'failed_unit_cleared': dict(
+        label='failed systemd units left the failed state on a host (recovered)',
+        kind='failed_units', title='Failed Units Cleared',
+        resolves=('failed_unit',), tags='white_check_mark'),
     'av_infected': dict(
         label='Antivirus / rootkit scan found an active infection', kind='av_posture',
         title='Malware Detected', severity='high'),
@@ -7962,6 +7966,10 @@ def _alert_title(event, payload):
         _un = p.get('new_count') or 1
         return (f'Service failed on {name}: {p.get("unit", "?")}'
                 + (f' (+{_un - 1} more)' if isinstance(_un, int) and _un > 1 else ''))
+    if event == 'failed_unit_cleared':
+        _cn = p.get('cleared_count') or 1
+        return (f'Failed unit recovered on {name}: {p.get("unit", "?")}'
+                + (f' (+{_cn - 1} more)' if isinstance(_cn, int) and _cn > 1 else ''))
     # v6.2.2 description overhaul — name the resource AND the values that make the
     # row actionable (these events previously fell to the generic label).
     if event == 'server_disk_low':
@@ -9174,6 +9182,10 @@ def _record_alert(event, payload):
                     'sample',      # log_alert: up to 3 matched lines — kept so a
                                    # ticket opened from the alert carries the evidence
                     'new_count',   # failed_unit/fail2ban: enables "+N more" in the title
+                    'units',       # v6.3.0: failed_unit's full unit batch — the
+                                   # failed_unit_cleared auto-resolve needs every
+                                   # unit stored (a batch alert closes only when
+                                   # ALL of them have left the failed state)
                     'user', 'fingerprint', 'proto', 'port', 'process',
                     'age_hours', 'vm_name', 'snap_name', 'days_old',
                     # v6.2.0: which AV engine fired (clamav/rkhunter/defender).
@@ -9425,6 +9437,13 @@ def _auto_resolve_alerts(event, payload):
         # v6.2.0: internet-restored. wan_down/wan_up are a fleet singleton (no
         # device_id) — match on the fixed 'wan' target both now carry.
         sub_match['target'] = p.get('target')
+    elif event == 'failed_unit_cleared':
+        # v6.3.0: a failed_unit alert may cover a BATCH of units ('dmesg.service
+        # (+3 more)'), so key-equality sub_match can't express its recovery. The
+        # loop below has a dedicated check: the alert resolves only when NONE of
+        # its units remain in the event's still_failed set (the host's current
+        # failed set as of this heartbeat).
+        pass
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -9443,6 +9462,18 @@ def _auto_resolve_alerts(event, payload):
                 # this and rely entirely on label/target.
                 if dev_id and a.get('device_id') != dev_id:
                     continue
+                # v6.3.0: failed_unit alerts resolve only when ALL their units
+                # have left the failed state (see the elif above). Falls back
+                # to the single 'unit' key for pre-v6.3.0 alerts that predate
+                # the 'units' whitelist entry.
+                if event == 'failed_unit_cleared':
+                    _ap = a.get('payload') or {}
+                    _au = _ap.get('units')
+                    if not isinstance(_au, list) or not _au:
+                        _au = [_ap.get('unit')] if _ap.get('unit') else []
+                    _still = set(p.get('still_failed') or [])
+                    if not _au or any(u in _still for u in _au):
+                        continue
                 # Sub-key match for service/script/monitor events
                 ok = True
                 for k, v in sub_match.items():
@@ -18058,6 +18089,23 @@ def handle_heartbeat():
                             'unit':      _new_fu[0],
                             'units':     _new_fu,
                             'new_count': len(_new_fu),
+                        }))
+                    # v6.3.0: edge-trigger the recover event on units LEAVING
+                    # the failed state. still_failed carries the current failed
+                    # set — _auto_resolve_alerts closes an open failed_unit
+                    # alert only when NONE of its units remain in that set (a
+                    # batch alert like "dmesg.service (+3 more)" must not close
+                    # while any of its units is still failed).
+                    _cleared_fu = sorted(set(_prev_fu) - set(safe_si['failed_units']))
+                    if _cleared_fu:
+                        _cleared_fu = _cleared_fu[:50]
+                        _failed_unit_pending.append(('failed_unit_cleared', {
+                            'device_id':     dev_id,
+                            'name':          dev.get('name', dev_id),
+                            'unit':          _cleared_fu[0],
+                            'units':         _cleared_fu,
+                            'cleared_count': len(_cleared_fu),
+                            'still_failed':  sorted(safe_si['failed_units'])[:50],
                         }))
             # v3.8.0: persist currently-logged-in users (operational signal —
             # who is on the box right now). Same omission as failed_units.
@@ -57152,7 +57200,8 @@ SUPPRESSIBLE_EVENTS = (
     # v5.8.0 (B1.4)
     'metric_warning', 'metric_critical',
     'config_drift',   'drift_detected',
-    'failed_unit',    'timer_failed',
+    'failed_unit',    'failed_unit_cleared',
+    'timer_failed',
     'reboot_required',
     'container_stopped', 'container_restarting', 'containers_stale',
     'backup_stale',

@@ -18155,6 +18155,8 @@ function _renderHomeActivity(fleetEvents) {
     // v5.1.0: fail2ban intrusion bans
     'fail2ban_ban',
     'failed_unit',
+    // v6.3.0: units leaving the failed state (auto-resolves failed_unit)
+    'failed_unit_cleared',
     // v5.1.0: endpoint AV/malware detection
     'av_infected',
     // v5.4.1: AV/rootkit scan warnings (rkhunter [Warning] / stale AV DB)
@@ -18414,7 +18416,8 @@ function _homeActivityAttrs(event, p) {
     case 'fail2ban_ban':
       return `${base} data-home-act="${devId ? 'detail' : 'firewall'}"`;
     // v5.5.0: a unit entering the failed state → the host drawer (or Checks fleet-wide)
-    case 'failed_unit':
+    // v6.3.0: units recovering route the same way
+    case 'failed_unit': case 'failed_unit_cleared':
       return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
     // v5.1.0: malware/rootkit detection → the affected host's drawer
     // v5.4.1: av_warning (rkhunter warnings / stale AV DB) routes the same way

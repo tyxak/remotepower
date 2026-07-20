@@ -793,6 +793,11 @@ def _webhook_message(event, payload):
         return f'{name}: systemd unit {payload.get("unit","?")} entered the failed state' + (
             f" (+{_un - 1} more new this cycle)" if _un > 1 else ""
         )
+    elif event == "failed_unit_cleared":
+        _cn = payload.get("cleared_count") or 1
+        return f'{name}: systemd unit {payload.get("unit","?")} left the failed state' + (
+            f" (+{_cn - 1} more)" if _cn > 1 else ""
+        )
     # v6.2.2 — no hand-written branch: prefer the fire-site's human `detail` over
     # a bare "event: host" so a webhook/push consumer still gets an explanation.
     # (The notification TITLE separately carries the event's registry title.)

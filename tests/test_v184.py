@@ -325,6 +325,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'resolver_unhealthy', 'resolver_recovered',  # v4.9.0 resolver health
             'fail2ban_ban',                          # v5.1.0 fail2ban bans
             'failed_unit',                           # v5.5.0 failed systemd unit
+            'failed_unit_cleared',                   # v6.3.0 units left the failed state
             'av_infected',                           # v5.1.0 endpoint AV/malware
             'av_warning',                            # v5.4.1 AV/rootkit scan warnings
             'av_realtime_off',                       # v6.2.0 Defender real-time protection off

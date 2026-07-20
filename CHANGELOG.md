@@ -341,6 +341,17 @@ the other posture axes need data plumbing first).
   failures and success confirmations still land in the bell. A test ratchet
   fails any future validation nag added without the flag.
 
+### Alerts
+- **Failed-unit alerts now auto-resolve.** New `failed_unit_cleared` recover
+  event: the heartbeat already edge-triggers `failed_unit` on units newly
+  entering the failed state; it now also fires the recover event on units
+  leaving it, and the open alert closes automatically ("resolved · auto",
+  including the ticket-recovery note like every other recover event). A batch
+  alert ("dmesg.service (+3 more)") resolves only when *all* of its units have
+  left the failed state — the event carries the host's current failed set so a
+  partially-fixed host keeps its alert open. Pre-existing single-unit alerts
+  from before this release resolve too (unit-key fallback).
+
 ### Ops
 - **Self-update / deploy now restarts the sidecar daemons.**
   `deploy-server.sh` refreshes the webterm (`/usr/local/bin/remotepower-webterm`)
