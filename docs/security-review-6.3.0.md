@@ -81,6 +81,36 @@ Each of the five fixes is pinned by a regression test that drives the real handl
 with only the caller's identity stubbed — so a test passes only if the gate is
 genuinely present, and a handler with no gate at all would fail.
 
+## Second pass — the new backup subsystem
+
+The v6.3.0 backup work (structured file-backup jobs that generate commands run as
+root on hosts, a multi-device "baseline", restore, and an archive browser) got its
+own dedicated adversarial pass, since generating root commands is exactly where a
+subtle flaw is most costly. All findings were fixed and regression-tested before
+release.
+
+- **Cross-tenant backup-job control (fixed).** The backup-job **list / update /
+  delete** endpoints matched a job by its id alone — the *run*, *restore* and
+  *archive* endpoints already re-filter through the shared scope/tenant chokepoint,
+  but these three did not. On a multi-tenant install a tenant administrator could
+  therefore read another tenant's job definitions (including destination hosts and
+  the command text of legacy jobs, which can embed secrets), delete their jobs, or
+  edit a job's command/schedule and let the scheduler run it as root on the other
+  tenant's hosts. All three now gate on whether every one of the job's target
+  devices is in the caller's scope, returning "not found" otherwise — a no-op on a
+  single-tenant install. This is the same device-keyed-store isolation class fixed
+  for the alerts store in a prior release.
+- **Command-generation stayed injection-proof under stress.** Every field that
+  reaches the generated shell command — source paths, host, user, remote path, NFS
+  export, SMB share, credentials-file path, port, archive name, job id — is
+  validated against a strict allowlist (absolute paths only, no shell
+  metacharacters, no `..` traversal) *and* quoted; a battery of injection attempts
+  (command substitution, backticks, pipes, semicolons, newlines, globs) was
+  rejected. One gap was found and closed: the SMB **share** name allowed `/` and
+  `..`, so it could form a traversing `//host/../..` UNC — it is now restricted to
+  a single component. No credential ever appears in a generated command (ssh uses
+  key auth, NFS needs none, SMB references a host-side credentials file).
+
 ## A safety improvement worth calling out
 
 - **Backups now warn when written unencrypted at rest.** RemotePower encrypts its
@@ -113,6 +143,9 @@ fails the build for any new ungated body-device handler.
 
 SAST is clean across all tools (the one CodeQL result is the by-design syslog
 listener, triaged and documented); the live edge is correctly hardened; the
-adversarial passes found no remaining exploitable issue; and the pre-existing
-cross-tenant and stored-XSS gaps were fixed and regression-tested. No Critical,
-High or Medium finding ships in v6.3.0.
+adversarial passes found no remaining exploitable issue; the pre-existing
+cross-tenant and stored-XSS gaps were fixed and regression-tested; and the new
+backup subsystem's own pass fixed a cross-tenant job-control gap and an SMB-share
+traversal, with the root-command generator verified injection-proof under a
+battery of attacks. Every fix is regression-tested and no-op on a single-tenant
+install. No Critical, High or Medium finding ships in v6.3.0.

@@ -420,6 +420,13 @@ the other posture axes need data plumbing first).
   - **Stored XSS via SNMP** — `sysUpTime` from a polled device was rendered
     unescaped; a hostile/spoofed SNMP responder could inject markup. Escaped at
     the UI sinks and coerced to an integer on ingest.
+  - **Cross-tenant backup-job control** (second pass, over the new backup
+    subsystem) — the backup-job list / update / delete endpoints matched a job by
+    id alone (run / restore / archive already re-filter), so a tenant admin could
+    read another tenant's job secrets, delete their jobs, or edit a job's command
+    to run it as root on their hosts via the scheduler. All three now gate on the
+    job's target-device scope. The root-command generator was verified
+    injection-proof under attack; one SMB-share traversal gap was closed.
 - **Backups warn when written unencrypted at rest.** A scheduled backup with no
   `RP_BACKUP_PASSPHRASE` set is written in plaintext (it contains session tokens,
   hashed passwords, config secrets and the CMDB vault blob) — this used to be
