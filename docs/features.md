@@ -353,6 +353,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Per-device backups | Watched-path age + fresh/stale state in the drawer *(v3.4.2)* |
 | Backup orchestration | Define a backup command per device (restic/borg/rsync); on-demand or cron *(v3.6.0)* |
+| Structured file backup + restore | Guided file-backup job (no shell): pick source paths + method (rsync/tar.gz) + destination (SSH key-auth / NFS / SMB); the server generates + strictly validates the command (no operator shell text, no credentials in the command). Per-job **Restore** pulls it back to a chosen path — admin-only, typed confirmation, audited. `POST /api/backup-jobs/{id}/restore` *(v6.3.0)* |
+| Proxmox Backup Server | PBS datastores on the Backups page (fill %, dedup factor, free/total, estimated-full) from a configured PBS integration; down/recover alerts *(v6.3.0)* |
 | Backup integrity verification | Agent runs the tool's own check (`tar -tf` / `restic check` / `borg check`); `backup_verify_failed` *(v4.10.0)* |
 | Scheduled restore drills | Opt-in per backup monitor: the agent actually restores a configured sample path from the latest archive (`restic`/`borg`/`tar`) into a throwaway sandbox (never over live paths), verifies it's non-empty + hashes it, then deletes it. Rate-gated + time-bounded; a failure fires `restore_drill_failed` (`restore_drill_ok` on recovery). Result shown in the device drawer *(v6.0.0)* |
 | Backup size trending | Agent reports each watched backup's size; server keeps a rolling history and fires `backup_size_anomaly` when a fresh backup drops below a configurable % of its trailing median — catches a truncated/half-written backup that's still recent *(v6.0.0)* |

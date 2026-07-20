@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-20">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-21">
 
 </head>
 <body>
@@ -6485,7 +6485,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="section-title">Proxmox Backup Server</div>
             <button class="btn-icon" data-action="loadPbsBackups"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
-          <div class="page-subtitle mb-12">Datastore fill, dedup factor and time-to-full for each PBS datastore. Configure a PBS instance under <strong>Settings → Integrations</strong> (a down/degraded datastore also raises an alert). <a href="docs/backups.md" class="c-accent">Documentation</a></div>
+          <div class="hint mb-12">Datastore fill, dedup factor and time-to-full for each PBS datastore. Configure a PBS instance under <strong>Settings → Integrations</strong> (a down/degraded datastore also raises an alert). <a href="docs/backups.md" class="c-accent">Documentation</a></div>
           <div id="pbs-body"><div class="empty-state">Loading…</div></div>
         </div>
       </div>
@@ -8549,7 +8549,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="backupjob-edit-id">
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="backupjob-name" class="form-input" placeholder="Nightly restic to B2" maxlength="80" aria-label="Name"></div>
   <div class="form-group"><label class="form-label">Device</label><select id="backupjob-device" class="form-input device-combo" aria-label="Device"></select></div>
-  <div class="form-group"><label class="form-label">Backup command</label><textarea id="backupjob-command" class="form-textarea" rows="3" placeholder="restic backup /etc /home --tag rp" aria-label="Backup command"></textarea></div>
+  <div class="form-group"><label class="form-label">Job type</label><select id="backupjob-type" class="form-input" aria-label="Job type"><option value="command">Command (restic / borg / rsync …)</option><option value="file">File backup (select paths → ssh / nfs / smb)</option></select></div>
+  <div class="form-group" id="backupjob-command-group"><label class="form-label">Backup command</label><textarea id="backupjob-command" class="form-textarea" rows="3" placeholder="restic backup /etc /home --tag rp" aria-label="Backup command"></textarea></div>
+  <div id="backupjob-file-group" class="d-none">
+    <div class="form-group"><label class="form-label">Source paths (one per line)</label><textarea id="backupjob-paths" class="form-textarea" rows="3" placeholder="/etc&#10;/var/www" aria-label="Source paths"></textarea></div>
+    <div class="form-group"><label class="form-label">Method</label><select id="backupjob-method" class="form-input" aria-label="Method"><option value="rsync">rsync (incremental)</option><option value="tar">tar.gz (single archive)</option></select></div>
+    <div class="form-group"><label class="form-label">Transport</label><select id="backupjob-transport" class="form-input" aria-label="Transport"><option value="ssh">SSH — rsync/tar over ssh (key auth)</option><option value="nfs">NFS — mount &amp; copy</option><option value="smb">SMB/CIFS — mount &amp; copy</option></select></div>
+    <div class="form-group"><label class="form-label">Host</label><input type="text" id="backupjob-host" class="form-input" placeholder="backup.example.com" aria-label="Host"></div>
+    <div class="form-group" id="backupjob-port-group"><label class="form-label">SSH port</label><input type="number" id="backupjob-port" class="form-input mw-160" value="22" min="1" max="65535" aria-label="SSH port"></div>
+    <div class="form-group" id="backupjob-user-group"><label class="form-label">SSH user</label><input type="text" id="backupjob-user" class="form-input" placeholder="backup" aria-label="SSH user"></div>
+    <div class="form-group d-none" id="backupjob-export-group"><label class="form-label">NFS export</label><input type="text" id="backupjob-export" class="form-input" placeholder="/export/backups" aria-label="NFS export"></div>
+    <div class="form-group d-none" id="backupjob-share-group"><label class="form-label">SMB share</label><input type="text" id="backupjob-share" class="form-input" placeholder="backups" aria-label="SMB share"></div>
+    <div class="form-group d-none" id="backupjob-credfile-group"><label class="form-label">SMB credentials file (host-side, optional)</label><input type="text" id="backupjob-credfile" class="form-input" placeholder="/etc/remotepower/smb.cred" aria-label="SMB credentials file"></div>
+    <div class="form-group"><label class="form-label">Remote path (destination directory)</label><input type="text" id="backupjob-remotepath" class="form-input" placeholder="/backups/host1" aria-label="Remote path"></div>
+    <p class="hint">The server builds the command for you — you never type shell. SSH uses key auth (no password); NFS/SMB are mounted then unmounted. Credentials stay on the host (an ssh key or the SMB credentials file), never in RemotePower. <a href="docs/backups.md" class="c-accent">Documentation</a></p>
+  </div>
   <div class="form-group"><label class="form-label">Schedule (cron, optional)</label><input type="text" id="backupjob-cron" class="form-input" placeholder="0 2 * * *" aria-label="Schedule (cron, optional)"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="backupjob-modal">Cancel</button><button class="btn-primary" id="backupjob-save-btn" data-action="saveBackupJob">Create</button></div>
 </div></div>
@@ -10404,34 +10418,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-20"></script>
+<script defer src="static/js/app.js?v=6.3.0-21"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-20"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-21"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-20"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-21"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-20"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-21"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-20"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-20"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-21"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-21"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10440,6 +10454,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-20"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-21"></script>
 </body>
 </html>

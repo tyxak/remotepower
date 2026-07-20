@@ -367,6 +367,20 @@ the other posture axes need data plumbing first).
   drops back below its threshold). Each is edge-triggered from the same sweep
   that fires the original alert and matched per-resource.
 
+### Backups
+- **Structured file backup + restore.** A backup job can now be a guided **file
+  backup** instead of a typed command: pick the source paths, a method (rsync or
+  tar.gz) and a destination (SSH key-auth, or NFS/SMB mount). The server generates
+  and strictly validates the command — the operator never supplies shell text, and
+  no credential ever appears in the generated command (it runs as root on the
+  host). Each file job gets a **Restore** action that pulls the backup back to a
+  chosen directory (admin-only, typed `RESTORE` confirmation, audited).
+  `POST /api/backup-jobs/{id}/restore`. See [backups.md](docs/backups.md).
+- **Proxmox Backup Server on the Backups page.** Configure a PBS instance under
+  Settings → Integrations and its datastores surface under Backups — fill %, dedup
+  factor, free/total space and estimated-full date, with the usual down/recover
+  alerts.
+
 ### Security & hardening
 - **Pre-release security hunt (SAST + adversarial audit).** CodeQL / bandit /
   gitleaks all clean; a black-box pass over the live edge (tight CSP, HSTS

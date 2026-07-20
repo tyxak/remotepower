@@ -15,6 +15,38 @@ pipeline.
   **Run now** (`POST /api/backup-jobs/{id}/run`).
 - Cron expressions are validated; up to 100 jobs per fleet.
 
+### File backup (structured — no shell required)
+
+Instead of typing a command, pick **File backup** as the job type and fill in a
+form: the **source paths** to back up (one per line), a **method** (rsync for
+incremental, or a single tar.gz archive), and a **destination**:
+
+- **SSH** — rsync/tar over ssh to `user@host:/path`. Uses **key authentication**
+  (the host needs an ssh key for the target; no password is ever stored or typed).
+- **NFS** — the export is mounted, the files copied, then unmounted.
+- **SMB/CIFS** — the share is mounted (optionally with a **host-side credentials
+  file**, the same posture as an ssh key), copied, then unmounted.
+
+The server **generates the command** from those fields and validates every value
+against a strict allowlist (absolute paths only, no shell metacharacters, no
+traversal) — the operator never supplies shell text, and **no credential ever
+appears in the generated command** (it runs as root on the host, so this matters).
+rsync progress is captured in the command output, visible in the device's command
+history.
+
+**Restore on demand** — a file-backup job has a **Restore** action that pulls the
+backup back to a directory you choose on the host. It's destructive (it overwrites
+the restore path), so it is admin-only, requires typing `RESTORE` to confirm, and
+is audited. `POST /api/backup-jobs/{id}/restore`.
+
+### Proxmox Backup Server
+
+Configure a **Proxmox Backup Server** instance under **Settings → Integrations**
+(a PBS API token) and its datastores appear on the Backups page — fill %, dedup
+factor, free/total space and estimated-full date per datastore. A full or
+unreachable datastore raises the standard `integration_down` / `integration_recovered`
+alerts.
+
 ## Backup freshness & integrity
 
 For backups you run yourself (any tool), point the agent at the resulting files:

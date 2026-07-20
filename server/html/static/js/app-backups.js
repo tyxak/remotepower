@@ -18,7 +18,7 @@ function _registerBackupJobsTable() {
     columns: ['name', 'device_name', 'cron', 'last_run', 'enabled'],
     getColumns: (j) => ({ name: j.name || '', device_name: j.device_name || '',
       cron: j.cron || '', last_run: j.last_run || 0, enabled: j.enabled ? 1 : 0 }),
-    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button><button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
+    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}${j.type === 'file' ? ' <span class="badge-xs">file</span>' : ''}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button>${j.type === 'file' ? `<button class="btn-icon" data-action="restoreBackupJob" data-arg="${escAttr(j.id)}" title="Restore this backup to the host">Restore</button>` : ''}<button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
     emptyMsg: 'No backup jobs. Create one to run or schedule a backup command.',
     emptyMsgFiltered: 'No jobs match the filter.',
   });
@@ -73,11 +73,43 @@ function _backupPopulateDevices(sel, current) {
   sel.innerHTML = list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id===current?' selected':''}>${escHtml(dv.name)}</option>`).join('');
 }
 
+let _backupTypeWired = false;
+// Show/hide command vs file field groups, and the transport-specific fields.
+function _backupJobToggleType() {
+  const type = document.getElementById('backupjob-type').value;
+  const isFile = type === 'file';
+  document.getElementById('backupjob-command-group').classList.toggle('d-none', isFile);
+  document.getElementById('backupjob-file-group').classList.toggle('d-none', !isFile);
+  const tr = document.getElementById('backupjob-transport').value;
+  document.getElementById('backupjob-port-group').classList.toggle('d-none', tr !== 'ssh');
+  document.getElementById('backupjob-user-group').classList.toggle('d-none', tr !== 'ssh');
+  document.getElementById('backupjob-export-group').classList.toggle('d-none', tr !== 'nfs');
+  document.getElementById('backupjob-share-group').classList.toggle('d-none', tr !== 'smb');
+  document.getElementById('backupjob-credfile-group').classList.toggle('d-none', tr !== 'smb');
+}
+function _backupWireTypeToggle() {
+  if (_backupTypeWired) return;
+  _backupTypeWired = true;
+  document.getElementById('backupjob-type').addEventListener('change', _backupJobToggleType);
+  document.getElementById('backupjob-transport').addEventListener('change', _backupJobToggleType);
+}
+function _backupResetFileFields() {
+  ['paths', 'host', 'user', 'export', 'share', 'credfile', 'remotepath'].forEach(k =>
+    { const el = document.getElementById('backupjob-' + k); if (el) el.value = ''; });
+  document.getElementById('backupjob-port').value = '22';
+  document.getElementById('backupjob-method').value = 'rsync';
+  document.getElementById('backupjob-transport').value = 'ssh';
+}
+
 function openBackupJobCreate() {
   document.getElementById('backupjob-edit-id').value = '';
   document.getElementById('backupjob-name').value = '';
   document.getElementById('backupjob-command').value = '';
   document.getElementById('backupjob-cron').value = '';
+  document.getElementById('backupjob-type').value = 'command';
+  _backupResetFileFields();
+  _backupWireTypeToggle();
+  _backupJobToggleType();
   _backupPopulateDevices(document.getElementById('backupjob-device'), '');
   document.getElementById('backupjob-modal-title').textContent = 'New backup job';
   document.getElementById('backupjob-save-btn').textContent = 'Create';
@@ -88,8 +120,25 @@ function _backupEditBtn(btn) {
   const j = _backupJobsCache.find(x => x.id === btn.dataset.id); if (!j) return;
   document.getElementById('backupjob-edit-id').value = j.id;
   document.getElementById('backupjob-name').value = j.name;
-  document.getElementById('backupjob-command').value = j.command;
+  document.getElementById('backupjob-command').value = j.command || '';
   document.getElementById('backupjob-cron').value = j.cron || '';
+  document.getElementById('backupjob-type').value = j.type || 'command';
+  _backupResetFileFields();
+  if (j.type === 'file' && j.spec) {
+    const s = j.spec, d = s.dest || {};
+    document.getElementById('backupjob-paths').value = (s.paths || []).join('\n');
+    document.getElementById('backupjob-method').value = s.method || 'rsync';
+    document.getElementById('backupjob-transport').value = d.transport || 'ssh';
+    document.getElementById('backupjob-host').value = d.host || '';
+    document.getElementById('backupjob-port').value = d.port || 22;
+    document.getElementById('backupjob-user').value = d.user || '';
+    document.getElementById('backupjob-export').value = d.export || '';
+    document.getElementById('backupjob-share').value = d.share || '';
+    document.getElementById('backupjob-credfile').value = d.credentials_file || '';
+    document.getElementById('backupjob-remotepath').value = d.remote_path || '';
+  }
+  _backupWireTypeToggle();
+  _backupJobToggleType();
   _backupPopulateDevices(document.getElementById('backupjob-device'), j.device_id);
   document.getElementById('backupjob-device').disabled = true;   // device is fixed after creation
   document.getElementById('backupjob-modal-title').textContent = 'Edit backup job';
@@ -97,16 +146,49 @@ function _backupEditBtn(btn) {
   openModal('backupjob-modal');
 }
 
+// Build the structured file-backup spec from the form (client-side shape only —
+// the server re-validates every field before it generates any command).
+function _backupBuildSpec() {
+  const paths = document.getElementById('backupjob-paths').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const transport = document.getElementById('backupjob-transport').value;
+  const dest = {
+    transport,
+    host: document.getElementById('backupjob-host').value.trim(),
+    remote_path: document.getElementById('backupjob-remotepath').value.trim(),
+  };
+  if (transport === 'ssh') {
+    dest.user = document.getElementById('backupjob-user').value.trim();
+    dest.port = parseInt(document.getElementById('backupjob-port').value, 10) || 22;
+  } else if (transport === 'nfs') {
+    dest.export = document.getElementById('backupjob-export').value.trim();
+  } else if (transport === 'smb') {
+    dest.share = document.getElementById('backupjob-share').value.trim();
+    const cf = document.getElementById('backupjob-credfile').value.trim();
+    if (cf) dest.credentials_file = cf;
+  }
+  return { paths, method: document.getElementById('backupjob-method').value, dest };
+}
+
 async function saveBackupJob() {
   const id = document.getElementById('backupjob-edit-id').value;
   const dsel = document.getElementById('backupjob-device');
+  const type = document.getElementById('backupjob-type').value;
   const body = {
     name: document.getElementById('backupjob-name').value.trim(),
-    command: document.getElementById('backupjob-command').value.trim(),
     cron: document.getElementById('backupjob-cron').value.trim(),
+    type,
   };
   if (!id) body.device_id = dsel.value;
-  if (!body.name || !body.command) { toast('Name and command required', 'error', {transient: true}); return; }
+  if (!body.name) { toast('Name is required', 'error', {transient: true}); return; }
+  if (type === 'file') {
+    body.spec = _backupBuildSpec();
+    if (!body.spec.paths.length) { toast('Add at least one source path', 'error', {transient: true}); return; }
+    if (!body.spec.dest.host || !body.spec.dest.remote_path) { toast('Host and remote path are required', 'error', {transient: true}); return; }
+  } else {
+    body.command = document.getElementById('backupjob-command').value.trim();
+    if (!body.command) { toast('A command is required', 'error', {transient: true}); return; }
+  }
   if (body.cron && body.cron.split(/\s+/).length !== 5) { toast('Cron needs 5 fields (min hour day month weekday)', 'error'); return; }
   const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
                : await api('POST', '/backup-jobs', body);
@@ -117,8 +199,46 @@ async function saveBackupJob() {
 
 async function _backupRunBtn(btn) {
   const d = await api('POST', '/backup-jobs/' + encodeURIComponent(btn.dataset.id) + '/run', {});
-  if (d?.ok) toast('Backup queued — output appears in the device command history', 'success');
+  if (d?.ok) toast('Backup queued — output (incl. rsync progress) appears in the device command history', 'success');
   else toast(d?.error || 'Failed', 'error');
+}
+
+// v6.3.0: restore a structured file-backup back to the host. Destructive, so the
+// server requires a typed RESTORE confirmation (we collect it here too).
+async function restoreBackupJob(id) {
+  id = String(id);
+  const j = _backupJobsCache.find(x => x.id === id);
+  if (!j) return;
+  const path = await uiPrompt({
+    title: 'Restore backup to host',
+    message: `Pull “${j.name}” back to ${escHtml(j.device_name)} and OVERWRITE the restore path. `
+      + 'Enter the absolute directory on the host to restore into:',
+    placeholder: '/restore/target',
+    confirmText: 'Continue',
+  });
+  if (path === null) return;
+  if (!path.trim().startsWith('/')) { toast('Restore path must be absolute', 'error'); return; }
+  let archive = null;
+  if (j.spec && j.spec.method === 'tar') {
+    archive = await uiPrompt({
+      title: 'Which archive?',
+      message: 'tar backups are per-run archives. Enter the archive filename to restore (see the destination):',
+      placeholder: `${j.id}-20260101-020000.tar.gz`,
+      confirmText: 'Continue',
+    });
+    if (archive === null) return;
+  }
+  const confirm = await uiPrompt({
+    title: 'Confirm restore',
+    message: 'This overwrites files under the restore path. Type RESTORE to proceed.',
+    placeholder: 'RESTORE',
+    confirmText: 'Restore now',
+  });
+  if (confirm === null) return;
+  const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/restore',
+    { restore_path: path.trim(), confirm: confirm.trim(), archive: archive ? archive.trim() : '' });
+  if (d?.ok) toast('Restore queued — output appears in the device command history', 'success');
+  else toast(d?.error || 'Failed to queue restore', 'error');
 }
 
 async function deleteBackupJob(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
