@@ -8033,4 +8033,1210 @@ test_quiet_hours_flag_in_nav_counts (test_v630.TestWave9.test_quiet_hours_flag_i
 test_table_view_extras (test_v630.TestWave9.test_table_view_extras) ... ok
 test_ui_scale_and_pull_to_refresh (test_v630.TestWave9.test_ui_scale_and_pull_to_refresh) ... ok
 test_undo_history_menu (test_v630.TestWave9.test_undo_history_menu) ... ok
-test_every_sidebar_page_activates_without_js_errors (test_v630_e2e_page_smokes.TestEveryPageOpensClean.test_every_sidebar_page_activates_without_js_errors) ... 
+test_every_sidebar_page_activates_without_js_errors (test_v630_e2e_page_smokes.TestEveryPageOpensClean.test_every_sidebar_page_activates_without_js_errors) ... ok
+test_batch_alert_resolves_when_all_units_cleared (test_v630_failed_unit_autoresolve.TestAutoResolveRealPath.test_batch_alert_resolves_when_all_units_cleared) ... ok
+test_batch_alert_stays_open_while_any_unit_still_failed (test_v630_failed_unit_autoresolve.TestAutoResolveRealPath.test_batch_alert_stays_open_while_any_unit_still_failed) ... ok
+test_full_fire_webhook_path (test_v630_failed_unit_autoresolve.TestAutoResolveRealPath.test_full_fire_webhook_path) ... ok
+test_legacy_single_unit_alert_resolves_via_fallback (test_v630_failed_unit_autoresolve.TestAutoResolveRealPath.test_legacy_single_unit_alert_resolves_via_fallback) ... ok
+test_other_device_alert_untouched (test_v630_failed_unit_autoresolve.TestAutoResolveRealPath.test_other_device_alert_untouched) ... ok
+test_unrelated_still_failed_units_do_not_block (test_v630_failed_unit_autoresolve.TestAutoResolveRealPath.test_unrelated_still_failed_units_do_not_block) ... ok
+test_cleared_units_fire_recover_event_with_still_failed (test_v630_failed_unit_autoresolve.TestHeartbeatEdgeTrigger.test_cleared_units_fire_recover_event_with_still_failed) ... ok
+test_no_recover_event_when_nothing_cleared (test_v630_failed_unit_autoresolve.TestHeartbeatEdgeTrigger.test_no_recover_event_when_nothing_cleared) ... [remotepower] last_seen regression prevented dev=d1 incoming=0 disk=1784556020 by=setUp pid=169519
+ok
+test_event_registered_and_derived (test_v630_failed_unit_autoresolve.TestRegistryWiring.test_event_registered_and_derived) ... ok
+test_suppressible_alongside_firing_pair (test_v630_failed_unit_autoresolve.TestRegistryWiring.test_suppressible_alongside_firing_pair) ... ok
+test_units_batch_is_whitelisted_on_the_alert (test_v630_failed_unit_autoresolve.TestRegistryWiring.test_units_batch_is_whitelisted_on_the_alert) ... ok
+test_recover_clears_only_the_recovered_timer (test_v630_failed_unit_autoresolve.TestTimerFailedCleared.test_recover_clears_only_the_recovered_timer) ... ok
+test_registry_wired (test_v630_failed_unit_autoresolve.TestTimerFailedCleared.test_registry_wired) ... ok
+test_generation_raises_on_invalid_spec (test_v630_filebackup.TestGeneration.test_generation_raises_on_invalid_spec) ... ok
+test_generation_rejects_bad_job_id (test_v630_filebackup.TestGeneration.test_generation_rejects_bad_job_id) ... ok
+test_nfs_mounts_and_always_unmounts (test_v630_filebackup.TestGeneration.test_nfs_mounts_and_always_unmounts) ... ok
+test_smb_uses_credentials_file_not_inline_password (test_v630_filebackup.TestGeneration.test_smb_uses_credentials_file_not_inline_password) ... ok
+test_ssh_rsync_command (test_v630_filebackup.TestGeneration.test_ssh_rsync_command) ... ok
+test_ssh_tar_command_is_timestamped (test_v630_filebackup.TestGeneration.test_ssh_tar_command_is_timestamped) ... ok
+test_list_rejects_bad_job_id (test_v630_filebackup.TestListCommand.test_list_rejects_bad_job_id) ... ok
+test_nfs_list_mounts_and_unmounts (test_v630_filebackup.TestListCommand.test_nfs_list_mounts_and_unmounts) ... ok
+test_ssh_list_is_job_scoped_and_safe (test_v630_filebackup.TestListCommand.test_ssh_list_is_job_scoped_and_safe) ... ok
+test_restore_rejects_bad_target (test_v630_filebackup.TestRestore.test_restore_rejects_bad_target) ... ok
+test_restore_rejects_injection_archive (test_v630_filebackup.TestRestore.test_restore_rejects_injection_archive) ... ok
+test_ssh_rsync_restore_pulls_back (test_v630_filebackup.TestRestore.test_ssh_rsync_restore_pulls_back) ... ok
+test_tar_restore_needs_archive (test_v630_filebackup.TestRestore.test_tar_restore_needs_archive) ... ok
+test_rejects_bad_host (test_v630_filebackup.TestValidation.test_rejects_bad_host) ... ok
+test_rejects_bad_method_transport (test_v630_filebackup.TestValidation.test_rejects_bad_method_transport) ... ok
+test_rejects_bad_port (test_v630_filebackup.TestValidation.test_rejects_bad_port) ... ok
+test_rejects_bad_user (test_v630_filebackup.TestValidation.test_rejects_bad_user) ... ok
+test_rejects_no_paths (test_v630_filebackup.TestValidation.test_rejects_no_paths) ... ok
+test_rejects_relative_path (test_v630_filebackup.TestValidation.test_rejects_relative_path) ... ok
+test_rejects_shell_metachars_in_path (test_v630_filebackup.TestValidation.test_rejects_shell_metachars_in_path) ... ok
+test_rejects_smb_share_traversal (test_v630_filebackup.TestValidation.test_rejects_smb_share_traversal) ... ok
+test_rejects_spaces_in_remote_path (test_v630_filebackup.TestValidation.test_rejects_spaces_in_remote_path) ... ok
+test_rejects_traversal (test_v630_filebackup.TestValidation.test_rejects_traversal) ... ok
+test_valid_ssh_rsync (test_v630_filebackup.TestValidation.test_valid_ssh_rsync) ... ok
+test_archives_only_for_file_jobs (test_v630_filebackup_handlers.TestArchivesEndpoint.test_archives_only_for_file_jobs) ... ok
+test_rsync_job_has_no_archives (test_v630_filebackup_handlers.TestArchivesEndpoint.test_rsync_job_has_no_archives) ... ok
+test_create_file_job (test_v630_filebackup_handlers.TestCreate.test_create_file_job) ... ok
+test_create_rejects_bad_spec (test_v630_filebackup_handlers.TestCreate.test_create_rejects_bad_spec) ... ok
+test_legacy_command_job_still_works (test_v630_filebackup_handlers.TestCreate.test_legacy_command_job_still_works) ... ok
+test_distinct_jobs_dont_cross_correlate (test_v630_filebackup_handlers.TestJobStatus.test_distinct_jobs_dont_cross_correlate) ... ok
+test_list_endpoint_attaches_status (test_v630_filebackup_handlers.TestJobStatus.test_list_endpoint_attaches_status) ... ok
+test_never_run (test_v630_filebackup_handlers.TestJobStatus.test_never_run) ... ok
+test_ok_and_failed (test_v630_filebackup_handlers.TestJobStatus.test_ok_and_failed) ... ok
+test_running_when_queued (test_v630_filebackup_handlers.TestJobStatus.test_running_when_queued) ... ok
+test_create_multi_device_job (test_v630_filebackup_handlers.TestMultiDeviceBaseline.test_create_multi_device_job) ... ok
+test_restore_needs_device_when_multi (test_v630_filebackup_handlers.TestMultiDeviceBaseline.test_restore_needs_device_when_multi) ... ok
+test_restore_rejects_non_target_device (test_v630_filebackup_handlers.TestMultiDeviceBaseline.test_restore_rejects_non_target_device) ... ok
+test_restore_to_named_target (test_v630_filebackup_handlers.TestMultiDeviceBaseline.test_restore_to_named_target) ... ok
+test_run_fans_out_to_all_targets (test_v630_filebackup_handlers.TestMultiDeviceBaseline.test_run_fans_out_to_all_targets) ... ok
+test_restore_only_for_file_jobs (test_v630_filebackup_handlers.TestRestore.test_restore_only_for_file_jobs) ... ok
+test_restore_queues_reverse_command (test_v630_filebackup_handlers.TestRestore.test_restore_queues_reverse_command) ... ok
+test_restore_rejects_bad_restore_path (test_v630_filebackup_handlers.TestRestore.test_restore_rejects_bad_restore_path) ... ok
+test_restore_requires_confirm (test_v630_filebackup_handlers.TestRestore.test_restore_requires_confirm) ... ok
+test_run_queues_generated_command (test_v630_filebackup_handlers.TestRunGeneratesCommand.test_run_queues_generated_command) ... ok
+test_agent_collects_and_stores_chassis (test_v630_laptop_grace.TestChassisPlumbing.test_agent_collects_and_stores_chassis) ... ok
+test_safe_si_whitelists_chassis (test_v630_laptop_grace.TestChassisPlumbing.test_safe_si_whitelists_chassis) ... ok
+test_ui_spots_wired (test_v630_laptop_grace.TestChassisPlumbing.test_ui_spots_wired) ... ok
+test_key_persists_and_blank_clears (test_v630_laptop_grace.TestSavePersists.test_key_persists_and_blank_clears) ... ok
+test_out_of_range_rejected (test_v630_laptop_grace.TestSavePersists.test_out_of_range_rejected) ... ok
+test_default_zero_changes_nothing (test_v630_laptop_grace.TestThresholdBehaviour.test_default_zero_changes_nothing) ... ok
+test_grace_applies_to_laptop_class_only (test_v630_laptop_grace.TestThresholdBehaviour.test_grace_applies_to_laptop_class_only) ... ok
+test_grace_capped_at_168h (test_v630_laptop_grace.TestThresholdBehaviour.test_grace_capped_at_168h) ... ok
+test_http_helpers_refuse_plain_http (test_v630_mac_selfupdate.TestMacAgentSelfUpdate.test_http_helpers_refuse_plain_http) ... ok
+test_restart_only_after_report (test_v630_mac_selfupdate.TestMacAgentSelfUpdate.test_restart_only_after_report) ... ok
+test_stub_is_gone_real_updater_exists (test_v630_mac_selfupdate.TestMacAgentSelfUpdate.test_stub_is_gone_real_updater_exists) ... ok
+test_update_refused_in_audit_mode (test_v630_mac_selfupdate.TestMacAgentSelfUpdate.test_update_refused_in_audit_mode) ... ok
+test_verifies_sha_with_constant_time_compare (test_v630_mac_selfupdate.TestMacAgentSelfUpdate.test_verifies_sha_with_constant_time_compare) ... ok
+test_default_path_is_windows_back_compat (test_v630_mac_selfupdate.TestMacUpdateEndpoints.test_default_path_is_windows_back_compat) ... ok
+test_mac_endpoints_ip_allowlist_exempt (test_v630_mac_selfupdate.TestMacUpdateEndpoints.test_mac_endpoints_ip_allowlist_exempt) ... ok
+test_mac_path_serves_the_mac_file (test_v630_mac_selfupdate.TestMacUpdateEndpoints.test_mac_path_serves_the_mac_file) ... ok
+test_mac_routes_registered (test_v630_mac_selfupdate.TestMacUpdateEndpoints.test_mac_routes_registered) ... ok
+test_mac_signature_404s_when_unsigned (test_v630_mac_selfupdate.TestMacUpdateEndpoints.test_mac_signature_404s_when_unsigned) ... ok
+test_verbs_are_action_kind (test_v630_palette_actions.TestPaletteActionRunner.test_verbs_are_action_kind) ... ok
+test_verbs_gated_to_agent_backed (test_v630_palette_actions.TestPaletteActionRunner.test_verbs_gated_to_agent_backed) ... ok
+test_verbs_present (test_v630_palette_actions.TestPaletteActionRunner.test_verbs_present) ... ok
+test_verbs_reuse_safe_flows (test_v630_palette_actions.TestPaletteActionRunner.test_verbs_reuse_safe_flows) ... ok
+test_all_checklist_steps_present (test_v630_promote_script.TestPromoteScript.test_all_checklist_steps_present) ... ok
+test_load_bearing_gotchas_encoded (test_v630_promote_script.TestPromoteScript.test_load_bearing_gotchas_encoded) ... ok
+test_no_unattended_signing (test_v630_promote_script.TestPromoteScript.test_no_unattended_signing) ... ok
+test_plan_mode_runs_nothing_and_exits_zero (test_v630_promote_script.TestPromoteScript.test_plan_mode_runs_nothing_and_exits_zero) ... ok
+test_shell_valid (test_v630_promote_script.TestPromoteScript.test_shell_valid) ... ok
+test_state_files_excluded_from_dist (test_v630_promote_script.TestPromoteScript.test_state_files_excluded_from_dist) ... ok
+test_restart_loop_then_stable_resolves (test_v630_recover_events.TestContainerRestarting.test_restart_loop_then_stable_resolves) ... ok
+test_over_then_under_resolves (test_v630_recover_events.TestMailbox.test_over_then_under_resolves) ... ok
+test_all_four_wired (test_v630_recover_events.TestRegistry.test_all_four_wired) ... ok
+test_recover_resolves_by_vmid (test_v630_recover_events.TestSnapshotRecover.test_recover_resolves_by_vmid) ... ok
+test_flap_then_stable_resolves (test_v630_recover_events.TestUnitFlapping.test_flap_then_stable_resolves) ... ok
+test_200_ok_with_message_on_good_archive (test_v630_restore_drill.TestManualTestRestoreUnchanged.test_200_ok_with_message_on_good_archive) ... ok
+test_404_when_no_archives (test_v630_restore_drill.TestManualTestRestoreUnchanged.test_404_when_no_archives) ... ok
+test_corrupt_archive_fires_failed_once_then_recovers (test_v630_restore_drill.TestScheduledRestoreDrill.test_corrupt_archive_fires_failed_once_then_recovers) ... ok
+test_drill_days_persists_through_config_save (test_v630_restore_drill.TestScheduledRestoreDrill.test_drill_days_persists_through_config_save) ... ok
+test_drill_days_zero_disables (test_v630_restore_drill.TestScheduledRestoreDrill.test_drill_days_zero_disables) ... ok
+test_good_archive_records_ok_and_stays_quiet (test_v630_restore_drill.TestScheduledRestoreDrill.test_good_archive_records_ok_and_stays_quiet) ... ok
+test_never_backed_up_skips (test_v630_restore_drill.TestScheduledRestoreDrill.test_never_backed_up_skips) ... ok
+test_not_due_is_a_noop (test_v630_restore_drill.TestScheduledRestoreDrill.test_not_due_is_a_noop) ... ok
+test_sweep_is_wired_into_main_cadence (test_v630_restore_drill.TestScheduledRestoreDrill.test_sweep_is_wired_into_main_cadence) ... ok
+test_queue_command_allows_same_tenant (test_v630_security_hunt.TestAcmeWriteIsolation.test_queue_command_allows_same_tenant) ... ok
+test_queue_command_blocks_cross_tenant (test_v630_security_hunt.TestAcmeWriteIsolation.test_queue_command_blocks_cross_tenant) ... ok
+test_superadmin_sees_all (test_v630_security_hunt.TestAlertResolutionStatsIsolation.test_superadmin_sees_all) ... ok
+test_tenant_admin_sees_only_own_hosts (test_v630_security_hunt.TestAlertResolutionStatsIsolation.test_tenant_admin_sees_only_own_hosts) ... ok
+test_tenant_admin_tuning_scoped (test_v630_security_hunt.TestAlertTuningIsolation.test_tenant_admin_tuning_scoped) ... ok
+test_delete_blocked_cross_tenant (test_v630_security_hunt.TestBackupJobTenantIsolation.test_delete_blocked_cross_tenant) ... ok
+test_list_hides_other_tenant_job (test_v630_security_hunt.TestBackupJobTenantIsolation.test_list_hides_other_tenant_job) ... ok
+test_list_shows_own_and_superadmin_sees_all (test_v630_security_hunt.TestBackupJobTenantIsolation.test_list_shows_own_and_superadmin_sees_all) ... ok
+test_update_blocked_cross_tenant (test_v630_security_hunt.TestBackupJobTenantIsolation.test_update_blocked_cross_tenant) ... ok
+test_dashboard_tickets_scoped (test_v630_security_hunt.TestDashboardTicketsIsolation.test_dashboard_tickets_scoped) ... ok
+test_cross_tenant_device_blocked (test_v630_security_hunt.TestInheritedCredentialsIsolation.test_cross_tenant_device_blocked) ... ok
+test_own_device_allowed (test_v630_security_hunt.TestInheritedCredentialsIsolation.test_own_device_allowed) ... ok
+test_integer_uptime_preserved (test_v630_security_hunt.TestSnmpUptimeCoercion.test_integer_uptime_preserved) ... ok
+test_octet_string_uptime_is_neutralized (test_v630_security_hunt.TestSnmpUptimeCoercion.test_octet_string_uptime_is_neutralized) ... ok
+test_classes_present (test_v630_stat_tiles.TestStatTileCss.test_classes_present) ... ok
+test_pulse_keyframe_is_transform_only (test_v630_stat_tiles.TestStatTileCss.test_pulse_keyframe_is_transform_only) ... ok
+test_reduced_motion_guard (test_v630_stat_tiles.TestStatTileCss.test_reduced_motion_guard) ... ok
+test_danger_tiles_toned (test_v630_stat_tiles.TestStatTileMarkup.test_danger_tiles_toned) ... ok
+test_trio_clickable_and_toned (test_v630_stat_tiles.TestStatTileMarkup.test_trio_clickable_and_toned) ... ok
+test_count_up_self_loop_guard (test_v630_stat_tiles.TestStatTileModule.test_count_up_self_loop_guard) ... ok
+test_meaning_aware_delta (test_v630_stat_tiles.TestStatTileModule.test_meaning_aware_delta) ... ok
+test_module_and_observer (test_v630_stat_tiles.TestStatTileModule.test_module_and_observer) ... ok
+test_no_inline_style_string_in_propbar (test_v630_stat_tiles.TestStatTileModule.test_no_inline_style_string_in_propbar) ... ok
+test_sparkline_is_persisted (test_v630_stat_tiles.TestStatTileModule.test_sparkline_is_persisted) ... ok
+test_statnav_drilldown (test_v630_stat_tiles.TestStatTileModule.test_statnav_drilldown) ... ok
+test_deploy_refreshes_and_update_restarts (test_v630_syslogd.TestOpsWiring.test_deploy_refreshes_and_update_restarts) ... ok
+test_unit_is_static_and_sandboxed (test_v630_syslogd.TestOpsWiring.test_unit_is_static_and_sandboxed) ... ok
+test_only_enabled_pinned_syslog_tokens_map (test_v630_syslogd.TestSourceMapRules.test_only_enabled_pinned_syslog_tokens_map) ... ok
+test_mapped_source_lines_arrive_batched_at_the_ingest_endpoint (test_v630_syslogd.TestSyslogdEndToEnd.test_mapped_source_lines_arrive_batched_at_the_ingest_endpoint) ... FAIL
+test_no_new_uncapped_static_tables (test_v630_ui_ratchets.TestBoxOverflowRatchet.test_no_new_uncapped_static_tables) ... ok
+test_allowlist_entries_still_exist (test_v630_ui_ratchets.TestSortWiringRatchet.test_allowlist_entries_still_exist) ... ok
+test_every_thead_is_sort_wired (test_v630_ui_ratchets.TestSortWiringRatchet.test_every_thead_is_sort_wired) ... ok
+test_file_present_absent (test_windows_agent.TestAgentSideChecks.test_file_present_absent) ... /home/jaove/code/claude-code-ent/tests/test_windows_agent.py:706: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpjiyq6bw5/x' mode='w' encoding='UTF-8'>
+  
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_job_fresh (test_windows_agent.TestAgentSideChecks.test_job_fresh) ... /home/jaove/code/claude-code-ent/tests/test_windows_agent.py:719: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpo0he46y2/stamp' mode='w' encoding='UTF-8'>
+  
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_log_errors_bad_pattern (test_windows_agent.TestAgentSideChecks.test_log_errors_bad_pattern) ... ok
+test_systemd_unit_is_not_applicable_on_windows (test_windows_agent.TestAgentSideChecks.test_systemd_unit_is_not_applicable_on_windows) ... ok
+test_windows_service_check_off_windows_reports_cleanly (test_windows_agent.TestAgentSideChecks.test_windows_service_check_off_windows_reports_cleanly) ... ok
+test_command_argv_uses_the_resolver_not_a_bare_name (test_windows_agent.TestBinaryHijackHardening.test_command_argv_uses_the_resolver_not_a_bare_name) ... ok
+test_powershell_resolver_returns_a_path_or_the_bare_fallback (test_windows_agent.TestBinaryHijackHardening.test_powershell_resolver_returns_a_path_or_the_bare_fallback) ... ok
+test_exec_uses_powershell (test_windows_agent.TestCommandMapping.test_exec_uses_powershell) ... ok
+test_reboot_shutdown (test_windows_agent.TestCommandMapping.test_reboot_shutdown) ... ok
+test_unknown_returns_none (test_windows_agent.TestCommandMapping.test_unknown_returns_none) ... ok
+test_creds_acl_is_system_readable_and_file_flags_are_valid (test_windows_agent.TestCredsAndCommands.test_creds_acl_is_system_readable_and_file_flags_are_valid) ... ok
+test_enroll_sends_contract_fields_and_saves (test_windows_agent.TestCredsAndCommands.test_enroll_sends_contract_fields_and_saves) ... ok
+test_poll_interval_clamped (test_windows_agent.TestCredsAndCommands.test_poll_interval_clamped) ... ok
+test_poll_interval_command_updates_creds (test_windows_agent.TestCredsAndCommands.test_poll_interval_command_updates_creds) ... ok
+test_bounded (test_windows_agent.TestDrift.test_bounded) ... /home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f0' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f1' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f2' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f3' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f4' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f5' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f6' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f7' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f8' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f9' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f10' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f11' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f12' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f13' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f14' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f15' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f16' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f17' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f18' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f19' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f20' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f21' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f22' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f23' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f24' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f25' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f26' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f27' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f28' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f29' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f30' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f31' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f32' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f33' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f34' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f35' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f36' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f37' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f38' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f39' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f40' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f41' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f42' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f43' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f44' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f45' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f46' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f47' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f48' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f49' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f50' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f51' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f52' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f53' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f54' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f55' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f56' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f57' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f58' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f59' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f60' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f61' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f62' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f63' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f64' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f65' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f66' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f67' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f68' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f69' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f70' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f71' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f72' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f73' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f74' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f75' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f76' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f77' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f78' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f79' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f80' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f81' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f82' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f83' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f84' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f85' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f86' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f87' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f88' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f89' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f90' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f91' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f92' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f93' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f94' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f95' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f96' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f97' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f98' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f99' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f100' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f101' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f102' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f103' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f104' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f105' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f106' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f107' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f108' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f109' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f110' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f111' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f112' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f113' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f114' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f115' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f116' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f117' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f118' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f119' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f120' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f121' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f122' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f123' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f124' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f125' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f126' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f127' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f128' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f129' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f130' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f131' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f132' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f133' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f134' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f135' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f136' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f137' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f138' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f139' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f140' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f141' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f142' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f143' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f144' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f145' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f146' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f147' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f148' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f149' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f150' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f151' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f152' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f153' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f154' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f155' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f156' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f157' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f158' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f159' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f160' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f161' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f162' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f163' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f164' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f165' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f166' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f167' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f168' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f169' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f170' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f171' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f172' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f173' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f174' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f175' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f176' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f177' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f178' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f179' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f180' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f181' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f182' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f183' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f184' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f185' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f186' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f187' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f188' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f189' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f190' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f191' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f192' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f193' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f194' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f195' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f196' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f197' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f198' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f199' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f200' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f201' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f202' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f203' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f204' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f205' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f206' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f207' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f208' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f209' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f210' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f211' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f212' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f213' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f214' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f215' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f216' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f217' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f218' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f219' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f220' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f221' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f222' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f223' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f224' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f225' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f226' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f227' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f228' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f229' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f230' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f231' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f232' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f233' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f234' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f235' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f236' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f237' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f238' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f239' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f240' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f241' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f242' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f243' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f244' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f245' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f246' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f247' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f248' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/jaove/code/claude-code-ent/tests/test_windows_agent.py:674: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppdb5r9_c/f249' mode='w' encoding='UTF-8'>
+  open(p, "w").write("x")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_hashes_existing_and_flags_missing (test_windows_agent.TestDrift.test_hashes_existing_and_flags_missing) ... /home/jaove/code/claude-code-ent/tests/test_windows_agent.py:663: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp2y_9iz55/f.txt' mode='w' encoding='UTF-8'>
+  open(p, "w").write("hello")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_post_json_surfaces_server_error_message (test_windows_agent.TestEnrollErrorUX.test_post_json_surfaces_server_error_message) ... ok
+test_six_digit_token_is_caught_as_a_pin_hint (test_windows_agent.TestEnrollErrorUX.test_six_digit_token_is_caught_as_a_pin_hint) ... ok
+test_cmd_verb_is_cmd_exe (test_windows_agent.TestExplicitInterpreters.test_cmd_verb_is_cmd_exe) ... ok
+test_ps_verb_is_powershell (test_windows_agent.TestExplicitInterpreters.test_ps_verb_is_powershell) ... ok
+test_denied_prefix_beats_an_allowed_root (test_windows_agent.TestFileManager.test_denied_prefix_beats_an_allowed_root) ... ok
+test_path_outside_roots_is_refused (test_windows_agent.TestFileManager.test_path_outside_roots_is_refused) ... ok
+test_relative_path_is_refused (test_windows_agent.TestFileManager.test_relative_path_is_refused) ... ok
+test_write_is_refused_in_audit_mode (test_windows_agent.TestFileManager.test_write_is_refused_in_audit_mode) ... ok
+test_off_windows_empty (test_windows_agent.TestHardwareInventory.test_off_windows_empty) ... ok
+test_shape_matches_server (test_windows_agent.TestHardwareInventory.test_shape_matches_server) ... ok
+test_single_dimm_object_is_wrapped (test_windows_agent.TestHardwareInventory.test_single_dimm_object_is_wrapped) ... ok
+test_cmd_output_threaded_back (test_windows_agent.TestHeartbeatPayload.test_cmd_output_threaded_back) ... ok
+test_required_fields_present (test_windows_agent.TestHeartbeatPayload.test_required_fields_present) ... ok
+test_sysinfo_on_first_and_slow_cadence (test_windows_agent.TestHeartbeatPayload.test_sysinfo_on_first_and_slow_cadence) ... /usr/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 400: 'BAD REQUEST'>
+  _warnings.warn(self.warn_message, ResourceWarning)
+ok
+test_fmt_uptime (test_windows_agent.TestHostFacts.test_fmt_uptime) ... ok
+test_os_info_nonempty (test_windows_agent.TestHostFacts.test_os_info_nonempty) ... ok
+test_the_agent_has_a_logger (test_windows_agent.TestLoggingExists.test_the_agent_has_a_logger) ... ok
+test_event_log_journal_empty_off_windows (test_windows_agent.TestParityCollectors.test_event_log_journal_empty_off_windows) ... ok
+test_heartbeat_adds_accounts_on_cadence (test_windows_agent.TestParityCollectors.test_heartbeat_adds_accounts_on_cadence) ... ok
+test_heartbeat_adds_journal_on_sysinfo_cadence (test_windows_agent.TestParityCollectors.test_heartbeat_adds_journal_on_sysinfo_cadence) ... ok
+test_listening_ports_shape (test_windows_agent.TestParityCollectors.test_listening_ports_shape) ... ok
+test_local_accounts_empty_off_windows (test_windows_agent.TestParityCollectors.test_local_accounts_empty_off_windows) ... ok
+test_parse_eventlog (test_windows_agent.TestParityCollectors.test_parse_eventlog) ... ok
+test_parse_eventlog_caps_line_length (test_windows_agent.TestParityCollectors.test_parse_eventlog_caps_line_length) ... ok
+test_parse_eventlog_ignores_garbage_lines (test_windows_agent.TestParityCollectors.test_parse_eventlog_ignores_garbage_lines) ... ok
+test_parse_local_accounts (test_windows_agent.TestParityCollectors.test_parse_local_accounts) ... ok
+test_port_scope_buckets (test_windows_agent.TestParityCollectors.test_port_scope_buckets) ... ok
+test_sysinfo_includes_listening_ports_when_present (test_windows_agent.TestParityCollectors.test_sysinfo_includes_listening_ports_when_present) ... ok
+test_all_agent_ps_snippets_parse (test_windows_agent.TestPowerShellSnippetsParse.test_all_agent_ps_snippets_parse) ... ok
+test_malformed_is_refused (test_windows_agent.TestProcessKill.test_malformed_is_refused) ... ok
+test_system_pids_are_refused (test_windows_agent.TestProcessKill.test_system_pids_are_refused) ... ok
+test_off_windows_is_false_not_error (test_windows_agent.TestRebootRequired.test_off_windows_is_false_not_error) ... ok
+test_sysinfo_always_carries_the_flag (test_windows_agent.TestRebootRequired.test_sysinfo_always_carries_the_flag) ... ok
+test_audit_mode_refuses_self_update (test_windows_agent.TestSelfUpdateIsHonest.test_audit_mode_refuses_self_update) ... ok
+test_update_never_reports_a_false_success (test_windows_agent.TestSelfUpdateIsHonest.test_update_never_reports_a_false_success) ... ok
+test_bad_action_is_refused (test_windows_agent.TestServiceControl.test_bad_action_is_refused) ... ok
+test_get_services_empty_without_watched (test_windows_agent.TestServiceControl.test_get_services_empty_without_watched) ... ok
+test_service_name_is_a_single_quoted_ps_literal (test_windows_agent.TestServiceControl.test_service_name_is_a_single_quoted_ps_literal) ... ok
+test_state_mapping_never_fabricates_failed (test_windows_agent.TestServiceControl.test_state_mapping_never_fabricates_failed) ... ok
+test_garbage_lines_skipped (test_windows_agent.TestSmart.test_garbage_lines_skipped) ... ok
+test_healthy_maps_to_passed (test_windows_agent.TestSmart.test_healthy_maps_to_passed) ... ok
+test_off_windows_empty (test_windows_agent.TestSmart.test_off_windows_empty) ... ok
+test_warning_maps_to_failed (test_windows_agent.TestSmart.test_warning_maps_to_failed) ... ok
+test_version_matches_server (test_windows_agent.TestVersion.test_version_matches_server) ... ok
+test_no_undefined_names (test_windows_agent.TestWinAgentUndefinedNames.test_no_undefined_names) ... ok
+test_off_windows_empty (test_windows_agent.TestWinPosture.test_off_windows_empty) ... ok
+test_parse_shape (test_windows_agent.TestWinPosture.test_parse_shape) ... ok
+test_single_firewall_profile_object_wrapped (test_windows_agent.TestWinPosture.test_single_firewall_profile_object_wrapped) ... ok
+test_bitlocker_unprotected_warns (test_windows_agent.TestWinPostureChecks.test_bitlocker_unprotected_warns) ... ok
+test_cpu_percent_fallback_on_windows (test_windows_agent.TestWinPostureChecks.test_cpu_percent_fallback_on_windows) ... ok
+test_defender_off_is_critical (test_windows_agent.TestWinPostureChecks.test_defender_off_is_critical) ... ok
+test_firewall_profile_off_warns (test_windows_agent.TestWinPostureChecks.test_firewall_profile_off_warns) ... ok
+test_linux_host_gets_no_windows_rows (test_windows_agent.TestWinPostureChecks.test_linux_host_gets_no_windows_rows) ... ok
+test_stale_signatures_escalate (test_windows_agent.TestWinPostureChecks.test_stale_signatures_escalate) ... ok
+test_update_service_stopped_warns (test_windows_agent.TestWinPostureChecks.test_update_service_stopped_warns) ... ok
+test_install_service_refuses_without_pywin32 (test_windows_agent.TestWindowsService.test_install_service_refuses_without_pywin32) ... 2026-07-20 16:00:55,398 ERROR pywin32 is not installed - cannot run as a service (run: python -m pip install pywin32).
+2026-07-20 16:00:55,398 [ERROR] pywin32 is not installed - cannot run as a service (run: python -m pip install pywin32).
+pywin32 is not installed - cannot run as a service (run: python -m pip install pywin32).
+ok
+test_install_service_registers_localsystem_autostart_with_restart (test_windows_agent.TestWindowsService.test_install_service_registers_localsystem_autostart_with_restart) ... 2026-07-20 16:00:55,398 INFO service installed and started
+RemotePower service installed and RUNNING (visible in services.msc as "RemotePower Agent").
+2026-07-20 16:00:55,398 [INFO] service installed and started
+ok
+test_install_service_self_heals_error_1053 (test_windows_agent.TestWindowsService.test_install_service_self_heals_error_1053) ... 2026-07-20 16:00:55,399 INFO service installed and started after pywin32 postinstall
+Registering pywin32 service support and retrying ...
+RemotePower service installed and RUNNING (visible in services.msc as "RemotePower Agent").
+2026-07-20 16:00:55,399 [INFO] service installed and started after pywin32 postinstall
+ok
+test_main_routes_service_flags (test_windows_agent.TestWindowsService.test_main_routes_service_flags) ... ok
+test_run_loop_is_interruptible (test_windows_agent.TestWindowsService.test_run_loop_is_interruptible) ... 2026-07-20 16:00:55,401 INFO RemotePower Windows agent v6.3.0 starting
+2026-07-20 16:00:55,401 [INFO] RemotePower Windows agent v6.3.0 starting
+2026-07-20 16:00:55,401 INFO stop requested - exiting run loop
+2026-07-20 16:00:55,401 [INFO] stop requested - exiting run loop
+ok
+test_served_installer_prefers_the_service (test_windows_agent.TestWindowsService.test_served_installer_prefers_the_service) ... ok
+test_uninstall_service_stops_then_deletes (test_windows_agent.TestWindowsService.test_uninstall_service_stops_then_deletes) ... ok
+test_parse_wu_titles (test_windows_agent.TestWindowsUpdatePatches.test_parse_wu_titles) ... ok
+test_parse_wu_titles_empty (test_windows_agent.TestWindowsUpdatePatches.test_parse_wu_titles_empty) ... ok
+test_pending_none_off_windows (test_windows_agent.TestWindowsUpdatePatches.test_pending_none_off_windows) ... ok
+test_sysinfo_includes_packages_when_pending (test_windows_agent.TestWindowsUpdatePatches.test_sysinfo_includes_packages_when_pending) ... ok
+test_api_py_still_directly_executable (test_wsgi_entrypoint.TestWsgiEntrypoint.test_api_py_still_directly_executable) ... ok
+test_aur_package_installs_wsgi_and_compiles (test_wsgi_entrypoint.TestWsgiEntrypoint.test_aur_package_installs_wsgi_and_compiles) ... ok
+test_cgi_shim_and_scgi_worker_deleted (test_wsgi_entrypoint.TestWsgiEntrypoint.test_cgi_shim_and_scgi_worker_deleted) ... ok
+test_installers_chmod_and_precompile_wsgi (test_wsgi_entrypoint.TestWsgiEntrypoint.test_installers_chmod_and_precompile_wsgi) ... ok
+test_no_flask_default_static_route (test_wsgi_entrypoint.TestWsgiEntrypoint.test_no_flask_default_static_route) ... ok
+test_nonstandard_method_reaches_api_main (test_wsgi_entrypoint.TestWsgiEntrypoint.test_nonstandard_method_reaches_api_main) ... [remotepower] scheduled backup failed: [Errno 2] No such file or directory: '/tmp/rp_v390_dkuqd_tj/.backup_in_progress'
+/home/jaove/code/claude-code-ent/server/cgi-bin/api.py:55632: DeprecationWarning: This process (pid=169519) is multi-threaded, use of fork() may lead to deadlocks in the child.
+  pid = os.fork()
+ok
+test_span_recorded_for_real_request (test_wsgi_entrypoint.TestWsgiEntrypoint.test_span_recorded_for_real_request) ... [remotepower] scheduled backup failed: [Errno 13] Permission denied: '/var/lib/remotepower/backups'
+ok
+test_wsgi_is_a_real_flask_app (test_wsgi_entrypoint.TestWsgiEntrypoint.test_wsgi_is_a_real_flask_app) ... ok
+
+======================================================================
+FAIL: test_no_test_module_hard_imports_a_non_ci_package (test_ci_green_parity.TestTestModulesImportableOnCi.test_no_test_module_hard_imports_a_non_ci_package)
+`unittest discover` imports EVERY tests/*.py on CI, where only the
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_ci_green_parity.py", line 171, in test_no_test_module_hard_imports_a_non_ci_package
+    self.assertEqual(problems, [], '\n'.join(problems))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ["tests/test_v630_stat_tiles.py unconditio[133 chars]ip)"] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+"tests/test_v630_stat_tiles.py unconditionally imports 'tests', which ci.yml does not install — unittest discover on CI fails at import; guard it (try/except ImportError + skip)"
+
++ []
+- ["tests/test_v630_stat_tiles.py unconditionally imports 'tests', which ci.yml "
+-  'does not install — unittest discover on CI fails at import; guard it '
+-  '(try/except ImportError + skip)'] : tests/test_v630_stat_tiles.py unconditionally imports 'tests', which ci.yml does not install — unittest discover on CI fails at import; guard it (try/except ImportError + skip)
+
+======================================================================
+FAIL: test_server_stores_and_exposes_it (test_v420_sweep.TestHardeningIndex.test_server_stores_and_exposes_it)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 406, in test_server_stores_and_exposes_it
+    self.assertIn('hardening_index',
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+                  inspect.getsource(api._apply_scan_results))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'hardening_index' not found in '                  f"id={claimed[\'id\']} target={claimed[\'target\']}")\n'
+
+======================================================================
+FAIL: test_no_enumeration_404 (test_v420_sweep.TestLoginBeginHardening.test_no_enumeration_404)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 188, in test_no_enumeration_404
+    self.assertIn("if creds:", src)   # challenge only stored for real users
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+AssertionError: 'if creds:' not found in '    user = require_auth()\n'
+
+======================================================================
+FAIL: test_rate_limited (test_v420_sweep.TestLoginBeginHardening.test_rate_limited)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 181, in test_rate_limited
+    self.assertIn('_ip_ratelimit', inspect.getsource(api.handle_webauthn_login_begin))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '_ip_ratelimit' not found in '    user = require_auth()\n'
+
+======================================================================
+FAIL: test_passkey_login_honours_remember_me (test_v420_sweep.TestPasskeyMfaStepUp.test_passkey_login_honours_remember_me)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 152, in test_passkey_login_honours_remember_me
+    self.assertIn('remember_me', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'remember_me' not found in "        respond(405, {'error': 'Method not allowed'})\n"
+
+======================================================================
+FAIL: test_claim_agent_scan_peeks (test_v420_sweep.TestPerfFixes.test_claim_agent_scan_peeks)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 442, in test_claim_agent_scan_peeks
+    self.assertIn('peek', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^
+AssertionError: 'peek' not found in '    # v4.2.0 (#7): fire ONLY for SCHEDULED scans (actor "schedule:<id>"), and on\n    # ANY findings — a quiet INFO dashboard notice. On-demand scans you launched\n    # yourself never alert (you\'re already looking at the results).\n    scheduled = str(fire_info.get(\'actor\', \'\')).startswith(\'schedule:\')\n'
+
+======================================================================
+FAIL: test_kev_refresh_claims_before_fetch (test_v420_sweep.TestPerfFixes.test_kev_refresh_claims_before_fetch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 433, in test_kev_refresh_claims_before_fetch
+    self.assertIn('_LockedUpdate(CONFIG_FILE)', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '_LockedUpdate(CONFIG_FILE)' not found in '\ndef _fetch_feed_bytes(url, timeout=30, allow_redirect=False):\n    """Fetch an external prioritization feed through the SSRF-safe opener\n    (peer-IP re-validated at connect; external-only).\n\n    allow_redirect: the EPSS `*-current.csv.gz` URL serves the live scores via a\n    same-host relative 302 to the dated file, so that fetch must follow one\n    redirect. This stays SSRF-safe because the guard re-validates the peer IP at\n    EVERY connect, including the redirected one (enforce_ip=True) — a redirect to\n    an internal/rebound host is still blocked. We keep no-redirect for credentialed\n    fetches elsewhere; these feeds carry no token to replay."""\n    opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=_get_ssl_context(),\n                               no_redirect=not allow_redirect, enforce_ip=True)\n    req = urllib.request.Request(url, headers={\'User-Agent\': f\'RemotePower/{SERVER_VERSION}\'})\n    with opener.open(req, timeout=timeout) as resp:\n        return resp.read()\n'
+
+======================================================================
+FAIL: test_cron_horizon_parks_instead_of_dying (test_v420_sweep.TestScanScheduleLifecycle.test_cron_horizon_parks_instead_of_dying)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 324, in test_cron_horizon_parks_instead_of_dying
+    self.assertIn("_park", src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: '_park' not found in '    actor = f\'schedule:{sc.get("id", "")}\'\n'
+
+======================================================================
+FAIL: test_stuck_running_scans_age_out (test_v420_sweep.TestScanScheduleLifecycle.test_stuck_running_scans_age_out)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 330, in test_stuck_running_scans_age_out
+    self.assertIn("'running'", src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+AssertionError: "'running'" not found in '    actor = f\'schedule:{sc.get("id", "")}\'\n'
+
+======================================================================
+FAIL: test_loopback_refused (test_v420_sweep.TestScanTargetVerifyNoLoopback.test_loopback_refused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v420_sweep.py", line 416, in test_loopback_refused
+    self.assertIn('allow_loopback=False', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'allow_loopback=False' not found in '    try:\n'
+
+======================================================================
+FAIL: test_source_has_limits (test_v430_features.TestAuthEndpointRateLimits.test_source_has_limits)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v430_features.py", line 195, in test_source_has_limits
+    self.assertIn(f"_ip_ratelimit('{bucket}'", src,
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                  f'{fn} missing per-IP rate limit')
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "_ip_ratelimit('sso'" not found in 'def handle_saml_login():\n    """GET /api/auth/saml/login — SP-initiated SSO: 302 to the IdP (public)."""\n    sm = _saml_guard()\n    cfg = _saml_cfg()\n    if not cfg:\n        respond(503, {\'error\': \'SAML is not configured on this server\'})\n    try:\n        redirect_url, req_id = sm.login_redirect(cfg, _saml_base_url())\n    except Exception as e:\n        respond(500, {\'error\': f\'SAML login init failed: {str(e)[:140]}\'})\n    _saml_put_request(req_id)\n    print(\'Status: 302 Found\')\n    print(f\'Location: {redirect_url}\')\n    print(\'Cache-Control: no-store\')\n    print()\n    sys.exit(0)\n' : handle_saml_acs missing per-IP rate limit
+
+======================================================================
+FAIL: test_save_validates_field (test_v430_flapdamp.TestConfigSaveValidation.test_save_validates_field)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v430_flapdamp.py", line 112, in test_save_validates_field
+    self.assertIn('failures_before_alert', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'failures_before_alert' not found in "        'min_online_ttl':             MIN_ONLINE_TTL,\n"
+
+======================================================================
+FAIL: test_config_save_accepts_keys (test_v430_metricdamp.TestSnmpThresholdConfigurable.test_config_save_accepts_keys)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v430_metricdamp.py", line 122, in test_config_save_accepts_keys
+    self.assertIn('snmp_failures_before_alert', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'snmp_failures_before_alert' not found in "        'min_online_ttl':             MIN_ONLINE_TTL,\n"
+
+======================================================================
+FAIL: test_reindex_wires_cmdb_with_resolver (test_v430_ragenrich.TestCmdbDocumentationIsIndexed.test_reindex_wires_cmdb_with_resolver)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v430_ragenrich.py", line 114, in test_reindex_wires_cmdb_with_resolver
+    self.assertIn('build_cmdb_corpus', src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'build_cmdb_corpus' not found in '        raw = load(DEVICES_FILE)\n'
+
+======================================================================
+FAIL: test_ai_chat_retrieves_rag (test_v430_ragenrich.TestReindexCallerWiring.test_ai_chat_retrieves_rag)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v430_ragenrich.py", line 140, in test_ai_chat_retrieves_rag
+    self.assertIn('_rag_retrieve', inspect.getsource(api.handle_ai_chat))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '_rag_retrieve' not found in "    # Return citation-friendly results; truncate bodies for the UI.\n    results = [{\n        'id':     h['id'],\n        'title':  h.get('title'),\n        'source': h.get('source'),\n        'type':   h.get('type'),\n        'device': h.get('device'),\n        'ts':     h.get('ts'),\n        'excerpt': (h.get('text', '') or '')[:600],\n    } for h in hits]\n"
+
+======================================================================
+FAIL: test_caller_gathers_new_facets (test_v430_ragenrich.TestReindexCallerWiring.test_caller_gathers_new_facets)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v430_ragenrich.py", line 129, in test_caller_gathers_new_facets
+    self.assertIn("open_alerts", src)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'open_alerts' not found in '        raw = load(DEVICES_FILE)\n'
+
+======================================================================
+FAIL: test_handlers_admin_gated (test_v480.TestIpReputationMonitor.test_handlers_admin_gated)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v480.py", line 367, in test_handlers_admin_gated
+    self.assertIn('require_admin_auth', inspect.getsource(fn))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'require_admin_auth' not found in '    require_auth()\n'
+
+======================================================================
+FAIL: test_drift_mutations_require_mitigate (test_v480.TestSecurityGates.test_drift_mutations_require_mitigate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v480.py", line 341, in test_drift_mutations_require_mitigate
+    self.assertIn("require_perm('mitigate'",
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                  inspect.getsource(api.handle_device_drift_baseline))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "require_perm('mitigate'" not found in 'def handle_device_drift_get(dev_id):\n    """GET /api/devices/<id>/drift — full drift state for one device."""\n    require_auth()\n    state = load(DRIFT_STATE_FILE)\n    entry = state.get(dev_id) or {\'files\': {}}\n    devices = load(DEVICES_FILE)\n    watched = get_watched_files_for(dev_id, devices)\n    # v3.13.0: explain WHERE the watched list came from (override / profile / default).\n    effective = _drift_effective(dev_id, (devices or {}).get(dev_id) or {})\n    respond(200, {\n        \'device_id\':     dev_id,\n        \'watched_files\': watched,\n        \'files\':         entry.get(\'files\') or {},\n        \'source\':        effective[\'source\'],\n        \'profile\':       effective[\'profile\'],\n    })\n'
+
+======================================================================
+FAIL: test_proxmox_test_preflights_host (test_v480.TestSecurityGates.test_proxmox_test_preflights_host)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v480.py", line 336, in test_proxmox_test_preflights_host
+    self.assertIn('_url_targets_local_or_meta',
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                  inspect.getsource(api.handle_proxmox_test))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '_url_targets_local_or_meta' not found in 'def handle_proxmox_status() -> None:\n    """``GET /api/proxmox/status`` — is Proxmox configured / enabled?\n\n    Cheap, no network call. The frontend uses this to decide whether\n    to show the Virtualization nav entry and the LXC section.\n    """\n    require_auth()\n    cfg = load(CONFIG_FILE)\n    pc = proxmox_client.config_from(cfg)\n    respond(200, {\n        \'enabled\':    pc[\'enabled\'],\n        \'configured\': proxmox_client.is_configured(pc),\n        \'host\':       pc[\'host\'],\n        \'node\':       pc[\'node\'],\n        \'verify_tls\': pc[\'verify_tls\'],\n    })\n'
+
+======================================================================
+FAIL: test_mapped_source_lines_arrive_batched_at_the_ingest_endpoint (test_v630_syslogd.TestSyslogdEndToEnd.test_mapped_source_lines_arrive_batched_at_the_ingest_endpoint)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jaove/code/claude-code-ent/tests/test_v630_syslogd.py", line 101, in test_mapped_source_lines_arrive_batched_at_the_ingest_endpoint
+    self.assertTrue(_Capture.posts, 'no POST arrived within 10s')
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: [] is not true : no POST arrived within 10s
+
+----------------------------------------------------------------------
+Ran 7691 tests in 976.837s
+
+FAILED (failures=20, skipped=33)
+RemotePower service stopped and removed (if it was present).
+make: *** [Makefile:101: test] Error 1

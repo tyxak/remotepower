@@ -10,8 +10,6 @@ and the security/services danger tiles.
 import unittest
 from pathlib import Path
 
-from tests import srcpin
-
 _ROOT = Path(__file__).parent.parent
 _JS = _ROOT / "server/html/static/js"
 
@@ -30,6 +28,7 @@ def _css():
 
 class TestStatTileModule(unittest.TestCase):
     def test_module_and_observer(self):
+        from tests import srcpin
         app = _app()
         self.assertIn("const statTiles", app)
         self.assertIn("MutationObserver", srcpin.js_function(app, "init"))
@@ -37,6 +36,7 @@ class TestStatTileModule(unittest.TestCase):
         self.assertIn("statTiles.init()", app)
 
     def test_count_up_self_loop_guard(self):
+        from tests import srcpin
         # enhance must record the value and early-return when unchanged, or the
         # count-up's own textContent writes would re-trigger the observer forever.
         enhance = srcpin.js_function(_app(), "enhance")
@@ -51,11 +51,13 @@ class TestStatTileModule(unittest.TestCase):
         self.assertIn("sd-bad", app)
 
     def test_sparkline_is_persisted(self):
+        from tests import srcpin
         app = _app()
         self.assertIn("rp_stat_hist", app)
         self.assertIn("localStorage", srcpin.js_function(app, "enhance") + app)
 
     def test_no_inline_style_string_in_propbar(self):
+        from tests import srcpin
         # CSP: widths are set via .style.width on created nodes, never a
         # style="width:…" attribute inside an innerHTML string.
         prop = srcpin.js_function(_app(), "_fleetPropBar")
