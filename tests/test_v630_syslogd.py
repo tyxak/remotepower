@@ -95,10 +95,14 @@ class TestSyslogdEndToEnd(unittest.TestCase):
         _Capture.posts.clear()
         self._send('<134>Jul 20 10:00:00 fw1 kernel: DROP IN=eth0 SRC=1.2.3.4')
         self._send('<134>Jul 20 10:00:01 fw1 sshd[9]: Failed password for root')
-        deadline = time.time() + 10
+        # Poll with a generous deadline: the loop breaks the instant the POST
+        # arrives (~3.5s in isolation), so a wide ceiling only adds headroom for a
+        # loaded machine — the full serial gate once exceeded a 10s ceiling here
+        # (resource contention under ~7700 concurrent-ish tests, not a real fail).
+        deadline = time.time() + 45
         while not _Capture.posts and time.time() < deadline:
             time.sleep(0.2)
-        self.assertTrue(_Capture.posts, 'no POST arrived within 10s')
+        self.assertTrue(_Capture.posts, 'no POST arrived within 45s')
         path, body = _Capture.posts[0]
         self.assertEqual(path, '/api/syslog/in/rpwi_testtoken123')
         joined = '\n'.join(body['lines'])
