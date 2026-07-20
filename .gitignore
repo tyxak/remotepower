@@ -78,3 +78,7 @@ C:*
 .ci-parity-venv/
 .pre-release-run.log
 .testfast-run.log
+.prerelease.log
+.gate-confirm.log
+.serialgate.log
+.leakhunt.log
