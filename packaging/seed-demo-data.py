@@ -118,10 +118,18 @@ def _guard_demo_target(target, override=False):
             return (False, f"{users} exists but is unreadable — refusing to "
                            f"risk overwriting a real data dir.")
     elif users_exist is None and not prod_path:
-        # Can't even stat the dir (inaccessible real install), and it isn't a
-        # known production path we can name — refuse rather than crash or risk it.
-        return (False, f"{users} is present but not accessible — refusing to "
-                       f"risk overwriting a real data dir.")
+        # Can't even stat the dir (inaccessible install, e.g. www-data:0600), and
+        # it isn't a known production path we can name — refuse rather than crash
+        # or risk it. Almost always this just means the seeder is running as the
+        # wrong user: the demo dir is owned by the server user, so run as root
+        # (safe — the guard still re-checks the accounts, and --apply chowns the
+        # seeded files back to the dir's owner so the server can read them).
+        _self = os.path.basename(sys.argv[0]) or 'seed-demo-data.py'
+        return (False,
+                f"{users} is present but this process can't read it — the demo "
+                f"dir is likely owned by the server user (e.g. www-data, mode "
+                f"0600). Re-run as root so it can verify the dir and seed it:  "
+                f"sudo python3 {_self} --data-dir {target} --apply")
 
     if override:
         return (True, 'override')
