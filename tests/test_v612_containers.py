@@ -100,7 +100,7 @@ class TestDockerDiskUsage(unittest.TestCase):
         # make the panel flicker empty almost all the time.
         src = (_CGI / "api.py").read_text()
         i = src.index("if 'containers' in body:")
-        block = src[i : i + 1400]
+        block = src[i : i + 1700]   # widened v6.3.0 (restarting_alerted persist added)
         self.assertIn("_prev.get('df')", block)
 
     def test_sizes_sort_by_bytes_not_lexicographically(self):

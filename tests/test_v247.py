@@ -80,10 +80,14 @@ class TestMailboxThreshold(_ApiCase):
         # Stays high — must NOT fire again (edge-triggered).
         api._ingest_mailbox_counts('d1', {'/m/new': {'count': 70, 'exists': True}})
         self.assertEqual(len(fired), 1)
-        # Drops below then crosses again — re-arms, fires once more.
+        # Drops below then crosses again — re-arms, fires once more. v6.3.0: the
+        # drop also fires mailbox_recovered (the auto-resolve event), so count the
+        # threshold crossings specifically rather than all fires.
         api._ingest_mailbox_counts('d1', {'/m/new': {'count': 5, 'exists': True}})
         api._ingest_mailbox_counts('d1', {'/m/new': {'count': 99, 'exists': True}})
-        self.assertEqual(len(fired), 2)
+        thresh = [f for f in fired if f[0] == 'mailbox_threshold']
+        self.assertEqual(len(thresh), 2)
+        self.assertIn('mailbox_recovered', [f[0] for f in fired])
 
     def test_no_threshold_never_fires(self):
         api = self.api

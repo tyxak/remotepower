@@ -126,7 +126,7 @@ class TestSourcePins(unittest.TestCase):
         self.assertIn('pg_advisory_xact_lock_shared', self.pg_src)
 
     def test_mailbox_ingest_uses_single_row_update(self):
-        m = re.search(r'def _ingest_mailbox_counts\(.*?\n(.*?)for payload in to_fire',
+        m = re.search(r'def _ingest_mailbox_counts\(.*?\n(.*?)for _ev, payload in to_fire',
                       self.api_src, re.S)
         self.assertIsNotNone(m)
         self.assertIn('with _DeviceUpdate(dev_id) as devices:', m.group(1))
