@@ -386,6 +386,14 @@ the other posture axes need data plumbing first).
   factor, free/total space and estimated-full date, with the usual down/recover
   alerts.
 
+### UX
+- **The command palette runs actions, not just navigation.** Per-device verbs —
+  **Run command**, **Web terminal**, **Reboot**, **Shut down** — now appear in the
+  palette (`/` or Ctrl-K), reusing the same confirm/modal flows the device drawer
+  uses (nothing runs without the normal confirmation). They're action-scoped, so
+  they surface when you type the verb or a device name (and `>` filters to actions)
+  and never crowd the default view. Agent-backed hosts only.
+
 ### Security & hardening
 - **Pre-release security hunt (SAST + adversarial audit).** CodeQL / bandit /
   gitleaks all clean; a black-box pass over the live edge (tight CSP, HSTS

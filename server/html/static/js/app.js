@@ -26764,6 +26764,28 @@ function _palBuildIndex() {
       sub: 'Chronological history for this host',
       action: () => openDeviceTimeline(d.id),
     });
+    // v6.3.0 (UX): the palette is an ACTION runner, not just a jump list — surface
+    // per-device verbs that reuse the SAME confirm/modal flows the drawer uses (so
+    // nothing runs without the normal confirmation). Agent-backed hosts only; these
+    // are kind:'action' so they never crowd the default view — they appear when you
+    // type the verb (or a device name), and `>` scopes to actions.
+    if (!d.agentless) {
+      const nm = d.name || d.id, did = d.id;
+      items.push({ label: `Run command on ${nm}`, kind: 'action',
+        sub: 'Opens the run-command dialog (with run-and-wait output)',
+        action: () => openExecModal(did, nm) });
+      items.push({ label: `Web terminal — ${nm}`, kind: 'action',
+        sub: 'Open an interactive terminal',
+        action: () => { if (typeof openWebTerm === 'function') openWebTerm(did, nm); } });
+      items.push({ label: `Reboot ${nm}`, kind: 'action',
+        sub: 'Reboot host — asks to confirm',
+        action: () => { rebootTarget = did; openModal('reboot-modal');
+                        document.getElementById('reboot-name').textContent = nm; } });
+      items.push({ label: `Shut down ${nm}`, kind: 'action',
+        sub: 'Shut down host — asks to confirm',
+        action: () => { shutdownTarget = did; openModal('shutdown-modal');
+                        document.getElementById('shutdown-name').textContent = nm; } });
+    }
   }
   // v3.4.1: saved scripts — jump to the Scripts page to run/edit one.
   // _scriptsCache is a top-level binding (shared global lexical env), populated
@@ -26851,7 +26873,7 @@ function openCommandPalette() {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;justify-content:center;padding-top:80px';
   overlay.innerHTML = `
     <div class="isl-716">
-      <input id="cmd-palette-input" type="text" placeholder="Search devices, pages, settings…" autocomplete="off" class="isl-717">
+      <input id="cmd-palette-input" type="text" placeholder="Jump to a device or page, or run an action — try “reboot”, “terminal”, “run command”…" autocomplete="off" class="isl-717">
       <div id="cmd-palette-results" class="isl-718"></div>
       <div class="isl-719">
         <span><kbd class="isl-720">↑↓</kbd> navigate</span>
