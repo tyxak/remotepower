@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.3.0 — "Fl0wMatters" — unreleased (test)
+## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of
 "are you sure?"**, plus the everyday friction fixes operators hit most.
