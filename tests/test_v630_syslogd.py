@@ -72,10 +72,26 @@ class TestSyslogdEndToEnd(unittest.TestCase):
                    RP_SYSLOG_SERVER_URL=f'http://127.0.0.1:{cls.http_port}')
         cls.proc = subprocess.Popen([sys.executable, str(_DAEMON)], env=env,
                                     stderr=subprocess.PIPE)
-        time.sleep(0.8)   # let it bind
-        if cls.proc.poll() is not None:
-            raise unittest.SkipTest('daemon died: '
-                                    + cls.proc.stderr.read().decode(errors='replace'))
+        # Wait for the daemon to ANNOUNCE it's listening before sending any UDP.
+        # UDP is fire-and-forget: datagrams sent before the socket is bound are
+        # silently dropped and never recover — so the old fixed `sleep(0.8)` raced
+        # the subprocess's Python startup under full-suite load (it once took >45s
+        # of the POST-wait to reveal that the packets were already lost). Drain
+        # stderr in a thread (also avoids a PIPE-fill deadlock) and block on the
+        # daemon's 'listening on udp/…' log line.
+        cls._stderr = []
+        cls._listening = threading.Event()
+
+        def _drain(proc=cls.proc, sink=cls._stderr, ev=cls._listening):
+            for raw in iter(proc.stderr.readline, b''):
+                sink.append(raw.decode(errors='replace'))
+                if 'listening on udp/' in sink[-1]:
+                    ev.set()
+        threading.Thread(target=_drain, daemon=True).start()
+        if not cls._listening.wait(20):
+            cls.proc.terminate()
+            raise unittest.SkipTest(
+                'syslogd did not start listening within 20s: ' + ''.join(cls._stderr))
 
     @classmethod
     def tearDownClass(cls):
@@ -95,14 +111,12 @@ class TestSyslogdEndToEnd(unittest.TestCase):
         _Capture.posts.clear()
         self._send('<134>Jul 20 10:00:00 fw1 kernel: DROP IN=eth0 SRC=1.2.3.4')
         self._send('<134>Jul 20 10:00:01 fw1 sshd[9]: Failed password for root')
-        # Poll with a generous deadline: the loop breaks the instant the POST
-        # arrives (~3.5s in isolation), so a wide ceiling only adds headroom for a
-        # loaded machine — the full serial gate once exceeded a 10s ceiling here
-        # (resource contention under ~7700 concurrent-ish tests, not a real fail).
-        deadline = time.time() + 45
+        # The daemon is confirmed listening (setUpClass), so the only wait now is
+        # the batch flush (FLUSH_S=2s) + a generous margin for a loaded machine.
+        deadline = time.time() + 20
         while not _Capture.posts and time.time() < deadline:
             time.sleep(0.2)
-        self.assertTrue(_Capture.posts, 'no POST arrived within 45s')
+        self.assertTrue(_Capture.posts, 'no POST arrived within 20s')
         path, body = _Capture.posts[0]
         self.assertEqual(path, '/api/syslog/in/rpwi_testtoken123')
         joined = '\n'.join(body['lines'])
