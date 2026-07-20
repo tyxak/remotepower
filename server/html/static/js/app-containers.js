@@ -438,10 +438,10 @@ function _registerContainersOverviewTable() {
         <td>${dfCell}</td>
         <td class="hint">${runtimes}</td>
         <td class="hint-nowrap">${reported}${staleBadge}</td>
-        <td class="row-4-center">
+        <td><div class="row-4-center">
           <button class="btn-icon" data-action="containersOpen" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" >View</button>
           <button class="btn-icon c-muted" title="Hide this device from the Containers page" data-action="ignoreContainerDevice" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-        </td>
+        </div></td>
       </tr>`;
     },
     emptyMsg: 'No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.',

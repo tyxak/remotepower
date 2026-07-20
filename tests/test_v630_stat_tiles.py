@@ -43,6 +43,26 @@ class TestStatTileModule(unittest.TestCase):
         self.assertIn("dataset.animating", enhance)
         self.assertIn("if (prev === n)", enhance)   # unchanged value → early return (breaks self-loop)
 
+    def test_count_up_reveal_on_first_sight(self):
+        # The big win for a STATIC dashboard: a value counts up from 0 the first
+        # time it's seen this page-load (not only when it changes), so the eye
+        # candy is actually visible. Tracked in a session-scoped _seen set.
+        from tests import srcpin
+        app = _app()
+        self.assertIn("const _seen = new Set()", app)
+        enhance = srcpin.js_function(app, "enhance")
+        self.assertIn("!_seen.has(key)", enhance)
+        self.assertIn("_countUp(el, 0, n", enhance)     # reveal counts from 0
+        # a reveal shows no ▲/▼ delta (nothing to compare against yet)
+        self.assertIn("_renderMeta(card, buf, tone, undefined, n)", enhance)
+
+    def test_no_placeholder_seeding_at_init(self):
+        # init must NOT sweep the document (stat values start as "0"); seeding
+        # those would make the first real value look like a spurious ▲ delta.
+        from tests import srcpin
+        init = srcpin.js_function(_app(), "init")
+        self.assertNotIn("enhanceAll(document)", init)
+
     def test_meaning_aware_delta(self):
         app = _app()
         # good/bad tone flips the sign meaning of an increase
@@ -73,7 +93,8 @@ class TestStatTileModule(unittest.TestCase):
         app = _app()
         self.assertIn("enhanceAll", app)
         self.assertIn("statTiles.enhanceAll(target)", app)      # called in loadHome
-        self.assertIn(".stat-value, .tile-value", app)          # generalized selector
+        self.assertIn(".stat-value, .tile-value, .tile-num", app)  # generalized selector
+        self.assertIn('<span class="tile-num">', app)           # "7 / 7" count participates
         # tone reused from the tile's ok/warn/alert state class (no duplicate wiring)
         from tests import srcpin
         tone = srcpin.js_function(app, "_toneOf")

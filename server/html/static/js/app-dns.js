@@ -708,10 +708,10 @@ function _acmeRenderTable() {
       return `<tr class="isl-673">
         <td>${escHtml(r.device_name)}</td>
         <td colspan="6" class="hint">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
-        <td class="row-4-center">
+        <td><div class="row-4-center">
           <button class="btn-icon badge-sm" title="Issue a new cert" data-action="acmeOpenIssue" data-arg="${escAttr(r.device_id)}" >+ Issue</button>
           <button class="btn-icon badge-sm" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >Rescan</button>
-        </td>
+        </div></td>
       </tr>`;
     }
     // Real cert row

@@ -16705,6 +16705,12 @@ function _drawFleetPulse(openAlerts) {
 // One MutationObserver drives it, so no per-call-site wiring is needed anywhere.
 const statTiles = (() => {
   const HIST_MAX = 30, HIST_KEY = 'rp_stat_hist';
+  // Keys already revealed THIS page-load. A stat is counted up from 0 the first
+  // time it's seen (a visible reveal on load — the eye candy people expect on a
+  // static dashboard), then stays quiet until its value actually changes. Kept in
+  // memory (not localStorage) so the reveal replays once per page load, not on
+  // every 60s background refresh.
+  const _seen = new Set();
   let hist = {};
   try { hist = JSON.parse(localStorage.getItem(HIST_KEY) || '{}') || {}; } catch (_) { hist = {}; }
   const _persist = () => { try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); } catch (_) {} };
@@ -16757,6 +16763,19 @@ const statTiles = (() => {
     meta.innerHTML = _spark(buf, tone) + delta;
   }
 
+  function _countUp(el, from, to, card, buf, tone, deltaPrev) {
+    el.dataset.animating = '1';
+    const t0 = performance.now(), dur = 650;
+    const step = (t) => {
+      const f = Math.min(1, (t - t0) / dur);
+      const eased = 1 - Math.pow(1 - f, 3);   // easeOutCubic — a lively count-up
+      el.textContent = String(Math.round(from + (to - from) * eased));
+      if (f < 1) { requestAnimationFrame(step); }
+      else { el.textContent = String(to); delete el.dataset.animating; _renderMeta(card, buf, tone, deltaPrev, to); }
+    };
+    requestAnimationFrame(step);
+  }
+
   function enhance(el) {
     if (!el || el.dataset.animating) return;
     const n = _num(el.textContent);
@@ -16767,33 +16786,38 @@ const statTiles = (() => {
     const isStatCard = !!(card && card.classList.contains('stat-card'));
     const buf = hist[key] || (hist[key] = []);
     const prev = buf.length ? buf[buf.length - 1] : undefined;
+    const first = !_seen.has(key); _seen.add(key);
     // .stat-card cards get the red pulse class; .tile cards already colour
     // themselves via their ok/warn/alert state class from the renderer.
     if (isStatCard && tone === 'bad') card.classList.toggle('stat-alert', n > 0);
+
+    if (first) {
+      // First sight this page-load → a count-up REVEAL from 0 (no delta chip;
+      // there's nothing to compare against yet). Seed history if empty.
+      if (prev !== n) { buf.push(n); while (buf.length > HIST_MAX) buf.shift(); _persist(); }
+      if (reduced() || n === 0) { _renderMeta(card, buf, tone, undefined, n); return; }
+      _countUp(el, 0, n, card, buf, tone, undefined);
+      return;
+    }
     if (prev === n) {
-      // Value unchanged. The home hero tiles are rebuilt wholesale via innerHTML,
-      // so a fresh node loses its sparkline — re-attach it from stored history.
+      // Seen this session and unchanged. Hero tiles are rebuilt wholesale via
+      // innerHTML, so a fresh node loses its sparkline — re-attach from history.
       if (card && !card.querySelector('.stat-meta')) _renderMeta(card, buf, tone, undefined, n);
       return;                               // also breaks the count-up self-loop
     }
+    // A real change this session → animate prev→n and show the ▲/▼ delta.
     buf.push(n); while (buf.length > HIST_MAX) buf.shift(); _persist();
-    if (prev === undefined || reduced()) { _renderMeta(card, buf, tone, prev, n); return; }
-    el.dataset.animating = '1';
-    const t0 = performance.now(), dur = 500;
-    const step = (t) => {
-      const f = Math.min(1, (t - t0) / dur);
-      el.textContent = String(Math.round(prev + (n - prev) * f));
-      if (f < 1) { requestAnimationFrame(step); }
-      else { el.textContent = String(n); delete el.dataset.animating; _renderMeta(card, buf, tone, prev, n); }
-    };
-    requestAnimationFrame(step);
+    if (reduced()) { _renderMeta(card, buf, tone, prev, n); return; }
+    _countUp(el, prev, n, card, buf, tone, prev);
   }
 
   // Enhance every stat/tile value under a root — used after a wholesale innerHTML
   // rebuild (the home hero tiles) where the MutationObserver's cheap fast-path
   // (which only matches stat-value/stat-card targets) doesn't fire.
   function enhanceAll(root) {
-    (root || document).querySelectorAll('.stat-value, .tile-value').forEach(enhance);
+    // .tile-num is the leading count inside a "7 / 7"-style tile value, so that
+    // tile counts up too (its .tile-value as a whole isn't a pure integer).
+    (root || document).querySelectorAll('.stat-value, .tile-value, .tile-num').forEach(enhance);
   }
 
   function init() {
@@ -16814,7 +16838,10 @@ const statTiles = (() => {
       });
       obs.observe(document.body, { subtree: true, childList: true, characterData: true });
     } catch (_) {}
-    enhanceAll(document);
+    // Deliberately NOT sweeping the document here: stat values start as "0"
+    // placeholders, and seeding those would make the first real value look like a
+    // change (spurious ▲ delta). The observer reveals each value when its real
+    // number first lands; the home hero tiles reveal via loadHome's enhanceAll.
   }
   return { init, enhance, enhanceAll };
 })();
@@ -17957,7 +17984,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   const tiles = [
     {
       label: 'Devices online',
-      value: `${online}<span class="isl-552"> / ${total}</span>`,
+      value: `<span class="tile-num">${online}</span><span class="isl-552"> / ${total}</span>`,
       sub: offline === 0 ? 'All devices reporting in' :
            offline === 1 ? '1 device offline' : `${offline} devices offline`,
       cls: offline > 0 ? 'warn' : 'ok',
