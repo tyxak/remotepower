@@ -2826,9 +2826,14 @@ input.form-input[type="text"][data-token],
   transition: transform 0.15s ease, border-color 0.15s ease;
   overflow: hidden;
 }
+.tile[data-action] { cursor: pointer; }
 .tile:hover {
   transform: translateY(-1px);
   border-color: var(--accent-edge);
+}
+.tile[data-action]:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.10); }
+@media (prefers-reduced-motion: reduce) {
+  .tile:hover, .tile[data-action]:hover { transform: none; }
 }
 .tile-label {
   font-size: 11px;

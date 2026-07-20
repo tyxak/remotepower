@@ -41,7 +41,7 @@ class TestStatTileModule(unittest.TestCase):
         # count-up's own textContent writes would re-trigger the observer forever.
         enhance = srcpin.js_function(_app(), "enhance")
         self.assertIn("dataset.animating", enhance)
-        self.assertIn("if (prev === n) return", enhance)
+        self.assertIn("if (prev === n)", enhance)   # unchanged value → early return (breaks self-loop)
 
     def test_meaning_aware_delta(self):
         app = _app()
@@ -66,6 +66,26 @@ class TestStatTileModule(unittest.TestCase):
 
     def test_statnav_drilldown(self):
         self.assertIn("function statNav", _app())
+
+    def test_home_hero_tiles_enhanced(self):
+        # the Fleet-at-a-glance hero tiles (.tile-value) get the same eye candy:
+        # generalized selector + an explicit enhanceAll after the wholesale rebuild.
+        app = _app()
+        self.assertIn("enhanceAll", app)
+        self.assertIn("statTiles.enhanceAll(target)", app)      # called in loadHome
+        self.assertIn(".stat-value, .tile-value", app)          # generalized selector
+        # tone reused from the tile's ok/warn/alert state class (no duplicate wiring)
+        from tests import srcpin
+        tone = srcpin.js_function(app, "_toneOf")
+        self.assertIn("alert", tone)
+        self.assertIn("warn", tone)
+
+    def test_home_tiles_clickable(self):
+        # each hero tile drills into its page via CSP-safe data-action dispatch
+        app = _app()
+        self.assertIn('data-action="statNav" data-arg="${t.nav}"', app)
+        for nav in ("'devices'", "'patches'", "'drift'", "'cve'"):
+            self.assertIn("nav: " + nav, app)
 
 
 class TestStatTileMarkup(unittest.TestCase):

@@ -16709,10 +16709,26 @@ const statTiles = (() => {
   try { hist = JSON.parse(localStorage.getItem(HIST_KEY) || '{}') || {}; } catch (_) { hist = {}; }
   const _persist = () => { try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); } catch (_) {} };
   const reduced = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const _key = (el) => el.id
-    || ((el.closest('.stat-card') || el.parentElement || {}).querySelector
-        ? (el.closest('.stat-card') || el.parentElement).querySelector('.stat-label')?.textContent || '' : '').trim().slice(0, 48);
-  // Only PURE integers get the treatment (skip "3.2 GB", "1h ago", "—").
+  const _card = (el) => el.closest('.stat-card, .tile');
+  const _key = (el) => {
+    if (el.id) return el.id;
+    const c = _card(el) || el.parentElement;
+    const lbl = c && c.querySelector ? c.querySelector('.stat-label, .tile-label') : null;
+    return (lbl?.textContent || '').trim().slice(0, 48);
+  };
+  // Tone drives the delta's good/bad sign + the sparkline hue. A .stat-card
+  // declares it via data-stat-tone; a .tile (home hero cards) carries it as its
+  // ok/warn/alert state class already, so reuse that — no duplicate wiring.
+  const _toneOf = (card) => {
+    if (!card) return '';
+    if (card.dataset && card.dataset.statTone) return card.dataset.statTone;
+    if (card.classList) {
+      if (card.classList.contains('alert') || card.classList.contains('warn')) return 'bad';
+      if (card.classList.contains('ok')) return 'good';
+    }
+    return '';
+  };
+  // Only PURE integers get the treatment (skip "3.2 GB", "1h ago", "7 / 7", "—").
   const _num = (s) => { const m = String(s).trim().match(/^-?\d{1,9}$/); return m ? parseInt(m[0], 10) : null; };
 
   function _spark(vals, tone) {
@@ -16729,7 +16745,7 @@ const statTiles = (() => {
     let meta = card.querySelector('.stat-meta');
     if (!meta) {
       meta = document.createElement('div'); meta.className = 'stat-meta';
-      (card.querySelector('.stat-value')?.parentElement || card).appendChild(meta);
+      (card.querySelector('.stat-value, .tile-value')?.parentElement || card).appendChild(meta);
     }
     let delta = '';
     if (prev !== undefined && prev !== n) {
@@ -16746,13 +16762,21 @@ const statTiles = (() => {
     const n = _num(el.textContent);
     if (n === null) return;
     const key = _key(el); if (!key) return;
-    const card = el.closest('.stat-card');
-    const tone = (card && card.dataset.statTone) || '';
+    const card = _card(el);
+    const tone = _toneOf(card);
+    const isStatCard = !!(card && card.classList.contains('stat-card'));
     const buf = hist[key] || (hist[key] = []);
     const prev = buf.length ? buf[buf.length - 1] : undefined;
-    if (prev === n) return;                 // no real change (also breaks the count-up self-loop)
+    // .stat-card cards get the red pulse class; .tile cards already colour
+    // themselves via their ok/warn/alert state class from the renderer.
+    if (isStatCard && tone === 'bad') card.classList.toggle('stat-alert', n > 0);
+    if (prev === n) {
+      // Value unchanged. The home hero tiles are rebuilt wholesale via innerHTML,
+      // so a fresh node loses its sparkline — re-attach it from stored history.
+      if (card && !card.querySelector('.stat-meta')) _renderMeta(card, buf, tone, undefined, n);
+      return;                               // also breaks the count-up self-loop
+    }
     buf.push(n); while (buf.length > HIST_MAX) buf.shift(); _persist();
-    if (card && tone === 'bad') card.classList.toggle('stat-alert', n > 0);
     if (prev === undefined || reduced()) { _renderMeta(card, buf, tone, prev, n); return; }
     el.dataset.animating = '1';
     const t0 = performance.now(), dur = 500;
@@ -16763,6 +16787,13 @@ const statTiles = (() => {
       else { el.textContent = String(n); delete el.dataset.animating; _renderMeta(card, buf, tone, prev, n); }
     };
     requestAnimationFrame(step);
+  }
+
+  // Enhance every stat/tile value under a root — used after a wholesale innerHTML
+  // rebuild (the home hero tiles) where the MutationObserver's cheap fast-path
+  // (which only matches stat-value/stat-card targets) doesn't fire.
+  function enhanceAll(root) {
+    (root || document).querySelectorAll('.stat-value, .tile-value').forEach(enhance);
   }
 
   function init() {
@@ -16783,9 +16814,9 @@ const statTiles = (() => {
       });
       obs.observe(document.body, { subtree: true, childList: true, characterData: true });
     } catch (_) {}
-    document.querySelectorAll('.stat-value').forEach(enhance);
+    enhanceAll(document);
   }
-  return { init, enhance };
+  return { init, enhance, enhanceAll };
 })();
 // Back-compat shim: a few callers used animateStat(id,val); route through the tile.
 function animateStat(id, val) {
@@ -17930,6 +17961,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       sub: offline === 0 ? 'All devices reporting in' :
            offline === 1 ? '1 device offline' : `${offline} devices offline`,
       cls: offline > 0 ? 'warn' : 'ok',
+      nav: 'devices',
     },
     {
       label: 'Pending updates',
@@ -17938,6 +17970,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
         ? `${criticalPending} device${criticalPending === 1 ? '' : 's'} with 20+ pending`
         : pending === 0 ? 'Fleet fully patched' : 'Across monitored devices',
       cls: criticalPending > 0 ? 'warn' : pending === 0 ? 'ok' : '',
+      nav: 'patches',
     },
     {
       label: 'Drift events',
@@ -17946,6 +17979,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
         ? 'All watched files at baseline'
         : `${driftDevsMon.filter(d => d.drifted > 0).length} device${driftDevsMon.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
       cls: driftedFiles > 0 ? 'warn' : 'ok',
+      nav: 'drift',
     },
     {
       label: 'Critical CVEs',
@@ -17956,6 +17990,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
           ? `${highCves} high · ${totalCves - highCves} med/low`
           : totalCves > 0 ? `${totalCves} total (med/low only)` : 'No active CVEs',
       cls: criticalCves > 0 ? 'alert' : highCves > 0 ? 'warn' : 'ok',
+      nav: 'cve',
     },
   ];
 
@@ -17983,13 +18018,21 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
     });
   }
 
-  target.innerHTML = tiles.map(t =>
-    `<div class="tile ${t.cls}">
+  target.innerHTML = tiles.map(t => {
+    // Clickable drill-down (CSP-safe data-action dispatch, not an inline handler).
+    const act = t.nav
+      ? ` data-action="statNav" data-arg="${t.nav}" role="button" tabindex="0"`
+      : '';
+    return `<div class="tile ${t.cls}"${act}>
       <div class="tile-label">${t.label}</div>
       <div class="tile-value">${t.value}</div>
       <div class="tile-subtle">${t.sub}</div>
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
+  // v6.3.0 stat-tile eye candy for the home hero cards — count-up, persisted
+  // sparkline and a meaning-aware delta, keyed by label (tone from the ok/warn/
+  // alert class). enhanceAll is needed because the tiles are rebuilt wholesale.
+  try { statTiles.enhanceAll(target); } catch (_) {}
 }
 
 // v2.4.7: the Needs Attention digest is now computed server-side by
