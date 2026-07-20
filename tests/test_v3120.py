@@ -943,9 +943,12 @@ class TestLargeFleetUI(unittest.TestCase):
         self.assertIn('function enhanceDeviceCombos(', self.app)
         self.assertIn('enhanceDeviceCombos(el)', self.app)
         # every confirmed device <select> is tagged for the combobox
+        # NB: the backup-job selector became a MULTI-device checkbox picker in
+        # v6.3.0 (the baseline feature — one job → many devices), so it is no
+        # longer a single-select combobox and is intentionally absent here.
         for sid in ('patch-device-filter', 'logs-device-filter', 'timeline-device',
                     'trend-device', 'sched-device', 'compose-create-device',
-                    'acme-issue-device', 'backupjob-device', 'iac-device-select',
+                    'acme-issue-device', 'iac-device-select',
                     'mailwatch-device', 'oti-device', 'maint-target-device',
                     'log-rule-device', 'inbound-wh-device', 'tasks-device-filter'):
             i = self.html.find(f'id="{sid}"')

@@ -336,7 +336,7 @@ async function restoreBackupJob(id) {
     });
     if (pick === null) return;
     const idx = parseInt(pick.trim(), 10) - 1;
-    if (!(idx >= 0 && idx < targets.length)) { toast('Enter a number from the list', 'error'); return; }
+    if (!(idx >= 0 && idx < targets.length)) { toast('Enter a number from the list', 'error', {transient: true}); return; }
     devId = targets[idx];
   }
   const path = await uiPrompt({
