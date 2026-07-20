@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-25">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-26">
 
 </head>
 <body>
@@ -845,25 +845,26 @@
         <div class="page-subtitle">Manage and remotely control enrolled devices <a href="docs/fleet-management.md" class="c-accent">Documentation</a></div>
 
         <div class="stats-row">
-          <div class="stat-card">
+          <div class="stat-card" data-action="statNav" data-arg="devices" role="button" tabindex="0" aria-label="Total devices — open Devices">
             <div class="stat-icon blue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg>
             </div>
             <div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total devices</div></div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-stat-tone="good" data-action="statNav" data-arg="devices" role="button" tabindex="0" aria-label="Online devices — open Devices">
             <div class="stat-icon green">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9d86dfb3"/></svg>
             </div>
             <div><div class="stat-value" id="stat-online">0</div><div class="stat-label">Online</div></div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-stat-tone="bad" data-action="statNav" data-arg="devices" role="button" tabindex="0" aria-label="Offline devices — open Devices">
             <div class="stat-icon red">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b4990b7e"/></svg>
             </div>
             <div><div class="stat-value" id="stat-offline">0</div><div class="stat-label">Offline</div></div>
           </div>
         </div>
+        <div class="stat-propbar" id="fleet-propbar" role="img" aria-label="Fleet online / offline share" hidden></div>
 
         <div class="section-header">
           <div class="row-12-center">
@@ -6229,8 +6230,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <input type="text" id="cve-filter" class="form-input isl-135" placeholder="Filter by device, group, ecosystem…" aria-label="Filter by device, group, ecosystem">
         </div>
         <div class="stats-row isl-136">
-          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-red" id="cve-stat-critical">0</div><div class="stat-label">Critical</div></div></div>
-          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="cve-stat-high">0</div><div class="stat-label">High</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-red" id="cve-stat-critical">0</div><div class="stat-label">Critical</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="cve-stat-high">0</div><div class="stat-label">High</div></div></div>
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-858ad5c5"/></svg></div><div><div class="stat-value c-amber" id="cve-stat-medium">0</div><div class="stat-label">Medium</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-1bd07cbf"/></svg></div><div><div class="stat-value c-muted" id="cve-stat-low">0</div><div class="stat-label">Low</div></div></div>
           <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-7d346a8c"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
@@ -6275,8 +6276,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Authorized vulnerability scans against <strong>enrolled hosts you manage</strong> and ownership-verified domains. The target is derived server-side — you can only scan assets you own. Network scans run on a <strong>scanner satellite</strong>; on-host audits run on the device's agent. <a href="docs/security-scans.md" target="_blank" rel="noopener" class="c-accent">Documentation →</a></div>
         <div class="stats-row">
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value" id="scan-stat-running">0</div><div class="stat-label">Running / queued</div></div></div>
-          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-red" id="scan-stat-critical">0</div><div class="stat-label">Critical findings</div></div></div>
-          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="scan-stat-high">0</div><div class="stat-label">High findings</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-red" id="scan-stat-critical">0</div><div class="stat-label">Critical findings</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="scan-stat-high">0</div><div class="stat-label">High findings</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-99336aa6"/></svg></div><div><div class="stat-value" id="scan-stat-total">0</div><div class="stat-label">Scans</div></div></div>
         </div>
         <div class="dash-card">
@@ -6338,8 +6339,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <input type="text" id="services-filter" class="form-input isl-135" placeholder="Filter by device, group, unit…" aria-label="Filter by device, group, unit">
         </div>
         <div class="stats-row isl-139">
-          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><div><div class="stat-value c-green" id="services-stat-up">0</div><div class="stat-label">Services Up</div></div></div>
-          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div><div class="stat-value c-red" id="services-stat-down">0</div><div class="stat-label">Services Down</div></div></div>
+          <div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><div><div class="stat-value c-green" id="services-stat-up">0</div><div class="stat-label">Services Up</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div><div class="stat-value c-red" id="services-stat-down">0</div><div class="stat-label">Services Down</div></div></div>
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="services-stat-devices">0</div><div class="stat-label">Devices Reporting</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-1bd07cbf"/></svg></div><div><div class="stat-value" id="services-stat-total">0</div><div class="stat-label">Units Watched</div></div></div>
         </div>
@@ -10430,34 +10431,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-25"></script>
+<script defer src="static/js/app.js?v=6.3.0-26"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-25"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-26"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-25"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-26"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-25"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-26"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-25"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-25"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-26"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-26"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10466,6 +10467,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-25"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-26"></script>
 </body>
 </html>

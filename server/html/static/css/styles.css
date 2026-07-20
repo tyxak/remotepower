@@ -2631,6 +2631,34 @@ input.form-input[type="text"][data-token],
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
 }
+/* v6.3.0 (stat-tile eye candy): count-up + sparkline + delta + state tone, applied
+   to every .stat-card via one observer. All motion is transform/opacity only and
+   respects prefers-reduced-motion (see the reduce block above). */
+.stat-card { cursor: default; }
+.stat-card[data-action], .stat-card[data-nav] { cursor: pointer; }
+/* (hover-lift + transition live in the consolidated .stat-card block lower down) */
+.stat-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; min-height: 16px; }
+.stat-spark { display: block; }
+.stat-delta { font-size: 10px; font-weight: 600; line-height: 1; }
+.stat-delta.sd-good { color: var(--green); }
+.stat-delta.sd-bad  { color: var(--red); }
+.stat-delta.sd-flat { color: var(--muted); }
+/* State-reactive: a "bad" tile (e.g. Offline) turns red + one subtle pulse when > 0. */
+.stat-card.stat-alert .stat-value { color: var(--red); }
+.stat-card.stat-alert .stat-icon { animation: stat-pulse 1.4s ease-out 2; }
+@keyframes stat-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+/* Fleet proportion bar (online / offline / unmonitored share). */
+.stat-propbar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--hair-2); margin: 4px 0 14px; }
+.stat-propbar > span { height: 100%; transition: width .5s ease; }
+.stat-propbar > .pp-online { background: var(--green); }
+.stat-propbar > .pp-offline { background: var(--red); }
+.stat-propbar > .pp-unmon { background: var(--muted); opacity: .5; }
+@media (prefers-reduced-motion: reduce) {
+  .stat-card[data-action]:hover, .stat-card[data-nav]:hover { transform: none; }
+  .stat-card.stat-alert .stat-icon { animation: none; }
+  .stat-propbar > span { transition: none; }
+}
+
 /* v6.3.0: indeterminate progress bar (on-demand backup run feedback). Animates
    transform only (no left/width) so it never triggers layout/paint — see
    test_v430_perfweb. */
@@ -6546,9 +6574,16 @@ table { font-variant-numeric: tabular-nums; }
 .table-card tbody tr:hover { background: var(--surface2); }
 
 /* Overview tiles: a quiet accent edge on hover so the KPI tiles feel responsive
-   without breaking the flat instrument-readout look. */
-.stat-card { transition: border-color .15s ease; }
+   without breaking the flat instrument-readout look. Interactive tiles (those
+   wired to a drill-down) also lift slightly. */
+.stat-card { transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
 .stat-card:hover { border-color: var(--accent-edge); }
+.stat-card[data-action]:hover, .stat-card[data-nav]:hover {
+  transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.10); border-color: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-card[data-action]:hover, .stat-card[data-nav]:hover { transform: none; }
+}
 
 /* (v6: the "TemperMatters" chamfer-button block is GONE — action buttons use
    the flat v6 base styles above: hairline border, 7px radius, accent fill for

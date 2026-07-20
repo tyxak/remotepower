@@ -2623,6 +2623,7 @@ function renderDevices() {
   // and wrong). Online stays green; total stays neutral.
   _onEl.classList.toggle('c-green', online > 0);
   _offEl.classList.toggle('c-red', _offline > 0);
+  _fleetPropBar(devices.length, online, _offline);
   const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
   // v6.3.0 (UX wave 13): agent version skew — agents older than the newest
   // agent version in the fleet get a clickable warn chip that filters to
@@ -16697,31 +16698,125 @@ function _drawFleetPulse(openAlerts) {
   ctx.fill();
 }
 
-// v6.3.0 (UX wave 10): animated stat swap — the number interpolates to its
-// new value with a brief ▲/▼ that fades, so a changed stat is SEEN changing.
-const _statPrev = {};
+// v6.3.0 (stat-tile eye candy): make EVERY .stat-value across the app come alive —
+// count-up on change, a meaning-aware ▲/▼ delta chip, a persisted sparkline (last
+// 30 observed values, kept in localStorage so the trend survives reloads) and a
+// state-reactive tone (a data-stat-tone="bad" card goes red + pulses when > 0).
+// One MutationObserver drives it, so no per-call-site wiring is needed anywhere.
+const statTiles = (() => {
+  const HIST_MAX = 30, HIST_KEY = 'rp_stat_hist';
+  let hist = {};
+  try { hist = JSON.parse(localStorage.getItem(HIST_KEY) || '{}') || {}; } catch (_) { hist = {}; }
+  const _persist = () => { try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); } catch (_) {} };
+  const reduced = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const _key = (el) => el.id
+    || ((el.closest('.stat-card') || el.parentElement || {}).querySelector
+        ? (el.closest('.stat-card') || el.parentElement).querySelector('.stat-label')?.textContent || '' : '').trim().slice(0, 48);
+  // Only PURE integers get the treatment (skip "3.2 GB", "1h ago", "—").
+  const _num = (s) => { const m = String(s).trim().match(/^-?\d{1,9}$/); return m ? parseInt(m[0], 10) : null; };
+
+  function _spark(vals, tone) {
+    if (!vals || vals.length < 2) return '';
+    const w = 60, h = 16, min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1;
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1) * w).toFixed(1)},${(h - (v - min) / rng * (h - 3) - 1.5).toFixed(1)}`).join(' ');
+    const col = { good: 'var(--green)', bad: 'var(--red)' }[tone] || 'var(--accent)';
+    return `<svg class="stat-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="none" aria-hidden="true">`
+      + `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/></svg>`;
+  }
+
+  function _renderMeta(card, buf, tone, prev, n) {
+    if (!card) return;
+    let meta = card.querySelector('.stat-meta');
+    if (!meta) {
+      meta = document.createElement('div'); meta.className = 'stat-meta';
+      (card.querySelector('.stat-value')?.parentElement || card).appendChild(meta);
+    }
+    let delta = '';
+    if (prev !== undefined && prev !== n) {
+      const up = n > prev;
+      // colour by MEANING: on a "good" metric up is good; on a "bad" one up is bad.
+      const good = tone === 'good' ? up : tone === 'bad' ? !up : up;
+      delta = `<span class="stat-delta ${good ? 'sd-good' : 'sd-bad'}">${up ? '▲' : '▼'}${Math.abs(n - prev)}</span>`;
+    }
+    meta.innerHTML = _spark(buf, tone) + delta;
+  }
+
+  function enhance(el) {
+    if (!el || el.dataset.animating) return;
+    const n = _num(el.textContent);
+    if (n === null) return;
+    const key = _key(el); if (!key) return;
+    const card = el.closest('.stat-card');
+    const tone = (card && card.dataset.statTone) || '';
+    const buf = hist[key] || (hist[key] = []);
+    const prev = buf.length ? buf[buf.length - 1] : undefined;
+    if (prev === n) return;                 // no real change (also breaks the count-up self-loop)
+    buf.push(n); while (buf.length > HIST_MAX) buf.shift(); _persist();
+    if (card && tone === 'bad') card.classList.toggle('stat-alert', n > 0);
+    if (prev === undefined || reduced()) { _renderMeta(card, buf, tone, prev, n); return; }
+    el.dataset.animating = '1';
+    const t0 = performance.now(), dur = 500;
+    const step = (t) => {
+      const f = Math.min(1, (t - t0) / dur);
+      el.textContent = String(Math.round(prev + (n - prev) * f));
+      if (f < 1) { requestAnimationFrame(step); }
+      else { el.textContent = String(n); delete el.dataset.animating; _renderMeta(card, buf, tone, prev, n); }
+    };
+    requestAnimationFrame(step);
+  }
+
+  function init() {
+    try {
+      const obs = new MutationObserver((muts) => {
+        const seen = new Set();
+        for (const m of muts) {
+          // Fast path: a stat value is `<div class="stat-value">N</div>`, so a text
+          // change targets the div (childList) or its child text node
+          // (characterData) — check those two directly and avoid a closest() walk
+          // on every unrelated DOM mutation (log streams, tables re-rendering, …).
+          const t = m.target.nodeType === 3 ? m.target.parentElement : m.target;
+          if (!t || !t.classList) continue;
+          const sv = t.classList.contains('stat-value') ? t
+            : (t.classList.contains('stat-card') && t.querySelector ? t.querySelector('.stat-value') : null);
+          if (sv && !seen.has(sv)) { seen.add(sv); enhance(sv); }
+        }
+      });
+      obs.observe(document.body, { subtree: true, childList: true, characterData: true });
+    } catch (_) {}
+    document.querySelectorAll('.stat-value').forEach(enhance);
+  }
+  return { init, enhance };
+})();
+// Back-compat shim: a few callers used animateStat(id,val); route through the tile.
 function animateStat(id, val) {
   const el = document.getElementById(id);
-  if (!el) return;
-  const n = Number(val) || 0;
-  const prev = _statPrev[id];
-  _statPrev[id] = n;
-  const reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (prev === undefined || prev === n || reduced) { el.textContent = String(val); return; }
-  const t0 = performance.now(), dur = 400;
-  const step = (t) => {
-    const f = Math.min(1, (t - t0) / dur);
-    el.textContent = String(Math.round(prev + (n - prev) * f));
-    if (f < 1) requestAnimationFrame(step);
-    else {
-      const d = document.createElement('span');
-      d.className = n > prev ? 'stat-delta-up' : 'stat-delta-down';
-      d.textContent = n > prev ? `▲${n - prev}` : `▼${prev - n}`;
-      el.appendChild(d);
-      setTimeout(() => d.remove(), 4000);
-    }
+  if (el) { el.textContent = String(val); statTiles.enhance(el); }
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => statTiles.init());
+else statTiles.init();
+// Clickable stat card → drill into the matching page.
+function statNav(page) { try { showPage(page); } catch (_) {} }
+// Fleet online/offline proportion bar under the dashboard trio.
+function _fleetPropBar(total, online, offline) {
+  const bar = document.getElementById('fleet-propbar');
+  if (!bar) return;
+  const t = Number(total) || 0;
+  if (t <= 0) { bar.hidden = true; bar.textContent = ''; return; }
+  const on = Number(online) || 0, off = Number(offline) || 0;
+  const unmon = Math.max(0, t - on - off);
+  bar.hidden = false;
+  bar.textContent = '';
+  const seg = (cls, n, label) => {
+    if (n <= 0) return;
+    const s = document.createElement('span');
+    s.className = cls;
+    s.style.width = (n / t * 100).toFixed(2) + '%';
+    s.title = `${n} ${label}`;
+    bar.appendChild(s);
   };
-  requestAnimationFrame(step);
+  seg('pp-online', on, 'online');
+  seg('pp-offline', off, 'offline');
+  seg('pp-unmon', unmon, 'unmonitored');
 }
 
 // v6.3.0 (UX wave 10): SVG progress ring — driven by REAL done/total fractions

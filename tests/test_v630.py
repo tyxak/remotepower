@@ -646,9 +646,14 @@ class TestWave10EyeCandy(unittest.TestCase):
         app = _js("app.js")
         self.assertIn("function animateStat", app)
         self.assertIn("function _progressRing", app)
-        # reduced-motion short-circuits the interpolation
+        # v6.3.0 stat-tile eye candy: the interpolation + reduced-motion guard
+        # moved into the statTiles module (animateStat is now a back-compat shim
+        # routing through statTiles.enhance).
+        self.assertIn("const statTiles", app)
+        self.assertIn("prefers-reduced-motion", app)
         from tests import srcpin
-        self.assertIn("prefers-reduced-motion", srcpin.js_function(app, "animateStat"))
+        # enhance() consults the reduced-motion guard before interpolating
+        self.assertIn("reduced()", srcpin.js_function(app, "enhance"))
         cve = _js("app-cve.js")
         self.assertIn("animateStat('cve-stat-critical'", cve)
         self.assertIn("_progressRing(st.done / st.total)", cve)
@@ -732,9 +737,9 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-25", _html())
+        self.assertIn("?v=6.3.0-26", _html())
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-25", sw)
+        self.assertIn("remotepower-shell-v6.3.0-26", sw)
 
 
 class TestWave12TransientToasts(unittest.TestCase):
