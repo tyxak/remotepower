@@ -194,6 +194,33 @@ def build_restore_command(spec, restore_target, job_id, archive=None):
     return f'{pre} && {{ {xfer}; rc=$?; {post}; exit $rc; }} || {{ {post}; exit 1; }}'
 
 
+def build_list_command(spec, job_id):
+    """List this job's archives at the destination, newest first, so the restore
+    flow can offer a pick-list instead of asking the operator to type a filename.
+    Only meaningful for tar jobs (rsync is a synced tree, not per-run archives).
+    Returns just the archive filenames (one per line)."""
+    ok, err = validate_spec(spec)
+    if not ok:
+        raise ValueError(err)
+    if not _ok(job_id, _HOST_OK, 64):
+        raise ValueError('invalid job id')
+    dest = spec['dest']
+    transport = dest['transport']
+    rpath = dest['remote_path'].rstrip('/')
+    # job_id is validated (safe charset), so this grep pattern is injection-free.
+    grep = f"grep -E '^{job_id}-.*[.]tar[.]gz$'"
+    if transport == 'ssh':
+        remote = shlex.quote(f'{dest["user"]}@{dest["host"]}')
+        return (f'{_ssh_e(dest.get("port", 22))} {remote} '
+                f'"ls -1t {rpath} 2>/dev/null | {grep}"')
+    mnt = f'{_MNT_BASE}/{job_id}-ls'
+    srcdir = f'{mnt}/{rpath.lstrip("/")}'
+    pre = f'mkdir -p {shlex.quote(mnt)} && {_mount_cmd(dest, mnt)}'
+    post = f'umount {shlex.quote(mnt)}; rmdir {shlex.quote(mnt)} 2>/dev/null || true'
+    return (f'{pre} && {{ ls -1t {shlex.quote(srcdir)} 2>/dev/null | {grep}; rc=$?; '
+            f'{post}; exit $rc; }} || {{ {post}; exit 1; }}')
+
+
 def describe(spec):
     """One-line human summary for the UI / audit log (no secrets)."""
     d = spec.get('dest', {}) if isinstance(spec, dict) else {}

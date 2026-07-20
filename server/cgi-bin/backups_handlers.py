@@ -523,6 +523,57 @@ def _backup_job_targets(job):
     return [str(d)] if d else []
 
 
+def _backup_job_status(job):
+    """v6.3.0 (UX): derive a job's last-run OUTCOME so the table can show ✓/✗/
+    running, not just a timestamp. Correlates by the (deterministic) generated
+    command: the agent echoes the queued command back with its exit code into
+    CMD_OUTPUT_FILE, and a queued-but-unreported command means it's still running.
+    A stored command is a truncated prefix of the generated one, so we match on
+    prefix equality (distinguishes same-paths-different-host jobs).
+
+    Returns {state, ts, rc, per_device}. state ∈ ok|failed|running|never|unknown."""
+    try:
+        cmd = _backup_job_command(job)
+    except ValueError:
+        return {'state': 'unknown'}
+    if not cmd:
+        return {'state': 'unknown'}
+    targets = _backup_job_targets(job)
+    per, newest_ts, worst_rc, running = {}, 0, None, False
+    for dev in targets:
+        queued = A._entity_read_one(A.CMDS_FILE, dev, []) or []
+        if any(isinstance(q, str) and q.startswith('exec:') and cmd[:120] == q[5:5 + 120]
+               for q in queued):
+            per[dev] = 'running'; running = True; continue
+        outs = A._entity_read_one(A.CMD_OUTPUT_FILE, dev, []) or []
+        hit = None
+        for o in reversed(outs):          # newest first
+            oc = str(o.get('cmd') or '')
+            oc = oc[5:] if oc.startswith('exec:') else oc
+            if len(oc) >= 20 and cmd[:len(oc)] == oc:
+                hit = o; break
+        if hit is None:
+            per[dev] = 'never'
+        else:
+            rc = hit.get('rc', -1)
+            per[dev] = 'ok' if rc == 0 else 'failed'
+            newest_ts = max(newest_ts, int(hit.get('ts', 0) or 0))
+            if rc != 0:
+                worst_rc = rc
+    states = set(per.values())
+    if running:
+        state = 'running'
+    elif 'failed' in states:
+        state = 'failed'
+    elif 'ok' in states:
+        state = 'ok'
+    elif states in (set(), {'never'}):
+        state = 'never'
+    else:
+        state = 'unknown'
+    return {'state': state, 'ts': newest_ts, 'rc': worst_rc, 'per_device': per}
+
+
 def handle_backup_job_delete(job_id):
     """DELETE /api/backup-jobs/{id} (admin)."""
     actor = A.require_admin_auth()
@@ -552,13 +603,10 @@ def _backup_job_command(job):
     return job.get('command') or ''
 
 
-def _backup_run_and_wait(dev_id, cmd, actor, dev_name, timeout=120):
-    """Queue a backup command on ONE device and block for its output so the UI can
-    show live feedback. Reuses the longpoll slot the file-manager round-trip uses
-    (LONGPOLL_FILE + _longpoll_wait) — the command is server-generated and admin-
-    gated, so it bypasses the exec allowlist that the operator-typed run-and-wait
-    path applies. Responds 200 with the captured output, or a graceful 'still
-    running' when a long backup outlasts the timeout."""
+def _backup_queue_and_wait(dev_id, cmd, actor, dev_name, label, timeout=120):
+    """Queue a server-generated backup command on ONE device via the longpoll slot
+    and block for its output. Returns (status, output_dict) — 'ok' | 'timeout' |
+    'shutdown'. Shared by run-and-wait feedback AND the archive-list step."""
     lp = A.load(A.LONGPOLL_FILE)
     lp[dev_id] = {'cmd': cmd, 'ready': False, 'output': None, 'ts': int(time.time())}
     A.save(A.LONGPOLL_FILE, lp)
@@ -568,8 +616,17 @@ def _backup_run_and_wait(dev_id, cmd, actor, dev_name, timeout=120):
     if _q not in cmds[dev_id]:
         cmds[dev_id].append(_q)
     A.save(A.CMDS_FILE, cmds)
-    A.log_command(actor, dev_id, dev_name, 'backup(run-and-wait)')
-    status, output = A._longpoll_wait(dev_id, timeout)
+    A.log_command(actor, dev_id, dev_name, label)
+    return A._longpoll_wait(dev_id, timeout)
+
+
+def _backup_run_and_wait(dev_id, cmd, actor, dev_name, timeout=120):
+    """Run-and-wait a backup on ONE device so the UI can show live feedback.
+    The command is server-generated + admin-gated (bypasses the operator exec
+    allowlist). Responds 200 with the captured output, or a graceful 'still
+    running' when a long backup outlasts the timeout."""
+    status, output = _backup_queue_and_wait(dev_id, cmd, actor, dev_name,
+                                            'backup(run-and-wait)', timeout)
     if status == 'ok':
         A.respond(200, {'ok': True, 'output': output})
     elif status == 'shutdown':
@@ -612,6 +669,55 @@ def handle_backup_job_run(job_id):
         return
     A._queue_command_batch(targets, f'exec:{cmd}', actor)
     A.respond(200, {'ok': True, 'queued': len(targets)})
+
+
+def handle_backup_job_archives(job_id):
+    """POST /api/backup-jobs/{id}/archives — list this tar job's archives at the
+    destination (run-and-wait), so Restore can offer a pick-list instead of asking
+    the operator to type a filename. Body: {device_id?}. Admin + tenant-gated."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    data = A._backup_jobs_load()
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job:
+        A.respond(404, {'error': 'job not found'})
+    if job.get('type') != 'file' or job.get('spec') is None:
+        A.respond(400, {'error': 'archives are only listed for file-backup jobs'})
+    if (job['spec'].get('method') != 'tar'):
+        # rsync jobs are a synced tree, not per-run archives — restore pulls the latest.
+        A.respond(200, {'ok': True, 'archives': [],
+                        'note': 'rsync jobs restore the latest synced copy — no archive to pick'})
+    body = A.get_json_obj()
+    targets = _backup_job_targets(job)
+    dev_id = str(body.get('device_id', '')).strip() or (targets[0] if len(targets) == 1 else '')
+    if not dev_id:
+        A.respond(400, {'error': 'this job targets multiple devices — specify device_id'})
+    if dev_id not in targets:
+        A.respond(400, {'error': 'device is not one of this job\'s targets'})
+    A._scope_block_device(dev_id)
+    ok, err = A.filebackup_mod.validate_spec(job['spec'])
+    if not ok:
+        A.respond(400, {'error': f'file-backup spec no longer valid: {err}'})
+    cmd = A.filebackup_mod.build_list_command(job['spec'], job['id'])
+    devices = A.load(A.DEVICES_FILE)
+    status, output = _backup_queue_and_wait(dev_id, cmd, actor,
+                                            devices.get(dev_id, {}).get('name', dev_id),
+                                            'backup(list-archives)', timeout=60)
+    if status != 'ok':
+        A.respond(200, {'ok': True, 'archives': [], 'pending': True,
+                        'message': 'The host has not reported yet — try again in a moment, or type the archive name.'})
+    raw = ''
+    if isinstance(output, dict):
+        raw = str(output.get('stdout') or output.get('output') or '')
+    # Parse filenames, keep only well-formed archive names for THIS job.
+    names = []
+    for ln in raw.splitlines():
+        n = ln.strip()
+        if n and n.startswith(job['id'] + '-') and n.endswith('.tar.gz') and len(n) < 200 \
+                and all(c.isalnum() or c in '._-' for c in n):
+            names.append(n)
+    A.respond(200, {'ok': True, 'archives': names[:200]})
 
 
 def handle_backup_job_restore(job_id):
@@ -700,9 +806,16 @@ def handle_backup_job_update(job_id):
 
 
 def handle_backup_jobs_list():
-    """GET /api/backup-jobs — all defined backup jobs."""
+    """GET /api/backup-jobs — all defined backup jobs, each with its last-run
+    outcome (v6.3.0) so the table shows ✓/✗/running, not just a timestamp."""
     A.require_auth()
-    A.respond(200, {'ok': True, 'jobs': A._backup_jobs_load()['jobs']})
+    jobs = A._backup_jobs_load()['jobs']
+    for j in jobs:
+        try:
+            j['status'] = _backup_job_status(j)
+        except Exception:
+            j['status'] = {'state': 'unknown'}
+    A.respond(200, {'ok': True, 'jobs': jobs})
 
 
 def handle_backup_restore():

@@ -9,6 +9,33 @@ function downloadBackup() {
   _downloadAuthed('/api/backup/download', 'remotepower-backup.tar.gz', 'Full backup downloaded');
 }
 
+// v6.3.0 (UX): last-run outcome badge for a backup job — you can tell at a glance
+// whether backups are actually working, not just when they last ran. Lucide icons
+// per the no-emoji rule.
+function _backupStatusBadge(st) {
+  if (!st || !st.state) return '';
+  const per = st.per_device || {};
+  const n = Object.keys(per).length;
+  let summ = '';
+  if (n > 1) {
+    const c = {};
+    for (const v of Object.values(per)) c[v] = (c[v] || 0) + 1;
+    summ = ' · ' + Object.entries(c).map(([k, v]) => `${v} ${k}`).join(', ');
+  }
+  switch (st.state) {
+    case 'ok':
+      return `<span class="c-green" title="Last backup succeeded${summ}">${_icon('check', 12)}</span>`;
+    case 'failed':
+      return `<span class="c-red" title="Last backup FAILED${st.rc != null ? ` (exit ${st.rc})` : ''}${summ}">${_icon('x', 12)}</span>`;
+    case 'running':
+      return `<span class="c-amber" title="Running now${summ}">${_icon('refresh', 12)}</span>`;
+    case 'never':
+      return `<span class="c-muted" title="Never run">—</span>`;
+    default:
+      return '';
+  }
+}
+
 function _registerBackupJobsTable() {
   if (_backupJobsRegistered) return;
   _backupJobsRegistered = true;
@@ -18,7 +45,7 @@ function _registerBackupJobsTable() {
     columns: ['name', 'device_name', 'cron', 'last_run', 'enabled'],
     getColumns: (j) => ({ name: j.name || '', device_name: j.device_name || '',
       cron: j.cron || '', last_run: j.last_run || 0, enabled: j.enabled ? 1 : 0 }),
-    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}${j.type === 'file' ? ' <span class="badge-xs">file</span>' : ''}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button>${j.type === 'file' ? `<button class="btn-icon" data-action="restoreBackupJob" data-arg="${escAttr(j.id)}" title="Restore this backup to the host">Restore</button>` : ''}<button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
+    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}${j.type === 'file' ? ' <span class="badge-xs">file</span>' : ''}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${_backupStatusBadge(j.status)} ${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button>${j.type === 'file' ? `<button class="btn-icon" data-action="restoreBackupJob" data-arg="${escAttr(j.id)}" title="Restore this backup to the host">Restore</button>` : ''}<button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
     emptyMsg: 'No backup jobs. Create one to run or schedule a backup command.',
     emptyMsgFiltered: 'No jobs match the filter.',
   });
@@ -292,20 +319,45 @@ async function restoreBackupJob(id) {
   id = String(id);
   const j = _backupJobsCache.find(x => x.id === id);
   if (!j) return;
+  const targets = j.device_ids && j.device_ids.length ? j.device_ids : (j.device_id ? [j.device_id] : []);
+  // Which host to restore TO — a job can target many; restore goes to one.
+  let devId = targets[0];
+  if (targets.length > 1) {
+    const byId = {};
+    for (const dv of (typeof devices !== 'undefined' ? devices : [])) byId[dv.id] = dv.name || dv.id;
+    const names = targets.map(t => byId[t] || t);
+    const pick = await uiPrompt({
+      title: 'Restore to which host?',
+      message: `This job targets ${targets.length} devices. Type the host to restore into:\n\n` + names.join(', '),
+      value: names[0],
+      confirmText: 'Continue',
+    });
+    if (pick === null) return;
+    const idx = names.findIndex(n => n.toLowerCase() === pick.trim().toLowerCase());
+    if (idx < 0) { toast('Type one of the job\'s target hosts', 'error'); return; }
+    devId = targets[idx];
+  }
   const path = await uiPrompt({
     title: 'Restore backup to host',
-    message: `Pull “${j.name}” back to ${escHtml(j.device_name)} and OVERWRITE the restore path. `
-      + 'Enter the absolute directory on the host to restore into:',
+    message: 'Pull this backup back and OVERWRITE the restore path. Enter the absolute directory on the host to restore into:',
     placeholder: '/restore/target',
     confirmText: 'Continue',
   });
   if (path === null) return;
   if (!path.trim().startsWith('/')) { toast('Restore path must be absolute', 'error'); return; }
+  // tar jobs are per-run archives — fetch the list and let the operator pick,
+  // instead of guessing the filename. rsync jobs restore the latest tree.
   let archive = null;
   if (j.spec && j.spec.method === 'tar') {
+    toast('Listing archives at the destination…', 'info', { transient: true });
+    const la = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/archives', { device_id: devId });
+    const list = (la && la.archives) || [];
     archive = await uiPrompt({
       title: 'Which archive?',
-      message: 'tar backups are per-run archives. Enter the archive filename to restore (see the destination):',
+      message: list.length
+        ? ('Newest first — the latest is pre-filled. Available:\n\n' + list.slice(0, 12).join('\n'))
+        : 'No archive list yet (host may not have reported) — type the archive filename to restore:',
+      value: list.length ? list[0] : '',
       placeholder: `${j.id}-20260101-020000.tar.gz`,
       confirmText: 'Continue',
     });
@@ -319,7 +371,7 @@ async function restoreBackupJob(id) {
   });
   if (confirm === null) return;
   const d = await api('POST', '/backup-jobs/' + encodeURIComponent(id) + '/restore',
-    { restore_path: path.trim(), confirm: confirm.trim(), archive: archive ? archive.trim() : '' });
+    { device_id: devId, restore_path: path.trim(), confirm: confirm.trim(), archive: archive ? archive.trim() : '' });
   if (d?.ok) toast('Restore queued — output appears in the device command history', 'success');
   else toast(d?.error || 'Failed to queue restore', 'error');
 }

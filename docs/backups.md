@@ -22,6 +22,14 @@ pipeline.
   lines); a backup that outlasts the wait window keeps running and its output
   lands in the device's command history. A multi-device run queues on all and
   reports the count.
+- **Last-run status.** The jobs table shows each job's last **outcome** — ✓
+  succeeded / ✗ failed (with the exit code) / running / never — not just a
+  timestamp, so a job that silently errors every night is obvious at a glance.
+  For a multi-device job the badge summarises per-host results.
+- **Restore browser.** For tar jobs, **Restore** lists the archives at the
+  destination (newest first, the latest pre-selected) so you pick one instead of
+  typing the filename; for a multi-device job you first choose which host to
+  restore to. `POST /api/backup-jobs/{id}/archives`.
 
 ### File backup (structured — no shell required)
 

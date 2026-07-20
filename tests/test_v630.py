@@ -732,9 +732,9 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-23", _html())
+        self.assertIn("?v=6.3.0-24", _html())
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-23", sw)
+        self.assertIn("remotepower-shell-v6.3.0-24", sw)
 
 
 class TestWave12TransientToasts(unittest.TestCase):

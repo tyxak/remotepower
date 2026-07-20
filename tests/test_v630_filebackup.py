@@ -138,5 +138,27 @@ class TestRestore(unittest.TestCase):
             F.build_restore_command(s, '/restore', 'j1', archive='x.tar.gz; rm -rf /')
 
 
+class TestListCommand(unittest.TestCase):
+    def test_ssh_list_is_job_scoped_and_safe(self):
+        s = _ssh_rsync(); s['method'] = 'tar'
+        cmd = F.build_list_command(s, 'job-abc')
+        self.assertIn('ls -1t', cmd)
+        self.assertIn('bak@backup.example.com', cmd)
+        self.assertIn("job-abc-", cmd)   # grep scoped to this job's archives
+        self.assertIn('BatchMode=yes', cmd)
+
+    def test_nfs_list_mounts_and_unmounts(self):
+        s = {'paths': ['/d'], 'method': 'tar',
+             'dest': {'transport': 'nfs', 'host': 'nas', 'export': '/e', 'remote_path': '/h1'}}
+        cmd = F.build_list_command(s, 'j1')
+        self.assertIn('mount -t nfs', cmd)
+        self.assertIn('umount', cmd)
+
+    def test_list_rejects_bad_job_id(self):
+        s = _ssh_rsync(); s['method'] = 'tar'
+        with self.assertRaises(ValueError):
+            F.build_list_command(s, 'job; rm -rf /')
+
+
 if __name__ == '__main__':
     unittest.main()

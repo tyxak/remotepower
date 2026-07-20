@@ -144,6 +144,74 @@ class TestRestore(_Base):
         self.assertEqual(self.cap.get('s'), 400)
 
 
+class TestJobStatus(_Base):
+    """v6.3.0 (UX): the jobs list carries a last-run OUTCOME, correlated from the
+    device's command results by the deterministic generated command."""
+
+    def _job(self):
+        self._create({'name': 'nightly', 'device_id': 'd1',
+                      'command': 'restic backup /etc --tag rp'})
+        return self._jobs()[0]
+
+    def test_never_run(self):
+        j = self._job()
+        self.assertEqual(self.api._backup_job_status(j)['state'], 'never')
+
+    def test_running_when_queued(self):
+        j = self._job()
+        self.api.save(self.api.CMDS_FILE, {'d1': ['exec:restic backup /etc --tag rp']})
+        self.api._invalidate_load_cache(self.api.CMDS_FILE)
+        self.assertEqual(self.api._backup_job_status(j)['state'], 'running')
+
+    def test_ok_and_failed(self):
+        j = self._job()
+        self.api.save(self.api.CMD_OUTPUT_FILE,
+                      {'d1': [{'ts': 5, 'cmd': 'exec:restic backup /etc --tag rp', 'rc': 0}]})
+        self.api._invalidate_load_cache(self.api.CMD_OUTPUT_FILE)
+        self.assertEqual(self.api._backup_job_status(j)['state'], 'ok')
+        self.api.save(self.api.CMD_OUTPUT_FILE,
+                      {'d1': [{'ts': 6, 'cmd': 'exec:restic backup /etc --tag rp', 'rc': 2}]})
+        self.api._invalidate_load_cache(self.api.CMD_OUTPUT_FILE)
+        st = self.api._backup_job_status(j)
+        self.assertEqual(st['state'], 'failed')
+        self.assertEqual(st['rc'], 2)
+
+    def test_list_endpoint_attaches_status(self):
+        self._job()
+        self.cap.clear()
+        self.api.require_auth = lambda *a, **k: ('admin', 'admin')
+        try:
+            self.api.handle_backup_jobs_list()
+        except (self.api.HTTPError, SystemExit):
+            pass
+        jobs = self.cap.get('d', {}).get('jobs', [])
+        self.assertTrue(jobs and 'status' in jobs[0])
+
+
+class TestArchivesEndpoint(_Base):
+    def test_rsync_job_has_no_archives(self):
+        self._create({'name': 'r', 'device_id': 'd1', 'spec': self._spec()})  # rsync
+        jid = self._jobs()[0]['id']
+        self.cap.clear()
+        self.api.get_json_obj = lambda: {}
+        try:
+            self.api.handle_backup_job_archives(jid)
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('d', {}).get('archives'), [])
+
+    def test_archives_only_for_file_jobs(self):
+        self._create({'name': 'c', 'device_id': 'd1', 'command': 'restic backup /etc'})
+        jid = self._jobs()[0]['id']
+        self.cap.clear()
+        self.api.get_json_obj = lambda: {}
+        try:
+            self.api.handle_backup_job_archives(jid)
+        except (self.api.HTTPError, SystemExit):
+            pass
+        self.assertEqual(self.cap.get('s'), 400)
+
+
 class TestMultiDeviceBaseline(_Base):
     """v6.3.0 baseline: one job → many devices."""
 

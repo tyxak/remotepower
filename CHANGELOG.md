@@ -381,6 +381,12 @@ the other posture axes need data plumbing first).
   across the fleet; the run and the cron schedule fan out to every targeted device
   (tenant/scope-filtered). **Run now** on a single-device job shows live output in
   a progress dialog (incl. rsync progress); a multi-device run queues on all.
+- **Backup run status + restore browser.** The jobs table now shows each job's
+  last **outcome** (✓/✗ with exit code / running / never), correlated from the
+  device's command results — a job that silently fails every night is obvious at
+  a glance. And **Restore** for tar jobs lists the archives at the destination
+  (newest pre-selected) so you pick one instead of typing the filename (and picks
+  the host first for a multi-device job). `POST /api/backup-jobs/{id}/archives`.
 - **Proxmox Backup Server on the Backups page.** Configure a PBS instance under
   Settings → Integrations and its datastores surface under Backups — fill %, dedup
   factor, free/total space and estimated-full date, with the usual down/recover
