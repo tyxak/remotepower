@@ -1434,7 +1434,7 @@ def run_ticket_imap_if_due():
     c = A._ticket_imap_cfg()
     if not c.get('enabled') or not c.get('host'):
         return
-    st = A.load(A.TICKETS_FILE) or {}
+    st = A._load_ro(A.TICKETS_FILE) or {}   # v6.3.0 perf: read-only gate
     try:
         interval = max(120, int(c.get('interval', 300) or 300))
     except (TypeError, ValueError):
@@ -1452,7 +1452,7 @@ def run_ticket_sla_if_due():
     if not A._tickets_enabled():
         return
     now = int(time.time())
-    st0 = A.load(A.TICKETS_FILE) or {}
+    st0 = A._load_ro(A.TICKETS_FILE) or {}   # v6.3.0 perf: read-only gate
     try:
         if now - int(st0.get('sla_last_check', 0) or 0) < A.TICKET_SLA_CHECK_INTERVAL:
             return

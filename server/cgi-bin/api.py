@@ -47698,7 +47698,7 @@ def _maybe_sample_compliance(now=None):
     day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
     # v5.8.0 (PERF): read-only pre-gate before the write lock (see
     # _maybe_sample_health) — avoids a cold-blob rewrite on every request.
-    _ch = load(COMPLIANCE_HIST_FILE) or {}
+    _ch = _load_ro(COMPLIANCE_HIST_FILE) or {}   # v6.3.0 perf: read-only gate
     _cf = _ch.get('fleet') or []
     if _cf and _cf[-1].get('date') == day:
         return
