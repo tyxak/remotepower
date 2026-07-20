@@ -523,7 +523,7 @@ def _pbs(inst, c):
     worst_name = ""
     # v6.3.0: per-datastore breakdown so the Backups page can render a tidy table
     # (name, fill %, total/avail). Robust to a store missing any size field.
-    _GB = 1024.0 ** 3
+    _GB = 1024.0**3
     datastores = []
     for s in stores:
         used = _pct(s.get("used"), s.get("total"))
