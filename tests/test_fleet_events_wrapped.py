@@ -126,3 +126,18 @@ class TestReaderBugFixed(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# v6.3.0 gate fix: this module flips RP_STORAGE_BACKEND to exercise the SQLite
+# backend but never restored it, so under `unittest discover` / xdist (which share
+# one process) the setting leaked into later modules and silently switched THEIR
+# storage backend — the source of ~20 order-dependent false failures that all pass
+# in isolation. Restore it after the module runs. Captured at import (clean state).
+_PRIOR_STORAGE_BACKEND = os.environ.get("RP_STORAGE_BACKEND")
+
+
+def tearDownModule():
+    if _PRIOR_STORAGE_BACKEND is None:
+        os.environ.pop("RP_STORAGE_BACKEND", None)
+    else:
+        os.environ["RP_STORAGE_BACKEND"] = _PRIOR_STORAGE_BACKEND
