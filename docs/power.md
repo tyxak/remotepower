@@ -7,6 +7,11 @@ fleet. Hosts currently **on battery** are listed first.
   runtime estimate. Going on battery raises an alert; recovery resolves it.
 - **Power draw** — measured watts where the platform exposes them (RAPL,
   IPMI, smart-UPS load). The fleet total is live.
+- **Laptop battery** *(v6.3.0)* — for hosts with a battery (`BAT*` power
+  supplies) the agent reports charge %, charging status, cycle count and
+  current-vs-design **wear** — shown as a Battery pill in the device
+  drawer's System info. Servers and VMs are unaffected. External UPSes
+  remain the separate NUT/apcupsd channel above.
 - **Energy cost** — set your electricity price on the page to convert the
   live total into an estimated cost per day/month.
 

@@ -43,6 +43,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
+| Posture radar | The Audit tab opens with a radar over the host's check groups (core/resources/security/services/hardware) — each axis scored by its share of healthy checks, so the shape shows where a host is weak *(v6.3.0)* |
 | System Info | Top processes by CPU, per-mount fs type, reboot-required+reason, 1-min loadavg, container age *(v3.4.0)* |
 | Hardware pills | CPU model, kernel, total RAM, total disk beside live usage *(v4.6.0)* |
 | Access — recent logins | Who logged in + distinct source IPs *(v3.13.0)*, with Last-seen timestamp *(v4.4.0)* |

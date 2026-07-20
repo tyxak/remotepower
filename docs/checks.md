@@ -12,6 +12,14 @@ sortable, filterable table.
 - **Toggle a check off** on a host to silence it there — the mute is stored
   server-side (`exposure`-style mutes) and honoured by alerting.
 - *Hide muted* and *hide unmonitored* default ON.
+- **Remediate** *(v6.3.0)* — every failing (non-OK) row has a wrench button
+  that generates a host-scoped remediation runbook through the AI advisor:
+  step-by-step fix instructions with verification steps, built from the
+  check's name, group, status and output. Uses your configured AI provider.
+- **Posture radar** *(v6.3.0)* — the device drawer's Audit tab opens with a
+  radar built from these same rows: each check group (core, resources,
+  security, services, hardware, …) is an axis, scored by its share of
+  healthy checks. A host's shape shows *where* it is weak at a glance.
 
 ## Where rows come from
 

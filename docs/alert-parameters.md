@@ -32,6 +32,12 @@ input's placeholder). Each section has its own **Save**.
   and snapshot age, mail-queue depth, inode / file-descriptor / conntrack
   fullness, TLS and cert-file expiry days, contract / OS end-of-life days,
   AV-signature staleness, disk-fill forecast horizon, and more.
+- **Laptop offline grace** *(v6.3.0, Reachability)* — extra hours of
+  silence allowed before a **laptop-chassis** host becomes an offline
+  candidate. Agents report their DMI chassis class; set this to a commute's
+  worth of hours and a closed lid stops paging like a dead server, while
+  servers keep the tight per-poll threshold. `0` (default) treats laptops
+  like everything else.
 - **Health grade cutoffs** — the score boundaries for **good / fair / poor /
   critical** (default 90 / 70 / 40). The dashboard paints the fleet score ring
   and the per-device heat-map at exactly these boundaries, so the colours always

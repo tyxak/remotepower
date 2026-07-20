@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-18">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-19">
 
 </head>
 <body>
@@ -5277,6 +5277,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+          <details class="doc-card" data-keywords="ux interface undo redo notification center drafts autosave tables selection shift click columns deep links crosshair radar posture rollback configuration history working the interface guide">
+            <summary><strong>Working the interface</strong> — undo, notification center, drafts, tables, charts (v6.3.0)</summary>
+            <div class="doc-body">
+              <p>Low-risk deletes are <strong>undoable instead of confirmed</strong> (the API call fires only when the toast expires); the topbar arrows and <kbd>Ctrl-Z</kbd> drive a global undo stack. The bell replays the session's toasts; editors autosave drafts; Settings keeps <strong>configuration history with rollback</strong>. Tables filter/sort/export everywhere; device selection supports shift-click ranges; charts have hover crosshairs and the drawer opens with a posture radar.</p>
+              <p>Full doc at <a href="docs/ux.md" class="c-accent">docs/ux.md</a>.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="search command palette keybind shortcut keyboard navigation">
             <summary><strong>Command palette &amp; keyboard shortcuts</strong> — <code>/</code>, <code>Ctrl-K</code>, <code>?</code> (v3.0.2)</summary>
             <div class="doc-body">
@@ -10386,34 +10394,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-18"></script>
+<script defer src="static/js/app.js?v=6.3.0-19"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-18"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-containers.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-network.js?v=6.3.0-19"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-18"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.0-19"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-18"></script>
+<script defer src="static/js/app-ai.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-dns.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-drift.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-cve.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-backups.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-iac.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-virt.js?v=6.3.0-19"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-18"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-18"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-logs.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-remote.js?v=6.3.0-19"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.0-19"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10422,6 +10430,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-18"></script>
+<script defer src="static/js/sw-register.js?v=6.3.0-19"></script>
 </body>
 </html>

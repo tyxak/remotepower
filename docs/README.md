@@ -233,6 +233,9 @@ Older release notes (v6.1.2 and earlier) live in
  state (repos, DNS, users, services) with drift reporting.
 - **[keyboard-shortcuts.md](keyboard-shortcuts.md)** — Command palette and
  keyboard navigation.
+- **[ux.md](ux.md)** — Working the interface: undo instead of confirm,
+ the notification center, drafts, tables, selection, deep links, charts
+ and the posture radar (the v6.3.0 UX program in one guide).
 - **[mitigation.md](mitigation.md)** — One-click mitigation runners for
  common findings.
 - **[opnsense.md](opnsense.md)** — OPNsense firewall integration (and the

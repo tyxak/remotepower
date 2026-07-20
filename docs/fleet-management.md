@@ -10,11 +10,17 @@ and the other server-driven actions. (For the agent's local CLI, see
 Agents poll the server and compare their own binary's SHA-256 against the
 server's canonical hash; a mismatch in either direction triggers a download and
 restart. You don't push updates — you publish a new agent binary on the server
-(`deploy-server.sh`) and agents converge within ~1 hour.
+(`deploy-server.sh`) and agents converge within ~1 hour. This works on **all
+three platforms** — the macOS agent gained real self-update in v6.3.0
+(previously it honestly reported "not implemented"); Windows has had it
+since v6.2.0.
 
 - **Force an update now, on the host:** `sudo remotepower-agent update`.
 - **Force from the server:** the upgrade/exec flow can queue an `update` command
   to a device; it runs on the device's next heartbeat.
+- **Spot stale agents:** the Devices page shows an **"N agents outdated"**
+  chip whenever any agent runs an older version than the newest in the
+  fleet — click it to filter to exactly those hosts, then queue updates.
 - **Verify integrity:** `sudo remotepower-agent integrity` compares the running
   binary's hash to the server's. The dashboard also shows an integrity badge per
   device (verified / mismatch).
