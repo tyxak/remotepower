@@ -6882,7 +6882,7 @@ def _webpush_send_all(title, body_text, url_hint=''):
 
 def _maybe_webpush(event, payload):
     """fire_webhook hook: push high/critical alerts to subscribed browsers."""
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     if not cfg.get('webpush_enabled'):
         return
     sev = None
@@ -29292,7 +29292,7 @@ def _maybe_check_disk_space():
     catching the failure mode where the controller's own disk fills and flock
     writes start to fail. Threshold: `disk_watchdog_pct` (default 85; 0 = off).
     """
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     try:
         threshold = int(cfg.get('disk_watchdog_pct', 85))
     except (TypeError, ValueError):
@@ -42952,7 +42952,7 @@ def handle_risk_overview():
 def _fleet_health(use_cache=True):
     payload = _attention_payload(use_cache=use_cache)
     items = payload.get('items') or []
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}   # v6.3.0 perf: read-only
     # Only score monitored devices. An unmonitored host is intentionally absent
     # from NA, so scoring it a perfect 100 would inflate the fleet average with
     # hosts the operator explicitly told us to ignore.
@@ -54129,7 +54129,7 @@ def handle_fleet_events():
     # READ time (not record time) so it reflects the CURRENT monitored
     # state — re-monitoring a device brings its history back, and we
     # never silently drop events that might matter later.
-    devices = load(DEVICES_FILE) or {}
+    devices = _load_ro(DEVICES_FILE) or {}   # v6.3.0 perf: read-only
     unmonitored = {dev_id for dev_id, d in devices.items()
                    if isinstance(d, dict) and d.get('monitored') is False}
     if unmonitored:
@@ -56884,7 +56884,7 @@ def _maybe_push_metrics():
     (config `metrics_push` {enabled,url,interval,job}). Interval-gated and
     SSRF-safe; the slot is claimed atomically so concurrent heartbeats don't
     double-push. Errors are recorded, never raised onto the request path."""
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     mp = cfg.get('metrics_push') or {}
     if not mp.get('enabled') or not (mp.get('url') or '').strip():
         return
@@ -57138,7 +57138,7 @@ def _gitops_sync(actor='system', dry=False):
 
 def _maybe_gitops_sync():
     """Periodic, interval-gated GitOps reconcile. Off unless enabled + URL set."""
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro() or {}   # v6.3.0 perf: read-only gate, no deepcopy
     gc = cfg.get('gitops') or {}
     if not gc.get('enabled') or not (gc.get('url') or '').strip():
         return
