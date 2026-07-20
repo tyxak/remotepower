@@ -76,3 +76,5 @@ C:*
 .promote-state
 .ci-parity-run.log
 .ci-parity-venv/
+.pre-release-run.log
+.testfast-run.log
