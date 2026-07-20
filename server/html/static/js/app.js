@@ -16347,7 +16347,7 @@ function renderSparkline(values, opts) {
     // v6.3.0 (wave 10 deferral, done): vertical fade-out gradient under the
     // line instead of a flat wash — every sparkline consumer gets it for
     // free. Unique id per render (SVG ids are document-global); stop-color
-    // takes the same var(--x) the line uses.
+    // takes the same CSS custom property the line uses.
     const gid = 'spg' + (++_sparkGradSeq);
     svg += `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">`
         + `<stop offset="0" stop-color="${color}" stop-opacity="0.32"/>`

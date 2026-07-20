@@ -285,7 +285,8 @@ class TestSuppressibleEvents(unittest.TestCase):
             # v5.8.0 (B1.4): broadened to the maintenance/patch churn set
             'metric_warning', 'metric_critical',
             'config_drift', 'drift_detected',
-            'failed_unit', 'timer_failed',
+            'failed_unit', 'failed_unit_cleared',
+            'timer_failed', 'timer_failed_cleared',
             'reboot_required',
             'container_stopped', 'container_restarting', 'containers_stale',
             'backup_stale',
