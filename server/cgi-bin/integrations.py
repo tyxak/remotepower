@@ -521,10 +521,31 @@ def _pbs(inst, c):
     stores = (usage or {}).get("data") or []
     worst = 0.0
     worst_name = ""
+    # v6.3.0: per-datastore breakdown so the Backups page can render a tidy table
+    # (name, fill %, total/avail). Robust to a store missing any size field.
+    _GB = 1024.0 ** 3
+    datastores = []
     for s in stores:
         used = _pct(s.get("used"), s.get("total"))
         if used > worst:
             worst, worst_name = used, s.get("store", "?")
+        _total = _num(s.get("total"))
+        _avail = _num(s.get("avail"))
+        ds = {
+            "name": s.get("store", "?"),
+            "used_pct": round(used, 1),
+            "total_gb": round(_total / _GB, 1) if _total else 0,
+            "avail_gb": round(_avail / _GB, 1) if _avail else 0,
+        }
+        # PBS reports a rolling dedup factor in the usage history when available.
+        _dedup = s.get("deduplication-factor") or s.get("dedup")
+        if isinstance(_dedup, (int, float)) and _dedup > 0:
+            ds["dedup"] = round(float(_dedup), 2)
+        # estimated-full-date (unix ts) → surface how long until the store fills.
+        _eff = s.get("estimated-full-date")
+        if isinstance(_eff, (int, float)) and _eff > 0:
+            ds["full_eta"] = int(_eff)
+        datastores.append(ds)
     status = OK
     if worst >= 90:
         status = CRIT
@@ -542,6 +563,7 @@ def _pbs(inst, c):
         "version": ver,
         "detail": f"{len(stores)} datastores, fullest {worst_name} {round(worst,1)}%",
         "metrics": {"datastores": len(stores), "fullest_pct": worst},
+        "datastores": datastores,
     }
 
 

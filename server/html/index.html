@@ -6478,6 +6478,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div id="pmbackup-body"><div class="empty-state">Loading…</div></div>
         </div>
+
+        <!-- v6.3.0: Proxmox Backup Server — shown only when a PBS integration is configured -->
+        <div class="dash-card mt-16" id="pbs-card" hidden>
+          <div class="section-header">
+            <div class="section-title">Proxmox Backup Server</div>
+            <button class="btn-icon" data-action="loadPbsBackups"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          </div>
+          <div class="page-subtitle mb-12">Datastore fill, dedup factor and time-to-full for each PBS datastore. Configure a PBS instance under <strong>Settings → Integrations</strong> (a down/degraded datastore also raises an alert). <a href="docs/backups.md" class="c-accent">Documentation</a></div>
+          <div id="pbs-body"><div class="empty-state">Loading…</div></div>
+        </div>
       </div>
 
       <!-- v3.7.0: Ansible playbook runner -->

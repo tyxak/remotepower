@@ -31,6 +31,41 @@ async function loadBackupJobs() {
   _backupJobsCache = d.jobs || [];
   tableCtl.render('backups', _backupJobsCache);
   loadProxmoxBackups();   // v3.6.0: Proxmox vzdump recency lives on this page too
+  loadPbsBackups();       // v6.3.0: Proxmox Backup Server datastores (if configured)
+}
+
+// v6.3.0: surface a configured Proxmox Backup Server under Backups — reads the
+// pbs integration instance's latest poll result (datastore fill / dedup / ETA).
+// The card stays hidden unless at least one PBS instance is configured.
+async function loadPbsBackups() {
+  const card = document.getElementById('pbs-card');
+  const body = document.getElementById('pbs-body');
+  if (!card || !body) return;
+  const d = await api('GET', '/integrations/status');
+  const latest = (d && d.latest) || {};
+  const pbs = Object.values(latest).filter(r => r && r.type === 'pbs');
+  if (!pbs.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const stCls = { ok: 'c-green', warn: 'c-amber', crit: 'c-red', down: 'c-red' };
+  body.innerHTML = pbs.map(inst => {
+    const stores = inst.datastores || [];
+    const rows = stores.length ? stores.map(s => {
+      const pctCls = s.used_pct >= 90 ? 'c-red' : s.used_pct >= 80 ? 'c-amber' : '';
+      const eta = s.full_eta
+        ? `<td class="hint">${new Date(s.full_eta * 1000).toLocaleDateString()}</td>`
+        : '<td class="c-muted">—</td>';
+      return `<tr><td class="fw-600">${escHtml(s.name)}</td>`
+        + `<td class="${pctCls}">${escHtml(String(s.used_pct))}%</td>`
+        + `<td class="hint">${escHtml(String(s.avail_gb))} GB free / ${escHtml(String(s.total_gb))} GB</td>`
+        + `<td>${s.dedup ? escHtml(String(s.dedup)) + '×' : '<span class="c-muted">—</span>'}</td>`
+        + `${eta}</tr>`;
+    }).join('') : `<tr><td colspan="5" class="empty-state">No datastores reported yet</td></tr>`;
+    return `<div class="mb-12"><div class="row-8-center mb-6"><strong>${escHtml(inst.label || 'PBS')}</strong> `
+      + `<span class="${stCls[inst.status] || 'c-muted'}">${escHtml(inst.status || '')}</span>`
+      + `${inst.version ? ` <span class="hint">v${escHtml(inst.version)}</span>` : ''}</div>`
+      + `<div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Datastore</th><th>Fill</th><th>Space</th><th>Dedup</th><th>Full by</th></tr></thead>`
+      + `<tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
 }
 
 function _backupPopulateDevices(sel, current) {
