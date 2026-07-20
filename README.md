@@ -168,13 +168,15 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.3.0 "Fl0wMatters"** — a thirteen-wave UX program: **undo instead of
+- **v6.3.0 "Fl0wMatters"** — a fourteen-wave UX program: **undo instead of
   "are you sure?"** (topbar undo/redo, deferred-commit deletes, optimistic
   alert ack), a notification center, configuration history with rollback,
-  draft autosave, column show/hide, shift-click range selection, per-alert
-  deep links and calm informative motion — plus laptop battery health, an
-  "agents outdated" version-skew filter, remediation runbooks from failing
-  checks, and deploy/self-update now restarting the sidecar daemons.
+  draft autosave, shift-click range selection, chart crosshairs and a
+  per-host posture radar — plus a native **syslog listener** for agentless
+  appliances, **macOS agent self-update**, chassis-aware offline grace for
+  laptops, weekly restore drills, laptop battery health, an "agents
+  outdated" filter, a Postgres migration CLI, app-wide axe-verified
+  accessibility, and deploy/self-update restarting the sidecar daemons.
 - **v6.2.3 "Un1fyMatters"** — a consolidation and tidy-up pass: an optional
   listen port on Create tunnel, an ACME certificates page that loads on
   navigation (no manual Refresh), clearer feedback when a package snapshot

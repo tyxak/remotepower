@@ -732,9 +732,9 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-17", _html())
+        self.assertIn("?v=6.3.0-18", _html())
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-17", sw)
+        self.assertIn("remotepower-shell-v6.3.0-18", sw)
 
 
 class TestWave12TransientToasts(unittest.TestCase):
@@ -825,6 +825,32 @@ class TestWave14ChartPolish(unittest.TestCase):
         css = (_ROOT / "server/html/static/css/styles.css").read_text()
         for cls in (".ts-wrap", ".ts-xhair", ".ts-tip"):
             self.assertIn(cls, css)
+
+
+class TestPostureRadar(unittest.TestCase):
+    """The LAST wave-10 deferral: per-host posture radar in the drawer's
+    audit tab, computed from the existing /devices/<id>/checks groups."""
+
+    def test_radar_renders_from_check_groups(self):
+        from tests import srcpin
+        app = _js("app.js")
+        fn = srcpin.js_function(app, "_loadPostureRadar")
+        self.assertIn("/checks", fn)
+        self.assertIn("byGroup", fn)
+        self.assertIn("axes.length < 3", fn)   # needs a shape, not a line
+        svg = srcpin.js_function(app, "_postureRadarSvg")
+        self.assertIn('role="img"', svg)       # accessible name
+        self.assertIn("aria-label", svg)
+        self.assertIn("var(--accent)", svg)
+        # no inline style attributes (CSP)
+        self.assertNotIn("style=", svg)
+
+    def test_wired_into_audit_tab(self):
+        app = _js("app.js")
+        self.assertIn('id="drawer-posture-radar"', app)
+        self.assertIn("_loadPostureRadar(_drawerDeviceId)", app)
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.assertIn(".posture-radar", css)
 
 
 if __name__ == "__main__":

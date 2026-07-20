@@ -21403,6 +21403,64 @@ const _AUDIT_SECTIONS = [
 ];
 const _AUDIT_GROUP_ORDER = ['Health', 'Security', 'Software', 'Activity', 'System', 'Integrations'];
 
+// v6.3.0 (the last wave-10 deferral): per-host POSTURE RADAR. No new server
+// plumbing — the per-host checks engine already scores every signal and tags
+// each row with a group (core/resources/security/services/hardware/…); each
+// group becomes an axis, its score the share of healthy checks (ok=100,
+// unknown=70, warning=50, critical=0). Needs ≥3 groups to be a shape.
+async function _loadPostureRadar(id) {
+  const box = document.getElementById('drawer-posture-radar');
+  if (!box) return;
+  let rows = [];
+  try {
+    const d = await api('GET', `/devices/${id}/checks`);
+    rows = (d && d.checks) || [];
+  } catch (e) { box.innerHTML = ''; return; }
+  const SCORE = { ok: 100, unknown: 70, warning: 50, critical: 0 };
+  const byGroup = {};
+  rows.forEach(r => {
+    if (r.enabled === false) return;
+    const g = r.group || 'other';
+    (byGroup[g] = byGroup[g] || []).push(SCORE[r.status] ?? 70);
+  });
+  const axes = Object.entries(byGroup).map(([g, vals]) => ({
+    label: g.charAt(0).toUpperCase() + g.slice(1),
+    score: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length),
+  }));
+  if (axes.length < 3) { box.innerHTML = ''; return; }
+  box.innerHTML = _postureRadarSvg(axes);
+}
+
+function _postureRadarSvg(axes) {
+  const W = 300, H = 190, cx = W / 2, cy = H / 2 + 6, R = 64;
+  const n = axes.length;
+  const pt = (i, r) => {
+    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  };
+  const ring = f => axes.map((_, i) => pt(i, R * f).map(v => v.toFixed(1)).join(',')).join(' ');
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="posture-radar" role="img" `
+        + `aria-label="Posture radar: ${escAttr(axes.map(a => `${a.label} ${a.score}`).join(', '))}">`;
+  for (const f of [0.25, 0.5, 0.75, 1]) {
+    s += `<polygon points="${ring(f)}" fill="none" stroke="var(--hair)" stroke-width="1"/>`;
+  }
+  axes.forEach((_, i) => {
+    const [x, y] = pt(i, R);
+    s += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--hair)" stroke-width="1"/>`;
+  });
+  const poly = axes.map((a, i) => pt(i, R * Math.max(0.04, a.score / 100))
+    .map(v => v.toFixed(1)).join(',')).join(' ');
+  s += `<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.22" stroke="var(--accent)" stroke-width="1.6"/>`;
+  axes.forEach((a, i) => {
+    const [px, py] = pt(i, R * Math.max(0.04, a.score / 100));
+    s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.4" fill="var(--accent)"><title>${escHtml(a.label)}: ${a.score}</title></circle>`;
+    const [lx, ly] = pt(i, R + 16);
+    const anchor = Math.abs(lx - cx) < 8 ? 'middle' : (lx > cx ? 'start' : 'end');
+    s += `<text x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="${anchor}" font-size="10" fill="var(--muted)">${escHtml(a.label)} ${a.score}</text>`;
+  });
+  return s + '</svg>';
+}
+
 function _renderDrawerAuditSections() {
   const el = document.getElementById('drawer-audit-sections');
   if (!el || el.dataset.rendered === _drawerDeviceId) return;
@@ -21430,7 +21488,8 @@ function _renderDrawerAuditSections() {
       </div>
     </details>`;
   // Render in labeled groups; only emit a group that actually has sections.
-  let html = '';
+  // v6.3.0: posture radar leads the tab (renders async; empty if <3 groups).
+  let html = '<div id="drawer-posture-radar" class="posture-radar-wrap"></div>';
   for (const group of _AUDIT_GROUP_ORDER) {
     const inGroup = sections.filter(s => (s.group || 'System') === group);
     if (!inGroup.length) continue;
@@ -21438,6 +21497,7 @@ function _renderDrawerAuditSections() {
           + inGroup.map(_sectionHtml).join('');
   }
   el.innerHTML = html;
+  _loadPostureRadar(_drawerDeviceId);
   // Wire the toggle event for each <details> after innerHTML.
   el.querySelectorAll('details[data-audit-key]').forEach(d => {
     d.addEventListener('toggle', () => _onAuditToggle(d.dataset.auditKey, d));

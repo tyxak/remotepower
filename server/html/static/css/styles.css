@@ -6078,6 +6078,9 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 .ts-tip-t { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
 .ts-tip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+/* v6.3.0: drawer posture radar (the last wave-10 deferral). */
+.posture-radar-wrap { display: flex; justify-content: center; }
+.posture-radar { max-width: 320px; width: 100%; height: auto; }
 
 /* v3.4.2: Settings → Install checklist */
 .setup-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px;
