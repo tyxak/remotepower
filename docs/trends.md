@@ -10,4 +10,8 @@ fleet health score, compliance score, and per-device resource history
   drifts are visible that 24-hour dashboards hide.
 - For *forward-looking* disk projections, use [Forecast](forecast.md); for
   long-range per-device metric zooming, the device drawer's metrics view
-  reads the hourly/daily rollup store.
+  reads the roll-up store across four resolutions: raw (last 24 h), **5-minute
+  (last ~7 days)**, hourly (30 days) and daily (~2 years). The 5-minute tier is
+  the one to reach for when investigating an incident a few days old — hourly
+  averages smooth away the spike you're looking for, and the raw window only
+  goes back a day.

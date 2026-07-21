@@ -400,24 +400,26 @@ def _triage_tools(dev_id, dev):
         return '\n'.join(lines)
 
     def _metrics_trend(args):
-        rec = (A.load(A.METRICS_HIST_FILE) or {}).get(dev_id) or {}
-        samples = rec.get('samples') or []
-        if not samples:
-            return '(no metrics history for this host)'
-        lines = []
-        for s in samples[-10:]:
-            if not isinstance(s, dict):
+        # v6.3.1: read the CPU/mem/swap/disk roll-up series (min/avg/max per
+        # bucket) — the resolution the model needs to see what actually happened
+        # around the alert. Prefer the 5-min tier (incident zoom, ~8d); fall
+        # back to hourly if the fine tier has no points yet.
+        rec = A._entity_read_one(A.METRICS_ROLLUP_FILE, dev_id, {}) or {}
+        for tier, label in (('fivemin', '5-min'), ('hourly', 'hourly')):
+            pts = A._rollup_read_shape(rec.get(tier) or [])
+            if not pts:
                 continue
-            day = time.strftime('%m-%d', time.gmtime(s.get('ts') or 0))
-            mounts = ' '.join(
-                f"{m.get('path')}={m.get('used_gb')}/{m.get('total_gb')}GB"
-                for m in (s.get('mounts') or [])[:4] if isinstance(m, dict))
-            extras = ' '.join(f"{k}={s[k]}" for k in ('cpu', 'mem')
-                              if isinstance(s.get(k), (int, float)))
-            row = ' '.join(x for x in (mounts, extras) if x)
-            if row:
-                lines.append(f"{day}: {row}")
-        return '\n'.join(lines) or '(metrics history holds no readable samples)'
+            lines = [f"CPU/mem/swap/disk % ({label} avg, last {min(20, len(pts))} buckets):"]
+            for p in pts[-20:]:
+                when = time.strftime('%m-%d %H:%M', time.gmtime(p.get('ts') or 0))
+                cells = ' '.join(f"{k}={p[k]['avg']}(max {p[k]['max']})"
+                                 for k in ('cpu', 'mem', 'swap', 'disk')
+                                 if isinstance(p.get(k), dict))
+                if cells:
+                    lines.append(f"{when}: {cells}")
+            if len(lines) > 1:
+                return '\n'.join(lines)
+        return '(no CPU/memory roll-up history for this host yet)'
 
     def _device_summary(args):
         si = dev.get('sysinfo') or {}

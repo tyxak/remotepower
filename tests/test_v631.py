@@ -697,8 +697,22 @@ class TestWave2Tools(unittest.TestCase):
         self.assertNotIn("CVE-2026-2", out)   # ignored findings stay hidden
 
     def test_metrics_trend_tool(self):
+        # v6.3.1 wave 6: reads the CPU/mem/swap/disk roll-up series (5-min
+        # tier preferred), not the daily disk-mount store.
+        now = int(time.time())
+        five = api._rollup_merge(
+            [], [{"ts": now - 300, "cpu": 12, "mem": 40, "swap": 1, "disk": 55},
+                 {"ts": now, "cpu": 88, "mem": 42, "swap": 2, "disk": 55}],
+            api.ROLLUP_5MIN_SEC)
+        api.save(api.METRICS_ROLLUP_FILE, {"dev1": {"fivemin": five}})
         out = self._tools()["metrics_trend"]({})
-        self.assertIn("/=40/100GB", out)
+        self.assertIn("cpu=", out)
+        self.assertIn("5-min", out)
+        self.assertIn("max 88", out)
+
+    def test_metrics_trend_empty(self):
+        api.save(api.METRICS_ROLLUP_FILE, {})
+        self.assertIn("no CPU/memory roll-up", self._tools()["metrics_trend"]({}))
 
     def test_stale_sweep_auto_requests_a_fresh_one(self):
         api.save(api.LOG_SWEEP_FILE, {"dev1": {

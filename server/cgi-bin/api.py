@@ -19738,8 +19738,14 @@ def _record_metrics(dev_id, sysinfo):
 # later run can extend a partial bucket without re-reading raw history.
 _ROLLUP_KEYS = ('cpu', 'mem', 'swap', 'disk')
 METRIC_ROLLUP_INTERVAL = 3600            # fold once an hour
+# v6.3.1: a 5-minute tier fills the resolution gap between the raw 1-min window
+# (only ~24h) and the hourly tier (30d) — the band incident/triage work wants:
+# "what did CPU actually do in the 90 min around this alert, 5 days ago?" At
+# ~8 days retention that is ~2300 buckets/device, comparable to hourly-30d.
+ROLLUP_5MIN_SEC    = 300
 ROLLUP_HOURLY_SEC  = 3600
 ROLLUP_DAILY_SEC   = 86400
+ROLLUP_5MIN_KEEP   = 8 * 86400           # 8 days of 5-minute points (covers 7d)
 ROLLUP_HOURLY_KEEP = 30 * 86400          # 30 days of hourly points
 ROLLUP_DAILY_KEEP  = 730 * 86400         # ~2 years of daily points
 
@@ -19884,10 +19890,12 @@ def run_metric_rollup_if_due():
             new = _raw_metric_samples(dev_id, last_ts)
             if not new:
                 continue
+            fivemin = _rollup_merge(rec.get('fivemin') or [], new, ROLLUP_5MIN_SEC)
             hourly = _rollup_merge(rec.get('hourly') or [], new, ROLLUP_HOURLY_SEC)
             daily = _rollup_merge(rec.get('daily') or [], new, ROLLUP_DAILY_SEC)
             state[dev_id] = {
                 'last_ts': max([last_ts] + [int(s.get('ts') or 0) for s in new]),
+                'fivemin': fivemin if _hold else _rollup_prune(fivemin, ROLLUP_5MIN_KEEP, now),
                 'hourly':  hourly if _hold else _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
                 'daily':   daily if _hold else _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
             }
@@ -19904,9 +19912,10 @@ def run_metric_rollup_if_due():
 
 
 def handle_device_metric_rollup(dev_id):
-    """GET /api/devices/<id>/metrics/rollup?tier=hourly|daily — long-term
+    """GET /api/devices/<id>/metrics/rollup?tier=fivemin|hourly|daily —
     aggregated metric series (min/avg/max per bucket). Auth: require_auth,
-    scoped. Complements the raw /metrics-history read for wide zoom ranges."""
+    scoped. Complements the raw /metrics-history read: fivemin (~8d) is the
+    incident-zoom band between raw-24h and hourly-30d; daily keeps ~2y."""
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
@@ -19917,7 +19926,7 @@ def handle_device_metric_rollup(dev_id):
             respond(403, {'error': 'Device outside your role scope'})
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     tier = (qs.get('tier') or ['daily'])[0]
-    if tier not in ('hourly', 'daily'):
+    if tier not in ('fivemin', 'hourly', 'daily'):
         tier = 'daily'
     # v6.1.2 (perf #5): metrics_rollup is an ENTITY store now, so answering for
     # ONE device is one row read. It used to load()+parse the WHOLE fleet's

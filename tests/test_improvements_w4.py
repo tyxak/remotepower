@@ -400,6 +400,8 @@ class TestMetricRollups(_HandlerBase):
         self.assertIn('d1', st)
         self.assertTrue(st['d1']['hourly'])
         self.assertTrue(st['d1']['daily'])
+        # v6.3.1: the 5-minute tier folds alongside hourly/daily.
+        self.assertTrue(st['d1']['fivemin'])
         if dbm is None:
             self.assertEqual(st['d1']['last_ts'], base + 120)
         else:
@@ -409,6 +411,36 @@ class TestMetricRollups(_HandlerBase):
             # high-water mark lands on `base`, not base+120, and converges on
             # the next cadence run. Known one-time first-fold coarseness.
             self.assertGreaterEqual(st['d1']['last_ts'], base)
+
+    def test_fivemin_tier_resolution(self):
+        # Two samples 6 minutes apart → two distinct 5-min buckets (hourly
+        # would collapse them into one) — the incident-zoom resolution.
+        base = 1_700_000_000
+        base -= base % 300
+        samples = [{'ts': base + 30, 'cpu': 10}, {'ts': base + 390, 'cpu': 90}]
+        five = api._rollup_merge([], samples, api.ROLLUP_5MIN_SEC)
+        hourly = api._rollup_merge([], samples, api.ROLLUP_HOURLY_SEC)
+        self.assertEqual(len(five), 2)
+        self.assertEqual(len(hourly), 1)
+        self.assertEqual(api.ROLLUP_5MIN_SEC, 300)
+        self.assertEqual(api.ROLLUP_5MIN_KEEP, 8 * 86400)
+
+    def test_endpoint_accepts_fivemin_tier(self):
+        base = int(__import__('time').time()) - 300
+        five = api._rollup_merge([], [{'ts': base, 'cpu': 42}], api.ROLLUP_5MIN_SEC)
+        api.save(api.METRICS_ROLLUP_FILE, {'d1': {'fivemin': five}})
+        api._invalidate_load_cache(api.METRICS_ROLLUP_FILE)
+        saved = {n: getattr(api, n) for n in ('_env', '_caller_scope', '_validate_id')}
+        try:
+            api._env = lambda k, d='': 'tier=fivemin' if k == 'QUERY_STRING' else d
+            api._caller_scope = lambda: None
+            api._validate_id = lambda x: True
+            out = self.call(api.handle_device_metric_rollup, 'd1')
+        finally:
+            for n, v in saved.items():
+                setattr(api, n, v)
+        self.assertEqual(out['tier'], 'fivemin')
+        self.assertTrue(out['points'])
 
     def test_cadence_is_throttled(self):
         api.save(api.METRICS_ROLLUP_FILE, {'_meta': {'last_run': int(__import__('time').time())}})

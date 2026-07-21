@@ -158,6 +158,19 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   verdict, shown only when the evidence genuinely suggests adversary
   behaviour.
 
+### Wave 6 — the metrics incident-zoom band
+- **5-minute metric roll-up tier (kept ~8 days)** fills the resolution gap
+  between the raw 1-minute window (only ~24 h) and the hourly tier (30 days) —
+  the band you actually want when investigating an incident a few days old,
+  where hourly averages smooth away the spike and the raw window has already
+  rolled off. Folds through the existing W4-10 machinery (min/avg/max per
+  bucket, additive, pruned); `GET /api/devices/{id}/metrics/rollup?tier=fivemin`
+  and a new "7 days (5-min avg)" option on the Trends range selector.
+- The agentic-triage **`metrics_trend` evidence tool now reads the CPU/mem/
+  swap/disk roll-up series** (5-minute tier preferred, hourly fallback) instead
+  of the daily disk-mount store — so triage sees what load/memory actually did
+  around the alert, at a resolution that shows the event.
+
 ## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of
