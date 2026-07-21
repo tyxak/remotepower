@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-2">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-3">
 
 </head>
 <body>
@@ -4291,12 +4291,13 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.3.1 tr1agematters triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog">
+          <details class="doc-card" open data-keywords="release notes changelog v6.3.1 tr1agematters triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations">
             <summary><strong>What's new — v6.3.1 &ldquo;Tr1ageMatters&rdquo;</strong> — agentic diagnosis: a <strong>hail-mary log sweep</strong> (&ldquo;Diagnose from logs&rdquo; in the device drawer — a bounded, secret-redacted snapshot of the host's recently-modified <code>/var/log</code> tails, ranked by error density, with an AI root-cause read) and <strong>agentic alert triage</strong> — the model investigates one alert through read-only evidence tools and stores a <strong>verdict with its evidence trail</strong> on the alert. Plus: opt-in <strong>automatic triage</strong> of new alerts (severity floor + daily cap), 👍/👎 <strong>verdict feedback</strong>, a <strong>governed-executor fix bridge</strong>, verdicts carried into tickets, and a syslog-receiver watcher on Server-status.</summary>
             <div class="doc-body">
               <p><strong>Hail-mary log sweep.</strong> For the &ldquo;something is wrong but I don't know where&rdquo; moment: the agent snapshots <code>/var/log/*</code> and <code>/var/log/*/*</code> — only files modified in the last 24 h, compressed/binary/rotated skipped, ≤12 KB tail per file, ≤40 files, ≤256 KB total, ranked by error density + recency. The server re-caps everything and scrubs credential material (<code>password=…</code>, bearer tokens, URL credentials) before storage. <strong>Diagnose</strong> sends the excerpt to your configured AI provider (only when you click — the modal says so) and renders a verdict, per-file findings and conservative next steps. Windows sweeps the last 24 h of Error/Warning System/Application events instead.</p>
               <p><strong>Agentic alert triage.</strong> The alert inbox gains a <strong>Triage</strong> action: the model investigates the alert through a fixed menu of read-only, device-scoped tools — device summary, journal tail, services, the host's other open alerts, recent command output, a regex search over the 6 h log buffer, open CVEs, metric trends, and the latest sweep (self-provisioning when stale) — replying with strict JSON (one tool call or a verdict) each round, hard-capped at 4 tool calls. The stored verdict (root cause, confidence, evidence, recommended action, tools used) shows as an <strong>AI verdict</strong> badge on the row. The model never executes anything — acting on a verdict stays on the existing approval-gated paths.</p>
               <p><strong>Tiered autonomy.</strong> Settings → AI Assistant → <strong>Automatic alert triage</strong> (off by default) runs the same loop on new open alerts from the maintenance cadence — one per tick, severity floor, daily run cap — so alerts arrive pre-investigated (<code>by: auto</code>). Every verdict takes 👍/👎 feedback (aggregated in AI stats), tickets opened from a triaged alert carry the verdict in their seeded note, and with the AI-executor module enabled, <strong>Propose fix (governed executor)</strong> turns a verdict into a human-approved remediation pick from your saved actions.</p>
+              <p><strong>Guarded auto-remediation.</strong> Automation rules&rsquo; run-script fixes now carry a safety rig: a <strong>per-host cooldown</strong> and a <strong>max-hosts-per-hour blast cap</strong>, an opt-in <strong>verify window</strong> that fires a <code>remediation_failed</code> alert when the fix didn&rsquo;t clear the triggering alert, <strong>auto-disable after consecutive failures</strong>, and a per-attempt ledger on the Automations page.</p>
               <p><strong>Syslog receiver watcher.</strong> Server-status → Distributed subsystems now shows the agentless syslog receiver (sources, last intake, unit probe) as an informational row — never a warning; opt into alerting with the new <code>rp_syslogd_running</code> baseline-checks catalog row (tag the server host <code>rp-server</code>).</p>
               <p class="hint">See <code>docs/v6.3.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -5826,11 +5827,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div><label class="form-label">Action: add tag</label><input type="text" id="auto-act-tag" class="form-input input-auto" placeholder="none" autocomplete="off" aria-label="Action: add tag"></div>
             <label class="form-label"><input type="checkbox" id="auto-act-mute"> Mute this alert</label>
           </div>
+          <!-- v6.3.1: remediation guards + verification (apply to the run-script action) -->
+          <div class="mb-12 row-8-center" id="auto-remediation-guards">
+            <div><label class="form-label">Per-host cooldown (s)</label><input type="number" id="auto-host-cooldown" class="form-input input-auto" min="0" max="604800" value="3600" aria-label="Per-host cooldown (s)" title="The same rule won't re-run its script on the same host within this window — a flapping alert must not become a restart loop"></div>
+            <div><label class="form-label">Max hosts / hour</label><input type="number" id="auto-max-hosts" class="form-input input-auto" min="1" max="100" value="3" aria-label="Max hosts / hour" title="Blast-radius cap: an event storm must not run the script fleet-wide"></div>
+            <div><label class="form-label">Verify within (s)</label><input type="number" id="auto-verify-s" class="form-input input-auto" min="0" max="86400" value="0" aria-label="Verify within (s)" title="0 = off. After the script runs, check that the triggering alert cleared within this window — if not, a remediation_failed alert fires"></div>
+            <div><label class="form-label">Disable after failures</label><input type="number" id="auto-disable-after" class="form-input input-auto" min="0" max="20" value="3" aria-label="Disable after failures" title="Consecutive verify-failures before the rule turns itself off (0 = never)"></div>
+          </div>
+          <p class="hint">The guard and verify fields apply to the run-script action: per-host cooldown and the hosts/hour cap bound the blast radius, and verification fires a <code>remediation_failed</code> alert — and eventually disables the rule — when the fix doesn't clear the triggering alert. <a href="docs/automations.md" class="c-accent">Documentation</a></p>
           <div class="row-8-center">
             <button class="btn-primary" data-action="saveAutomationRule">Save rule</button>
             <button class="btn-secondary" data-action="closeAutomationEditor">Cancel</button>
             <span id="auto-editor-status" class="fs-12 c-muted"></span>
           </div>
+        </div>
+
+        <!-- v6.3.1: guarded auto-remediation attempt ledger -->
+        <div class="dash-card">
+          <div class="section-title">Recent auto-remediations</div>
+          <p class="hint">Every run-script firing lands here: queued, verified (the triggering alert cleared inside the verify window), failed (it didn't — a <code>remediation_failed</code> alert fired), or suppressed (a blast-radius guard stopped it).</p>
+          <div id="automation-remediations" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
       </div>
 
@@ -10447,34 +10463,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-2"></script>
+<script defer src="static/js/app.js?v=6.3.1-3"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-2"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-3"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-2"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-3"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-2"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-3"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-2"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-2"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-3"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10483,6 +10499,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-2"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-3"></script>
 </body>
 </html>

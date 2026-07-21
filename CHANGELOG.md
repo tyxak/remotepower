@@ -95,6 +95,28 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   apply it to the server host for a critical Checks row when the unit stops.
   The "Restart the stack" command includes the receiver when it's active.
 
+### Wave 3 — guarded, verified auto-remediation (the fix loop, closed)
+- The automation rules' **Run script** action grows a safety rig, making
+  policy-driven auto-fixing safe to actually enable:
+  - **Per-host cooldown** (default 1 h) — a flapping alert can't become a
+    restart loop;
+  - **Max hosts / hour** blast cap (default 3) — an event storm can't run a
+    script fleet-wide;
+  - **Verify within N seconds** (opt-in) — after the script runs, the new
+    `run_remediation_verify_if_due` cadence sweep (both registries) checks
+    that the triggering alert actually cleared; if not, a new
+    **`remediation_failed`** alert fires (severity high) naming the rule,
+    host and script;
+  - **Disable after N consecutive failures** (default 3) — a fix that keeps
+    not working turns its own rule off (the failure payload says so).
+- Every firing — queued/done/verified/failed/**suppressed** (guard) — lands in
+  a capped **attempt ledger** (`remediations.json`), surfaced as the "Recent
+  auto-remediations" card on the Automations page
+  (`GET /api/automation/remediations`, visibility-filtered).
+- Loop guard: a `run_script` action never fires on `remediation_failed`
+  itself — notify/ticket on it is the escalation path. New bound module
+  `remediation_handlers.py`; the api.py ratchet holds.
+
 ## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of

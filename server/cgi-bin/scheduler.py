@@ -66,6 +66,7 @@ CADENCE = (
     'run_reputation_scan_if_due',
     'run_incident_promotion_if_due',     # v6.1.1 (#53) alert-storm auto-promotion
     'run_ai_triage_if_due',              # v6.3.1 opt-in agentic auto-triage
+    'run_remediation_verify_if_due',     # v6.3.1 auto-remediation verify loop
     'run_resolver_health_if_due',
     'run_wan_ip_check_if_due',           # v6.1.2 WAN IP watch + DDNS + outage log
     'run_deadman_check_if_due',          # v6.1.2 inbound dead-man's-switch

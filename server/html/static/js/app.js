@@ -18298,6 +18298,7 @@ function _renderHomeActivity(fleetEvents) {
     'ecc_errors',   // v6.1.2
     'wan_ip_changed', 'wan_down', 'wan_up', 'mac_conflict',   // v6.1.2
     'ping_missed', 'ping_recovered',                          // v6.1.2
+    'remediation_failed',                                     // v6.3.1 auto-fix verify
     'hostkey_changed',                                        // v6.1.2 (#40)
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
@@ -18531,6 +18532,8 @@ function _homeActivityAttrs(event, p) {
     case 'wan_ip_changed': case 'wan_down': case 'wan_up':     // v6.1.2 -> network map
     case 'mac_conflict': case 'ping_missed': case 'ping_recovered':
       return `data-home-act="netmap"`;
+    case 'remediation_failed':   // v6.3.1 — the rule + ledger live on Automations
+      return `data-home-act="automation"`;
     case 'hostkey_changed':   // v6.1.2 (#40) — the drawer shows the fingerprints
     case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
@@ -23875,6 +23878,36 @@ async function loadAutomation() {
     + _autoDests.map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}</option>`).join('');
   _autoRules = (rules && rules.rules) || [];
   _renderAutomationList();
+  _loadRemediationLog();
+}
+
+// v6.3.1: the guarded auto-remediation attempt ledger (Automations page card).
+async function _loadRemediationLog() {
+  const el = document.getElementById('automation-remediations');
+  if (!el) return;
+  const data = await api('GET', '/automation/remediations').catch(() => null);
+  const rows = (data && data.attempts) || [];
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-state">No auto-remediation attempts yet — give a rule a run-script action and a verify window.</div>';
+    return;
+  }
+  const pill = s => ({
+    verified:  '<span class="sev-pill sev-low">verified</span>',
+    failed:    '<span class="sev-pill sev-critical">failed</span>',
+    queued:    '<span class="sev-pill sev-medium">queued</span>',
+    done:      '<span class="sev-pill sev-low">done</span>',
+    suppressed:'<span class="sev-pill sev-info">suppressed</span>',
+  }[s] || `<span class="sev-pill">${escHtml(s || '?')}</span>`);
+  const reasonTxt = { host_cooldown: 'per-host cooldown', blast_cap: 'max-hosts/hour cap' };
+  el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead>
+      <tr><th>When</th><th>Rule</th><th>Host</th><th>Event</th><th>Status</th></tr></thead><tbody>`
+    + rows.map(a =>
+      `<tr><td class="nowrap">${escHtml(new Date((a.ts || 0) * 1000).toLocaleString())}</td>`
+      + `<td>${escHtml(a.rule_name || a.rule_id || '?')}</td>`
+      + `<td>${a.device_id ? `<span data-dev-hover="${escAttr(a.device_id)}">${escHtml(a.device_name || a.device_id)}</span>` : '—'}</td>`
+      + `<td><code>${escHtml(a.event || '')}</code></td>`
+      + `<td>${pill(a.status)}${a.reason ? ` <span class="hint">${escHtml(reasonTxt[a.reason] || a.reason)}</span>` : ''}</td></tr>`
+    ).join('') + '</tbody></table></div>';
 }
 
 function _autoRuleSummary(r) {
@@ -23942,6 +23975,12 @@ function openAutomationEditor(ruleId) {
   document.getElementById('auto-act-tag').value = (acts.find(a => a.type === 'add_tag') || {}).tag || '';
   document.getElementById('auto-act-mute').checked = !!acts.find(a => a.type === 'mute_alert');
   document.getElementById('auto-cooldown').value = r ? (r.cooldown_seconds != null ? r.cooldown_seconds : 60) : 60;
+  // v6.3.1: remediation guards + verification knobs
+  const _setNum = (id, v, dflt) => { const e = document.getElementById(id); if (e) e.value = (v != null ? v : dflt); };
+  _setNum('auto-host-cooldown', r && r.host_cooldown_seconds, 3600);
+  _setNum('auto-max-hosts',     r && r.max_hosts_per_hour,    3);
+  _setNum('auto-verify-s',      r && r.verify_seconds,        0);
+  _setNum('auto-disable-after', r && r.disable_after_failures, 3);
   document.getElementById('auto-editor-status').textContent = '';
   ed.classList.remove('d-none');
   ed.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -23979,6 +24018,10 @@ async function saveAutomationRule() {
     match: { events, severities, device_match: { group: document.getElementById('auto-group').value.trim(), tags } },
     actions,
     cooldown_seconds: parseInt(document.getElementById('auto-cooldown').value, 10) || 0,
+    host_cooldown_seconds: parseInt(document.getElementById('auto-host-cooldown')?.value, 10) || 0,
+    max_hosts_per_hour:    parseInt(document.getElementById('auto-max-hosts')?.value, 10) || 3,
+    verify_seconds:        parseInt(document.getElementById('auto-verify-s')?.value, 10) || 0,
+    disable_after_failures: parseInt(document.getElementById('auto-disable-after')?.value, 10) || 0,
   };
   // Preserve enabled state when editing.
   if (id) { const ex = _autoRules.find(x => x.id === id); if (ex) rule.enabled = ex.enabled; }
@@ -23993,7 +24036,9 @@ async function saveAutomationRule() {
 async function toggleAutomationRule(id) {
   const r = _autoRules.find(x => x.id === id);
   if (!r) return;
-  const rule = { name: r.name, enabled: !r.enabled, match: r.match, actions: r.actions, cooldown_seconds: r.cooldown_seconds };
+  const rule = { name: r.name, enabled: !r.enabled, match: r.match, actions: r.actions, cooldown_seconds: r.cooldown_seconds,
+                 host_cooldown_seconds: r.host_cooldown_seconds, max_hosts_per_hour: r.max_hosts_per_hour,
+                 verify_seconds: r.verify_seconds, disable_after_failures: r.disable_after_failures };
   const res = await api('PUT', '/automation/rules/' + encodeURIComponent(id), rule).catch(() => null);
   if (!res || res.error) { toast((res && res.error) || 'Failed', 'error'); return; }
   loadAutomation();
@@ -26177,6 +26222,7 @@ function _homeNavAction(btn) {
     case 'rollouts': showPage('rollouts',        document.querySelector('.nav-btn[data-page="rollouts"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
+    case 'automation': showPage('automation',     document.querySelector('.nav-btn[data-page="automation"]')); break;
     // v5.0.0 (#C3): break-glass reveal request → CMDB page (approval card)
     case 'cmdb':     showPage('cmdb',             document.querySelector('.nav-btn[data-page="cmdb"]')); break;
     // v4.7.0: integration health → the dedicated Integrations page

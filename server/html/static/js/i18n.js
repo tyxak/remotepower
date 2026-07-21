@@ -100,6 +100,11 @@
     'Minimum severity':      { fr: 'Sévérité minimale', de: 'Mindest-Schweregrad', zh: '最低严重级别', hi: 'न्यूनतम गंभीरता', es: 'Severidad mínima', ar: 'الحد الأدنى للخطورة' },
     'Daily triage runs':     { fr: 'Exécutions de triage par jour', de: 'Triage-Läufe pro Tag', zh: '每日分诊次数', hi: 'दैनिक ट्राइएज रन', es: 'Ejecuciones de triaje diarias', ar: 'عمليات الفرز اليومية' },
     'Syslog receiver':       { fr: 'Récepteur syslog', de: 'Syslog-Empfänger', zh: 'Syslog 接收器', hi: 'Syslog रिसीवर', es: 'Receptor de syslog', ar: 'مستقبل السجلات syslog' },
+    'Recent auto-remediations': { fr: 'Remédiations automatiques récentes', de: 'Letzte Auto-Behebungen', zh: '最近的自动修复', hi: 'हाल की स्वचालित रेमेडिएशन', es: 'Remediaciones automáticas recientes', ar: 'المعالجات التلقائية الأخيرة' },
+    'Per-host cooldown (s)': { fr: 'Temporisation par hôte (s)', de: 'Cooldown pro Host (s)', zh: '每主机冷却时间（秒）', hi: 'प्रति-होस्ट कूलडाउन (से.)', es: 'Enfriamiento por host (s)', ar: 'فترة التهدئة لكل مضيف (ث)' },
+    'Max hosts / hour':      { fr: 'Hôtes max / heure', de: 'Max. Hosts / Stunde', zh: '每小时最大主机数', hi: 'अधिकतम होस्ट / घंटा', es: 'Máx. hosts / hora', ar: 'أقصى عدد مضيفين / ساعة' },
+    'Verify within (s)':     { fr: 'Vérifier sous (s)', de: 'Verifizieren binnen (s)', zh: '在（秒）内验证', hi: '(से.) के भीतर सत्यापित करें', es: 'Verificar en (s)', ar: 'التحقق خلال (ث)' },
+    'Disable after failures': { fr: 'Désactiver après échecs', de: 'Nach Fehlschlägen deaktivieren', zh: '失败后禁用', hi: 'विफलताओं के बाद अक्षम करें', es: 'Desactivar tras fallos', ar: 'التعطيل بعد الإخفاقات' },
     'Link runbook':          { fr: 'Associer un runbook', de: 'Runbook verknüpfen', zh: '链接运行手册', hi: 'रनबुक लिंक करें', es: 'Enlazar runbook', ar: 'ربط دليل التشغيل' },
     // ── v5.4.0 "RackMatters": time-tracking + billing chrome ──
     'Timesheet':              { fr: 'Feuille de temps', de: 'Zeiterfassung', zh: '工时表', hi: 'टाइमशीट', es: 'Hoja de horas', ar: 'سجل الساعات' },

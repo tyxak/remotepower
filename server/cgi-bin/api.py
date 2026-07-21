@@ -404,6 +404,7 @@ _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned 
 PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (NO values — see _ingest_pii_findings)
 LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mary /var/log sweep per device (redacted at ingest)
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
+REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
@@ -1178,6 +1179,19 @@ for _at_name in (
 ):
     globals()[_at_name] = getattr(ai_triage_handlers_mod, _at_name)
 del _at_name
+# guarded, verified auto-remediation on top of automation rules (v6.3.1)
+_rm_spec = _tk_ilu.spec_from_file_location(
+    'remediation_handlers', Path(__file__).parent / 'remediation_handlers.py')
+remediation_handlers_mod = _tk_ilu.module_from_spec(_rm_spec)
+_rm_spec.loader.exec_module(remediation_handlers_mod)
+remediation_handlers_mod.bind(globals())
+for _rm_name in (
+        '_rule_guard_params', '_remediation_guard_ok',
+        '_record_remediation_attempt', 'run_remediation_verify_if_due',
+        'handle_remediation_log',
+):
+    globals()[_rm_name] = getattr(remediation_handlers_mod, _rm_name)
+del _rm_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -1662,6 +1676,14 @@ EVENT_REGISTRY = {
         title='Duplicate MAC Address', severity='high', priority=4,
         tags='warning,electric_plug'),
     # v6.1.2: inbound dead-man's-switch — an off-fleet job stopped checking in.
+    # v6.3.1: an automation rule's run_script fix executed, but the triggering
+    # alert was still open when the verify window expired — the fix did NOT
+    # work. Fired only from run_remediation_verify_if_due (cadence), never
+    # from inside fire_webhook. Repeated failures auto-disable the rule.
+    'remediation_failed': dict(
+        label='An auto-remediation ran but its alert did not clear (verify window expired)',
+        kind='script', severity='high', priority=4,
+        title='Auto-remediation Failed', tags='rotating_light,wrench'),
     'ping_missed': dict(
         label='A dead-man\'s-switch job missed its check-in', kind='monitor',
         title='Job Check-in Missed', severity='high', priority=4,
@@ -9240,6 +9262,9 @@ def _record_alert(event, payload):
                     # v6.2.2: NIC interface name — the nic_errors alert's
                     # per-interface match key for nic_errors_cleared resolve.
                     'iface',
+                    # v6.3.1: remediation_failed detail (which rule/fix failed;
+                    # whether the failure auto-disabled the rule).
+                    'rule_name', 'rule_id', 'script_id', 'rule_disabled',
                     # B2: inbound webhooks set these
                     'inbound_token_id', 'inbound_source',
                     # v3.2.3: payload keys for the newly-wired alerts —
@@ -9715,6 +9740,23 @@ def _run_automation_action(action, event, payload, dev_id, cfg, rule):
         sid = action.get('script_id')
         if not sid or not dev_id:
             return
+        # v6.3.1: NEVER auto-fix a failed auto-fix — a run_script action
+        # matching remediation_failed would loop (bounded by the guards, but
+        # still a loop). Notify/ticket actions on it remain legitimate.
+        if event == 'remediation_failed':
+            return
+        # v6.3.1: blast-radius guards over the attempt ledger — per-host
+        # cooldown (a flapping alert must not become a restart loop) and a
+        # max-hosts-per-hour cap (an event storm must not run the script
+        # fleet-wide). Suppressions are recorded so they're visible.
+        _g_ok, _g_reason = _remediation_guard_ok(rule, dev_id, int(time.time()))
+        if not _g_ok:
+            _record_remediation_attempt(rule, dev_id, event, sid,
+                                        'suppressed', _g_reason)
+            audit_log('automation', 'rule_run_script_suppressed',
+                      f"rule={rule.get('id')} dev={dev_id} script={sid} "
+                      f"reason={_g_reason}")
+            return
         scripts = load(SCRIPTS_FILE) or {}
         body = next((s.get('body', '') for s in (scripts.get('scripts') or [])
                      if s.get('id') == sid), None)
@@ -9731,6 +9773,10 @@ def _run_automation_action(action, event, payload, dev_id, cfg, rule):
         log_command(f"automation({rule.get('name', 'rule')})", dev_id, nm, f"run_script:{sid}")
         audit_log('automation', 'rule_run_script',
                   f"rule={rule.get('id')} dev={dev_id} script={sid} on {event}")
+        # v6.3.1: ledger the attempt; when the rule sets verify_seconds the
+        # verify sweep later marks it verified/failed (and a failing rule
+        # auto-disables). verify off → recorded as 'done'.
+        _record_remediation_attempt(rule, dev_id, event, sid, 'queued')
     elif atype == 'notify':
         dest = next((d for d in (cfg.get('webhook_urls') or [])
                      if isinstance(d, dict) and d.get('id') == action.get('dest_id')), None)
@@ -9930,14 +9976,26 @@ def _validate_rule(body):
         cooldown = max(0, min(86400, int(body.get('cooldown_seconds', 60))))
     except (TypeError, ValueError):
         cooldown = 60
-    return {
+    rule = {
         'name':    name,
         'enabled': bool(body.get('enabled', True)),
         'match':   {'events': events, 'severities': sevs,
                     'device_match': device_match},
         'actions': actions,
         'cooldown_seconds': cooldown,
-    }, None
+    }
+    # v6.3.1: remediation guard/verify knobs (only meaningful with a
+    # run_script action; harmless otherwise). _rule_guard_params clamps at
+    # read time too — this is the write-side normalisation.
+    for k in ('host_cooldown_seconds', 'max_hosts_per_hour',
+              'verify_seconds', 'disable_after_failures'):
+        if body.get(k) is not None:
+            try:
+                rule[k] = int(body[k])
+            except (TypeError, ValueError):
+                pass
+    rule.update({k: v for k, v in _rule_guard_params(rule).items()})
+    return rule, None
 
 
 def handle_automation_rules_list():
@@ -61595,6 +61653,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/fleet/capacity', '', 'handle_fleet_capacity', "pi == '/api/fleet/capacity' and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/anomalies', '', 'handle_fleet_anomalies', "pi == '/api/fleet/anomalies' and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/agent-integrity', '', 'handle_agent_integrity', "pi == '/api/fleet/agent-integrity' and m == 'GET'"),
+    ('eq', ('GET',), '/api/automation/remediations', '', 'handle_remediation_log', "pi == '/api/automation/remediations' and m == 'GET'"),
     ('eq', ('GET',), '/api/automation/rules', '', 'handle_automation_rules_list', "pi == '/api/automation/rules' and m == 'GET'"),
     ('eq', ('POST',), '/api/automation/rules', '', 'handle_automation_rule_create', "pi == '/api/automation/rules' and m == 'POST'"),
     ('pat', ('PUT',), '/api/automation/rules/', '', 'handle_automation_rule_update', "pi.startswith('/api/automation/rules/') and m == 'PUT'"),
@@ -62216,6 +62275,7 @@ def main():
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
+    _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v6.1.2: public-IP watch (+ auto-DDNS + the internet outage log), and the
