@@ -419,7 +419,8 @@ class TestTriageLoop(unittest.TestCase):
             set(tools),
             {"device_summary", "journal_tail", "services", "open_alerts",
              "recent_commands", "log_search", "log_sweep",
-             "cves", "metrics_trend"})   # wave 2 added cves + metrics_trend
+             "cves", "metrics_trend",     # wave 2 added cves + metrics_trend
+             "prior_incidents"})          # cross-fleet outcome memory
         self.assertIn("ERROR two", tools["journal_tail"]({}))
         self.assertIn("nginx", tools["services"]({}))
         self.assertIn("no hail-mary sweep", tools["log_sweep"]({}))
@@ -767,7 +768,8 @@ class TestWave2Tools(unittest.TestCase):
         return api._triage_tools("dev1", api.load(api.DEVICES_FILE)["dev1"])
 
     def test_menu_has_nine_tools(self):
-        self.assertEqual(len(self._tools()), 9)
+        # 9 evidence tools + prior_incidents (cross-fleet outcome memory) = 10
+        self.assertEqual(len(self._tools()), 10)
 
     def test_cves_tool(self):
         out = self._tools()["cves"]({})

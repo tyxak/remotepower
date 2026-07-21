@@ -406,6 +406,7 @@ LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mar
 FLOW_FILE        = DATA_DIR / 'flow.json'              # v6.3.1: latest NetFlow/IPFIX rollup per device (agentless flow receiver)
 FLOW_DEPS_FILE   = DATA_DIR / 'flow_deps.json'         # v6.3.1: per-edge observed state for the flow-derived dependency map
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
+INCIDENT_MEMORY_FILE = DATA_DIR / 'incident_memory.json'  # v6.3.1: cross-fleet outcome memory — resolved triaged incidents
 REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
@@ -1179,6 +1180,9 @@ for _at_name in (
         'handle_log_sweep_run', 'handle_log_sweep_get',
         'handle_log_sweep_diagnose', 'handle_alert_ai_triage',
         'handle_alert_triage_feedback', 'run_ai_triage_if_due',
+        # v6.3.1: cross-fleet incident outcome memory
+        '_capture_incident_outcome', '_similar_incidents',
+        'run_incident_memory_if_due', 'handle_ai_incident_memory',
 ):
     globals()[_at_name] = getattr(ai_triage_handlers_mod, _at_name)
 del _at_name
@@ -38647,6 +38651,12 @@ def handle_ai_stats():
             'auto':          sum(1 for t in triaged if t.get('by') == 'auto'),
             'feedback_up':   sum(1 for f in fb if f.get('helpful')),
             'feedback_down': sum(1 for f in fb if not f.get('helpful')),
+            # v6.3.1: cross-fleet outcome memory — resolved incidents the triage
+            # loop can now learn from (tenant-scoped for the caller).
+            'incident_memory': sum(
+                1 for o in ((_load_ro(INCIDENT_MEMORY_FILE) or {}).get('outcomes') or [])
+                if isinstance(o, dict) and (_tenant_gate() is None
+                                            or o.get('tenant') == _tenant_gate())),
         }
     except Exception:
         pass
@@ -61143,6 +61153,7 @@ def _build_exact_routes():
         ('POST', '/api/ai/chat'): handle_ai_chat,
         ('GET', '/api/ai/config'): handle_ai_config_get,
         ('POST', '/api/ai/config'): handle_ai_config_set,
+        ('GET', '/api/ai/incident-memory'): handle_ai_incident_memory,  # v6.3.1 cross-fleet outcome memory
         ('POST', '/api/ai/cron'): handle_ai_cron,
         ('GET', '/api/ai/models'): handle_ai_models,
         ('GET', '/api/ai/params'): handle_ai_params_get,
@@ -62479,6 +62490,7 @@ def main():
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
     _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
+    _safe(run_incident_memory_if_due, 'run_incident_memory_if_due')   # v6.3.1 harvest resolved triaged incidents
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v6.1.2: public-IP watch (+ auto-DDNS + the internet outage log), and the

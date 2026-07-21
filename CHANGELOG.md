@@ -196,6 +196,23 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   / Healthy per edge). Cadence sweep runs off the request path with the scheduler;
   fires through the normal `EVENT_REGISTRY` path (new `dependency` channel kind).
 
+### Cross-fleet incident outcome memory (self-improving triage)
+- **The compounding half of agentic triage.** A single-host tool can't do this;
+  RemotePower watches the whole fleet, so every resolved+triaged incident becomes
+  a data point the *next* triage learns from. A cadence sweep harvests resolved
+  alerts that carry an AI verdict into a durable, tenant-tagged **outcome memory**
+  (it outlives the alert, which is pruned after `alerts_retention_days`):
+  signature, verdict root-cause, recommended action, how it actually cleared, and
+  the operator's 👍/👎 rating.
+- **New `prior_incidents` evidence tool** in the investigate loop: for the alert
+  under triage it surfaces the most similar prior incidents *in the same tenant*
+  (same event/kind), ranked by operator-confirmed-helpful then recency — "we saw
+  this exact signature on db-03 in March; the fix that worked was X." Retrieval is
+  tenant-isolated; memory never crosses tenants.
+- Read surface: `GET /api/ai/incident-memory` (tenant-scoped) and an
+  `incident_memory` count in `GET /api/ai/stats`. Harvest runs off the request
+  path with the scheduler; no extra AI calls (capture is pure bookkeeping).
+
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
 Findings from a security + UX + code-quality + product review of the v6.3.1
 waves, fixed before release:

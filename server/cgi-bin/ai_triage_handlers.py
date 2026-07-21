@@ -310,10 +310,11 @@ def handle_log_sweep_diagnose(dev_id):
 
 
 # ── agentic alert triage ─────────────────────────────────────────────────────
-def _triage_tools(dev_id, dev):
+def _triage_tools(dev_id, dev, alert=None):
     """The read-only evidence menu. Every tool is scoped to the alert's device
     and returns a plain string (clipped by the loop). Adding a tool = one entry
     here + a line in _TRIAGE_TOOL_MENU below."""
+    alert = alert or {}
     def _journal(args):
         try:
             n = min(int(args.get('lines') or 40), 80)
@@ -452,6 +453,31 @@ def _triage_tools(dev_id, dev):
             'failed_units': si.get('failed_units'),
         }, default=str)[:1500]
 
+    def _prior_incidents(args):
+        # v6.3.1: cross-fleet outcome memory — prior resolved incidents of the
+        # same signature (same event/kind) in the SAME tenant, with the verdict
+        # and what actually cleared them. This is what a single-host tool can
+        # never offer: institutional memory across the whole fleet.
+        event = alert.get('event') or ''
+        kind = A.EVENT_KIND_MAP.get(event) if hasattr(A, 'EVENT_KIND_MAP') else ''
+        tenant = A._device_tenant(dev)
+        priors = _similar_incidents(event, kind, tenant,
+                                    exclude_alert_id=alert.get('id'), limit=5)
+        if not priors:
+            return ('(no similar prior incidents in memory for this signature — '
+                    'this may be the first of its kind on the fleet)')
+        lines = [f'{len(priors)} similar prior incident(s), most relevant first:']
+        for o in priors:
+            when = time.strftime('%Y-%m-%d', time.gmtime(o.get('resolved_at') or 0))
+            rate = {'up': ' [operator confirmed helpful]',
+                    'down': ' [operator marked unhelpful]'}.get(o.get('rating'), '')
+            lines.append(
+                f"- {when} on {o.get('device_name') or o.get('device_id')}{rate}\n"
+                f"  root cause: {o.get('root_cause', '')}\n"
+                f"  recommended: {o.get('recommended_action', '') or '(none recorded)'}\n"
+                f"  outcome: {o.get('resolution', '')}")
+        return '\n'.join(lines)
+
     return {
         'device_summary':  _device_summary,
         'journal_tail':    _journal,
@@ -462,6 +488,7 @@ def _triage_tools(dev_id, dev):
         'log_sweep':       _log_sweep,
         'cves':            _cves,
         'metrics_trend':   _metrics_trend,
+        'prior_incidents': _prior_incidents,
     }
 
 
@@ -478,6 +505,8 @@ _TRIAGE_TOOL_MENU = (
     "- cves {} — the host's open CVE findings, top by severity\n"
     "- metrics_trend {} — recent CPU/mem/swap/disk % (5-min & hourly avg/max) "
     "around the incident\n"
+    "- prior_incidents {} — how the fleet resolved SIMILAR past incidents "
+    "(same signature, same tenant): the verdict and what actually cleared it\n"
 )
 
 
@@ -528,7 +557,7 @@ def _parse_triage_json(text):
 def _run_alert_triage(alert, dev_id, dev):
     """The bounded investigate loop. Returns {verdict, steps, rounds} — raises
     RuntimeError on provider failure so the handler can map it to a 502."""
-    tools = A._triage_tools(dev_id, dev)
+    tools = A._triage_tools(dev_id, dev, alert)
     system_prompt = A._resolve_system_prompt('alert_triage')
     payload = {k: v for k, v in (alert.get('payload') or {}).items()
                if isinstance(v, (str, int, float, bool))}
@@ -772,3 +801,135 @@ def run_ai_triage_if_due():
     _bump_count()
     A.audit_log('auto', 'alert_ai_triage',
                 f'id={alert.get("id")} rounds={triage.get("rounds")} (auto)')
+
+
+# ── v6.3.1: cross-fleet incident outcome memory ──────────────────────────────
+# The compounding half of agentic triage. A single-host tool can't do this;
+# RemotePower watches the WHOLE fleet, so every resolved+triaged incident is a
+# data point the NEXT triage can learn from. We harvest resolved alerts that
+# carry an AI verdict into a durable, tenant-tagged outcome store (it outlives
+# the alert, which is pruned after alerts_retention_days), and expose the most
+# similar priors to the investigate loop as a new read-only evidence tool —
+# "we saw this exact signature before; here's the verdict and what actually
+# cleared it." Retrieval is tenant-scoped; the memory never crosses tenants.
+
+_INCIDENT_MEMORY_MAX = 1000        # outcomes retained (ring, newest kept)
+_INCIDENT_SEEN_MAX = 4000          # captured alert-ids remembered (dedup ring)
+_INCIDENT_MEMORY_INTERVAL_S = 300  # cadence: harvest at most every 5 min
+
+
+def _incident_resolution(alert):
+    """How the alert cleared, for the outcome record. 'auto' when an auto-resolve
+    recover event closed it (resolved_by unset/system); otherwise the operator
+    name. Best-effort — purely descriptive."""
+    rb = alert.get('resolved_by')
+    if not rb or rb in ('system', 'auto', ''):
+        return 'auto-resolved (recover event)'
+    return f'resolved by {rb}'
+
+
+def _capture_incident_outcome(alert, dev):
+    """Build one outcome record from a resolved, AI-triaged alert. Returns the
+    dict, or None if the alert isn't a capture candidate. Pure — the caller
+    persists + dedups."""
+    tri = alert.get('ai_triage')
+    if not isinstance(tri, dict) or not alert.get('resolved_at'):
+        return None
+    verdict = tri.get('verdict') if isinstance(tri.get('verdict'), dict) else {}
+    root = str(verdict.get('root_cause') or '').strip()
+    if not root:
+        return None                      # nothing worth remembering
+    fb = tri.get('feedback') if isinstance(tri.get('feedback'), dict) else {}
+    rating = None
+    if 'helpful' in fb:
+        rating = 'up' if fb.get('helpful') else 'down'
+    return {
+        'alert_id': alert.get('id'),
+        'event': alert.get('event') or '',
+        'kind': A.EVENT_KIND_MAP.get(alert.get('event')) if hasattr(A, 'EVENT_KIND_MAP') else '',
+        'severity': alert.get('severity') or '',
+        'tenant': A._device_tenant(dev),
+        'device_id': alert.get('device_id') or '',
+        'device_name': alert.get('device_name') or dev.get('name') or '',
+        'root_cause': root[:600],
+        'recommended_action': str(verdict.get('recommended_action') or '')[:600],
+        'confidence': str(verdict.get('confidence') or '')[:24],
+        'resolution': _incident_resolution(alert),
+        'resolved_at': int(alert.get('resolved_at') or 0),
+        'rating': rating,
+        'captured_at': int(time.time()),
+    }
+
+
+def run_incident_memory_if_due():
+    """Cadence: harvest resolved+triaged alerts into the durable outcome memory
+    (idempotent via a seen-id ring), so the knowledge survives alert pruning.
+    Cheap: a read-gate before the lock, then one locked append. No AI calls."""
+    now = int(time.time())
+    mem = A.load(A.INCIDENT_MEMORY_FILE) or {}
+    if (now - int(mem.get('last_run') or 0)) < _INCIDENT_MEMORY_INTERVAL_S:
+        return
+    alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
+    seen = set(mem.get('seen') or [])
+    fresh = [a for a in alerts
+             if a.get('resolved_at') and isinstance(a.get('ai_triage'), dict)
+             and a.get('id') not in seen]
+    devices = A.load(A.DEVICES_FILE) or {}
+    new_outcomes = []
+    new_ids = []
+    for a in fresh:
+        dev = devices.get(a.get('device_id')) or {}
+        oc = _capture_incident_outcome(a, dev)
+        new_ids.append(a.get('id'))       # mark seen even if not worth storing
+        if oc:
+            new_outcomes.append(oc)
+    with A._LockedUpdate(A.INCIDENT_MEMORY_FILE) as store:
+        outcomes = store.get('outcomes') if isinstance(store.get('outcomes'), list) else []
+        outcomes.extend(new_outcomes)
+        store['outcomes'] = outcomes[-_INCIDENT_MEMORY_MAX:]
+        seen_list = store.get('seen') if isinstance(store.get('seen'), list) else []
+        # keep the seen-ring in step with what's still capturable (bounded)
+        seen_list.extend(i for i in new_ids if i)
+        store['seen'] = seen_list[-_INCIDENT_SEEN_MAX:]
+        store['last_run'] = now
+
+
+def _similar_incidents(event, kind, tenant, exclude_alert_id=None, limit=5):
+    """Retrieve prior resolved incidents most similar to (event, kind) within the
+    SAME tenant. Rank: a thumbs-up verdict first (proven-useful), then recency.
+    Same-event matches rank above same-kind-only matches. Pure read."""
+    mem = A.load(A.INCIDENT_MEMORY_FILE) or {}
+    outcomes = mem.get('outcomes') if isinstance(mem.get('outcomes'), list) else []
+    scored = []
+    for o in outcomes:
+        if not isinstance(o, dict):
+            continue
+        if o.get('tenant') != tenant:
+            continue                      # tenant isolation — never cross
+        if exclude_alert_id and o.get('alert_id') == exclude_alert_id:
+            continue
+        same_event = o.get('event') == event and event
+        same_kind = kind and o.get('kind') == kind
+        if not (same_event or same_kind):
+            continue
+        rank = (0 if same_event else 1,
+                0 if o.get('rating') == 'up' else (2 if o.get('rating') == 'down' else 1),
+                -int(o.get('resolved_at') or 0))
+        scored.append((rank, o))
+    scored.sort(key=lambda x: x[0])
+    return [o for _r, o in scored[:max(1, min(limit, 20))]]
+
+
+def handle_ai_incident_memory():
+    """GET /api/ai/incident-memory — recent resolved-incident outcomes visible to
+    the caller's tenant (most recent first). Read-only situational memory; the
+    same data the triage `prior_incidents` tool draws on. A superadmin (or
+    tenancy off) sees every outcome; a tenant-scoped caller sees only their own
+    tenant's (the standard _tenant_gate pattern)."""
+    A.require_auth()
+    gate = A._tenant_gate()          # None = superadmin / tenancy off = see all
+    mem = A.load(A.INCIDENT_MEMORY_FILE) or {}
+    outcomes = [o for o in (mem.get('outcomes') or [])
+                if isinstance(o, dict) and (gate is None or o.get('tenant') == gate)]
+    outcomes.sort(key=lambda o: int(o.get('resolved_at') or 0), reverse=True)
+    A.respond(200, {'outcomes': outcomes[:100], 'count': len(outcomes)})
