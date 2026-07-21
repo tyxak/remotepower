@@ -7327,7 +7327,12 @@ def _record_fleet_event(event, payload):
                     # inbox whitelist already keeps it), so the feed fell back
                     # to the host name only.
                     'container', 'restart_count',       # container_* events
-                    'running', 'latest'):               # kernel_outdated
+                    'running', 'latest',                # kernel_outdated
+                    # v6.3.1: remediation_failed feed detail (which rule/fix
+                    # failed; whether it auto-disabled the rule). Kept in lockstep
+                    # with the _record_alert whitelist so a future feed row can
+                    # name the rule, per the "two silent whitelists" rule.
+                    'rule_name', 'rule_id', 'script_id', 'rule_disabled'):
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat

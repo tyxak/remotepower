@@ -20442,6 +20442,9 @@ async function loadDashboardSettings() {
   if (document.getElementById('ah-start') && ah.start) document.getElementById('ah-start').value = ah.start;
   if (document.getElementById('ah-end') && ah.end) document.getElementById('ah-end').value = ah.end;
   if (document.getElementById('ah-events')) document.getElementById('ah-events').value = (ah.events || []).join(', ');
+  // v6.3.1: business-days picker (was persisted server-side but not settable).
+  { const days = new Set(ah.workdays || [0, 1, 2, 3, 4]);
+    document.querySelectorAll('#ah-workdays .ah-day').forEach(cb => { cb.checked = days.has(parseInt(cb.value, 10)); }); }
 
   // v3.4.2: on-call + escalation
   const oc = cfg.oncall || {}, es = cfg.escalation || {};
@@ -20564,9 +20567,11 @@ async function saveAfterHours() {
   const start = document.getElementById('ah-start').value;
   const end = document.getElementById('ah-end').value;
   const events = document.getElementById('ah-events').value.split(',').map(s => s.trim()).filter(Boolean);
+  const workdays = [...document.querySelectorAll('#ah-workdays .ah-day:checked')].map(cb => parseInt(cb.value, 10));
   if (enabled && (!start || !end)) { toast('Set business start and end times', 'error'); return; }
   if (enabled && !events.length) { toast('List at least one event to watch', 'error'); return; }
-  const r = await api('POST', '/config', { after_hours: { enabled, start, end, events } }).catch(() => null);
+  if (enabled && !workdays.length) { toast('Select at least one business day', 'error'); return; }
+  const r = await api('POST', '/config', { after_hours: { enabled, start, end, events, workdays } }).catch(() => null);
   if (r?.ok) toast(enabled ? `After-hours watch on (${start}–${end})` : 'After-hours watch off', 'success');
   else toast(r?.error || 'Failed', 'error');
 }
