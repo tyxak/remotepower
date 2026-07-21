@@ -572,11 +572,27 @@ document.addEventListener('keydown', (e) => {
 // model requests read-only evidence tools, then delivers a verdict). Result is
 // stored on the alert (ai_triage) and rendered here. Reuses the generic
 // ai-insight modal shell (body-level, CSP-clean).
-function _renderTriageResult(el, t) {
+function _renderTriageResult(el, t, alertId, deviceId) {
   const v = (t && t.verdict) || {};
   const steps = (t && t.steps) || [];
   const stepsHtml = steps.map(s =>
     `<li><code>${_escapeHtml(s.tool || '?')}</code>${s.why ? ' — ' + _escapeHtml(s.why) : ''}</li>`).join('');
+  // v6.3.1 wave 2: feedback loop (👍/👎 stored on the verdict, aggregated in
+  // /api/ai/stats) + the governed-executor bridge (module-gated; the executor
+  // still only picks from operator-authored actions and a human approves).
+  const fb = (t && t.feedback) || {};
+  const idA = escAttr(String(alertId ?? ''));
+  const fbHtml = alertId != null ? (
+    `<div class="triage-fb">` +
+    `<span class="hint">Was this verdict helpful?</span> ` +
+    `<button class="btn-icon btn-xs${fb.helpful === true ? ' c-success' : ''}" data-action="triageFeedback" data-arg="${idA}" data-arg2="up" title="Helpful — the verdict matched reality">${_icon('thumbsUp', 13)}</button>` +
+    `<button class="btn-icon btn-xs${fb.helpful === false ? ' c-red' : ''}" data-action="triageFeedback" data-arg="${idA}" data-arg2="down" title="Wrong or unhelpful">${_icon('thumbsDown', 13)}</button>` +
+    (fb.by ? ` <span class="hint">rated by ${_escapeHtml(fb.by)}</span>` : '') +
+    `</div>`) : '';
+  const execOn = !!(window._modules || {}).ai_exec;
+  const proposeHtml = (alertId != null && deviceId && v.recommended_action && execOn)
+    ? `<p><button class="btn-icon btn-xs" data-action="triageProposeFix" data-arg="${idA}" title="Ask the governed executor to pick a saved remediation matching this verdict — a human approves before anything runs">${_icon('wrench', 13)} Propose fix (governed executor)</button></p>`
+    : '';
   el.innerHTML =
     '<div class="ai-content">' +
     `<p><strong>Root cause:</strong> ${_escapeHtml(v.root_cause || v.error || '(none given)')}` +
@@ -585,10 +601,40 @@ function _renderTriageResult(el, t) {
       ? `<p><strong>Evidence</strong></p><ul>${v.evidence.map(e => `<li>${_escapeHtml(e)}</li>`).join('')}</ul>` : '') +
     (v.recommended_action
       ? `<p><strong>Recommended action:</strong> ${_escapeHtml(v.recommended_action)}</p>` : '') +
+    proposeHtml +
     (stepsHtml
       ? `<p class="hint">Evidence gathered via ${steps.length} tool call(s):</p><ul class="hint">${stepsHtml}</ul>` : '') +
-    ((t && t.at) ? `<p class="hint">Run ${_formatTs(t.at)} by ${_escapeHtml(t.by || '?')}</p>` : '') +
+    ((t && t.at) ? `<p class="hint">Run ${_formatTs(t.at)} by ${_escapeHtml(t.by || '?')}${t.by === 'auto' ? ' (automatic triage)' : ''}</p>` : '') +
+    fbHtml +
     '</div>';
+}
+
+async function triageFeedback(alertId, dir) {
+  const r = await api('POST', `/alerts/${encodeURIComponent(alertId)}/ai-triage/feedback`,
+                      {helpful: dir === 'up'}).catch(() => null);
+  if (!r || !r.ok) { toast((r && r.error) || 'Could not save feedback', 'error'); return; }
+  toast('Feedback saved — it sharpens future triage', 'success');
+  await loadAlerts();
+  const a = (_alertsCache || []).find(x => String(x.id) === String(alertId));
+  const body = document.getElementById('ai-insight-body');
+  if (a && a.ai_triage && body) _renderTriageResult(body, a.ai_triage, a.id, a.device_id);
+}
+
+async function triageProposeFix(alertId) {
+  const a = (_alertsCache || []).find(x => String(x.id) === String(alertId));
+  const v = a && a.ai_triage && a.ai_triage.verdict;
+  if (!a || !v || !a.device_id) { toast('No verdict/device to propose from', 'info'); return; }
+  const context = `Alert: ${a.title || a.event || ''}\n`
+    + `AI triage root cause: ${v.root_cause || ''}\n`
+    + `Recommended action: ${v.recommended_action || ''}`;
+  const r = await api('POST', '/ai-exec/propose',
+                      {device_id: a.device_id, context}).catch(() => null);
+  if (!r) { toast('Proposal failed — is the AI executor module enabled?', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(r.proposed
+    ? `Proposed "${r.label || r.action}" — a human must approve it in Confirmations before anything runs`
+    : (r.message || 'The executor found no suitable saved action'),
+    r.proposed ? 'success' : 'info');
 }
 
 async function aiTriageAlert(id) {
@@ -602,7 +648,10 @@ async function aiTriageAlert(id) {
     if (body) body.innerHTML = `<div class="empty-state">${_escapeHtml((r && r.error) || 'Triage failed — is the AI assistant configured?')}</div>`;
     return;
   }
-  if (body) _renderTriageResult(body, r.ai_triage);
+  if (body) {
+    const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+    _renderTriageResult(body, r.ai_triage, id, a && a.device_id);
+  }
   loadAlerts();   // pick up the stored "AI verdict" badge
 }
 
@@ -612,6 +661,6 @@ function showAlertTriage(id) {
   const titleEl = document.querySelector('#ai-insight-modal .modal-title');
   if (titleEl) titleEl.textContent = 'AI triage';
   const body = document.getElementById('ai-insight-body');
-  if (body) _renderTriageResult(body, a.ai_triage);
+  if (body) _renderTriageResult(body, a.ai_triage, a.id, a.device_id);
   openModal('ai-insight-modal');
 }

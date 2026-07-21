@@ -110,7 +110,7 @@ class TestModuleBinding(unittest.TestCase):
     def test_routes_present(self):
         rows = [r for r in api._PATTERN_ROUTE_DEFS
                 if "log-sweep" in str(r) or "ai-triage" in str(r)]
-        self.assertEqual(len(rows), 4, rows)
+        self.assertEqual(len(rows), 5, rows)   # wave 2 added /ai-triage/feedback
 
     def test_openapi_covers_the_new_routes(self):
         routes = api._dispatcher_routes()
@@ -389,7 +389,8 @@ class TestTriageLoop(unittest.TestCase):
         self.assertEqual(
             set(tools),
             {"device_summary", "journal_tail", "services", "open_alerts",
-             "recent_commands", "log_search", "log_sweep"})
+             "recent_commands", "log_search", "log_sweep",
+             "cves", "metrics_trend"})   # wave 2 added cves + metrics_trend
         self.assertIn("ERROR two", tools["journal_tail"]({}))
         self.assertIn("nginx", tools["services"]({}))
         self.assertIn("no hail-mary sweep", tools["log_sweep"]({}))
@@ -548,3 +549,290 @@ class TestFrontendWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── v6.3.1 wave 2: auto-triage, feedback loop, new tools, syslog watcher ─────
+class TestAutoTriage(unittest.TestCase):
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {'ai': {
+            'enabled': True,
+            'auto_triage': {'enabled': True, 'min_severity': 'high',
+                            'daily_cap': 2}}})
+        api.save(api.AI_TRIAGE_STATE_FILE, {})
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "web01", "journal": []}})
+        now = int(time.time())
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "old", "event": "e", "severity": "high", "device_id": "dev1",
+             "ts": now - 100},
+            {"id": "med", "event": "e", "severity": "medium", "device_id": "dev1",
+             "ts": now - 5},
+            {"id": "new", "event": "e", "severity": "critical", "device_id": "dev1",
+             "ts": now - 10},
+        ]})
+        self.calls = []
+        self._orig_ai = api._call_ai_with_prompts
+
+        def fake(system_prompt, user_prompt, key):
+            self.calls.append(key)
+            return {"ok": True, "text":
+                    '{"action":"verdict","root_cause":"auto rc","confidence":"low",'
+                    '"evidence":[],"recommended_action":""}'}
+        api._call_ai_with_prompts = fake
+
+    def tearDown(self):
+        api._call_ai_with_prompts = self._orig_ai
+
+    def _triaged_ids(self):
+        return [a["id"] for a in api.load(api.ALERTS_FILE)["alerts"]
+                if a.get("ai_triage")]
+
+    def test_off_by_default_in_defaults(self):
+        self.assertFalse(api._AI_DEFAULTS['auto_triage']['enabled'])
+
+    def test_disabled_makes_no_ai_calls(self):
+        api.save(api.CONFIG_FILE, {'ai': {'enabled': True,
+                                          'auto_triage': {'enabled': False}}})
+        api.run_ai_triage_if_due()
+        self.assertEqual(self.calls, [])
+
+    def test_triages_newest_matching_alert_as_auto(self):
+        api.run_ai_triage_if_due()
+        # newest severity>=high alert is 'new' (critical, ts now-10);
+        # 'med' is newer but below the floor.
+        self.assertEqual(self._triaged_ids(), ["new"])
+        stored = next(a for a in api.load(api.ALERTS_FILE)["alerts"]
+                      if a["id"] == "new")
+        self.assertEqual(stored["ai_triage"]["by"], "auto")
+
+    def test_one_per_tick_and_interval_throttle(self):
+        api.run_ai_triage_if_due()
+        self.assertEqual(len(self._triaged_ids()), 1)
+        api.run_ai_triage_if_due()   # within the min interval → no second run
+        self.assertEqual(len(self._triaged_ids()), 1)
+
+    def test_daily_cap_stops_runs(self):
+        today = time.strftime('%Y-%m-%d', time.gmtime())
+        api.save(api.AI_TRIAGE_STATE_FILE, {'day': today, 'count': 2,
+                                            'last_run': 0})
+        api.run_ai_triage_if_due()
+        self.assertEqual(self.calls, [])
+
+    def test_severity_floor(self):
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "med2", "event": "e", "severity": "medium",
+             "device_id": "dev1", "ts": int(time.time())}]})
+        api.run_ai_triage_if_due()
+        self.assertEqual(self._triaged_ids(), [])
+
+    def test_registered_in_both_cadence_registries(self):
+        import scheduler
+        self.assertIn('run_ai_triage_if_due', scheduler.CADENCE)
+        from tests import apisrc
+        self.assertIn("_safe(run_ai_triage_if_due, 'run_ai_triage_if_due')",
+                      apisrc.api_source())
+
+
+class TestTriageFeedback(unittest.TestCase):
+    def setUp(self):
+        self._orig_verify = api.verify_token
+        self._orig_get_token = api.get_token_from_request
+        self._orig_gjo = api.get_json_obj
+        api.get_token_from_request = lambda: "t"
+        api.verify_token = lambda t: ("op", "admin")
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "al1", "event": "e", "severity": "high", "device_id": "d",
+             "ai_triage": {"verdict": {"root_cause": "rc"}, "by": "op"}},
+            {"id": "al2", "event": "e", "severity": "high", "device_id": "d"},
+        ]})
+
+    def tearDown(self):
+        api.verify_token = self._orig_verify
+        api.get_token_from_request = self._orig_get_token
+        api.get_json_obj = self._orig_gjo
+
+    def test_stores_feedback(self):
+        api.get_json_obj = lambda: {"helpful": True, "note": "spot on"}
+        status, body = _call(api.handle_alert_triage_feedback, "al1")
+        self.assertEqual(status, 200)
+        fb = api.load(api.ALERTS_FILE)["alerts"][0]["ai_triage"]["feedback"]
+        self.assertTrue(fb["helpful"])
+        self.assertEqual(fb["note"], "spot on")
+        self.assertEqual(fb["by"], "op")
+
+    def test_400_without_stored_triage(self):
+        api.get_json_obj = lambda: {"helpful": False}
+        status, _ = _call(api.handle_alert_triage_feedback, "al2")
+        self.assertEqual(status, 400)
+
+    def test_404_unknown_alert(self):
+        api.get_json_obj = lambda: {"helpful": True}
+        status, _ = _call(api.handle_alert_triage_feedback, "nope")
+        self.assertEqual(status, 404)
+
+
+class TestWave2Tools(unittest.TestCase):
+    def setUp(self):
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "web01"}})
+        api.save(api.LOG_SWEEP_FILE, {})
+        api.save(api.CVE_FINDINGS_FILE, {"dev1": {"findings": [
+            {"vuln_id": "CVE-2026-1", "severity": "critical", "package": "openssl",
+             "fixed_version": "3.2.1"},
+            {"vuln_id": "CVE-2026-2", "severity": "low", "package": "vim",
+             "ignored": True},
+        ]}})
+        api.save(api.METRICS_HIST_FILE, {"dev1": {"samples": [
+            {"ts": int(time.time()), "mounts": [
+                {"path": "/", "used_gb": 40, "total_gb": 100}]}]}})
+
+    def _tools(self):
+        return api._triage_tools("dev1", api.load(api.DEVICES_FILE)["dev1"])
+
+    def test_menu_has_nine_tools(self):
+        self.assertEqual(len(self._tools()), 9)
+
+    def test_cves_tool(self):
+        out = self._tools()["cves"]({})
+        self.assertIn("CVE-2026-1", out)
+        self.assertIn("openssl", out)
+        self.assertNotIn("CVE-2026-2", out)   # ignored findings stay hidden
+
+    def test_metrics_trend_tool(self):
+        out = self._tools()["metrics_trend"]({})
+        self.assertIn("/=40/100GB", out)
+
+    def test_stale_sweep_auto_requests_a_fresh_one(self):
+        api.save(api.LOG_SWEEP_FILE, {"dev1": {
+            "ts": int(time.time()) - 3600, "file_count": 1,
+            "files": [{"path": "/var/log/a", "mtime": 0, "score": 1,
+                       "lines": ["old line"]}]}})
+        out = self._tools()["log_sweep"]({})
+        self.assertIn("STALE", out)
+        self.assertIn("fresh sweep has been requested", out)
+        self.assertTrue(api.load(api.DEVICES_FILE)["dev1"].get("force_log_sweep"))
+        self.assertGreater(
+            api.load(api.LOG_SWEEP_FILE)["dev1"].get("requested_at", 0), 0)
+
+    def test_missing_sweep_auto_requests_too(self):
+        out = self._tools()["log_sweep"]({})
+        self.assertIn("no hail-mary sweep stored", out)
+        self.assertTrue(api.load(api.DEVICES_FILE)["dev1"].get("force_log_sweep"))
+
+
+class TestTicketVerdictEmbed(unittest.TestCase):
+    def test_detail_carries_the_verdict(self):
+        al = {"event": "service_down", "severity": "high", "ts": 1,
+              "title": "nginx down", "payload": {"service": "nginx"},
+              "ai_triage": {"by": "auto", "verdict": {
+                  "root_cause": "OOM killed nginx",
+                  "confidence": "high",
+                  "evidence": ["journal: oom-killer invoked"],
+                  "recommended_action": "raise memory limit"}}}
+        detail = api._alert_ticket_detail(al, {"sysinfo": {}})
+        self.assertIn("AI triage verdict (by auto", detail)
+        self.assertIn("OOM killed nginx", detail)
+        self.assertIn("journal: oom-killer invoked", detail)
+        self.assertIn("raise memory limit", detail)
+
+    def test_no_verdict_no_section(self):
+        al = {"event": "service_down", "severity": "high", "ts": 1,
+              "payload": {"service": "nginx"}}
+        self.assertNotIn("AI triage verdict", api._alert_ticket_detail(al, {}))
+
+
+class TestAutoTriageConfig(unittest.TestCase):
+    def setUp(self):
+        self._orig_verify = api.verify_token
+        self._orig_get_token = api.get_token_from_request
+        self._orig_gjo = api.get_json_obj
+        self._orig_method = api.method
+        api.get_token_from_request = lambda: "t"
+        api.verify_token = lambda t: ("admin", "admin")
+        api.method = lambda: "POST"
+        api.save(api.CONFIG_FILE, {})
+
+    def tearDown(self):
+        api.verify_token = self._orig_verify
+        api.get_token_from_request = self._orig_get_token
+        api.get_json_obj = self._orig_gjo
+        api.method = self._orig_method
+
+    def test_save_whitelist_roundtrip(self):
+        # The classic silent-drop bug: a Settings toggle that never persists
+        # because the save whitelist wasn't extended. Drive the real handler.
+        api.get_json_obj = lambda: {"auto_triage": {
+            "enabled": True, "min_severity": "medium", "daily_cap": 5,
+            "evil_key": "x"}}
+        status, _ = _call(api.handle_ai_config_set)
+        self.assertEqual(status, 200)
+        at = api._ai_cfg()["auto_triage"]
+        self.assertTrue(at["enabled"])
+        self.assertEqual(at["min_severity"], "medium")
+        self.assertEqual(at["daily_cap"], 5)
+        self.assertNotIn("evil_key", at)
+
+    def test_bad_values_ignored(self):
+        api.get_json_obj = lambda: {"auto_triage": {
+            "min_severity": "apocalyptic", "daily_cap": 99999}}
+        status, _ = _call(api.handle_ai_config_set)
+        self.assertEqual(status, 200)
+        at = api._ai_cfg()["auto_triage"]
+        self.assertEqual(at["min_severity"], "high")   # default kept
+        self.assertEqual(at["daily_cap"], 20)
+
+
+class TestSyslogWatcherAndCatalog(unittest.TestCase):
+    def test_subsystems_report_syslog_sources(self):
+        api.save(api.INBOUND_WEBHOOKS_FILE, {"tokens": [
+            {"token": "a", "kind": "syslog", "last_seen": 123},
+            {"token": "b", "kind": "syslog", "last_seen": 456},
+            {"token": "c", "kind": "alert", "last_seen": 999},
+        ]})
+        out = api._subsystems_status(int(time.time()))
+        self.assertIn("syslog", out)
+        self.assertEqual(out["syslog"]["sources"], 2)
+        self.assertEqual(out["syslog"]["last_ingest"], 456)
+        self.assertIn("unit", out["syslog"])
+
+    def test_catalog_offers_the_optional_syslogd_row(self):
+        import checks
+        row = next((c for c in checks.CHECK_BASELINE_CATALOG
+                    if c.get("id") == "rp_syslogd_running"), None)
+        self.assertIsNotNone(row, "rp_syslogd_running catalog row missing")
+        self.assertEqual(row["type"], "systemd_unit")
+        self.assertEqual(row["param"], "remotepower-syslogd.service")
+        # opt-in: tag-targeted, never fleet-wide
+        self.assertEqual(row["target_kind"], "tag")
+
+    def test_self_page_row_is_informational(self):
+        app = _js("app.js")
+        self.assertIn("const syslogRow", app)
+        # the not-detected/not-in-use states must be 'muted', never warn/bad
+        i = app.index("const syslogRow")
+        block = app[i:i + 900]
+        self.assertNotIn("'warn'", block)
+        self.assertNotIn("'bad'", block)
+
+
+class TestWave2FrontendWiring(unittest.TestCase):
+    def test_settings_auto_triage_controls(self):
+        html = _html()
+        for el_id in ("ai-triage-auto", "ai-triage-minsev", "ai-triage-cap"):
+            self.assertIn(f'id="{el_id}"', html)
+        ai = _js("app-ai.js")
+        self.assertIn("auto_triage:", ai)
+        self.assertIn("ai-triage-minsev", ai)
+
+    def test_feedback_and_propose_buttons(self):
+        al = _js("app-alerts.js")
+        self.assertIn('data-action="triageFeedback"', al)
+        self.assertIn("function triageFeedback", al)
+        self.assertIn('data-action="triageProposeFix"', al)
+        self.assertIn("/ai-exec/propose", al)
+        app = _js("app.js")
+        self.assertIn("thumbsUp:", app)
+        self.assertIn("thumbsDown:", app)
+
+    def test_stats_scoreboard_served(self):
+        from tests import apisrc
+        src = apisrc.api_source()
+        self.assertIn("'feedback_up'", src.replace('"', "'"))

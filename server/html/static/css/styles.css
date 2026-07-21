@@ -2836,6 +2836,14 @@ input.form-input[type="text"][data-token],
 .log-sweep-ai {
   margin-top: 8px;
 }
+.triage-fb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+}
 
 /* ─── Index dashboard tiles ────────────────────────────────────────────
  * Big-number summary tiles for the home page. Hover lifts subtly. */

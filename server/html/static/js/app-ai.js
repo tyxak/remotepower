@@ -47,6 +47,11 @@ async function loadAISettings() {
   const lim = cfg.limits || {};
   document.getElementById('ai-max-tokens').value   = lim.max_tokens_per_response   ?? 4000;
   document.getElementById('ai-max-requests').value = lim.max_requests_per_user_day ?? 100;
+  // v6.3.1: opt-in agentic auto-triage
+  const at = cfg.auto_triage || {};
+  { const e = document.getElementById('ai-triage-auto');   if (e) e.checked = !!at.enabled; }
+  { const e = document.getElementById('ai-triage-minsev'); if (e) e.value = at.min_severity || 'high'; }
+  { const e = document.getElementById('ai-triage-cap');    if (e) e.value = at.daily_cap ?? 20; }
   // v2.1.7: context toggles
   const ctx = cfg.context || {};
   document.getElementById('ai-ctx-project').checked = ctx.include_project_context !== false;
@@ -316,6 +321,13 @@ async function saveAISettings() {
     limits: {
       max_tokens_per_response:   parseInt(document.getElementById('ai-max-tokens').value, 10)   || 4000,
       max_requests_per_user_day: parseInt(document.getElementById('ai-max-requests').value, 10) || 100,
+    },
+    auto_triage: {
+      enabled:      !!document.getElementById('ai-triage-auto')?.checked,
+      min_severity: document.getElementById('ai-triage-minsev')?.value || 'high',
+      // NaN-safe: 0 is legal ("cap disabled"), so || would clobber it.
+      daily_cap:    (() => { const v = parseInt(document.getElementById('ai-triage-cap')?.value, 10);
+                             return Number.isFinite(v) ? v : 20; })(),
     },
     context: {
       include_project_context: document.getElementById('ai-ctx-project').checked,

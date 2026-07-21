@@ -751,6 +751,22 @@ CHECK_BASELINE_CATALOG = (
         "target_kind": "tag",
         "target": "db",
     },
+    # v6.3.1: optional watcher for the agentless syslog receiver — apply it to
+    # the RemotePower server host (tag it `rp-server`). Pairs with the
+    # informational Server-status subsystems row; this catalog row is the
+    # opt-in ALERTING side (a critical Checks row when the unit stops).
+    {
+        "cat": "Role-tagged",
+        "id": "rp_syslogd_running",
+        "type": "systemd_unit",
+        "param": "remotepower-syslogd.service",
+        "name": "RemotePower syslog receiver running",
+        "desc": "The agentless syslog intake daemon (remotepower-syslogd) is "
+                "active. Optional — apply to the RemotePower server host "
+                "(tag it rp-server).",
+        "target_kind": "tag",
+        "target": "rp-server",
+    },
 )
 
 

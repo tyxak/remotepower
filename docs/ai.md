@@ -232,6 +232,27 @@ badge on the row. The model **never executes anything** — acting on a verdict
 stays on the existing approval-gated paths (mitigate playbooks, the governed
 AI executor). Cross-tenant or out-of-scope alert ids 404.
 
+**Automatic triage (opt-in, off by default).** Settings → AI Assistant →
+*Automatic alert triage* runs the same loop on new open alerts from the
+maintenance cadence: one alert per tick, a severity floor (default High and
+up), and a daily run cap (default 20). Verdicts store as `by: auto`. With
+the out-of-band scheduler the provider latency never touches the request
+path; without it, the tick that picks an alert pays it in-request — which is
+why the feature ships off.
+
+**Feedback.** Every verdict offers 👍/👎 (`POST
+/api/alerts/{id}/ai-triage/feedback`); aggregates ride `GET /api/ai/stats`.
+
+**From verdict to fix.** With the AI-executor module enabled, the verdict
+modal's *Propose fix (governed executor)* button turns the verdict into an
+executor proposal — the model picks from operator-authored saved actions
+only, and a human approves in Confirmations before anything runs. Tickets
+opened from a triaged alert carry the verdict in their seeded note.
+
+The `log_sweep` evidence tool is self-provisioning: a missing or stale
+(>30 min) sweep makes the server set `force_log_sweep` itself so the next
+run has fresh evidence.
+
 Both prompt keys (`log_sweep_rca`, `alert_triage`) are tunable under
 Settings → AI → Prompts.
 

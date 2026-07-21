@@ -20939,6 +20939,8 @@ const _ICONS = {
   monitor:     '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
   fileCode:    '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/><path d="m9 18-2-2 2-2"/><path d="m13 18 2-2-2-2"/>',
   fileSearch:  '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="M13.3 16.3 15 18"/>',
+  thumbsUp:    '<path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>',
+  thumbsDown:  '<path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/>',
   download:    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   zap:         '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
   unplug:      '<path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m7.5 13.5 2.5-2.5"/><path d="m10.5 16.5 2.5-2.5"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>',
@@ -26575,6 +26577,16 @@ async function loadSelfStatus() {
     : (push.reachable
       ? _rtRow('Agent push daemon', 'Running', `accepting connections on port ${push.port}`, 'ok')
       : _rtRow('Agent push daemon', 'Enabled — unreachable', `nothing listening on port ${push.port} — check systemctl status remotepower-push`, 'bad'));
+  // v6.3.1: syslog receiver watcher — INFORMATIONAL only, never a warning:
+  // the receiver is optional and may run on another host. Opt-in alerting
+  // lives in the Checks baseline catalog (rp_syslogd_running).
+  const sy = sub.syslog || {};
+  const _syAgo = sy.last_ingest ? `last intake ${_selfFmtAgo(sy.last_ingest)}` : 'no intake recorded';
+  const syslogRow = sy.unit === 'active'
+    ? _rtRow('Syslog receiver', 'Running', `${sy.sources || 0} source(s) · ${_syAgo}`, 'ok')
+    : (sy.sources
+      ? _rtRow('Syslog receiver', 'Not detected locally', `${sy.sources} source(s) enrolled · ${_syAgo} — the receiver may run on another host`, 'muted')
+      : _rtRow('Syslog receiver', 'Not in use', 'optional agentless intake — see syslog.md', 'muted'));
   const subsystemsCard = `
     <div class="dash-card">
       <div class="section-title">Distributed subsystems</div>
@@ -26582,8 +26594,9 @@ async function loadSelfStatus() {
         ${_fleetRow('Relay satellites', sub.satellites && sub.satellites.relays, 'some relayed >5 min ago')}
         ${_fleetRow('Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago')}
         ${pushRow}
+        ${syslogRow}
       </table>
-      <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand. See <a href="docs/scaling.md" class="c-accent">scaling.md</a> and <a href="docs/push.md" class="c-accent">push.md</a>.</div>
+      <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand; the syslog receiver takes agentless appliance logs. See <a href="docs/scaling.md" class="c-accent">scaling.md</a>, <a href="docs/push.md" class="c-accent">push.md</a> and <a href="docs/syslog.md" class="c-accent">syslog.md</a>.</div>
     </div>`;
   // OTHER-3: restart-the-stack runbook. RemotePower runs as an unprivileged
   // service so a live restart needs root on the host; surface the exact,
@@ -26591,7 +26604,8 @@ async function loadSelfStatus() {
   // actually running) rather than a privileged in-app endpoint.
   const _scannerSvc = (sub.satellites && sub.satellites.scanners && sub.satellites.scanners.total) ? ' remotepower-scanner' : '';
   const _pushSvc = (sub.push && sub.push.enabled) ? ' remotepower-push' : '';
-  const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}`;
+  const _syslogSvc = (sub.syslog && sub.syslog.unit === 'active') ? ' remotepower-syslogd' : '';
+  const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}${_syslogSvc}`;
   const restartCard = `
     <div class="dash-card">
       <div class="section-title">Restart the stack</div>

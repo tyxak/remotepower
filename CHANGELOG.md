@@ -58,6 +58,43 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   diagnose. Alert inbox: **Triage** action + stored-verdict badge. All new
   strings translated (6 languages).
 
+### Wave 2 — tiered autonomy, feedback loop, richer evidence
+- **Automatic alert triage (opt-in, OFF by default)** — Settings → AI
+  Assistant gains an "Automatic alert triage" section: when enabled, the
+  `run_ai_triage_if_due` cadence sweep runs the same bounded investigate loop
+  on new open alerts (one per tick, severity floor, hard **daily run cap**)
+  and stores the verdict as `by: auto` — alerts arrive in the inbox
+  pre-investigated. Registered in both cadence registries (main() `_safe` +
+  the out-of-band scheduler's `CADENCE`); with the scheduler active it runs
+  fully off the request path.
+- **Verdict feedback loop** — 👍/👎 on every stored verdict
+  (`POST /api/alerts/<id>/ai-triage/feedback`); the aggregate (triaged/auto/
+  up/down) rides `GET /api/ai/stats`. A rated-down verdict is tuning signal.
+- **Governed-executor bridge** — when the AI-executor module is enabled, the
+  verdict modal offers **"Propose fix (governed executor)"**: the verdict's
+  root cause + recommended action become the proposal context, the executor
+  picks from operator-authored saved actions only, and a human approves in
+  Confirmations before anything runs. The triage model itself still never
+  executes.
+- **Two new evidence tools** — `cves` (the host's open CVE findings, top by
+  severity) and `metrics_trend` (recent daily disk/metric samples) join the
+  triage menu (now 9 tools).
+- **Self-provisioning sweeps** — when the triage loop asks for `log_sweep`
+  and the stored sweep is missing or >30 min old, the server sets the
+  one-shot `force_log_sweep` flag itself, so the evidence is ready for the
+  next run (the tool result says so).
+- **Verdicts flow into tickets** — a ticket opened from a triaged alert
+  carries the AI verdict (root cause, evidence, recommended action) in its
+  seeded internal note, alongside the existing full alert detail.
+- **Server-status: syslog-receiver watcher** — the Distributed-subsystems
+  card now shows the v6.3.0 `remotepower-syslogd` receiver (enrolled
+  sources, last intake, local unit probe) as an **informational** row —
+  deliberately never a warning/health input, since the receiver is optional
+  and may run on another host. The opt-in **alerting** side is a new
+  baseline-checks catalog row (`rp_syslogd_running`, tag `rp-server`) —
+  apply it to the server host for a critical Checks row when the unit stops.
+  The "Restart the stack" command includes the receiver when it's active.
+
 ## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of

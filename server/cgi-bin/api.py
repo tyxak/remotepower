@@ -403,6 +403,7 @@ DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumer
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
 PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (NO values — see _ingest_pii_findings)
 LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mary /var/log sweep per device (redacted at ingest)
+AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
@@ -1173,6 +1174,7 @@ for _at_name in (
         '_triage_tools', '_parse_triage_json', '_run_alert_triage',
         'handle_log_sweep_run', 'handle_log_sweep_get',
         'handle_log_sweep_diagnose', 'handle_alert_ai_triage',
+        'handle_alert_triage_feedback', 'run_ai_triage_if_due',
 ):
     globals()[_at_name] = getattr(ai_triage_handlers_mod, _at_name)
 del _at_name
@@ -8201,6 +8203,21 @@ def _alert_ticket_detail(al, device=None):
         if shown:
             out.append('Alert detail:')
             out += [f'  {k}: {v}' for k, v in shown]
+
+    # v6.3.1: carry a stored AI triage verdict into the ticket, so the assignee
+    # starts from the investigation (root cause + evidence trail), not from
+    # scratch. Auto-triage (by='auto') verdicts ride along the same way.
+    _trg = al.get('ai_triage') if isinstance(al.get('ai_triage'), dict) else {}
+    _tv = _trg.get('verdict') if isinstance(_trg.get('verdict'), dict) else {}
+    if _tv.get('root_cause'):
+        out.append('')
+        out.append(f"AI triage verdict (by {_trg.get('by', '?')}, "
+                   f"confidence {_tv.get('confidence') or '?'}):")
+        out.append('  Root cause: ' + str(_tv['root_cause'])[:600])
+        for _ev in (_tv.get('evidence') or [])[:6]:
+            out.append('  - ' + str(_ev)[:200])
+        if _tv.get('recommended_action'):
+            out.append('  Recommended: ' + str(_tv['recommended_action'])[:300])
 
     body = '\n'.join(out).strip()
     # If nothing beyond the header/severity was added, don't bother seeding a note.
@@ -28207,6 +28224,30 @@ def _subsystems_status(now):
             out['push'] = {'enabled': False}
     except Exception:
         pass
+    # v6.3.1: native agentless syslog receiver (remotepower-syslogd) — an
+    # INFORMATIONAL watcher, deliberately never a warning/health input: the
+    # receiver is an optional sidecar, and it may legitimately run on a
+    # different host and POST over the network (so "no local unit" is not a
+    # fault). The opt-in ALERTING side is the `rp_syslogd_running`
+    # baseline-catalog row (Checks → catalog, tag rp-server). Reported here:
+    # enrolled syslog sources, last intake, and a best-effort local unit probe.
+    try:
+        toks = [t for t in ((load(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
+                if isinstance(t, dict) and t.get('kind') == 'syslog']
+        last_seen = max((int(t.get('last_seen') or 0) for t in toks), default=0)
+        unit = 'unavailable'
+        if shutil.which('systemctl'):
+            try:
+                r = subprocess.run(['systemctl', 'is-active', 'remotepower-syslogd'],
+                                   capture_output=True, text=True, timeout=2)
+                unit = (r.stdout or '').strip() or 'unknown'
+            except Exception:
+                unit = 'unavailable'
+        out['syslog'] = {'sources': len(toks),
+                         'last_ingest': last_seen or None,
+                         'unit': unit}
+    except Exception:
+        pass
     return out
 
 
@@ -36078,6 +36119,15 @@ _AI_DEFAULTS = {
         'max_tokens_per_response':  4000,
         'max_requests_per_user_day': 100,
     },
+    # v6.3.1: automatic agentic triage of new alerts — tiered autonomy, OFF by
+    # default (each triage run is several AI-provider calls). One alert per
+    # cadence tick, capped per day, severity-filtered. Best with the
+    # out-of-band scheduler (in-request cadence pays the provider latency).
+    'auto_triage': {
+        'enabled':      False,
+        'min_severity': 'high',    # triage only >= this ('critical'|'high'|'medium'|'low')
+        'daily_cap':    20,        # auto triage RUNS per day (each = a few AI calls)
+    },
     # v3.4.0: RAG over the operator's own infrastructure. Lexical (BM25)
     # retrieval is always available and works with every provider —
     # including Anthropic, which has no embeddings endpoint. Embeddings are
@@ -36191,6 +36241,8 @@ def _ai_cfg():
     out['limits'].update((cfg.get('limits') or {}))
     out['context'] = dict(_AI_DEFAULTS['context'])
     out['context'].update((cfg.get('context') or {}))
+    out['auto_triage'] = dict(_AI_DEFAULTS['auto_triage'])   # v6.3.1
+    out['auto_triage'].update((cfg.get('auto_triage') or {}))
     # v3.4.0: RAG config — merge nested dicts explicitly like the others.
     out['rag'] = dict(_AI_DEFAULTS['rag'])
     _rag_in = cfg.get('rag') or {}
@@ -36308,6 +36360,17 @@ def handle_ai_config_set():
                       'include_rag'):
                 if k in body['context']:
                     cur['context'][k] = bool(body['context'][k])
+        # v6.3.1: auto-triage config — allow-listed nested merge.
+        if isinstance(body.get('auto_triage'), dict):
+            ab = body['auto_triage']
+            cur['auto_triage'] = dict(cur.get('auto_triage') or _AI_DEFAULTS['auto_triage'])
+            if 'enabled' in ab:
+                cur['auto_triage']['enabled'] = bool(ab['enabled'])
+            if str(ab.get('min_severity') or '') in ('critical', 'high', 'medium', 'low'):
+                cur['auto_triage']['min_severity'] = str(ab['min_severity'])
+            dc = ab.get('daily_cap')
+            if isinstance(dc, int) and 0 <= dc <= 1000:
+                cur['auto_triage']['daily_cap'] = dc
         # v3.4.0: RAG config — allow-listed nested merge.
         if isinstance(body.get('rag'), dict):
             rb = body['rag']
@@ -38319,7 +38382,24 @@ def handle_ai_stats():
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
         respond(400, {'error': 'AI is disabled'})
-    respond(200, ai_provider.provider_stats(cfg))
+    st = ai_provider.provider_stats(cfg)
+    # v6.3.1: triage scoreboard — how much investigation the AI has done and
+    # how operators rated it (the feedback loop's aggregate).
+    try:
+        alerts = (_load_ro(ALERTS_FILE) or {}).get('alerts', [])
+        triaged = [a['ai_triage'] for a in alerts
+                   if isinstance(a.get('ai_triage'), dict)]
+        fb = [t.get('feedback') for t in triaged
+              if isinstance(t.get('feedback'), dict)]
+        st['triage'] = {
+            'triaged':       len(triaged),
+            'auto':          sum(1 for t in triaged if t.get('by') == 'auto'),
+            'feedback_up':   sum(1 for f in fb if f.get('helpful')),
+            'feedback_down': sum(1 for f in fb if not f.get('helpful')),
+        }
+    except Exception:
+        pass
+    respond(200, st)
 
 
 def handle_ai_test():
@@ -61476,6 +61556,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/scan-schedules/', '', 'handle_scan_schedule_delete', "pi.startswith('/api/scan-schedules/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/me/sessions/', '', 'handle_me_session_revoke', "pi.startswith('/api/me/sessions/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/alert-mutes/', '', 'handle_alert_mute_delete', "pi.startswith('/api/alert-mutes/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/alerts/', '/ai-triage/feedback', 'handle_alert_triage_feedback', "pi.startswith('/api/alerts/') and pi.endswith('/ai-triage/feedback') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/ai-triage', 'handle_alert_ai_triage', "pi.startswith('/api/alerts/') and pi.endswith('/ai-triage') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/ack', 'handle_alert_ack', "pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/unack', 'handle_alert_unack', "pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST'"),
@@ -62134,6 +62215,7 @@ def main():
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
+    _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v6.1.2: public-IP watch (+ auto-DDNS + the internet outage log), and the

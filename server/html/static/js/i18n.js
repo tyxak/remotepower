@@ -95,6 +95,11 @@
     'AI verdict':            { fr: 'Verdict IA', de: 'KI-Urteil', zh: 'AI 判定', hi: 'AI निर्णय', es: 'Veredicto de IA', ar: 'حكم الذكاء الاصطناعي' },
     'AI triage':             { fr: 'Triage IA', de: 'KI-Triage', zh: 'AI 分诊', hi: 'AI ट्राइएज', es: 'Triaje de IA', ar: 'فرز الذكاء الاصطناعي' },
     'AI diagnosis':          { fr: 'Diagnostic IA', de: 'KI-Diagnose', zh: 'AI 诊断', hi: 'AI निदान', es: 'Diagnóstico de IA', ar: 'تشخيص الذكاء الاصطناعي' },
+    'Automatic alert triage': { fr: 'Triage automatique des alertes', de: 'Automatische Alarm-Triage', zh: '自动告警分诊', hi: 'स्वचालित अलर्ट ट्राइएज', es: 'Triaje automático de alertas', ar: 'الفرز التلقائي للتنبيهات' },
+    'Auto-triage new alerts': { fr: 'Trier automatiquement les nouvelles alertes', de: 'Neue Alarme automatisch triagieren', zh: '自动分诊新告警', hi: 'नई अलर्ट स्वतः ट्राइएज करें', es: 'Triar automáticamente las alertas nuevas', ar: 'فرز التنبيهات الجديدة تلقائيًا' },
+    'Minimum severity':      { fr: 'Sévérité minimale', de: 'Mindest-Schweregrad', zh: '最低严重级别', hi: 'न्यूनतम गंभीरता', es: 'Severidad mínima', ar: 'الحد الأدنى للخطورة' },
+    'Daily triage runs':     { fr: 'Exécutions de triage par jour', de: 'Triage-Läufe pro Tag', zh: '每日分诊次数', hi: 'दैनिक ट्राइएज रन', es: 'Ejecuciones de triaje diarias', ar: 'عمليات الفرز اليومية' },
+    'Syslog receiver':       { fr: 'Récepteur syslog', de: 'Syslog-Empfänger', zh: 'Syslog 接收器', hi: 'Syslog रिसीवर', es: 'Receptor de syslog', ar: 'مستقبل السجلات syslog' },
     'Link runbook':          { fr: 'Associer un runbook', de: 'Runbook verknüpfen', zh: '链接运行手册', hi: 'रनबुक लिंक करें', es: 'Enlazar runbook', ar: 'ربط دليل التشغيل' },
     // ── v5.4.0 "RackMatters": time-tracking + billing chrome ──
     'Timesheet':              { fr: 'Feuille de temps', de: 'Zeiterfassung', zh: '工时表', hi: 'टाइमशीट', es: 'Hoja de horas', ar: 'سجل الساعات' },

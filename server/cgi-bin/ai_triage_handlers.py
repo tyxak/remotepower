@@ -54,6 +54,8 @@ _SWEEP_AI_MAX_CHARS       = 48 * 1024    # excerpt budget handed to the model
 _TRIAGE_MAX_STEPS         = 4            # tool calls per triage run
 _TRIAGE_TOOL_CLIP         = 4000         # chars per tool result in transcript
 _TRIAGE_MAX_STORE         = 8192         # stored verdict-field clip
+_SWEEP_STALE_FOR_TOOL_S   = 30 * 60      # older than this → the triage tool
+                                         # auto-requests a fresh sweep
 
 
 class _ApiNamespace:
@@ -347,14 +349,75 @@ def _triage_tools(dev_id, dev):
                         return '\n'.join(hits)
         return '\n'.join(hits) or '(no matches in the 6h log buffer)'
 
+    def _request_fresh_sweep():
+        """Self-provisioning evidence: set the one-shot force flag so the NEXT
+        triage run (manual re-run, or the operator opening the drawer) has a
+        fresh sweep to read. Never raises into the tool."""
+        try:
+            with A._LockedUpdate(A.DEVICES_FILE) as devices:
+                if dev_id in devices:
+                    devices[dev_id]['force_log_sweep'] = True
+                else:
+                    return False
+            with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
+                rec = store.get(dev_id) or {}
+                rec['requested_at'] = int(time.time())
+                store[dev_id] = rec
+            return True
+        except Exception:
+            return False
+
     def _log_sweep(args):
         rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
-        if not rec.get('files'):
-            return ('(no hail-mary sweep stored — the operator can run one '
-                    'from the device drawer)')
-        age_m = (int(time.time()) - int(rec.get('ts') or 0)) // 60
-        return (f"(sweep from {age_m}m ago, {rec.get('file_count', 0)} files)\n"
+        age_s = int(time.time()) - int(rec.get('ts') or 0)
+        if not rec.get('files') or age_s > _SWEEP_STALE_FOR_TOOL_S:
+            requested = _request_fresh_sweep()
+            note = ('A fresh sweep has been requested from the agent — it '
+                    'arrives within a heartbeat or two; a re-run of this '
+                    'triage will be able to read it.' if requested else
+                    'The operator can run one from the device drawer.')
+            if not rec.get('files'):
+                return f'(no hail-mary sweep stored. {note})'
+            return (f"(STALE sweep from {age_s // 60}m ago — treat with care. "
+                    f"{note})\n" + A._sweep_excerpt(rec, budget=6000))
+        return (f"(sweep from {age_s // 60}m ago, {rec.get('file_count', 0)} files)\n"
                 + A._sweep_excerpt(rec, budget=6000))
+
+    def _cves(args):
+        rec = (A.load(A.CVE_FINDINGS_FILE) or {}).get(dev_id) or {}
+        findings = [f for f in (rec.get('findings') or [])
+                    if isinstance(f, dict) and not f.get('ignored')]
+        if not findings:
+            return '(no open CVE findings for this host)'
+        rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+        top = sorted(findings, key=lambda f: rank.get(f.get('severity'), 9))[:20]
+        lines = [f"{len(findings)} open finding(s); top by severity:"]
+        for f in top:
+            fx = f.get('fixed_version')
+            lines.append(f"[{f.get('severity', '?')}] {f.get('vuln_id', '?')} "
+                         f"{f.get('package', '?')}"
+                         + (f" → fix in {fx}" if fx else " (no fix yet)"))
+        return '\n'.join(lines)
+
+    def _metrics_trend(args):
+        rec = (A.load(A.METRICS_HIST_FILE) or {}).get(dev_id) or {}
+        samples = rec.get('samples') or []
+        if not samples:
+            return '(no metrics history for this host)'
+        lines = []
+        for s in samples[-10:]:
+            if not isinstance(s, dict):
+                continue
+            day = time.strftime('%m-%d', time.gmtime(s.get('ts') or 0))
+            mounts = ' '.join(
+                f"{m.get('path')}={m.get('used_gb')}/{m.get('total_gb')}GB"
+                for m in (s.get('mounts') or [])[:4] if isinstance(m, dict))
+            extras = ' '.join(f"{k}={s[k]}" for k in ('cpu', 'mem')
+                              if isinstance(s.get(k), (int, float)))
+            row = ' '.join(x for x in (mounts, extras) if x)
+            if row:
+                lines.append(f"{day}: {row}")
+        return '\n'.join(lines) or '(metrics history holds no readable samples)'
 
     def _device_summary(args):
         si = dev.get('sysinfo') or {}
@@ -374,6 +437,8 @@ def _triage_tools(dev_id, dev):
         'recent_commands': _recent_commands,
         'log_search':      _log_search,
         'log_sweep':       _log_sweep,
+        'cves':            _cves,
+        'metrics_trend':   _metrics_trend,
     }
 
 
@@ -385,7 +450,10 @@ _TRIAGE_TOOL_MENU = (
     "- open_alerts {} — the host's other open alerts\n"
     "- recent_commands {} — last commands run on the host + output\n"
     "- log_search {\"pattern\": \"<regex>\"} — grep the 6h log buffer\n"
-    "- log_sweep {} — latest hail-mary /var/log sweep excerpt, if one exists\n"
+    "- log_sweep {} — latest hail-mary /var/log sweep excerpt (a stale/missing "
+    "sweep auto-requests a fresh one for the next run)\n"
+    "- cves {} — the host's open CVE findings, top by severity\n"
+    "- metrics_trend {} — recent daily disk/metric samples (growth trends)\n"
 )
 
 
@@ -513,3 +581,105 @@ def handle_alert_ai_triage(alert_id):
     A.audit_log(triage['by'], 'alert_ai_triage',
                 f'id={alert_id} rounds={triage.get("rounds")}')
     A.respond(200, {'ok': True, 'ai_triage': triage})
+
+
+def handle_alert_triage_feedback(alert_id):
+    """POST /api/alerts/<id>/ai-triage/feedback {helpful: bool, note?} — the
+    operator rates a stored verdict. This is the feedback loop's write side:
+    the aggregate (up/down counts) surfaces in /api/ai/stats, and a rated-down
+    verdict is the strongest tuning signal there is."""
+    actor = A.require_write_role('rate AI triage')
+    body = A.get_json_obj()
+    helpful = bool(body.get('helpful'))
+    note = A._sanitize_str(str(body.get('note', '')), 300)
+    found = False
+    with A._LockedUpdate(A.ALERTS_FILE) as store:
+        for a in store.get('alerts', []):
+            if a.get('id') == alert_id:
+                if not A._alert_tenant_visible(a):
+                    A.respond(404, {'error': 'alert not found'})
+                    return
+                if not isinstance(a.get('ai_triage'), dict):
+                    A.respond(400, {'error': 'no triage stored on this alert'})
+                    return
+                a['ai_triage']['feedback'] = {
+                    'helpful': helpful, 'note': note,
+                    'by': actor, 'at': int(time.time()),
+                }
+                found = True
+                break
+    if not found:
+        A.respond(404, {'error': 'alert not found'})
+        return
+    A.audit_log(actor, 'alert_triage_feedback',
+                f'id={alert_id} helpful={helpful}')
+    A.respond(200, {'ok': True})
+
+
+# ── auto-triage cadence (tiered autonomy — OFF by default) ───────────────────
+_AUTO_TRIAGE_MIN_INTERVAL_S = 120     # between cadence attempts
+_AUTO_TRIAGE_LOOKBACK_S = 24 * 3600   # only alerts fired in the last day
+_SEV_RANK = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+
+
+def run_ai_triage_if_due():
+    """Cadence sweep: when `ai.auto_triage.enabled`, pick ONE recent, open,
+    untriaged alert (severity ≥ the configured floor) and run the same bounded
+    investigate loop the Triage button uses, storing the verdict as by='auto'.
+    Hard limits: one alert per tick, a per-day run cap, and the loop's own
+    4-tool budget. System context — no caller scoping (it triages every
+    tenant's alerts; the verdict is only readable by callers who can already
+    see the alert). Provider latency note: with the out-of-band scheduler this
+    runs fully off the request path; without it, the tick that picks an alert
+    pays the AI calls in-request — which is why the feature ships OFF."""
+    cfg = A._ai_cfg()
+    at = cfg.get('auto_triage') or {}
+    if not (cfg.get('enabled') and at.get('enabled')):
+        return
+    now = int(time.time())
+    state = A.load(A.AI_TRIAGE_STATE_FILE) or {}
+    if now - int(state.get('last_run') or 0) < _AUTO_TRIAGE_MIN_INTERVAL_S:
+        return
+    today = time.strftime('%Y-%m-%d', time.gmtime(now))
+    count = int(state.get('count') or 0) if state.get('day') == today else 0
+    cap = int(at.get('daily_cap') or 20)
+    if count >= cap:
+        return
+    floor = _SEV_RANK.get(str(at.get('min_severity') or 'high'), 1)
+    alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
+    candidates = [
+        a for a in alerts
+        if not a.get('resolved_at')
+        and not a.get('ai_triage')
+        and a.get('device_id')
+        and _SEV_RANK.get(a.get('severity'), 9) <= floor
+        and int(a.get('ts') or 0) >= now - _AUTO_TRIAGE_LOOKBACK_S
+    ]
+    # Stamp the attempt BEFORE the slow AI work so a provider hang can't make
+    # every subsequent tick re-enter the same run.
+    state.update({'last_run': now, 'day': today, 'count': count})
+    A.save(A.AI_TRIAGE_STATE_FILE, state)
+    if not candidates:
+        return
+    alert = max(candidates, key=lambda a: int(a.get('ts') or 0))
+    dev_id = alert['device_id']
+    dev = (A.load(A.DEVICES_FILE) or {}).get(dev_id) or {}
+    try:
+        triage = A._run_alert_triage(alert, dev_id, dev)
+    except Exception as exc:
+        # Provider down / misconfigured — count the attempt (it spent calls)
+        # and let the next tick try a fresh alert rather than looping on this.
+        state['count'] = count + 1
+        A.save(A.AI_TRIAGE_STATE_FILE, state)
+        raise RuntimeError(f'auto-triage of {alert.get("id")} failed: {exc}') from exc
+    triage['at'] = int(time.time())
+    triage['by'] = 'auto'
+    with A._LockedUpdate(A.ALERTS_FILE) as store:
+        for a in store.get('alerts', []):
+            if a.get('id') == alert.get('id'):
+                a['ai_triage'] = triage
+                break
+    state['count'] = count + 1
+    A.save(A.AI_TRIAGE_STATE_FILE, state)
+    A.audit_log('auto', 'alert_ai_triage',
+                f'id={alert.get("id")} rounds={triage.get("rounds")} (auto)')
