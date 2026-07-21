@@ -15,7 +15,7 @@ inbound ports. Up and running in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.3.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.3.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -168,6 +168,14 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.3.1 "Tr1ageMatters"** — agentic diagnosis: a **hail-mary log sweep**
+  ("Diagnose from logs" — a bounded, secret-redacted snapshot of a host's
+  recently-modified `/var/log` tails, ranked by error density, with an AI
+  root-cause read) and **agentic alert triage** — the model investigates one
+  alert through read-only evidence tools (journal, log search, sibling alerts,
+  the latest sweep; strict JSON protocol, hard tool budget) and stores a
+  verdict with its evidence trail on the alert. The model never executes
+  anything; acting on a verdict stays on the approval-gated paths.
 - **v6.3.0 "Fl0wMatters"** — a fourteen-wave UX program: **undo instead of
   "are you sure?"** (topbar undo/redo, deferred-commit deletes, optimistic
   alert ack), a notification center, configuration history with rollback,
@@ -196,15 +204,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   unbootable at its next reboot. The unit is fixed, the upgrade command now
   refuses to run in that situation, and patch-window reboots verify the initrd
   (and a clean upgrade) before firing.
-- **v6.2.0 "Daem0nMatters"** — the agent now runs as a first-class **supervised
-  service on every OS** — a Windows service (services.msc, SCM auto-restart via
-  pywin32), launchd `KeepAlive` on macOS, systemd on Linux — with full
-  Windows-agent parity. Plus a wave of gap-closing that acts on signals already
-  collected but never surfaced: a privileged-group tripwire
-  (sudo/wheel/Administrators), Windows Defender AV posture (including
-  real-time-protection-off), a USB physical-access tripwire, a host-wide
-  disk-usage explorer ("disk 94% — of *what*?"), and a composite
-  device-reliability prediction.
 Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security

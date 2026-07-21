@@ -64,6 +64,7 @@ class TestFleetForecastEndpoint(unittest.TestCase):
             cap["body"] = body
             raise api.HTTPError(status, body)
         orig = api.respond
+        orig_auth = api.require_auth   # v6.3.1 (leak fix): was never restored
         api.respond = fake
         api.require_auth = lambda **k: "admin"
         os.environ["REQUEST_METHOD"] = "GET"
@@ -73,6 +74,7 @@ class TestFleetForecastEndpoint(unittest.TestCase):
             pass
         finally:
             api.respond = orig
+            api.require_auth = orig_auth
         self.assertEqual(cap["status"], 200)
         rows = cap["body"]["mounts"]
         self.assertEqual(cap["body"]["devices"], 2)

@@ -158,6 +158,10 @@ function _alertRowHtml(a, role) {
   let actions = '';
   if (!isResolved) {
     actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
+    // v6.3.1: agentic triage — the model gathers evidence via read-only tools
+    // (journal, log search, sibling alerts, latest log sweep) and stores a
+    // verdict + evidence trail on the alert.
+    actions += `<button class="btn-icon btn-xs" data-action="aiTriageAlert" data-arg="${a.id}" title="AI triage: agentic investigation — the model gathers evidence through read-only tools and stores a verdict on this alert">${_icon('search',14)} Triage</button> `;
     // v5.8.0 (B1.2): one-click remediation when the server tagged a playbook
     // for this alert's event (mitigation_kind set only when a device + playbook
     // apply). Opens the same diagnostic→AI→fix runner as the dashboard feed.
@@ -195,7 +199,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
@@ -562,3 +566,52 @@ document.addEventListener('keydown', (e) => {
     muteAlert(id);             // keeps its own confirm/prompt flow
   }
 });
+
+// ── v6.3.1: agentic alert triage ─────────────────────────────────────────────
+// POST /alerts/<id>/ai-triage runs a bounded server-side investigate loop (the
+// model requests read-only evidence tools, then delivers a verdict). Result is
+// stored on the alert (ai_triage) and rendered here. Reuses the generic
+// ai-insight modal shell (body-level, CSP-clean).
+function _renderTriageResult(el, t) {
+  const v = (t && t.verdict) || {};
+  const steps = (t && t.steps) || [];
+  const stepsHtml = steps.map(s =>
+    `<li><code>${_escapeHtml(s.tool || '?')}</code>${s.why ? ' — ' + _escapeHtml(s.why) : ''}</li>`).join('');
+  el.innerHTML =
+    '<div class="ai-content">' +
+    `<p><strong>Root cause:</strong> ${_escapeHtml(v.root_cause || v.error || '(none given)')}` +
+    (v.confidence ? ` <span class="patch-badge fs-10">${_escapeHtml(v.confidence)} confidence</span>` : '') + '</p>' +
+    ((v.evidence && v.evidence.length)
+      ? `<p><strong>Evidence</strong></p><ul>${v.evidence.map(e => `<li>${_escapeHtml(e)}</li>`).join('')}</ul>` : '') +
+    (v.recommended_action
+      ? `<p><strong>Recommended action:</strong> ${_escapeHtml(v.recommended_action)}</p>` : '') +
+    (stepsHtml
+      ? `<p class="hint">Evidence gathered via ${steps.length} tool call(s):</p><ul class="hint">${stepsHtml}</ul>` : '') +
+    ((t && t.at) ? `<p class="hint">Run ${_formatTs(t.at)} by ${_escapeHtml(t.by || '?')}</p>` : '') +
+    '</div>';
+}
+
+async function aiTriageAlert(id) {
+  const titleEl = document.querySelector('#ai-insight-modal .modal-title');
+  if (titleEl) titleEl.textContent = 'AI triage';
+  const body = document.getElementById('ai-insight-body');
+  if (body) body.innerHTML = '<div class="empty-state">Investigating — the model is gathering evidence (this runs a few AI calls)…</div>';
+  openModal('ai-insight-modal');
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ai-triage`, {}).catch(() => null);
+  if (!r || !r.ok) {
+    if (body) body.innerHTML = `<div class="empty-state">${_escapeHtml((r && r.error) || 'Triage failed — is the AI assistant configured?')}</div>`;
+    return;
+  }
+  if (body) _renderTriageResult(body, r.ai_triage);
+  loadAlerts();   // pick up the stored "AI verdict" badge
+}
+
+function showAlertTriage(id) {
+  const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+  if (!a || !a.ai_triage) { toast('No stored triage for this alert', 'info'); return; }
+  const titleEl = document.querySelector('#ai-insight-modal .modal-title');
+  if (titleEl) titleEl.textContent = 'AI triage';
+  const body = document.getElementById('ai-insight-body');
+  if (body) _renderTriageResult(body, a.ai_triage);
+  openModal('ai-insight-modal');
+}

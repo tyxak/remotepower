@@ -48,7 +48,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.3.0'
+VERSION = '6.3.1'
 DEFAULT_POLL = 60
 
 
@@ -1193,6 +1193,67 @@ def get_event_log_journal():
     return all_lines[:200]
 
 
+# v6.3.1: hail-mary log sweep — Windows has no /var/log, so the sweep is a
+# point-in-time pull of the last 24 h of Error/Warning events per channel
+# (independent of the cursor machinery above — this is a snapshot, not an
+# incremental feed), shaped like the Linux sweep: one pseudo-file per channel.
+_LOG_SWEEP_PS_TMPL = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "$f=@{LogName='{CHANNEL}';Level=1,2,3;StartTime=(Get-Date).AddHours(-24)};"
+    "Get-WinEvent -FilterHashtable $f -MaxEvents 150 | "
+    "ForEach-Object { [pscustomobject]@{"
+    "  lvl=$_.LevelDisplayName; prov=$_.ProviderName; id=$_.Id;"
+    "  t=$_.TimeCreated.ToString('MMM dd HH:mm:ss');"
+    "  msg=($_.Message -replace '\\s+',' ')"
+    "} | ConvertTo-Json -Compress }"
+)
+_log_sweep_cfg = {'force': False}
+
+
+def collect_log_sweep():
+    """One-shot sweep: recent Error/Warning Event Log entries per channel as
+    pseudo-files ('eventlog:System', …). Off-Windows returns empty."""
+    if not sys.platform.startswith('win'):
+        return {'files': [], 'scanned': 0, 'skipped': 0}
+    files = []
+    scanned = skipped = 0
+    now = int(time.time())
+    for chan in ('System', 'Application'):
+        scanned += 1
+        ps = _LOG_SWEEP_PS_TMPL.replace('{CHANNEL}', chan)
+        try:
+            r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive',
+                                '-Command', ps],
+                               capture_output=True, text=True, timeout=60,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except Exception:
+            skipped += 1
+            continue
+        if r.returncode != 0:
+            skipped += 1
+            continue
+        lines = []
+        for raw in (r.stdout or '').splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                o = json.loads(raw)
+            except Exception:
+                continue
+            lines.append((f"{o.get('t','')} {o.get('lvl','')} "
+                          f"{o.get('prov','')}[{o.get('id','')}]: "
+                          f"{o.get('msg','')}").strip()[:512])
+        if not lines:
+            continue
+        err_hits = sum(1 for l in lines if 'Error' in l or 'Critical' in l)
+        files.append({'path': f'eventlog:{chan}', 'mtime': now,
+                      'size': sum(len(l) for l in lines),
+                      'score': round((err_hits / len(lines)) * 10 + 2, 2),
+                      'lines': lines[:400], 'truncated': False})
+    return {'files': files, 'scanned': scanned, 'skipped': skipped}
+
+
 # PowerShell: local users + whether each is in the Administrators group + when
 # its password was last set. One pipe-separated line per user.
 _LOCAL_USERS_PS = (
@@ -2262,6 +2323,13 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
         except Exception:
             pass
+    # v6.3.1: one-shot hail-mary log sweep (operator "Diagnose from logs").
+    if _log_sweep_cfg.get('force'):
+        _log_sweep_cfg['force'] = False
+        try:
+            payload['log_sweep'] = collect_log_sweep()
+        except Exception:
+            pass
     # v6.2.0: watched-service states, on the same slower cadence as sysinfo.
     if _watched_services and (poll_count <= 1 or poll_count % 12 == 0):
         try:
@@ -2328,6 +2396,9 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
         if resp.get('force_secrets_scan'):
             _secrets_cfg['force'] = True   # one-shot "Scan now" from the server
+        # v6.3.1: one-shot hail-mary log sweep, acted on next heartbeat.
+        if resp.get('force_log_sweep'):
+            _log_sweep_cfg['force'] = True
         # v6.2.0: watched services pushed by the server (parity with Linux).
         global _watched_services, _watched_files, _watched_agent_checks
         _sw = resp.get('services_watched')

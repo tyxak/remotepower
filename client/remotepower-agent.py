@@ -33,7 +33,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '6.3.0'
+VERSION      = '6.3.1'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -3884,6 +3884,108 @@ def collect_file_log(path_str, state):
     except Exception as e:
         log.debug(f'file_log: collection failed for {path_str}: {e}')
     return entries
+
+
+# v6.3.1: hail-mary log sweep — a one-shot, bounded snapshot of the host's
+# recently-modified /var/log files, taken only when the server sends
+# `force_log_sweep` (the operator clicked "Diagnose from logs"). The result is
+# handed to the server for secret-redaction + AI root-cause analysis. Hard
+# budgets everywhere: this must never balloon a heartbeat or walk forever.
+LOG_SWEEP_MAX_FILES   = 40           # files reported per sweep
+LOG_SWEEP_TAIL_BYTES  = 12 * 1024    # bytes read from the end of each file
+LOG_SWEEP_TOTAL_BYTES = 256 * 1024   # whole-sweep text budget
+LOG_SWEEP_RECENT_S    = 24 * 3600    # only files modified in the last day
+LOG_SWEEP_MAX_LINE    = 512          # per-line clip
+LOG_SWEEP_MAX_CANDIDATES = 2000      # glob-result cap (pathological /var/log)
+_LOG_SWEEP_SKIP_EXT = ('.gz', '.xz', '.bz2', '.zst', '.zip', '.journal', '.gpg')
+_LOG_SWEEP_SKIP_NAMES = frozenset({'wtmp', 'btmp', 'lastlog', 'faillog', 'tallylog'})
+_LOG_SWEEP_ERR_RX = re.compile(
+    r'(?i)\b(error|err|crit|critical|alert|fatal|fail|failed|failure|panic|'
+    r'oops|segfault|traceback|exception|denied|refused|timeout|unreachable|'
+    r'oom|killed|corrupt)\b')
+
+
+def collect_log_sweep():
+    """One-shot 'hail-mary' sweep of /var/log/* and /var/log/*/*.
+
+    Keeps recently-modified plain-text files (compressed/binary/rotated-away
+    files are skipped), tails each, scores by error density + recency, and
+    returns the highest-scoring tails within a hard total budget. The server
+    re-caps and secret-redacts at ingest — but we still keep the payload small
+    here so a single heartbeat POST carries it comfortably.
+    """
+    import glob as _glob
+    root = host_path('/var/log')
+    now = time.time()
+    scanned = skipped = 0
+    candidates = []
+    paths = (_glob.glob(os.path.join(root, '*'))
+             + _glob.glob(os.path.join(root, '*', '*')))
+    for p in paths[:LOG_SWEEP_MAX_CANDIDATES]:
+        try:
+            logical = unhost_path(p)
+            base = os.path.basename(p)
+            if base in _LOG_SWEEP_SKIP_NAMES or base.lower().endswith(_LOG_SWEEP_SKIP_EXT):
+                continue
+            # Rotated numeric suffixes (.1, .2.gz already caught above) are
+            # yesterday's news — the sweep is about what's breaking NOW.
+            if re.search(r'\.\d+$', base):
+                continue
+            st = os.stat(p)
+            if not stat.S_ISREG(st.st_mode) or st.st_size == 0:
+                continue
+            scanned += 1
+            if (now - st.st_mtime) > LOG_SWEEP_RECENT_S:
+                continue
+            # Same deny list as the log_watch file tail (shadow/sudoers/.ssh
+            # never qualify under /var/log, but symlink tricks do).
+            if not _file_log_path_allowed(logical):
+                skipped += 1
+                continue
+            with open(p, 'rb') as f:
+                if st.st_size > LOG_SWEEP_TAIL_BYTES:
+                    f.seek(st.st_size - LOG_SWEEP_TAIL_BYTES)
+                data = f.read(LOG_SWEEP_TAIL_BYTES)
+            if b'\x00' in data[:512]:
+                skipped += 1          # binary (utmp-style, sqlite, …)
+                continue
+            text = data.decode('utf-8', errors='replace')
+            lines = [l for l in text.splitlines() if l.strip()]
+            if st.st_size > LOG_SWEEP_TAIL_BYTES and lines:
+                lines = lines[1:]     # drop the partial first line of a mid-file seek
+            if not lines:
+                continue
+            err_hits = sum(1 for l in lines if _LOG_SWEEP_ERR_RX.search(l))
+            age = now - st.st_mtime
+            score = (err_hits / len(lines)) * 10 + max(0.0, 1 - age / LOG_SWEEP_RECENT_S) * 2
+            candidates.append({
+                'path':  logical,
+                'mtime': int(st.st_mtime),
+                'size':  int(st.st_size),
+                'score': round(score, 2),
+                'lines': lines,
+                'truncated': st.st_size > LOG_SWEEP_TAIL_BYTES,
+            })
+        except (PermissionError, OSError):
+            skipped += 1
+        except Exception as e:
+            log.debug(f'log sweep: {p}: {e}')
+            skipped += 1
+    candidates.sort(key=lambda c: -c['score'])
+    files, total = [], 0
+    for c in candidates[:LOG_SWEEP_MAX_FILES]:
+        kept = []
+        for l in c['lines'][-200:]:
+            l = l[:LOG_SWEEP_MAX_LINE]
+            total += len(l) + 1
+            if total > LOG_SWEEP_TOTAL_BYTES:
+                break
+            kept.append(l)
+        c['lines'] = kept
+        files.append(c)
+        if total > LOG_SWEEP_TOTAL_BYTES:
+            break
+    return {'files': files, 'scanned': scanned, 'skipped': skipped}
 
 
 # v3.0.1: ACME / Let's Encrypt scanner — reads acme.sh state from
@@ -9111,6 +9213,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     pii_scan_paths = None
     force_pii_scan = False
     last_pii_scan_ts = _load_pii_scan_ts()
+    # v6.3.1: hail-mary log sweep — one-shot only, no cadence: it fires purely
+    # on the operator's "Diagnose from logs" click (force_log_sweep).
+    force_log_sweep = False
     # v6.1.2: mDNS LAN browse — server-pushed opt-in, same shape as image_scan_on.
     mdns_on = False
     # v3.0.0: IaC collection request from server
@@ -9437,6 +9542,16 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'pii scan error: {e}')
             force_pii_scan = False
+
+        # v6.3.1: hail-mary log sweep — one-shot, operator-requested only.
+        if force_log_sweep:
+            try:
+                payload['log_sweep'] = collect_log_sweep()
+                log.info(f"log sweep: {len(payload['log_sweep'].get('files') or [])} "
+                         f"file tail(s) collected")
+            except Exception as e:
+                log.debug(f'log sweep error: {e}')
+            force_log_sweep = False
 
         # W6-34: container-image CVE scan (trivy) — opt-in, slow (~24h) cadence.
         # Only images of RUNNING containers; feature-invisible without trivy.
@@ -9930,6 +10045,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_secrets_scan'):
                 force_secrets_scan = True
                 log.info('Server requested a secrets scan')
+            # v6.3.1: one-shot hail-mary /var/log sweep ("Diagnose from logs").
+            if resp.get('force_log_sweep'):
+                force_log_sweep = True
+                log.info('Server requested a hail-mary log sweep')
             # v6.2.0: disk-usage explorer opt-in + paths + one-shot force.
             du_scan_on = bool(resp.get('du_scan_enabled'))
             _dsp = resp.get('du_scan_paths')

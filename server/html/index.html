@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.0-30">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-1">
 
 </head>
 <body>
@@ -4269,7 +4269,15 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.3.0 fl0wmatters undo redo topbar arrows ctrl z mikrotik columns show hide dashboard layout undo this page help configuration history rollback restore revision pinned devices star duplicate script cross tab sync broadcastchannel draft autosave restore kb article theme sync tabs purge counts undo history while you were away quiet hours moon drawer next previous sticky column reset view copy json palette scope interface size zoom pull to refresh fleet pulse sparkline count up delta progress ring row flash heat strip heatmap grade ticks page fade toast action button undoable delete deferred commit ctrl enter submit modal double submit inflight click to copy clipboard rows per page csv export download recently viewed palette recents new version reload service worker skeleton loading contacts links snippets saved views optimistic ack resolve unack alert instant filter chip n of m shown clear filter retry button failed to load error state unsaved changes guard settings dirty leave without saving tickets bulk resolve assign to me checkboxes multi select ux wave shift click range select escape clear selection select all indeterminate absolute time tooltip battery health cycles wear laptop agent outdated version skew stale agents remediate runbook failing check wrench notification center transient validation toast sidecar restart webterm scanner scheduler push syslog listener udp appliance agentless chassis laptop grace lid battery drill restore backup verify radar posture spider chart crosshair tooltip gradient sparkline macos mac self update postgres migrate migration accessibility axe a11y contrast">
+          <details class="doc-card" open data-keywords="release notes changelog v6.3.1 tr1agematters triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict">
+            <summary><strong>What's new — v6.3.1 &ldquo;Tr1ageMatters&rdquo;</strong> — agentic diagnosis: a <strong>hail-mary log sweep</strong> (&ldquo;Diagnose from logs&rdquo; in the device drawer — a bounded, secret-redacted snapshot of the host's recently-modified <code>/var/log</code> tails, ranked by error density, with an AI root-cause read) and <strong>agentic alert triage</strong> — the model investigates one alert through read-only evidence tools (journal, log search, sibling alerts, the latest sweep) and stores a <strong>verdict with its evidence trail</strong> on the alert.</summary>
+            <div class="doc-body">
+              <p><strong>Hail-mary log sweep.</strong> For the &ldquo;something is wrong but I don't know where&rdquo; moment: the agent snapshots <code>/var/log/*</code> and <code>/var/log/*/*</code> — only files modified in the last 24 h, compressed/binary/rotated skipped, ≤12 KB tail per file, ≤40 files, ≤256 KB total, ranked by error density + recency. The server re-caps everything and scrubs credential material (<code>password=…</code>, bearer tokens, URL credentials) before storage. <strong>Diagnose</strong> sends the excerpt to your configured AI provider (only when you click — the modal says so) and renders a verdict, per-file findings and conservative next steps. Windows sweeps the last 24 h of Error/Warning System/Application events instead.</p>
+              <p><strong>Agentic alert triage.</strong> The alert inbox gains a <strong>Triage</strong> action: the model investigates the alert through a fixed menu of read-only, device-scoped tools — device summary, journal tail, services, the host's other open alerts, recent command output, a regex search over the 6 h log buffer, and the latest sweep — replying with strict JSON (one tool call or a verdict) each round, hard-capped at 4 tool calls. The stored verdict (root cause, confidence, evidence, recommended action, tools used) shows as an <strong>AI verdict</strong> badge on the row. The model never executes anything — acting on a verdict stays on the existing approval-gated paths.</p>
+              <p class="hint">See <code>docs/v6.3.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v6.3.0 fl0wmatters undo redo topbar arrows ctrl z mikrotik columns show hide dashboard layout undo this page help configuration history rollback restore revision pinned devices star duplicate script cross tab sync broadcastchannel draft autosave restore kb article theme sync tabs purge counts undo history while you were away quiet hours moon drawer next previous sticky column reset view copy json palette scope interface size zoom pull to refresh fleet pulse sparkline count up delta progress ring row flash heat strip heatmap grade ticks page fade toast action button undoable delete deferred commit ctrl enter submit modal double submit inflight click to copy clipboard rows per page csv export download recently viewed palette recents new version reload service worker skeleton loading contacts links snippets saved views optimistic ack resolve unack alert instant filter chip n of m shown clear filter retry button failed to load error state unsaved changes guard settings dirty leave without saving tickets bulk resolve assign to me checkboxes multi select ux wave shift click range select escape clear selection select all indeterminate absolute time tooltip battery health cycles wear laptop agent outdated version skew stale agents remediate runbook failing check wrench notification center transient validation toast sidecar restart webterm scanner scheduler push syslog listener udp appliance agentless chassis laptop grace lid battery drill restore backup verify radar posture spider chart crosshair tooltip gradient sparkline macos mac self update postgres migrate migration accessibility axe a11y contrast">
             <summary><strong>What's new — v6.3.0 &ldquo;Fl0wMatters&rdquo;</strong> — a thirteen-wave UX program: <strong>undo instead of &ldquo;are you sure?&rdquo;</strong> (topbar undo/redo arrows, deferred-commit deletes, optimistic alert ack), a <strong>notification center</strong> replaying the session's toasts, <strong>configuration history with rollback</strong>, draft autosave in the script and KB editors, column show/hide, shift-click <strong>range selection</strong> on devices, per-alert deep links, and calm informative motion. New fleet visibility: <strong>laptop battery health</strong> in the drawer, an <strong>&ldquo;N agents outdated&rdquo;</strong> version-skew filter chip, and a <strong>remediation runbook</strong> button on failing checks. New in the final waves: <strong>chart crosshairs + sparkline gradients</strong>, a per-host <strong>posture radar</strong>, a native <strong>UDP syslog listener</strong> for agentless appliances, <strong>chassis-aware offline grace</strong> for laptops, weekly <strong>restore drills</strong>, macOS agent <strong>self-update</strong>, and app-wide <strong>axe-verified accessibility</strong>. Ops: deploy/self-update now restart the sidecar daemons.</summary>
             <div class="doc-body">
               <p><strong>Undo instead of confirm.</strong> Low-risk deletes (contacts, links, command-library snippets, saved device views) no longer interrupt with a dialog: the row disappears immediately and a toast offers <strong>Undo</strong> for a few seconds. The actual delete is only sent to the server when the toast expires — Undo cancels it entirely, so an interrupted delete always fails toward &ldquo;still there&rdquo;. Destructive fan-out operations (Docker prune, device removal, VM rollback) keep their explicit typed confirmations.</p>
@@ -4295,22 +4303,6 @@
               <p><strong>Fixes.</strong> The ACME certificate panel loads automatically when you open the TLS page (no more manual Refresh). Creating a Package Snapshot when no host has reported a full package inventory now says so, instead of a success toast that was easy to miss. Settings → General no longer repeats the &ldquo;Metric/SNMP alert dampening&rdquo; fields that also live on Settings → Alert parameters — they wrote the same values, so saving one page could quietly reset the other; Alert parameters is now their single home.</p>
               <p><strong>Under the hood.</strong> A whole-project consolidation sweep, all behaviour-preserving: the request-body validation pre-check in ~240 API handlers collapsed into one shared helper (~480 fewer lines); verified-dead frontend code removed and duplicated JS helpers unified; repeated backend validators consolidated; and the Storage &amp; hardware doc is now an umbrella that links the focused disk-health, GPU, thermal and power guides.</p>
               <p class="hint">See <code>docs/v6.2.3.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v6.2.2 pu1sematters pulse heartbeat delta sysinfo omitted unchanged inventory bandwidth keep-alive keepalive tls handshake reuse persistent connection kernel modules visible hidden modules_hidden check forced always on sandbox protectkernelmodules install-client upgrade in place re-enroll rp-old unit backup keyboard alert inbox j k ack resolve mute hover card quick peek device deep link tab copy link drawer chunked table streaming rows lazy modules first load skeleton loading metric prune index">
-            <summary><strong>What's new — v6.2.2 &ldquo;Pu1seMatters&rdquo;</strong> — a performance and polish release built around the heartbeat: agents skip re-sending unchanged inventory (<strong>delta sysinfo</strong>) and reuse one HTTPS connection instead of a TLS handshake per beat; a new <strong>always-on kernel-module visibility check</strong> flags the v6.2.1 failure class before patch day; re-running the installer now upgrades in place; and the UI gains a keyboard-driven alert inbox, device hover cards, tab-level device deep links and streaming large-fleet tables.</summary>
-            <div class="doc-body">
-              <p><strong>Kernel-module visibility check (always on).</strong> The Linux agent reports whether the running kernel's <code>/lib/modules</code> is visible from its own service context. Hidden modules mean the next package upgrade can build an unbootable, module-less initramfs — so the host gets a <strong>critical Checks row</strong> and a <code>modules_hidden</code> alert (firing on first contact too, and auto-resolving when fixed). This check deliberately cannot be disabled per host; hosts without initramfs tooling (WSL, containers) are never flagged.</p>
-              <p><strong>Performance</strong></p>
-              <ul>
-                <li><strong>Delta sysinfo</strong> — package lists, listening ports, interfaces, SSH host keys, USB and auto-update posture are omitted from the heartbeat when unchanged; the server merges its stored copy so nothing downstream ever sees a partial view. Fully negotiated: old agents and old servers keep exchanging full payloads, and either side can request full data at any time.</li>
-                <li><strong>Agent keep-alive</strong> — one HTTPS connection across heartbeats instead of a fresh TLS handshake per beat; same CA/mTLS verification, redirects still refused; proxied hosts and <code>RP_NO_KEEPALIVE=1</code> keep the old behavior.</li>
-                <li><strong>Streaming tables</strong> — Checks, Alerts (flat), Processes, Exposure and CMDB paint the first 300 rows instantly and stream the rest on scroll.</li>
-                <li><strong>Leaner first load</strong> — ten page modules now load on first visit instead of at boot.</li>
-              </ul>
-              <p><strong>Installer.</strong> Re-running <code>install-client.sh</code> on an enrolled host is now an in-place <strong>upgrade</strong>: binary + unit refreshed, enrollment kept, agent restarted into the new unit (a customized unit is backed up first). <code>--re-enroll</code> restores the old behavior.</p>
-              <p><strong>UX.</strong> Keyboard-driven alert inbox (<code>j</code>/<code>k</code>/<code>a</code>/<code>r</code>/<code>m</code>/<code>x</code>, <code>?</code> for the map) · device hover cards on Alerts/Checks/Exposure · tab-level device deep links (<code>#device/&lt;id&gt;/&lt;tab&gt;</code>) with a copy-link button in the drawer · skeleton loading on the last bare "Loading…" tables.</p>
-              <p class="hint">See <code>docs/v6.2.2.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v6.2.1 in1tmatters initramfs v6.2.0 daem0nmatters v6.1.2 afterglowmatters alert mute health score trivy image cve lockbusy optional modules kill switch v6.1.1 hardenmatters v6.1.0 runt1mematters v6.0.1 refinematters v6.0.0 claritymatters clarity interface ui redesign flat sidebar accordion v5.6.0 heapmatters v5.5.0 scalematters keystone wsgi gunicorn persistent app server out-of-band scheduler multi-tenancy row-level-security postgres enterprise hardening billing v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -10431,34 +10423,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.0-30"></script>
+<script defer src="static/js/app.js?v=6.3.1-1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-containers.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-network.js?v=6.3.0-30"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.0-30"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-1"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-dns.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-drift.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-cve.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-backups.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-iac.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-virt.js?v=6.3.0-30"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-1"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-logs.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-remote.js?v=6.3.0-30"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.0-30"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-1"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-1"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10467,6 +10459,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.0-30"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-1"></script>
 </body>
 </html>

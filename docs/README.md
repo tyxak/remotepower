@@ -88,6 +88,11 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.3.1.md](v6.3.1.md)** — "Tr1ageMatters": agentic diagnosis — a hail-mary
+ log sweep ("Diagnose from logs": a bounded, secret-redacted snapshot of the
+ host's recently-modified /var/log tails with an AI root-cause read) and
+ agentic alert triage (the model investigates one alert through read-only
+ evidence tools and stores a verdict + evidence trail on the alert).
 - **[v6.3.0.md](v6.3.0.md)** — "Fl0wMatters": the first wave of a UX program —
  undo toasts instead of confirm dialogs for low-risk deletes (deferred commit),
  optimistic alert ack/resolve with a real un-ack Undo, "N of M shown" + Clear
@@ -98,13 +103,7 @@ The three most recent per-release notes are kept here:
  clearer empty-snapshot feedback, and a removed duplicate dampening setting; plus
  a project-wide sweep that collapsed repeated code idioms, deleted dead code and
  de-duplicated the docs.
-- **[v6.2.2.md](v6.2.2.md)** — "Pu1seMatters": performance and polish around
- the heartbeat — delta sysinfo (agents skip re-sending unchanged inventory),
- agent HTTP keep-alive, streamed large-fleet tables and a leaner first load;
- an always-on kernel-module visibility check that flags the v6.2.1 failure
- class before patch day; an upgrade-in-place installer; keyboard-driven alert
- inbox, device hover cards and tab-level device deep links.
-Older release notes (v6.1.2 and earlier) live in
+Older release notes (v6.2.2 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

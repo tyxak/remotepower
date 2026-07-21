@@ -143,8 +143,16 @@ class TestScapProfileFiltering(_Base):
 
     def setUp(self):
         super().setUp()
+        # v6.3.1 (leak fix): save the REAL function BEFORE patching — the old
+        # code saved after, capturing the stub, and nothing restored it, so
+        # `require_auth = admin-lambda` leaked into every later module in the
+        # same process (broke test_authz_smoke under xdist).
+        self._orig_require_auth = api.require_auth
         api.require_auth = lambda *a, **k: "admin"
-        self._fns2 = {"require_auth": self._fns.get("require_auth", api.require_auth)}
+
+    def tearDown(self):
+        api.require_auth = self._orig_require_auth
+        super().tearDown()
 
     def test_profiles_are_intersection_when_reported(self):
         api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}, "d2": {"name": "h2"}})
@@ -315,10 +323,12 @@ class TestScapReportStore(_Base):
         self._saved_rd = api.SCAP_REPORTS_DIR
         api.SCAP_REPORTS_DIR = self.reports_dir
         # report ingest authenticates by device token, not require_admin_auth
+        self._saved_gjb = api.get_json_body   # v6.3.1: restore in tearDown
         api.get_json_body = None
 
     def tearDown(self):
         api.SCAP_REPORTS_DIR = self._saved_rd
+        api.get_json_body = self._saved_gjb
         super().tearDown()
 
     def test_report_stored_and_flagged(self):

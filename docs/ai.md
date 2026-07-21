@@ -187,6 +187,54 @@ command to review) first. Every Insight is a tunable prompt
 Explain/Investigate buttons below. The firewall auditor is also reachable as an
 **AI audit** button on each host in the Firewall page.
 
+## Hail-mary log sweep — "Diagnose from logs" *(v6.3.1)*
+
+For the *"something is wrong on this host but I don't know where"* moment,
+the device drawer has **Diagnose from logs**:
+
+1. **Collect** sets a one-shot `force_log_sweep` flag; on its next heartbeat
+   the agent snapshots `/var/log/*` and `/var/log/*/*` — only files modified
+   in the last 24 h, compressed/binary/rotated files skipped, at most 12 KB
+   tail per file, 40 files, 256 KB total, ranked by **error density +
+   recency**. (Windows agents sweep the last 24 h of Error/Warning
+   System/Application event-log entries instead; macOS sweeps `/var/log`.)
+2. At ingest the server **re-caps every size and redacts credential
+   material** line-by-line (`password=…`, `Authorization: Bearer …`,
+   `api_key: …`, `https://user:pass@…` → `[REDACTED]`). One sweep is kept
+   per device; you can browse the per-file tails in the modal.
+3. **Diagnose** sends a ≤48 KB excerpt (highest-scored files first) to your
+   configured provider under the `log_sweep_rca` prompt and renders the
+   verdict, per-file findings and next steps.
+
+**Consent model:** like the mitigate flow, this is an *explicit action* —
+log content is sent to the AI provider only when you click Diagnose, and the
+modal says so. The ambient `send_journal` privacy toggle governs automatic
+context, not this button.
+
+Endpoints: `POST /api/devices/{id}/log-sweep/run` (admin),
+`GET /api/devices/{id}/log-sweep`, `POST /api/devices/{id}/log-sweep/diagnose`
+(write role).
+
+## Agentic alert triage *(v6.3.1)*
+
+The alert inbox's **Triage** action (`POST /api/alerts/{id}/ai-triage`) runs a
+bounded investigate loop: instead of answering from a static context blob, the
+model requests evidence through a fixed menu of **read-only, device-scoped
+tools** — device summary, journal tail, watched services, the host's other
+open alerts, recent command output, a regex search over the 6 h log buffer,
+and the latest hail-mary sweep — replying with strict JSON (one tool call or
+a final verdict) each round, hard-capped at 4 tool calls, every tool result
+clipped and secret-redacted.
+
+The verdict (root cause, confidence, evidence lines, recommended action) and
+the tool trail are stored on the alert and reopen from the **AI verdict**
+badge on the row. The model **never executes anything** — acting on a verdict
+stays on the existing approval-gated paths (mitigate playbooks, the governed
+AI executor). Cross-tenant or out-of-scope alert ids 404.
+
+Both prompt keys (`log_sweep_rca`, `alert_triage`) are tunable under
+Settings → AI → Prompts.
+
 ## button inventory
 
 | Location | Label | What gets sent |

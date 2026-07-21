@@ -2,6 +2,62 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.3.1 — "Tr1ageMatters" — unreleased (test)
+
+The agentic-diagnosis release: when something is wrong and nobody knows where,
+point the AI at the host — with hard budgets, redaction and an evidence trail.
+
+### Hail-mary log sweep ("Diagnose from logs")
+- **One-shot bounded `/var/log` sweep** — a new device-drawer action asks the
+  agent for a snapshot of the host's recently-modified log files:
+  `/var/log/*` + `/var/log/*/*`, only files touched in the last 24 h,
+  compressed/binary/rotated files skipped, ≤12 KB tail per file, ≤40 files,
+  ≤256 KB total. Files are ranked by **error density + recency** so the budget
+  goes to what's actually breaking. Rides the heartbeat as the one-shot
+  `force_log_sweep` flag (same contract as `force_package_scan`) — set by the
+  server and honoured by **all three agents** (Linux + macOS sweep `/var/log`;
+  Windows sweeps the last 24 h of Error/Warning System/Application events).
+- **Secret redaction at ingest** — before storage, every line passes a
+  substring-matched credential scrub (`password=…`, `Authorization: Bearer …`,
+  `api_key:`, `https://user:pass@…` → `[REDACTED]`), so raw credentials an app
+  logged never reach the store or the AI provider. The server re-caps all
+  agent-supplied sizes; the stored sweep (latest per device, `log_sweep.json`)
+  is what the UI and the AI read.
+- **AI root-cause pass** — "Diagnose" hands the sweep (≤48 KB excerpt,
+  highest-scored files first) to the configured AI provider under the new
+  `log_sweep_rca` prompt: verdict, per-file findings with quoted evidence,
+  conservative next steps. Explicit-action consent model (like the mitigate
+  flow): log content is sent to the provider only when the operator clicks,
+  and the modal says so.
+- Endpoints: `POST /api/devices/<id>/log-sweep/run` (admin),
+  `GET /api/devices/<id>/log-sweep`, `POST /api/devices/<id>/log-sweep/diagnose`
+  (write-role). All under the central device-scope/tenant guard.
+
+### Agentic alert triage (the MXDR-style investigate loop)
+- **`POST /api/alerts/<id>/ai-triage`** runs a bounded investigate loop for one
+  alert: the model is offered a fixed menu of **read-only, device-scoped
+  evidence tools** — device summary, journal tail, watched services, the host's
+  other open alerts, recent command output, a regex search over the 6 h log
+  buffer, and the latest hail-mary sweep — and must reply with strict JSON
+  (one tool call or a final verdict) each round. At most 4 tool calls, every
+  tool result clipped, secrets redacted; the model **never executes anything**
+  (acting on a verdict stays on the existing approval-gated paths).
+- The **verdict + evidence trail** (root cause, confidence, evidence lines,
+  recommended action, tools used) is stored on the alert (`ai_triage`) and
+  rendered in the inbox: a new **Triage** button runs the loop, an **"AI
+  verdict" badge** on the row reopens the stored result. Cross-tenant /
+  out-of-scope alert ids 404 via the caller-visibility filter.
+- New `alert_triage` system prompt (strict-JSON tool protocol); both new
+  prompts are tunable under Settings → AI like every other prompt key.
+- New bound module `server/cgi-bin/ai_triage_handlers.py` (the api.py ratchet
+  holds — no new inline handlers).
+
+### UI
+- Device drawer: **Diagnose from logs** (Lucide file-search icon) opens the
+  sweep modal — collect, browse the per-file tails (capped, scrollable),
+  diagnose. Alert inbox: **Triage** action + stored-verdict badge. All new
+  strings translated (6 languages).
+
 ## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of

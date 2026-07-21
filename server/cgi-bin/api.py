@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.3.0'
+SERVER_VERSION = '6.3.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -402,6 +402,7 @@ SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted o
 DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumers per host
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
 PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (NO values — see _ingest_pii_findings)
+LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mary /var/log sweep per device (redacted at ingest)
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
@@ -1161,6 +1162,20 @@ for _oc_name in (
 ):
     globals()[_oc_name] = getattr(oncall_handlers_mod, _oc_name)
 del _oc_name
+# hail-mary log sweep + agentic alert triage (v6.3.1)
+_at_spec = _tk_ilu.spec_from_file_location(
+    'ai_triage_handlers', Path(__file__).parent / 'ai_triage_handlers.py')
+ai_triage_handlers_mod = _tk_ilu.module_from_spec(_at_spec)
+_at_spec.loader.exec_module(ai_triage_handlers_mod)
+ai_triage_handlers_mod.bind(globals())
+for _at_name in (
+        '_redact_log_line', '_ingest_log_sweep', '_sweep_excerpt',
+        '_triage_tools', '_parse_triage_json', '_run_alert_triage',
+        'handle_log_sweep_run', 'handle_log_sweep_get',
+        'handle_log_sweep_diagnose', 'handle_alert_ai_triage',
+):
+    globals()[_at_name] = getattr(ai_triage_handlers_mod, _at_name)
+del _at_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -18306,6 +18321,10 @@ def handle_heartbeat():
         if dev.get('force_secrets_scan'):
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
+        # v6.3.1: one-shot hail-mary /var/log sweep — same one-shot contract.
+        if dev.get('force_log_sweep'):
+            saved_dev['force_log_sweep'] = True
+            dev.pop('force_log_sweep', None)
         # v6.2.0: one-shot "find regulated data now" — same one-shot contract.
         if dev.get('force_pii_scan'):
             saved_dev['force_pii_scan'] = True
@@ -19173,6 +19192,14 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] disk usage ingest failed dev={dev_id}: {e}\n")
 
+    # v6.3.1: hail-mary /var/log sweep result (one-shot, operator-requested).
+    # Redacted + re-capped at ingest — see ai_triage_handlers._ingest_log_sweep.
+    if 'log_sweep' in body and isinstance(body['log_sweep'], dict):
+        try:
+            _ingest_log_sweep(dev_id, body['log_sweep'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] log sweep ingest failed dev={dev_id}: {e}\n")
+
     # W6-34: container-image CVE summaries (opt-in trivy scan).
     if 'image_cves' in body and isinstance(body['image_cves'], list):
         try:
@@ -19394,6 +19421,11 @@ def handle_heartbeat():
     # just above — the agent honoured it, the server never set it.
     if saved_dev.get('force_secrets_scan'):
         common_resp['force_secrets_scan'] = True
+    # v6.3.1: one-shot hail-mary log sweep ("Diagnose from logs" button). Set
+    # here AND honoured by all three agents — the "flag the server never sets"
+    # class is exactly what killed the trivy scan until v6.1.2.
+    if saved_dev.get('force_log_sweep'):
+        common_resp['force_log_sweep'] = True
     # v6.2.0: one-shot disk-usage scan ("Explain disk" button). Without this the
     # only trigger would be the 12h cadence — which is the exact "feature that
     # can never fire on demand" shape the v6.1.2 trivy bug taught us to avoid.
@@ -61395,6 +61427,9 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/mailwatch', '', 'handle_mailwatch_overview', "pi == '/api/mailwatch' and m == 'GET'"),
     ('eq', ('POST',), '/api/status-token', '', 'handle_status_token', "pi == '/api/status-token' and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/scan-packages', 'handle_force_package_scan', "pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/log-sweep/run', 'handle_log_sweep_run', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep/run') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/log-sweep/diagnose', 'handle_log_sweep_diagnose', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep/diagnose') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/log-sweep', 'handle_log_sweep_get', "pi.startswith('/api/devices/') and pi.endswith('/log-sweep') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/apikeys/', '', 'handle_apikeys_delete', "pi.startswith('/api/apikeys/') and m == 'DELETE'"),
     # v6.1.1: MUST precede the catch-all update route below (same prefix, empty
     # suffix would otherwise swallow '.../rotate' as an update call with a bad id).
@@ -61441,6 +61476,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/scan-schedules/', '', 'handle_scan_schedule_delete', "pi.startswith('/api/scan-schedules/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/me/sessions/', '', 'handle_me_session_revoke', "pi.startswith('/api/me/sessions/') and m == 'DELETE'"),
     ('pat', ('DELETE',), '/api/alert-mutes/', '', 'handle_alert_mute_delete', "pi.startswith('/api/alert-mutes/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/alerts/', '/ai-triage', 'handle_alert_ai_triage', "pi.startswith('/api/alerts/') and pi.endswith('/ai-triage') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/ack', 'handle_alert_ack', "pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/unack', 'handle_alert_unack', "pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/resolve', 'handle_alert_resolve', "pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST'"),
@@ -63103,6 +63139,9 @@ _AI_PROMPT_LABELS = {
     'mitigate_new_port':      'Mitigation — New listening port',
     'mitigate_agent_integrity': 'Mitigation — Agent integrity',
     'mitigate_log':           'Mitigation — Log pattern alert',
+    # v6.3.1: hail-mary log sweep + agentic triage
+    'log_sweep_rca':          'Log sweep — hail-mary root-cause read',
+    'alert_triage':           'Agentic alert triage (investigate loop)',
 }
 
 def _resolve_system_prompt(key):

@@ -1,0 +1,515 @@
+"""RemotePower — hail-mary log sweep + agentic alert triage (v6.3.1)
+
+A bound-module carve-out following the tls_ct_handlers / dmarc_handlers /
+rack_ipam_handlers pattern:
+
+  - api.py execs a PRIVATE instance and binds its own ``globals()`` here, so
+    every api service is reached as ``A.<name>`` — a DYNAMIC attribute lookup,
+    which keeps the test suite's monkeypatching of api.respond / api.save / …
+    working, and resolves identically under the CGI (__main__) and
+    imported-module (wsgi.py/scheduler.py) models.
+  - api.py then from-imports every public + private name back into its own
+    globals, so the route tables, main()'s _safe() cadence and scheduler.py's
+    CADENCE tuple keep resolving the names unchanged.
+  - Calls BETWEEN these functions ALSO go through ``A.`` so a test that patches
+    one of them is seen by its caller.
+
+Constants stay in api.py and are read here through A. Pure logic goes in a
+sibling module (imported directly, like dmarc_monitor / tls_monitor).
+
+Two features live here:
+
+1. **Hail-mary log sweep** — the operator asks a host for a bounded, one-shot
+   sweep of its recent `/var/log` tails (`force_log_sweep` heartbeat flag →
+   the agent's `collect_log_sweep()`), the result is secret-redacted at ingest
+   and stored (latest sweep per device, `LOG_SWEEP_FILE`), and an AI pass
+   (`log_sweep_rca` prompt) turns it into a root-cause read. The sweep +
+   diagnosis are EXPLICIT operator actions: like the mitigate flow (and unlike
+   ambient AI context, which honours `ai.privacy.send_journal`), clicking
+   "Diagnose from logs" is the consent to send the redacted excerpt to the
+   configured AI provider — the UI says so next to the button.
+
+2. **Agentic alert triage** — a bounded investigate loop for one alert. The
+   model is offered a fixed menu of read-only, server-side evidence tools
+   (journal tail, log search, open alerts, recent commands, latest sweep, …)
+   and must answer each round with strict JSON: either one tool call or a
+   final verdict. At most `_TRIAGE_MAX_STEPS` tool calls, every tool result
+   clipped, every tool scoped to the alert's device. The transcript + verdict
+   are stored on the alert (`ai_triage`) so the inbox can render the evidence
+   trail. The model NEVER executes anything — tools are pure reads; acting on
+   the verdict goes through the existing approval-gated paths.
+"""
+
+import json
+import re
+import time
+
+# ── tuning constants (storage keys live in api.py) ───────────────────────────
+_SWEEP_MAX_FILES          = 48           # files kept per stored sweep
+_SWEEP_MAX_LINES_PER_FILE = 400          # lines kept per file at ingest
+_SWEEP_MAX_LINE_CHARS     = 1024         # per-line clip at ingest
+_SWEEP_MAX_STORE_BYTES    = 320 * 1024   # total stored text budget per device
+_SWEEP_AI_MAX_CHARS       = 48 * 1024    # excerpt budget handed to the model
+
+_TRIAGE_MAX_STEPS         = 4            # tool calls per triage run
+_TRIAGE_TOOL_CLIP         = 4000         # chars per tool result in transcript
+_TRIAGE_MAX_STORE         = 8192         # stored verdict-field clip
+
+
+class _ApiNamespace:
+    __slots__ = ('_g',)
+
+    def __init__(self, g):
+        self._g = g
+
+    def __getattr__(self, name):
+        try:
+            return self._g[name]
+        except KeyError:
+            raise AttributeError(f'api namespace has no {name!r}') from None
+
+
+A = None
+
+
+def bind(api_globals):
+    """Called once by api.py right after importing this module, with
+    api's ``globals()``."""
+    global A
+    A = _ApiNamespace(api_globals)
+
+
+# ── secret redaction (applied at ingest — stored copy is already clean) ──────
+# Substring-matched key names, mirroring the RAG corpus rule: an exact set
+# misses `api_key`/`passphrase`/… so match loosely and redact the VALUE.
+_REDACT_KV = re.compile(
+    r'(?i)\b([\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|'
+    r'passphrase|private[_-]?key|client[_-]?secret|access[_-]?key|community|'
+    r'credential|auth)[\w.-]*)\s*([=:])\s*("[^"]{1,256}"|\'[^\']{1,256}\'|\S{1,256})')
+_REDACT_BEARER = re.compile(r'(?i)\b(bearer|basic)\s+[A-Za-z0-9+/._~=-]{8,}')
+_REDACT_URLCRED = re.compile(r'://([^/\s:@]{1,64}):([^/\s@]{1,128})@')
+
+
+def _redact_log_line(line):
+    """Scrub obvious credential material from one log line. Not a guarantee —
+    a defense-in-depth pass so a `password=…` that an app logged never reaches
+    the store or the AI provider."""
+    # Bearer/Basic first: `Authorization: Bearer <tok>` would otherwise have
+    # the KV pass consume "Bearer" as the value and leave the token behind.
+    line = _REDACT_BEARER.sub(r'\1 [REDACTED]', line)
+    line = _REDACT_KV.sub(r'\1\2[REDACTED]', line)
+    line = _REDACT_URLCRED.sub(r'://\1:[REDACTED]@', line)
+    return line
+
+
+# ── ingest (called from the heartbeat handler when `log_sweep` is in the body)
+def _ingest_log_sweep(dev_id, sweep):
+    """Validate/cap/redact an agent's hail-mary sweep and store it as the
+    device's latest sweep. Caps are enforced server-side too — the agent's own
+    limits are not trusted."""
+    if not isinstance(sweep, dict):
+        return
+    files_in = sweep.get('files')
+    if not isinstance(files_in, list):
+        files_in = []
+    files, total = [], 0
+    for f in files_in[:_SWEEP_MAX_FILES]:
+        if not isinstance(f, dict):
+            continue
+        path = str(f.get('path', ''))[:512]
+        lines_in = f.get('lines')
+        if not path or not isinstance(lines_in, list):
+            continue
+        lines = []
+        for ln in lines_in[-_SWEEP_MAX_LINES_PER_FILE:]:
+            ln = A._redact_log_line(str(ln)[:_SWEEP_MAX_LINE_CHARS])
+            total += len(ln) + 1
+            if total > _SWEEP_MAX_STORE_BYTES:
+                break
+            lines.append(ln)
+        try:
+            files.append({
+                'path':      path,
+                'mtime':     int(f.get('mtime') or 0),
+                'size':      int(f.get('size') or 0),
+                'score':     round(float(f.get('score') or 0.0), 2),
+                'truncated': bool(f.get('truncated')),
+                'lines':     lines,
+            })
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if total > _SWEEP_MAX_STORE_BYTES:
+            break
+    try:
+        scanned = int(sweep.get('scanned') or 0)
+        skipped = int(sweep.get('skipped') or 0)
+    except (TypeError, ValueError):
+        scanned = skipped = 0
+    rec = {
+        'ts':          int(time.time()),
+        'files':       files,
+        'file_count':  len(files),
+        'scanned':     scanned,
+        'skipped':     skipped,
+        'total_bytes': total,
+        'note':        str(sweep.get('note', ''))[:256],
+    }
+    with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
+        prev = store.get(dev_id) or {}
+        # Keep the request stamp so the UI can tell "this sweep answers my
+        # click" from a stale one; keep the last AI diagnosis until a new one
+        # replaces it (the UI compares ai.sweep_ts to ts to grey it out).
+        if prev.get('requested_at'):
+            rec['requested_at'] = prev['requested_at']
+        if prev.get('ai'):
+            rec['ai'] = prev['ai']
+        store[dev_id] = rec
+
+
+# ── handlers: hail-mary sweep ────────────────────────────────────────────────
+def handle_log_sweep_run(dev_id):
+    """POST /api/devices/<id>/log-sweep/run — one-shot hail-mary sweep request.
+    Sets the per-device `force_log_sweep` flag; the next heartbeat response
+    carries it, the agent sweeps /var/log and reports on the heartbeat after
+    that. Admin-gated like the sibling scan-now endpoints (the sweep reads
+    arbitrary recent log content off the host)."""
+    A.require_admin_auth()
+    if not A._validate_id(dev_id):
+        A.respond(400, {'error': 'invalid device id'})
+        return
+    with A._LockedUpdate(A.DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if dev is None:
+            A.respond(404, {'error': 'device not found'})
+            return
+        dev['force_log_sweep'] = True
+    with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
+        rec = store.get(dev_id) or {}
+        rec['requested_at'] = int(time.time())
+        store[dev_id] = rec
+    A.audit_log(A.current_username() or 'unknown', 'log_sweep_request',
+                f'dev={dev_id}')
+    A.respond(200, {'ok': True,
+                    'message': 'Log sweep queued — the device reports within '
+                               'the next poll or two.'})
+
+
+def handle_log_sweep_get(dev_id):
+    """GET /api/devices/<id>/log-sweep — the device's latest stored sweep
+    (+ pending flag while a requested sweep hasn't landed yet)."""
+    A.require_auth()
+    if not A._validate_id(dev_id):
+        A.respond(404, {'error': 'invalid device id'})
+        return
+    devices = A._load_ro(A.DEVICES_FILE) or {}
+    if dev_id not in devices:
+        A.respond(404, {'error': 'device not found'})
+        return
+    rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
+    requested = int(rec.get('requested_at') or 0)
+    swept = int(rec.get('ts') or 0)
+    rec['pending'] = bool(requested and requested > swept)
+    A.respond(200, rec)
+
+
+def _sweep_excerpt(rec, budget=_SWEEP_AI_MAX_CHARS):
+    """Flatten a stored sweep into the text block handed to the model.
+    Highest-scored files first; hard character budget."""
+    parts = []
+    used = 0
+    files = sorted(rec.get('files') or [], key=lambda f: -(f.get('score') or 0))
+    for f in files:
+        age_m = max(0, (int(rec.get('ts') or 0) - int(f.get('mtime') or 0)) // 60)
+        head = (f"== {f.get('path')} (modified ~{age_m}m before sweep, "
+                f"err-score {f.get('score', 0)}"
+                f"{', truncated' if f.get('truncated') else ''}) ==")
+        body = '\n'.join(f.get('lines') or [])
+        chunk = head + '\n' + body + '\n\n'
+        if used + len(chunk) > budget:
+            room = budget - used - len(head) - 20
+            if room > 200:
+                parts.append(head + '\n' + body[-room:] + '\n[…clipped]\n')
+            break
+        parts.append(chunk)
+        used += len(chunk)
+    return ''.join(parts)
+
+
+def handle_log_sweep_diagnose(dev_id):
+    """POST /api/devices/<id>/log-sweep/diagnose — synchronous AI root-cause
+    pass over the stored sweep (`log_sweep_rca` prompt). Write-role gated:
+    triggers an AI-provider call (cost) + a store write."""
+    A.require_write_role('run AI log diagnosis')
+    if not A._validate_id(dev_id):
+        A.respond(404, {'error': 'invalid device id'})
+        return
+    devices = A.load(A.DEVICES_FILE) or {}
+    dev = devices.get(dev_id)
+    if dev is None:
+        A.respond(404, {'error': 'device not found'})
+        return
+    rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
+    if not rec.get('files'):
+        A.respond(400, {'error': 'no sweep collected yet — run a log sweep first'})
+        return
+    excerpt = A._sweep_excerpt(rec)
+    os_info = dev.get('os')
+    os_str = os_info.get('pretty', '') if isinstance(os_info, dict) else str(os_info or '')
+    system_prompt = A._resolve_system_prompt('log_sweep_rca')
+    user_prompt = (
+        f"Host: {dev.get('name', dev_id)} ({os_str})\n"
+        f"Sweep taken: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(rec.get('ts') or 0))} — "
+        f"{rec.get('file_count', 0)} file(s) kept of {rec.get('scanned', 0)} scanned, "
+        f"{rec.get('skipped', 0)} skipped.\n"
+        "Secret-looking values are already redacted.\n\n"
+        f"{excerpt}"
+    )
+    try:
+        ai_result = A._call_ai_with_prompts(system_prompt, user_prompt, 'log_sweep_rca')
+    except Exception as e:
+        A.respond(500, {'error': f'AI call failed: {e}'})
+        return
+    if not ai_result.get('ok'):
+        A.respond(502, {'error': ai_result.get('error') or 'AI provider returned no text'})
+        return
+    summary = (ai_result.get('text') or '')[:_TRIAGE_MAX_STORE]
+    ai_rec = {'summary': summary, 'at': int(time.time()),
+              'by': A.current_username() or 'unknown', 'sweep_ts': rec.get('ts')}
+    with A._LockedUpdate(A.LOG_SWEEP_FILE) as store:
+        cur = store.get(dev_id) or {}
+        cur['ai'] = ai_rec
+        store[dev_id] = cur
+    A.audit_log(A.current_username() or 'unknown', 'log_sweep_diagnose',
+                f'dev={dev_id} chars={len(excerpt)}')
+    # Success respond OUTSIDE any try/except Exception (HTTPError would be
+    # swallowed and rewritten to a 500 — the handle_server_self_update class).
+    A.respond(200, {'ok': True, 'ai': ai_rec})
+
+
+# ── agentic alert triage ─────────────────────────────────────────────────────
+def _triage_tools(dev_id, dev):
+    """The read-only evidence menu. Every tool is scoped to the alert's device
+    and returns a plain string (clipped by the loop). Adding a tool = one entry
+    here + a line in _TRIAGE_TOOL_MENU below."""
+    def _journal(args):
+        try:
+            n = min(int(args.get('lines') or 40), 80)
+        except (TypeError, ValueError):
+            n = 40
+        lines = [str(l) for l in (dev.get('journal') or [])[-n:]]
+        return '\n'.join(A._redact_log_line(l) for l in lines) or '(journal empty)'
+
+    def _services(args):
+        svcs = dev.get('services') or []
+        if not svcs:
+            return '(no watched services)'
+        out = []
+        for s in svcs[:40]:
+            if isinstance(s, dict):
+                out.append(f"{s.get('name', '?')}: {s.get('status', s.get('active', '?'))}")
+            else:
+                out.append(str(s))
+        return '\n'.join(out)
+
+    def _open_alerts(args):
+        alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
+        rows = [a for a in alerts
+                if a.get('device_id') == dev_id and not a.get('resolved_at')]
+        return '\n'.join(
+            f"[{a.get('severity', '?')}] {a.get('event', '?')} "
+            f"({time.strftime('%m-%d %H:%M', time.gmtime(a.get('ts') or 0))}) id={a.get('id')}"
+            for a in rows[-25:]) or '(no other open alerts)'
+
+    def _recent_commands(args):
+        outs = (A.load(A.CMD_OUTPUT_FILE) or {}).get(dev_id) or []
+        parts = []
+        for o in outs[-5:]:
+            parts.append(f"$ {str(o.get('cmd', ''))[:200]}  (rc={o.get('rc')})\n"
+                         f"{A._redact_log_line(str(o.get('output', ''))[:600])}")
+        return '\n---\n'.join(parts) or '(no recent command output)'
+
+    def _log_search(args):
+        pat = str(args.get('pattern') or '')[:128]
+        if not pat:
+            return '(log_search needs a "pattern" arg)'
+        try:
+            rx = re.compile(pat, re.IGNORECASE)
+        except re.error as e:
+            return f'(invalid pattern: {e})'
+        units = ((A.load(A.LOG_WATCH_FILE) or {}).get(dev_id) or {}).get('units') or {}
+        hits = []
+        for unit, entries in units.items():
+            for e in entries:
+                line = e.get('line', '')
+                if rx.search(line):
+                    hits.append(f"{unit}: {A._redact_log_line(line)[:300]}")
+                    if len(hits) >= 40:
+                        return '\n'.join(hits)
+        return '\n'.join(hits) or '(no matches in the 6h log buffer)'
+
+    def _log_sweep(args):
+        rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
+        if not rec.get('files'):
+            return ('(no hail-mary sweep stored — the operator can run one '
+                    'from the device drawer)')
+        age_m = (int(time.time()) - int(rec.get('ts') or 0)) // 60
+        return (f"(sweep from {age_m}m ago, {rec.get('file_count', 0)} files)\n"
+                + A._sweep_excerpt(rec, budget=6000))
+
+    def _device_summary(args):
+        si = dev.get('sysinfo') or {}
+        return json.dumps({
+            'name': dev.get('name'), 'os': dev.get('os'),
+            'last_seen_s_ago': int(time.time()) - int(dev.get('last_seen') or 0),
+            'cpu_percent': si.get('cpu_percent'), 'mem_percent': si.get('mem_percent'),
+            'disk_percent': si.get('disk_percent'), 'uptime': si.get('uptime'),
+            'failed_units': si.get('failed_units'),
+        }, default=str)[:1500]
+
+    return {
+        'device_summary':  _device_summary,
+        'journal_tail':    _journal,
+        'services':        _services,
+        'open_alerts':     _open_alerts,
+        'recent_commands': _recent_commands,
+        'log_search':      _log_search,
+        'log_sweep':       _log_sweep,
+    }
+
+
+_TRIAGE_TOOL_MENU = (
+    "Available evidence tools (all read-only, all scoped to this host):\n"
+    "- device_summary {} — OS, load, memory, disk, failed units, last-seen\n"
+    "- journal_tail {\"lines\": 40} — recent journal entries (max 80)\n"
+    "- services {} — watched service states\n"
+    "- open_alerts {} — the host's other open alerts\n"
+    "- recent_commands {} — last commands run on the host + output\n"
+    "- log_search {\"pattern\": \"<regex>\"} — grep the 6h log buffer\n"
+    "- log_sweep {} — latest hail-mary /var/log sweep excerpt, if one exists\n"
+)
+
+
+def _parse_triage_json(text):
+    """Extract the first JSON object from a model reply (tolerates fences and
+    prose around it). Returns a dict or None."""
+    if not text:
+        return None
+    t = re.sub(r'^```(?:json)?\s*|\s*```$', '', text.strip(), flags=re.MULTILINE)
+    dec = json.JSONDecoder()
+    for m in re.finditer(r'\{', t):
+        try:
+            obj, _ = dec.raw_decode(t[m.start():])
+            if isinstance(obj, dict):
+                return obj
+        except ValueError:
+            continue
+    return None
+
+
+def _run_alert_triage(alert, dev_id, dev):
+    """The bounded investigate loop. Returns {verdict, steps, rounds} — raises
+    RuntimeError on provider failure so the handler can map it to a 502."""
+    tools = A._triage_tools(dev_id, dev)
+    system_prompt = A._resolve_system_prompt('alert_triage')
+    payload = {k: v for k, v in (alert.get('payload') or {}).items()
+               if isinstance(v, (str, int, float, bool))}
+    transcript = (
+        f"ALERT under investigation:\n"
+        f"  event: {alert.get('event')}\n"
+        f"  severity: {alert.get('severity')}\n"
+        f"  host: {dev.get('name', dev_id)}\n"
+        f"  fired: {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(alert.get('ts') or 0))}\n"
+        f"  payload: {json.dumps(payload, default=str)[:1200]}\n\n"
+        f"{_TRIAGE_TOOL_MENU}\n"
+        f"You may call at most {_TRIAGE_MAX_STEPS} tools, then you MUST give a "
+        f"verdict. Reply with EXACTLY ONE JSON object per turn.\n"
+    )
+    steps = []
+    verdict = None
+    rounds = 0
+    for _round in range(_TRIAGE_MAX_STEPS + 1):
+        last_round = _round == _TRIAGE_MAX_STEPS
+        prompt = transcript + (
+            '\nYour tool budget is EXHAUSTED — reply with your verdict JSON now.'
+            if last_round else '\nYour JSON reply:')
+        result = A._call_ai_with_prompts(system_prompt, prompt, 'alert_triage')
+        rounds += 1
+        if not result.get('ok'):
+            raise RuntimeError(result.get('error') or 'AI provider returned no text')
+        obj = A._parse_triage_json(result.get('text') or '')
+        if not obj:
+            transcript += ('\n[system] Your last reply was not parseable JSON. '
+                           'Reply with exactly one JSON object.\n')
+            continue
+        if obj.get('action') == 'tool' and not last_round:
+            name = str(obj.get('tool') or '')
+            args = obj.get('args') if isinstance(obj.get('args'), dict) else {}
+            fn = tools.get(name)
+            if fn is None:
+                out = f'(unknown tool {name!r} — pick one from the menu)'
+            else:
+                try:
+                    out = str(fn(args))[:_TRIAGE_TOOL_CLIP]
+                except Exception as e:
+                    out = f'(tool error: {e})'
+            steps.append({'tool': name, 'args': args,
+                          'why': str(obj.get('why', ''))[:300],
+                          'result_chars': len(out)})
+            transcript += (f'\n[tool call] {name} {json.dumps(args, default=str)[:300]}\n'
+                           f'[tool result]\n{out}\n')
+            continue
+        # A verdict (or a tool request past the budget — read its fields as one).
+        ev = obj.get('evidence')
+        verdict = {
+            'root_cause':         str(obj.get('root_cause', ''))[:_TRIAGE_MAX_STORE],
+            'confidence':         str(obj.get('confidence', ''))[:16],
+            'evidence':           [str(e)[:400] for e in ev][:10] if isinstance(ev, list) else [],
+            'recommended_action': str(obj.get('recommended_action', ''))[:2000],
+        }
+        break
+    if verdict is None:
+        verdict = {'root_cause': '', 'confidence': '',
+                   'evidence': [], 'recommended_action': '',
+                   'error': 'model never produced a parseable verdict'}
+    return {'verdict': verdict, 'steps': steps, 'rounds': rounds}
+
+
+def handle_alert_ai_triage(alert_id):
+    """POST /api/alerts/<id>/ai-triage — run the bounded agentic triage loop
+    for one alert and store the verdict + evidence trail on the alert record.
+    Write-role gated (multiple AI-provider calls). Cross-tenant / out-of-scope
+    alert ids 404 (via the caller-visibility filter) so existence isn't
+    revealed."""
+    A.require_write_role('run AI alert triage')
+    all_alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
+    visible = A._filter_alerts_for_caller(all_alerts)
+    alert = next((a for a in visible if a.get('id') == alert_id), None)
+    if alert is None:
+        A.respond(404, {'error': 'alert not found'})
+        return
+    dev_id = alert.get('device_id') or ''
+    dev = (A.load(A.DEVICES_FILE) or {}).get(dev_id) or {}
+    try:
+        triage = A._run_alert_triage(alert, dev_id, dev)
+    except RuntimeError as e:
+        A.respond(502, {'error': str(e)})
+        return
+    except Exception as e:
+        A.respond(500, {'error': f'triage failed: {e}'})
+        return
+    triage['at'] = int(time.time())
+    triage['by'] = A.current_username() or 'unknown'
+    found = False
+    with A._LockedUpdate(A.ALERTS_FILE) as store:
+        for a in store.get('alerts', []):
+            if a.get('id') == alert_id:
+                a['ai_triage'] = triage
+                found = True
+                break
+    if not found:
+        # The alert was pruned between the read and the write — still return
+        # the triage so the operator sees the work, but flag it unattached.
+        triage['stored'] = False
+    A.audit_log(triage['by'], 'alert_ai_triage',
+                f'id={alert_id} rounds={triage.get("rounds")}')
+    A.respond(200, {'ok': True, 'ai_triage': triage})

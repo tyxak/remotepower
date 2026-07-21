@@ -38,15 +38,17 @@ def _js(name):
 
 class TestVersionBumps(unittest.TestCase):
     def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, V)
+        # v6.3.1: loosened to regex — this file pins the 6.3.0 RELEASE SET
+        # (docs, cards), not the current version string.
+        self.assertRegex(api.SERVER_VERSION, r"^\d+\.\d+\.\d+$")
 
     def test_agent_versions(self):
-        self.assertIn(
-            f"VERSION      = '{V}'",
+        self.assertRegex(
             (_ROOT / "client/remotepower-agent.py").read_text(),
+            r"VERSION      = '\d+\.\d+\.\d+'",
         )
         for rel in ("client/remotepower-agent-win.py", "client/remotepower-agent-mac.py"):
-            self.assertIn(f"VERSION = '{V}'", (_ROOT / rel).read_text(), rel)
+            self.assertRegex((_ROOT / rel).read_text(), r"VERSION = '\d+\.\d+\.\d+'", rel)
 
     def test_agent_extensionless_in_sync(self):
         self.assertEqual(
@@ -55,15 +57,16 @@ class TestVersionBumps(unittest.TestCase):
         )
 
     def test_sw_and_cachebust(self):
-        self.assertIn(f"remotepower-shell-v{V}", (_ROOT / "server/html/sw.js").read_text())
-        self.assertIn(f"?v={V}", _html())
+        self.assertRegex((_ROOT / "server/html/sw.js").read_text(),
+                         r"remotepower-shell-v\d+\.\d+\.\d+")
+        self.assertRegex(_html(), r"\?v=\d+\.\d+\.\d+")
 
     def test_no_stale_cachebust(self):
         self.assertNotIn("?v=6.2.3", _html())
 
     def test_readme_and_changelog(self):
-        self.assertIn(f"version-{V}-blue", (_ROOT / "README.md").read_text())
-        self.assertIn(f"v{V}", (_ROOT / "CHANGELOG.md").read_text()[:2000])
+        self.assertRegex((_ROOT / "README.md").read_text(), r"version-\d+\.\d+\.\d+-blue")
+        self.assertIn(f"v{V}", (_ROOT / "CHANGELOG.md").read_text())
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{V}.md").exists())
@@ -87,8 +90,9 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(CODENAME.lower(), card)
 
     def test_changelog_header(self):
-        head = (_ROOT / "CHANGELOG.md").read_text()[:400]
-        self.assertIn(f'## v{V} — "{CODENAME}"', head)
+        # v6.3.1: the section is no longer the newest — assert it exists, not
+        # that it leads the file.
+        self.assertIn(f'## v{V} — "{CODENAME}"', (_ROOT / "CHANGELOG.md").read_text())
 
     def test_gen_wiki_codename(self):
         p = _ROOT / "tools/gen-wiki.py"
@@ -103,7 +107,9 @@ class TestVersionBumps(unittest.TestCase):
         block = block[: block.index("Full history")]
         bullets = [ln for ln in block.splitlines() if ln.startswith("- **v")]
         self.assertLessEqual(len(bullets), 5, "README 'Recent releases' caps at 5")
-        self.assertTrue(bullets[0].startswith(f'- **v{V} "{CODENAME}"'))
+        # v6.3.1: this release is no longer the newest bullet — just require it
+        # to still be listed.
+        self.assertTrue(any(b.startswith(f'- **v{V} "{CODENAME}"') for b in bullets))
 
 
 class TestToastActions(unittest.TestCase):
@@ -737,9 +743,10 @@ class TestWave11(unittest.TestCase):
         self.assertIn('title="${escAttr(_absTs(d.last_seen))}"', app)
 
     def test_cache_bust_is_wave11(self):
-        self.assertIn("?v=6.3.0-30", _html())
+        # v6.3.1: loosened — pins the format, not the 6.3.0-30 literal.
+        self.assertRegex(_html(), r"\?v=\d+\.\d+\.\d+-\d+")
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn("remotepower-shell-v6.3.0-30", sw)
+        self.assertRegex(sw, r"remotepower-shell-v\d+\.\d+\.\d+-\d+")
 
 
 class TestWave12TransientToasts(unittest.TestCase):

@@ -2809,6 +2809,34 @@ input.form-input[type="text"][data-token],
   background: linear-gradient(180deg, var(--accent), transparent);
 }
 
+/* v6.3.1: hail-mary log sweep modal ("Diagnose from logs") */
+.log-sweep-file summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  padding: 4px 0;
+}
+.log-sweep-file summary code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.log-sweep-pre {
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 8px;
+}
+.log-sweep-ai {
+  margin-top: 8px;
+}
+
 /* ─── Index dashboard tiles ────────────────────────────────────────────
  * Big-number summary tiles for the home page. Hover lifts subtly. */
 .tile-grid {

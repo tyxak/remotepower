@@ -27,7 +27,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.3.0'
+VERSION = '6.3.1'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
@@ -507,6 +507,84 @@ def _save_secrets_scan_ts(ts):
             f.write(str(int(ts)))
     except Exception:
         pass
+
+
+# v6.3.1: hail-mary log sweep — one-shot (server `force_log_sweep`), bounded
+# snapshot of recently-modified /var/log text files. Mirrors the Linux agent's
+# collect_log_sweep; macOS keeps plain-text logs in /var/log too (system.log,
+# install.log, app logs). Binary ASL/tracev3 stores are skipped by the
+# null-byte check. The server secret-redacts + re-caps at ingest.
+LOG_SWEEP_MAX_FILES   = 40
+LOG_SWEEP_TAIL_BYTES  = 12 * 1024
+LOG_SWEEP_TOTAL_BYTES = 256 * 1024
+LOG_SWEEP_RECENT_S    = 24 * 3600
+LOG_SWEEP_MAX_LINE    = 512
+_LOG_SWEEP_SKIP_EXT = ('.gz', '.xz', '.bz2', '.zst', '.zip', '.asl', '.tracev3', '.gpg')
+_LOG_SWEEP_ERR_RX = re.compile(
+    r'(?i)\b(error|err|crit|critical|alert|fatal|fail|failed|failure|panic|'
+    r'oops|traceback|exception|denied|refused|timeout|unreachable|killed|corrupt)\b')
+_log_sweep_cfg = {'force': False}
+
+
+def collect_log_sweep():
+    import glob as _glob
+    now = time.time()
+    scanned = skipped = 0
+    candidates = []
+    paths = _glob.glob('/var/log/*') + _glob.glob('/var/log/*/*')
+    for p in paths[:2000]:
+        try:
+            base = os.path.basename(p)
+            if base.lower().endswith(_LOG_SWEEP_SKIP_EXT) or re.search(r'\.\d+$', base):
+                continue
+            if not os.path.isfile(p) or os.path.islink(p):
+                continue
+            st = os.stat(p)
+            if st.st_size == 0:
+                continue
+            scanned += 1
+            if (now - st.st_mtime) > LOG_SWEEP_RECENT_S:
+                continue
+            with open(p, 'rb') as f:
+                if st.st_size > LOG_SWEEP_TAIL_BYTES:
+                    f.seek(st.st_size - LOG_SWEEP_TAIL_BYTES)
+                data = f.read(LOG_SWEEP_TAIL_BYTES)
+            if b'\x00' in data[:512]:
+                skipped += 1
+                continue
+            lines = [l for l in data.decode('utf-8', errors='replace').splitlines()
+                     if l.strip()]
+            if st.st_size > LOG_SWEEP_TAIL_BYTES and lines:
+                lines = lines[1:]
+            if not lines:
+                continue
+            err_hits = sum(1 for l in lines if _LOG_SWEEP_ERR_RX.search(l))
+            score = (err_hits / len(lines)) * 10 + max(0.0, 1 - (now - st.st_mtime) / LOG_SWEEP_RECENT_S) * 2
+            candidates.append({'path': p, 'mtime': int(st.st_mtime),
+                               'size': int(st.st_size), 'score': round(score, 2),
+                               'lines': lines,
+                               'truncated': st.st_size > LOG_SWEEP_TAIL_BYTES})
+        except (PermissionError, OSError):
+            skipped += 1
+        except Exception:
+            skipped += 1
+    candidates.sort(key=lambda c: -c['score'])
+    files, total = [], 0
+    for c in candidates[:LOG_SWEEP_MAX_FILES]:
+        kept = []
+        for l in c['lines'][-200:]:
+            l = l[:LOG_SWEEP_MAX_LINE]
+            total += len(l) + 1
+            if total > LOG_SWEEP_TOTAL_BYTES:
+                break
+            kept.append(l)
+        c['lines'] = kept
+        files.append(c)
+        if total > LOG_SWEEP_TOTAL_BYTES:
+            break
+    return {'files': files, 'scanned': scanned, 'skipped': skipped}
+
+
 _SECRET_RULES = [
     ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
     ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
@@ -818,6 +896,13 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         except Exception:
             pass
         _secrets_cfg['force'] = False
+    # v6.3.1: one-shot hail-mary log sweep (operator "Diagnose from logs").
+    if _log_sweep_cfg.get('force'):
+        try:
+            payload['log_sweep'] = collect_log_sweep()
+        except Exception:
+            pass
+        _log_sweep_cfg['force'] = False
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')
@@ -864,6 +949,9 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
         if resp.get('force_secrets_scan'):
             _secrets_cfg['force'] = True   # one-shot "Scan now" from the server
+        # v6.3.1: one-shot hail-mary log sweep, acted on next heartbeat.
+        if resp.get('force_log_sweep'):
+            _log_sweep_cfg['force'] = True
     return resp, new_pending
 
 

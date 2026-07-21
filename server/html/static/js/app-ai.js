@@ -1960,3 +1960,117 @@ function _aiFindProblemBtn(btn) {
   };
   attach();
 })();
+
+// ── v6.3.1: hail-mary log sweep ("Diagnose from logs") ───────────────────────
+// One-shot bounded snapshot of the host's recently-modified log tails
+// (secret-redacted server-side) + an AI root-cause pass over it. The modal is
+// built lazily and appended to <body> (never inside .container — the fixed
+// sidebar stacking-context trap).
+let _lsModalEl = null, _lsDevId = null, _lsDevName = '', _lsPollTimer = null;
+
+function _ensureLogSweepModal() {
+  if (_lsModalEl) return _lsModalEl;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.id = 'log-sweep-modal';
+  wrap.setAttribute('role', 'dialog');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.innerHTML = `
+    <div class="modal modal-wide">
+      <div class="modal-title" id="log-sweep-title">Diagnose from logs</div>
+      <p class="hint">Collects a bounded snapshot of the host's recently-modified log tails
+        (max ~256 KB, secret-looking values redacted before storage), then asks the configured
+        AI provider for a root-cause read. Log content is sent to the AI provider only when you
+        click Diagnose. <a href="docs/ai.md" class="c-accent" target="_blank" rel="noopener">Documentation</a></p>
+      <div id="log-sweep-body"><div class="empty-state">Loading…</div></div>
+      <div class="modal-actions">
+        <button class="btn-icon" data-action="logSweepRun">${_icon('search', 14)} Collect logs</button>
+        <button class="btn-icon" data-action="logSweepDiagnose">${_icon('sparkles', 14)} Diagnose</button>
+        <div class="flex-1"></div>
+        <button class="btn-icon" data-action="closeLogSweepModal">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  _lsModalEl = wrap;
+  return wrap;
+}
+
+function closeLogSweepModal() {
+  if (_lsPollTimer) { clearInterval(_lsPollTimer); _lsPollTimer = null; }
+  if (_lsModalEl) _lsModalEl.classList.remove('active');
+}
+
+function openLogSweep(devId, name) {
+  _ensureLogSweepModal();
+  _lsDevId = devId; _lsDevName = name || devId;
+  document.getElementById('log-sweep-title').textContent = `Diagnose from logs — ${_lsDevName}`;
+  _lsModalEl.classList.add('active');
+  if (typeof _raiseModalZ === 'function') _raiseModalZ(_lsModalEl);
+  _logSweepLoad();
+}
+
+async function _logSweepLoad() {
+  const rec = await api('GET', `/devices/${encodeURIComponent(_lsDevId)}/log-sweep`).catch(() => null);
+  _logSweepRender(rec || {});
+  return rec;
+}
+
+function _logSweepRender(rec) {
+  const el = document.getElementById('log-sweep-body');
+  if (!el) return;
+  const files = rec.files || [];
+  let html = '';
+  if (rec.pending) {
+    html += `<p class="hint">${_icon('clock', 12)} Sweep requested — waiting for the agent's next heartbeat…</p>`;
+  }
+  if (!files.length) {
+    html += '<div class="empty-state">No sweep collected yet — click "Collect logs" to request one from the agent.</div>';
+  } else {
+    const when = rec.ts ? new Date(rec.ts * 1000).toLocaleString() : '?';
+    html += `<p class="hint">Sweep from ${escHtml(when)} — ${files.length} file tail(s) kept of ` +
+            `${rec.scanned || 0} scanned (${rec.skipped || 0} skipped), ` +
+            `${Math.round((rec.total_bytes || 0) / 1024)} KB total.</p>`;
+    html += '<div class="scroll-cap">' + files.map(f =>
+      `<details class="log-sweep-file"><summary><code>${escHtml(f.path)}</code>` +
+      ` <span class="c-muted fs-11">score ${escHtml(String(f.score ?? 0))} · ${(f.lines || []).length} lines${f.truncated ? ' · tail' : ''}</span></summary>` +
+      `<pre class="log-sweep-pre">${escHtml((f.lines || []).join('\n'))}</pre></details>`
+    ).join('') + '</div>';
+  }
+  if (rec.ai && rec.ai.summary) {
+    const stale = rec.ai.sweep_ts && rec.ts && rec.ai.sweep_ts !== rec.ts;
+    html += `<div class="section-title">AI diagnosis${stale ? ' <span class="c-muted fs-11">(from a previous sweep)</span>' : ''}</div>` +
+            `<div class="ai-content log-sweep-ai">${renderMarkdown(rec.ai.summary)}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function logSweepRun() {
+  const r = await api('POST', `/devices/${encodeURIComponent(_lsDevId)}/log-sweep/run`, {});
+  if (!r || !r.ok) { toast((r && r.error) || 'Sweep request failed', 'error'); return; }
+  toast('Log sweep queued — collecting on the next heartbeat', 'success');
+  await _logSweepLoad();
+  if (_lsPollTimer) clearInterval(_lsPollTimer);
+  let attempts = 0;
+  _lsPollTimer = setInterval(async () => {
+    if (!_lsModalEl || !_lsModalEl.classList.contains('active') || ++attempts > 36) {
+      clearInterval(_lsPollTimer); _lsPollTimer = null; return;
+    }
+    const rec = await _logSweepLoad();
+    if (rec && !rec.pending && rec.files && rec.files.length) {
+      clearInterval(_lsPollTimer); _lsPollTimer = null;
+    }
+  }, 5000);
+}
+
+async function logSweepDiagnose() {
+  const body = document.getElementById('log-sweep-body');
+  const prev = body ? body.innerHTML : '';
+  if (body) body.innerHTML = `<div class="empty-state">${aiThinkingHtml ? aiThinkingHtml() : ''} Analysing the sweep…</div>`;
+  const r = await api('POST', `/devices/${encodeURIComponent(_lsDevId)}/log-sweep/diagnose`, {});
+  if (!r || !r.ok) {
+    if (body) body.innerHTML = prev;
+    toast((r && r.error) || 'AI diagnosis failed', 'error');
+    return;
+  }
+  await _logSweepLoad();
+}

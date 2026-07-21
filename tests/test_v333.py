@@ -129,7 +129,9 @@ class TestInvestigateAlertButton(unittest.TestCase):
         self.assertNotEqual(res, -1, 'resolveAlert button missing')
         self.assertTrue(inv < mute < res,
             'Investigate should render before Mute and Resolve in the alert row')
-        self.assertLess(res - inv, 1200,
+        # v6.3.1: widened (1200 → 2200) — the agentic-triage button + comment
+        # now sit between Investigate and Mute in the same actions block.
+        self.assertLess(res - inv, 2200,
             'Investigate/Mute/Resolve should share one alert-row actions block')
 
 

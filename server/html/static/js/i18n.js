@@ -88,6 +88,13 @@
     'Save CT watch':         { fr: 'Enregistrer la surveillance CT', de: 'CT-Überwachung speichern', zh: '保存 CT 监视', hi: 'CT निगरानी सहेजें', es: 'Guardar vigilancia CT', ar: 'حفظ مراقبة CT' },
     'Auto-placement rules':  { fr: 'Règles de placement automatique', de: 'Auto-Zuordnungsregeln', zh: '自动归置规则', hi: 'स्वतः-नियोजन नियम', es: 'Reglas de ubicación automática', ar: 'قواعد التوزيع التلقائي' },
     'Runbook links':         { fr: 'Liens de runbook', de: 'Runbook-Links', zh: '运行手册链接', hi: 'रनबुक लिंक', es: 'Enlaces de runbook', ar: 'روابط دليل التشغيل' },
+    'Diagnose from logs':    { fr: 'Diagnostiquer depuis les journaux', de: 'Aus Logs diagnostizieren', zh: '从日志诊断', hi: 'लॉग से निदान करें', es: 'Diagnosticar desde registros', ar: 'التشخيص من السجلات' },
+    'Collect logs':          { fr: 'Collecter les journaux', de: 'Logs sammeln', zh: '收集日志', hi: 'लॉग एकत्र करें', es: 'Recopilar registros', ar: 'جمع السجلات' },
+    'Diagnose':              { fr: 'Diagnostiquer', de: 'Diagnostizieren', zh: '诊断', hi: 'निदान करें', es: 'Diagnosticar', ar: 'تشخيص' },
+    'Triage':                { fr: 'Triage', de: 'Triage', zh: '分诊', hi: 'ट्राइएज', es: 'Triaje', ar: 'فرز' },
+    'AI verdict':            { fr: 'Verdict IA', de: 'KI-Urteil', zh: 'AI 判定', hi: 'AI निर्णय', es: 'Veredicto de IA', ar: 'حكم الذكاء الاصطناعي' },
+    'AI triage':             { fr: 'Triage IA', de: 'KI-Triage', zh: 'AI 分诊', hi: 'AI ट्राइएज', es: 'Triaje de IA', ar: 'فرز الذكاء الاصطناعي' },
+    'AI diagnosis':          { fr: 'Diagnostic IA', de: 'KI-Diagnose', zh: 'AI 诊断', hi: 'AI निदान', es: 'Diagnóstico de IA', ar: 'تشخيص الذكاء الاصطناعي' },
     'Link runbook':          { fr: 'Associer un runbook', de: 'Runbook verknüpfen', zh: '链接运行手册', hi: 'रनबुक लिंक करें', es: 'Enlazar runbook', ar: 'ربط دليل التشغيل' },
     // ── v5.4.0 "RackMatters": time-tracking + billing chrome ──
     'Timesheet':              { fr: 'Feuille de temps', de: 'Zeiterfassung', zh: '工时表', hi: 'टाइमशीट', es: 'Hoja de horas', ar: 'سجل الساعات' },

@@ -80,9 +80,12 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_whats_new_card_is_doc_searchable(self):
         """The data-keywords attribute embeds the codename as a lowercase search
-        term — the surface a visible-text rename always misses. Pinned to the
-        v6.2.2 card this file owns (still present as one of the last three)."""
+        term — the surface a visible-text rename always misses."""
         html = _html()
+        if "What's new — v6.2.2" not in html:
+            # v6.3.1: the in-app cards keep only the last 3 releases — this
+            # card rotated out; the durable history lives in CHANGELOG.md.
+            self.skipTest("v6.2.2 What's-new card rotated out (keep-3)")
         i = html.index("What's new — v6.2.2")
         card = html[max(0, i - 1600):i]
         self.assertIn("pu1sematters", card)
