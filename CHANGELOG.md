@@ -213,6 +213,25 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   `incident_memory` count in `GET /api/ai/stats`. Harvest runs off the request
   path with the scheduler; no extra AI calls (capture is pure bookkeeping).
 
+### Detection self-test — prove the alert chain is wired ("silence isn't clearance")
+- A green dashboard proves the monitoring found nothing — not that it *would*.
+  **`GET /api/detection-selftest`** (admin) and a **Detection self-test** card on
+  the Server-status page verify the detection→routing→delivery chain is intact for
+  every alertable event type and surface the silent gaps that only live in the
+  operator's live config, which no build-time test can catch:
+  - an alert kind muted on **every** actionable channel (fires → reaches nobody),
+    distinguished from kinds that ship intentionally quiet (agentlifecycle,
+    new_port) by comparing against the shipped default — so it flags only what the
+    operator actually broke;
+  - **`notifications_test_mode` left on** (all external delivery sandboxed — the
+    single most dangerous silent gap, raised first);
+  - a `webhook`-routed kind with **no external destination** configured;
+  - a **recover event whose resolve target isn't alertable** (its alerts can never
+    auto-close — the "sits open forever" class, verified at runtime).
+  Read-only and side-effect free — it fires nothing (the Settings "send a test"
+  button covers active delivery). New bound module
+  `server/cgi-bin/detection_selftest_handlers.py`.
+
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
 Findings from a security + UX + code-quality + product review of the v6.3.1
 waves, fixed before release:

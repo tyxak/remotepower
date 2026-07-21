@@ -26569,6 +26569,48 @@ async function _loadSelfObs() {
     + (errs ? `<div class="section-title mt-16">Recent internal errors</div><div class="scroll-cap">${errs}</div>` : '');
 }
 
+// v6.3.1: detection self-test — prove the alert detection→routing chain is wired.
+const _DS_LEVEL = { critical: 'c-red', warning: 'c-warning', info: 'c-muted' };
+const _DS_STATUS = {
+  ok: '<span class="c-green">● reaches a human</span>',
+  silent: '<span class="c-red">● SILENT — reaches nobody</span>',
+  silent_by_default: '<span class="c-muted">● quiet by default</span>',
+  webhook_no_destination: '<span class="c-warning">● no destination</span>',
+};
+async function loadDetectionSelftest() {
+  const el = document.getElementById('detection-selftest-body');
+  if (!el) return;
+  el.innerHTML = '<div class="c-muted">Running…</div>';
+  const d = await api('GET', '/detection-selftest').catch(() => null);
+  if (!d || d.error) { el.innerHTML = '<div class="c-muted">Unavailable (admin only).</div>'; return; }
+  const s = d.summary || {};
+  const issues = d.issues || [];
+  const issuesHtml = issues.length
+    ? '<div class="section-title mt-12">Issues</div>' + issues.map(i =>
+        `<div class="fs-12 mb-4"><span class="${_DS_LEVEL[i.level] || 'c-muted'}">●</span> `
+        + `<span class="${_DS_LEVEL[i.level] || ''}">${escHtml(i.level.toUpperCase())}</span> — ${escHtml(i.message)}</div>`).join('')
+    : '<div class="c-green fs-12 mt-8">● Every alertable event type routes to a human. No silent gaps.</div>';
+  const rows = (d.kinds || []).slice()
+    .sort((a, b) => (a.reachable === b.reachable) ? 0 : (a.reachable ? 1 : -1))
+    .map(k => {
+      const cols = k.routes || {};
+      const on = c => cols[c] ? '<span class="c-green">✓</span>' : '<span class="c-muted">·</span>';
+      return `<tr><td>${escHtml(k.label)}</td><td>${_DS_STATUS[k.status] || escHtml(k.status)}</td>`
+        + `<td class="ta-center">${on('alerts')}</td><td class="ta-center">${on('needs_attention')}</td>`
+        + `<td class="ta-center">${on('webhook')}</td><td class="hint fs-12">${k.event_count}</td></tr>`;
+    }).join('');
+  const deliv = d.delivery || {};
+  el.innerHTML =
+    `<div class="fs-12 mb-8">${s.total_kinds} alert types · `
+    + `<span class="${s.silent ? 'c-red' : 'c-green'}">${s.silent || 0} silent</span> · `
+    + `${s.webhook_no_destination || 0} no-destination · ${s.ok || 0} ok &nbsp; `
+    + (deliv.sandbox_mode ? '<span class="c-red">sandbox mode ON</span> · ' : '')
+    + `<span class="${deliv.external_configured ? 'c-green' : 'c-muted'}">external delivery ${deliv.external_configured ? 'configured' : 'off'}</span></div>`
+    + issuesHtml
+    + '<div class="scrollable-table-wrap audit-scroll mt-12"><table><thead><tr><th>Alert type</th><th>Reaches</th><th>Inbox</th><th>Attention</th><th>Webhook</th><th>Events</th></tr></thead><tbody>'
+    + rows + '</tbody></table></div>';
+}
+
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
   body.innerHTML = '<div class="c-muted">Loading…</div>';

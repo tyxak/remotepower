@@ -5462,6 +5462,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <p class="hint">Each background maintenance sweep's last successful run and any recent error. A sweep that silently stops running or starts failing shows up here instead of quietly taking a feature down with it.</p>
           <div id="self-obs-body"><div class="c-muted">Loading…</div></div>
         </div>
+        <!-- v6.3.1: detection self-test — prove the alert chain is wired -->
+        <div class="dash-card mt-16" id="detection-selftest-card">
+          <div class="section-header"><div class="section-title">Detection self-test</div><button class="btn-icon" data-action="loadDetectionSelftest"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Run</button></div>
+          <p class="hint">Silence isn't clearance: a green dashboard proves the monitoring found nothing, not that it <em>would</em>. This verifies every alertable event type routes to at least one channel that reaches a human, and flags the silent gaps — an alert kind you've muted on every channel, sandbox mode left on, or a recover event that can never close its alert.</p>
+          <div id="detection-selftest-body"><div class="c-muted">Click Run.</div></div>
+        </div>
       </div>
 
       <!-- ── v3.4.0: Compliance report page ───────────────────────────────── -->

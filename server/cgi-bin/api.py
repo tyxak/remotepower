@@ -981,6 +981,20 @@ for _ri_name in (
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
 
+# Detection-chain self-test — verify the alert detection→routing chain is intact
+# fleet-wide (no silent monitoring gaps). v6.3.1 (top-pick #3).
+_ds_spec = _tk_ilu.spec_from_file_location(
+    'detection_selftest_handlers', Path(__file__).parent / 'detection_selftest_handlers.py')
+detection_selftest_handlers_mod = _tk_ilu.module_from_spec(_ds_spec)
+_ds_spec.loader.exec_module(detection_selftest_handlers_mod)
+detection_selftest_handlers_mod.bind(globals())
+for _ds_name in (
+        '_external_delivery_configured', '_detection_selftest',
+        'handle_detection_selftest',
+):
+    globals()[_ds_name] = getattr(detection_selftest_handlers_mod, _ds_name)
+del _ds_name
+
 # Config revision history + one-click rollback (v6.3.0, UX program item 4).
 # CONFIG_REVS_FILE stays in api.py, read via A; handle_config_save's audit
 # tail calls record_config_revision with the pre-save snapshot.
@@ -61482,6 +61496,7 @@ def _build_exact_routes():
         ('POST', '/api/backup/test-restore'): handle_backup_test_restore,       # v5.4.1 (G1)
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
+        ('GET', '/api/detection-selftest'): handle_detection_selftest,   # v6.3.1 alert-chain self-test
         ('GET', '/api/self/observability'): handle_self_observability,   # v6.2.3
         ('GET', '/api/self-test'): handle_self_test,                 # v5.0.0 #U9
         ('GET', '/api/diagnostics'): handle_diagnostics_bundle,
