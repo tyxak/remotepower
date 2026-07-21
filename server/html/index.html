@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-3">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-4">
 
 </head>
 <body>
@@ -4291,13 +4291,14 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.3.1 tr1agematters triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations">
+          <details class="doc-card" open data-keywords="release notes changelog v6.3.1 tr1agematters triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations signed commands command signing require-signed-commands release.pub replay freshness tamper db compromise ha high availability failover keepalived floating ip streaming replication promote runbook load test">
             <summary><strong>What's new — v6.3.1 &ldquo;Tr1ageMatters&rdquo;</strong> — agentic diagnosis: a <strong>hail-mary log sweep</strong> (&ldquo;Diagnose from logs&rdquo; in the device drawer — a bounded, secret-redacted snapshot of the host's recently-modified <code>/var/log</code> tails, ranked by error density, with an AI root-cause read) and <strong>agentic alert triage</strong> — the model investigates one alert through read-only evidence tools and stores a <strong>verdict with its evidence trail</strong> on the alert. Plus: opt-in <strong>automatic triage</strong> of new alerts (severity floor + daily cap), 👍/👎 <strong>verdict feedback</strong>, a <strong>governed-executor fix bridge</strong>, verdicts carried into tickets, and a syslog-receiver watcher on Server-status.</summary>
             <div class="doc-body">
               <p><strong>Hail-mary log sweep.</strong> For the &ldquo;something is wrong but I don't know where&rdquo; moment: the agent snapshots <code>/var/log/*</code> and <code>/var/log/*/*</code> — only files modified in the last 24 h, compressed/binary/rotated skipped, ≤12 KB tail per file, ≤40 files, ≤256 KB total, ranked by error density + recency. The server re-caps everything and scrubs credential material (<code>password=…</code>, bearer tokens, URL credentials) before storage. <strong>Diagnose</strong> sends the excerpt to your configured AI provider (only when you click — the modal says so) and renders a verdict, per-file findings and conservative next steps. Windows sweeps the last 24 h of Error/Warning System/Application events instead.</p>
               <p><strong>Agentic alert triage.</strong> The alert inbox gains a <strong>Triage</strong> action: the model investigates the alert through a fixed menu of read-only, device-scoped tools — device summary, journal tail, services, the host's other open alerts, recent command output, a regex search over the 6 h log buffer, open CVEs, metric trends, and the latest sweep (self-provisioning when stale) — replying with strict JSON (one tool call or a verdict) each round, hard-capped at 4 tool calls. The stored verdict (root cause, confidence, evidence, recommended action, tools used) shows as an <strong>AI verdict</strong> badge on the row. The model never executes anything — acting on a verdict stays on the existing approval-gated paths.</p>
               <p><strong>Tiered autonomy.</strong> Settings → AI Assistant → <strong>Automatic alert triage</strong> (off by default) runs the same loop on new open alerts from the maintenance cadence — one per tick, severity floor, daily run cap — so alerts arrive pre-investigated (<code>by: auto</code>). Every verdict takes 👍/👎 feedback (aggregated in AI stats), tickets opened from a triaged alert carry the verdict in their seeded note, and with the AI-executor module enabled, <strong>Propose fix (governed executor)</strong> turns a verdict into a human-approved remediation pick from your saved actions.</p>
               <p><strong>Guarded auto-remediation.</strong> Automation rules&rsquo; run-script fixes now carry a safety rig: a <strong>per-host cooldown</strong> and a <strong>max-hosts-per-hour blast cap</strong>, an opt-in <strong>verify window</strong> that fires a <code>remediation_failed</code> alert when the fix didn&rsquo;t clear the triggering alert, <strong>auto-disable after consecutive failures</strong>, and a per-attempt ledger on the Automations page.</p>
+              <p><strong>Signed command channel.</strong> The server now detach-signs every dispatched command with the release signing key, bound to the target device and a fresh timestamp. Pin <code>release.pub</code> and create the operator-owned <code>require-signed-commands</code> marker on a host and its agent <strong>refuses</strong> unsigned, tampered or replayed commands (reported, never silently dropped) &mdash; database or queue tampering alone can no longer execute anything on the fleet. All three agents enforce identically. And <code>docs/ha.md</code> is the new <strong>high-availability reference topology</strong>: Postgres streaming replication, a floating IP, the promote runbook, and a stated capacity target with a load-test recipe.</p>
               <p><strong>Syslog receiver watcher.</strong> Server-status → Distributed subsystems now shows the agentless syslog receiver (sources, last intake, unit probe) as an informational row — never a warning; opt into alerting with the new <code>rp_syslogd_running</code> baseline-checks catalog row (tag the server host <code>rp-server</code>).</p>
               <p class="hint">See <code>docs/v6.3.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -5861,6 +5862,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="settings-section">
           <div class="section-title">Distribute the public key to agents</div>
           <p class="hint">Pin this on each agent host at <code>/etc/remotepower/release.pub</code>. Once present, that agent enforces signatures (fail-closed). No key pinned → agent keeps using sha256-only verification.</p>
+          <p class="hint"><strong>Commands are signed with the same key</strong> <em>(v6.3.1)</em>: every dispatched command carries a detached signature bound to the target device + a fresh timestamp. Hosts that also create <code>/etc/remotepower/require-signed-commands</code> refuse unsigned, tampered or replayed commands outright — database/queue tampering alone can no longer execute anything. <a href="docs/agent-commands.md" class="c-accent">Documentation</a></p>
           <textarea id="signing-pubkey" class="form-input ff-mono fs-12" rows="6" readonly placeholder="Generate a key to see the public key here." aria-label="Generate a key to see the public key here"></textarea>
         </div>
       </div>
@@ -10463,34 +10465,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-3"></script>
+<script defer src="static/js/app.js?v=6.3.1-4"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-4"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-4"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-4"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-3"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-3"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-4"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-4"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10499,6 +10501,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-3"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-4"></script>
 </body>
 </html>

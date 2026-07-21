@@ -19565,7 +19565,15 @@ def handle_heartbeat():
         if dropped_cmd is not None:
             audit_log('system', 'quarantine_blocked',
                       f'dev={dev_id} dropped queued command while quarantined')
-        respond(200, {'command': dispatch_cmd, **common_resp})
+        # v6.3.1: sign the dispatched command with the server signing key so
+        # agents pinning release.pub + require-signed-commands can verify
+        # fail-closed. No key configured → fields are None and old/unpinned
+        # agents ignore them (additive).
+        _cmd_sig = _cmd_sig_ts = None
+        if dispatch_cmd is not None:
+            _cmd_sig, _cmd_sig_ts = _sign_command_for_agent(dev_id, dispatch_cmd)
+        respond(200, {'command': dispatch_cmd, 'command_sig': _cmd_sig,
+                      'command_sig_ts': _cmd_sig_ts, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
 
@@ -27576,6 +27584,38 @@ def _signing_key_info():
                              env=env, capture_output=True, text=True, timeout=15).stdout
         return fpr, pub
     except Exception:
+        return None, None
+
+
+def _sign_command_for_agent(dev_id, cmd):
+    """v6.3.1: detached-sign a command being dispatched to an agent, with the
+    SAME server signing key the release channel uses (one key to pin). The
+    canonical payload binds the command to the target device and an issue
+    timestamp — 'rp-cmd\\nv1\\n{dev_id}\\n{ts}\\n{cmd}' — so a signature can't
+    be replayed to another host or at a later time. Agents that touched
+    /etc/remotepower/require-signed-commands verify fail-closed; everyone else
+    ignores the extra fields (additive, negotiation-free). Returns
+    (sig_text, ts) or (None, None) when no signing key is set up — never
+    raises into the heartbeat path."""
+    try:
+        gpg = shutil.which('gpg')
+        fpr, _pub = _signing_key_info()
+        if not gpg or not fpr:
+            return None, None
+        ts = int(time.time())
+        payload = f'rp-cmd\nv1\n{dev_id}\n{ts}\n{cmd}'.encode()
+        env = dict(os.environ, GNUPGHOME=str(_SIGNING_GNUPGHOME))
+        r = subprocess.run([gpg, '--batch', '--yes', '--armor',
+                            '-u', fpr, '--detach-sign', '-o', '-'],
+                           input=payload, env=env, capture_output=True,
+                           timeout=20)
+        if r.returncode != 0:
+            sys.stderr.write('[remotepower] command signing failed: '
+                             + r.stderr.decode('utf-8', 'replace')[:200] + '\n')
+            return None, None
+        return r.stdout.decode('utf-8', 'replace'), ts
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] command signing error: {e}\n')
         return None, None
 
 

@@ -170,6 +170,48 @@ def _audit_mode():
         return False
 
 
+# v6.3.1: signed COMMAND channel — the same trust model as signed self-update,
+# applied to every server-dispatched command. Touch
+# /etc/remotepower/require-signed-commands and the agent REFUSES any command
+# that doesn't carry a valid detached signature (release.pub key) binding the
+# command text to THIS device and a fresh timestamp. What that buys: tampering
+# with the server's command queue at rest (DB compromise, storage tampering)
+# or replaying a captured command to another host / at a later time no longer
+# executes anything — an attacker needs the signing key, not just DB write
+# access. (A full app-server compromise still signs — same honest boundary as
+# server-side release signing.) Fail-closed by design: flag set + no pinned
+# key / no gpg / bad sig / stale ts → the command is refused and reported.
+REQUIRE_SIGNED_CMDS_FILE = CONF_DIR / 'require-signed-commands'
+CMD_SIG_MAX_AGE_S = 900     # freshness window (covers modest clock skew)
+
+
+def _require_signed_commands():
+    try:
+        return REQUIRE_SIGNED_CMDS_FILE.exists()
+    except Exception:
+        return False
+
+
+def _command_sig_ok(cmd, sig_text, sig_ts, device_id, now=None):
+    """Verify a dispatched command's detached signature. Returns (ok, detail).
+    The canonical payload MUST byte-match the server's _sign_command_for_agent:
+    'rp-cmd\\nv1\\n{device_id}\\n{ts}\\n{cmd}'."""
+    pubkey = _release_pubkey()
+    if not pubkey:
+        return False, 'no release.pub pinned'
+    if not sig_text:
+        return False, 'command is unsigned'
+    try:
+        ts = int(sig_ts)
+    except (TypeError, ValueError):
+        return False, 'missing/invalid signature timestamp'
+    now = int(now if now is not None else time.time())
+    if abs(now - ts) > CMD_SIG_MAX_AGE_S:
+        return False, 'signature timestamp outside the freshness window'
+    payload = f'rp-cmd\nv1\n{device_id}\n{ts}\n{cmd}'.encode()
+    return _verify_detached_sig(payload, str(sig_text), pubkey)
+
+
 def _verify_detached_sig(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
     """Verify a detached signature over data_bytes using an ephemeral gpg keyring
     seeded only with the pinned public key. Returns (ok, detail). Fails closed.
@@ -10175,8 +10217,23 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                             log.warning(f'Host config apply error: {e}')
                     host_config_desired = new_hcd
             if cmd:
-                log.info(f"Received command: {cmd}")
-                result = execute_command(cmd)
+                # v6.3.1: signed-command gate (opt-in, fail-closed). The refusal
+                # is REPORTED as command output so the operator sees exactly why
+                # nothing ran, instead of a silent drop.
+                _sig_ok, _sig_detail = (True, '')
+                if _require_signed_commands():
+                    _sig_ok, _sig_detail = _command_sig_ok(
+                        cmd, resp.get('command_sig'),
+                        resp.get('command_sig_ts'), dev_id)
+                if not _sig_ok:
+                    log.error(f'REFUSED command (require-signed-commands, '
+                              f'{_sig_detail}): {str(cmd)[:120]!r}')
+                    result = {'cmd': cmd, 'rc': 126,
+                              'output': ('refused: require-signed-commands is set '
+                                         f'and verification failed ({_sig_detail})')}
+                else:
+                    log.info(f"Received command: {cmd}")
+                    result = execute_command(cmd)
                 # v1.11.7: BUG FIX. Previously this code did
                 # `payload['cmd_output'] = result` and relied on the
                 # next heartbeat to ship it — but `payload` is reset

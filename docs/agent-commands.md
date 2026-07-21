@@ -36,6 +36,37 @@ even queue commands for it. The server cannot clear the file — only someone wi
 access to the host can. Remove the file to restore normal operation. Enforced
 identically by the Linux, Windows and macOS agents.
 
+## Signed commands (v6.3.1)
+
+The same trust model as signed self-update, applied to **every dispatched
+command**. The server detach-signs each command with the release signing key
+(Settings → Agent signing — one key to pin), binding the command text to the
+**target device id** and an **issue timestamp**. To enforce on a host:
+
+```bash
+# 1. Pin the server's public key (same file the signed self-update uses):
+sudo install -m 0644 release.pub /etc/remotepower/release.pub
+# 2. Opt in to fail-closed enforcement:
+sudo touch /etc/remotepower/require-signed-commands
+#  Windows: create  %ProgramData%\RemotePower\require-signed-commands
+#  macOS:   same /etc/remotepower paths (needs gpg — `brew install gnupg`)
+```
+
+With the flag set the agent **refuses** any command that is unsigned, fails
+verification, targets a different device, or carries a timestamp outside a
+15-minute freshness window — and reports the refusal as the command's output
+(rc 126), so a blocked command is visible in the UI, never a silent drop.
+
+**What this buys / what it doesn't.** Tampering with the server's command
+queue at rest (database compromise, storage tampering, a leaked DB
+credential), MITM past TLS, and replaying a captured command to another host
+or at a later time — none of these can execute anything anymore: the attacker
+needs the signing key, not just DB write access. A *full* application-server
+compromise can still sign (the key lives on the server in the convenient
+mode) — the same honest boundary as server-side release signing; sign
+off-server for the strongest guarantee. Like `audit-mode`, the flag is an
+operator-owned local file the server can never clear.
+
 ## Per-command timeout (v5.0.0)
 
 A queued exec command can carry its own timeout with a `to=<seconds>:` prefix,

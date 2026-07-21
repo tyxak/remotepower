@@ -30,6 +30,9 @@ holds long-form docs that don't fit there.
 - **[scaling.md](scaling.md)** — Running large fleets (1000+ agents): the
  PostgreSQL backend, poll-interval tuning, the gunicorn worker pool, load-balanced
  multi-node, relay satellites, PgBouncer, retention, and the encryption matrix.
+- **[ha.md](ha.md)** — High availability: the active/passive reference topology
+ (Postgres streaming replication, keepalived floating IP, the scheduler-singleton
+ rule), the promote runbook, and the capacity target + load-test recipe *(v6.3.1)*.
 - **[satellites.md](satellites.md)** — Relay satellites for segmented networks:
  add one, encrypt the agent→satellite hop, point agents at it, revoke.
 - **[push.md](push.md)** — Experimental opt-in agent push channel: near-

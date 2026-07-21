@@ -525,6 +525,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Upgrade-in-place installer | Re-running `install-client.sh` on an enrolled host refreshes binary + unit (customized unit backed up to `.rp-old`), keeps enrollment, restarts the agent; `--re-enroll` for the old behavior *(v6.2.2)* |
 | Self-update | SHA-256-verified, atomic replace, no SSH; hash-driven decision *(v3.3.0)* |
 | Signed updates | Detached GPG signature; pinned-key agents refuse unsigned/invalid; opt-in fail-closed `require-signed-updates`; Admin → Release Signing server-side key gen/sign + distribution + refused-agent list *(v3.4.2 / v3.8.0)* |
+| Signed commands | Every dispatched command is detach-signed with the same release key, bound to the target device + a 15-min-fresh timestamp; opt-in fail-closed `require-signed-commands` (operator-owned marker) makes the agent refuse unsigned/tampered/replayed commands and report the refusal (rc 126) — DB/queue tampering ≠ fleet RCE; all three agents *(v6.3.1)* |
 | App-self SBOM + SLSA | `make sbom-self` → CycloneDX of the control plane's own Python deps; release images carry SLSA build provenance *(v5.5.0)* |
 | Integrity attestation | Reports running-binary hash each heartbeat; mismatch flagged; `integrity` subcommand; signed-agent badge *(v3.4.2)* |
 | mTLS agent authentication | Agents present a CA-verified client certificate per connection, pinned per device; optional/additive, fleet-wide enforceable *(v5.0.0)* |

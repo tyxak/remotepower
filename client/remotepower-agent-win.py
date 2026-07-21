@@ -336,6 +336,39 @@ def _require_signed_updates_win():
         return False
 
 
+# v6.3.1: signed COMMAND channel — parity with the Linux agent. Create
+# `require-signed-commands` in ProgramData\RemotePower and every dispatched
+# command must carry a valid detached signature (release.pub key) binding the
+# command to THIS device + a fresh timestamp. Fail-closed.
+_CMD_SIG_MAX_AGE_S = 900
+
+
+def _require_signed_commands_win():
+    try:
+        return os.path.exists(os.path.join(_data_dir(), 'require-signed-commands'))
+    except Exception:
+        return False
+
+
+def _command_sig_ok_win(cmd, sig_text, sig_ts, device_id, now=None):
+    """(ok, detail). Canonical payload must byte-match the server's
+    _sign_command_for_agent: 'rp-cmd\\nv1\\n{device_id}\\n{ts}\\n{cmd}'."""
+    pubkey = _release_pubkey_win()
+    if not pubkey:
+        return False, 'no release.pub pinned'
+    if not sig_text:
+        return False, 'command is unsigned'
+    try:
+        ts = int(sig_ts)
+    except (TypeError, ValueError):
+        return False, 'missing/invalid signature timestamp'
+    now = int(now if now is not None else time.time())
+    if abs(now - ts) > _CMD_SIG_MAX_AGE_S:
+        return False, 'signature timestamp outside the freshness window'
+    payload = f'rp-cmd\nv1\n{device_id}\n{ts}\n{cmd}'.encode()
+    return _verify_detached_sig_win(payload, str(sig_text), pubkey)
+
+
 def _verify_detached_sig_win(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
     """Verify a detached signature over data_bytes with an ephemeral gpg keyring
     seeded only with the pinned key. (ok, detail). Fails closed. Needs gpg on
@@ -2388,6 +2421,17 @@ def heartbeat_once(creds, poll_count, pending_output=None):
                 creds['poll_interval'] = resp['poll_interval']
                 save_creds(creds)
         cmd = resp.get('command')
+        # v6.3.1: signed-command gate (opt-in, fail-closed); the refusal is
+        # reported as command output so the operator sees why nothing ran.
+        if cmd and _require_signed_commands_win():
+            _ok, _detail = _command_sig_ok_win(
+                cmd, resp.get('command_sig'), resp.get('command_sig_ts'),
+                creds.get('device_id', ''))
+            if not _ok:
+                new_pending = {'cmd': cmd, 'rc': 126,
+                               'output': ('refused: require-signed-commands is '
+                                          f'set and verification failed ({_detail})')}
+                cmd = None
         if cmd:
             new_pending = handle_command(cmd)
         # v3.14.0 #35: stash secrets-scan opt-in + paths for the next heartbeat.

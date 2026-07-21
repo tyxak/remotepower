@@ -19,10 +19,12 @@ import json
 import os
 import platform
 import re
+import shutil
 import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -64,6 +66,85 @@ def _make_ssl_context():
 
 _SSL_CTX = _make_ssl_context()
 MAX_OUTPUT = 32 * 1024
+
+# v6.3.1: signed COMMAND channel — parity with the Linux agent. Pin the server
+# signing key at /etc/remotepower/release.pub and touch
+# /etc/remotepower/require-signed-commands: every dispatched command must then
+# carry a valid detached signature binding it to THIS device + a fresh
+# timestamp. Fail-closed (needs gpg — `brew install gnupg`).
+_RELEASE_PUB_MAC = '/etc/remotepower/release.pub'
+_REQUIRE_SIGNED_CMDS_MAC = '/etc/remotepower/require-signed-commands'
+_CMD_SIG_MAX_AGE_S = 900
+
+
+def _release_pubkey_mac():
+    try:
+        if os.path.exists(_RELEASE_PUB_MAC):
+            with open(_RELEASE_PUB_MAC, 'r', encoding='utf-8') as f:
+                return f.read().strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _require_signed_commands_mac():
+    try:
+        return os.path.exists(_REQUIRE_SIGNED_CMDS_MAC)
+    except Exception:
+        return False
+
+
+def _verify_detached_sig_mac(data_bytes, sig_text, pubkey_armored):
+    """Detached-signature verify via an ephemeral gpg keyring seeded only with
+    the pinned key — the same shape as the Linux/Windows agents. (ok, detail);
+    fails closed when gpg is unavailable."""
+    gpg = shutil.which('gpg')
+    if not gpg:
+        return False, 'gpg not available'
+    home = tempfile.mkdtemp(prefix='rp-cmdverify-')
+    try:
+        os.chmod(home, 0o700)
+        env = dict(os.environ, GNUPGHOME=home)
+        imp = subprocess.run([gpg, '--batch', '--import'],
+                             input=(pubkey_armored or '').encode(),
+                             env=env, capture_output=True, timeout=20)
+        if imp.returncode != 0:
+            return False, 'public key import failed'
+        art = os.path.join(home, 'art')
+        sig = os.path.join(home, 'art.asc')
+        with open(art, 'wb') as f:
+            f.write(data_bytes)
+        with open(sig, 'w') as f:
+            f.write(sig_text or '')
+        r = subprocess.run([gpg, '--batch', '--status-fd', '1', '--verify', sig, art],
+                           env=env, capture_output=True, timeout=20)
+        out = r.stdout.decode('utf-8', 'replace')
+        if not any(ln.startswith('[GNUPG:] VALIDSIG') for ln in out.splitlines()):
+            return False, 'signature not valid'
+        return True, 'valid'
+    except Exception as e:
+        return False, f'verify error: {e}'
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def _command_sig_ok_mac(cmd, sig_text, sig_ts, device_id, now=None):
+    """(ok, detail). Canonical payload must byte-match the server's
+    _sign_command_for_agent: 'rp-cmd\\nv1\\n{device_id}\\n{ts}\\n{cmd}'."""
+    pubkey = _release_pubkey_mac()
+    if not pubkey:
+        return False, 'no release.pub pinned'
+    if not sig_text:
+        return False, 'command is unsigned'
+    try:
+        ts = int(sig_ts)
+    except (TypeError, ValueError):
+        return False, 'missing/invalid signature timestamp'
+    now = int(now if now is not None else time.time())
+    if abs(now - ts) > _CMD_SIG_MAX_AGE_S:
+        return False, 'signature timestamp outside the freshness window'
+    payload = f'rp-cmd\nv1\n{device_id}\n{ts}\n{cmd}'.encode()
+    return _verify_detached_sig_mac(payload, str(sig_text), pubkey)
 
 # No-redirect opener (parity with the Linux agent): a 3xx must never replay the
 # token-bearing POST body to a redirect host or downgrade https→http in cleartext.
@@ -942,6 +1023,17 @@ def heartbeat_once(creds, poll_count, pending_output=None):
                 creds['poll_interval'] = resp['poll_interval']
                 save_creds(creds)
         cmd = resp.get('command')
+        # v6.3.1: signed-command gate (opt-in, fail-closed); refusal is
+        # reported as command output so the operator sees why nothing ran.
+        if cmd and _require_signed_commands_mac():
+            _ok, _detail = _command_sig_ok_mac(
+                cmd, resp.get('command_sig'), resp.get('command_sig_ts'),
+                creds.get('device_id', ''))
+            if not _ok:
+                new_pending = {'cmd': cmd, 'rc': 126,
+                               'output': ('refused: require-signed-commands is '
+                                          f'set and verification failed ({_detail})')}
+                cmd = None
         if cmd:
             new_pending = handle_command(cmd)
         _secrets_cfg['on'] = bool(resp.get('secrets_scan_enabled'))

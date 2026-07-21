@@ -117,6 +117,27 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   itself — notify/ticket on it is the escalation path. New bound module
   `remediation_handlers.py`; the api.py ratchet holds.
 
+### Wave 4 — signed command channel + the HA reference topology
+- **Signed commands (opt-in, fail-closed)** — the server now detach-signs
+  every dispatched command with the release signing key, binding the command
+  text to the **target device id + an issue timestamp**
+  (`command_sig`/`command_sig_ts` on the heartbeat response; additive — old
+  or unpinned agents ignore it). An agent with `release.pub` pinned and the
+  new operator-owned `require-signed-commands` marker **refuses** anything
+  unsigned, tampered, cross-device, or older than 15 min — and reports the
+  refusal as command output (rc 126), never a silent drop. Enforced
+  identically by the Linux, Windows and macOS agents (macOS gains the gpg
+  verify helper). What it buys: DB/queue tampering or a captured-command
+  replay is no longer fleet RCE — an attacker needs the signing key, not
+  just DB write access; a full app-server compromise remains the honest
+  boundary (same as server-side release signing; sign off-server for the
+  strongest posture). End-to-end tested with a real ephemeral GPG key.
+- **`docs/ha.md`** — the supported active/passive HA reference topology:
+  PostgreSQL streaming replication, keepalived floating IP, the
+  scheduler-singleton constraint, per-node sidecars, a rehearsed promote
+  runbook, the "backups are not HA" distinction, and an explicit capacity
+  target (1,000 devices @ 60 s poll) with a load-test recipe.
+
 ## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of
