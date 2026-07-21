@@ -80,20 +80,27 @@ as your audit artifacts.
 The **Compliance** page scores a live control checklist from data the fleet
 already reports, across **PCI DSS, HIPAA, SOC 2, ACSC Essential Eight and
 SMB1001:2026** (pick the frameworks with the checkboxes). Every control lands
-on one of three verdicts:
+on one of four verdicts:
 
 - **Pass** — observed state satisfies the control.
 - **Fail** — observed state violates it, with the offending hosts as evidence.
-- **Not assessed** — RemotePower cannot back up a pass. This is deliberate and
-  strict: a control does **not** read Pass just because its offenders list is
-  empty. If the *capable source* never ran — no host has reported package
-  status, no CVE scan is on record, no account baseline exists — the control
-  is **Not assessed**, never a silent green. Process controls RemotePower
-  doesn't observe (Essential Eight application control / macro policy / user
-  hardening; SMB1001 training / IR plan) are shown as Not assessed too, rather
-  than hidden — the report discloses its own gaps.
+- **Not assessed** (amber) — the control *is* assessable, but its capable
+  source hasn't run yet: no host has reported package status, no CVE scan is on
+  record, no TLS endpoint is monitored, no account baseline exists. This is a
+  **monitoring blind spot** — deliberately shown, never a silent green, so a
+  control does not read Pass just because its offenders list happens to be
+  empty.
+- **N/A** (grey) — RemotePower *structurally* cannot assess this control at all
+  (Essential Eight application control / macro policy / user hardening; SMB1001
+  training / IR plan). Disclosed rather than hidden — the report shows its own
+  gaps instead of quietly dropping the row.
 
-The framework **score is `pass / (pass + fail)`** and ignores Not-assessed, so
+"Not assessed" (a gap you can close by turning on monitoring) is rendered
+distinctly from "N/A" (a gap RemotePower can't close) so you can act on the
+right one.
+
+The framework **score is `pass / (pass + fail)`** and ignores both Not-assessed
+and N/A, so
 "we haven't measured it" can never inflate the number. This is an audit-prep
 aid, not a formal attestation — but a green you see is a green the tool can
 defend.

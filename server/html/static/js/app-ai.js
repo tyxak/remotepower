@@ -1998,7 +1998,7 @@ function _ensureLogSweepModal() {
       <div id="log-sweep-body"><div class="empty-state">Loading…</div></div>
       <div class="modal-actions">
         <button class="btn-icon" data-action="logSweepRun">${_icon('search', 14)} Collect logs</button>
-        <button class="btn-icon" data-action="logSweepDiagnose">${_icon('sparkles', 14)} Diagnose</button>
+        <button class="btn-icon" id="log-sweep-diagnose-btn" data-action="logSweepDiagnose" disabled title="Collect logs first">${_icon('sparkles', 14)} Diagnose</button>
         <div class="flex-1"></div>
         <button class="btn-icon" data-action="closeLogSweepModal">Close</button>
       </div>
@@ -2062,6 +2062,13 @@ function _logSweepRender(rec) {
             `<div class="ai-content log-sweep-ai">${renderMarkdown(rec.ai.summary)}</div>`;
   }
   el.innerHTML = html;
+  // v6.3.1 (UX): Diagnose only makes sense once a sweep exists — no dead-end.
+  const dBtn = document.getElementById('log-sweep-diagnose-btn');
+  if (dBtn) {
+    const has = files.length > 0;
+    dBtn.disabled = !has;
+    dBtn.title = has ? 'Send the collected logs to the AI provider for a root-cause read' : 'Collect logs first';
+  }
 }
 
 async function logSweepRun() {

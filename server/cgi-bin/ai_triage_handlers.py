@@ -90,6 +90,10 @@ _REDACT_KV = re.compile(
     r'credential|auth)[\w.-]*)\s*([=:])\s*("[^"]{1,256}"|\'[^\']{1,256}\'|\S{1,256})')
 _REDACT_BEARER = re.compile(r'(?i)\b(bearer|basic)\s+[A-Za-z0-9+/._~=-]{8,}')
 _REDACT_URLCRED = re.compile(r'://([^/\s:@]{1,64}):([^/\s@]{1,128})@')
+# v6.3.1: multi-line PEM private-key block markers (handled at ingest, since a
+# block spans lines and has no key= prefix the per-line scrubber keys on).
+_PEM_BEGIN_RX = re.compile(r'-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----')
+_PEM_END_RX = re.compile(r'-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----')
 
 
 def _redact_log_line(line):
@@ -123,8 +127,21 @@ def _ingest_log_sweep(dev_id, sweep):
         if not path or not isinstance(lines_in, list):
             continue
         lines = []
+        # v6.3.1: a PEM private-key block spans many lines with no `key=` prefix,
+        # so the per-line KV scrubber can't catch it — collapse any BEGIN…END
+        # PRIVATE KEY run to a single redaction marker before per-line scrubbing.
+        in_pem = False
         for ln in lines_in[-_SWEEP_MAX_LINES_PER_FILE:]:
-            ln = A._redact_log_line(str(ln)[:_SWEEP_MAX_LINE_CHARS])
+            raw = str(ln)[:_SWEEP_MAX_LINE_CHARS]
+            if _PEM_BEGIN_RX.search(raw):
+                in_pem = True
+                ln = '[REDACTED PRIVATE KEY BLOCK]'
+            elif in_pem:
+                if _PEM_END_RX.search(raw):
+                    in_pem = False
+                continue          # drop the body + END line entirely
+            else:
+                ln = A._redact_log_line(raw)
             total += len(ln) + 1
             if total > _SWEEP_MAX_STORE_BYTES:
                 break
@@ -623,6 +640,14 @@ def handle_alert_triage_feedback(alert_id):
     body = A.get_json_obj()
     helpful = bool(body.get('helpful'))
     note = A._sanitize_str(str(body.get('note', '')), 300)
+    # v6.3.1: gate on the SAME visibility the triage read path uses (RBAC role
+    # scope + tenant), not tenant alone — a same-tenant but out-of-scope writer
+    # shouldn't be able to rate an alert they can't see.
+    _visible = {a.get('id') for a in A._filter_alerts_for_caller(
+        (A.load(A.ALERTS_FILE) or {}).get('alerts', []))}
+    if alert_id not in _visible:
+        A.respond(404, {'error': 'alert not found'})
+        return
     found = False
     with A._LockedUpdate(A.ALERTS_FILE) as store:
         for a in store.get('alerts', []):

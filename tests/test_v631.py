@@ -171,6 +171,24 @@ class TestIngest(unittest.TestCase):
         self.assertNotIn("topsecret99", joined)
         self.assertIn("ok line", joined)
 
+    def test_pem_private_key_block_is_redacted(self):
+        # v6.3.1: a multi-line PEM block has no key= prefix, so the per-line
+        # scrubber can't catch it — the ingest collapses the whole block.
+        sweep = {"files": [{"path": "/var/log/app.log", "mtime": 5, "size": 1,
+                            "lines": ["boot ok",
+                                      "-----BEGIN OPENSSH PRIVATE KEY-----",
+                                      "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=",
+                                      "MOREKEYMATERIALdeadbeef1234567890",
+                                      "-----END OPENSSH PRIVATE KEY-----",
+                                      "resumed"]}]}
+        api._ingest_log_sweep("dev1", sweep)
+        joined = "\n".join(api.load(api.LOG_SWEEP_FILE)["dev1"]["files"][0]["lines"])
+        self.assertNotIn("b3BlbnNzaC", joined)
+        self.assertNotIn("MOREKEYMATERIAL", joined)
+        self.assertIn("[REDACTED PRIVATE KEY BLOCK]", joined)
+        self.assertIn("boot ok", joined)   # surrounding lines survive
+        self.assertIn("resumed", joined)
+
     def test_server_side_caps_do_not_trust_the_agent(self):
         big = {"files": [{"path": f"/var/log/f{i}.log", "mtime": 0, "size": 1,
                           "lines": ["x" * 2000] * 500} for i in range(200)]}
@@ -686,6 +704,18 @@ class TestTriageFeedback(unittest.TestCase):
         self.assertTrue(fb["helpful"])
         self.assertEqual(fb["note"], "spot on")
         self.assertEqual(fb["by"], "op")
+
+    def test_feedback_gates_on_caller_visibility(self):
+        # v6.3.1: an alert the caller can't see (per _filter_alerts_for_caller)
+        # → 404, even within the same tenant.
+        api.get_json_obj = lambda: {"helpful": True}
+        orig = api._filter_alerts_for_caller
+        api._filter_alerts_for_caller = lambda alerts: []   # nothing visible
+        try:
+            status, _ = _call(api.handle_alert_triage_feedback, "al1")
+        finally:
+            api._filter_alerts_for_caller = orig
+        self.assertEqual(status, 404)
 
     def test_400_without_stored_triage(self):
         api.get_json_obj = lambda: {"helpful": False}

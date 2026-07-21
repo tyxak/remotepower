@@ -317,7 +317,11 @@ class TestCompliance(unittest.TestCase):
         facts['tls_monitored'] = 0
         facts['backup_monitors'] = 0
         rep = self.c.build_report(facts)
-        self.assertGreater(rep['summary']['na'], 0)
+        # v6.3.1: no-monitors-configured now reads as the distinct 'not_assessed'
+        # (a blind spot) rather than structural na; either way it's excluded
+        # from the score.
+        self.assertGreater(rep['summary']['na'] + rep['summary']['not_assessed'], 0)
+        self.assertGreater(rep['summary']['not_assessed'], 0)
 
 
 class TestAgentProbes(unittest.TestCase):

@@ -23882,12 +23882,19 @@ async function loadAutomation() {
 }
 
 // v6.3.1: the guarded auto-remediation attempt ledger (Automations page card).
+let _remediationRows = [];
 async function _loadRemediationLog() {
   const el = document.getElementById('automation-remediations');
   if (!el) return;
   const data = await api('GET', '/automation/remediations').catch(() => null);
-  const rows = (data && data.attempts) || [];
-  if (!rows.length) {
+  _remediationRows = (data && data.attempts) || [];
+  _renderRemediationLog();
+}
+
+function _renderRemediationLog() {
+  const el = document.getElementById('automation-remediations');
+  if (!el) return;
+  if (!_remediationRows.length) {
     el.innerHTML = '<div class="empty-state">No auto-remediation attempts yet — give a rule a run-script action and a verify window.</div>';
     return;
   }
@@ -23902,9 +23909,16 @@ async function _loadRemediationLog() {
     unverifiable:'<span class="sev-pill sev-info" title="The fix ran, but this alert type has no automatic recovery signal, so RemotePower cannot confirm it cleared. Verify manually.">ran (unverifiable)</span>',
   }[s] || `<span class="sev-pill">${escHtml(s || '?')}</span>`);
   const reasonTxt = { host_cooldown: 'per-host cooldown', blast_cap: 'max-hosts/hour cap' };
-  el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead>
-      <tr><th>When</th><th>Rule</th><th>Host</th><th>Event</th><th>Status</th></tr></thead><tbody>`
-    + rows.map(a =>
+  // v6.3.1: wire column sort (mandatory for new tables) — eager, before render.
+  tableCtl.wireSortOnly('remediation-log-thead', 'remediation-log', _renderRemediationLog);
+  const sorted = tableCtl.sortRows('remediation-log', _remediationRows.slice(), a => ({
+    when: a.ts || 0, rule: (a.rule_name || a.rule_id || '').toLowerCase(),
+    host: (a.device_name || a.device_id || '').toLowerCase(),
+    event: a.event || '', status: a.status || '',
+  }));
+  el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead id="remediation-log-thead">
+      <tr><th data-col="when">When</th><th data-col="rule">Rule</th><th data-col="host">Host</th><th data-col="event">Event</th><th data-col="status">Status</th></tr></thead><tbody>`
+    + sorted.map(a =>
       `<tr><td class="nowrap">${escHtml(new Date((a.ts || 0) * 1000).toLocaleString())}</td>`
       + `<td>${escHtml(a.rule_name || a.rule_id || '?')}</td>`
       + `<td>${a.device_id ? `<span data-dev-hover="${escAttr(a.device_id)}">${escHtml(a.device_name || a.device_id)}</span>` : '—'}</td>`
@@ -24884,8 +24898,17 @@ async function loadCompliance() {
   const qs = fws.length ? `?frameworks=${fws.join(',')}` : '';
   const r = await api('GET', `/compliance${qs}`);
   if (!r || !r.frameworks) { body.innerHTML = '<div class="c-red">Failed to load compliance report.</div>'; return; }
-  const statusPill = s => `<span class="sev-pill ${s === 'pass' ? 'sev-success' : s === 'fail' ? 'sev-critical' : 'sev-low'}">${s.toUpperCase()}</span>`;
-  let h = `<div class="compliance-summary">Overall: <span class="c-green">${r.summary.pass} pass</span> · <span class="c-red">${r.summary.fail} fail</span> · <span class="c-muted">${r.summary.na} N/A</span></div>`;
+  // v6.3.1: 'not_assessed' (a monitoring blind spot) is distinct from 'na'
+  // (RemotePower structurally can't assess it) — amber, with a warning tone,
+  // so the "silence isn't clearance" verdict is visible not buried.
+  const statusPill = s => s === 'pass' ? '<span class="sev-pill sev-success">PASS</span>'
+    : s === 'fail' ? '<span class="sev-pill sev-critical">FAIL</span>'
+    : s === 'not_assessed' ? '<span class="sev-pill sev-medium" title="Assessable, but the telemetry that would assess it has not run yet — a monitoring blind spot, never counted as a pass.">NOT ASSESSED</span>'
+    : '<span class="sev-pill sev-low" title="RemotePower structurally cannot assess this control.">N/A</span>';
+  const _naTotal = (r.summary.not_assessed || 0);
+  let h = `<div class="compliance-summary">Overall: <span class="c-green">${r.summary.pass} pass</span> · <span class="c-red">${r.summary.fail} fail</span>` +
+    (_naTotal ? ` · <span class="c-amber">${_naTotal} not assessed</span>` : '') +
+    ` · <span class="c-muted">${r.summary.na} N/A</span></div>`;
   for (const fw of Object.keys(r.frameworks)) {
     const f = r.frameworks[fw];
     h += `<div class="settings-section compliance-fw-card">
@@ -24893,7 +24916,7 @@ async function loadCompliance() {
         <div class="section-title">${escHtml(f.label)}</div>
         <div class="compliance-score ${f.score != null && f.score >= 80 ? 'c-green' : f.score != null && f.score >= 50 ? 'c-amber' : 'c-red'}">${f.score != null ? f.score + '%' : '—'}</div>
       </div>
-      <div class="fs-11 c-muted mb-6">${f.pass} pass · ${f.fail} fail · ${f.na} N/A</div>
+      <div class="fs-11 c-muted mb-6">${f.pass} pass · ${f.fail} fail${f.not_assessed ? ` · <span class="c-amber">${f.not_assessed} not assessed</span>` : ''} · ${f.na} N/A</div>
       <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>Control</th><th>Status</th><th>Evidence</th></tr></thead><tbody>` +
       f.controls.map(c => {
         const fix = (c.status === 'fail' && _COMPLIANCE_FIX_PAGE[c.topic])

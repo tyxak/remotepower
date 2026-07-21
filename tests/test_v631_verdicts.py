@@ -44,9 +44,9 @@ class TestCapableSource(unittest.TestCase):
 
     def test_no_patch_data_is_not_assessed(self):
         s = self._statuses(self._facts(), "e8")
-        self.assertEqual(s["E8-2"], "na")     # patch, no coverage
-        self.assertEqual(s["E8-2b"], "na")    # cve, no coverage
-        self.assertEqual(s["E8-6"], "na")     # eol, no coverage
+        self.assertEqual(s["E8-2"], "not_assessed")  # patch, no coverage
+        self.assertEqual(s["E8-2b"], "not_assessed") # cve, no coverage
+        self.assertEqual(s["E8-6"], "not_assessed")  # eol, no coverage
 
     def test_coverage_present_and_clean_is_pass(self):
         facts = self._facts(patch_data_devices=5, cve_scanned_devices=5,
@@ -77,7 +77,7 @@ class TestCapableSource(unittest.TestCase):
         facts = self._facts(mfa_enabled=True)
         rep = compliance.build_report(facts, ["e8"])
         e8 = rep["frameworks"]["e8"]
-        self.assertGreater(e8["na"], 0)
+        self.assertGreater(e8["na"] + e8["not_assessed"], 0)
         measurable = e8["pass"] + e8["fail"]
         self.assertEqual(e8["score"], round(100.0 * e8["pass"] / measurable, 1))
 
@@ -118,7 +118,7 @@ class TestNewFrameworks(unittest.TestCase):
         # No baseline yet → NA (can't attest standing privilege).
         s = {c["id"]: c["status"] for c in
              compliance.build_report({"devices": 3}, ["e8"])["frameworks"]["e8"]["controls"]}
-        self.assertEqual(s["E8-5"], "na")
+        self.assertEqual(s["E8-5"], "not_assessed")
         # Baseline present, clean window → pass.
         s2 = {c["id"]: c["status"] for c in compliance.build_report(
             {"devices": 3, "privileged_group_monitored": 3,

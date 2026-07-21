@@ -9,9 +9,15 @@ to one of:
 
     pass  — observed state satisfies the control
     fail  — observed state violates it (with the offending evidence)
-    na    — RemotePower cannot assess this control: either it has no signal for
-            it at all, OR the capable source that WOULD assess it has not run /
-            reported yet. Never silently counted as a pass.
+    na            — RemotePower STRUCTURALLY cannot assess this control (no
+                    signal for it at all — e.g. application control, Office
+                    macro policy, security-awareness training).
+    not_assessed  — the control IS assessable, but its capable source has not
+                    run/reported yet (a monitoring blind spot — e.g. no package
+                    scan on record, no TLS endpoint monitored). The UI shows
+                    this distinctly from na so an operator can tell "doesn't
+                    apply" from "I'm not monitoring this".
+    (both na and not_assessed are excluded from the score — never a pass.)
 
 **The capable-source rule (v6.3.1, after the Assay "silence isn't clearance"
 discipline):** a control must not infer PASS from an empty offenders list when
@@ -27,6 +33,13 @@ operator aid for audit prep — it does not make a system "compliant".
 """
 
 PASS, FAIL, NA = 'pass', 'fail', 'na'
+# v6.3.1: a THIRD verdict distinct from structural N/A — a control whose
+# capable source (the telemetry that WOULD assess it) has not run/reported.
+# NA = 'RemotePower structurally cannot assess this' (app control, macros,
+# training); NOT_ASSESSED = 'assessable, but we have no data yet' (a blind
+# spot). Both are excluded from the score; the UI shows them differently so
+# an operator can tell 'doesn't apply' from 'I'm not monitoring this'.
+NOT_ASSESSED = 'not_assessed'
 
 FRAMEWORKS = ('pci', 'hipaa', 'soc2', 'e8', 'smb1001')
 FRAMEWORK_LABELS = {
@@ -50,7 +63,7 @@ def _patch_control(facts):
         return FAIL, f"{len(bad)} device(s) over the patch threshold: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
     if _no_coverage(facts, 'patch_data_devices'):
-        return NA, ("No host has reported package/update status yet — patch "
+        return NOT_ASSESSED, ("No host has reported package/update status yet — patch "
                     "posture is not assessed (run a package scan).")
     return PASS, "No device exceeds its pending-patch threshold."
 
@@ -60,7 +73,7 @@ def _cve_control(facts):
     if n:
         return FAIL, f"{n} critical/high CVE finding(s) outstanding across the fleet."
     if _no_coverage(facts, 'cve_scanned_devices'):
-        return NA, ("No host has a CVE scan on record yet — vulnerability "
+        return NOT_ASSESSED, ("No host has a CVE scan on record yet — vulnerability "
                     "posture is not assessed.")
     return PASS, "No outstanding critical or high CVEs."
 
@@ -72,7 +85,7 @@ def _eol_control(facts):
         return FAIL, f"{len(bad)} host(s) on an end-of-life OS: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
     if _no_coverage(facts, 'os_known_devices'):
-        return NA, "No host has reported its OS version yet — EOL status is not assessed."
+        return NOT_ASSESSED, "No host has reported its OS version yet — EOL status is not assessed."
     return PASS, "No hosts are running an end-of-life OS version."
 
 
@@ -81,7 +94,7 @@ def _tls_control(facts):
     if exp:
         return FAIL, f"{len(exp)} certificate(s) expiring soon: " + ", ".join(exp[:10])
     if facts.get('tls_monitored', 0) == 0:
-        return NA, "No TLS endpoints are being monitored."
+        return NOT_ASSESSED, "No TLS endpoints are being monitored."
     return PASS, "All monitored certificates are within their validity window."
 
 
@@ -90,7 +103,7 @@ def _backup_control(facts):
     if bad:
         return FAIL, f"{len(bad)} stale/missing backup(s): " + ", ".join(bad[:10])
     if facts.get('backup_monitors', 0) == 0:
-        return NA, "No backup monitors are configured."
+        return NOT_ASSESSED, "No backup monitors are configured."
     return PASS, "All configured backups are within their freshness window."
 
 
@@ -117,7 +130,7 @@ def _exposure_detection_control(facts):
     """
     n = len(facts.get('new_ports') or [])
     if not facts.get('ports_monitored'):
-        return NA, "No listening-port data collected yet."
+        return NOT_ASSESSED, "No listening-port data collected yet."
     note = (f" {n} port change(s) recorded in the last 30 days — review them in "
             f"Audit → Listening Ports.") if n else " No changes in the last 30 days."
     return PASS, "Listening-port change detection is active." + note
@@ -159,7 +172,7 @@ def _reboot_control(facts):
         return FAIL, f"{len(rb)} host(s) pending a reboot to apply updates: " + \
                ", ".join(rb[:10])
     if _no_coverage(facts, 'sysinfo_devices'):
-        return NA, "No host has reported system status yet — reboot state is not assessed."
+        return NOT_ASSESSED, "No host has reported system status yet — reboot state is not assessed."
     return PASS, "No host is pending a security reboot."
 
 
@@ -195,7 +208,7 @@ def _admin_privilege_control(facts):
         return FAIL, (f"{len(changes)} host(s) with privileged-group changes in "
                       f"the window: " + ", ".join(str(h) for h in changes[:10]))
     if not facts.get('privileged_group_monitored'):
-        return NA, ("Privileged-group change detection has no baseline yet — "
+        return NOT_ASSESSED, ("Privileged-group change detection has no baseline yet — "
                     "standing administrative privilege is not assessed.")
     return PASS, ("No privileged-group (sudo/wheel/Administrators) changes "
                   "detected in the window. Note: this attests change-detection, "
@@ -355,7 +368,7 @@ def build_report(facts, frameworks=None):
         {
           generated_ts: <set by caller>,
           frameworks: {
-            pci: {label, pass, fail, na, score, controls: [
+            pci: {label, pass, fail, na, not_assessed, score, controls: [
               {id, title, status, evidence, remediation}, ...]},
             ...
           },
@@ -365,13 +378,14 @@ def build_report(facts, frameworks=None):
     measure, how much passes" number.
     """
     want = set(frameworks) if frameworks else set(FRAMEWORKS)
-    result = {'frameworks': {}, 'summary': {PASS: 0, FAIL: 0, NA: 0, 'total': 0}}
+    result = {'frameworks': {}, 'summary': {PASS: 0, FAIL: 0, NA: 0,
+                                            NOT_ASSESSED: 0, 'total': 0}}
 
     for fw in FRAMEWORKS:
         if fw not in want:
             continue
         rows = []
-        counts = {PASS: 0, FAIL: 0, NA: 0}
+        counts = {PASS: 0, FAIL: 0, NA: 0, NOT_ASSESSED: 0}
         for (cfw, cid, title, fn, remediation) in _CONTROLS:
             if cfw != fw:
                 continue
@@ -394,10 +408,11 @@ def build_report(facts, frameworks=None):
             'pass':     counts[PASS],
             'fail':     counts[FAIL],
             'na':       counts[NA],
+            'not_assessed': counts[NOT_ASSESSED],
             'score':    round(100.0 * counts[PASS] / measurable, 1) if measurable else None,
             'controls': rows,
         }
-        for k in (PASS, FAIL, NA):
+        for k in (PASS, FAIL, NA, NOT_ASSESSED):
             result['summary'][k] += counts[k]
         result['summary']['total'] += len(rows)
 

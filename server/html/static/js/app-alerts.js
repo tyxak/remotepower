@@ -157,11 +157,12 @@ function _alertRowHtml(a, role) {
   const ts = _formatTs(a.ts);
   let actions = '';
   if (!isResolved) {
-    actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
-    // v6.3.1: agentic triage — the model gathers evidence via read-only tools
-    // (journal, log search, sibling alerts, latest log sweep) and stores a
-    // verdict + evidence trail on the alert.
-    actions += `<button class="btn-icon btn-xs" data-action="aiTriageAlert" data-arg="${a.id}" title="AI triage: agentic investigation — the model gathers evidence through read-only tools and stores a verdict on this alert">${_icon('search',14)} Triage</button> `;
+    // v6.3.1 (UX): Triage is the PRIMARY AI action (agentic — gathers evidence
+    // via read-only tools and stores a verdict + trail). The older one-shot
+    // Investigate is kept but demoted to an icon-only quick action so the row
+    // has one clear AI entry point instead of two competing labels.
+    actions += `<button class="btn-icon btn-xs" data-action="aiTriageAlert" data-arg="${a.id}" title="AI triage: agentic investigation — the model gathers evidence through read-only tools and stores a verdict on this alert">${_icon('sparkles',14)} Triage</button> `;
+    actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="Quick AI investigate (one-shot explanation + suggested fixes, no stored verdict)" aria-label="Quick AI investigate">${_icon('search',12)}</button> `;
     // v5.8.0 (B1.2): one-click remediation when the server tagged a playbook
     // for this alert's event (mitigation_kind set only when a device + playbook
     // apply). Opens the same diagnostic→AI→fix runner as the dashboard feed.
