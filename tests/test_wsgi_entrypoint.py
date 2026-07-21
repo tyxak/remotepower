@@ -96,7 +96,13 @@ class TestWsgiEntrypoint(unittest.TestCase):
         import sys
         import tempfile
 
-        os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-wsgi-span-test-"))
+        # v6.3.1: force a FRESH, empty data dir for this exec — `setdefault` was
+        # a no-op once the conftest RP_DATA_DIR guard always sets the var, so the
+        # test shared whatever dir the xdist worker's prior tests had populated
+        # (leftover config/devices/OTLP state → an extra or missing traces post,
+        # the wsgi-span flake). The conftest guard restores RP_DATA_DIR after the
+        # module, so this override can't leak forward.
+        os.environ["RP_DATA_DIR"] = tempfile.mkdtemp(prefix="rp-wsgi-span-test-")
         sys.path.insert(0, str(_CGI))
         spec = importlib.util.spec_from_file_location("wsgi_span_test", _CGI / "wsgi.py")
         wsgi = importlib.util.module_from_spec(spec)

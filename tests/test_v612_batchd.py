@@ -133,12 +133,20 @@ class TestScheduledReportToWebhook(_Case):
                 self.sent.append({'event': ev, 'dest': dest.get('id'),
                                   'title': title, 'body': msg}))
         self.emails = []
+        # v6.3.1 (leak fix): smtp_notifier is a sys.modules-shared object, so
+        # even reached via the isolated self.api this stub mutates the GLOBAL
+        # module — restore it in tearDown or it leaks into every later module in
+        # the xdist worker (broke test_v541_testmode's dry-run assertions).
+        self._orig_send_email = self.api.smtp_notifier.send_email
         self.api.smtp_notifier.send_email = (
             lambda cfg, rcpts, subj, body, **kw: self.emails.append(rcpts))
         self.api._log_email = lambda *a: None
         self.api._build_fleet_report = lambda: {'summary': {}}
         self.api._filter_report_sections = lambda r, s: r
         self.api._render_report_email = lambda r: ('Fleet report', 'the report body')
+
+    def tearDown(self):
+        self.api.smtp_notifier.send_email = self._orig_send_email
 
     def _cfg(self, definition, dests=None):
         self.api.save(self.api.CONFIG_FILE, {
