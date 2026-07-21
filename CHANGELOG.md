@@ -158,6 +158,36 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   verdict, shown only when the evidence genuinely suggests adversary
   behaviour.
 
+### Wave 7 — multi-lens review fixes (security / correctness / a11y)
+Findings from a security + UX + code-quality + product review of the v6.3.1
+waves, fixed before release:
+- **HIGH (cross-tenant) — compliance report leak.** `_compliance_facts` read
+  `DEVICES_FILE` unscoped, and the compliance evidence strings embed offender
+  **hostnames**, so any authenticated user (even a read-only viewer) got other
+  tenants'/scopes' hostnames + fleet CVE/EOL/patch posture via
+  `GET /api/compliance` and `/api/fleet-report`. Now scoped with
+  `_scope_filter_devices` (+ fleet-event facts filtered to the visible set) —
+  the same fix the sibling CIS handler already had.
+- **Correctness — auto-remediation auto-disabled working rules.** The verify
+  loop judged a fix "failed" by "is the alert still open?", but events with no
+  auto-recover path (log_alert, oom_detected, disk_full, brute_force, …) keep
+  their alert open until a human resolves it — so a genuinely-successful fix
+  was marked failed every pass and the rule auto-disabled after 3. Those
+  attempts are now **`unverifiable`** (no page, no fail count, no disable);
+  gated on the registry-derived `_AUTO_RESOLVABLE_EVENTS`.
+- **Auto-triage hardening.** It now (a) only runs under the out-of-band
+  scheduler — never stalls a request/heartbeat for the multi-call AI latency;
+  (b) reads-checks-stamps its cadence state under a lock — no double-spend
+  across workers; (c) picks **severity-then-oldest** instead of newest-first,
+  so the backlog can't starve; (d) the Settings toggle now states plainly that
+  it egresses alert evidence to the AI provider automatically (informed
+  consent, unlike the manual button).
+- **a11y — the "Diagnose from logs" modal** was built dynamically and bypassed
+  the modal manager (no Escape, no backdrop-close, no focus trap). Rewired
+  through `openModal`/`closeModal` + a backdrop listener + `aria-labelledby`.
+- The `metrics_trend` triage-tool menu text still described the pre-wave-6
+  behaviour (misdescribing the tool to the model) — corrected.
+
 ### Wave 6 — the metrics incident-zoom band
 - **5-minute metric roll-up tier (kept ~8 days)** fills the resolution gap
   between the raw 1-minute window (only ~24 h) and the hourly tier (30 days) —

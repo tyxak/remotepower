@@ -571,6 +571,10 @@ class TestAutoTriage(unittest.TestCase):
         ]})
         self.calls = []
         self._orig_ai = api._call_ai_with_prompts
+        # v6.3.1: auto-triage now only runs under the out-of-band scheduler
+        # (never the request path) — stub it active for these tests.
+        self._orig_sched = api._external_scheduler_active
+        api._external_scheduler_active = lambda: True
 
         def fake(system_prompt, user_prompt, key):
             self.calls.append(key)
@@ -581,6 +585,7 @@ class TestAutoTriage(unittest.TestCase):
 
     def tearDown(self):
         api._call_ai_with_prompts = self._orig_ai
+        api._external_scheduler_active = self._orig_sched
 
     def _triaged_ids(self):
         return [a["id"] for a in api.load(api.ALERTS_FILE)["alerts"]
@@ -623,6 +628,29 @@ class TestAutoTriage(unittest.TestCase):
              "device_id": "dev1", "ts": int(time.time())}]})
         api.run_ai_triage_if_due()
         self.assertEqual(self._triaged_ids(), [])
+
+    def test_requires_the_out_of_band_scheduler(self):
+        # v6.3.1 hardening: never run the multi-call loop on the request path.
+        api._external_scheduler_active = lambda: False
+        api.run_ai_triage_if_due()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self._triaged_ids(), [])
+
+    def test_picks_severity_then_oldest_not_lifo(self):
+        # v6.3.1 anti-starvation: within the floor, most-severe + longest-waiting
+        # drains first (was newest-first LIFO, which starved the backlog).
+        now = int(time.time())
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "high_new", "event": "e", "severity": "high",
+             "device_id": "dev1", "ts": now - 5},
+            {"id": "high_old", "event": "e", "severity": "high",
+             "device_id": "dev1", "ts": now - 500},
+            {"id": "crit", "event": "e", "severity": "critical",
+             "device_id": "dev1", "ts": now - 50},
+        ]})
+        api.run_ai_triage_if_due()
+        # critical outranks both highs regardless of age.
+        self.assertEqual(self._triaged_ids(), ["crit"])
 
     def test_registered_in_both_cadence_registries(self):
         import scheduler

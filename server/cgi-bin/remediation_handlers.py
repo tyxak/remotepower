@@ -156,6 +156,15 @@ def run_remediation_verify_if_due():
     fired_payloads = []
     rules_delta = {}   # rule_id -> 'fail' | 'ok'
     for att in due:
+        # v6.3.1 (BUGFIX): only judge a fix by "did the alert clear?" for events
+        # that HAVE an auto-recover path. For events whose alert stays open until
+        # a human resolves it (oom_detected, log_alert, disk_full, brute_force,
+        # …), "still open" is NOT evidence the fix failed — treating it as such
+        # would false-fail and eventually AUTO-DISABLE a working rule. Those
+        # attempts are marked 'unverifiable' and skip the failure accounting.
+        if att.get('event') not in A._AUTO_RESOLVABLE_EVENTS:
+            verdicts[att['id']] = 'unverifiable'
+            continue
         failed = (att.get('event'), att.get('device_id')) in open_alerts
         verdicts[att['id']] = 'failed' if failed else 'verified'
         rules_delta[att.get('rule_id')] = 'fail' if failed else \

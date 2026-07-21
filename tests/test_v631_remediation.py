@@ -138,14 +138,31 @@ class TestVerifySweep(unittest.TestCase):
     def tearDown(self):
         api.fire_webhook = self._orig_fw
 
-    def _seed_attempt(self, verify_offset=-10, status="queued"):
+    def _seed_attempt(self, verify_offset=-10, status="queued",
+                      event="service_down"):
         now = int(time.time())
         api.save(api.REMEDIATIONS_FILE, {"attempts": [{
             "id": "rem-1", "ts": now - 400, "rule_id": "r-test01",
             "rule_name": "Restart nginx", "device_id": "d1",
-            "device_name": "h1", "event": "service_down", "script_id": "s1",
+            "device_name": "h1", "event": event, "script_id": "s1",
             "status": status, "reason": "", "verify_at": now + verify_offset,
         }], "last_verify": 0})
+
+    def test_non_resolvable_event_is_unverifiable_not_failed(self):
+        # v6.3.1 BUGFIX: a fix on an event with no auto-recover path (log_alert,
+        # oom_detected, …) must NOT be judged failed just because the alert is
+        # still open — that would false-fail and auto-disable a working rule.
+        self.assertNotIn("log_alert", api._AUTO_RESOLVABLE_EVENTS)
+        self._seed_attempt(event="log_alert")
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "a1", "event": "log_alert", "device_id": "d1"}]})  # still open
+        api.run_remediation_verify_if_due()
+        att = api.load(api.REMEDIATIONS_FILE)["attempts"][0]
+        self.assertEqual(att["status"], "unverifiable")
+        self.assertEqual(self.fired, [])                       # no page
+        rule = api.load(api.RULES_FILE)["rules"][0]
+        self.assertNotEqual(rule.get("consecutive_failures"), 1)  # no fail count
+        self.assertTrue(rule.get("enabled"))                   # not disabled
 
     def test_verified_when_alert_cleared(self):
         self._seed_attempt()

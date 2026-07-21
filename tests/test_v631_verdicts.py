@@ -148,6 +148,27 @@ class TestFactsWiring(unittest.TestCase):
                   "privileged_group_monitored", "privileged_group_changes"):
             self.assertIn(k, f, k)
 
+    def test_facts_are_scoped_to_the_passed_device_set(self):
+        # v6.3.1 SECURITY: _compliance_facts(devices) must only surface the
+        # passed device set's hosts — an unscoped read leaked cross-tenant
+        # hostnames via the offender-list evidence strings.
+        api = self.api
+        api.save(api.DEVICES_FILE, {
+            "mine": {"name": "myhost", "os": "Linux",
+                     "sysinfo": {"packages": {"upgradable": 999},
+                                 "reboot_required": True}},
+            "theirs": {"name": "otherhost", "os": "Linux",
+                       "sysinfo": {"packages": {"upgradable": 999},
+                                   "reboot_required": True}},
+        })
+        # Pass only "mine" (as a scoped caller's filtered set would).
+        scoped = {"mine": api.load(api.DEVICES_FILE)["mine"]}
+        f = api._compliance_facts(scoped)
+        self.assertIn("myhost", f["pending_patches_devices"])
+        self.assertNotIn("otherhost", f["pending_patches_devices"])
+        self.assertNotIn("otherhost", f["reboot_required"])
+        self.assertEqual(f["patch_data_devices"], 1)   # only the scoped host
+
     def test_patch_coverage_counts_reporting_hosts(self):
         api = self.api
         api.save(api.DEVICES_FILE, {

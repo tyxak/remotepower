@@ -23897,6 +23897,9 @@ async function _loadRemediationLog() {
     queued:    '<span class="sev-pill sev-medium">queued</span>',
     done:      '<span class="sev-pill sev-low">done</span>',
     suppressed:'<span class="sev-pill sev-info">suppressed</span>',
+    // v6.3.1: the fix ran but its alert has no auto-recover path, so we can't
+    // confirm it cleared — not a failure, just unverifiable this way.
+    unverifiable:'<span class="sev-pill sev-info" title="The fix ran, but this alert type has no automatic recovery signal, so RemotePower cannot confirm it cleared. Verify manually.">ran (unverifiable)</span>',
   }[s] || `<span class="sev-pill">${escHtml(s || '?')}</span>`);
   const reasonTxt = { host_cooldown: 'per-host cooldown', blast_cap: 'max-hosts/hour cap' };
   el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead>

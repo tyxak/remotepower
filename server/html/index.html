@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-6">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-7">
 
 </head>
 <body>
@@ -3193,7 +3193,7 @@
           <!-- v6.3.1: opt-in agentic auto-triage of new alerts -->
           <div class="settings-section">
             <div class="section-title">Automatic alert triage</div>
-            <p class="hint">When enabled, RemotePower runs the same agentic Triage the alert inbox offers — read-only evidence tools, strict tool budget — on new open alerts (one per cadence tick) and stores the verdict on the alert (the &ldquo;AI verdict&rdquo; badge). Each run makes several AI-provider calls; the daily cap bounds spend. Runs off the request path when the out-of-band scheduler is active. <a href="docs/ai.md" class="c-accent">Documentation</a></p>
+            <p class="hint">When enabled, RemotePower runs the same agentic Triage the alert inbox offers — read-only evidence tools, strict tool budget — on new open alerts (one per cadence tick) and stores the verdict on the alert (the &ldquo;AI verdict&rdquo; badge). Each run makes several AI-provider calls; the daily cap bounds spend. <strong>Requires the out-of-band scheduler</strong> — it never runs on the request path (so it can't stall a heartbeat). <strong>Unlike the manual Triage button, this sends alert evidence automatically:</strong> the affected host&rsquo;s recent journal, hostname and IP go to your configured AI provider for every matching alert (across all tenants), without a per-alert click. If that provider is off-box, prefer a local model (Ollama/LocalAI) or leave this off and triage manually. <a href="docs/ai.md" class="c-accent">Documentation</a></p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-triage-auto"> Auto-triage new alerts</label>
             <div class="settings-row isl-72">
               <div class="form-group mw-200">
@@ -10469,34 +10469,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-6"></script>
+<script defer src="static/js/app.js?v=6.3.1-7"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-6"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-7"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-6"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-7"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-6"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-7"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-6"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-6"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-7"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-7"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10505,6 +10505,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-6"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-7"></script>
 </body>
 </html>

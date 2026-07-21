@@ -7407,6 +7407,15 @@ _ALERT_RECOVER = {ev: spec['resolves'][0]
 _ALERT_RECOVER_EXTRA = {ev: tuple(spec['resolves'][1:])
                         for ev, spec in EVENT_REGISTRY.items()
                         if len(spec.get('resolves', ())) > 1}
+# v6.3.1: the set of FIRING events that have SOME auto-recover path (they are a
+# resolves-target of a recover event), so their inbox alert clears itself when
+# the condition heals. The auto-remediation verify loop can only judge a fix by
+# "did the alert clear?" for these — events NOT in this set (oom_detected,
+# brute_force_detected, log_alert, disk_full, fail2ban_ban, port_scan_detected,
+# …) keep their alert open until a human resolves it, so treating "still open"
+# as a failed fix would false-fail and auto-disable a working rule.
+_AUTO_RESOLVABLE_EVENTS = frozenset(
+    t for spec in EVENT_REGISTRY.values() for t in (spec.get('resolves') or ()))
 
 # Wire the pure notification builders (notify.py) to the registry-derived
 # lookups their payloads embed.
@@ -38304,10 +38313,22 @@ def handle_ai_anomaly():
                   'used_today': used, 'daily_cap': cap})
 
 
-def _compliance_facts():
+def _compliance_facts(devices=None):
     """Assemble the fleet 'facts' the compliance checks evaluate, drawn
-    entirely from data RemotePower already collects."""
-    devices = load(DEVICES_FILE) or {}
+    entirely from data RemotePower already collects.
+
+    v6.3.1 (SECURITY): callers on an AUTHENTICATED path MUST pass the caller's
+    visible device set (``_scope_filter_devices(load(DEVICES_FILE))``) — the
+    facts embed offender HOSTNAMES in the evidence strings, so an unscoped read
+    is a cross-tenant/cross-scope disclosure (the fleet-aggregate class fixed in
+    v6.1.1; the sibling CIS handler already scopes). ``devices=None`` is the
+    SYSTEM path (RAG corpus builder) which is whole-fleet by design; every
+    device-keyed store read below is gated on membership in ``devices``, and the
+    fleet-event-derived facts are filtered to that device set."""
+    if devices is None:
+        devices = load(DEVICES_FILE) or {}
+    _visible_ids = set(devices.keys())
+    _visible_names = {(d.get('name') or did) for did, d in devices.items()}
     cfg = load(CONFIG_FILE) or {}
     now = int(time.time())
 
@@ -38459,8 +38480,13 @@ def _compliance_facts():
     try:
         cutoff = now - _compliance_lookback_days * 86400
         events = (load(FLEET_EVENTS_FILE) or {}).get('events', [])
+        # v6.3.1 (SECURITY): restrict events to the caller's visible devices —
+        # a fleet event carries device_id (+ name), so an unfiltered read
+        # would leak other scopes'/tenants' hostnames into the evidence.
         recent = [e for e in events
-                  if isinstance(e, dict) and e.get('ts', 0) >= cutoff]
+                  if isinstance(e, dict) and e.get('ts', 0) >= cutoff
+                  and ((e.get('payload') or {}).get('device_id') in _visible_ids
+                       or (e.get('payload') or {}).get('name') in _visible_names)]
 
         def _ev_label(e, with_port=False):
             p = e.get('payload') or {}
@@ -38499,7 +38525,8 @@ def handle_compliance():
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     fw_raw = (qs.get('frameworks', [''])[0] or '').strip()
     frameworks = [f for f in fw_raw.split(',') if f in compliance.FRAMEWORKS] or None
-    facts = _compliance_facts()
+    # v6.3.1 (SECURITY): scope the fact set to the caller's visible devices.
+    facts = _compliance_facts(_scope_filter_devices(load(DEVICES_FILE) or {}))
     report = compliance.build_report(facts, frameworks)
     report['generated_ts'] = int(time.time())
     respond(200, report)
@@ -48797,7 +48824,8 @@ def _build_fleet_report(site_id=None):
     _compliance_facts/compliance.build_report, the CVE findings store) rather
     than recomputing, so the report can never disagree with the live pages.
     When `site_id` is given, devices / patches / SLA / CVE / health are scoped to
-    that site; compliance stays fleet-wide (tagged `scope: fleet`)."""
+    that site; compliance is scoped to the caller's visible devices (v6.3.1 —
+    was fleet-wide, a cross-scope hostname leak via the evidence strings)."""
     devices = load(DEVICES_FILE) or {}
     if site_id is not None:
         devices = {k: v for k, v in devices.items()
@@ -48860,7 +48888,11 @@ def _build_fleet_report(site_id=None):
                        'warning':  sum(d.get('warning', 0) for d in hdevs),
                        'info':     sum(d.get('info', 0) for d in hdevs)},
         }
-    comp = compliance.build_report(_compliance_facts())
+    # v6.3.1 (SECURITY): scope compliance to the caller's visible devices too —
+    # it was fleet-wide, leaking other scopes'/tenants' hostnames via the
+    # offender-list evidence strings. `devices` here is already
+    # _scope_filter_devices'd above.
+    comp = compliance.build_report(_compliance_facts(devices))
     comp['generated_ts'] = now
     if site_id is not None:
         comp['scope'] = 'fleet'   # compliance frameworks are graded fleet-wide

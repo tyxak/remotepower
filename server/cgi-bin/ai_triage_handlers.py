@@ -455,7 +455,8 @@ _TRIAGE_TOOL_MENU = (
     "- log_sweep {} — latest hail-mary /var/log sweep excerpt (a stale/missing "
     "sweep auto-requests a fresh one for the next run)\n"
     "- cves {} — the host's open CVE findings, top by severity\n"
-    "- metrics_trend {} — recent daily disk/metric samples (growth trends)\n"
+    "- metrics_trend {} — recent CPU/mem/swap/disk % (5-min & hourly avg/max) "
+    "around the incident\n"
 )
 
 
@@ -662,19 +663,32 @@ def run_ai_triage_if_due():
     see the alert). Provider latency note: with the out-of-band scheduler this
     runs fully off the request path; without it, the tick that picks an alert
     pays the AI calls in-request — which is why the feature ships OFF."""
+    # v6.3.1 (hardening): NEVER run the multi-call investigate loop on the
+    # request path. When the out-of-band scheduler is active it owns the
+    # cadence and the request path skips every sweep; without it, this loop
+    # would stall whatever request (a heartbeat!) trips the gate for the full
+    # AI latency. So auto-triage only runs under the scheduler.
+    if not A._external_scheduler_active():
+        return
     cfg = A._ai_cfg()
     at = cfg.get('auto_triage') or {}
     if not (cfg.get('enabled') and at.get('enabled')):
         return
     now = int(time.time())
-    state = A.load(A.AI_TRIAGE_STATE_FILE) or {}
-    if now - int(state.get('last_run') or 0) < _AUTO_TRIAGE_MIN_INTERVAL_S:
-        return
-    today = time.strftime('%Y-%m-%d', time.gmtime(now))
-    count = int(state.get('count') or 0) if state.get('day') == today else 0
     cap = int(at.get('daily_cap') or 20)
-    if count >= cap:
-        return
+    today = time.strftime('%Y-%m-%d', time.gmtime(now))
+    # v6.3.1 (hardening): the read-check-stamp of the cadence state must be
+    # atomic, or two workers both pass the interval gate and double-spend AI
+    # calls on the same alert. Take the lock, re-check, stamp, release — THEN
+    # do the slow AI work outside the lock.
+    with A._LockedUpdate(A.AI_TRIAGE_STATE_FILE) as state:
+        if now - int(state.get('last_run') or 0) < _AUTO_TRIAGE_MIN_INTERVAL_S:
+            return
+        count = int(state.get('count') or 0) if state.get('day') == today else 0
+        if count >= cap:
+            return
+        # Stamp BEFORE the slow work so a provider hang can't re-enter this run.
+        state.update({'last_run': now, 'day': today, 'count': count})
     floor = _SEV_RANK.get(str(at.get('min_severity') or 'high'), 1)
     alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
     candidates = [
@@ -685,22 +699,32 @@ def run_ai_triage_if_due():
         and _SEV_RANK.get(a.get('severity'), 9) <= floor
         and int(a.get('ts') or 0) >= now - _AUTO_TRIAGE_LOOKBACK_S
     ]
-    # Stamp the attempt BEFORE the slow AI work so a provider hang can't make
-    # every subsequent tick re-enter the same run.
-    state.update({'last_run': now, 'day': today, 'count': count})
-    A.save(A.AI_TRIAGE_STATE_FILE, state)
     if not candidates:
         return
-    alert = max(candidates, key=lambda a: int(a.get('ts') or 0))
+    # v6.3.1 (hardening): pick by SEVERITY first, then OLDEST — the previous
+    # newest-first (LIFO) pick starved the backlog during sustained alerting
+    # (older un-triaged alerts were perpetually superseded and, against the
+    # daily cap, never triaged). Most-severe, longest-waiting drains first.
+    alert = min(candidates, key=lambda a: (_SEV_RANK.get(a.get('severity'), 9),
+                                           int(a.get('ts') or 0)))
     dev_id = alert['device_id']
     dev = (A.load(A.DEVICES_FILE) or {}).get(dev_id) or {}
+
+    def _bump_count():
+        # Locked RMW — the counter is mutated on a separate path from the
+        # last_run stamp, so re-read under the lock rather than writing a stale
+        # snapshot (which would clobber a concurrent tick's count).
+        with A._LockedUpdate(A.AI_TRIAGE_STATE_FILE) as st:
+            if st.get('day') != today:
+                st['day'], st['count'] = today, 0
+            st['count'] = int(st.get('count') or 0) + 1
+
     try:
         triage = A._run_alert_triage(alert, dev_id, dev)
     except Exception as exc:
         # Provider down / misconfigured — count the attempt (it spent calls)
         # and let the next tick try a fresh alert rather than looping on this.
-        state['count'] = count + 1
-        A.save(A.AI_TRIAGE_STATE_FILE, state)
+        _bump_count()
         raise RuntimeError(f'auto-triage of {alert.get("id")} failed: {exc}') from exc
     triage['at'] = int(time.time())
     triage['by'] = 'auto'
@@ -709,7 +733,6 @@ def run_ai_triage_if_due():
             if a.get('id') == alert.get('id'):
                 a['ai_triage'] = triage
                 break
-    state['count'] = count + 1
-    A.save(A.AI_TRIAGE_STATE_FILE, state)
+    _bump_count()
     A.audit_log('auto', 'alert_ai_triage',
                 f'id={alert.get("id")} rounds={triage.get("rounds")} (auto)')

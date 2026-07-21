@@ -1987,6 +1987,7 @@ function _ensureLogSweepModal() {
   wrap.id = 'log-sweep-modal';
   wrap.setAttribute('role', 'dialog');
   wrap.setAttribute('aria-modal', 'true');
+  wrap.setAttribute('aria-labelledby', 'log-sweep-title');   // v6.3.1 a11y
   wrap.innerHTML = `
     <div class="modal modal-wide">
       <div class="modal-title" id="log-sweep-title">Diagnose from logs</div>
@@ -2003,21 +2004,28 @@ function _ensureLogSweepModal() {
       </div>
     </div>`;
   document.body.appendChild(wrap);
+  // v6.3.1 (a11y fix): this modal is created dynamically, so the one-time
+  // backdrop-close listener that app.js wires at load never saw it. Wire it
+  // here; Escape/focus-trap/scroll-lock come from openModal/closeModal below.
+  wrap.addEventListener('click', e => { if (e.target === wrap) closeLogSweepModal(); });
   _lsModalEl = wrap;
   return wrap;
 }
 
 function closeLogSweepModal() {
   if (_lsPollTimer) { clearInterval(_lsPollTimer); _lsPollTimer = null; }
-  if (_lsModalEl) _lsModalEl.classList.remove('active');
+  if (typeof closeModal === 'function') closeModal('log-sweep-modal');
+  else if (_lsModalEl) _lsModalEl.classList.remove('active');
 }
 
 function openLogSweep(devId, name) {
   _ensureLogSweepModal();
   _lsDevId = devId; _lsDevName = name || devId;
   document.getElementById('log-sweep-title').textContent = `Diagnose from logs — ${_lsDevName}`;
-  _lsModalEl.classList.add('active');
-  if (typeof _raiseModalZ === 'function') _raiseModalZ(_lsModalEl);
+  // Drive through the modal manager so Escape closes it, focus is trapped and
+  // restored, and body scroll locks — the a11y contract every other modal has.
+  if (typeof openModal === 'function') openModal('log-sweep-modal');
+  else { _lsModalEl.classList.add('active'); if (typeof _raiseModalZ === 'function') _raiseModalZ(_lsModalEl); }
   _logSweepLoad();
 }
 
