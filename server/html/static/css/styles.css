@@ -2844,6 +2844,23 @@ input.form-input[type="text"][data-token],
   padding-top: 8px;
   border-top: 1px solid var(--hair);
 }
+.attack-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attack-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  text-decoration: none;
+  color: inherit;
+  padding: 2px 6px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+}
+.attack-chip:hover { border-color: var(--accent); }
 
 /* ─── Index dashboard tiles ────────────────────────────────────────────
  * Big-number summary tiles for the home page. Hover lifts subtly. */

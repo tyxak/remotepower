@@ -601,12 +601,30 @@ function _renderTriageResult(el, t, alertId, deviceId) {
       ? `<p><strong>Evidence</strong></p><ul>${v.evidence.map(e => `<li>${_escapeHtml(e)}</li>`).join('')}</ul>` : '') +
     (v.recommended_action
       ? `<p><strong>Recommended action:</strong> ${_escapeHtml(v.recommended_action)}</p>` : '') +
+    _renderAttackTechniques(v.attack_techniques) +
     proposeHtml +
     (stepsHtml
       ? `<p class="hint">Evidence gathered via ${steps.length} tool call(s):</p><ul class="hint">${stepsHtml}</ul>` : '') +
     ((t && t.at) ? `<p class="hint">Run ${_formatTs(t.at)} by ${_escapeHtml(t.by || '?')}${t.by === 'auto' ? ' (automatic triage)' : ''}</p>` : '') +
     fbHtml +
     '</div>';
+}
+
+// v6.3.1: MITRE ATT&CK techniques the triage model mapped, labelled by proof
+// strength (observed > inferred > theoretical) — never asserting certainty.
+function _renderAttackTechniques(techs) {
+  if (!Array.isArray(techs) || !techs.length) return '';
+  const proofCls = { observed: 'sev-critical', inferred: 'sev-high', theoretical: 'sev-low' };
+  const chips = techs.map(t => {
+    const id = _escapeHtml(String(t.id || ''));
+    const href = `https://attack.mitre.org/techniques/${encodeURIComponent(String(t.id || '').replace('.', '/'))}/`;
+    return `<a href="${_safeHttpHref(href)}" target="_blank" rel="noopener" class="attack-chip" `
+      + `title="${_escapeHtml(t.name || '')} — proof: ${_escapeHtml(t.proof || '')}">`
+      + `<span class="sev-pill ${proofCls[t.proof] || 'sev-low'}">${id}</span> `
+      + `${_escapeHtml(t.name || '')} <span class="fs-10 c-muted">(${_escapeHtml(t.proof || '')})</span></a>`;
+  }).join(' ');
+  return `<p><strong>ATT&amp;CK techniques</strong> <span class="fs-11 c-muted">(proof-labelled — not a claim of certainty)</span></p>`
+    + `<div class="attack-chips">${chips}</div>`;
 }
 
 async function triageFeedback(alertId, dir) {

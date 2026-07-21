@@ -1173,6 +1173,7 @@ ai_triage_handlers_mod.bind(globals())
 for _at_name in (
         '_redact_log_line', '_ingest_log_sweep', '_sweep_excerpt',
         '_triage_tools', '_parse_triage_json', '_run_alert_triage',
+        '_clean_attack_techniques',
         'handle_log_sweep_run', 'handle_log_sweep_get',
         'handle_log_sweep_diagnose', 'handle_alert_ai_triage',
         'handle_alert_triage_feedback', 'run_ai_triage_if_due',
@@ -38316,15 +38317,32 @@ def _compliance_facts():
     # Patches / reboots from sysinfo + config threshold.
     patch_thresh = int((cfg.get('thresholds') or {}).get('patch_alert', 50) or 50)
     pending_bad, reboot = [], []
+    # v6.3.1: CAPABLE-SOURCE coverage counts (the "silence isn't clearance"
+    # rule). A control that infers PASS from an empty offenders list is
+    # false-green when the underlying telemetry was never collected — so we
+    # count how many MONITORED hosts actually reported each signal, and the
+    # control returns 'not assessed' (not PASS) when that count is 0.
+    patch_data_devices = sysinfo_devices = os_known_devices = 0
     for dev in devices.values():
+        if not isinstance(dev, dict) or dev.get('monitored') is False:
+            continue
         si = dev.get('sysinfo') or {}
+        if si:
+            sysinfo_devices += 1
         up = (si.get('packages') or {}).get('upgradable')
-        if isinstance(up, int) and up >= patch_thresh:
-            pending_bad.append(dev.get('name', '?'))
+        if isinstance(up, int):
+            patch_data_devices += 1
+            if up >= patch_thresh:
+                pending_bad.append(dev.get('name', '?'))
         if si.get('reboot_required'):
             reboot.append(dev.get('name', '?'))
+        if dev.get('os'):
+            os_known_devices += 1
     facts['pending_patches_devices'] = pending_bad
     facts['reboot_required'] = reboot
+    facts['patch_data_devices'] = patch_data_devices
+    facts['sysinfo_devices'] = sysinfo_devices
+    facts['os_known_devices'] = os_known_devices
 
     # CVEs (critical+high) from the findings store. Match the CVE Findings page
     # exactly so Compliance can't disagree with it: (1) skip findings for devices
@@ -38346,8 +38364,14 @@ def _compliance_facts():
                         and str(f.get('severity', '')).lower() in ('critical', 'high'):
                     cnt += 1
         facts['cve_critical_high'] = cnt
+        # v6.3.1 capable-source: how many live hosts actually have a CVE scan
+        # on record. 0 → the CVE control reports 'not assessed', not a pass.
+        facts['cve_scanned_devices'] = sum(
+            1 for did, rec in cve_all.items()
+            if did in devices and isinstance(rec, dict) and rec.get('findings') is not None)
     except Exception:
         facts['cve_critical_high'] = 0
+        facts['cve_scanned_devices'] = 0
 
     # TLS expiry from the TLS monitor results (≤21 days remaining = expiring).
     try:
@@ -38402,6 +38426,19 @@ def _compliance_facts():
     facts['new_ports'] = []
     facts['ssh_key_changes'] = []
     facts['brute_force'] = []
+    facts['privileged_group_changes'] = []
+    # v6.3.1: privileged-group change detection is "monitored" once a host has a
+    # sudo/wheel/Administrators baseline (accounts reported → `_priv_users` set
+    # in HARDWARE_FILE). Gates the Essential Eight E8-5 / SMB1001 access control
+    # to NA when no host has reported account data yet, per the capable-source
+    # rule — rather than a false PASS.
+    try:
+        _hw = load(HARDWARE_FILE) or {}
+        facts['privileged_group_monitored'] = sum(
+            1 for did, rec in _hw.items()
+            if did in devices and isinstance(rec, dict) and rec.get('_priv_users') is not None)
+    except Exception:
+        facts['privileged_group_monitored'] = 0
     # How many devices have a listening-port baseline — i.e. is change
     # detection actually running. (The CC7.1 control passes on capability, not
     # on the raw count of changes.)
@@ -38430,6 +38467,8 @@ def _compliance_facts():
             _ev_label(e) for e in recent if e.get('event') == 'ssh_key_added'))
         facts['brute_force'] = list(dict.fromkeys(
             _ev_label(e) for e in recent if e.get('event') == 'brute_force_detected'))
+        facts['privileged_group_changes'] = list(dict.fromkeys(
+            _ev_label(e) for e in recent if e.get('event') == 'priv_group_added'))
     except Exception:
         pass
     return facts

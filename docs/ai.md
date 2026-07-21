@@ -226,9 +226,11 @@ and the latest hail-mary sweep — replying with strict JSON (one tool call or
 a final verdict) each round, hard-capped at 4 tool calls, every tool result
 clipped and secret-redacted.
 
-The verdict (root cause, confidence, evidence lines, recommended action) and
-the tool trail are stored on the alert and reopen from the **AI verdict**
-badge on the row. The model **never executes anything** — acting on a verdict
+The verdict (root cause, confidence, evidence lines, recommended action, and —
+when the evidence genuinely suggests adversary behaviour — **proof-labelled
+MITRE ATT&CK techniques**: observed / inferred / theoretical, never a claim of
+certainty) and the tool trail are stored on the alert and reopen from the
+**AI verdict** badge on the row. The model **never executes anything** — acting on a verdict
 stays on the existing approval-gated paths (mitigate playbooks, the governed
 AI executor). Cross-tenant or out-of-scope alert ids 404.
 

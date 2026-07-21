@@ -138,6 +138,26 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   runbook, the "backups are not HA" distinction, and an explicit capacity
   target (1,000 devices @ 60 s poll) with a load-test recipe.
 
+### Wave 5 — compliance verdict discipline + Essential Eight / SMB1001 + ATT&CK
+- **The capable-source rule** (after Assay's "silence isn't clearance"): a
+  compliance control no longer infers **Pass** from an empty offenders list
+  when the underlying telemetry was never collected. Patch, CVE, EOL, reboot
+  and privileged-access controls now gate on a coverage fact (how many
+  monitored hosts actually reported the signal) and return **Not assessed**
+  — never a silent green — when coverage is zero on a non-empty fleet. The
+  score stays `pass / (pass + fail)` so Not-assessed can't inflate it. Closes
+  a real false-green class on the audit surface.
+- **Two new frameworks**: **ACSC Essential Eight** (all eight mitigation
+  strategies; application control / macro policy / user hardening are honestly
+  **Not assessed** rather than hidden or faked) and **SMB1001:2026** — both
+  selectable on the Compliance page, both reusing the existing fleet facts.
+- **Proof-labelled MITRE ATT&CK on triage verdicts** — the agentic triage may
+  now tag a verdict with real ATT&CK technique ids, each labelled **observed /
+  inferred / theoretical** (strict id + proof validation server-side; the
+  model can't inflate proof or invent ids). Rendered as linked chips in the
+  verdict, shown only when the evidence genuinely suggests adversary
+  behaviour.
+
 ## v6.3.0 — "Fl0wMatters" — 2026-07-20
 
 The first wave of a UX improvement program (50 scoped items): **undo instead of

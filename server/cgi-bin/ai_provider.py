@@ -1530,7 +1530,15 @@ SYSTEM_PROMPTS = {
         "To conclude: "
         '{"action":"verdict","root_cause":"<1-3 sentences>","confidence":'
         '"high|medium|low","evidence":["<file/tool: the specific line or fact>",'
-        '...],"recommended_action":"<one concrete, conservative next step>"}. '
+        '...],"recommended_action":"<one concrete, conservative next step>",'
+        '"attack_techniques":[{"id":"T1078","name":"Valid Accounts",'
+        '"proof":"observed|inferred|theoretical"}]}. '
+        "Include attack_techniques ONLY when the evidence genuinely suggests "
+        "adversary behaviour — most alerts are operational faults, not attacks, "
+        "and an empty list is the correct answer for those. Use real MITRE "
+        "ATT&CK Enterprise technique ids, and label each by proof: 'observed' "
+        "= the evidence directly shows it, 'inferred' = consistent with it, "
+        "'theoretical' = a possibility worth noting. Never inflate proof. "
         "Choose tools that discriminate between hypotheses; do not re-request "
         "what you already have. Conclude as soon as the evidence supports a "
         "verdict — you have a hard tool budget. Cite only evidence returned by "

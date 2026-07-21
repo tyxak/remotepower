@@ -74,3 +74,26 @@ as your audit artifacts.
 
 > Framework control IDs are indicative and current as of the 2022 ISO revision +
 > the SOC 2 2017 TSC; map to your auditor's current criteria.
+
+## In-app Compliance page — verdicts you can back up *(v6.3.1)*
+
+The **Compliance** page scores a live control checklist from data the fleet
+already reports, across **PCI DSS, HIPAA, SOC 2, ACSC Essential Eight and
+SMB1001:2026** (pick the frameworks with the checkboxes). Every control lands
+on one of three verdicts:
+
+- **Pass** — observed state satisfies the control.
+- **Fail** — observed state violates it, with the offending hosts as evidence.
+- **Not assessed** — RemotePower cannot back up a pass. This is deliberate and
+  strict: a control does **not** read Pass just because its offenders list is
+  empty. If the *capable source* never ran — no host has reported package
+  status, no CVE scan is on record, no account baseline exists — the control
+  is **Not assessed**, never a silent green. Process controls RemotePower
+  doesn't observe (Essential Eight application control / macro policy / user
+  hardening; SMB1001 training / IR plan) are shown as Not assessed too, rather
+  than hidden — the report discloses its own gaps.
+
+The framework **score is `pass / (pass + fail)`** and ignores Not-assessed, so
+"we haven't measured it" can never inflate the number. This is an audit-prep
+aid, not a formal attestation — but a green you see is a green the tool can
+defend.

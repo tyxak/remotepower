@@ -457,6 +457,33 @@ _TRIAGE_TOOL_MENU = (
 )
 
 
+_ATTACK_ID_RX = re.compile(r'^T\d{4}(?:\.\d{3})?$')
+_ATTACK_PROOFS = ('observed', 'inferred', 'theoretical')
+
+
+def _clean_attack_techniques(raw):
+    """Validate the model's MITRE ATT&CK tags. Keeps only well-formed technique
+    ids (Txxxx / Txxxx.yyy) with a recognised proof label — the model can
+    hallucinate ids, so a strict shape check is the honesty gate. Returns a
+    list of {id, name, proof}; drops anything malformed; caps at 8."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for t in raw:
+        if not isinstance(t, dict):
+            continue
+        tid = str(t.get('id', '')).strip().upper()
+        if not _ATTACK_ID_RX.match(tid):
+            continue
+        proof = str(t.get('proof', '')).strip().lower()
+        if proof not in _ATTACK_PROOFS:
+            proof = 'theoretical'   # never over-state; unknown → weakest
+        out.append({'id': tid, 'name': str(t.get('name', ''))[:80], 'proof': proof})
+        if len(out) >= 8:
+            break
+    return out
+
+
 def _parse_triage_json(text):
     """Extract the first JSON object from a model reply (tolerates fences and
     prose around it). Returns a dict or None."""
@@ -533,6 +560,7 @@ def _run_alert_triage(alert, dev_id, dev):
             'confidence':         str(obj.get('confidence', ''))[:16],
             'evidence':           [str(e)[:400] for e in ev][:10] if isinstance(ev, list) else [],
             'recommended_action': str(obj.get('recommended_action', ''))[:2000],
+            'attack_techniques':  _clean_attack_techniques(obj.get('attack_techniques')),
         }
         break
     if verdict is None:

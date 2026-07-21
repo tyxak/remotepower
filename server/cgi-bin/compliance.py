@@ -1,14 +1,25 @@
-"""Control-mapped compliance reporting (PCI DSS / HIPAA / SOC 2).
+"""Control-mapped compliance reporting.
 
-v3.4.0. This is deliberately an *evidence-from-observed-state* checklist, not a
-formal attestation engine: every control maps to data RemotePower already
-collects (patch status, CVEs, TLS expiry, firewall posture, login/SSH audit,
-backup freshness, MFA, audit logging). Each control resolves to one of:
+v3.4.0 (PCI / HIPAA / SOC 2); v6.3.1 adds Essential Eight + SMB1001:2026 and a
+strict CAPABLE-SOURCE rule. This is deliberately an *evidence-from-observed-
+state* checklist, not a formal attestation engine: every control maps to data
+RemotePower already collects (patch status, CVEs, TLS expiry, firewall posture,
+login/SSH audit, backup freshness, MFA, audit logging). Each control resolves
+to one of:
 
     pass  — observed state satisfies the control
     fail  — observed state violates it (with the offending evidence)
-    na    — RemotePower has no signal for this control (honestly reported,
-            never silently counted as a pass)
+    na    — RemotePower cannot assess this control: either it has no signal for
+            it at all, OR the capable source that WOULD assess it has not run /
+            reported yet. Never silently counted as a pass.
+
+**The capable-source rule (v6.3.1, after the Assay "silence isn't clearance"
+discipline):** a control must not infer PASS from an empty offenders list when
+the underlying telemetry was never collected — that manufactures false
+assurance, the worst outcome for an audit surface. So each absence→PASS control
+is gated on a coverage fact (how many monitored hosts actually reported the
+signal); coverage 0 on a non-empty fleet → NA, not PASS. The score is
+`pass / (pass + fail)` and ignores NA, so "not assessed" can never inflate it.
 
 The caller assembles a `facts` dict from the fleet and passes it in; the logic
 here is pure so it unit-tests without a server. The mapping is a pragmatic
@@ -17,12 +28,20 @@ operator aid for audit prep — it does not make a system "compliant".
 
 PASS, FAIL, NA = 'pass', 'fail', 'na'
 
-FRAMEWORKS = ('pci', 'hipaa', 'soc2')
+FRAMEWORKS = ('pci', 'hipaa', 'soc2', 'e8', 'smb1001')
 FRAMEWORK_LABELS = {
-    'pci':   'PCI DSS v4.0',
-    'hipaa': 'HIPAA Security Rule',
-    'soc2':  'SOC 2 (Common Criteria)',
+    'pci':     'PCI DSS v4.0',
+    'hipaa':   'HIPAA Security Rule',
+    'soc2':    'SOC 2 (Common Criteria)',
+    'e8':      'ACSC Essential Eight',
+    'smb1001': 'SMB1001:2026',
 }
+
+
+def _no_coverage(facts, coverage_key):
+    """True when the capable source for a control has produced NO data across a
+    non-empty fleet — the signal to return NA instead of a false PASS."""
+    return facts.get('devices', 0) > 0 and facts.get(coverage_key, 0) == 0
 
 
 def _patch_control(facts):
@@ -30,6 +49,9 @@ def _patch_control(facts):
     if bad:
         return FAIL, f"{len(bad)} device(s) over the patch threshold: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
+    if _no_coverage(facts, 'patch_data_devices'):
+        return NA, ("No host has reported package/update status yet — patch "
+                    "posture is not assessed (run a package scan).")
     return PASS, "No device exceeds its pending-patch threshold."
 
 
@@ -37,6 +59,9 @@ def _cve_control(facts):
     n = facts.get('cve_critical_high', 0)
     if n:
         return FAIL, f"{n} critical/high CVE finding(s) outstanding across the fleet."
+    if _no_coverage(facts, 'cve_scanned_devices'):
+        return NA, ("No host has a CVE scan on record yet — vulnerability "
+                    "posture is not assessed.")
     return PASS, "No outstanding critical or high CVEs."
 
 
@@ -46,6 +71,8 @@ def _eol_control(facts):
     if bad:
         return FAIL, f"{len(bad)} host(s) on an end-of-life OS: " + \
                ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
+    if _no_coverage(facts, 'os_known_devices'):
+        return NA, "No host has reported its OS version yet — EOL status is not assessed."
     return PASS, "No hosts are running an end-of-life OS version."
 
 
@@ -131,7 +158,59 @@ def _reboot_control(facts):
     if rb:
         return FAIL, f"{len(rb)} host(s) pending a reboot to apply updates: " + \
                ", ".join(rb[:10])
+    if _no_coverage(facts, 'sysinfo_devices'):
+        return NA, "No host has reported system status yet — reboot state is not assessed."
     return PASS, "No host is pending a security reboot."
+
+
+# ── v6.3.1: controls with no RemotePower signal — HONESTLY 'not assessed'.
+# Essential Eight / SMB1001 cover process + endpoint controls RemotePower does
+# not observe (application allow-listing, Office macro policy, security-
+# awareness training, a written IR plan). Reporting these as NA — rather than
+# omitting them or faking a pass — is the whole point of the capable-source
+# discipline: the report shows the FULL control set and says exactly which
+# parts it cannot back up.
+def _app_control_control(facts):
+    return NA, ("RemotePower does not assess application allow-listing / "
+                "execution control — verify with your EDR or AppLocker/WDAC.")
+
+
+def _macro_control(facts):
+    return NA, ("RemotePower does not assess Microsoft Office macro policy — "
+                "verify via Group Policy / Intune.")
+
+
+def _user_hardening_control(facts):
+    return NA, ("RemotePower does not assess browser/application hardening "
+                "(Flash/ads/Java/PDF) — verify via your endpoint baseline.")
+
+
+def _admin_privilege_control(facts):
+    """Restrict administrative privileges. RemotePower has a privileged-group
+    tripwire (sudo/wheel/Administrators changes) but not a full standing-
+    privilege inventory, so it reports recent CHANGES as evidence and is
+    otherwise NA — it cannot attest the standing state."""
+    changes = facts.get('privileged_group_changes') or []
+    if changes:
+        return FAIL, (f"{len(changes)} host(s) with privileged-group changes in "
+                      f"the window: " + ", ".join(str(h) for h in changes[:10]))
+    if not facts.get('privileged_group_monitored'):
+        return NA, ("Privileged-group change detection has no baseline yet — "
+                    "standing administrative privilege is not assessed.")
+    return PASS, ("No privileged-group (sudo/wheel/Administrators) changes "
+                  "detected in the window. Note: this attests change-detection, "
+                  "not the standing privilege inventory.")
+
+
+def _training_control(facts):
+    return NA, ("Security-awareness training is a process control RemotePower "
+                "does not track — record it in your ISMS.")
+
+
+def _ir_plan_control(facts):
+    return NA, ("A written incident-response plan is a process control "
+                "RemotePower does not track — RemotePower provides the alerting "
+                "and triage tooling an IR plan would reference.")
 
 
 # Each control: (framework, id, title, check_fn, remediation).
@@ -195,6 +274,58 @@ _CONTROLS = [
      'Restore backup freshness.'),
     ('soc2', 'CC7.4', 'Remediation — apply security reboots',        _reboot_control,
      'Reboot hosts pending update activation.'),
+
+    # ── ACSC Essential Eight (the eight mitigation strategies) ───────────────
+    # RemotePower has strong signal for patching, MFA, backups and OS currency;
+    # application control, macro policy and user hardening are endpoint/process
+    # controls it does not observe and reports honestly as 'not assessed'.
+    ('e8', 'E8-1', 'Application control',                          _app_control_control,
+     'Enforce application allow-listing via WDAC/AppLocker or your EDR.'),
+    ('e8', 'E8-2', 'Patch applications',                          _patch_control,
+     'Apply pending application updates on the listed hosts.'),
+    ('e8', 'E8-2b', 'Patch applications — known vulnerabilities', _cve_control,
+     'Remediate outstanding critical/high CVEs.'),
+    ('e8', 'E8-3', 'Configure Microsoft Office macro settings',   _macro_control,
+     'Set macro policy via Group Policy / Intune.'),
+    ('e8', 'E8-4', 'User application hardening',                  _user_hardening_control,
+     'Harden browsers/PDF/Java per the ACSC guidance.'),
+    ('e8', 'E8-5', 'Restrict administrative privileges',         _admin_privilege_control,
+     'Review privileged-group membership; enforce least privilege.'),
+    ('e8', 'E8-6', 'Patch operating systems',                    _eol_control,
+     'Upgrade hosts on end-of-life operating systems.'),
+    ('e8', 'E8-6b', 'Patch operating systems — pending reboots',  _reboot_control,
+     'Reboot hosts to activate installed OS updates.'),
+    ('e8', 'E8-7', 'Multi-factor authentication',                _mfa_control,
+     'Enable TOTP or OIDC for all console operators.'),
+    ('e8', 'E8-8', 'Regular backups',                            _backup_control,
+     'Restore backup freshness on the listed targets.'),
+
+    # ── SMB1001:2026 (Australian SMB cyber-security standard) ────────────────
+    # Thematic control mapping to the measures RemotePower can evidence, plus an
+    # honest NA for the process controls (training, IR plan). Control ids are
+    # descriptive rather than clause-precise — a mapping aid, not an attestation.
+    ('smb1001', 'S-patch',   'Keep software and operating systems updated', _patch_control,
+     'Apply pending updates.'),
+    ('smb1001', 'S-os',      'Retire unsupported operating systems',        _eol_control,
+     'Replace end-of-life OS hosts.'),
+    ('smb1001', 'S-vuln',    'Address known vulnerabilities',               _cve_control,
+     'Remediate outstanding critical/high CVEs.'),
+    ('smb1001', 'S-mfa',     'Multi-factor authentication on accounts',     _mfa_control,
+     'Enable operator MFA.'),
+    ('smb1001', 'S-backup',  'Maintain regular, recoverable backups',       _backup_control,
+     'Restore backup freshness.'),
+    ('smb1001', 'S-tls',     'Encrypt data in transit',                     _tls_control,
+     'Renew expiring certificates.'),
+    ('smb1001', 'S-access',  'Control and review privileged access',        _admin_privilege_control,
+     'Review privileged-group membership and key changes.'),
+    ('smb1001', 'S-audit',   'Log and retain security-relevant events',     _audit_control,
+     'Enable audit logging.'),
+    ('smb1001', 'S-monitor', 'Detect and respond to intrusions',            _intrusion_control,
+     'Investigate brute-force activity.'),
+    ('smb1001', 'S-training', 'Security-awareness training',                _training_control,
+     'Record staff training in your ISMS.'),
+    ('smb1001', 'S-ir',      'Incident-response plan',                      _ir_plan_control,
+     'Maintain a written IR plan referencing RemotePower alerting/triage.'),
 ]
 
 
@@ -213,6 +344,7 @@ _TOPICS = {
     _intrusion_control:     'intrusion',
     _vault_control:         'vault',
     _reboot_control:        'reboot',
+    _admin_privilege_control: 'sudo',   # v6.3.1
 }
 
 
