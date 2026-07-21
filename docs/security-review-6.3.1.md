@@ -1,0 +1,89 @@
+# Security review — v6.3.1 "Tr1ageMatters"
+
+A thorough bug-hunt / security sweep across the project, weighted toward the
+freshly-written v6.3.1 code (the agentic log-sweep + triage, the NetFlow/IPFIX/
+sFlow flow receiver, and this cycle's three "top-pick" additions: flow-verified
+service dependencies, cross-fleet incident outcome memory, and the detection
+self-test). Method: deterministic SAST plus three independent adversarial
+reviewers, each owning a dimension; every finding was reproduced before being
+fixed.
+
+## Process
+
+- **SAST** — `ruff --select F821` (agent + all `*_handlers.py` modules + the flow
+  parser: **0**; the ~155 hits in `api.py` are the documented bound-handler
+  false-positive class), `gitleaks` (**no leaks**, 1447 commits), `bandit` on the
+  new code (3 Mediums, all by-design — a `0.0.0.0` UDP bind and an operator-config
+  `urlopen` in the flow sidecar, byte-identical to the already-accepted syslog
+  daemon, plus a `0.0.0.0` string inside a test datagram builder).
+- **Adversarial reviewers** — three parallel passes: (1) cross-tenant / RBAC-scope
+  / IDOR isolation; (2) injection / XSS / SSRF / untrusted-parser safety; (3)
+  auth/write-gate, logic-correctness, and dead-feature bugs. Each reviewer drove
+  the real code paths with live repros under a scratch data dir.
+
+## Findings (all fixed; all LOW)
+
+The new code was found to be notably well-hardened — the recurring bug classes
+this project tracks had clearly been designed against. Three genuine low-severity
+defects were found and fixed:
+
+1. **Cross-tenant AI-triage scoreboard leak** (`handle_ai_stats`, api.py). The
+   v6.3.1 triage scoreboard counted `triaged` / `auto` / `feedback_up` / `down`
+   over the **raw** alert list, so a tenant admin (or any read-only role) saw
+   fleet-wide aggregates across tenants — ironically the `incident_memory` count
+   added right beside it was already tenant-filtered. Fixed by routing the alert
+   list through `_filter_alerts_for_caller` (RBAC scope + tenant gate), matching
+   every other alert read path. Aggregate counts only — no names/content — hence
+   LOW. Guard: `test_v631_incident_memory.TestAiStatsScoreboardTenantIsolation`.
+
+2. **Unbounded `unknown_seen` map → flow-sidecar DoS** (`remotepower-flowd.py`).
+   NetFlow/IPFIX is connectionless UDP with a spoofable source address; the
+   daemon's log-throttle map was keyed on the unmapped-exporter source IP and
+   never pruned, so a flood of spoofed sources could grow it without bound and
+   OOM the process. (`buckets`/`templates` are keyed only after a successful
+   token match, so they stay bounded by the enrolled-device count — this map was
+   the sole unbounded structure, keyed precisely on the untrusted set.) Fixed
+   with a size cap that clears on overflow (matching `TemplateCache._MAX`);
+   clearing loses only throttle timestamps. The binary parser itself was
+   confirmed comprehensively bounds-checked (no OOB read, no count/length-driven
+   hang or OOM across v5/v9/IPFIX/sFlow). Guard:
+   `test_v631_flow.TestDaemonAggregate.test_unknown_seen_is_bounded`.
+
+3. **AI daily-cap debited before validation** (`handle_alert_ai_triage`,
+   `handle_log_sweep_diagnose`). The per-user daily AI-request counter was
+   incremented before the 404/400 existence checks, so a request that made
+   **zero** provider calls (unknown alert, missing device, no sweep yet) still
+   spent the caller's quota. Fixed by moving the debit to after the validation
+   checks, immediately before the actual provider call. Per-user only, no
+   cross-user impact. Guard: `test_v631.TestAiRateLimitAfterValidation`.
+
+## Verified clean (no exploitable issue)
+
+- **Tenant isolation** across all new modules: `handle_dependency_health`
+  (`_scope_filter_devices`), `handle_ai_incident_memory` + `_similar_incidents`
+  (`_tenant_gate` / per-alert `_device_tenant`), `handle_alert_ai_triage` /
+  `_feedback` (`_filter_alerts_for_caller` + under-lock re-check),
+  `handle_remediation_log` (`_scope_filter_devices`), `_compliance_facts`
+  (already scoped in the v6.3.1 fix), the signed-command channel, and
+  `handle_flow_in` (capability-token = device scope). `handle_detection_selftest`
+  exposes only global notification config (consistent with `handle_config_get`).
+- **Parser safety**: `flow_parse.py` bounds every packet-declared count/length,
+  reads through a range-checked `_u()` (no OOB), caps the template cache, and
+  canonicalizes IPs through `ipaddress` (so flow fields reaching the UI carry no
+  HTML metacharacters). Adversarial datagrams (absurd counts, huge template
+  lengths, zero-length fields, IPFIX var-length `0xffff`) all yield bounded
+  results, none hang/OOM.
+- **XSS**: every UI render path for polled/agent/exporter/LLM-supplied data
+  (`app.js` flows modal + detection self-test, `app-network.js` dependency
+  health, `app-alerts.js` triage verdict + ATT&CK chips, `app-ai.js` log-sweep)
+  escapes at the sink; `_clean_attack_techniques` validates technique ids
+  server-side; `renderMarkdown` escapes HTML first.
+- **Logic/correctness**: all three features driven end-to-end
+  (`dependency_missing`/`_restored` fire + auto-resolve with a whitelisted
+  `dep_edge` sub_match; incident-memory harvest idempotent via the seen-ring;
+  detection self-test false-positive-free). All four new cadence sweeps are in
+  **both** `main()` and `scheduler.CADENCE`; config keys persist through
+  save/model/get; no success `respond()` under `except Exception`; no
+  `.exists()` on a storage key; write-gates correct.
+
+No Critical / High / Medium issue ships; nothing exploitable.

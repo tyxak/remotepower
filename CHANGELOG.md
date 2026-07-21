@@ -232,6 +232,23 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   button covers active delivery). New bound module
   `server/cgi-bin/detection_selftest_handlers.py`.
 
+### Security sweep — project-wide bug hunt (3 LOW fixed)
+A thorough bug-hunt/security sweep (SAST + three parallel adversarial reviewers),
+weighted toward the new v6.3.1 code. The new code was found notably well-hardened
+(the binary NetFlow/IPFIX/sFlow parser is comprehensively bounds-checked; UI
+escaping is disciplined); three LOW defects were found and fixed, each
+regression-tested:
+- **Cross-tenant AI-triage scoreboard leak** — `GET /api/ai/stats` counted the
+  triage/feedback aggregates over the raw alert list, so a tenant admin saw other
+  tenants' counts. Now filtered through `_filter_alerts_for_caller`.
+- **Flow-sidecar DoS** — `remotepower-flowd`'s unmapped-exporter log-throttle map
+  was keyed on the spoofable UDP source IP and never bounded (OOM risk). Now
+  size-capped.
+- **AI daily-cap mis-accounting** — the per-user AI request cap was debited
+  before the 404/400 validation checks, so a request that made no provider call
+  still spent quota. Now debited only when a provider call is about to happen.
+See [security-review-6.3.1.md](docs/security-review-6.3.1.md) for the full write-up.
+
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
 Findings from a security + UX + code-quality + product review of the v6.3.1
 waves, fixed before release:

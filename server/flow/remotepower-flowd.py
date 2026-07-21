@@ -55,6 +55,13 @@ MAX_RECORDS = 20000       # records held per exporter before a forced flush
 MAX_LINE = 65535          # UDP datagram ceiling
 TOP_N = 20                # top talkers/flows reported per flush
 UNKNOWN_LOG_EVERY_S = 600
+# NetFlow/IPFIX is connectionless UDP with a spoofable source address, so
+# `unknown_seen` (log-rate-limiting timestamps keyed by unmapped exporter IP) is
+# keyed on fully untrusted input. Cap it so a flood of spoofed source addresses
+# can't grow it without bound and OOM the daemon — matches TemplateCache._MAX.
+# The entries are only used to throttle a log line, so clearing on overflow is
+# harmless (at worst an unmapped exporter gets re-logged once).
+UNKNOWN_SEEN_MAX = 4096
 
 
 def _find_cgi_bin():
@@ -242,6 +249,11 @@ def serve():
                 if now - unknown_seen.get(src_ip, 0) > UNKNOWN_LOG_EVERY_S:
                     log.info('flow from unmapped exporter %s dropped (enrol it + '
                              'add a kind=flow inbound token)', src_ip)
+                    # Bound the map first — spoofed UDP source IPs must not grow
+                    # it without limit (OOM DoS). Clearing loses only throttle
+                    # timestamps, so it's harmless.
+                    if len(unknown_seen) >= UNKNOWN_SEEN_MAX:
+                        unknown_seen.clear()
                     unknown_seen[src_ip] = now
                 continue
             tc = templates.setdefault(src_ip, flow_parse.TemplateCache())

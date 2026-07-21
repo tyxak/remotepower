@@ -259,10 +259,6 @@ def handle_log_sweep_diagnose(dev_id):
     pass over the stored sweep (`log_sweep_rca` prompt). Write-role gated:
     triggers an AI-provider call (cost) + a store write."""
     actor = A.require_write_role('run AI log diagnosis')
-    _allowed, _used, _cap = A._ai_rate_limit_check(actor, A._ai_cfg())  # v6.3.1 cost cap
-    if not _allowed:
-        A.respond(429, {'error': f'AI daily request cap reached ({_used}/{_cap})'})
-        return
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'invalid device id'})
         return
@@ -274,6 +270,13 @@ def handle_log_sweep_diagnose(dev_id):
     rec = (A.load(A.LOG_SWEEP_FILE) or {}).get(dev_id) or {}
     if not rec.get('files'):
         A.respond(400, {'error': 'no sweep collected yet — run a log sweep first'})
+        return
+    # v6.3.1 cost cap — debit only once we're about to actually call the
+    # provider, AFTER the 404/400 validation checks, so a request that makes no
+    # AI call (bad id / device gone / no sweep yet) never spends the user's quota.
+    _allowed, _used, _cap = A._ai_rate_limit_check(actor, A._ai_cfg())
+    if not _allowed:
+        A.respond(429, {'error': f'AI daily request cap reached ({_used}/{_cap})'})
         return
     excerpt = A._sweep_excerpt(rec)
     os_info = dev.get('os')
@@ -630,13 +633,6 @@ def handle_alert_ai_triage(alert_id):
     alert ids 404 (via the caller-visibility filter) so existence isn't
     revealed."""
     actor = A.require_write_role('run AI alert triage')
-    # v6.3.1: count a triage run against the per-user daily AI cap (one run =
-    # one request, even though it makes several provider calls) — the loop is a
-    # cost amplifier and was previously uncapped.
-    _allowed, _used, _cap = A._ai_rate_limit_check(actor, A._ai_cfg())
-    if not _allowed:
-        A.respond(429, {'error': f'AI daily request cap reached ({_used}/{_cap})'})
-        return
     all_alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
     visible = A._filter_alerts_for_caller(all_alerts)
     alert = next((a for a in visible if a.get('id') == alert_id), None)
@@ -645,6 +641,15 @@ def handle_alert_ai_triage(alert_id):
         return
     dev_id = alert.get('device_id') or ''
     dev = (A.load(A.DEVICES_FILE) or {}).get(dev_id) or {}
+    # v6.3.1: count a triage run against the per-user daily AI cap (one run =
+    # one request, even though it makes several provider calls) — the loop is a
+    # cost amplifier and was previously uncapped. Debit ONLY once we're about to
+    # actually call the provider — after the 404 visibility check — so a request
+    # that makes zero AI calls (unknown/out-of-scope alert) never spends quota.
+    _allowed, _used, _cap = A._ai_rate_limit_check(actor, A._ai_cfg())
+    if not _allowed:
+        A.respond(429, {'error': f'AI daily request cap reached ({_used}/{_cap})'})
+        return
     try:
         triage = A._run_alert_triage(alert, dev_id, dev)
     except RuntimeError as e:

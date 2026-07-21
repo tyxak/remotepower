@@ -434,6 +434,32 @@ class TestTriageLoop(unittest.TestCase):
         self.assertNotIn("supersecret1", tools["journal_tail"]({}))
 
 
+class TestAiRateLimitAfterValidation(unittest.TestCase):
+    """Security sweep (LOW, fixed): the AI daily-cap debit must happen AFTER the
+    404/400 validation checks, so a request that makes zero provider calls
+    (unknown alert, missing device, no sweep yet) never spends the user's quota.
+    Guarded at source level (behaviorally driving the cap needs the full AI
+    config + counter store)."""
+
+    def _src_order_ok(self, fn, validation_marker):
+        import inspect
+        src = inspect.getsource(fn)
+        rate_pos = src.find("_ai_rate_limit_check")
+        val_pos = src.find(validation_marker)
+        self.assertGreater(rate_pos, 0, "rate check not found")
+        self.assertGreater(val_pos, 0, "validation marker not found")
+        self.assertGreater(rate_pos, val_pos,
+                           "AI cap is debited BEFORE the validation check — a "
+                           "no-op request would spend quota")
+
+    def test_triage_debits_after_visibility_check(self):
+        # the 404 'alert not found' must come before the cap debit
+        self._src_order_ok(api.handle_alert_ai_triage, "alert not found")
+
+    def test_diagnose_debits_after_sweep_check(self):
+        self._src_order_ok(api.handle_log_sweep_diagnose, "no sweep collected yet")
+
+
 class TestTriageHandler(unittest.TestCase):
     def setUp(self):
         self._orig_verify = api.verify_token

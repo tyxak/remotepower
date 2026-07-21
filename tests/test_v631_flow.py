@@ -147,6 +147,18 @@ class TestDaemonAggregate(unittest.TestCase):
         cls.flowd = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.flowd)
 
+    def test_unknown_seen_is_bounded(self):
+        # Security sweep (LOW/MED, fixed): `unknown_seen` is keyed on the
+        # spoofable UDP source IP of unmapped exporters. It must be size-capped
+        # or a flood of spoofed sources grows it without bound → OOM DoS.
+        self.assertTrue(hasattr(self.flowd, "UNKNOWN_SEEN_MAX"))
+        self.assertGreater(self.flowd.UNKNOWN_SEEN_MAX, 0)
+        import inspect
+        src = inspect.getsource(self.flowd.serve)
+        # the map is cleared/bounded before a new key is added
+        self.assertIn("UNKNOWN_SEEN_MAX", src)
+        self.assertIn("unknown_seen.clear()", src)
+
     def test_aggregate_top_talkers_and_protos(self):
         recs = [
             {"src": "10.0.0.5", "dst": "8.8.8.8", "sport": 4, "dport": 443,

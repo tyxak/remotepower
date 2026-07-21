@@ -38655,7 +38655,12 @@ def handle_ai_stats():
     # v6.3.1: triage scoreboard — how much investigation the AI has done and
     # how operators rated it (the feedback loop's aggregate).
     try:
-        alerts = (_load_ro(ALERTS_FILE) or {}).get('alerts', [])
+        # v6.3.1 (isolation fix): the scoreboard must count only the caller's
+        # visible alerts — a tenant admin / read-only role must not see other
+        # tenants' triage + feedback aggregates. _filter_alerts_for_caller folds
+        # in RBAC scope AND the tenant gate (same as the incident_memory count
+        # below and every other alert read path).
+        alerts = _filter_alerts_for_caller((_load_ro(ALERTS_FILE) or {}).get('alerts', []))
         triaged = [a['ai_triage'] for a in alerts
                    if isinstance(a.get('ai_triage'), dict)]
         fb = [t.get('feedback') for t in triaged

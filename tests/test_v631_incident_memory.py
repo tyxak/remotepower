@@ -157,6 +157,44 @@ class TestTriageToolIntegration(unittest.TestCase):
         self.assertIn("prior_incidents", menu)
 
 
+class TestAiStatsScoreboardTenantIsolation(unittest.TestCase):
+    """Sweep finding (LOW, fixed): handle_ai_stats' triage scoreboard counted
+    over the RAW alert list, leaking other tenants' triaged/feedback aggregates
+    to a tenant admin. It must filter through _filter_alerts_for_caller like the
+    incident_memory count beside it."""
+
+    def test_scoreboard_counts_only_visible_alerts(self):
+        api.save(api.DEVICES_FILE, {
+            "a": {"name": "host-a", "tenant": "tenantA", "last_seen": 0},
+            "b": {"name": "host-b", "tenant": "tenantB", "last_seen": 0}})
+        api.save(api.ALERTS_FILE, {"alerts": [
+            {"id": "x", "device_id": "a", "event": "service_down",
+             "ai_triage": {"by": "auto", "feedback": {"helpful": True}}},
+            {"id": "y", "device_id": "b", "event": "service_down",
+             "ai_triage": {"by": "user", "feedback": {"helpful": False}}},
+        ], "alert_seq": 2})
+        orig = (api._tenant_gate, api._caller_scope)
+        try:
+            api._caller_scope = lambda: None
+            # tenant-A admin (non-superadmin) sees only host-a's triaged alert
+            api._tenant_gate = lambda: "tenantA"
+            visible = api._filter_alerts_for_caller(
+                (api._load_ro(api.ALERTS_FILE) or {}).get("alerts", []))
+            self.assertEqual([a["id"] for a in visible if a.get("ai_triage")], ["x"])
+            # superadmin (gate None) sees both
+            api._tenant_gate = lambda: None
+            allv = api._filter_alerts_for_caller(
+                (api._load_ro(api.ALERTS_FILE) or {}).get("alerts", []))
+            self.assertEqual(len([a for a in allv if a.get("ai_triage")]), 2)
+        finally:
+            api._tenant_gate, api._caller_scope = orig
+
+    def test_handler_source_uses_the_filter(self):
+        import inspect
+        src = inspect.getsource(api.handle_ai_stats)
+        self.assertIn("_filter_alerts_for_caller", src)
+
+
 class TestWiring(unittest.TestCase):
     def test_cadence_in_both_registries(self):
         import inspect

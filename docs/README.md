@@ -58,7 +58,15 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.3.0.md](security-review-6.3.0.md)** — Latest review: the
+- **[security-review-6.3.1.md](security-review-6.3.1.md)** — Latest review: the
+ v6.3.1 "Tr1ageMatters" pass — SAST clean (F821 agent + all handler modules,
+ gitleaks clean, Bandit by-design only) plus three parallel adversarial reviewers
+ over the new agentic-triage, NetFlow/IPFIX flow receiver, dependency-verification,
+ incident-memory and detection-self-test code. The binary flow parser and the AI
+ surfaces were found notably well-hardened; three LOW defects fixed (a cross-tenant
+ AI-triage scoreboard count leak, an unbounded flow-sidecar map → DoS, and an AI
+ daily-cap debited before validation); no Critical/High/Medium ships.
+- **[security-review-6.3.0.md](security-review-6.3.0.md)** — the
  v6.3.0 "Fl0wMatters" pass — SAST clean (Bandit 0 new, gitleaks clean; the one
  CodeQL result is the by-design agentless syslog listener, triaged and
  documented), a live black-box check of the production edge, and an adversarial
@@ -75,15 +83,6 @@ holds long-form docs that don't fit there.
  pre-existing multi-tenant isolation gaps (cross-tenant device targeting and
  fleet-aggregate read leaks) plus a drift between the off-box export surfaces'
  secret-redaction lists; no Critical/High/Medium ships.
-- **[security-review-6.2.2.md](security-review-6.2.2.md)** — the
- v6.2.2 "Pu1seMatters" pass — full SAST stack (Bandit 0 new, gitleaks clean,
- agents F821-clean) plus a Semgrep pass with every finding triaged in the open, a
- trust-boundary review of the new delta-heartbeat protocol (per-device,
- whitelisted, capability-negotiated — no stale or cross-device exposure) and the
- reused HTTPS transport (same cert/mTLS verification, redirects still refused), and
- a live header/auth-boundary check of production. One agent-side hardening (a
- billion-laughs guard on the OpenSCAP XML parse) was made from the scan; no
- Critical/High/Medium ships.
 ## Release notes
 
 The full release history — every version, newest first — lives in
