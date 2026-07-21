@@ -26,7 +26,8 @@ Environment (the systemd unit sets these; defaults suit a standard install):
   RP_FLOW_SERVER_URL  loopback API base (default http://127.0.0.1:8090)
   RP_DATA_DIR         shared data dir   (default /var/lib/remotepower)
 
-sFlow (packet sampling) is a different protocol and not parsed — a follow-up.
+sFlow v5 (packet sampling) IS parsed too — flow_parse dissects the sampled
+headers (Ethernet -> IPv4/IPv6 -> TCP/UDP) and scales by the sampling rate.
 """
 
 import json

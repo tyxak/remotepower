@@ -15,9 +15,14 @@ Supported exports (the ones routers/firewalls actually emit):
                    resends templates periodically).
   * IPFIX (v10)  — same template model as v9 with a slightly different header;
                    handled by the same field-map logic.
+  * sFlow v5     — a different, packet-SAMPLING protocol: it ships sampled raw
+                   packet headers rather than flow aggregates. We dissect each
+                   sampled header (Ethernet → IPv4/IPv6 → TCP/UDP) and scale
+                   bytes/packets by the sampling rate to estimate the flow's
+                   contribution, yielding the same normalised record shape.
+                   Counter samples are skipped.
 
-sFlow is a different (packet-sampling) protocol and is intentionally NOT parsed
-here — a follow-up. The daemon aggregates whatever this returns.
+The daemon aggregates whatever this returns.
 
 Templates are stateful, so the caller holds a TemplateCache and passes it in.
 Nothing here does IO or raises on malformed input — a bad datagram yields [].
@@ -65,11 +70,17 @@ def _u(data, off, length):
 
 def parse(data, exporter_ip, templates):
     """Parse one datagram. Returns a list of normalised flow dicts (possibly
-    empty). `templates` is a TemplateCache (mutated for v9/IPFIX)."""
+    empty). `templates` is a TemplateCache (mutated for v9/IPFIX).
+
+    Disambiguation: NetFlow v5 begins 0x0005 (u16 version); sFlow v5 begins
+    0x00000005 (u32 version). So a leading 4 zero-then-5 bytes is sFlow, and a
+    leading 0x0005 is NetFlow v5 — they don't collide."""
     if not data or len(data) < 4:
         return []
-    version = _u(data, 0, 2)
     try:
+        if data[:4] == b'\x00\x00\x00\x05':
+            return _parse_sflow(data)
+        version = _u(data, 0, 2)
         if version == 5:
             return _parse_v5(data)
         if version == 9:
@@ -206,6 +217,143 @@ def _normalise_v9(rec):
         'bytes': _int(rec.get(_IN_BYTES) or b''),
         'packets': _int(rec.get(_IN_PKTS) or b''),
     }
+
+
+# ── sFlow v5 (packet-sampling) ───────────────────────────────────────────────
+# sFlow is fundamentally different from NetFlow: instead of flow aggregates it
+# ships SAMPLED PACKET HEADERS. We dissect each sampled header (Ethernet →
+# IPv4/IPv6 → TCP/UDP) and scale bytes/packets by the sampling rate to estimate
+# the flow's contribution — the same normalised {src,dst,sport,dport,proto,
+# bytes,packets} shape the aggregator already consumes. Counter samples are
+# skipped. Only the raw-packet-header record format (data_format 1) is read;
+# everything is bounds-checked and never raises.
+
+_SFLOW_MAX_SAMPLES = 512
+_SFLOW_MAX_RECORDS = 64
+
+
+def _parse_sflow(data):
+    # header: version(4) agent_addr_type(4) agent_addr(4|16) sub_agent(4)
+    #         seq(4) uptime(4) num_samples(4)
+    off = 4
+    addr_type = _u(data, off, 4)
+    off += 4
+    off += 16 if addr_type == 2 else 4        # IPv6 agent addr is 16 bytes
+    off += 4 + 4 + 4                           # sub-agent, seq, uptime
+    num_samples = _u(data, off, 4)
+    off += 4
+    out = []
+    for _ in range(min(num_samples, _SFLOW_MAX_SAMPLES)):
+        if off + 8 > len(data):
+            break
+        sample_type = _u(data, off, 4)          # enterprise(20)|format(12)
+        sample_len = _u(data, off + 4, 4)
+        body = off + 8
+        end = body + sample_len
+        if sample_len <= 0 or end > len(data):
+            break
+        fmt = sample_type & 0xfff
+        if fmt in (1, 3):                        # flow_sample / expanded
+            out.extend(_parse_sflow_flow_sample(data, body, end, expanded=(fmt == 3)))
+        off = end
+    return out
+
+
+def _parse_sflow_flow_sample(data, off, end, expanded):
+    # flow_sample: seq(4) source_id(4|8 expanded) sampling_rate(4) sample_pool(4)
+    #              drops(4) input(4|8) output(4|8) num_records(4) records...
+    off += 4                                     # sequence
+    off += 8 if expanded else 4                  # source id
+    rate = _u(data, off, 4) or 1
+    off += 4 + 4 + 4                             # rate, pool, drops
+    off += 16 if expanded else 8                 # input + output ifIndex
+    num_records = _u(data, off, 4)
+    off += 4
+    out = []
+    for _ in range(min(num_records, _SFLOW_MAX_RECORDS)):
+        if off + 8 > end:
+            break
+        data_format = _u(data, off, 4) & 0xfff
+        rec_len = _u(data, off + 4, 4)
+        rbody = off + 8
+        rend = rbody + rec_len
+        if rec_len <= 0 or rend > end:
+            break
+        if data_format == 1:                     # raw packet header
+            rec = _parse_sflow_raw_header(data, rbody, rend, rate)
+            if rec:
+                out.append(rec)
+        off = rend
+    return out
+
+
+def _parse_sflow_raw_header(data, off, end, rate):
+    # raw header: header_protocol(4) frame_length(4) stripped(4) header_length(4)
+    #             header bytes...
+    header_proto = _u(data, off, 4)
+    frame_length = _u(data, off + 4, 4)
+    header_length = _u(data, off + 12, 4)
+    hoff = off + 16
+    hend = min(hoff + header_length, end)
+    if header_proto != 1:                        # 1 = ISO88023/Ethernet
+        return None
+    rec = _dissect_ethernet(data, hoff, hend)
+    if not rec:
+        return None
+    # sFlow samples 1-in-`rate` packets; scale to estimate the real volume.
+    rec['bytes'] = max(frame_length, 1) * rate
+    rec['packets'] = rate
+    return rec
+
+
+def _dissect_ethernet(data, off, end):
+    if off + 14 > end:
+        return None
+    ethertype = _u(data, off + 12, 2)
+    p = off + 14
+    # up to two 802.1Q VLAN tags
+    for _ in range(2):
+        if ethertype == 0x8100 and p + 4 <= end:
+            ethertype = _u(data, p + 2, 2)
+            p += 4
+        else:
+            break
+    if ethertype == 0x0800:
+        return _dissect_ipv4(data, p, end)
+    if ethertype == 0x86dd:
+        return _dissect_ipv6(data, p, end)
+    return None
+
+
+def _dissect_ipv4(data, off, end):
+    if off + 20 > end:
+        return None
+    ihl = (data[off] & 0x0f) * 4
+    if ihl < 20:
+        return None
+    proto = data[off + 9]
+    src = _ip(data[off + 12:off + 16])
+    dst = _ip(data[off + 16:off + 20])
+    sport, dport = _l4_ports(data, off + ihl, end, proto)
+    return {'src': src, 'dst': dst, 'sport': sport, 'dport': dport,
+            'proto': proto, 'bytes': 0, 'packets': 0}
+
+
+def _dissect_ipv6(data, off, end):
+    if off + 40 > end:
+        return None
+    proto = data[off + 6]                         # next-header (no ext-hdr walk)
+    src = _ip(data[off + 8:off + 24])
+    dst = _ip(data[off + 24:off + 40])
+    sport, dport = _l4_ports(data, off + 40, end, proto)
+    return {'src': src, 'dst': dst, 'sport': sport, 'dport': dport,
+            'proto': proto, 'bytes': 0, 'packets': 0}
+
+
+def _l4_ports(data, off, end, proto):
+    if proto in (6, 17) and off + 4 <= end:       # TCP / UDP
+        return _u(data, off, 2), _u(data, off + 2, 2)
+    return 0, 0
 
 
 # Convenience: build a NetFlow v5 datagram (used by the test suite + docs).

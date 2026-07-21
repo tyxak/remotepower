@@ -94,8 +94,49 @@ class TestParser(unittest.TestCase):
     def test_malformed_never_raises(self):
         tc = flow_parse.TemplateCache()
         for junk in (b"", b"\x00", b"\x00\x63short", b"\xff" * 40,
-                     b"\x00\x09" + b"\x00" * 3):
+                     b"\x00\x09" + b"\x00" * 3,
+                     b"\x00\x00\x00\x05" + b"\x00" * 4):   # truncated sFlow
             self.assertEqual(flow_parse.parse(junk, "x", tc), [])
+
+    def test_sflow_v5_raw_header_ipv4_tcp(self):
+        rate = 1024
+        # Ethernet II + IPv4 + TCP sampled header.
+        eth = bytes(12) + struct.pack("!H", 0x0800)
+        ip = (struct.pack("!BBHHHBBH", 0x45, 0, 40, 0, 0, 64, 6, 0)
+              + ipaddress.IPv4Address("10.0.0.50").packed
+              + ipaddress.IPv4Address("93.184.216.34").packed)
+        tcp = struct.pack("!HH", 52000, 443) + bytes(16)
+        hdr = eth + ip + tcp
+        rawrec = struct.pack("!IIII", 1, 1500, 0, len(hdr)) + hdr
+        rec = struct.pack("!II", 1, len(rawrec)) + rawrec           # data_format 1
+        fs = struct.pack("!IIIIIIII", 1, 0, rate, 0, 0, 0, 0, 1) + rec
+        sample = struct.pack("!II", 1, len(fs)) + fs                 # flow_sample
+        sfh = (struct.pack("!II", 5, 1) + ipaddress.IPv4Address("10.0.0.1").packed
+               + struct.pack("!IIII", 0, 1, 0, 1))
+        recs = flow_parse.parse(sfh + sample, "10.0.0.1", flow_parse.TemplateCache())
+        self.assertEqual(len(recs), 1)
+        r = recs[0]
+        self.assertEqual((r["src"], r["dst"], r["dport"], r["proto"]),
+                         ("10.0.0.50", "93.184.216.34", 443, 6))
+        # bytes/packets scaled by the 1-in-N sampling rate.
+        self.assertEqual(r["bytes"], 1500 * rate)
+        self.assertEqual(r["packets"], rate)
+
+    def test_sflow_does_not_collide_with_netflow_v5(self):
+        # NetFlow v5 begins 0x0005; sFlow begins 0x00000005 — the leading byte
+        # disambiguates and neither is misread as the other.
+        dg5 = flow_parse.build_v5([("1.2.3.4", "5.6.7.8", 1, 2, 6, 100, 1)])
+        self.assertEqual(len(flow_parse.parse(dg5, "x", flow_parse.TemplateCache())), 1)
+        self.assertEqual(dg5[:2], b"\x00\x05")
+
+    def test_sflow_counter_samples_skipped(self):
+        # A counter sample (type 2) carries no flow data — must yield nothing,
+        # not crash.
+        cs = struct.pack("!II", 2, 8) + bytes(8)   # sample_type=2, len=8
+        sfh = (struct.pack("!II", 5, 1) + ipaddress.IPv4Address("10.0.0.1").packed
+               + struct.pack("!IIII", 0, 1, 0, 1))
+        self.assertEqual(flow_parse.parse(sfh + cs, "10.0.0.1",
+                                          flow_parse.TemplateCache()), [])
 
 
 class TestDaemonAggregate(unittest.TestCase):

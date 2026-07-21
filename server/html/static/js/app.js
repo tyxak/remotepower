@@ -20570,9 +20570,9 @@ async function saveAfterHours() {
   const end = document.getElementById('ah-end').value;
   const events = document.getElementById('ah-events').value.split(',').map(s => s.trim()).filter(Boolean);
   const workdays = [...document.querySelectorAll('#ah-workdays .ah-day:checked')].map(cb => parseInt(cb.value, 10));
-  if (enabled && (!start || !end)) { toast('Set business start and end times', 'error'); return; }
-  if (enabled && !events.length) { toast('List at least one event to watch', 'error'); return; }
-  if (enabled && !workdays.length) { toast('Select at least one business day', 'error'); return; }
+  if (enabled && (!start || !end)) { toast('Set business start and end times', 'error', {transient: true}); return; }
+  if (enabled && !events.length) { toast('List at least one event to watch', 'error', {transient: true}); return; }
+  if (enabled && !workdays.length) { toast('Select at least one business day', 'error', {transient: true}); return; }
   const r = await api('POST', '/config', { after_hours: { enabled, start, end, events, workdays } }).catch(() => null);
   if (r?.ok) toast(enabled ? `After-hours watch on (${start}–${end})` : 'After-hours watch off', 'success');
   else toast(r?.error || 'Failed', 'error');

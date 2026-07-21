@@ -18,8 +18,10 @@ storage and the UI all live in the app server — the daemon is a thin shim.
   to data records (a data record whose template hasn't arrived yet is skipped —
   normal at startup, the exporter resends templates periodically).
 - **IPFIX (v10)** — the same template model as v9.
-
-**sFlow** (packet sampling) is a different protocol and is not parsed yet.
+- **sFlow v5** — a different, packet-sampling protocol: RemotePower dissects the
+  sampled packet headers (Ethernet → IPv4/IPv6 → TCP/UDP) and scales
+  bytes/packets by the sampling rate to estimate the flow's contribution.
+  Point the switch's sFlow collector at the same udp/2055.
 
 ## Setup
 

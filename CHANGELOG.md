@@ -166,8 +166,8 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   top conversations, protocol breakdown), and forwards a compact rollup to
   `POST /api/flow/in/<token>` (a new `kind=flow` inbound token). Parses
   **NetFlow v5, NetFlow v9 and IPFIX** (template-caching per exporter);
-  `server/flow/flow_parse.py` is a pure, unit-tested parser. sFlow is a
-  follow-up.
+  `server/flow/flow_parse.py` is a pure, unit-tested parser. **sFlow v5**
+  (sampled packet-header dissection, scaled by the sampling rate) is parsed too.
 - Server: `handle_flow_in` re-caps every rollup (never trusts the sender) into
   `flow.json` (latest + short history per device); `GET /api/devices/{id}/flows`.
   New bound module `flow_handlers.py` — the api.py ratchet holds.
