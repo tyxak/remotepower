@@ -158,6 +158,25 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   verdict, shown only when the evidence genuinely suggests adversary
   behaviour.
 
+### Wave 8 — agentless network flow visibility (NetFlow / IPFIX)
+- **`remotepower-flowd`** — the flow sibling of the syslog receiver. Routers,
+  firewalls and L3 switches can't run an agent but almost all export
+  NetFlow/IPFIX; this UDP sidecar (udp/2055) maps each exporter's source IP to
+  its enrolled device, aggregates the flows over a short window (top talkers,
+  top conversations, protocol breakdown), and forwards a compact rollup to
+  `POST /api/flow/in/<token>` (a new `kind=flow` inbound token). Parses
+  **NetFlow v5, NetFlow v9 and IPFIX** (template-caching per exporter);
+  `server/flow/flow_parse.py` is a pure, unit-tested parser. sFlow is a
+  follow-up.
+- Server: `handle_flow_in` re-caps every rollup (never trusts the sender) into
+  `flow.json` (latest + short history per device); `GET /api/devices/{id}/flows`.
+  New bound module `flow_handlers.py` — the api.py ratchet holds.
+- UI: device-drawer **Network flows** modal (top talkers/conversations/protocols)
+  and a Server-status Distributed-subsystems row (informational, like syslog).
+  New inbound-token kind in Settings → Integrations. Docs: `flow.md`.
+- Closes the last observability gap from the roadmap: the fleet's *traffic*
+  view, alongside the host (agent) and appliance (syslog/SNMP) views.
+
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
 Findings from a security + UX + code-quality + product review of the v6.3.1
 waves, fixed before release:

@@ -403,6 +403,7 @@ DISK_USAGE_FILE  = DATA_DIR / 'disk_usage.json'        # v6.2.0: du top-consumer
 _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned path
 PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (NO values — see _ingest_pii_findings)
 LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mary /var/log sweep per device (redacted at ingest)
+FLOW_FILE        = DATA_DIR / 'flow.json'              # v6.3.1: latest NetFlow/IPFIX rollup per device (agentless flow receiver)
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
 REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
@@ -1193,6 +1194,17 @@ for _rm_name in (
 ):
     globals()[_rm_name] = getattr(remediation_handlers_mod, _rm_name)
 del _rm_name
+# agentless NetFlow/IPFIX flow ingest + read (v6.3.1)
+_fl_spec = _tk_ilu.spec_from_file_location(
+    'flow_handlers', Path(__file__).parent / 'flow_handlers.py')
+flow_handlers_mod = _tk_ilu.module_from_spec(_fl_spec)
+_fl_spec.loader.exec_module(flow_handlers_mod)
+flow_handlers_mod.bind(globals())
+for _fl_name in (
+        '_flow_num', '_ingest_flow', 'handle_flow_in', 'handle_device_flows',
+):
+    globals()[_fl_name] = getattr(flow_handlers_mod, _fl_name)
+del _fl_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -28370,6 +28382,24 @@ def _subsystems_status(now):
                          'unit': unit}
     except Exception:
         pass
+    # v6.3.1: NetFlow/IPFIX receiver — same informational watcher shape as
+    # syslog (optional sidecar, may run remotely; never a health/warning input).
+    try:
+        ftoks = [t for t in ((load(INBOUND_WEBHOOKS_FILE) or {}).get('tokens') or [])
+                 if isinstance(t, dict) and t.get('kind') == 'flow']
+        flast = max((int(t.get('last_seen') or 0) for t in ftoks), default=0)
+        funit = 'unavailable'
+        if shutil.which('systemctl'):
+            try:
+                fr = subprocess.run(['systemctl', 'is-active', 'remotepower-flowd'],
+                                    capture_output=True, text=True, timeout=2)
+                funit = (fr.stdout or '').strip() or 'unknown'
+            except Exception:
+                funit = 'unavailable'
+        out['flow'] = {'sources': len(ftoks), 'last_ingest': flast or None,
+                       'unit': funit}
+    except Exception:
+        pass
     return out
 
 
@@ -52178,8 +52208,8 @@ def handle_inbound_webhooks_create():
     scope_dev = _sanitize_str(body.get('scope_device_id', ''), 64) or None
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
-    if kind not in ('alert', 'syslog', 'snmp_trap'):
-        respond(400, {'error': 'kind must be "alert", "syslog" or "snmp_trap"'})
+    if kind not in ('alert', 'syslog', 'snmp_trap', 'flow'):
+        respond(400, {'error': 'kind must be "alert", "syslog", "snmp_trap" or "flow"'})
     token = _generate_inbound_token()
     entry = {
         'id':                'iwh_' + os.urandom(4).hex(),
@@ -60857,7 +60887,8 @@ _PWCHG_ALLOWED_PATHS = frozenset({
 # v3.2.0 (B2): inbound webhook URLs use a prefix /api/webhook/in/<token>;
 # they don't carry a session, so the password-change gate must pass them
 # through (each request has its own per-token auth). Same for syslog (B6).
-_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/', '/api/syslog/in/', '/api/snmp/trap/')
+_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/', '/api/syslog/in/', '/api/snmp/trap/',
+                           '/api/flow/in/')   # v6.3.1 agentless flow receiver (loopback sidecar)
 
 
 def _enforce_password_change():
@@ -61747,6 +61778,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', None, '/api/webhook/in/', '', 'handle_inbound_webhook', "pi.startswith('/api/webhook/in/')"),
     ('pat', None, '/api/syslog/in/', '', 'handle_syslog_in', "pi.startswith('/api/syslog/in/')"),
     ('pat', None, '/api/snmp/trap/', '', 'handle_snmp_trap_in', "pi.startswith('/api/snmp/trap/')"),
+    ('pat', ('POST',), '/api/flow/in/', '', 'handle_flow_in', "pi.startswith('/api/flow/in/') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/flows', 'handle_device_flows', "pi.startswith('/api/devices/') and pi.endswith('/flows') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_revoke', "pi.startswith('/api/inbound-webhooks/') and m == 'DELETE'"),
     ('pat', ('PATCH',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_toggle', "pi.startswith('/api/inbound-webhooks/') and m == 'PATCH'"),
     ('pat', ('POST',), '/api/confirmations/', '/approve', 'handle_confirmation_approve', "pi.startswith('/api/confirmations/') and pi.endswith('/approve') and m == 'POST'"),

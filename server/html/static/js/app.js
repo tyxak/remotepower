@@ -13653,11 +13653,13 @@ function updateInboundWebhookKindHint() {
   const hint = document.getElementById('inbound-wh-kind-hint');
   const req = document.getElementById('inbound-wh-device-required');
   const devOpt = document.querySelector('#inbound-wh-device option[value=""]');
-  const pinned = (kind === 'syslog' || kind === 'snmp_trap');
+  const pinned = (kind === 'syslog' || kind === 'snmp_trap' || kind === 'flow');
   if (kind === 'snmp_trap') {
     if (hint) hint.textContent = 'SNMP trap tokens receive JSON {traps:[{oid,value,agent}]} forwarded by an snmptrapd handler; traps attach to the pinned device and raise snmp_trap_received.';
   } else if (kind === 'syslog') {
     if (hint) hint.textContent = 'Syslog tokens receive RFC 3164/5424 lines (JSON {lines:[...]} or plain text) and append to the device\'s log_watch under unit="syslog".';
+  } else if (kind === 'flow') {
+    if (hint) hint.textContent = 'Flow tokens receive NetFlow/IPFIX rollups from remotepower-flowd; the pinned device\'s IP must match the exporter. See docs/flow.md.';
   } else {
     if (hint) hint.textContent = 'Alert tokens receive JSON {severity,title,...} and land in the Alerts inbox.';
   }
@@ -21181,6 +21183,7 @@ function _renderDrawerActions() {
     ['settings',  'Host config',     () => { closeDeviceDrawer(); openHostConfigModal(id, name); },                                                                               false, agentless],
     ['sparkles',  'AI Investigate',  () => aiInvestigateDevice(id, name),                                                                                                         false, false],
     ['fileSearch', 'Diagnose from logs', () => { closeDeviceDrawer(); openLogSweep(id, name); },                                                                                   false, agentless],
+    ['radio',     'Network flows',    () => { closeDeviceDrawer(); openDeviceFlows(id, name); },                                                                                    false, false],
     ['clipboard', 'CMDB',            () => { closeDeviceDrawer(); cmdbOpenAsset(id); },                                                                                           false, false],
     ['building',  'Assign site',     () => { closeDeviceDrawer(); openDeviceSite(id, name); },                                                                                    false, false],
     ['bookOpen',  'Runbook',         () => { closeDeviceDrawer(); aiViewRunbook(id, name); },                                                                                     false, false],
@@ -26664,6 +26667,14 @@ async function loadSelfStatus() {
     : (sy.sources
       ? _rtRow('Syslog receiver', 'Not detected locally', `${sy.sources} source(s) enrolled · ${_syAgo} — the receiver may run on another host`, 'muted')
       : _rtRow('Syslog receiver', 'Not in use', 'optional agentless intake — see syslog.md', 'muted'));
+  // v6.3.1: NetFlow/IPFIX receiver — informational, same rules as syslog.
+  const fl = sub.flow || {};
+  const _flAgo = fl.last_ingest ? `last export ${_selfFmtAgo(fl.last_ingest)}` : 'no export recorded';
+  const flowRow = fl.unit === 'active'
+    ? _rtRow('Flow receiver', 'Running', `${fl.sources || 0} exporter(s) · ${_flAgo}`, 'ok')
+    : (fl.sources
+      ? _rtRow('Flow receiver', 'Not detected locally', `${fl.sources} exporter(s) enrolled · ${_flAgo} — may run on another host`, 'muted')
+      : _rtRow('Flow receiver', 'Not in use', 'optional agentless NetFlow/IPFIX — see flow.md', 'muted'));
   const subsystemsCard = `
     <div class="dash-card">
       <div class="section-title">Distributed subsystems</div>
@@ -26672,6 +26683,7 @@ async function loadSelfStatus() {
         ${_fleetRow('Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago')}
         ${pushRow}
         ${syslogRow}
+        ${flowRow}
       </table>
       <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand; the syslog receiver takes agentless appliance logs. See <a href="docs/scaling.md" class="c-accent">scaling.md</a>, <a href="docs/push.md" class="c-accent">push.md</a> and <a href="docs/syslog.md" class="c-accent">syslog.md</a>.</div>
     </div>`;
@@ -26682,7 +26694,8 @@ async function loadSelfStatus() {
   const _scannerSvc = (sub.satellites && sub.satellites.scanners && sub.satellites.scanners.total) ? ' remotepower-scanner' : '';
   const _pushSvc = (sub.push && sub.push.enabled) ? ' remotepower-push' : '';
   const _syslogSvc = (sub.syslog && sub.syslog.unit === 'active') ? ' remotepower-syslogd' : '';
-  const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}${_syslogSvc}`;
+  const _flowSvc = (sub.flow && sub.flow.unit === 'active') ? ' remotepower-flowd' : '';
+  const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}${_syslogSvc}${_flowSvc}`;
   const restartCard = `
     <div class="dash-card">
       <div class="section-title">Restart the stack</div>
@@ -27882,3 +27895,62 @@ document.addEventListener('DOMContentLoaded', () => {
     enterKiosk({ cycle: q.get('cycle'), pages: q.get('pages') });
   } catch (_) {}
 });
+
+// ── v6.3.1: agentless network flows (NetFlow/IPFIX) — per-device rollup ──────
+let _flowModalEl = null, _flowDevId = null, _flowDevName = '';
+function _ensureFlowModal() {
+  if (_flowModalEl) return _flowModalEl;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.id = 'flow-modal';
+  wrap.setAttribute('role', 'dialog');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.setAttribute('aria-labelledby', 'flow-title');
+  wrap.innerHTML = `
+    <div class="modal modal-wide">
+      <div class="modal-title" id="flow-title">Network flows</div>
+      <p class="hint">Top talkers and conversations from NetFlow/IPFIX exports this device sends to the RemotePower <code>remotepower-flowd</code> receiver. Agentless — for routers, firewalls and L3 switches. <a href="docs/flow.md" class="c-accent" target="_blank" rel="noopener">Set up flow export</a></p>
+      <div id="flow-body"><div class="empty-state">Loading…</div></div>
+      <div class="modal-actions"><div class="flex-1"></div><button class="btn-icon" data-action="closeFlowModal">Close</button></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', e => { if (e.target === wrap) closeFlowModal(); });
+  _flowModalEl = wrap;
+  return wrap;
+}
+function closeFlowModal() { if (typeof closeModal === 'function') closeModal('flow-modal'); }
+async function openDeviceFlows(devId, name) {
+  _ensureFlowModal();
+  _flowDevId = devId; _flowDevName = name || devId;
+  document.getElementById('flow-title').textContent = `Network flows — ${_flowDevName}`;
+  if (typeof openModal === 'function') openModal('flow-modal');
+  const el = document.getElementById('flow-body');
+  if (el) el.innerHTML = '<div class="empty-state">Loading…</div>';
+  const r = await api('GET', `/devices/${encodeURIComponent(devId)}/flows`).catch(() => null);
+  _renderDeviceFlows(r);
+}
+function _renderDeviceFlows(r) {
+  const el = document.getElementById('flow-body');
+  if (!el) return;
+  const latest = (r && r.latest) || {};
+  if (!latest.ts) {
+    el.innerHTML = '<div class="empty-state">No flow data yet. This device isn\'t exporting NetFlow/IPFIX to the receiver, or <code>remotepower-flowd</code> isn\'t running. See <a href="docs/flow.md" class="c-accent">flow setup</a>.</div>';
+    return;
+  }
+  const when = new Date(latest.ts * 1000).toLocaleString();
+  const protos = Object.entries(latest.protos || {}).map(([k, v]) => `${escHtml(k)} ${_fmtBytes(v)}`).join(' · ');
+  const talkers = (latest.talkers || []).map(t =>
+    `<tr><td><code>${escHtml(t.ip)}</code></td><td class="nowrap">${_fmtBytes(t.bytes)}</td><td class="nowrap c-muted">${t.pkts} pkts</td></tr>`).join('');
+  const convs = (latest.conversations || []).map(c =>
+    `<tr><td><code>${escHtml(c.src)}</code> → <code>${escHtml(c.dst)}</code></td>`
+    + `<td class="nowrap">:${c.dport}/${_protoName(c.proto)}</td>`
+    + `<td class="nowrap">${_fmtBytes(c.bytes)}</td></tr>`).join('');
+  el.innerHTML =
+    `<p class="hint">Latest window ${escHtml(when)} — ${latest.flows} flows · ${_fmtBytes(latest.total_bytes)} · ${latest.total_packets} packets` +
+    (protos ? ` · ${protos}` : '') + `</p>` +
+    `<div class="section-title">Top talkers</div>` +
+    `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Host</th><th>Bytes</th><th>Packets</th></tr></thead><tbody>${talkers || '<tr><td colspan="3" class="hint">none</td></tr>'}</tbody></table></div>` +
+    `<div class="section-title">Top conversations</div>` +
+    `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Src → Dst</th><th>Port/Proto</th><th>Bytes</th></tr></thead><tbody>${convs || '<tr><td colspan="3" class="hint">none</td></tr>'}</tbody></table></div>`;
+}
+function _protoName(n) { return ({1:'icmp',6:'tcp',17:'udp',47:'gre',50:'esp',58:'icmp6'})[n] || String(n); }

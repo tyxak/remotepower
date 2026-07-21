@@ -69,10 +69,15 @@ def _top_level_imports(path):
 
 
 def _local_module_names():
-    """Module names that resolve to files in server/cgi-bin (sibling imports)
-    or tests/ (test helpers like apisrc/srcpin)."""
+    """Module names that resolve to files in server/cgi-bin (sibling imports),
+    server/flow + server/syslog (sidecar modules a test adds to sys.path before
+    importing), or tests/ (test helpers like apisrc/srcpin)."""
     names = {p.stem for p in CGI.glob('*.py')}
     names |= {p.stem for p in (ROOT / 'tests').glob('*.py')}
+    for extra in ('server/flow', 'server/syslog'):
+        d = ROOT / extra
+        if d.is_dir():
+            names |= {p.stem for p in d.glob('*.py')}
     return names
 
 

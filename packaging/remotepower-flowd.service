@@ -1,0 +1,43 @@
+[Unit]
+Description=RemotePower agentless NetFlow/IPFIX receiver (UDP -> per-device flow rollup API)
+Documentation=https://github.com/tyxak/remotepower
+After=network-online.target remotepower-wsgi.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# No state, no secrets of its own — reads the shared stores read-only via the
+# storage backend and forwards over loopback. DynamicUser sandboxes it fully
+# (NO install-time User= rendering — this unit is deliberately static, same as
+# remotepower-syslogd; see the deploy-server.sh "rendered unit" rule).
+DynamicUser=yes
+ReadOnlyPaths=/var/lib/remotepower
+ExecStart=/usr/local/bin/remotepower-flowd
+Environment=RP_DATA_DIR=/var/lib/remotepower
+# Default: udp/2055 (the de-facto NetFlow port, unprivileged).
+#Environment=RP_FLOW_BIND=0.0.0.0:2055
+Environment=RP_FLOW_SERVER_URL=http://127.0.0.1:8090
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-flowd
+
+[Install]
+WantedBy=multi-user.target

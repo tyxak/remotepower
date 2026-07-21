@@ -133,6 +133,8 @@ class TestHtmlIdReferences(unittest.TestCase):
         'ai-modal-copy', 'ai-modal-action', 'ai-modal-elapsed',
         # v6.3.1: created via document.createElement in _ensureLogSweepModal()
         'log-sweep-modal', 'log-sweep-title', 'log-sweep-body',
+        # v6.3.1: created via document.createElement in _ensureFlowModal()
+        'flow-modal', 'flow-title', 'flow-body',
         # v2.4.0: Created via document.createElement in openSnapshots()
         'snapshot-modal', 'snapshot-modal-title',
         'virt-snapshot-modal', 'virt-snapshot-modal-title',   # app-virt.js builds these

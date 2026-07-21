@@ -160,6 +160,9 @@ Older release notes (v6.2.2 and earlier) live in
  switches, APs, printers, IPMI cards.
 - **[syslog.md](syslog.md)** — Syslog ingestion from agentless appliances: the
  HTTP receiver and the native `remotepower-syslogd` UDP listener.
+- **[flow.md](flow.md)** — Agentless network flow visibility: the
+ `remotepower-flowd` NetFlow/IPFIX receiver, exporter setup, and the per-device
+ top-talkers/conversations view *(v6.3.1)*.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
 - **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),
