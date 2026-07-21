@@ -18301,6 +18301,7 @@ function _renderHomeActivity(fleetEvents) {
     'wan_ip_changed', 'wan_down', 'wan_up', 'mac_conflict',   // v6.1.2
     'ping_missed', 'ping_recovered',                          // v6.1.2
     'remediation_failed',                                     // v6.3.1 auto-fix verify
+    'dependency_missing', 'dependency_restored',              // v6.3.1 flow-verified depends_on
     'hostkey_changed',                                        // v6.1.2 (#40)
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
@@ -18536,6 +18537,8 @@ function _homeActivityAttrs(event, p) {
       return `data-home-act="netmap"`;
     case 'remediation_failed':   // v6.3.1 — the rule + ledger live on Automations
       return `data-home-act="automation"`;
+    case 'dependency_missing': case 'dependency_restored':   // v6.3.1 — link health on the Network page
+      return `${base} data-home-act="netmap"`;
     case 'hostkey_changed':   // v6.1.2 (#40) — the drawer shows the fingerprints
     case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
@@ -20448,6 +20451,12 @@ async function loadDashboardSettings() {
   { const days = new Set(ah.workdays || [0, 1, 2, 3, 4]);
     document.querySelectorAll('#ah-workdays .ah-day').forEach(cb => { cb.checked = days.has(parseInt(cb.value, 10)); }); }
 
+  // v6.3.1: flow-verified service-dependency link alerts
+  { const dl = document.getElementById('dep-link-alerts');
+    if (dl) dl.value = cfg.dependency_link_alerts ? '1' : '0';
+    const ds = document.getElementById('dep-silence-min');
+    if (ds) ds.value = parseInt(cfg.dependency_silence_min, 10) || 30; }
+
   // v3.4.2: on-call + escalation
   const oc = cfg.oncall || {}, es = cfg.escalation || {};
   const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
@@ -20561,6 +20570,20 @@ async function saveBruteForceSettings() {
     brute_force_window_seconds: windowMin * 60,
   });
   if (r?.ok) toast('Brute-force settings saved', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function saveDependencyAlerts() {
+  const enabled = document.getElementById('dep-link-alerts').value === '1';
+  const silence = parseInt(document.getElementById('dep-silence-min').value, 10);
+  if (enabled && (!(silence >= 1) || silence > 1440)) {
+    toast('Silence window must be 1–1440 minutes', 'error', { transient: true }); return;
+  }
+  const r = await api('POST', '/config', {
+    dependency_link_alerts: enabled,
+    dependency_silence_min: silence,
+  }).catch(() => null);
+  if (r?.ok) toast(enabled ? 'Dependency link alerts on' : 'Dependency link alerts off', 'success');
   else toast(r?.error || 'Failed', 'error');
 }
 

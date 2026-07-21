@@ -63,3 +63,29 @@ server re-caps every size on ingest (never trusts the sender). Only the **latest
 rollup** plus a short (~4 h) history of totals is kept per device — this is a
 live traffic view, not a long-term flow archive. For long-term flow retention,
 export to a dedicated collector (nfdump/nfcapd, Elastiflow) in parallel.
+
+## Verifying declared dependencies (the "missing edge" alert)
+
+The flow receiver does more than show traffic — it **verifies service
+dependencies**. RemotePower already *suggests* `depends_on` edges from observed
+traffic (Network → *Suggested dependencies* → **Accept** promotes one to a real
+dependency link). Once an edge is declared, this feature watches it:
+
+- an edge is **healthy** while traffic between the two hosts is observed (by an
+  agent's peer-connection report **or** any exporter's NetFlow/IPFIX flows);
+- it is **broken** (`dependency_missing` alert) when it was carrying traffic and
+  then went silent for the configured window **while both hosts stayed online** —
+  a firewall change, a route drop or a crashed listener the device-offline alert
+  never catches;
+- it **recovers** (`dependency_restored`, auto-resolving the alert) when traffic
+  returns;
+- an edge with no flow/peer coverage reads **Unverified** and can never fire; an
+  edge that went silent because an endpoint is **offline** reads **Silent** (it's
+  collateral of the offline alert, not a separate break).
+
+Alerting is **off by default** — enable it under **Settings → Alerts →
+Service-dependency link alerts**, where you also set the silence window (default
+30 minutes). The read-only status view is always available:
+`GET /api/dependency-health` and the **Dependency link health** card on the
+Network page. Because only edges that were *seen live* can ever fire, turning it
+on cannot flood a fleet that has no flow visibility.

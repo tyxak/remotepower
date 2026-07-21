@@ -3314,6 +3314,22 @@
           <button class="btn-primary mt-8" data-action="saveAfterHours" >Save</button>
         </div>
 
+        <div class="settings-section">
+          <div class="section-title">Service-dependency link alerts</div>
+          <p class="hint">Watch every declared <code>depends_on</code> edge for a <strong>silent break</strong>: a link that was carrying observed traffic (agent peer-connections or the NetFlow/IPFIX receiver) and then went quiet while both hosts stayed online — a firewall, route or service failure that the device-offline alert never catches. Off by default; only edges that were seen live can ever fire, so nothing false-alarms on a fleet with no flow visibility. Review link status under <strong>Network → Dependency link health</strong>.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label for="dep-link-alerts" class="form-label">Enabled</label>
+              <select id="dep-link-alerts" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
+            </div>
+            <div class="form-group">
+              <label for="dep-silence-min" class="form-label">Silent for (minutes)</label>
+              <input type="number" id="dep-silence-min" class="form-input isl-80" min="1" max="1440" value="30" aria-label="Minutes silent before alerting">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveDependencyAlerts" >Save</button>
+        </div>
+
         <div class="settings-section" id="oncall-card">
           <div class="section-title">On-call &amp; escalation</div>
           <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup. <a href="docs/oncall.md" class="c-accent">Documentation</a></p>
@@ -6931,6 +6947,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-header"><div class="section-title">Suggested dependencies</div><button class="btn-icon" data-action="loadDepSuggestions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
           <p class="hint">Edges inferred from actual outbound connections between your devices (private IPs only). Accept adds a real <code>depends_on</code> link (used for downstream alert suppression); dismiss hides it.</p>
           <div id="dep-suggestions"><div class="c-muted">Click Refresh.</div></div>
+        </div>
+
+        <!-- v6.3.1: flow-verified dependency link health -->
+        <div class="dash-card mt-16">
+          <div class="section-header"><div class="section-title">Dependency link health</div><button class="btn-icon" data-action="loadDepHealth"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
+          <p class="hint">Verifies each declared <code>depends_on</code> edge against observed traffic (agent peer-conns and the NetFlow/IPFIX receiver). A <strong>Broken</strong> edge carried traffic before and went silent while both hosts stayed online — a firewall/route/service break the offline alert never catches. Enable alerting under <strong>Settings → Alerts</strong>.</p>
+          <div id="dep-health"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
         <!-- W5-1: LLDP physical topology suggestions -->

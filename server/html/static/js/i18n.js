@@ -967,6 +967,8 @@
     "Admin group DN": { "fr": "DN du groupe admin", "de": "Admin-Gruppen-DN", "zh": "管理员分组 DN", "hi": "Admin समूह DN", "es": "DN del grupo de administradores", "ar": "DN مجموعة المسؤولين" },
     "Advanced": { "fr": "Avancé", "de": "Erweitert", "zh": "高级", "hi": "उन्नत", "es": "Avanzado", "ar": "متقدّم" },
     "After-hours activity detection": { "fr": "Détection d'activité hors heures ouvrées", "de": "Aktivitätserkennung außerhalb der Geschäftszeiten", "zh": "非工作时间活动检测", "hi": "ऑफ़-आवर्स गतिविधि पहचान", "es": "Detección de actividad fuera de horario", "ar": "كشف النشاط خارج ساعات العمل" },
+    "Service-dependency link alerts": { "fr": "Alertes de lien de dépendance de service", "de": "Warnungen zu Dienstabhängigkeitsverbindungen", "zh": "服务依赖链路告警", "hi": "सेवा-निर्भरता लिंक अलर्ट", "es": "Alertas de enlace de dependencia de servicio", "ar": "تنبيهات ارتباط تبعية الخدمة" },
+    "Dependency link health": { "fr": "État des liens de dépendance", "de": "Zustand der Abhängigkeitsverbindungen", "zh": "依赖链路健康", "hi": "निर्भरता लिंक स्वास्थ्य", "es": "Estado de los enlaces de dependencia", "ar": "صحة ارتباط التبعية" },
     "Agent integrity": { "fr": "Intégrité de l'agent", "de": "Agent-Integrität", "zh": "代理完整性", "hi": "Agent अखंडता", "es": "Integridad del agente", "ar": "سلامة الوكيل" },
     "Agent version contains": { "fr": "La version de l'agent contient", "de": "Agent-Version enthält", "zh": "代理版本包含", "hi": "Agent version में शामिल है", "es": "La versión del agente contiene", "ar": "إصدار الوكيل يحتوي على" },
     "Agentless": { "fr": "Sans agent", "de": "Agentenlos", "zh": "无代理", "hi": "एजेंटरहित", "es": "Sin agente", "ar": "بلا وكيل" },

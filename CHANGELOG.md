@@ -177,6 +177,25 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
 - Closes the last observability gap from the roadmap: the fleet's *traffic*
   view, alongside the host (agent) and appliance (syslog/SNMP) views.
 
+### Service-dependency link verification (builds on the flow receiver)
+- **The differentiated "missing edge" signal.** RemotePower already *suggests*
+  `depends_on` edges from observed traffic (accept → a real dependency link). New
+  this release: it **verifies** each declared edge. When a `depends_on` link that
+  was carrying observed traffic (agent peer-connections **or** the NetFlow/IPFIX
+  receiver) goes silent while **both** hosts stay online, a **`dependency_missing`**
+  alert fires — a firewall, route or service break the device-offline alert can
+  never catch. It recovers automatically (`dependency_restored`) when traffic
+  returns.
+- **Safe by construction.** Off by default (`Settings → Alerts → Service-dependency
+  link alerts`); edge-triggered only on links that were *seen live* first, so a
+  fleet with no flow/peer visibility never false-alarms (those edges read
+  "Unverified"); both-online guarded, so a link to a host that is simply down is
+  reported "Silent", not "Broken", and doesn't duplicate the offline alert.
+- New read-only **`GET /api/dependency-health`** (scope/tenant-filtered) and a
+  **Dependency link health** card on the Network page (Broken / Silent / Unverified
+  / Healthy per edge). Cadence sweep runs off the request path with the scheduler;
+  fires through the normal `EVENT_REGISTRY` path (new `dependency` channel kind).
+
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
 Findings from a security + UX + code-quality + product review of the v6.3.1
 waves, fixed before release:

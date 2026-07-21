@@ -404,6 +404,7 @@ _DU_MAX_ENTRIES  = 20                                  # top-N kept per scanned 
 PII_FILE         = DATA_DIR / 'pii_findings.json'      # v6.2.0: PII inventory (NO values — see _ingest_pii_findings)
 LOG_SWEEP_FILE   = DATA_DIR / 'log_sweep.json'         # v6.3.1: latest hail-mary /var/log sweep per device (redacted at ingest)
 FLOW_FILE        = DATA_DIR / 'flow.json'              # v6.3.1: latest NetFlow/IPFIX rollup per device (agentless flow receiver)
+FLOW_DEPS_FILE   = DATA_DIR / 'flow_deps.json'         # v6.3.1: per-edge observed state for the flow-derived dependency map
 AI_TRIAGE_STATE_FILE = DATA_DIR / 'ai_triage_state.json'  # v6.3.1: auto-triage cadence state (last_run, per-day counter)
 REMEDIATIONS_FILE = DATA_DIR / 'remediations.json'      # v6.3.1: auto-remediation attempt ledger + verify state
 IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
@@ -1202,6 +1203,9 @@ _fl_spec.loader.exec_module(flow_handlers_mod)
 flow_handlers_mod.bind(globals())
 for _fl_name in (
         '_flow_num', '_ingest_flow', 'handle_flow_in', 'handle_device_flows',
+        # v6.3.1: flow-derived dependency verification
+        '_dep_ip_index', '_dep_observed_edges', '_dep_online', '_dependency_health',
+        'handle_dependency_health', 'run_flow_dep_check_if_due',
 ):
     globals()[_fl_name] = getattr(flow_handlers_mod, _fl_name)
 del _fl_name
@@ -1852,6 +1856,18 @@ EVENT_REGISTRY = {
     'integration_recovered': dict(
         label='An integration target recovered', kind='integration',
         title='Integration Recovered', resolves=('integration_down',)),
+    'dependency_missing': dict(
+        # v6.3.1: a DECLARED depends_on edge that was carrying observed traffic
+        # (agent peer-conns or the flow receiver) has gone silent while BOTH
+        # endpoints are still online — a firewall/route/service break the
+        # device_offline signal never catches. sub_match on dep_edge (did:up).
+        label='A declared service dependency stopped exchanging traffic',
+        kind='dependency', title='Service Dependency Broken', severity='high',
+        priority=4, tags='warning,link'),
+    'dependency_restored': dict(
+        label='A broken service dependency is exchanging traffic again',
+        kind='dependency', title='Service Dependency Restored',
+        resolves=('dependency_missing',)),
     'github_new_issue': dict(
         label='New issue opened on a watched GitHub repository', kind='github_issue',
         title='New GitHub Issue', severity='low', tags='memo'),
@@ -7344,7 +7360,11 @@ def _record_fleet_event(event, payload):
                     # failed; whether it auto-disabled the rule). Kept in lockstep
                     # with the _record_alert whitelist so a future feed row can
                     # name the rule, per the "two silent whitelists" rule.
-                    'rule_name', 'rule_id', 'script_id', 'rule_disabled'):
+                    'rule_name', 'rule_id', 'script_id', 'rule_disabled',
+                    # v6.3.1: dependency_missing/_restored feed detail — the broken
+                    # edge + upstream so the activity row is self-describing
+                    # (mirrors the _record_alert whitelist).
+                    'dep_edge', 'upstream_id', 'upstream_name'):
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -7506,6 +7526,7 @@ CHANNEL_KIND_DEFS = (
     ('thermal', 'Hardware temperature', 'operational'),
     ('clock', 'Clock / time sync', 'operational'),
     ('network', 'Network reachability', 'operational'),
+    ('dependency', 'Service dependency link', 'operational'),  # v6.3.1: declared depends_on edge went silent
     ('oom', 'Out-of-memory kills', 'operational'),
     ('cert_files', 'Local certificate expiry', 'operational'),
     ('accounts', 'Local account audit', 'operational'),
@@ -9326,6 +9347,10 @@ def _record_alert(event, payload):
                     # for coalescing + auto-resolve (clients aren't devices).
                     'client_id', 'client_name', 'tunnel_id', 'tunnel_name', 'endpoint',
                     'integration_id', 'ip', 'rtype',
+                    # v6.3.1: dependency_missing/_restored — dep_edge (did:up) is
+                    # the per-edge match key for auto-resolve; upstream_id/
+                    # upstream_name make the alert self-describing.
+                    'dep_edge', 'upstream_id', 'upstream_name',
                     # v5.6.0: custom checks — check_id is the identity/auto-resolve
                     # key; check_name + output make the alert self-describing +
                     # searchable (the failing check and the issue it reported).
@@ -9514,6 +9539,12 @@ def _auto_resolve_alerts(event, payload):
         # branch _auto_resolve_alerts bailed at the no-device_id/no-sub_match
         # guard and the down alert sat open forever after recovery.
         sub_match['integration_id'] = p.get('integration_id')
+    elif event == 'dependency_restored':
+        # v6.3.1: dependency_missing is edge-triggered per declared depends_on
+        # edge (device_id carries the downstream 'did'; dep_edge is 'did:up').
+        # Match the exact edge so restoring did→up-A doesn't clear a still-broken
+        # did→up-B on the same downstream host.
+        sub_match['dep_edge'] = p.get('dep_edge')
     elif event == 'ip_blacklist_cleared':
         # v4.8.0: IP-reputation events aren't devices — match the open
         # ip_blacklisted alert by the IP (now stored in the alert payload).
@@ -23464,6 +23495,8 @@ def handle_config_get():
     # v1.8.4 — derived/effective values that the UI uses
     safe.setdefault('server_name', '')
     safe.setdefault('default_poll_interval', DEFAULT_POLL_INTERVAL)
+    safe.setdefault('dependency_link_alerts', False)   # v6.3.1: flow-verified depends_on alerting
+    safe.setdefault('dependency_silence_min', 30)
     safe.setdefault('online_ttl', DEFAULT_ONLINE_TTL)
     safe.setdefault('cve_cache_days', DEFAULT_CVE_CACHE_DAYS)
     safe.setdefault('remember_me_default', False)
@@ -24089,6 +24122,16 @@ def handle_config_save():
             cfg['default_poll_interval'] = v
         except (ValueError, TypeError):
             respond(400, {'error': 'default_poll_interval must be an integer'})
+
+    # v6.3.1: flow-verified service-dependency link alerting (opt-in)
+    if 'dependency_link_alerts' in body:
+        cfg['dependency_link_alerts'] = bool(body.get('dependency_link_alerts'))
+    if 'dependency_silence_min' in body:
+        try:
+            v = int(body['dependency_silence_min'])
+            cfg['dependency_silence_min'] = max(1, min(1440, v))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'dependency_silence_min must be an integer'})
 
     # v1.8.4: online TTL
     if 'online_ttl' in body:
@@ -61126,6 +61169,7 @@ def _build_exact_routes():
         ('GET', '/api/sudo-search'): handle_sudo_search,            # W3-40
         ('GET', '/api/dependency-suggestions'): handle_dependency_suggestions,  # W3-8
         ('POST', '/api/dependency-suggestions'): handle_dependency_suggestions,
+        ('GET', '/api/dependency-health'): handle_dependency_health,  # v6.3.1: flow-verified depends_on edges
         ('GET', '/api/lldp-suggestions'): handle_lldp_suggestions,   # W5-1
         ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
         ('GET', '/api/image-cves'): handle_image_cves,   # W6-34
@@ -62434,6 +62478,7 @@ def main():
     _safe(run_incident_promotion_if_due, 'run_incident_promotion_if_due')   # v6.1.1 (#53)
     _safe(run_ai_triage_if_due, 'run_ai_triage_if_due')   # v6.3.1 auto-triage (opt-in)
     _safe(run_remediation_verify_if_due, 'run_remediation_verify_if_due')   # v6.3.1 fix verification
+    _safe(run_flow_dep_check_if_due, 'run_flow_dep_check_if_due')   # v6.3.1 flow-verified dependency links
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v6.1.2: public-IP watch (+ auto-DDNS + the internet outage log), and the

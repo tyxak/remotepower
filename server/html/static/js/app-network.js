@@ -291,6 +291,43 @@ async function depSuggestAct(deviceId, upstreamId, action) {
   else toast(r?.error || 'Failed', 'error');
 }
 
+// v6.3.1: flow-verified declared-dependency link health.
+const _DEP_STATUS = {
+  ok:           { label: 'Healthy',      cls: 'c-success', tip: 'Traffic observed recently.' },
+  missing:      { label: 'Broken',       cls: 'c-danger',  tip: 'Was carrying traffic, now silent — both hosts online.' },
+  silent:       { label: 'Silent',       cls: 'c-warning', tip: 'No traffic, but an endpoint is offline (collateral).' },
+  unverifiable: { label: 'Unverified',   cls: 'c-muted',   tip: 'No flow/peer coverage of this edge yet.' },
+};
+async function loadDepHealth() {
+  const box = document.getElementById('dep-health');
+  if (!box) return;
+  const r = await api('GET', '/dependency-health');
+  if (!r || !r.ok) { box.innerHTML = '<div class="c-muted">Not available.</div>'; return; }
+  const edges = r.edges || [];
+  if (!edges.length) {
+    box.innerHTML = '<div class="c-muted">No declared dependencies yet — accept a suggestion above or set <code>depends_on</code> on a device.</div>';
+    return;
+  }
+  const sm = r.summary || {};
+  const order = { missing: 0, silent: 1, unverifiable: 2, ok: 3 };
+  const rows = edges.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  const alertNote = r.alerts_enabled
+    ? '<span class="c-success fs-12">Alerting on</span>'
+    : '<span class="c-muted fs-12">Alerting off — enable in Settings → Alerts</span>';
+  box.innerHTML =
+    `<div class="mb-8 fs-12">${sm.missing || 0} broken · ${sm.silent || 0} silent · ${sm.unverifiable || 0} unverified · ${sm.ok || 0} healthy &nbsp; ${alertNote}</div>`
+    + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
+    + '<thead><tr><th>Device</th><th>→ depends on</th><th>Status</th><th>Last seen</th></tr></thead><tbody>'
+    + rows.map(x => {
+        const st = _DEP_STATUS[x.status] || _DEP_STATUS.unverifiable;
+        const last = timeAgo(x.last_observed, { empty: '—' });
+        return `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.upstream_name)}</td>`
+          + `<td><span class="${st.cls}" title="${escAttr(st.tip)}">${escHtml(st.label)}</span></td>`
+          + `<td class="fs-12 c-muted">${escHtml(last)}</td></tr>`;
+      }).join('')
+    + '</tbody></table></div>';
+}
+
 // W5-1: LLDP topology suggestions (physical connected_to edges).
 async function loadLldpSuggestions() {
   const box = document.getElementById('lldp-suggestions');

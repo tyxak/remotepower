@@ -179,3 +179,220 @@ def handle_device_flows(dev_id):
     rec = (A.load(A.FLOW_FILE) or {}).get(dev_id) or {}
     A.respond(200, {'latest': rec.get('latest') or {},
                     'history': rec.get('history') or []})
+
+
+# ── v6.3.1: flow-derived service-dependency verification ─────────────────────
+# The discovery half (suggest depends_on edges from observed traffic) already
+# lives in api._dependency_suggestions (agent peer-conns, W3-8). This adds the
+# VERIFICATION half — the differentiated "missing edge" signal: a DECLARED
+# depends_on edge that was carrying observed traffic and then went silent while
+# BOTH endpoints are still online — a firewall/route/service break the
+# device_offline signal never catches. Evidence comes from BOTH the agent
+# peer-conns store AND the agentless flow receiver, so an edge visible only to a
+# router's NetFlow export (neither host runs an agent) is still verified.
+
+_DEP_EVIDENCE_TTL = 15 * 60      # peer-conn / flow snapshot older than this = no evidence
+_DEP_DEFAULT_SILENCE_MIN = 30    # default minutes silent before dependency_missing fires
+
+
+def _dep_ip_index(devices):
+    """ip / hostname / interface-ip → device id (same index _dependency_suggestions
+    builds; first writer wins so a primary ip isn't shadowed by an interface)."""
+    idx = {}
+    for did, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        for f in ('ip', 'hostname'):
+            v = str(dev.get(f) or '').strip()
+            if v:
+                idx.setdefault(v, did)
+        for nic in (dev.get('interfaces') or []):
+            if isinstance(nic, dict) and nic.get('ip'):
+                idx.setdefault(str(nic['ip']), did)
+    return idx
+
+
+def _dep_observed_edges(devices, now):
+    """Set of unordered frozenset({did, up}) device pairs currently exchanging
+    traffic, from FRESH agent peer-conns AND fresh flow-receiver conversations.
+    Bidirectional: traffic in either direction confirms the (did depends on up)
+    link is alive."""
+    idx = _dep_ip_index(devices)
+    edges = set()
+    # (a) agent-observed outbound peers (directional did → peer-ip)
+    peers = A.load(A.PEER_CONNS_FILE) or {}
+    for did, rec in peers.items():
+        if did not in devices or not isinstance(rec, dict):
+            continue
+        if (now - int(rec.get('ts') or 0)) > _DEP_EVIDENCE_TTL:
+            continue
+        for p in (rec.get('peers') or []):
+            up = idx.get(str(p.get('ip') or ''))
+            if up and up != did:
+                edges.add(frozenset((did, up)))
+    # (b) flow-receiver conversations (any exporter that saw both endpoints)
+    flow = A.load(A.FLOW_FILE) or {}
+    for rec in flow.values():
+        latest = rec.get('latest') if isinstance(rec, dict) else None
+        if not isinstance(latest, dict):
+            continue
+        if (now - int(latest.get('ts') or 0)) > _DEP_EVIDENCE_TTL:
+            continue
+        for c in (latest.get('conversations') or []):
+            a = idx.get(str(c.get('src') or ''))
+            b = idx.get(str(c.get('dst') or ''))
+            if a and b and a != b:
+                edges.add(frozenset((a, b)))
+    return edges
+
+
+def _dep_online(dev, now):
+    if bool(dev.get('agentless', False)):
+        return bool(A._agentless_online(dev))
+    return (now - int(dev.get('last_seen', 0) or 0)) < A.get_online_ttl()
+
+
+def _dependency_health(devices=None, state=None, now=None):
+    """Classify every DECLARED depends_on edge (did → up) against observed
+    traffic. Returns a list of edge rows for the UI + the sweep. Status:
+
+      ok            — traffic observed within the evidence TTL.
+      missing       — was observed before, now silent, BOTH endpoints online
+                      (the fire-worthy signal).
+      silent        — silent + was observed, but an endpoint is offline
+                      (collateral of device_offline; not fired).
+      unverifiable  — never observed (no flow/peer coverage of this edge).
+    """
+    if now is None:
+        now = int(time.time())
+    if devices is None:
+        devices = A.load(A.DEVICES_FILE) or {}
+    if state is None:
+        state = A.load(A.FLOW_DEPS_FILE) or {}
+    edges_state = state.get('edges') if isinstance(state.get('edges'), dict) else {}
+    observed = _dep_observed_edges(devices, now)
+    rows = []
+    for did, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        down_online = _dep_online(dev, now)
+        for up in (dev.get('depends_on') or []):
+            if up not in devices:
+                continue
+            key = f'{did}:{up}'
+            is_obs = frozenset((did, up)) in observed
+            est = edges_state.get(key) if isinstance(edges_state.get(key), dict) else {}
+            last_obs = int(est.get('last_observed') or 0)
+            ever = bool(est.get('ever_observed'))
+            up_online = _dep_online(devices[up], now)
+            if is_obs:
+                status = 'ok'
+            elif not ever:
+                status = 'unverifiable'
+            elif down_online and up_online:
+                status = 'missing'
+            else:
+                status = 'silent'
+            rows.append({
+                'device_id': did, 'device_name': dev.get('name', did),
+                'upstream_id': up, 'upstream_name': devices[up].get('name', up),
+                'dep_edge': key, 'status': status,
+                'last_observed': last_obs, 'ever_observed': ever,
+                'both_online': bool(down_online and up_online),
+            })
+    return rows
+
+
+def handle_dependency_health():
+    """GET /api/dependency-health — declared-dependency edges + observed-traffic
+    status, scope/tenant-filtered. Read-only; available regardless of whether
+    dependency alerting is enabled, so operators always see link health."""
+    A.require_auth()
+    devices = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+    rows = _dependency_health(devices=devices)
+    summary = {'ok': 0, 'missing': 0, 'silent': 0, 'unverifiable': 0}
+    for r in rows:
+        summary[r['status']] = summary.get(r['status'], 0) + 1
+    A.respond(200, {'edges': rows, 'summary': summary,
+                    'alerts_enabled': bool(A._config_ro().get('dependency_link_alerts', False))})
+
+
+def run_flow_dep_check_if_due():
+    """Cadence: refresh per-edge observed state and fire dependency_missing /
+    dependency_restored for DECLARED depends_on edges. Opt-in via
+    `dependency_link_alerts` (default off) — but the observed-state timestamps
+    are ALWAYS maintained so the health view + a later opt-in have history.
+
+    Edge-triggered on the observed→silent transition, both-online guarded, so it
+    catches the silent break device_offline can't and never double-alerts a host
+    that is simply down. fire_webhook is collected then called after the lock."""
+    now = int(time.time())
+    # cheap cadence gate on a read-only copy (like the other run_*_if_due sweeps)
+    try:
+        interval = int(A._config_ro().get('dependency_check_interval_s', 120))
+    except (TypeError, ValueError):
+        interval = 120
+    interval = max(30, min(3600, interval))
+    st = A.load(A.FLOW_DEPS_FILE) or {}
+    if (now - int(st.get('last_run') or 0)) < interval:
+        return
+    devices = A.load(A.DEVICES_FILE) or {}
+    observed = _dep_observed_edges(devices, now)
+    alerts_on = bool(A._config_ro().get('dependency_link_alerts', False))
+    try:
+        silence_s = int(A._config_ro().get('dependency_silence_min',
+                                           _DEP_DEFAULT_SILENCE_MIN)) * 60
+    except (TypeError, ValueError):
+        silence_s = _DEP_DEFAULT_SILENCE_MIN * 60
+    silence_s = max(60, silence_s)
+    pending = []          # (event, payload) fired AFTER the lock
+    with A._LockedUpdate(A.FLOW_DEPS_FILE) as store:
+        edges_state = store.get('edges') if isinstance(store.get('edges'), dict) else {}
+        # declared edge set this tick (drop state for edges no longer declared)
+        declared = set()
+        for did, dev in devices.items():
+            if not isinstance(dev, dict):
+                continue
+            for up in (dev.get('depends_on') or []):
+                if up in devices:
+                    declared.add(f'{did}:{up}')
+        for key in list(edges_state):
+            if key not in declared:
+                edges_state.pop(key, None)
+        for key in declared:
+            did, up = key.split(':', 1)
+            dev, updev = devices.get(did) or {}, devices.get(up) or {}
+            est = edges_state.get(key) if isinstance(edges_state.get(key), dict) else {}
+            is_obs = frozenset((did, up)) in observed
+            if is_obs:
+                was_alerted = bool(est.get('alerted'))
+                est['last_observed'] = now
+                est['ever_observed'] = True
+                if was_alerted:
+                    est['alerted'] = False
+                    if alerts_on:
+                        pending.append(('dependency_restored', {
+                            'device_id': did, 'name': dev.get('name', did),
+                            'dep_edge': key, 'upstream_id': up,
+                            'upstream_name': updev.get('name', up)}))
+            else:
+                ever = bool(est.get('ever_observed'))
+                last = int(est.get('last_observed') or 0)
+                both_online = _dep_online(dev, now) and _dep_online(updev, now)
+                if (alerts_on and ever and not est.get('alerted')
+                        and both_online and (now - last) >= silence_s):
+                    est['alerted'] = True
+                    pending.append(('dependency_missing', {
+                        'device_id': did, 'name': dev.get('name', did),
+                        'dep_edge': key, 'upstream_id': up,
+                        'upstream_name': updev.get('name', up),
+                        'detail': f'no observed traffic for '
+                                  f'{(now - last) // 60}m (both hosts online)'}))
+            edges_state[key] = est
+        store['edges'] = edges_state
+        store['last_run'] = now
+    for event, payload in pending:
+        try:
+            A.fire_webhook(event, payload)
+        except Exception:
+            pass

@@ -308,6 +308,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'ping_missed', 'ping_recovered',
             # v6.3.1: auto-remediation verify loop — the fix ran, alert stayed open
             'remediation_failed',
+            # v6.3.1: flow-verified declared-dependency link went silent / recovered
+            'dependency_missing', 'dependency_restored',
             # v6.1.2 (#40): SSH host-key change (MITM / reimage tripwire)
             'hostkey_changed',
             'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
