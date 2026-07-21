@@ -1739,10 +1739,32 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
 # v3.14.0 #35: secrets-on-disk scanner (parity with the Linux agent). READ-ONLY
 # + REDACTING — never sends a secret's value, only rule/location/masked-preview/
 # sha256 fingerprint. Opt-in (server pushes secrets_scan_enabled); bounded hard.
-SECRETS_SCAN_EVERY = 360
+# v6.3.1: PERSISTED wall-clock cadence (parity with linux v6.1.2 / mac v6.2.0).
+# poll_count % N was process-local, so a Windows box restarting its agent more
+# often than the interval never hit the modulo — the exact restart-churn bug
+# the other two agents were migrated off of. The poll<=1 + force clauses meant
+# it wasn't fully dead, but the cadence is now a monotonic due-time.
+SECRETS_SCAN_INTERVAL_S = 6 * 3600
+_SECRETS_TS_FILE = 'secrets_scan_last'
 # 'force' is the server's one-shot "Scan now" (force_secrets_scan) — v6.2.3:
 # it was honoured by the Linux/mac agents but ignored here.
 _secrets_cfg = {'on': False, 'paths': None, 'force': False}   # updated from each heartbeat response
+
+
+def _load_secrets_scan_ts():
+    try:
+        with open(os.path.join(_data_dir(), _SECRETS_TS_FILE), 'r', encoding='utf-8') as f:
+            return float((f.read() or '').strip())
+    except Exception:
+        return 0.0
+
+
+def _save_secrets_scan_ts(ts):
+    try:
+        with open(os.path.join(_data_dir(), _SECRETS_TS_FILE), 'w', encoding='utf-8') as f:
+            f.write(str(int(ts)))
+    except Exception:
+        pass
 _SECRET_RULES = [
     ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
     ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
@@ -2349,11 +2371,12 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['av'] = av
     # v3.14.0 #35: opt-in secrets scan on its own ~6h cadence (config from the
     # previous heartbeat response, stashed in _secrets_cfg by heartbeat_once).
-    if _secrets_cfg.get('on') and (_secrets_cfg.get('force') or poll_count <= 1
-                                   or poll_count % SECRETS_SCAN_EVERY == 0):
+    _sec_due = (time.time() - _load_secrets_scan_ts()) >= SECRETS_SCAN_INTERVAL_S
+    if _secrets_cfg.get('on') and (_secrets_cfg.get('force') or _sec_due):
         _secrets_cfg['force'] = False
         try:
             payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
+            _save_secrets_scan_ts(time.time())
         except Exception:
             pass
     # v6.3.1: one-shot hail-mary log sweep (operator "Diagnose from logs").

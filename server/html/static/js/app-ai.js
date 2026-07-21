@@ -2079,8 +2079,14 @@ async function logSweepRun() {
   if (_lsPollTimer) clearInterval(_lsPollTimer);
   let attempts = 0;
   _lsPollTimer = setInterval(async () => {
-    if (!_lsModalEl || !_lsModalEl.classList.contains('active') || ++attempts > 36) {
+    if (!_lsModalEl || !_lsModalEl.classList.contains('active')) {
       clearInterval(_lsPollTimer); _lsPollTimer = null; return;
+    }
+    if (++attempts > 36) {   // ~3 min — the agent hasn't checked in
+      clearInterval(_lsPollTimer); _lsPollTimer = null;
+      const el = document.getElementById('log-sweep-body');
+      if (el) el.innerHTML = '<div class="empty-state">The agent hasn\'t checked in with the sweep yet — it may be offline or on a slow poll. Click <b>Collect logs</b> to try again.</div>';
+      return;
     }
     const rec = await _logSweepLoad();
     if (rec && !rec.pending && rec.files && rec.files.length) {

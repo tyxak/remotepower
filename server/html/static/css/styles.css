@@ -2849,6 +2849,17 @@ input.form-input[type="text"][data-token],
   flex-wrap: wrap;
   gap: 6px;
 }
+/* v6.3.1: Log-rules device/global tabs (was inline cssText w/ pre-v6 colours) */
+.rules-tab {
+  border-radius: 11px 11px 0 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hair);
+}
+.rules-tab.active {
+  background: var(--accent-soft, var(--surface-2, var(--surface)));
+  border-bottom-color: var(--accent);
+  color: var(--accent-ink, inherit);
+}
 .attack-chip {
   display: inline-flex;
   align-items: center;

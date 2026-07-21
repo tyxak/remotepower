@@ -240,13 +240,13 @@ function switchRulesTab(tab) {
   // loading". Use explicit 'block' to beat the class.
   document.getElementById('logs-rules-device-wrap').style.display = (tab === 'device') ? 'block' : 'none';
   document.getElementById('logs-rules-global-wrap').style.display = (tab === 'global') ? 'block' : 'none';
-  // Style the active tab
+  // v6.3.1 (UX): style the active tab via a class pair, not inline cssText with
+  // hardcoded pre-v6 colours (which didn't follow the v6 accent-soft idiom).
   const dBtn = document.getElementById('logs-tab-device');
   const gBtn = document.getElementById('logs-tab-global');
-  const active = 'background:var(--surface2);border-bottom:1px solid var(--surface2)';
-  const inactive = 'background:var(--surface);border-bottom:1px solid var(--border)';
-  dBtn.style.cssText = 'border-radius:6px 6px 0 0;' + (tab === 'device' ? active : inactive);
-  gBtn.style.cssText = 'border-radius:6px 6px 0 0;' + (tab === 'global' ? active : inactive);
+  dBtn.classList.add('rules-tab'); gBtn.classList.add('rules-tab');
+  dBtn.classList.toggle('active', tab === 'device');
+  gBtn.classList.toggle('active', tab === 'global');
   if (tab === 'global') loadGlobalLogRules();
 }
 

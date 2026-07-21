@@ -258,7 +258,11 @@ def handle_log_sweep_diagnose(dev_id):
     """POST /api/devices/<id>/log-sweep/diagnose — synchronous AI root-cause
     pass over the stored sweep (`log_sweep_rca` prompt). Write-role gated:
     triggers an AI-provider call (cost) + a store write."""
-    A.require_write_role('run AI log diagnosis')
+    actor = A.require_write_role('run AI log diagnosis')
+    _allowed, _used, _cap = A._ai_rate_limit_check(actor, A._ai_cfg())  # v6.3.1 cost cap
+    if not _allowed:
+        A.respond(429, {'error': f'AI daily request cap reached ({_used}/{_cap})'})
+        return
     if not A._validate_id(dev_id):
         A.respond(404, {'error': 'invalid device id'})
         return
@@ -596,7 +600,14 @@ def handle_alert_ai_triage(alert_id):
     Write-role gated (multiple AI-provider calls). Cross-tenant / out-of-scope
     alert ids 404 (via the caller-visibility filter) so existence isn't
     revealed."""
-    A.require_write_role('run AI alert triage')
+    actor = A.require_write_role('run AI alert triage')
+    # v6.3.1: count a triage run against the per-user daily AI cap (one run =
+    # one request, even though it makes several provider calls) — the loop is a
+    # cost amplifier and was previously uncapped.
+    _allowed, _used, _cap = A._ai_rate_limit_check(actor, A._ai_cfg())
+    if not _allowed:
+        A.respond(429, {'error': f'AI daily request cap reached ({_used}/{_cap})'})
+        return
     all_alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
     visible = A._filter_alerts_for_caller(all_alerts)
     alert = next((a for a in visible if a.get('id') == alert_id), None)

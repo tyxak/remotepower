@@ -660,7 +660,7 @@ async function aiTriageAlert(id) {
   const titleEl = document.querySelector('#ai-insight-modal .modal-title');
   if (titleEl) titleEl.textContent = 'AI triage';
   const body = document.getElementById('ai-insight-body');
-  if (body) body.innerHTML = '<div class="empty-state">Investigating — the model is gathering evidence (this runs a few AI calls)…</div>';
+  if (body) body.innerHTML = `<div class="empty-state">${typeof aiThinkingHtml === 'function' ? aiThinkingHtml() : ''} Investigating — the model is gathering evidence (this runs a few AI calls)…</div>`;
   openModal('ai-insight-modal');
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ai-triage`, {}).catch(() => null);
   if (!r || !r.ok) {

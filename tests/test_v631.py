@@ -243,6 +243,17 @@ class TestForceFlagContract(unittest.TestCase):
             self.assertIn("def collect_log_sweep", src, rel)
             self.assertIn("payload['log_sweep']", src, rel)
 
+    def test_all_three_agents_use_persisted_secrets_cadence(self):
+        # v6.3.1 parity: the Windows agent was the last on poll_count % N — all
+        # three now use a persisted wall-clock due-time (survives restarts).
+        for rel in ("client/remotepower-agent.py",
+                    "client/remotepower-agent-mac.py",
+                    "client/remotepower-agent-win.py"):
+            src = (_ROOT / rel).read_text()
+            self.assertIn("SECRETS_SCAN_INTERVAL_S", src, rel)
+            self.assertIn("_load_secrets_scan_ts", src, rel)
+            self.assertNotIn("poll_count % SECRETS_SCAN_EVERY", src, rel)
+
 
 class TestSweepHandlers(unittest.TestCase):
     def setUp(self):
@@ -476,6 +487,16 @@ class TestTriageHandler(unittest.TestCase):
         finally:
             api._call_ai_with_prompts = orig
         self.assertEqual(status, 502)
+
+    def test_daily_ai_cap_returns_429(self):
+        # v6.3.1: a triage run counts against ai.limits.max_requests_per_user_day.
+        orig = api._ai_rate_limit_check
+        api._ai_rate_limit_check = lambda actor, cfg: (False, 100, 100)
+        try:
+            status, _ = _call(api.handle_alert_ai_triage, "al1")
+        finally:
+            api._ai_rate_limit_check = orig
+        self.assertEqual(status, 429)
 
 
 class TestAgentCollector(unittest.TestCase):
