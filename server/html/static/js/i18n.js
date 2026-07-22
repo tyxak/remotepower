@@ -442,6 +442,7 @@
     'Custom checks':           { fr: 'Contrôles personnalisés', de: 'Benutzerdefinierte Prüfungen', zh: '自定义检查', hi: 'कस्टम जाँच', es: 'Comprobaciones personalizadas', ar: 'فحوصات مخصصة' },
     'Check catalog':           { fr: 'Catalogue de contrôles', de: 'Prüfungskatalog', zh: '检查目录', hi: 'जाँच कैटलॉग', es: 'Catálogo de comprobaciones', ar: 'كتالوج الفحوصات' },
     'Protect':                 { fr: 'Protection', de: 'Schutz', zh: '防护', hi: 'सुरक्षा', es: 'Protección', ar: 'الحماية' },
+    'Baseline protect checks': { fr: 'Contrôles de protection de référence', de: 'Schutz-Basisprüfungen', zh: '基线防护检查', hi: 'बेसलाइन सुरक्षा जाँच', es: 'Comprobaciones de protección base', ar: 'فحوصات الحماية الأساسية' },
     'Quarantine vault':        { fr: 'Coffre de quarantaine', de: 'Quarantäne-Tresor', zh: '隔离保险库', hi: 'क्वारंटीन वॉल्ट', es: 'Bóveda de cuarentena', ar: 'خزنة الحجر الصحي' },
     'Custom scripts':          { fr: 'Scripts personnalisés', de: 'Benutzerdefinierte Skripte', zh: '自定义脚本', hi: 'कस्टम स्क्रिप्ट', es: 'Scripts personalizados', ar: 'نصوص برمجية مخصصة' },
     'Generate certificate':    { fr: 'Générer un certificat', de: 'Zertifikat generieren', zh: '生成证书', hi: 'प्रमाणपत्र बनाएँ', es: 'Generar certificado', ar: 'إنشاء شهادة' },

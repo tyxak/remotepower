@@ -43,6 +43,28 @@ def available():
     return _AVAILABLE
 
 
+def __getattr__(name):
+    """PEP-562 module fallback for the pydantic-absent case.
+
+    The model classes below are only defined ``if _AVAILABLE``, but ~212 call
+    sites reference them EAGERLY as ``_read_valid(request_models.SomeRequest)``
+    — the attribute is resolved at the call site, before _read_valid can do
+    anything about it. Without this hook that lookup raises AttributeError and
+    500s the handler, silently breaking the "optional dependency, handlers
+    unchanged" contract stated at the top of this module.
+
+    Returning None is safe and complete: validate(None, body) is already a
+    no-op when the library is missing, so the handler proceeds with its own
+    long-standing validation exactly as it did before the pilot landed.
+
+    Python only calls this when normal attribute lookup FAILS, so when pydantic
+    is installed the real classes are found first and this is never reached.
+    """
+    if not _AVAILABLE and (name.endswith('Request') or name.endswith('Model')):
+        return None
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+
 if _AVAILABLE:
 
     # v6.1.1 (#5 follow-up, adversarial self-review): these `mode='before'`
@@ -2659,7 +2681,9 @@ def validate(model_cls, body):
     """Returns (True, None) when pydantic is unavailable (caller's existing
     validation runs unchanged) or when the body validates; (False, message)
     on a validation failure -- caller should respond(400, {'error': message})."""
-    if not _AVAILABLE:
+    if not _AVAILABLE or model_cls is None:
+        # model_cls is None when the caller resolved a model name through the
+        # module __getattr__ fallback above (pydantic absent) — skip, never raise.
         return True, None
     if not isinstance(body, dict):
         return False, 'request body must be a JSON object'

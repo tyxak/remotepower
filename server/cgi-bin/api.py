@@ -1245,7 +1245,7 @@ del _fl_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
-    CHECK_BASELINE_CATALOG,
+    CHECK_BASELINE_CATALOG, PROTECT_CATEGORIES, baseline_kind,
 )
 # Back-compat namespace binding — call sites and the test suite reference
 # these through the api module; the implementations live in notify.py.
@@ -41510,7 +41510,10 @@ def handle_check_baseline_catalog():
     baseline checks (grouped by `cat`). The UI lets an admin apply a selection to
     a scope; each becomes a scoped custom_check."""
     require_auth()
-    respond(200, {'catalog': [dict(t) for t in CHECK_BASELINE_CATALOG]})
+    # `kind` splits the catalog across two pickers: 'ops' for Monitoring ->
+    # Checks, 'protect' for the Security -> Protect hardening set.
+    respond(200, {'catalog': [dict(t, kind=baseline_kind(t.get('cat', '')))
+                              for t in CHECK_BASELINE_CATALOG]})
 
 
 def handle_check_baselines_apply():

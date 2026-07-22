@@ -102,5 +102,39 @@ class TestProtectStrippedDuringMaintenance(unittest.TestCase):
         self.assertEqual(checks[0]['type'], 'dir_baseline')   # check still pushed
 
 
+class TestBaselinePickerSplit(unittest.TestCase):
+    """Hardening templates live on Security -> Protect, operational ones on
+    Monitoring -> Checks. Both pickers share the apply endpoint; only `kind`
+    decides where a template is offered."""
+
+    def test_every_template_has_a_kind(self):
+        for t in api.CHECK_BASELINE_CATALOG:
+            self.assertIn(api.baseline_kind(t['cat']), ('ops', 'protect'), t['id'])
+
+    def test_both_pickers_are_populated(self):
+        kinds = [api.baseline_kind(t['cat']) for t in api.CHECK_BASELINE_CATALOG]
+        self.assertGreater(kinds.count('ops'), 0, 'Checks picker would be empty')
+        self.assertGreater(kinds.count('protect'), 10, 'Protect picker too thin')
+
+    def test_security_categories_are_protect(self):
+        for cat in ('Web / application security', 'Hardening — must not listen',
+                    'Integrity — critical files', 'Integrity — persistence paths',
+                    'Detection — log signals'):
+            self.assertEqual(api.baseline_kind(cat), 'protect', cat)
+
+    def test_operational_categories_stay_on_checks(self):
+        for cat in ('Core liveness', 'Filesystem / OS', 'Role-tagged'):
+            self.assertEqual(api.baseline_kind(cat), 'ops', cat)
+
+    def test_protect_templates_are_all_appliable(self):
+        """A Protect template must still be a normal, scopeable custom check."""
+        known = set(api.SERVER_CHECK_TYPES) | set(api.AGENT_CHECK_TYPES)
+        rows = [t for t in api.CHECK_BASELINE_CATALOG
+                if api.baseline_kind(t['cat']) == 'protect']
+        for t in rows:
+            self.assertIn(t['type'], known, t['id'])
+            self.assertTrue(t['param'] and t['name'] and t['desc'], t['id'])
+
+
 if __name__ == '__main__':
     unittest.main()

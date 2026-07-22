@@ -403,7 +403,11 @@ async function deleteQuarantine(deviceId, id) {
 
 // ── v6.2.3: Baseline checks — apply a recommended catalog set to a scope ──────
 let _bcCatalog = [];
-async function openBaselineChecks() {
+let _bcKind = 'ops';   // which picker is open: operational vs Protect
+async function openBaselineChecks(kind) {
+  _bcKind = kind === 'protect' ? 'protect' : 'ops';
+  const t = document.getElementById('baseline-checks-title');
+  if (t) t.textContent = _bcKind === 'protect' ? 'Baseline protect checks' : 'Baseline checks';
   const el = document.getElementById('bc-catalog');
   if (el) el.innerHTML = _skeletonBlock(4);
   const r = document.getElementById('bc-result'); if (r) r.textContent = '';
@@ -460,9 +464,15 @@ function pickBcHost(id, name) {
 function _bcRenderCatalog() {
   const el = document.getElementById('bc-catalog');
   if (!el) return;
-  if (!_bcCatalog.length) { el.innerHTML = '<div class="empty-state">No catalog available.</div>'; return; }
+
   const cats = {};
-  _bcCatalog.forEach(t => { (cats[t.cat] = cats[t.cat] || []).push(t); });
+  // A row with no kind (older server) is operational, so an out-of-date
+  // backend still fills the Checks picker rather than showing nothing.
+  _bcCatalog.filter(t => (t.kind || 'ops') === _bcKind)
+    .forEach(t => { (cats[t.cat] = cats[t.cat] || []).push(t); });
+  if (!Object.keys(cats).length) {
+    el.innerHTML = '<div class="empty-state">No templates available.</div>'; return;
+  }
   el.innerHTML = Object.keys(cats).map(cat =>
     `<div class="section-title bc-cat">${escHtml(cat)}</div>` +
     cats[cat].map(t =>

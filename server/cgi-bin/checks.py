@@ -1015,6 +1015,27 @@ CHECK_BASELINE_CATALOG = (
 )
 
 
+# Which catalog categories belong to the Security → Protect picker rather than
+# the operational Monitoring → Checks one. Hardening and tamper-detection
+# templates are a different job from liveness checks, so they get their own
+# surface — same apply mechanics, same scoping, different question being asked.
+PROTECT_CATEGORIES = frozenset({
+    "Web / application security",
+    "Hardening — services",
+    "Hardening — must not listen",
+    "Integrity — critical files",
+    "Integrity — persistence paths",
+    "Integrity — must not exist",
+    "Detection — log signals",
+    "Freshness — scheduled jobs",
+})
+
+
+def baseline_kind(cat):
+    """'protect' for hardening/tamper-detection templates, else 'ops'."""
+    return 'protect' if cat in PROTECT_CATEGORIES else 'ops'
+
+
 def _custom_check_applies(cdef, dev_id, dev):
     """True if a custom-check definition targets this device."""
     tk = cdef.get("target_kind", "all")
