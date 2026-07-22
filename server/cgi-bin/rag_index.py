@@ -2157,6 +2157,47 @@ def build_hardware_corpus(store, devices=None, now=0):
     return docs
 
 
+def build_billing_corpus(invoices, quotes, time_entries, now=0):
+    """v6.4.0: invoice / quote / time-entry summary for the RAG so the
+    `billing_review` advisor is grounded instead of hallucinating — it had NO
+    backing data. Summary-level only (counts + totals by status, overdue list);
+    no line-item detail beyond what the operator already authored."""
+    docs = []
+    inv = (invoices or {}).get('invoices') if isinstance(invoices, dict) else None
+    q = (quotes or {}).get('quotes') if isinstance(quotes, dict) else None
+    te = (time_entries or {}).get('entries') if isinstance(time_entries, dict) else None
+    lines = []
+    if isinstance(inv, list) and inv:
+        by_status, overdue = {}, []
+        for i in inv:
+            if not isinstance(i, dict):
+                continue
+            st = str(i.get('status') or 'draft')
+            by_status[st] = by_status.get(st, 0) + 1
+            if st in ('sent', 'overdue') and i.get('due_ts') and i['due_ts'] < now:
+                overdue.append(f"#{i.get('number', i.get('id', '?'))}"
+                               + (f" {i.get('amount')}" if i.get('amount') is not None else ''))
+        lines.append("Invoices by status: "
+                     + ', '.join(f"{k}: {v}" for k, v in sorted(by_status.items())))
+        if overdue:
+            lines.append(f"Overdue invoices ({len(overdue)}): " + ', '.join(overdue[:20]))
+    if isinstance(q, list) and q:
+        qs = {}
+        for x in q:
+            if isinstance(x, dict):
+                qs[str(x.get('status') or 'draft')] = qs.get(str(x.get('status') or 'draft'), 0) + 1
+        lines.append("Quotes by status: " + ', '.join(f"{k}: {v}" for k, v in sorted(qs.items())))
+    if isinstance(te, list) and te:
+        _unbilled = sum(1 for e in te if isinstance(e, dict) and not e.get('invoiced'))
+        lines.append(f"Time entries: {len(te)} total, {_unbilled} not yet invoiced")
+    if lines:
+        docs.append(make_doc(
+            'billing/summary', 'billing', 'billing_summary',
+            "Billing snapshot (invoices, quotes, unbilled time):\n" + '\n'.join(lines),
+            title='Billing summary', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

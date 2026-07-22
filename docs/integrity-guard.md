@@ -209,6 +209,13 @@ Params suit Debian/Ubuntu and are **editable after applying** (e.g.
 `sshd.service` instead of `ssh.service` on RHEL). Applying is **idempotent** —
 de-duplicated on (type, param, scope), so re-applying adds nothing.
 
+The catalog is **text-filterable** (name / path / description) so you find a
+template among the ~78 without scrolling, and each row's **"Applied to …"**
+annotation shows exactly where it landed — with a **remove** action per scope
+(and per host in the expandable list), so you can un-apply a check from a tag,
+group or single host straight from the card. Removing is a deferred-commit with
+**Undo**, and it stops the agent evaluating the check on its next check-in.
+
 > The operational templates (agent running, time sync, firewall, Docker/nginx by
 > tag, …) live in the separate **Monitoring → Checks → Baseline checks** picker.
 > Same mechanics, different question.

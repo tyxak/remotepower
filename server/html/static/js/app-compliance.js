@@ -90,7 +90,7 @@ async function remediateCheck(arg) {
 }
 
 function _cisSparkline(hist) {
-  if (!hist.length) return '<span class="c-muted fs-11">No trend yet — a daily sample is recorded automatically.</span>';
+  if (!hist.length) return '<span class="c-muted fs-14">No trend yet — a daily sample is recorded automatically.</span>';
   const pts = hist.map(h => h.score).filter(s => typeof s === 'number');
   if (!pts.length) return '';
   const max = 100, min = 0, w = 4, h = 28;

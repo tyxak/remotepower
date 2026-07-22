@@ -3,7 +3,12 @@
 **Alerts** is the operational inbox: every fired event that carries a
 severity lands here, grouped by host, until it is acknowledged, resolved, or
 auto-resolved by its matching recover event (`device_online`,
-`service_recover`, `custom_script_recover`, …).
+`service_recover`, `custom_script_recover`, …). An alert also resolves when the
+condition behind it is removed rather than recovered: **deleting a device**
+resolves all of its open alerts, **deleting a custom check or script** resolves
+its alerts fleet-wide, and **accepting or disabling** a protect/baseline check
+fires `custom_check_recovered` so its alert closes — so nothing lingers pointing
+at something that no longer exists.
 
 ## Working the inbox
 

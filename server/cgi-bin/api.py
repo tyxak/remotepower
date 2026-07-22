@@ -1920,6 +1920,26 @@ EVENT_REGISTRY = {
     'gateway_reachable': dict(
         label='Default gateway is reachable again', kind='network', title='Gateway Reachable',
         resolves=('gateway_unreachable',), tags='white_check_mark,globe_with_meridians'),
+    # v6.4.0: rising RTT to the default gateway — a saturated uplink / dying
+    # switch port shows here long before the link goes fully down. Edge-triggered
+    # off the rolling latency average against an operator threshold.
+    'gateway_latency_high': dict(
+        label='Default-gateway latency is elevated', kind='network',
+        title='Gateway Latency High', severity='medium',
+        tags='warning,globe_with_meridians'),
+    'gateway_latency_normal': dict(
+        label='Default-gateway latency is back to normal', kind='network',
+        title='Gateway Latency Normal', resolves=('gateway_latency_high',),
+        tags='white_check_mark,globe_with_meridians'),
+    # v6.4.0: laptop/UPS-less battery WEAR (health %, not charge %) crossing a
+    # threshold — a battery at end of life needs replacing before it fails.
+    'battery_health_low': dict(
+        label='A battery has degraded below its health threshold', kind='hardware',
+        title='Battery Health Low', severity='medium', tags='warning,battery'),
+    'battery_health_ok': dict(
+        label='Battery health recovered (replaced/re-reported)', kind='hardware',
+        title='Battery Health OK', resolves=('battery_health_low',),
+        tags='white_check_mark,battery'),
     # v6.2.2: a NIC accruing errors/drops NOW (failing cable / dirty SFP / dying
     # switch port). The agent always reported the counters and the Checks page
     # got a row, but nothing fired — so it could never page. Edge-triggered per
@@ -17698,6 +17718,7 @@ def handle_heartbeat():
     _reboot_cleared_pending = False  # v5.6.x: reboot no longer required (recover)
     _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
     _gw_event_pending = None         # v4.1.0: ('gateway_unreachable'|'gateway_reachable', payload)
+    _edge_events_pending = []        # v6.4.0: (event, payload) edge events fired post-lock
     _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
     _reinstall_audit_pending = False  # audit AFTER the device lock (audit_log locks too)
     _agent_started_pending = None     # v4.10.0: ('agent resumed after graceful stop') payload
@@ -17856,6 +17877,24 @@ def handle_heartbeat():
                         _bs.append(_b)
                 if _bs:
                     safe_si['battery'] = _bs
+                    # v6.4.0: edge-trigger battery_health_low on WEAR (health_pct),
+                    # not charge. Operator threshold; 50% default (0 disables).
+                    _bh_thr = int(_config_ro().get('battery_health_low_pct', 50) or 0)
+                    _worst = min((b['health_pct'] for b in _bs
+                                  if isinstance(b.get('health_pct'), int)), default=None)
+                    if _bh_thr > 0 and _worst is not None:
+                        _was_low = bool((dev.get('sysinfo') or {}).get('_batt_low'))
+                        if _worst < _bh_thr and not _was_low:
+                            safe_si['_batt_low'] = True
+                            _edge_events_pending.append(('battery_health_low', {
+                                'device_id': dev_id, 'name': dev.get('name', dev_id),
+                                'detail': f'battery health {_worst}% (limit {_bh_thr}%)'}))
+                        elif _worst >= _bh_thr and _was_low:
+                            safe_si['_batt_low'] = False
+                            _edge_events_pending.append(('battery_health_ok', {
+                                'device_id': dev_id, 'name': dev.get('name', dev_id)}))
+                        else:
+                            safe_si['_batt_low'] = _was_low
             # v6.2.2: kernel-module visibility from the agent's own execution
             # context. safe_si is a WHITELIST — drop it here and the forced
             # 'modules' check + the modules_hidden alert can never fire.
@@ -18182,6 +18221,26 @@ def handle_heartbeat():
                                   ).get('history') or [])
                     _hist.append([now, round(float(_lat), 2)])
                     safe_si['gateway']['history'] = _hist[-60:]   # ~last hour
+                    # v6.4.0: edge-trigger gateway_latency_high off the rolling
+                    # average (needs a few samples so a single spike doesn't
+                    # page). Operator threshold; 150ms default. Stored flag keeps
+                    # it from re-firing every heartbeat.
+                    _lat_thr = int(_config_ro().get('gateway_latency_high_ms', 150) or 150)
+                    _recent = [p[1] for p in _hist[-10:] if isinstance(p, list) and len(p) == 2]
+                    if _lat_thr > 0 and len(_recent) >= 5:
+                        _avg = sum(_recent) / len(_recent)
+                        _was_high = bool((dev.get('sysinfo') or {}).get('gateway', {}).get('lat_high'))
+                        if _avg >= _lat_thr and not _was_high:
+                            safe_si['gateway']['lat_high'] = True
+                            _edge_events_pending.append(('gateway_latency_high', {
+                                'device_id': dev_id, 'name': dev.get('name', dev_id),
+                                'gateway': gw_ip, 'detail': f'avg RTT {_avg:.0f}ms (limit {_lat_thr}ms)'}))
+                        elif _avg < _lat_thr and _was_high:
+                            safe_si['gateway']['lat_high'] = False
+                            _edge_events_pending.append(('gateway_latency_normal', {
+                                'device_id': dev_id, 'name': dev.get('name', dev_id), 'gateway': gw_ip}))
+                        else:
+                            safe_si['gateway']['lat_high'] = _was_high
                 else:
                     _hist = list(((dev.get('sysinfo') or {}).get('gateway') or {}
                                   ).get('history') or [])
@@ -19170,6 +19229,11 @@ def handle_heartbeat():
     if _gw_event_pending:
         try:
             fire_webhook(_gw_event_pending[0], _gw_event_pending[1])
+        except Exception:
+            pass
+    for _ev, _pl in _edge_events_pending:   # v6.4.0: gateway-latency / battery-health
+        try:
+            fire_webhook(_ev, _pl)
         except Exception:
             pass
     if _oom_event_pending:
@@ -36705,6 +36769,9 @@ _AI_DEFAULTS = {
             # entirely AI-blind. Grounds "SMART wear on web01", "does X need a
             # kernel reboot", "UPS runtime", "who has sudo".
             'hardware':          True,
+            # v6.4.0: invoices/quotes/unbilled-time summary — the billing_review
+            # advisor had NO grounding data. Gated on the billing module.
+            'billing':           True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -36929,7 +36996,7 @@ def handle_ai_config_set():
                           'contacts', 'incidents', 'maintenance', 'scripts',   # v6.2.2
                           'incident_memory', 'image_cves', 'scap',
                           'security_findings', 'automation_rules',
-                          'hardware'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
+                          'hardware', 'billing'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -37091,6 +37158,8 @@ def _rag_source_files(sources):
         files.append(RULES_FILE)
     if sources.get('hardware'):
         files.append(HARDWARE_FILE)
+    if sources.get('billing'):
+        files += [INVOICES_FILE, QUOTES_FILE, TIME_ENTRIES_FILE]
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -37501,6 +37570,13 @@ def _rag_build_corpus(cfg):
                 load(HARDWARE_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: hardware source failed: {e}\n')
+    if sources.get('billing') and _billing_enabled():
+        try:
+            docs += rag_index.build_billing_corpus(
+                load(INVOICES_FILE) or {}, load(QUOTES_FILE) or {},
+                load(TIME_ENTRIES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: billing source failed: {e}\n')
 
     return docs
 

@@ -346,6 +346,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew
             'gateway_unreachable', 'gateway_reachable',  # v4.1.0 gateway
+            'gateway_latency_high', 'gateway_latency_normal',  # v6.4.0
+            'battery_health_low', 'battery_health_ok',   # v6.4.0
             'nic_errors', 'nic_errors_cleared',      # v6.2.2 NIC errors/drops
             'win_bitlocker_off', 'win_firewall_off', # v6.2.2 Windows posture
             'win_update_stopped', 'win_defender_stale',

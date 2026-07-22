@@ -18625,6 +18625,8 @@ function _renderHomeActivity(fleetEvents) {
     'readonly_fs', 'readonly_fs_cleared', 'mailq_high', 'mailq_normal',
     'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
+    'gateway_latency_high', 'gateway_latency_normal',   // v6.4.0
+    'battery_health_low', 'battery_health_ok',           // v6.4.0
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
@@ -18891,6 +18893,9 @@ function _homeActivityAttrs(event, p) {
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_critical': case 'ups_on_line':
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
+    // v6.4.0: gateway-latency + battery-health → the affected host's drawer
+    case 'gateway_latency_high': case 'gateway_latency_normal':
+    case 'battery_health_low': case 'battery_health_ok':
     // v6.2.2: NIC errors/drops → the affected host's drawer
     case 'nic_errors': case 'nic_errors_cleared':
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
@@ -19340,7 +19345,7 @@ async function openLxcCreateWizard() {
   form.classList.remove('d-none');
   // Only allow create when there's a template + storage to use.
   submit.disabled = !(tmpls.length && sts.length);
-  if (!tmpls.length) result.innerHTML = '<span class="c-amber fs-12">No OS templates on the node — download one first (Proxmox → Storage → CT Templates).</span>';
+  if (!tmpls.length) result.innerHTML = '<span class="c-amber fs-14">No OS templates on the node — download one first (Proxmox → Storage → CT Templates).</span>';
 }
 
 async function submitLxcCreate() {
@@ -22152,6 +22157,12 @@ async function _loadAuditSection(key) {
             ? Object.entries(si.ssh_hostkeys)
                 .map(([t, fp]) => `${t.replace(/^ssh-/, '')}: ${fp}`).join('\n')
             : null],
+          // v6.4.0: attached USB devices (VID:PID → label). Collected + drives
+          // the usb_device_added tripwire, but the inventory itself was shown
+          // nowhere — now listed so the alert is verifiable against reality.
+          ['USB devices', si.usb && Object.keys(si.usb).length
+            ? Object.entries(si.usb).map(([id, label]) => `${label || '?'} (${id})`).join('\n')
+            : null],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
           // v3.8.0: why the host last restarted (the command before the reboot)
           ['Boot reason', data?.last_boot_reason || null],
@@ -22291,7 +22302,7 @@ async function _loadAuditSection(key) {
               h += `<div class="fs-11 c-muted mt-4">Scanned ${escHtml(_fmtTs(duRec.ts))}</div>`;
             }
           } else {
-            h += `<div class="c-muted fs-12">No disk-usage scan yet. Enable it in
+            h += `<div class="c-muted fs-14">No disk-usage scan yet. Enable it in
                   Settings → Security, then scan on demand.</div>`;
           }
           h += `<button class="btn btn-sm mt-4" data-action="duScan" data-arg="${escAttr(id)}">
@@ -22513,7 +22524,7 @@ async function _loadAuditSection(key) {
         // Only warn on an EXPLICIT no-firewall (active===false); not when unknown.
         const warn = fw.active === false ?
           `<div class="fs-12 mb-8 c-red"><strong>No active host firewall.</strong> This raises the asset's risk score.</div>`
-          : (fw.active === null ? `<div class="fs-12 mb-8 c-amber">Firewall state couldn't be read (the agent may not be running as root). Not counted against risk.</div>` : '');
+          : (fw.active === null ? `<div class="fs-14 mb-8 c-amber">Firewall state couldn't be read (the agent may not be running as root). Not counted against risk.</div>` : '');
         // v3.13.0: host firewall fingerprint (the drift baseline the
         // firewall_changed event fires off) — show the active ruleset summary.
         const fpLine = (fwfp && fwfp.backend) ?
@@ -27027,7 +27038,7 @@ async function loadDetectionSelftest() {
     ? '<div class="section-title mt-12">Issues</div>' + issues.map(i =>
         `<div class="fs-12 mb-4"><span class="${_DS_LEVEL[i.level] || 'c-muted'}">●</span> `
         + `<span class="${_DS_LEVEL[i.level] || ''}">${escHtml(i.level.toUpperCase())}</span> — ${escHtml(i.message)}</div>`).join('')
-    : '<div class="c-green fs-12 mt-8">● Every alertable event type routes to a human. No silent gaps.</div>';
+    : '<div class="c-green fs-14 mt-8">● Every alertable event type routes to a human. No silent gaps.</div>';
   const rows = (d.kinds || []).slice()
     .sort((a, b) => (a.reachable === b.reachable) ? 0 : (a.reachable ? 1 : -1))
     .map(k => {
