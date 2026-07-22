@@ -185,6 +185,72 @@ class TestRebaselineForcesEval(unittest.TestCase):
         self.assertIn('or _FORCE_CHECK_EVAL', src)
 
 
+class TestCatalogRepairAndApply(unittest.TestCase):
+    """v6.4.0: applied catalog checks that dropped a top-level field (pattern)
+    or predate a param fix (ClamAV .cvd/.cld, apt stamp) are repaired in place,
+    and a NEW apply copies the top-level pattern."""
+
+    def test_repair_backfills_pattern_and_upgrades_paths(self):
+        import checks
+        applied = [
+            {'id': 'ck_1', 'name': 'No obfuscated PHP loader in the web root',
+             'type': 'file_contains', 'param': '/var/www::*.php'},          # no pattern
+            {'id': 'ck_2', 'name': 'AV signatures updated recently',
+             'type': 'job_fresh', 'param': '/var/lib/clamav/daily.cvd'},    # old single
+            {'id': 'ck_3', 'name': 'WordPress wp-config.php unchanged',
+             'type': 'file_hash', 'param': '/opt/site/wp-config.php'},      # custom path
+        ]
+        n = checks.repair_applied_catalog_checks(applied)
+        self.assertEqual(n, 2)
+        self.assertTrue(applied[0].get('pattern'))                          # backfilled
+        self.assertIn('daily.cld', applied[1]['param'])                     # upgraded
+        self.assertIn('|', applied[1]['param'])
+        self.assertEqual(applied[2]['param'], '/opt/site/wp-config.php')    # untouched
+
+    def test_apply_handler_copies_top_level_pattern(self):
+        from tests import apisrc
+        src = apisrc.api_source()
+        self.assertIn("if tmpl.get('pattern'):", src)
+        self.assertIn("_row['pattern'] = tmpl['pattern']", src)
+
+    def test_migration_registered_in_both_registries(self):
+        from tests import apisrc
+        self.assertIn('_maybe_repair_baseline_checks', apisrc.api_source())
+        sched = (Path(__file__).parent.parent / 'server' / 'cgi-bin' / 'scheduler.py').read_text()
+        self.assertIn('_maybe_repair_baseline_checks', sched)
+
+
+class TestCustomCheckNeedsAttention(unittest.TestCase):
+    """v6.4.0: a failing custom/protect check must reach Needs Attention, not
+    only the Alerts inbox."""
+
+    def test_failing_check_appears_in_attention(self):
+        api.save(api.CONFIG_FILE, {'custom_checks': [CHECK]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.save(api.DEVICES_FILE, {DEV: {
+            'name': 'host1', 'monitored': True,
+            'last_seen': int(__import__('time').time()),
+            'custom_check_state': {CHECK['id']: {
+                'status': 'critical', 'output': '/etc/hosts changed'}}}})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        items = api._compute_attention()
+        cc = [i for i in items if i.get('kind') == 'custom_check']
+        self.assertTrue(cc, 'a failing custom check must produce a NA item')
+        self.assertEqual(cc[0]['severity'], 'critical')
+
+    def test_disabled_check_absent_from_attention(self):
+        api.save(api.CONFIG_FILE, {'custom_checks': [CHECK],
+                 'host_checks_disabled': {DEV: ['custom:' + CHECK['id']]}})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.save(api.DEVICES_FILE, {DEV: {
+            'name': 'host1', 'monitored': True,
+            'last_seen': int(__import__('time').time()),
+            'custom_check_state': {CHECK['id']: {'status': 'critical', 'output': 'x'}}}})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        items = api._compute_attention()
+        self.assertFalse([i for i in items if i.get('kind') == 'custom_check'])
+
+
 class TestUiWiring(unittest.TestCase):
     _JS = Path(__file__).parent.parent / 'server' / 'html' / 'static' / 'js'
     _HTML = Path(__file__).parent.parent / 'server' / 'html' / 'index.html'

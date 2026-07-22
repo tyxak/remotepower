@@ -1099,9 +1099,13 @@ CHECK_BASELINE_CATALOG = (
 
     # ── Freshness — things that must keep running ────────────────────────────
     {"cat": "Freshness — scheduled jobs", "id": "apt_update_fresh", "type": "job_fresh",
-     "param": "/var/lib/apt/periodic/update-success-stamp",
+     "param": "/var/lib/apt/periodic/update-success-stamp|/var/lib/apt/lists",
      "name": "Package index updated recently", "extras": {"max_age_hours": 48},
-     "desc": "If apt stopped updating, your patch data (and CVE view) is silently stale."},
+     "desc": "If apt stopped updating, your patch data (and CVE view) is silently "
+             "stale. Checks the apt-daily success stamp AND the package-list "
+             "directory mtime (updated by every `apt update`, even a manual one) "
+             "and uses the freshest — so it works whether or not unattended-"
+             "upgrades is configured."},
     {"cat": "Freshness — scheduled jobs", "id": "clamav_db_fresh", "type": "job_fresh",
      "param": "/var/lib/clamav/daily.cld|/var/lib/clamav/daily.cvd",
      "name": "AV signatures updated recently", "extras": {"max_age_hours": 48},
@@ -1189,6 +1193,38 @@ def _eval_custom_check(cdef, dev):
             return "unknown", "not yet reported by agent"
         return res["status"], str(res.get("output", ""))[:200]
     return "unknown", "unknown check type"
+
+
+def repair_applied_catalog_checks(checks):
+    """v6.4.0: backfill fields that an older apply dropped, or that a later
+    catalog fix supersedes, on ALREADY-APPLIED checks — so an operator doesn't
+    have to delete + re-apply across a fleet. Matches an applied check to its
+    catalog template by NAME (unique) and, in place:
+      - backfills a missing `pattern` on a file_contains check (the top-level
+        catalog field the apply used to drop → 'no pattern configured');
+      - upgrades a job_fresh `param` to the catalog's multi-path form when the
+        current param is a single component of it (ClamAV .cvd/.cld, the apt
+        stamp) — so a check applied before the multi-path fix stops
+        false-alarming, WITHOUT clobbering a param the operator customised.
+    Returns the count changed."""
+    by_name = {t.get("name"): t for t in CHECK_BASELINE_CATALOG}
+    changed = 0
+    for c in checks or []:
+        if not isinstance(c, dict):
+            continue
+        tmpl = by_name.get(c.get("name"))
+        if not tmpl:
+            continue
+        if (c.get("type") == "file_contains" and not c.get("pattern")
+                and tmpl.get("pattern")):
+            c["pattern"] = tmpl["pattern"]
+            changed += 1
+        if c.get("type") == "job_fresh":
+            tp, cp = str(tmpl.get("param") or ""), str(c.get("param") or "")
+            if "|" in tp and cp and cp != tp and cp in tp.split("|"):
+                c["param"] = tp
+                changed += 1
+    return changed
 
 
 def _custom_checks_for(dev_id, dev, defs, disabled):

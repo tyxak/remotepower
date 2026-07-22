@@ -41967,6 +41967,12 @@ def handle_check_baselines_apply():
             _row = {'id': f'ck_{_seq:05d}', 'name': tmpl['name'], 'type': tmpl['type'],
                     'param': tmpl['param'], 'target_kind': e_tk, 'target': e_tv,
                     **(tmpl.get('extras') or {})}
+            # v6.4.0: `pattern` (file_contains) is a TOP-LEVEL catalog field, not
+            # inside `extras`, so the spread above dropped it — an applied
+            # file_contains check then had no pattern and the agent reported
+            # "no pattern configured" forever. Copy it explicitly.
+            if tmpl.get('pattern'):
+                _row['pattern'] = tmpl['pattern']
             # Remember which picker it came from so Security -> Protect can list
             # what it applied. Types alone can't tell (both pickers use
             # systemd_unit/port_closed/...), so the origin has to be stored.
@@ -41976,6 +41982,25 @@ def handle_check_baselines_apply():
             added += 1
     audit_log(actor, 'check_baselines_apply', f'added={added} scope={tk}:{tv}')
     respond(200, {'ok': True, 'added': added})
+
+
+def _maybe_repair_baseline_checks():
+    """v6.4.0 one-time migration: fix already-applied catalog checks whose
+    fields an older apply dropped or a catalog fix superseded (file_contains
+    missing its pattern → 'no pattern configured'; a job_fresh param that a
+    later multi-path fix supersedes, e.g. ClamAV daily.cvd/.cld and the apt
+    stamp). Guarded by a config flag so it runs once. Cheap read-gate before the
+    lock. The corrected pattern/param reaches each agent on its next push."""
+    if _config_ro().get('_baseline_checks_repaired_v640'):
+        return
+    n = 0
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        if cfg.get('_baseline_checks_repaired_v640'):
+            return
+        n = checks_mod.repair_applied_catalog_checks(cfg.get('custom_checks') or [])
+        cfg['_baseline_checks_repaired_v640'] = True
+    if n:
+        sys.stderr.write(f'[remotepower] repaired {n} applied baseline check(s)\n')
 
 
 
@@ -42786,6 +42811,36 @@ def _compute_attention():
                             f'(rc={rc})' + (f' at {time.strftime("%H:%M", time.localtime(ran))}' if ran else ''),
             })
 
+    # v6.4.0: custom / PROTECT check failures (file-integrity, baseline, AV
+    # freshness, systemd units, …) landed in the Alerts inbox but were missing
+    # from Needs Attention — wire them in, mirroring custom_script_fail. The
+    # edge-tracked status lives in dev['custom_check_state'] (maintained by
+    # _ingest_custom_check_results). A disabled or muted check is excluded.
+    _cc_defs = {str(c.get('id')): c for c in (_config_ro().get('custom_checks') or [])
+                if isinstance(c, dict)}
+    _cc_disabled_all = _config_ro().get('host_checks_disabled') or {}
+    for dev_id, dev in monitored.items():
+        cc_state = dev.get('custom_check_state') or {}
+        if not isinstance(cc_state, dict):
+            continue
+        _dis = set(_cc_disabled_all.get(dev_id) or [])
+        for cid, st in cc_state.items():
+            if not isinstance(st, dict):
+                continue
+            status = st.get('status')
+            if status not in ('critical', 'warning'):
+                continue
+            if f'custom:{cid}' in _dis:
+                continue
+            cdef = _cc_defs.get(str(cid)) or {}
+            cname = cdef.get('name') or cid
+            items.append({
+                'severity': 'critical' if status == 'critical' else 'warning',
+                'kind':     'custom_check',
+                'device':   dev.get('name', dev_id),
+                'summary':  f'{cname}: {str(st.get("output") or status)[:160]}',
+            })
+
     # v3.0.1 (attention audit, iteration 3): transient critical events from
     # fleet_events.json. Some alerts are events, not states — a log pattern
     # fires once per match, there's no "currently broken" file to consult.
@@ -43064,6 +43119,8 @@ _NA_MUTE_EVENTS = {
     ('av_posture',         'critical'): ('av_infected',),
     ('av_posture',         'warning'):  ('av_warning',),
     ('custom_script_fail', 'warning'):  ('custom_script_fail',),
+    ('custom_check',        'critical'): ('custom_check_failed',),   # v6.4.0
+    ('custom_check',        'warning'):  ('custom_check_failed',),
     ('log_alert',          'critical'): ('log_alert',),
     ('log_alert',          'warning'):  ('log_alert',),
     ('log_alert',          'info'):     ('log_alert',),
@@ -63218,6 +63275,7 @@ def main():
     # normal gated cadence with everything else. See handle_heartbeat.
     _safe(_maybe_run_scheduled_backup, '_maybe_run_scheduled_backup')
     _safe(_maybe_run_restore_drill, '_maybe_run_restore_drill')   # v6.3.0
+    _safe(_maybe_repair_baseline_checks, '_maybe_repair_baseline_checks')   # v6.4.0 one-time
     _safe(_maybe_check_disk_space, '_maybe_check_disk_space')
     _safe(_maybe_export_otlp, '_maybe_export_otlp')
     _safe(run_scheduled_scans_if_due, 'run_scheduled_scans_if_due')

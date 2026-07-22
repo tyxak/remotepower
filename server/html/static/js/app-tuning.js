@@ -78,12 +78,12 @@ async function silenceNoisy(btn) {
   const body = { device_id: dev, device_name: btn.dataset.name || '', event };
   const r = await api('POST', '/alert-mutes', body);
   if (r && r.ok) {
-    toast('Silenced' + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
     loadTuning();
     let _muteId = r.id;
     const doUndo = async () => { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(_muteId)); if (u?.ok) loadTuning(); };
     const doRedo = async () => { const u = await api('POST', '/alert-mutes', body); if (u?.ok) { _muteId = u.id; loadTuning(); } };
-    pushUndoableAction(`Silence ${btn.dataset.name || dev} · ${event}`, doUndo, doRedo);
+    pushUndoableAction(`Silence ${btn.dataset.name || dev} · ${event}`, doUndo, doRedo,
+      'Silenced' + (r.resolved ? ` · ${r.resolved} open cleared` : ''));
   }
   else toast((r && r.error) || 'Failed', 'error');
 }
@@ -96,7 +96,7 @@ async function unmuteAlert(id) {
   const m = ((_tuningData && _tuningData.mutes) || []).find(x => String(x.id) === id);
   const r = await api('DELETE', '/alert-mutes/' + encodeURIComponent(id));
   if (r && r.ok) {
-    toast('Mute lifted', 'info'); loadTuning();
+    loadTuning();
     if (m) {
       const reBody = { device_id: m.device_id, event: m.event, device_name: m.device_name || '' };
       if (m.expires_at) {
@@ -106,7 +106,9 @@ async function unmuteAlert(id) {
       let curId = null;
       const doUndo = async () => { const u = await api('POST', '/alert-mutes', reBody); if (u?.ok) { curId = u.id; loadTuning(); } };
       const doRedo = async () => { if (curId != null) { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(curId)); if (u?.ok) loadTuning(); } };
-      pushUndoableAction(`Unmute ${m.device_name || m.device_id} · ${m.event}`, doUndo, doRedo);
+      pushUndoableAction(`Unmute ${m.device_name || m.device_id} · ${m.event}`, doUndo, doRedo, 'Mute lifted');
+    } else {
+      toast('Mute lifted', 'info');
     }
   }
   else toast((r && r.error) || 'Failed', 'error');

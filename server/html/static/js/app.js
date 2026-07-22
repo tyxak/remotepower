@@ -5985,12 +5985,29 @@ function uiRedoAction() { uiUndoCtl.redo(); }
 // undoableDelete these entries have no expiry window, so the topbar arrows
 // stay lit until the stack drains. redoIt() re-applies the action and the
 // entry re-pushes itself, keeping the redo chain alive.
-function pushUndoableAction(label, undoIt, redoIt) {
-  uiUndoCtl.push({
+//
+// v6.4.0: also surfaces a visible **Undo toast** so the affordance is right
+// there after the action (the dimmed topbar arrow alone was undiscoverable —
+// "I never see any undo option"). Pass `toastMsg` and the caller drops its own
+// success toast; the toast's Undo runs the same inverse and prunes the entry
+// so it can't be double-undone from the arrow.
+function pushUndoableAction(label, undoIt, redoIt, toastMsg) {
+  let spent = false;
+  const entry = {
     label,
-    undo: () => undoIt(),
-    redo: redoIt ? (async () => { await redoIt(); pushUndoableAction(label, undoIt, redoIt); }) : undefined,
-  });
+    alive: () => !spent,
+    undo: async () => { spent = true; await undoIt(); },
+    redo: redoIt ? (async () => { await redoIt(); pushUndoableAction(label, undoIt, redoIt, toastMsg); }) : undefined,
+  };
+  uiUndoCtl.push(entry);
+  // Always surface a visible Undo toast (the caller no longer toasts its own
+  // success — this IS the success confirmation, and it carries Undo).
+  toast(toastMsg || label, 'success', { action: { label: 'Undo', icon: 'undo', fn: async () => {
+    if (spent) return;
+    spent = true;
+    try { await undoIt(); } catch (_) { toast('Could not undo', 'error'); }
+    uiUndoCtl.paint();   // drop the now-spent entry from the topbar stack
+  } } });
 }
 // v6.3.0 (UX wave 9): right-click (or long-press context menu) on the undo
 // arrow shows the whole stack, editor-style; clicking an entry undoes back
@@ -15616,12 +15633,12 @@ async function addExposureMute() {
   if (port) body.port = port;
   const r = await api('POST', '/exposure/mute', body);
   if (r && r.ok) {
-    toast('Mute added' + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
     ['mute-process', 'mute-proto', 'mute-port'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     _renderExposureMutes(r.mutes);
     pushUndoableAction(`Mute ${process || proto || port}`,
       async () => { const u = await api('POST', '/exposure/mute', Object.assign({}, body, { action: 'remove' })); if (u?.ok) _renderExposureMutes(u.mutes); },
-      async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); });
+      async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); },
+      'Mute added' + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''));
   } else { toast('Add mute failed', 'error'); }
 }
 async function removeExposureMute(process, proto, port, deviceId) {
@@ -15632,10 +15649,11 @@ async function removeExposureMute(process, proto, port, deviceId) {
   if (port !== '' && port !== undefined && port !== null) body.port = port;
   const r = await api('POST', '/exposure/mute', body);
   if (r && r.ok) {
-    toast('Mute removed', 'success'); _renderExposureMutes(r.mutes);
+    _renderExposureMutes(r.mutes);
     pushUndoableAction(`Unmute ${process || proto || port || 'device'}`,
       async () => { const u = await api('POST', '/exposure/mute', Object.assign({}, body, { action: 'add' })); if (u?.ok) _renderExposureMutes(u.mutes); },
-      async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); });
+      async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); },
+      'Mute removed');
   }
   else { toast('Remove mute failed', 'error'); }
 }
@@ -18364,6 +18382,7 @@ async function _renderHomeAttention(preloaded) {
     service_down:       'devices',   // device drawer shows services
     monitor_down:       'monitor',
     custom_script_fail: 'monitor',   // custom scripts live on Monitor page
+    custom_check:       'checks',    // v6.4.0: protect/baseline checks → Checks page
     backup:             'devices',
     snapshot:           'devices',
     brute_force:        'devices',
@@ -18449,11 +18468,11 @@ async function ignoreAttention(key, label) {
   if (!key) return;
   const r = await api('POST', '/ignored', { category: 'needs_attention', key, label });
   if (r?.ok) {
-    toast('Hidden from Needs Attention', 'success');
     _renderHomeAttention();
     pushUndoableAction(`Hide "${label || key}"`,
       async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _renderHomeAttention(); },
-      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label }); if (u?.ok) _renderHomeAttention(); });
+      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label }); if (u?.ok) _renderHomeAttention(); },
+      'Hidden from Needs Attention');
   } else {
     toast(r?.error || 'Failed', 'error');
   }
@@ -18469,11 +18488,11 @@ async function snoozeAttention(key, label) {
     category: 'needs_attention', key, label, expires_at,
   });
   if (r?.ok) {
-    toast('Snoozed for 24h', 'success');
     _renderHomeAttention();
     pushUndoableAction(`Snooze "${label || key}"`,
       async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _renderHomeAttention(); },
-      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label, expires_at: Math.floor(Date.now() / 1000) + 86400 }); if (u?.ok) _renderHomeAttention(); });
+      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label, expires_at: Math.floor(Date.now() / 1000) + 86400 }); if (u?.ok) _renderHomeAttention(); },
+      'Snoozed for 24h');
   } else {
     toast(r?.error || 'Failed', 'error');
   }
@@ -25539,14 +25558,14 @@ async function addLogIgnorePattern() {
   }
   const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
   if (r?.ok) {
-    toast(wasEdit ? 'Pattern updated' : 'Pattern added', 'success');
     if (input) input.value = '';
     _logIgnoreEditIdx = -1;
     _renderLogIgnoreList();
     const afterPats = _logIgnorePatterns.slice();
     pushUndoableAction(wasEdit ? 'Log pattern edit' : 'Log pattern added',
       async () => { const u = await api('POST', '/config', { log_ignore_patterns: beforePats }); if (u?.ok) { _logIgnorePatterns = beforePats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
-      async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } });
+      async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
+      wasEdit ? 'Pattern updated' : 'Pattern added');
   } else {
     // Roll back the mutation
     if (wasEdit) _logIgnorePatterns[_logIgnoreEditIdx] = prev;
@@ -25562,11 +25581,12 @@ async function removeLogIgnorePattern(idx) {
   else if (_logIgnoreEditIdx > idx) _logIgnoreEditIdx -= 1;
   const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
   if (r?.ok) {
-    _renderLogIgnoreList(); toast('Removed', 'info');
+    _renderLogIgnoreList();
     const afterPats = _logIgnorePatterns.slice();
     pushUndoableAction('Log pattern removed',
       async () => { const u = await api('POST', '/config', { log_ignore_patterns: beforePats }); if (u?.ok) { _logIgnorePatterns = beforePats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
-      async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } });
+      async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
+      'Pattern removed');
   }
   else toast('Failed', 'error');
 }
@@ -25935,11 +25955,11 @@ async function ignoreContainerDevice(deviceId, name) {
     label:    name,
   });
   if (r?.ok) {
-    toast('Hidden (restore from Settings → Ignored items)', 'success');
     loadContainersOverview();
     pushUndoableAction(`Hide "${name}" from Containers`,
       async () => { const u = await api('POST', '/ignored/remove', { category: 'devices', id: deviceId }); if (u?.ok) loadContainersOverview(); },
-      async () => { const u = await api('POST', '/ignored', { category: 'devices', id: deviceId, label: name }); if (u?.ok) loadContainersOverview(); });
+      async () => { const u = await api('POST', '/ignored', { category: 'devices', id: deviceId, label: name }); if (u?.ok) loadContainersOverview(); },
+      'Hidden (restore from Settings → Ignored items)');
   } else {
     toast(r?.error || 'Failed', 'error');
   }
@@ -26017,11 +26037,12 @@ async function restoreIgnored(category, entry) {
   if (category === 'devices')          body.id = entry.id;
   const r = await api('POST', '/ignored/remove', body);
   if (r?.ok) {
-    toast('Restored', 'success'); loadIgnoredItems();
+    loadIgnoredItems();
     const reAdd = Object.assign({}, body, { label: entry.label });
     pushUndoableAction(`Restore "${entry.label || entry.key || entry.id || entry.container}"`,
       async () => { const u = await api('POST', '/ignored', reAdd); if (u?.ok) loadIgnoredItems(); },
-      async () => { const u = await api('POST', '/ignored/remove', body); if (u?.ok) loadIgnoredItems(); });
+      async () => { const u = await api('POST', '/ignored/remove', body); if (u?.ok) loadIgnoredItems(); },
+      'Restored');
   }
   else toast(r?.error || 'Failed', 'error');
 }

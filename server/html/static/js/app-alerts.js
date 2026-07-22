@@ -383,8 +383,6 @@ async function muteAlert(id) {
   }
   const r = await api('POST', '/alert-mutes', body);
   if (r && r.ok) {
-    toast('Muted — ' + (body.hours ? `for ${body.hours}h` : 'until you lift it')
-      + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
     // refresh whichever view surfaced the alert (dashboard widget or inbox)
     const _refresh = () => {
       if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
@@ -396,7 +394,9 @@ async function muteAlert(id) {
     let _muteId = r.id;
     const doUndo = async () => { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(_muteId)); if (u?.ok) _refresh(); };
     const doRedo = async () => { const u = await api('POST', '/alert-mutes', body); if (u?.ok) { _muteId = u.id; _refresh(); } };
-    pushUndoableAction('Alert muted', doUndo, doRedo);
+    pushUndoableAction('Alert muted', doUndo, doRedo,
+      'Muted — ' + (body.hours ? `for ${body.hours}h` : 'until you lift it')
+      + (r.resolved ? ` · ${r.resolved} open cleared` : ''));
   } else toast((r && r.error) || 'Failed to mute', 'error');
 }
 

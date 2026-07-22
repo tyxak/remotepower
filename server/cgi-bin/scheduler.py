@@ -47,6 +47,7 @@ CADENCE = (
     # they're normal sweeps like the rest.
     '_maybe_run_scheduled_backup',
     '_maybe_run_restore_drill',          # v6.3.0 scheduled restore drills
+    '_maybe_repair_baseline_checks',     # v6.4.0 one-time applied-check repair
     '_maybe_check_disk_space',
     '_maybe_export_otlp',
     'run_scheduled_scans_if_due',

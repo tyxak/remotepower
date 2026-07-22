@@ -117,6 +117,24 @@ async function toggleHostCheck(arg) {
     const row = _checksRows.find(x => x.device_id === device_id && x.key === key);
     if (row) row.enabled = enabled;
     renderChecks();
+    // v6.4.0: undoable — enabling/disabling a check on a host has a clean
+    // inverse, and it's one of the actions operators do most, so it should
+    // register on the undo stack + show an Undo toast like the rest.
+    const _set = (val) => async () => {
+      const u = await api('POST', '/checks/toggle', { device_id, check: key, enabled: val });
+      if (u && u.ok) {
+        const rr = _checksRows.find(x => x.device_id === device_id && x.key === key);
+        if (rr) rr.enabled = val;
+        renderChecks();
+      }
+    };
+    if (typeof pushUndoableAction === 'function') {
+      const host = (row && row.host) || device_id;
+      const nm = (row && row.check) || key;
+      pushUndoableAction(`${enabled ? 'Enable' : 'Disable'} ${nm} on ${host}`,
+        _set(!enabled), _set(enabled),
+        `Check ${enabled ? 'enabled' : 'disabled'} on ${host}`);
+    }
   } else { toast((r && r.error) || 'Failed', 'error'); }
 }
 

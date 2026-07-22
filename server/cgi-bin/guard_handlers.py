@@ -142,7 +142,15 @@ def handle_guard_action():
 
 def _queue_guard_action(did, qid, op):
     """Queue one one-shot directive on a device. Idempotent per (id, op) so a
-    double-click can't stack duplicates. False if the device is gone."""
+    double-click can't stack duplicates. False if the device is gone.
+
+    v6.4.0: for a rebaseline, ALSO neutralise the check's last stored result on
+    the device immediately, so the Checks page (and a manual Refresh) shows the
+    reset instead of the stale 'critical' during the ~1-2 heartbeat round-trip
+    while the agent applies it. Without this the operator accepts a baseline,
+    hits Refresh, and every check "comes back" until the agent reports. The
+    agent's fresh report (forced on its next heartbeat) overwrites this — so if
+    the change was NOT actually legitimate, it re-fires on the real re-eval."""
     with A._DeviceUpdate(did) as dev:
         if not isinstance(dev, dict):
             return False
@@ -150,4 +158,16 @@ def _queue_guard_action(did, qid, op):
         if not any(isinstance(a, dict) and a.get('id') == qid and a.get('op') == op
                    for a in acts):
             acts.append({'id': qid, 'op': op})
+        if op == 'rebaseline' and qid:
+            _pending = {'status': 'ok',
+                        'output': 'baseline reset — awaiting the next agent report'}
+            si = dev.get('sysinfo')
+            if isinstance(si, dict) and isinstance(si.get('custom_check_results'), dict):
+                si['custom_check_results'][qid] = dict(_pending)
+            # Also clear the edge-trigger state so _ingest_custom_check_results
+            # auto-resolves the open alert on the next beat instead of holding it.
+            st = dev.get('custom_check_state')
+            if isinstance(st, dict) and qid in st:
+                st[qid] = {'status': 'ok', 'output': _pending['output'],
+                           'changed_at': int(A.time.time()), 'alerted': False}
     return True
