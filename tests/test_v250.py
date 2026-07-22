@@ -207,12 +207,12 @@ class TestHeartbeatWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.api = (_ROOT / 'server/cgi-bin/api.py').read_text()
-        # Find handle_heartbeat
-        idx = cls.api.find('def handle_heartbeat(')
-        # v3.12.0: widened 50000→60000 — handle_heartbeat grew (single-row
-        # device update + mount-issue sanitisation), pushing the strings this
-        # test greps for past the old slice boundary.
-        cls.hb = cls.api[idx: idx + 118000]  # widened (v4.9.0/v4.10.0 ingests; v5.0.1 →78002; v5.5.0 failed_unit edge-trigger pushed 'custom_scripts' to ~84220; v5.8.0 W3 agent-wave ingests pushed it further; v6.1.2 batch-A/B/C ingests → 101503; v6.3.1 log-sweep ingest + force flag → 118000)
+        # v6.4.0: growth-proof — extract the whole indentation-bounded
+        # handle_heartbeat body (was a fixed idx+118000 window that had to be
+        # re-widened on every heartbeat ingest addition and broke again when the
+        # v6.4.0 gateway-latency / battery-health edge events landed).
+        from tests import srcpin
+        cls.hb = srcpin.py_function(cls.api, 'handle_heartbeat')
 
     def test_custom_script_results_ingested(self):
         self.assertIn('custom_script_results', self.hb)
