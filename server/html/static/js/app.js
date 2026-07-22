@@ -8557,10 +8557,12 @@ async function qeRunTemplate(id) {
 }
 
 async function qeDeleteTemplate(id) {
-  if (!await uiConfirm('Delete this saved query?')) return;
-  const r = await api('DELETE', '/query/templates/' + id).catch(() => null);
-  if (r?.ok) { toast('Deleted', 'success'); qeLoadTemplates(); }
-  else toast(r?.error || 'Delete failed', 'error');
+  undoableDelete({
+    label: 'Saved query deleted',
+    hide: () => _hideRowByAction('qeDeleteTemplate', id),
+    commit: () => api('DELETE', '/query/templates/' + id).catch(() => null),
+    undo: () => qeLoadTemplates(), after: () => qeLoadTemplates(),
+  });
 }
 
 // ── v6.1.1: package-repo snapshot & promotion ledger ──────────────────────────
@@ -8624,10 +8626,12 @@ async function psCreate() {
 }
 
 async function psDelete(id) {
-  if (!await uiConfirm('Delete this snapshot? Any drift report keyed off it will stop working.')) return;
-  const r = await api('DELETE', '/patch-snapshots/' + id).catch(() => null);
-  if (r?.ok) { toast('Deleted', 'success'); psRefreshList(); }
-  else toast(r?.error || 'Delete failed', 'error');
+  undoableDelete({
+    label: 'Patch snapshot deleted',
+    hide: () => _hideRowByAction('psDelete', id),
+    commit: () => api('DELETE', '/patch-snapshots/' + id).catch(() => null),
+    undo: () => psRefreshList(), after: () => psRefreshList(),
+  });
 }
 
 async function psPromote(id) {
@@ -10003,9 +10007,12 @@ async function _autopatchRunBtn(btn) {
   else toast(d?.error || 'Failed', 'error');
 }
 async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!await uiConfirm('Delete this policy?')) return;
-  const d = await api('DELETE', '/autopatch/' + encodeURIComponent(id));
-  if (d?.ok) { toast('Policy deleted', 'info'); loadAutopatch(); } else toast(d?.error || 'Failed', 'error');
+  undoableDelete({
+    label: 'Auto-patch policy deleted',
+    hide: () => _hideRowByAction('deleteAutopatch', id),
+    commit: () => api('DELETE', '/autopatch/' + encodeURIComponent(id)),
+    undo: () => loadAutopatch(), after: () => loadAutopatch(),
+  });
 }
 
 // ─── v3.6.0: backup orchestration ────────────────────────────────────────────

@@ -465,10 +465,12 @@ async function addTimesheetWatcher() {
 
 async function deleteTimesheetWatcher(id) {
   id = String(id);
-  if (!await uiConfirm('Remove this watch grant?')) return;
-  const r = await api('DELETE', '/timesheet/watchers/' + encodeURIComponent(id));
-  if (r?.ok) { toast('Grant removed', 'info'); loadTimesheetWatchers(); }
-  else toast(r?.error || 'Failed', 'error');
+  undoableDelete({
+    label: 'Watch grant removed',
+    hide: () => _hideRowByAction('deleteTimesheetWatcher', id),
+    commit: () => api('DELETE', '/timesheet/watchers/' + encodeURIComponent(id)),
+    undo: () => loadTimesheetWatchers(), after: () => loadTimesheetWatchers(),
+  });
 }
 
 /* ── Billing page (admin/finance) ──────────────────────────────────────── */

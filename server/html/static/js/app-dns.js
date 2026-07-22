@@ -349,10 +349,12 @@ async function resolverHealthScan() {
 }
 
 async function resolverHealthDelete(id) {
-  if (!await uiConfirm('Stop monitoring this name?')) return;
-  const r = await api('DELETE', '/resolver-health/targets/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Removed', 'info'); loadResolverHealth(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  undoableDelete({
+    label: 'Resolver target removed',
+    hide: () => _hideRowByAction('resolverHealthDelete', id),
+    commit: () => api('DELETE', '/resolver-health/targets/' + encodeURIComponent(id)),
+    undo: () => loadResolverHealth(), after: () => loadResolverHealth(),
+  });
 }
 
 function _registerDnsTable() {

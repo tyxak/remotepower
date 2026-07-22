@@ -186,16 +186,12 @@ async function addDeadmanJob() {
 }
 
 async function deleteDeadmanJob(id) {
-  if (!await uiConfirm('Delete this check-in job? Its ping URL stops working.')) return;
-  let r;
-  try {
-    r = await api('DELETE', '/deadman/' + encodeURIComponent(id));
-  } catch (e) {
-    toast(e.message || 'Could not delete the job', 'error');
-    return;
-  }
-  if (!r || r.error) { toast((r && r.error) || 'Could not delete the job', 'error'); return; }
-  loadDeadman();
+  undoableDelete({
+    label: 'Check-in job deleted',
+    hide: () => _hideRowByAction('deleteDeadmanJob', id),
+    commit: () => api('DELETE', '/deadman/' + encodeURIComponent(id)).catch(() => null),
+    undo: () => loadDeadman(), after: () => loadDeadman(),
+  });
 }
 
 // ── v6.1.2: mDNS-advertised LAN services ─────────────────────────────────────
@@ -743,11 +739,13 @@ async function tunnelAdd() {
 }
 
 async function tunnelDelete(id) {
-  if (!await uiConfirm('Delete this tunnel?')) return;
-  const r = await api('DELETE', '/network-map/tunnels/' + encodeURIComponent(id));
-  if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
-  await tunnelRenderList();
-  await loadNetmap();
+  const _reload = async () => { await tunnelRenderList(); await loadNetmap(); };
+  undoableDelete({
+    label: 'Tunnel deleted',
+    hide: () => _hideRowByAction('tunnelDelete', id),
+    commit: () => api('DELETE', '/network-map/tunnels/' + encodeURIComponent(id)),
+    undo: _reload, after: _reload,
+  });
 }
 
 async function netmapResetPositions() {
@@ -949,11 +947,12 @@ async function tlsAddSave() {
 }
 
 async function tlsDelete(id, host) {
-  if (!await uiConfirm(`Remove TLS target ${host}?`)) return;
-  const r = await api('DELETE', '/tls/targets/' + encodeURIComponent(id));
-  if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
-  toast('Target removed', 'info');
-  loadTLS();
+  undoableDelete({
+    label: `TLS target ${host} removed`,
+    hide: () => _hideRowByAction('tlsDelete', id),
+    commit: () => api('DELETE', '/tls/targets/' + encodeURIComponent(id)),
+    undo: () => loadTLS(), after: () => loadTLS(),
+  });
 }
 
 async function tlsScanNow() {
