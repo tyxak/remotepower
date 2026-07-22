@@ -340,6 +340,7 @@ function ccTypeChanged() {
   if (inp) inp.placeholder = _CC_PARAM_PH[t] || '';
   document.getElementById('cc-log-grp')?.classList.toggle('hidden', t !== 'log_errors');
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
+  document.getElementById('cc-protect-grp')?.classList.toggle('hidden', t !== 'dir_baseline');
   // systemd_unit / windows_service: offer to also watch it on the Services page.
   document.getElementById('cc-svc-grp')?.classList.toggle(
     'hidden', t !== 'systemd_unit' && t !== 'windows_service');
@@ -352,6 +353,7 @@ function _ccResetForm() {
   ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-catalog-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   const ws = document.getElementById('cc-watch-svc'); if (ws) ws.checked = true;
+  const pc = document.getElementById('cc-protect'); if (pc) pc.checked = false;
   ['cc-host-results', 'cc-catalog-results'].forEach(id => { const r = document.getElementById(id); if (r) r.hidden = true; });
   const k = document.getElementById('cc-kind'); if (k) k.value = 'all';
   const t = document.getElementById('cc-type'); if (t) t.value = 'process';
@@ -482,6 +484,7 @@ function editCustomCheck(id) {
   if ((c.target_kind || 'all') === 'host') setv('cc-host-search', _ccDevNames[c.target] || c.target);
   setv('cc-window', c.window_min); setv('cc-warn', c.warn); setv('cc-crit', c.crit);
   setv('cc-unit', c.unit); setv('cc-maxage', c.max_age_hours);
+  const pc = document.getElementById('cc-protect'); if (pc) pc.checked = c.protect === 'quarantine';
   ccKindChanged(); ccTypeChanged();
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Save changes';
   const nm = document.getElementById('cc-name'); if (nm) nm.focus();
@@ -519,6 +522,9 @@ async function saveCustomCheck() {
   } else if (body.type === 'systemd_unit' && body.target_kind === 'host') {
     // wire to the Services page: also watch this unit on the targeted host
     body.watch_service = !!document.getElementById('cc-watch-svc')?.checked;
+  } else if (body.type === 'dir_baseline') {
+    // Integrity Guard: opt into auto-quarantine of new files
+    if (document.getElementById('cc-protect')?.checked) body.protect = 'quarantine';
   }
   const r = await api('POST', '/checks/custom', body);
   if (r && r.ok) {

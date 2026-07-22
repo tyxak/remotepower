@@ -46,6 +46,12 @@ class TestRegistration(unittest.TestCase):
         for t in NEW:
             self.assertIn(t, used, f'no catalog row uses {t}')
 
+    def test_protect_field_pushed_to_agent(self):
+        # Integrity Guard: the dir_baseline `protect` flag must be in the
+        # heartbeat push whitelist or the agent never receives it.
+        api_src = (Path(__file__).parent.parent / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn("'max_age_hours', 'protect'", api_src)
+
 
 class TestAgentEval(unittest.TestCase):
     def setUp(self):
@@ -95,6 +101,26 @@ class TestAgentEval(unittest.TestCase):
         st, out = agent._eval_one_agent_check(c)
         self.assertEqual(st, 'critical')
         self.assertIn('new', out)
+
+    def test_dir_baseline_quarantine(self):
+        d = self.tmp / 'web2'
+        d.mkdir()
+        (d / 'index.php').write_text('<?php echo 1;')
+        c = {'id': 'q1', 'type': 'dir_baseline', 'param': f'{d}::*.php',
+             'protect': 'quarantine'}
+        st, _ = agent._eval_one_agent_check(c)              # first run baselines
+        self.assertEqual(st, 'ok')
+        shell = d / 'evil.php'
+        shell.write_text('<?php system($_GET[0]);')
+        st, out = agent._eval_one_agent_check(c)            # new file -> quarantined
+        self.assertEqual(st, 'critical')
+        self.assertIn('quarantined', out)
+        self.assertFalse(shell.exists())                   # removed from the web root
+        vault = agent.STATE_DIR / 'guard-quarantine'
+        contents = [p.read_text() for p in vault.iterdir() if p.is_file()]
+        self.assertTrue(any('system($_GET' in x for x in contents))  # preserved in vault
+        st, _ = agent._eval_one_agent_check(c)             # recovers to OK: threat gone
+        self.assertEqual(st, 'ok')
 
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(

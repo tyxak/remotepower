@@ -788,6 +788,43 @@ def _parse_hex_ip(h: str):
     return None
 
 
+def _guard_quarantine(paths, check_id):
+    """Integrity Guard: move flagged files into the on-host quarantine vault
+    (STATE_DIR/guard-quarantine, 0700). Files are PRESERVED (0600, forensics +
+    restore), a JSON-lines ledger records where each came from. Best-effort and
+    bounded; returns the number moved. Only ever called for NEW files the
+    operator scoped, never for changed/removed ones."""
+    import shutil
+    vault = STATE_DIR / 'guard-quarantine'
+    try:
+        vault.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError:
+        return 0
+    moved, ledger = 0, []
+    for p in paths:
+        try:
+            if not Path(p).is_file():
+                continue
+            qid = f'{int(time.time())}-{os.urandom(4).hex()}'
+            dst = vault / qid
+            shutil.move(str(p), str(dst))
+            try:
+                os.chmod(str(dst), 0o600)
+            except OSError:
+                pass
+            ledger.append({'id': qid, 'orig': p, 'check': str(check_id),
+                           'ts': int(time.time())})
+            moved += 1
+        except OSError:
+            continue
+    if ledger:
+        prev = _safe_state_read_big('guard-quarantine.log') or ''
+        lines = [ln for ln in prev.splitlines() if ln.strip()][-500:]
+        lines.extend(json.dumps(e) for e in ledger)
+        _safe_state_write('guard-quarantine.log', '\n'.join(lines))
+    return moved
+
+
 def save_credentials(creds):
     CONF_DIR.mkdir(parents=True, exist_ok=True)
     # v3.0.2: lock the directory to 0700 so a local non-root attacker
@@ -6533,9 +6570,18 @@ def _eval_one_agent_check(c):
         added = [k for k in cur if k not in prev]
         removed = [k for k in prev if k not in cur]
         changed = [k for k in cur if k in prev and cur[k] != prev[k]]
-        if not (added or removed or changed):
+        quarantined = 0
+        if c.get('protect') == 'quarantine' and added:
+            # Integrity Guard: neutralise NEW files (never changed/removed ones).
+            # They move to the vault, so the baseline stays clean and the check
+            # recovers to OK next run — the threat is gone, not just logged.
+            quarantined = _guard_quarantine(added[:50], c.get('id', ''))
+            added = []
+        if not (added or removed or changed or quarantined):
             return 'ok', f'{n} files, unchanged'
         counts = []
+        if quarantined:
+            counts.append(f'{quarantined} quarantined')
         if added:
             counts.append(f'{len(added)} new')
         if changed:
@@ -6543,7 +6589,8 @@ def _eval_one_agent_check(c):
         if removed:
             counts.append(f'{len(removed)} removed')
         sample = ', '.join(os.path.basename(x) for x in (added + changed + removed)[:3])
-        return 'critical', f'{"; ".join(counts)} — {sample}'[:200]
+        out = '; '.join(counts) + (f' — {sample}' if sample else '')
+        return 'critical', out[:200]
     if ctype == 'egress_flagged':
         # Alert if any active outbound connection's remote endpoint falls in an
         # operator-supplied IP/CIDR flag-list. Read-only over /proc/net.

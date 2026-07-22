@@ -1650,7 +1650,8 @@ if _AVAILABLE:
         type: str = ''
         unit: str = ''
         watch_service: str = ''
-        _v0 = field_validator('id', 'name', 'param', 'target', 'target_kind', 'type', 'unit', 'watch_service', mode='before')(_coerce_str_loose)
+        protect: str = ''      # dir_baseline: '' | 'quarantine' (Integrity Guard)
+        _v0 = field_validator('id', 'name', 'param', 'target', 'target_kind', 'type', 'unit', 'watch_service', 'protect', mode='before')(_coerce_str_loose)
 
     class DashboardKindsSetRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
