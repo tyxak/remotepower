@@ -575,7 +575,91 @@ class TestNewestOccurrenceWinsTheCard(unittest.TestCase):
     def test_a_lone_stale_event_is_still_shown(self):
         """Preferring the newest must not mean dropping an only occurrence."""
         self._events(self._ev(-7200, None, count=4))
-        self.assertIn('no line captured', self._row()['summary'])
+        row = self._row()
+        self.assertIsNotNone(row)
+        self.assertIn('4 hits', row['summary'])
+
+
+class TestEvidenceIsRecoveredFromTheBuffer(unittest.TestCase):
+    """"no line captured" must be a last resort, not the normal outcome.
+
+    An event should carry its own `sample`, but operators kept seeing cards with
+    none — from events recorded before samples were kept, and from any path that
+    fails to attach one. Rather than keep asserting the fire sites are correct,
+    the digest looks the evidence up where it actually lives: the 6-hour log
+    buffer holds the very lines the rule matched.
+    """
+
+    UNIT = 'apache2.service'
+    PAT = 'err|warn|critical|Critical|Warning|FATAL'
+
+    def setUp(self):
+        import time
+        self.now = int(time.time())
+        self.dev = 'd-eviq'
+        api.save(api.DEVICES_FILE, {self.dev: {
+            'name': 'web1', 'monitored': True, 'last_seen': self.now}})
+        api.save(api.IGNORED_ITEMS_FILE, {})
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.LOG_ACKS_FILE, {'acks': {}})
+
+    def _setup(self, buf, payload_extra=None):
+        api.save(api.LOG_WATCH_FILE, {self.dev: {'units': {self.UNIT: buf}}} if buf else {})
+        api.save(api.FLEET_EVENTS_FILE, {'events': [{
+            'ts': self.now - 30, 'event': 'log_alert',
+            'payload': {'device_id': self.dev, 'name': 'web1', 'unit': self.UNIT,
+                        'pattern': self.PAT, 'count': 2, **(payload_extra or {})}}]})
+        for f in (api.DEVICES_FILE, api.LOG_WATCH_FILE, api.FLEET_EVENTS_FILE,
+                  api.IGNORED_ITEMS_FILE, api.CONFIG_FILE, api.LOG_ACKS_FILE):
+            api._invalidate_load_cache(f)
+        rows = [i for i in api._compute_attention()
+                if isinstance(i, dict) and i.get('kind') == 'log_alert']
+        return rows[0] if rows else None
+
+    def test_a_sampleless_event_still_shows_the_matched_line(self):
+        row = self._setup([{'ts': self.now - 60, 'line': '[error] AH01071: Got error'}])
+        self.assertIn('AH01071', row['summary'])
+        self.assertNotIn('no line captured', row['summary'])
+
+    def test_lines_after_the_alert_are_not_passed_off_as_the_cause(self):
+        """The buffer keeps filling after the rule fires; a line from ten
+        minutes later is not what tripped it."""
+        row = self._setup([
+            {'ts': self.now - 60, 'line': '[warn] the real one'},
+            {'ts': self.now + 600, 'line': '[error] a LATER line'},
+        ])
+        self.assertIn('the real one', row['summary'])
+        self.assertNotIn('LATER', str(row.get('samples')))
+
+    def test_a_line_that_does_not_match_the_rule_is_not_offered(self):
+        row = self._setup([{'ts': self.now - 60, 'line': 'a perfectly ordinary line'}])
+        self.assertIn('aged out', row['summary'])
+
+    def test_the_events_own_sample_still_wins(self):
+        """The buffer is a fallback, never an override — the event recorded what
+        actually matched at the time."""
+        row = self._setup([{'ts': self.now - 60, 'line': '[error] from the buffer'}],
+                          {'sample': ['[error] from the event']})
+        self.assertIn('from the event', row['summary'])
+
+    def test_an_empty_buffer_says_so_plainly(self):
+        row = self._setup([])
+        self.assertIn('aged out of the 6h log buffer', row['summary'])
+
+    def test_a_broken_pattern_cannot_take_down_the_digest(self):
+        row = self._setup([{'ts': self.now - 60, 'line': '[error] x'}],
+                          {'pattern': '(unclosed'})
+        self.assertIsNotNone(row)
+
+    def test_the_buffer_is_read_at_most_once_per_digest(self):
+        """It is the whole fleet's log buffer — re-reading it per event would be
+        the most expensive thing in the digest."""
+        src = (_CGI / 'api.py').read_text()
+        i = src.index('def _compute_attention')
+        blk = src[i:i + 60000]
+        self.assertIn('_log_buf_cache = [None]', blk)
+        fn = src[src.index('def _log_alert_evidence('):src.index('def _log_alert_acked(')]
+        self.assertIn('if buf_cache[0] is None:', fn)
 
 
 if __name__ == '__main__':

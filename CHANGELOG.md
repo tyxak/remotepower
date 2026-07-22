@@ -30,6 +30,21 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### "no line captured" is over — the evidence is looked up, not assumed
+- A log alert should carry its own matched line, and the fire sites do attach
+  one. Operators kept seeing cards without it anyway — from events recorded
+  before samples were kept, and from any path that fails to attach one. Rather
+  than keep asserting the fire sites are correct, the digest now looks the
+  evidence up **where it actually lives**: RemotePower already holds a 6-hour
+  rolling buffer of the very lines the rule matched, so a sample-less event is
+  reconstructed from it at render time.
+- Bounded and lazy — the buffer is read at most ONCE per digest, and only when
+  something is missing its sample. Lines newer than the alert are excluded (the
+  buffer keeps filling after a rule fires; a line from ten minutes later is not
+  what tripped it), and the event's own sample always wins over the buffer.
+- The only remaining "no line" case is honest: *the matched lines have aged out
+  of the 6h log buffer*.
+
 ### Every alert must have a way out — the lifecycle sweep
 - Audited all **100 alertable events**: 63 auto-heal, **37 could fire and never
   clear**. An alert that can never clear is worse than no alert — the inbox

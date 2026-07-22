@@ -41813,6 +41813,58 @@ def handle_check_baselines_apply():
 
 
 
+def _log_alert_evidence(payload, buf_cache):
+    """The matched line for a log alert, from the event or from the LOG BUFFER.
+
+    An event should carry its own `sample`, but "no line captured" kept reaching
+    operators — from events recorded before samples were kept, and from any path
+    that fails to attach one. Rather than keep asserting the fire sites are
+    correct, look the evidence up where it actually lives: RemotePower already
+    holds a 6-hour rolling buffer of the very lines the rule matched.
+
+    Bounded and lazy: the buffer is read at most ONCE per digest, and only when
+    something is missing its sample. `buf_cache` is a one-element list used as
+    that latch.
+    """
+    sample = payload.get('sample') or []
+    if isinstance(sample, str):
+        sample = [sample]
+    if sample:
+        return [str(x)[:200] for x in sample[:3]], False
+
+    did, unit = payload.get('device_id'), payload.get('unit')
+    pattern = payload.get('pattern')
+    if not (did and unit and pattern):
+        return [], False
+    if buf_cache[0] is None:
+        try:
+            buf_cache[0] = _load_ro(LOG_WATCH_FILE) or {}
+        except Exception:
+            buf_cache[0] = {}
+    lines = (((buf_cache[0].get(did) or {}).get('units') or {}).get(unit) or [])
+    if not lines:
+        return [], False
+    try:
+        rx = re.compile(pattern)
+    except re.error:
+        return [], False
+    ts = int(payload.get('ts') or 0)
+    hits = []
+    # Newest first, and prefer lines at or before the alert — the buffer keeps
+    # accumulating after it fired, and a line from ten minutes later is not what
+    # tripped the rule.
+    for e in reversed(lines[-500:]):
+        ln = e.get('line') if isinstance(e, dict) else e
+        if not isinstance(ln, str) or not rx.search(ln):
+            continue
+        if ts and int(e.get('ts', 0) or 0) > ts + 60:
+            continue
+        hits.append(ln[:200])
+        if len(hits) >= 3:
+            break
+    return hits, bool(hits)
+
+
 def _log_alert_acked(payload):
     """True if the operator already cleared this log alert.
 
@@ -42567,6 +42619,9 @@ def _compute_attention():
     # Dedup by stable key so a noisy rule firing 50 times in a day produces
     # exactly one NA card the user can dismiss with one click.
     seen_event_keys = set()
+    # Lazily-read log buffer, shared by every log_alert that needs its evidence
+    # reconstructed. One read per digest at most.
+    _log_buf_cache = [None]
     try:
         # v5.8.0 FIX: fleet_events is written {events:[...]}; this reader used to
         # do `load() or []`, which returns the DICT and then iterates its KEYS —
@@ -42617,7 +42672,8 @@ def _compute_attention():
             # which is useless — the operator already knows the rule.
             # They need to see WHAT MATCHED. Sample comes from the
             # webhook payload (first 3 matches captured at fire time).
-            samples = payload.get('sample') or []
+            samples, recovered = _log_alert_evidence(
+                {**payload, 'ts': ts}, _log_buf_cache)
             count = payload.get('count', '?')
             count_label = f'{count} hit{"s" if count != 1 else ""}'
             acked = int(payload.get('acked', 0) or 0)
@@ -42634,13 +42690,11 @@ def _compute_attention():
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
             else:
-                # No sample on the event (an older one still inside the NA
-                # window). Keep it SHORT and drop the archaeology: the operator
-                # cannot act on why the line is missing, and the card's own
-                # button is the action. Two earlier versions of this string
-                # echoed the regex back or sent them to the rule page, where
-                # there is nothing to see.
-                summary_text = f'{unit} matched {count_label} — no line captured'
+                # Nothing on the event AND nothing left in the buffer — the
+                # window has rolled past it. That is the only case where a line
+                # genuinely cannot be shown.
+                summary_text = (f'{unit} matched {count_label} — the matched '
+                                'lines have aged out of the 6h log buffer')
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
