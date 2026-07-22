@@ -11960,20 +11960,26 @@ def handle_devices_list():
     slim = (qs.get('slim') or [''])[0] == '1'
     bf_data, pb_data, snmp_store, hw_store = {}, {}, {}, {}
     if not slim:
-        bf_data  = load(BRUTE_FORCE_FILE) or {}   if backend_exists(BRUTE_FORCE_FILE)   else {}
-        pb_data  = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
+        # v6.4.0 (perf): these four secondary stores are read-only here — each is
+        # only projected into the per-device `row`, never mutated — so _load_ro
+        # skips load()'s per-call deepcopy of the whole store on this 60s poll.
+        bf_data  = _load_ro(BRUTE_FORCE_FILE) or {}   if backend_exists(BRUTE_FORCE_FILE)   else {}
+        pb_data  = _load_ro(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
         # v3.2.0 (B5): attach a compact SNMP-status summary to each device. Just
         # the fields the Devices page card actually shows — operators looking
         # for full data still click into the CMDB SNMP tab.
-        snmp_store = load(SNMP_DATA_FILE) if backend_exists(SNMP_DATA_FILE) else {}
+        snmp_store = _load_ro(SNMP_DATA_FILE) if backend_exists(SNMP_DATA_FILE) else {}
         # v3.4.0: compact hardware-health flags for the device-card badge
         # (SMART failure / kernel reboot needed). Full detail lives behind
         # GET /api/devices/<id>/hardware.
-        hw_store = load(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
+        hw_store = _load_ro(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
     # v3.4.2: canonical agent hash for the per-device signed/integrity badge.
     _canon_sha = _get_agent_sha256() if not slim else None
     _, _bf_thresh, _bf_window = _brute_config()
     bf_cutoff = now - _bf_window
+    # v6.4.0 (perf): the online TTL is constant across the fleet loop — hoist the
+    # two _config_ro lookups out instead of paying them per device.
+    _online_ttl = get_online_ttl()
     result = []
     for dev_id, dev in devices.items():
         if _scope is not None and not _device_in_scope(_scope, dev):
@@ -11989,7 +11995,7 @@ def handle_devices_list():
             missed = None
             offline_reason = None
         else:
-            is_online = (now - last_ping) < get_online_ttl()
+            is_online = (now - last_ping) < _online_ttl
             missed = max(0, (now - last_ping) // 60) if last_ping else None
             offline_reason = None
             if not is_online and last_ping:
@@ -30267,7 +30273,8 @@ def handle_fleet_capacity():
     latest sysinfo of currently-online monitored devices, plus the top
     consumers. Auth: require_auth."""
     require_auth()
-    devices = load(DEVICES_FILE) or {}
+    # v6.4.0 (perf): pure read-only aggregation — never mutates the store.
+    devices = _load_ro(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     now = int(time.time())
     ttl = get_online_ttl()
@@ -40717,10 +40724,13 @@ def _maybe_check_disk_predictions():
     """v3.14.0: every ~6h, fire disk_predict_fail for disks newly PREDICTED to
     fail (a SMART trend that projected an ETA) — edge-triggered. Reactive
     failures are already covered by smart_failure; this is the look-ahead."""
-    cfg = load(CONFIG_FILE)
     now = int(time.time())
-    if now - int(cfg.get('last_disk_predict_check', 0)) < 6 * 3600:
+    # v6.4.0 (perf): gate on the shared read-only config (no deepcopy) on the
+    # every-request not-due path; only take a mutable load() once we're due to
+    # stamp + save the new timestamp.
+    if now - int(_config_ro().get('last_disk_predict_check', 0)) < 6 * 3600:
         return
+    cfg = load(CONFIG_FILE)
     cfg['last_disk_predict_check'] = now
     save(CONFIG_FILE, cfg)
     # v6.2.2 batch 3: operator-configurable medium-risk ETA suppression window.
@@ -50000,7 +50010,10 @@ def _maybe_send_scheduled_report():
     config.json under `report_schedule` ({enabled, cron, recipients}). The
     once-per-minute claim is done under a file lock so concurrent heartbeats in
     the same matching minute don't each fire an email."""
-    cfg = load(CONFIG_FILE) or {}
+    # v6.4.0 (perf): read-only shared config — this hook only reads (recipients
+    # via _smtp_recipients_list), it never mutates config, so it never needs
+    # load()'s per-request deepcopy on the common (feature-off) path.
+    cfg = _config_ro() or {}
     rs = cfg.get('report_schedule') or {}
     if not rs.get('enabled'):
         return
@@ -50176,7 +50189,9 @@ def handle_report_def_delete(def_id):
 def _maybe_send_report_definitions():
     """Heartbeat hook: send each enabled custom report on its own cron. Shares
     the once-per-minute claim pattern, keyed per definition id."""
-    cfg = load(CONFIG_FILE) or {}
+    # v6.4.0 (perf): read-only shared config on the not-due path (no report
+    # definitions on most installs → this returns before any mutation).
+    cfg = _config_ro() or {}
     defs = cfg.get('report_definitions') or []
     if not defs:
         return
@@ -52423,9 +52438,17 @@ def handle_nav_counts():
             _cmt = backend_mtime(_nc_cache)
             if (time.time() - _cmt) < 15:
                 _fresh = True
-                for _src in (DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE,
-                             ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE,
-                             TICKETS_FILE):
+                # v6.4.0 (perf): bust on OPERATOR-meaningful writes only. The old
+                # list included DEVICES_FILE / MON_HIST_FILE / CMDS_FILE, which
+                # every heartbeat / monitor run / command delivery rewrites — so on
+                # any live fleet one was always newer than the cache and this,
+                # the hottest poll in the product, re-ran its O(fleet) recompute
+                # every time. Device add/remove is caught by the device-set
+                # fingerprint below (immediate); the wall-clock-derived offline /
+                # pending-command counts are bounded by the 15s TTL, which is
+                # exactly this cache's staleness contract.
+                for _src in (CVE_FINDINGS_FILE, ALERTS_FILE,
+                             CONFIRMATIONS_FILE, TICKETS_FILE):
                     try:
                         if backend_mtime(_src) > _cmt:
                             _fresh = False
@@ -52434,7 +52457,8 @@ def handle_nav_counts():
                         pass
                 if _fresh:
                     _c = load(_nc_cache)
-                    if isinstance(_c, dict):
+                    if isinstance(_c, dict) and _c.get('_dsfp') == _device_set_fingerprint():
+                        _c = {k: v for k, v in _c.items() if k != '_dsfp'}
                         _respond_with_etag(_c, _c)   # content-based
                         respond(200, _c)
                         return
@@ -52577,7 +52601,11 @@ def handle_nav_counts():
         except Exception:
             pass
     try:
-        save(_nc_cache, out)
+        # Stash the device-set fingerprint so the fast-path can bust the cache
+        # the instant a device is added/removed (see the freshness gate above).
+        # It never reaches the client — popped on serve, and the compute path
+        # responds with `out`, which does not carry it.
+        save(_nc_cache, {**out, '_dsfp': _device_set_fingerprint()})
     except Exception:
         pass
     _respond_with_etag(out, out)   # content-based (see the note above)

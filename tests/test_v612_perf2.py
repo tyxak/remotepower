@@ -190,9 +190,11 @@ class TestConditionalNavCounts(unittest.TestCase):
         stale 304 (a dead device still shown "online" on a small idle fleet).
         Content-hashing also inherently separates callers with different counts,
         so no explicit scope/tenant term is needed in the source."""
-        src = (CGI / 'api.py').read_text()
-        i = src.index('def handle_nav_counts')
-        body = src[i:i + 11000]        # the fresh-path respond is ~9200 chars in
+        # v6.4.0: growth-proof — extract the whole indentation-bounded function
+        # body (was a fixed src[i:i+11000] window that broke when the perf pass
+        # lengthened the function past 11k chars).
+        from tests import srcpin
+        body = srcpin.py_function((CGI / 'api.py').read_text(), 'handle_nav_counts')
         self.assertIn('_respond_with_etag(out, out)', body,
                       'the fresh path must hash the payload itself')
         self.assertIn('_respond_with_etag(_c, _c)', body,
