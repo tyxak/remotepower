@@ -11443,9 +11443,22 @@ function _scanZeroExplanation(data) {
     // Lead with the ACTION. The explanation was three sentences long and the
     // operator sees it on every wpscan until the token is set, so the fix has
     // to be the first thing on the line, not the conclusion.
-    note = 'Set RP_WPSCAN_API_TOKEN on this scanner satellite and re-run — '
-         + 'without it wpscan cannot check versions against the vulnerability '
-         + 'database, so this result says nothing either way.';
+    // Concrete steps with the real paths the installer uses. "Set an env var"
+    // is not a resolution if the operator has to work out where.
+    note = {html:
+      '<strong>wpscan could not check for vulnerabilities.</strong> It matched '
+      + 'nothing because this scanner satellite has no WPScan API token, not '
+      + 'because the site is clean. To fix it, on the satellite host:'
+      + '<ol class="mt-6">'
+      + '<li>Get a free token at <a href="https://wpscan.com/api" target="_blank" rel="noopener" class="c-accent">wpscan.com/api</a>.</li>'
+      + '<li>Add it to <span class="mono-12">/etc/remotepower/scanner.env</span>:'
+      + '<br><span class="mono-12">RP_WPSCAN_API_TOKEN=&lt;your-token&gt;</span>'
+      + '<br><span class="hint">(installed by <span class="mono-12">packaging/scanner-setup.sh</span>; '
+      + 'if you wrote the unit by hand, add it as an <span class="mono-12">Environment=</span> line instead)</span></li>'
+      + '<li><span class="mono-12">sudo systemctl restart remotepower-scanner</span></li>'
+      + '<li>Re-run this scan.</li></ol>'
+      + '<span class="hint">The free tier allows 25 API requests a day. '
+      + '<a href="docs/security-scans.md" class="c-accent">Documentation</a></span>'};
   } else if (data.tool === 'wpscan' && caps.wpscan_vuln_db === true) {
     note = 'Vulnerability matching was enabled, so this is a real clean result '
          + 'for the core/plugin/theme versions wpscan could identify.';
@@ -11461,7 +11474,11 @@ function _scanZeroExplanation(data) {
         // status is not 'done'.
         ? `<div class="hint mt-8"><strong>Note from this run:</strong> ${escHtml(data.error)}</div>`
         : '')
-    + (note ? `<div class="hint mt-8">${escHtml(note)}</div>` : '')
+    + (note
+        // A note may carry markup when it is a set of steps — those are all
+        // built from literals here, never from scan data, which stays escaped.
+        ? `<div class="hint mt-8">${typeof note === 'string' ? escHtml(note) : note.html}</div>`
+        : '')
     + '</div>';
 }
 

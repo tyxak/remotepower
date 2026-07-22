@@ -158,10 +158,33 @@ target's **Scan** button.
   logins; that is intrusive, trips account lockouts and floods the target's auth
   log, so it is not wired into RemotePower at any profile.
 
-Vulnerability *matching* needs a free WPScan API token. Set
-`RP_WPSCAN_API_TOKEN` on the scanner satellite. Without it wpscan still
-fingerprints versions and reports interesting findings — it just cannot tell you
-which versions are vulnerable.
+### The API token is not optional if you want vulnerabilities
+
+Without a WPScan API token the scan still runs and still reports interesting
+findings, but it **cannot match versions against the vulnerability database** —
+so it finds no vulnerabilities *whatever the state of the site*. A clean result
+in that mode says nothing either way, which is why the scan detail view spells
+it out rather than letting "0 findings" read as "safe".
+
+On the **satellite host**:
+
+1. Get a free token at <https://wpscan.com/api> (25 API requests/day on the
+   free tier — comfortably enough for a handful of sites).
+2. Add it to the scanner's environment file, which
+   `packaging/scanner-setup.sh` created at `/etc/remotepower/scanner.env`:
+
+   ```
+   RP_WPSCAN_API_TOKEN=<your-token>
+   ```
+
+   If you wrote the systemd unit by hand instead, add it there as another
+   `Environment=` line.
+3. `sudo systemctl restart remotepower-scanner`
+4. Re-run the scan.
+
+The satellite reports whether matching was available with each result, so the
+scan detail view tells you which mode a given run used — you never have to
+guess whether an old clean result was a real one.
 
 ## On-host audit (lynis) — no scanner satellite needed
 

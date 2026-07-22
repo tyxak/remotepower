@@ -382,6 +382,39 @@ class TestWpscanArgv(unittest.TestCase):
 
 
 
+class TestTheFixIsSpelledOut(unittest.TestCase):
+    """Naming a missing setting is not a resolution if the operator has to work
+    out where it goes. The scan detail view must give the real paths."""
+
+    def _js(self):
+        return (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+
+    def test_the_note_gives_the_env_file_the_installer_actually_writes(self):
+        js = self._js()
+        i = js.index('wpscan_vuln_db === false')
+        blk = js[i:i + 2200]
+        self.assertIn('/etc/remotepower/scanner.env', blk)
+        self.assertIn('RP_WPSCAN_API_TOKEN', blk)
+        self.assertIn('systemctl restart remotepower-scanner', blk)
+        self.assertIn('wpscan.com/api', blk)
+
+    def test_that_path_is_the_one_scanner_setup_writes(self):
+        setup = (_ROOT / 'packaging' / 'scanner-setup.sh').read_text()
+        self.assertIn('ENVF=/etc/remotepower/scanner.env', setup,
+                      'the UI would be telling operators about a path that does '
+                      'not exist')
+
+    def test_the_unit_name_matches_the_installed_one(self):
+        setup = (_ROOT / 'packaging' / 'scanner-setup.sh').read_text()
+        self.assertIn('remotepower-scanner.service', setup)
+
+    def test_the_docs_carry_the_same_steps(self):
+        doc = (_ROOT / 'docs' / 'security-scans.md').read_text()
+        for bit in ('/etc/remotepower/scanner.env', 'RP_WPSCAN_API_TOKEN',
+                    'systemctl restart remotepower-scanner', 'wpscan.com/api'):
+            self.assertIn(bit, doc)
+
+
 class TestSatelliteCapabilities(unittest.TestCase):
     """A zero-finding scan is ambiguous: "genuinely clean" or "the tool never
     actually checked". The satellite reports what it COULD do so the detail view

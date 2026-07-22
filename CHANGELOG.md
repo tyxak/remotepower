@@ -30,6 +30,15 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### The wpscan no-token note now tells you how to fix it
+- Naming a missing environment variable is not a resolution if the operator has
+  to work out where it goes. The scan detail view now gives the actual steps
+  with the real paths the installer uses — get a free token at wpscan.com/api,
+  add `RP_WPSCAN_API_TOKEN` to `/etc/remotepower/scanner.env`, restart
+  `remotepower-scanner`, re-run — and `docs/security-scans.md` carries the same
+  steps. A test pins those paths against `packaging/scanner-setup.sh` so the UI
+  can never point at a file the installer does not create.
+
 ### Fixed — a stale event could shadow every newer one for 24 hours
 - **Needs-Attention cards were frozen on the OLDEST occurrence.** Event-derived
   cards dedupe on (device, unit, pattern) so a noisy rule is one card — but the
