@@ -30,6 +30,19 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Fixed — an acknowledgement now clears the board immediately
+- **Silencing a rule (or clearing a line) left the existing Needs-Attention
+  cards in place** for the rest of the 24h window, because a card is rendered
+  from the STORED event and the acknowledgement only gated the firing path. The
+  operator presses the button and nothing visibly happens. Acks are now applied
+  at the digest too — the same lesson alert mutes taught. A card is hidden when
+  the rule is silenced, or when EVERY captured line on it has been cleared (one
+  cleared line out of two leaves it, so a still-unexplained message cannot
+  disappear alongside a handled one).
+- The no-line summary is now just `<unit> matched N hits — no line captured`.
+  Two earlier versions echoed the operator's own regex back at them or sent them
+  to the rule page, where there is nothing to see.
+
 ### Fixed — the clear-a-line escape hatch was missing where it was needed
 - **`Clear line` only appeared on alerts that captured a line**, so the alerts
   actually piling up — older ones, recorded before matched lines were kept —

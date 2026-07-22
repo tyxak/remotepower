@@ -328,5 +328,183 @@ class TestClearIsOfferedWhenThereIsNoLine(unittest.TestCase):
         self.assertIn('not</strong> seen yet are hidden too', html)
 
 
+class TestEvidenceSurvivesTheREALIngestPath(unittest.TestCase):
+    """Drive POST /api/logs end to end, not fire_webhook directly.
+
+    The first version of this feature was verified by calling fire_webhook with
+    a hand-built payload, which proves only that the whitelist copies a key —
+    it says nothing about whether the ingest path SETS that key. The path that
+    matters is: agent submits lines -> rules evaluate -> event recorded ->
+    Needs-Attention card renders. That is what is asserted here.
+    """
+
+    UNIT = 'apache2.service'
+    PAT = 'err|warn|critical|Critical|Warning|FATAL'
+    LINE = '[Tue Jul 22 17:55:01 2026] [error] client denied by server configuration'
+
+    def setUp(self):
+        import time
+        self.dev = 'd-ingest'
+        api.save(api.DEVICES_FILE, {self.dev: {
+            'name': 'web1', 'ip': '10.0.0.4', 'token': 'tok', 'monitored': True,
+            'last_seen': int(time.time()),
+            'log_watch': [{'unit': self.UNIT, 'pattern': self.PAT,
+                           'threshold': 1, 'severity': 'WARN'}]}})
+        api.save(api.FLEET_EVENTS_FILE, {'events': []})
+        api.save(api.LOG_ACKS_FILE, {'acks': {}})
+        # Reset everything that can SUPPRESS a Needs-Attention row, or a stray
+        # ignore/mute left by an earlier test makes this pass for the wrong
+        # reason — or fail for one. (Found exactly that: green alone, red in the
+        # module.)
+        api.save(api.IGNORED_ITEMS_FILE, {})
+        api.save(api.CONFIG_FILE, {})
+        for f in (api.DEVICES_FILE, api.FLEET_EVENTS_FILE, api.LOG_ACKS_FILE,
+                  api.IGNORED_ITEMS_FILE, api.CONFIG_FILE):
+            api._invalidate_load_cache(f)
+        self._orig = {n: getattr(api, n) for n in
+                      ('method', 'get_json_obj', 'get_json_body', '_read_valid',
+                       '_device_token_ok')}
+        api._device_token_ok = lambda d, t: True
+        api.method = lambda: 'POST'
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(api, n, v)
+
+    def _line(self, tag):
+        """A line unique to this test.
+
+        The log buffer content-dedupes, so an identical line submitted by an
+        earlier test is not "new" and correctly does not re-alert — reusing one
+        literal across tests makes them pass or fail by ORDER.
+        """
+        return f'[Tue Jul 22 17:55:01 2026] [error] client denied by server configuration ({tag})'
+
+    def _submit(self, *lines):
+        body = {'device_id': self.dev, 'token': 'tok',
+                'units': {self.UNIT: list(lines)}}
+        api.get_json_obj = lambda: dict(body)
+        api.get_json_body = lambda: dict(body)
+        api._read_valid = lambda m: dict(body)
+        try:
+            api.handle_log_submit()
+        except api.HTTPError:
+            pass
+        # load() memoises per request; this process just WROTE through another
+        # code path, so the reader below would otherwise see its own first
+        # (empty) snapshot forever — the documented _LOAD_CACHE trap.
+        for f in (api.FLEET_EVENTS_FILE, api.DEVICES_FILE, api.ALERTS_FILE):
+            api._invalidate_load_cache(f)
+        return [e for e in ((api.load(api.FLEET_EVENTS_FILE) or {}).get('events') or [])
+                if e.get('event') == 'log_alert']
+
+    def test_the_matched_line_reaches_the_recorded_event(self):
+        evs = self._submit(self._line('a'), '[warn] mod_fcgid: read timeout (a)')
+        self.assertEqual(len(evs), 1)
+        sample = (evs[0].get('payload') or {}).get('sample')
+        self.assertTrue(sample, 'the feed event carries NO matched line')
+        # Which matched line is kept is not ordered — only that a REAL one is.
+        self.assertTrue(any('client denied' in x or 'mod_fcgid' in x for x in sample),
+                        f'sample holds no submitted line: {sample}')
+
+    def test_the_needs_attention_card_shows_the_line_not_the_regex(self):
+        self._submit(self._line('b'))
+        items = api._compute_attention()
+        items = items if isinstance(items, list) else (items or {}).get('items') or []
+        rows = [i for i in items if isinstance(i, dict) and i.get('kind') == 'log_alert']
+        self.assertTrue(rows, 'no log_alert Needs-Attention item')
+        summary = rows[0]['summary']
+        self.assertIn('client denied', summary,
+                      'the card must show the matched LINE, not the rule regex')
+        self.assertNotIn('no line captured', summary)
+        self.assertNotIn(self.PAT, summary, 'echoing the operator\'s own regex '
+                                            'back at them is not evidence')
+
+    def test_a_silenced_rule_produces_no_event_at_all(self):
+        api.save(api.LOG_ACKS_FILE, {'acks': {
+            logsig.ack_key(self.dev, self.UNIT, logsig.rule_key(self.PAT)): {
+                'device_id': self.dev, 'unit': self.UNIT, 'kind': 'rule',
+                'sig': logsig.rule_key(self.PAT), 'pattern': self.PAT, 'ts': 1}}})
+        api._invalidate_load_cache(api.LOG_ACKS_FILE)
+        self.assertEqual(self._submit(self._line('c')), [])
+
+    def test_an_acked_LINE_stops_the_rule_reaching_its_threshold(self):
+        api.save(api.LOG_ACKS_FILE, {'acks': {
+            logsig.ack_key(self.dev, self.UNIT, logsig.signature(self._line('d'))): {
+                'device_id': self.dev, 'unit': self.UNIT, 'kind': 'line',
+                'sig': logsig.signature(self._line('d')), 'ts': 1}}})
+        api._invalidate_load_cache(api.LOG_ACKS_FILE)
+        self.assertEqual(self._submit(self._line('d')), [])
+
+
+class TestAckAppliesAtTheDigestNotJustAtFireTime(unittest.TestCase):
+    """A Needs-Attention card is rendered from the STORED event.
+
+    So an acknowledgement that only gates the firing path leaves the card sitting
+    there for the whole 24h window, and the operator reasonably concludes the
+    button did nothing. (This is the recurring lesson from alert mutes, which had
+    the identical bug.)
+    """
+
+    UNIT = 'apache2.service'
+    PAT = 'err|warn|critical'
+    LINE = '[error] client denied by server configuration'
+
+    def setUp(self):
+        import time
+        self.dev = 'd-digest'
+        api.save(api.DEVICES_FILE, {self.dev: {
+            'name': 'web1', 'monitored': True, 'last_seen': int(time.time())}})
+        api.save(api.LOG_ACKS_FILE, {'acks': {}})
+        api.save(api.IGNORED_ITEMS_FILE, {})
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.FLEET_EVENTS_FILE, {'events': [{
+            'ts': int(time.time()), 'event': 'log_alert',
+            'payload': {'device_id': self.dev, 'name': 'web1', 'unit': self.UNIT,
+                        'pattern': self.PAT, 'count': 2, 'sample': [self.LINE]}}]})
+        for f in (api.DEVICES_FILE, api.LOG_ACKS_FILE, api.FLEET_EVENTS_FILE,
+                  api.IGNORED_ITEMS_FILE, api.CONFIG_FILE):
+            api._invalidate_load_cache(f)
+
+    def _rows(self):
+        items = api._compute_attention()
+        items = items if isinstance(items, list) else (items or {}).get('items') or []
+        return [i for i in items if isinstance(i, dict) and i.get('kind') == 'log_alert']
+
+    def _ack(self, sig):
+        api.save(api.LOG_ACKS_FILE, {'acks': {
+            logsig.ack_key(self.dev, self.UNIT, sig): {
+                'device_id': self.dev, 'unit': self.UNIT, 'sig': sig, 'ts': 1}}})
+        api._invalidate_load_cache(api.LOG_ACKS_FILE)
+
+    def test_the_card_is_there_before_any_acknowledgement(self):
+        self.assertEqual(len(self._rows()), 1)
+
+    def test_silencing_the_rule_clears_the_existing_card(self):
+        self._ack(logsig.rule_key(self.PAT))
+        self.assertEqual(self._rows(), [])
+
+    def test_clearing_the_captured_line_clears_the_existing_card(self):
+        self._ack(logsig.signature(self.LINE))
+        self.assertEqual(self._rows(), [])
+
+    def test_an_unrelated_acknowledgement_leaves_it_alone(self):
+        self._ack(logsig.signature('something else entirely'))
+        self.assertEqual(len(self._rows()), 1)
+
+    def test_an_event_with_more_lines_than_were_cleared_still_shows(self):
+        """Only every captured line being cleared may hide the card — otherwise
+        a still-unexplained message would vanish with it."""
+        import time
+        api.save(api.FLEET_EVENTS_FILE, {'events': [{
+            'ts': int(time.time()), 'event': 'log_alert',
+            'payload': {'device_id': self.dev, 'name': 'web1', 'unit': self.UNIT,
+                        'pattern': self.PAT, 'count': 2,
+                        'sample': [self.LINE, '[crit] disk I/O error']}}]})
+        api._invalidate_load_cache(api.FLEET_EVENTS_FILE)
+        self._ack(logsig.signature(self.LINE))
+        self.assertEqual(len(self._rows()), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

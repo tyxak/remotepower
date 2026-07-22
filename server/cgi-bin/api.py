@@ -41716,6 +41716,32 @@ def handle_check_baselines_apply():
 
 
 
+def _log_alert_acked(payload):
+    """True if the operator already cleared this log alert.
+
+    Matches either shape: the whole RULE silenced on this unit/host, or every
+    captured line acknowledged. Defensive — a failure here must never take out
+    the whole Needs-Attention digest.
+    """
+    try:
+        did = str(payload.get('device_id') or '')
+        unit = str(payload.get('unit') or '')
+        if rule_acked(did, unit, payload.get('pattern')):
+            return True
+        samples = payload.get('sample') or []
+        if isinstance(samples, str):
+            samples = [samples]
+        if not samples:
+            return False
+        acks = _log_acks()
+        if not acks:
+            return False
+        import logsig as _ls
+        return all(_ack_hit(acks, did, unit, _ls.signature(x)) for x in samples)
+    except Exception:
+        return False
+
+
 def _compute_attention():
     """Build the fleet-wide list of things needing attention.
 
@@ -42463,6 +42489,13 @@ def _compute_attention():
         if did and did not in monitored: continue
         dev_name = payload.get('name') or (monitored.get(did) or {}).get('name', did)
         if ev_type == 'log_alert':
+            # v6.3.1: an acknowledgement has to apply HERE too, not only on the
+            # firing path. The card is rendered from the STORED event, so a
+            # freshly-silenced rule would otherwise keep its card for the whole
+            # 24h NA window and read as "the button did nothing". Same lesson as
+            # alert mutes: apply at the digest, not just at fire time.
+            if _log_alert_acked(payload):
+                continue
             sev_raw = (payload.get('severity') or 'WARN').upper()
             # OK severities never get here (silenced earlier in fire path),
             # but defend anyway
@@ -42495,14 +42528,13 @@ def _compute_attention():
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
             else:
-                # No sample on the event. Every alert recorded from v6.3.1 on
-                # carries one, so this is an older event still inside the NA
-                # window — it ages out on its own. Telling the operator to "open
-                # the rule" was a dead end: there is nothing to see there, the
-                # matched line simply was not stored at the time.
-                summary_text = (f'{unit} matched {count_label} '
-                                f'(pattern {pattern!r}) — recorded before matched '
-                                'lines were kept; the next occurrence shows the line')
+                # No sample on the event (an older one still inside the NA
+                # window). Keep it SHORT and drop the archaeology: the operator
+                # cannot act on why the line is missing, and the card's own
+                # button is the action. Two earlier versions of this string
+                # echoed the regex back or sent them to the rule page, where
+                # there is nothing to see.
+                summary_text = f'{unit} matched {count_label} — no line captured'
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
