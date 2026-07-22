@@ -30,6 +30,22 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Pentest — a clean scan now says what it actually checked
+- **Info findings were invisible.** The scans table has Crit/High/Med/Low
+  columns, but wpscan's whole passive value (interesting findings, exposed
+  config backups) is `info` severity — so a scan that found a dozen things
+  still read `0 0 0 0`. There is now an **Info** column.
+- **A zero-finding scan no longer claims to be clean.** "No findings — clean
+  scan" asserts the target is fine, when it can equally mean the tool never
+  managed to check. The detail view now names what ran and what that tool can
+  and cannot conclude from an empty result.
+- **wpscan without an API token says so.** Without `RP_WPSCAN_API_TOKEN` on the
+  satellite, wpscan fingerprints versions but cannot match them against the
+  vulnerability database — it reports nothing and the operator reads "clean".
+  That run is now annotated. The note rides in the `error` field but the status
+  decision is made BEFORE it is attached, so a caveat can never masquerade as a
+  failed scan (or hide one).
+
 ### Pentest — the wpscan/vhost dead end
 - Queueing a wpscan against a domain failed on the server round-trip with
   "vhost must be an ownership-verified web target first" — a correct gate (it

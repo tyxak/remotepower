@@ -10667,8 +10667,8 @@ function _registerScansTable() {
     tbody: 'scans-tbody',
     filterInput: 'scans-filter',
     sortHeaders: 'scans-thead',
-    colspan: 8,
-    columns: ['target', 'status', 'critical', 'high', 'medium', 'low', 'created'],
+    colspan: 9,
+    columns: ['target', 'status', 'critical', 'high', 'medium', 'low', 'info', 'created'],
     getColumns: (s) => ({
       target:   (s.target_name || '') + ' ' + (s.target || ''),
       status:   s.status || '',
@@ -10676,6 +10676,7 @@ function _registerScansTable() {
       high:     s.severity_counts?.high || 0,
       medium:   s.severity_counts?.medium || 0,
       low:      s.severity_counts?.low || 0,
+      info:     s.severity_counts?.info || 0,
       created:  s.created || 0,
     }),
     row: (s) => {
@@ -10685,7 +10686,7 @@ function _registerScansTable() {
       const cell = (n, cls) => n > 0 ? `<td class="ta-center ${cls}">${n}</td>` : '<td class="ta-center c-muted">0</td>';
       const when = s.created ? new Date(s.created * 1000).toLocaleString() : '—';
       const removeBtn = ` <button class="btn-icon cell-sm c-danger-outline" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">${_icon('trash',14)}</button>`;
-      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity || 'quick')}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
+      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity || 'quick')}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}${cell(sc.info, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
     },
     emptyMsg: 'No scans yet. Select an enrolled device and queue one.',
     emptyMsgFiltered: 'No scans match the filter.',
@@ -11287,7 +11288,7 @@ async function loadScans() {
   }
   _syncScanControls();
   const tbody = document.getElementById('scans-tbody');
-  if (tbody) tbody.innerHTML = '<tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr>';
+  if (tbody) tbody.innerHTML = '<tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr>';
   const data = await api('GET', '/scans');
   if (!data || data.error) return;
   scansData = data.scans || [];
@@ -11407,6 +11408,40 @@ async function queueScan() {
   loadScans();
 }
 
+// A zero-finding scan is ambiguous: it can mean "genuinely clean" or "the tool
+// never actually checked". Saying only "clean scan" asserts the first, which is
+// the more dangerous of the two to be wrong about — so spell out what ran, and
+// what this tool can and cannot conclude.
+const _SCAN_ZERO_NOTES = {
+  wpscan: 'wpscan reports vulnerabilities only when version matching is enabled, '
+        + 'which needs a free WPScan API token (RP_WPSCAN_API_TOKEN on the scanner '
+        + 'satellite). Without it wpscan still fingerprints core/plugin/theme '
+        + 'versions but cannot say which are vulnerable — so zero findings here '
+        + 'does NOT mean zero vulnerabilities. It also only sees a site it can '
+        + 'identify as WordPress at the scanned URL.',
+  nuclei: 'nuclei only reports what its templates match. Zero means no template '
+        + 'fired — not that the target is free of flaws a template does not cover.',
+  nikto:  'nikto checks known-bad paths and server misconfigurations. Zero means '
+        + 'none of those matched.',
+  nmap:   'nmap reports open services. Zero open ports usually means the target '
+        + 'filtered the scan — worth confirming the satellite can reach it.',
+};
+
+function _scanZeroExplanation(data) {
+  if (data.status !== 'done') {
+    return `<div class="empty-state">No findings yet (status: ${escHtml(data.status)}).`
+         + `${data.error ? ' ' + escHtml(data.error) : ''}</div>`;
+  }
+  const note = _SCAN_ZERO_NOTES[data.tool] || '';
+  return '<div class="empty-state ta-left">'
+    + `<strong>No findings.</strong> ${escHtml(data.tool || 'The scan')} completed against `
+    + `<span class="mono-12">${escHtml(data.target || '')}</span>`
+    + `${data.profile ? ` (${escHtml(data.profile)}/${escHtml(data.intensity || 'quick')})` : ''}.`
+    + (data.error ? `<div class="c-amber mt-8">${escHtml(data.error)}</div>` : '')
+    + (note ? `<div class="hint mt-8">${escHtml(note)}</div>` : '')
+    + '</div>';
+}
+
 async function viewScan(scanId) {
   const data = await api('GET', '/scans/' + encodeURIComponent(scanId));
   if (!data) return;
@@ -11422,7 +11457,7 @@ async function viewScan(scanId) {
     ? `<div class="mb-8"><strong>Hardening index:</strong> <span class="${data.hardening_index >= 75 ? 'c-green' : data.hardening_index >= 50 ? 'c-amber' : 'c-red'} fw-600">${data.hardening_index}/100</span> <span class="hint">lynis host-hardening score</span></div>`
     : '';
   if (!findings.length) {
-    body.innerHTML = hidx + `<div class="empty-state">${data.status === 'done' ? 'No findings — clean scan.' : 'No findings yet (status: ' + escHtml(data.status) + ').'}${data.error ? ' Error: ' + escHtml(data.error) : ''}</div>`;
+    body.innerHTML = hidx + _scanZeroExplanation(data);
   } else {
     const order = { critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 };
     const sevColor = { critical: 'c-red', high: 'c-red', medium: 'c-amber', low: 'c-muted', info: 'c-muted', unknown: 'c-muted' };

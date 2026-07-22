@@ -382,5 +382,52 @@ class TestWpscanArgv(unittest.TestCase):
 
 
 
+class TestCleanResultIsNotOversold(unittest.TestCase):
+    """A zero-finding scan is ambiguous: "genuinely clean" or "the tool never
+    actually checked". Asserting the first when it is the second is the more
+    dangerous way to be wrong, so the caveat exists."""
+
+    def setUp(self):
+        self._tok = os.environ.pop('RP_WPSCAN_API_TOKEN', None)
+
+    def tearDown(self):
+        os.environ.pop('RP_WPSCAN_API_TOKEN', None)
+        if self._tok is not None:
+            os.environ['RP_WPSCAN_API_TOKEN'] = self._tok
+
+    def test_wpscan_with_no_token_and_no_findings_says_matching_was_off(self):
+        note = sc._caveat('wpscan', [])
+        self.assertIn('vulnerability matching was DISABLED', note)
+        self.assertIn('RP_WPSCAN_API_TOKEN', note)
+
+    def test_no_caveat_once_the_token_is_configured(self):
+        os.environ['RP_WPSCAN_API_TOKEN'] = 'tok'
+        self.assertEqual(sc._caveat('wpscan', []), '')
+
+    def test_no_caveat_when_the_scan_actually_found_something(self):
+        self.assertEqual(sc._caveat('wpscan', [{'title': 'x'}]), '')
+
+    def test_other_tools_are_not_annotated(self):
+        self.assertEqual(sc._caveat('nikto', []), '')
+
+    def test_a_caveat_never_marks_the_scan_failed(self):
+        """It rides in the `error` field, so the status decision must be made
+        BEFORE it is attached or a clean scan reads as a broken one."""
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        body = src[src.index('def _process_one('):]
+        self.assertLess(body.index("status = 'failed' if err else 'done'"),
+                        body.index('_caveat(tool, findings)'),
+                        'status must be decided before the caveat is attached')
+        # and it must only ever be attached to a scan that actually completed
+        self.assertIn("if status == 'done':", body)
+
+    def test_run_tool_still_dispatches_to_both_runner_families(self):
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        fn = src[src.index('def _run_tool('):src.index('def _caveat(')]
+        self.assertIn('STDOUT_TOOLS', fn)
+        self.assertIn('REPORT_TOOLS', fn)
+        self.assertIn('unsupported tool', fn)
+
+
 if __name__ == '__main__':
     unittest.main()
