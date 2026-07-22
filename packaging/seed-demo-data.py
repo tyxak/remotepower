@@ -432,8 +432,8 @@ def build_devices() -> dict:
             # Most of the fleet runs the current agent; a minority lag one/two
             # minors so the "upgrade available" affordance has something to show.
             'version':     (None if dev['agentless']
-                            else rng.choice(['6.3.0', '6.3.0', '6.3.0',
-                                             '6.2.3', '6.2.2'])),
+                            else rng.choice(['6.4.0', '6.4.0', '6.4.0',
+                                             '6.3.0', '6.2.3'])),
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),
@@ -1466,8 +1466,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '6.2.3',
-        'agent_version':     '6.2.3',
+        'server_version':    '6.4.0',
+        'agent_version':     '6.4.0',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is

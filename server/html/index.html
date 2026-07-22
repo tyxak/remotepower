@@ -2626,7 +2626,7 @@
                it is always undoable. -->
           <div class="settings-section">
             <div class="section-title">Configuration history</div>
-            <p class="hint">Every settings save that changed something keeps the previous state here (last 10). Restore swaps the live configuration for a snapshot — the replaced state becomes a revision itself, so a restore can always be undone.</p>
+            <p class="hint">Every settings save that changed something keeps the previous state here (last 10). Restore swaps the live configuration for a snapshot — the replaced state becomes a revision itself, so a restore can always be undone. <a href="docs/config-history.md" class="c-accent">Documentation</a></p>
             <div id="config-revisions-list" class="scroll-cap-sm"></div>
           </div>
           <!-- v6.1.2: optional modules are switchable again. v6.0.0 had made
@@ -5509,7 +5509,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v6.3.1: detection self-test — prove the alert chain is wired -->
         <div class="dash-card mt-16" id="detection-selftest-card">
           <div class="section-header"><div class="section-title">Detection self-test</div><button class="btn-icon" data-action="loadDetectionSelftest"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Run</button></div>
-          <p class="hint">Silence isn't clearance: a green dashboard proves the monitoring found nothing, not that it <em>would</em>. This verifies every alertable event type routes to at least one channel that reaches a human, and flags the silent gaps — an alert kind you've muted on every channel, sandbox mode left on, or a recover event that can never close its alert.</p>
+          <p class="hint">Silence isn't clearance: a green dashboard proves the monitoring found nothing, not that it <em>would</em>. This verifies every alertable event type routes to at least one channel that reaches a human, and flags the silent gaps — an alert kind you've muted on every channel, sandbox mode left on, or a recover event that can never close its alert. <a href="docs/detection-selftest.md" class="c-accent">Documentation</a></p>
           <div id="detection-selftest-body"><div class="c-muted">Click Run.</div></div>
         </div>
       </div>

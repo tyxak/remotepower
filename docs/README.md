@@ -302,6 +302,10 @@ index — a doc nobody can find is a doc nobody reads.)
  reserve and failure prediction.
 - **[services.md](services.md)** — Watched systemd services and baselines.
 - **[log-watch.md](log-watch.md)** — The rolling log buffer and log alert rules.
+- **[detection-selftest.md](detection-selftest.md)** — Verify the alert
+  detection → routing → delivery chain is intact — silence isn't clearance.
+- **[config-history.md](config-history.md)** — Configuration snapshots and
+  one-click rollback (last 10 saved states, every restore reversible).
 - **[reports.md](reports.md)** — Scheduled and on-demand fleet reports.
 
 ### Security & compliance

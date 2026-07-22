@@ -129,7 +129,7 @@ if command -v systemctl >/dev/null 2>&1; then
   # package branches and bare-git installs here. Restart only units that are
   # actually running — never START an optional daemon the operator left off.
   if [ "$UPDATED" != "git+deploy" ]; then
-    for svc in remotepower-scheduler remotepower-push remotepower-webterm remotepower-scanner remotepower-syslogd; do
+    for svc in remotepower-scheduler remotepower-push remotepower-webterm remotepower-scanner remotepower-syslogd remotepower-flowd; do
       if systemctl is-active --quiet "$svc" 2>/dev/null; then
         log "restarting ${svc} ..."
         systemctl restart "$svc" || log "WARNING: ${svc} restart failed — it is still running the OLD code" >&2
