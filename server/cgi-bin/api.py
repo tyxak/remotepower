@@ -2731,8 +2731,9 @@ WEBAUTHN_CHALLENGES_FILE = DATA_DIR / 'webauthn_challenges.json'  # v4.2.0 (A1):
 SAML_REQUESTS_FILE = DATA_DIR / 'saml_requests.json'  # v4.2.0 (B1): outstanding AuthnRequest ids (InResponseTo/replay), 10-min TTL
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
 MAX_SCAN_FINDINGS = 1000                              # per-scan finding cap
-SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap')                   # passive-capable (satellite-run)
-SCAN_ACTIVE_TOOLS = ('nuclei', 'nikto', 'nmap', 'zap', 'wapiti')  # v4.2.0 P3: active profile only
+SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap', 'wpscan')         # passive-capable (satellite-run)
+SCAN_ACTIVE_TOOLS = ('nuclei', 'nikto', 'nmap', 'wpscan',
+                     'zap', 'wapiti')                            # v4.2.0 P3: active profile only
 HOST_SCAN_TOOLS   = ('lynis',)                                    # v4.2.0 P3: run ON the host by its agent
 SCAN_PROFILES     = ('passive', 'active')                         # active (P3) is attestation+window gated
 SCAN_INTENSITIES  = ('quick', 'full')                            # v4.2.0 (#6): depth knob, tuned per tool by the worker

@@ -462,7 +462,7 @@ class TestActiveScans(_ScanBase):
 
     def test_profiles_and_tools(self):
         self.assertEqual(set(api.SCAN_PROFILES), {'passive', 'active'})
-        self.assertEqual(set(api.SCAN_TOOLS), {'nuclei', 'nikto', 'nmap'})
+        self.assertEqual(set(api.SCAN_TOOLS), {'nuclei', 'nikto', 'nmap', 'wpscan'})
         self.assertTrue({'zap', 'wapiti'}.issubset(set(api.SCAN_ACTIVE_TOOLS)))
 
     def test_active_tool_rejected_in_passive(self):

@@ -6,6 +6,7 @@ sandboxed container; the dual-use tools can't run here, so we test the pure
 PARSE step (tool stdout -> normalised findings) with representative fixtures.
 """
 import importlib.util
+import json
 import os
 import unittest
 from pathlib import Path
@@ -253,7 +254,7 @@ class TestContainerLifecycle(unittest.TestCase):
 class TestDispatch(unittest.TestCase):
     def test_known_tools(self):
         self.assertEqual(set(sc.TOOL_RUNNERS),
-                         {'nuclei', 'nikto', 'nmap', 'zap', 'wapiti'})
+                         {'nuclei', 'nikto', 'nmap', 'wpscan', 'zap', 'wapiti'})
 
     def test_unknown_tool(self):
         findings, err = sc._run_tool('metasploit', 'h', 'passive')
@@ -306,6 +307,79 @@ class TestDispatch(unittest.TestCase):
                       sc._zap_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json'),
                       sc._wapiti_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')):
             self.assertNotIn('--cap-add', other)
+
+class TestWpscanParser(unittest.TestCase):
+    """WordPress scanner: core/plugin/theme vulns, plus the enumerable-users
+    signal that precedes most real WordPress compromises."""
+
+    DOC = {
+        "version": {"number": "6.4.1", "vulnerabilities": [
+            {"id": "aaaa-1111", "title": "Core XSS", "fixed_in": "6.4.2",
+             "references": {"cve": ["2024-1234"],
+                            "url": ["https://example.test/adv"]}}]},
+        "plugins": {"wp-file-manager": {"vulnerabilities": [
+            {"id": "bbbb-2222", "title": "Unauthenticated RCE", "fixed_in": "6.9",
+             "references": {"cve": ["2020-25213"], "url": []}}]}},
+        "themes": {"twentyten": {"vulnerabilities": []}},
+        "interesting_findings": [
+            {"to_s": "XML-RPC seems to be enabled", "url": "http://t/xmlrpc.php"}],
+        "users": {"admin": {}, "editor": {}},
+    }
+
+    def _by_id(self):
+        return {f['rule_id']: f for f in sc._parse_wpscan(json.dumps(self.DOC))}
+
+    def test_core_vulnerability(self):
+        f = self._by_id()['aaaa-1111']
+        self.assertEqual(f['severity'], 'high')
+        self.assertIn('Core XSS', f['title'])
+        self.assertEqual(f['reference'], 'https://example.test/adv')
+        self.assertIn('6.4.2', f['evidence'])
+
+    def test_plugin_vulnerability_is_labelled_and_falls_back_to_cve_ref(self):
+        f = self._by_id()['bbbb-2222']
+        self.assertIn('plugin wp-file-manager', f['title'])
+        self.assertIn('cve.mitre.org', f['reference'])   # no url -> CVE fallback
+
+    def test_enumerable_users_reported(self):
+        f = self._by_id()['wpscan-user-enum']
+        self.assertEqual(f['severity'], 'medium')
+        self.assertIn('admin', f['evidence'])
+
+    def test_interesting_findings_are_info(self):
+        self.assertEqual(self._by_id()['wpscan-interesting']['severity'], 'info')
+
+    def test_bad_and_empty_input(self):
+        self.assertEqual(sc._parse_wpscan('not json'), [])
+        self.assertEqual(sc._parse_wpscan('[]'), [])
+        self.assertEqual(sc._parse_wpscan('{}'), [])
+
+
+class TestWpscanArgv(unittest.TestCase):
+    def test_password_attack_is_never_wired(self):
+        """wpscan CAN brute-force logins. That is intrusive, trips lockouts and
+        fills the target's auth log — it must not be reachable from here."""
+        for profile in ('passive', 'active'):
+            argv = ' '.join(sc._wpscan_argv('http://t', profile, 'full'))
+            self.assertNotIn('--passwords', argv)
+            self.assertNotIn('--usernames', argv)
+
+    def test_passive_does_not_enumerate_users(self):
+        argv = sc._wpscan_argv('http://t', 'passive', 'quick')
+        enum = argv[argv.index('--enumerate') + 1]
+        self.assertNotIn('u', enum.split(','))
+        self.assertIn('vp', enum.split(','))
+        self.assertIn('passive', argv)          # plugin detection stays passive
+
+    def test_active_enumerates_users_and_probes_harder(self):
+        argv = sc._wpscan_argv('http://t', 'active', 'full')
+        self.assertIn('u', argv[argv.index('--enumerate') + 1].split(','))
+        self.assertIn('aggressive', argv)
+
+    def test_registered_as_a_stdout_tool(self):
+        self.assertIn('wpscan', sc.STDOUT_TOOLS)
+        self.assertIn('wpscan', sc.TOOL_RUNNERS)
+
 
 
 if __name__ == '__main__':

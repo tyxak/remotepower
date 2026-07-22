@@ -1,6 +1,6 @@
 # Pentest — how to run an authorized scan
 
-Security Scans let you run a real vulnerability scan (nuclei / nikto / nmap)
+Security Scans let you run a real vulnerability scan (nuclei / nikto / nmap / wpscan)
 against a host or website **you own**, and see the findings in the dashboard.
 
 It is **white-hat only**: you can only scan hosts that are enrolled in
@@ -125,6 +125,27 @@ scans you've run, total Critical and High findings, and how many scans are
 currently running or queued.
 
 ---
+
+## WordPress scanning (wpscan)
+
+`wpscan` fingerprints a WordPress site and matches core, plugin and theme
+versions against the WPScan vulnerability database. Pick it like any other
+tool; the target is an enrolled host or a domain you have proven you own.
+
+- **Passive** enumerates vulnerable plugins/themes plus exposed config backups
+  and database exports (`vp,vt,cb,dbe`) using passive plugin detection.
+- **Active** additionally enumerates **users** and probes plugin paths
+  aggressively. Enumerable usernames are reported as a *medium* finding on
+  their own: they are not a flaw, but they are the target list for the
+  credential attack that starts most real WordPress compromises.
+- **Password attacks are deliberately not available.** wpscan can brute-force
+  logins; that is intrusive, trips account lockouts and floods the target's auth
+  log, so it is not wired into RemotePower at any profile.
+
+Vulnerability *matching* needs a free WPScan API token. Set
+`RP_WPSCAN_API_TOKEN` on the scanner satellite. Without it wpscan still
+fingerprints versions and reports interesting findings — it just cannot tell you
+which versions are vulnerable.
 
 ## On-host audit (lynis) — no scanner satellite needed
 

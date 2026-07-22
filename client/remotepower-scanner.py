@@ -99,6 +99,7 @@ def _api(method, path, body=None):
 _TOOL_IMAGE = {
     'nuclei': os.environ.get('RP_NUCLEI_IMAGE', 'projectdiscovery/nuclei:v3'),
     'nikto':  os.environ.get('RP_NIKTO_IMAGE',  'frapsoft/nikto'),
+    'wpscan': os.environ.get('RP_WPSCAN_IMAGE', 'wpscanteam/wpscan'),
     'nmap':   os.environ.get('RP_NMAP_IMAGE',   'instrumentisto/nmap'),
     'zap':    os.environ.get('RP_ZAP_IMAGE',    'zaproxy/zap-stable'),
     'wapiti': os.environ.get('RP_WAPITI_IMAGE', 'cyberwatch/wapiti'),
@@ -230,6 +231,78 @@ def _parse_nikto(text):
     return out
 
 
+def _parse_wpscan(text):
+    """wpscan --format json -> findings.
+
+    wpscan reports vulnerabilities in three places (core version, plugins,
+    themes) plus 'interesting findings'. Everything with a CVE/WPVDB entry is
+    a real vulnerability; enumerated users are reported as info because they
+    are the target list for a credential attack, not a flaw in themselves.
+    """
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return []
+    if not isinstance(doc, dict):
+        return []
+    out = []
+
+    def _vulns(container, label):
+        for v in (container.get('vulnerabilities') or []):
+            if not isinstance(v, dict):
+                continue
+            refs = (v.get('references') or {}) if isinstance(v.get('references'), dict) else {}
+            cves = refs.get('cve') or []
+            url = refs.get('url') or []
+            out.append({
+                # a WPVDB id is stable; fall back to the CVE, then the title
+                'rule_id':   str(v.get('id') or (cves[0] if cves else '') or 'wpscan')[:120],
+                'title':     f'{label}: {v.get("title", "")}'[:300],
+                # wpscan does not score; anything with a fixed_in is exploitable
+                # in the wild, so treat a known vuln as high rather than medium.
+                'severity':  'high',
+                'evidence':  (f'fixed in {v["fixed_in"]}' if v.get('fixed_in')
+                              else 'no fixed version published')[:1000],
+                'reference': str((url[0] if isinstance(url, list) and url else
+                                  f'https://cve.mitre.org/cgi-bin/cvename.cgi?name={cves[0]}'
+                                  if cves else ''))[:500],
+            })
+
+    ver = doc.get('version') or {}
+    if isinstance(ver, dict):
+        _vulns(ver, f'WordPress {ver.get("number", "core")}')
+    for kind in ('plugins', 'themes'):
+        items = doc.get(kind) or {}
+        if not isinstance(items, dict):
+            continue
+        for name, meta in items.items():
+            if isinstance(meta, dict):
+                _vulns(meta, f'{kind[:-1]} {name}')
+    for f in (doc.get('interesting_findings') or []):
+        if not isinstance(f, dict):
+            continue
+        out.append({
+            'rule_id':   'wpscan-interesting',
+            'title':     str(f.get('to_s') or f.get('type') or '')[:300],
+            'severity':  'info',
+            'evidence':  str(f.get('url') or '')[:1000],
+            'reference': '',
+        })
+    users = doc.get('users') or {}
+    if isinstance(users, dict) and users:
+        out.append({
+            'rule_id':   'wpscan-user-enum',
+            'title':     f'{len(users)} WordPress user(s) enumerable: '
+                         + ', '.join(list(users)[:5]),
+            # not a flaw by itself, but it is the target list for the credential
+            # attack that most WordPress compromises actually start with
+            'severity':  'medium',
+            'evidence':  ', '.join(list(users)[:20])[:1000],
+            'reference': 'https://wpscan.com/',
+        })
+    return out
+
+
 def _parse_nmap_xml(text):
     """nmap -oX -> findings. Open services as info; NSE vuln-script hits medium."""
     import xml.etree.ElementTree as ET
@@ -352,6 +425,37 @@ def _nikto_argv(target, profile, intensity):
         '-nointeractive', '-maxtime', maxtime] + tuning)
 
 
+def _wpscan_argv(target, profile, intensity):
+    """WordPress-specific scanner.
+
+    DELIBERATELY NOT WIRED: --passwords. wpscan can brute-force logins, which is
+    genuinely intrusive, trips lockouts and fills the victim's auth log. This is
+    a defensive posture scanner, so it enumerates and version-matches only.
+
+    Vulnerability data needs a free WPScan API token (RP_WPSCAN_API_TOKEN);
+    without one wpscan still fingerprints core/plugin/theme versions and
+    interesting findings, it just cannot say which are vulnerable.
+    """
+    # vp/vt = vulnerable plugins+themes, cb = config backups, dbe = db exports.
+    # All are GETs against known paths — safe for the passive profile.
+    enumerate_ = 'vp,vt,cb,dbe'
+    detection = 'passive'
+    if profile == 'active':
+        enumerate_ += ',u'            # user enumeration is intrusive-ish
+        detection = 'aggressive'      # probes plugin paths directly
+    args = ['--url', _target_url(target), '--format', 'json', '--no-banner',
+            '--enumerate', enumerate_,
+            '--plugins-detection', detection,
+            '--random-user-agent',
+            '--disable-tls-checks',   # internal hosts often use a private CA
+            '--request-timeout', '20',
+            '--max-threads', '5' if _quick(intensity) else '10']
+    token = os.environ.get('RP_WPSCAN_API_TOKEN', '').strip()
+    if token:
+        args += ['--api-token', token]
+    return _sandbox(_TOOL_IMAGE['wpscan'], args)
+
+
 def _nmap_argv(target, profile, intensity):
     scripts = 'safe,vuln' if profile == 'active' else 'safe'   # vuln NSE = active
     # quick = top 100 ports (-F); full = every port (-p-).
@@ -396,6 +500,7 @@ STDOUT_TOOLS = {
     'nuclei': (_nuclei_argv, _parse_nuclei),
     'nikto':  (_nikto_argv,  _parse_nikto),
     'nmap':   (_nmap_argv,   _parse_nmap_xml),
+    'wpscan': (_wpscan_argv, _parse_wpscan),
 }
 # Tools that write a JSON report FILE (argv_fn(target, profile, workdir, report)).
 REPORT_TOOLS = {

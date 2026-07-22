@@ -254,7 +254,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Authorized vuln scanning | *Pentest* page — scan hosts/websites you own with industry tools, orchestrated/scheduled/collected |
 | Authorization-gated targets | Enrolled hosts (target derived server-side) or domains you prove you own via DNS TXT / `.well-known`; private/loopback refused |
-| Passive profile | nuclei, nikto, nmap |
+| Passive profile | nuclei, nikto, nmap, **wpscan** — the WordPress scanner: core/plugin/theme version-to-vulnerability matching and enumerable-user detection, the precursor to most WordPress compromises. Password attack is deliberately never wired *(v6.3.1)* |
 | Active profile | OWASP ZAP, wapiti — gated behind an authorization attestation + (enrolled) a maintenance window; audited |
 | On-host audit | lynis hardening audit via the agent (read-only) |
 | Scanner satellites | Toolchain runs on a hardened relay node; pin a scan to a satellite. `install-server.sh`/`docker-compose.yml` install a co-located scanner by default *(v6.1.0)* — `--no-scanner` opts down to a separate dedicated machine |
