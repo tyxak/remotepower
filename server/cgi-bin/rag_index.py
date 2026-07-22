@@ -2198,6 +2198,54 @@ def build_billing_corpus(invoices, quotes, time_entries, now=0):
     return docs
 
 
+def build_remediations_corpus(store, now=0):
+    """v6.4.0: the auto-remediation attempt ledger for the RAG — grounds
+    incident_rca / automation_suggest in what the guarded executor actually TRIED
+    and whether it worked ('did the auto-fix clear the alert', 'what's flapping').
+    No secrets (rule + device names + status/reason only, no action bodies)."""
+    docs = []
+    attempts = (store or {}).get('attempts') if isinstance(store, dict) else None
+    if not isinstance(attempts, list) or not attempts:
+        return docs
+    lines = []
+    for a in attempts[-200:]:
+        if not isinstance(a, dict):
+            continue
+        lines.append(f"- {a.get('rule_name', 'rule')} on {a.get('device_name', a.get('device_id', '?'))} "
+                     f"(trigger {a.get('event', '?')}): {a.get('status', '?')}"
+                     + (f" — {a.get('reason')}" if a.get('reason') else ''))
+    if lines:
+        docs.append(make_doc(
+            'remediations/ledger', 'remediations', 'remediation_ledger',
+            f"Auto-remediation attempts ({len(lines)} recent):\n" + '\n'.join(lines),
+            title='Auto-remediation ledger', ts=now))
+    return docs
+
+
+def build_config_revisions_corpus(store, now=0):
+    """v6.4.0: server-config change history for the RAG — grounds change_risk /
+    drift_review / 'what config changed and when / who'. Metadata only (ts +
+    user), never the config values themselves (secrets live there)."""
+    docs = []
+    revs = (store or {}).get('revisions') if isinstance(store, dict) else None
+    if not isinstance(revs, list) or not revs:
+        return docs
+    lines = []
+    for r in revs[-40:]:
+        if not isinstance(r, dict):
+            continue
+        _t = int(r.get('ts') or 0)
+        lines.append(f"- config saved by {r.get('user') or 'unknown'}"
+                     + (f" at ts {_t}" if _t else ''))
+    if lines:
+        docs.append(make_doc(
+            'config/revisions', 'config_revisions', 'config_revisions',
+            f"Recent server-configuration changes ({len(lines)}, who + when; "
+            "values not included):\n" + '\n'.join(lines),
+            title='Config change history', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

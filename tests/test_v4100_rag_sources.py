@@ -199,7 +199,7 @@ class TestApiWiring(unittest.TestCase):
                    "build_posture_corpus", "build_vpn_corpus",
                    # v6.3.1 advisor-grounding sources
                    "build_incident_memory_corpus", "build_image_cves_corpus",
-                   "build_scap_corpus", "build_security_findings_corpus", "build_hardware_corpus", "build_billing_corpus",
+                   "build_scap_corpus", "build_security_findings_corpus", "build_hardware_corpus", "build_billing_corpus", "build_remediations_corpus", "build_config_revisions_corpus",
                    "build_automation_rules_corpus"):
             self.assertIn(f"rag_index.{fn}", _API_SRC, fn)
 

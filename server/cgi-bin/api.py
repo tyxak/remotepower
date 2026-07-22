@@ -36795,6 +36795,8 @@ _AI_DEFAULTS = {
             # v6.4.0: invoices/quotes/unbilled-time summary — the billing_review
             # advisor had NO grounding data. Gated on the billing module.
             'billing':           True,
+            'remediations':      True,
+            'config_revisions':  True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -37019,7 +37021,7 @@ def handle_ai_config_set():
                           'contacts', 'incidents', 'maintenance', 'scripts',   # v6.2.2
                           'incident_memory', 'image_cves', 'scap',
                           'security_findings', 'automation_rules',
-                          'hardware', 'billing'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
+                          'hardware', 'billing', 'remediations', 'config_revisions'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -37183,6 +37185,10 @@ def _rag_source_files(sources):
         files.append(HARDWARE_FILE)
     if sources.get('billing'):
         files += [INVOICES_FILE, QUOTES_FILE, TIME_ENTRIES_FILE]
+    if sources.get('remediations'):
+        files.append(REMEDIATIONS_FILE)
+    if sources.get('config_revisions'):
+        files.append(CONFIG_REVS_FILE)
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -37600,6 +37606,16 @@ def _rag_build_corpus(cfg):
                 load(TIME_ENTRIES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: billing source failed: {e}\n')
+    if sources.get('remediations'):
+        try:
+            docs += rag_index.build_remediations_corpus(load(REMEDIATIONS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: remediations source failed: {e}\n')
+    if sources.get('config_revisions'):
+        try:
+            docs += rag_index.build_config_revisions_corpus(load(CONFIG_REVS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: config_revisions source failed: {e}\n')
 
     return docs
 
