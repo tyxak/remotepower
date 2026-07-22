@@ -40687,23 +40687,40 @@ def _ingest_custom_check_results(dev_id, dev_name):
                 continue
             prev = prev_state.get(cid) or {}
             prev_status = prev.get('status')
+            # State written before `alerted` existed: assume a currently-failing
+            # entry already alerted under the old ok->failing rule, so upgrading
+            # doesn't replay a burst for every long-standing failure.
+            alerted = bool(prev.get('alerted', prev_status in FAILING))
             changed_at = prev.get('changed_at', now) if prev_status == status else now
-            new_state[cid] = {'status': status, 'output': str(output)[:200],
-                              'changed_at': changed_at}
+            entry = {'status': status, 'output': str(output)[:200],
+                     'changed_at': changed_at}
             cname = cdef.get('name') or cid
-            if prev_status is None:
-                pass   # first definitive observation — seed silently, no alert
-            elif status in FAILING and prev_status == 'ok':
-                pending_webhooks.append(('custom_check_failed', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'check_id': cid, 'check_name': cname,
-                    'status': status, 'output': str(output)[:200],
-                }))
-            elif status == 'ok' and prev_status in FAILING:
-                pending_webhooks.append(('custom_check_recovered', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'check_id': cid, 'check_name': cname,
-                }))
+            if status in FAILING:
+                if prev_status is None:
+                    # First definitive observation seeds silently, so applying a
+                    # batch of checks never emits a storm on the same beat.
+                    entry['alerted'] = False
+                elif not alerted:
+                    # ...but a check STILL failing on the next report DOES alert.
+                    # Previously only an ok->failing edge fired, so a check that
+                    # was broken from the moment it was applied stayed silent
+                    # forever — critical on the Checks page, and nowhere else.
+                    pending_webhooks.append(('custom_check_failed', {
+                        'device_id': dev_id, 'name': dev_name,
+                        'check_id': cid, 'check_name': cname,
+                        'status': status, 'output': str(output)[:200],
+                    }))
+                    entry['alerted'] = True
+                else:
+                    entry['alerted'] = True     # already alerted; stay quiet
+            else:                                # ok
+                if alerted:
+                    pending_webhooks.append(('custom_check_recovered', {
+                        'device_id': dev_id, 'name': dev_name,
+                        'check_id': cid, 'check_name': cname,
+                    }))
+                entry['alerted'] = False
+            new_state[cid] = entry
         dev['custom_check_state'] = new_state   # bounded to currently-applicable checks
         devices[dev_id] = dev
 
