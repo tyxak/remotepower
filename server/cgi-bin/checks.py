@@ -616,6 +616,20 @@ AGENT_CHECK_TYPES = (
     # v6.2.0: the Windows analogue of systemd_unit — is a named
     # Windows service Running? Evaluated on-host via Get-Service.
     "windows_service",
+    # ── on-host integrity & network tripwires ───────────────────────────────
+    # All three take only `param` (no extra pushed fields) and reuse the
+    # generic custom_check_failed/recovered alert flow. Evaluated on-host,
+    # read-only, bounded. Baseline-on-first-run types store a small marker in
+    # the agent state dir keyed by the check id.
+    #   file_hash      — a pinned file's SHA-256 changed since first seen.
+    #   dir_baseline   — a new/changed/removed file appeared under a watched
+    #                    subtree; `param` is "path" or "path::glob"
+    #                    (e.g. /var/www::*.php). Skips cache/tmp/log/.git dirs.
+    #   egress_flagged — an active outbound connection matches an operator
+    #                    IP/CIDR flag-list (`param` = comma/space-separated).
+    "file_hash",
+    "dir_baseline",
+    "egress_flagged",
 )
 
 
@@ -766,6 +780,51 @@ CHECK_BASELINE_CATALOG = (
                 "(tag it rp-server).",
         "target_kind": "tag",
         "target": "rp-server",
+    },
+    # ── Web / application security (apply to the `web` tag) ───────────────────
+    # Tripwires for hosts that serve web applications. Params are EDITABLE after
+    # applying — point them at your own web root, configs, and threat ranges.
+    {
+        "cat": "Web / application security",
+        "id": "webroot_integrity",
+        "type": "dir_baseline",
+        "param": "/var/www::*.php",
+        "name": "Web root code integrity",
+        "desc": "Baselines executable files under the web root on first run, "
+                "then alerts if any PHP file is added, changed, or removed. "
+                "Edit the path/glob to match your document root "
+                "(e.g. /srv/www::*.php).",
+        "target_kind": "tag",
+        "target": "web",
+    },
+    {
+        "cat": "Web / application security",
+        "id": "accounts_integrity",
+        "type": "file_hash",
+        "param": "/etc/passwd",
+        "name": "User accounts file unchanged",
+        "desc": "Alerts if /etc/passwd changes (a new account is a classic "
+                "post-exploitation step). Baselines on first run.",
+    },
+    {
+        "cat": "Web / application security",
+        "id": "crontab_integrity",
+        "type": "file_hash",
+        "param": "/etc/crontab",
+        "name": "System crontab unchanged",
+        "desc": "Alerts if /etc/crontab changes — a common persistence spot. "
+                "Baselines on first run.",
+    },
+    {
+        "cat": "Web / application security",
+        "id": "egress_flagged_ranges",
+        "type": "egress_flagged",
+        "param": "192.0.2.0/24",
+        "name": "No outbound to flagged ranges",
+        "desc": "Alerts if a host opens an outbound connection to an address in "
+                "your flag-list. The example range is RFC-5737 documentation "
+                "space — replace it with your threat-intel IPs/CIDRs "
+                "(comma or space separated).",
     },
 )
 

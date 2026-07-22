@@ -759,6 +759,35 @@ def _safe_state_unlink(name: str) -> None:
             pass
 
 
+def _safe_state_read_big(name: str, cap: int = 1_000_000) -> str | None:
+    """Like _safe_state_read but for larger state (e.g. a dir_baseline map).
+    O_NOFOLLOW so a pre-placed symlink can't redirect the read."""
+    for cand in (STATE_DIR / name, Path('/tmp/remotepower-' + name)):
+        try:
+            fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                return os.read(fd, cap).decode(errors='replace')
+            finally:
+                os.close(fd)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+    return None
+
+
+def _parse_hex_ip(h: str):
+    """Convert a /proc/net/tcp{,6} hex address (little-endian words) to a
+    printable IP. Returns None on anything unexpected."""
+    import ipaddress
+    if len(h) == 8:            # IPv4: one 4-byte little-endian word
+        return '.'.join(str(b) for b in reversed(bytes.fromhex(h)))
+    if len(h) == 32:           # IPv6: four 4-byte little-endian words
+        raw = b''.join(bytes.fromhex(h[i:i + 8])[::-1] for i in range(0, 32, 8))
+        return str(ipaddress.ip_address(raw))
+    return None
+
+
 def save_credentials(creds):
     CONF_DIR.mkdir(parents=True, exist_ok=True)
     # v3.0.2: lock the directory to 0700 so a local non-root attacker
@@ -6442,6 +6471,119 @@ def _eval_one_agent_check(c):
         if state == 'activating':
             return 'warning', 'activating'
         return 'critical', state or 'inactive'
+    if ctype == 'file_hash':
+        # Integrity of a pinned file: baseline its SHA-256 on first run, then
+        # alert if it ever changes. Read-only, streamed (no full-file buffer).
+        try:
+            hh = hashlib.sha256()
+            with open(host_path(param), 'rb') as fh:
+                for blk in iter(lambda: fh.read(65536), b''):
+                    hh.update(blk)
+            cur = hh.hexdigest()
+        except FileNotFoundError:
+            return 'critical', 'file missing'
+        except OSError:
+            return 'unknown', 'read failed'
+        key = 'checkhash-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
+        prev = (_safe_state_read(key) or '').strip()
+        if not prev:
+            _safe_state_write(key, cur)
+            return 'ok', 'baseline set'
+        if prev == cur:
+            return 'ok', f'unchanged ({cur[:12]})'
+        return 'critical', f'content changed (was {prev[:8]}…, now {cur[:8]}…)'
+    if ctype == 'dir_baseline':
+        # File-integrity tripwire over a subtree: baseline {path: size:mtime} on
+        # first run, then alert on any new/changed/removed file. `param` is
+        # "path" or "path::glob". Bounded to 5000 files; noise dirs skipped.
+        import fnmatch
+        raw, _sep, glob = param.partition('::')
+        base = host_path(raw.strip())
+        skip = {'cache', 'tmp', 'temp', 'log', 'logs', '.git', '.cache',
+                'node_modules', 'vendor'}
+        cur, n = {}, 0
+        try:
+            for root, dirs, files in os.walk(base):
+                dirs[:] = [d for d in dirs if d not in skip]
+                for fn in files:
+                    if glob and not fnmatch.fnmatch(fn, glob):
+                        continue
+                    fp = os.path.join(root, fn)
+                    try:
+                        stt = os.stat(fp)
+                    except OSError:
+                        continue
+                    cur[fp] = f'{stt.st_size}:{int(stt.st_mtime)}'
+                    n += 1
+                    if n >= 5000:
+                        break
+                if n >= 5000:
+                    break
+        except OSError:
+            return 'unknown', 'scan failed'
+        key = 'checkdir-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
+        prevraw = _safe_state_read_big(key)
+        if prevraw is None:
+            _safe_state_write(key, json.dumps(cur))
+            return 'ok', f'baseline set ({n} files)'
+        try:
+            prev = json.loads(prevraw)
+        except ValueError:
+            prev = {}
+        added = [k for k in cur if k not in prev]
+        removed = [k for k in prev if k not in cur]
+        changed = [k for k in cur if k in prev and cur[k] != prev[k]]
+        if not (added or removed or changed):
+            return 'ok', f'{n} files, unchanged'
+        counts = []
+        if added:
+            counts.append(f'{len(added)} new')
+        if changed:
+            counts.append(f'{len(changed)} changed')
+        if removed:
+            counts.append(f'{len(removed)} removed')
+        sample = ', '.join(os.path.basename(x) for x in (added + changed + removed)[:3])
+        return 'critical', f'{"; ".join(counts)} — {sample}'[:200]
+    if ctype == 'egress_flagged':
+        # Alert if any active outbound connection's remote endpoint falls in an
+        # operator-supplied IP/CIDR flag-list. Read-only over /proc/net.
+        import ipaddress
+        nets = []
+        for tok in re.split(r'[\s,]+', param.strip()):
+            if not tok:
+                continue
+            try:
+                nets.append(ipaddress.ip_network(tok, strict=False))
+            except ValueError:
+                continue
+        if not nets:
+            return 'ok', 'no flagged ranges configured'
+        hits = set()
+        for pf in ('/proc/net/tcp', '/proc/net/tcp6'):
+            try:
+                with open(pf) as fh:
+                    rows = fh.read().splitlines()[1:5001]
+            except OSError:
+                continue
+            for ln in rows:
+                fld = ln.split()
+                if len(fld) < 4 or fld[3] not in ('01', '02'):  # ESTABLISHED, SYN_SENT
+                    continue
+                try:
+                    ip = _parse_hex_ip(fld[2].split(':')[0])
+                except (ValueError, IndexError):
+                    continue
+                if not ip:
+                    continue
+                try:
+                    ipo = ipaddress.ip_address(ip)
+                except ValueError:
+                    continue
+                if any(ipo in nw for nw in nets):
+                    hits.add(ip)
+        if hits:
+            return 'critical', 'outbound to flagged: ' + ', '.join(sorted(hits)[:5])
+        return 'ok', 'no flagged endpoints'
     return 'unknown', 'unknown check type'
 
 

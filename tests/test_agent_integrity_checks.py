@@ -1,0 +1,114 @@
+"""Guardrails for the on-host integrity & egress check types
+(file_hash / dir_baseline / egress_flagged) added to the custom-check engine.
+
+Server side: the types are registered and the shipped catalog rows are
+well-formed. Agent side: each evaluator baselines and then trips correctly.
+"""
+import importlib.machinery
+import importlib.util
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_CLIENT = Path(__file__).parent.parent / 'client'
+sys.path.insert(0, str(_CLIENT))
+_loader = importlib.machinery.SourceFileLoader('agent', str(_CLIENT / 'remotepower-agent'))
+_spec = importlib.util.spec_from_loader('agent', _loader)
+agent = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(agent)
+
+_CHECKS = Path(__file__).parent.parent / 'server' / 'cgi-bin' / 'checks.py'
+_cl = importlib.machinery.SourceFileLoader('checks_mod', str(_CHECKS))
+_cs = importlib.util.spec_from_loader('checks_mod', _cl)
+checks = importlib.util.module_from_spec(_cs)
+_cs.loader.exec_module(checks)
+
+NEW = ('file_hash', 'dir_baseline', 'egress_flagged')
+
+
+class TestRegistration(unittest.TestCase):
+    def test_types_registered(self):
+        for t in NEW:
+            self.assertIn(t, checks.AGENT_CHECK_TYPES)
+
+    def test_catalog_rows_well_formed(self):
+        rows = [t for t in checks.CHECK_BASELINE_CATALOG
+                if t['cat'] == 'Web / application security']
+        self.assertGreaterEqual(len(rows), 3)
+        known = set(checks.SERVER_CHECK_TYPES) | set(checks.AGENT_CHECK_TYPES)
+        for t in rows:
+            for k in ('cat', 'id', 'type', 'param', 'name', 'desc'):
+                self.assertTrue(t.get(k), f'{t.get("id")} missing {k}')
+            self.assertIn(t['type'], known)
+        # at least one row exercises each new type
+        used = {t['type'] for t in rows}
+        for t in NEW:
+            self.assertIn(t, used, f'no catalog row uses {t}')
+
+
+class TestAgentEval(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        # isolate agent state into the temp dir so we never touch a real
+        # /var/lib/remotepower or leak markers into /tmp between runs.
+        self._orig_state = agent.STATE_DIR
+        agent.STATE_DIR = self.tmp / 'state'
+        agent.STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        agent.STATE_DIR = self._orig_state
+        self._tmp.cleanup()
+
+    def test_file_hash_baseline_then_trip(self):
+        f = self.tmp / 'watched.conf'
+        f.write_text('original\n')
+        c = {'id': 'fh1', 'type': 'file_hash', 'param': str(f)}
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')            # first run baselines
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')            # unchanged
+        f.write_text('tampered\n')
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+        self.assertIn('changed', out)
+
+    def test_file_hash_missing(self):
+        c = {'id': 'fh2', 'type': 'file_hash', 'param': str(self.tmp / 'nope')}
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+
+    def test_dir_baseline_detects_new_file(self):
+        d = self.tmp / 'web'
+        d.mkdir()
+        (d / 'index.php').write_text('<?php echo 1;')
+        c = {'id': 'db1', 'type': 'dir_baseline', 'param': f'{d}::*.php'}
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')            # baseline set
+        # a non-matching file must NOT trip (glob scoping)
+        (d / 'note.txt').write_text('hi')
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')
+        # a new PHP file must trip
+        (d / 'shell.php').write_text('<?php')
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+        self.assertIn('new', out)
+
+    def test_egress_empty_and_no_match(self):
+        st, out = agent._eval_one_agent_check(
+            {'id': 'e1', 'type': 'egress_flagged', 'param': ''})
+        self.assertEqual(st, 'ok')
+        # RFC-5737 documentation range — nothing on the box connects there
+        st, out = agent._eval_one_agent_check(
+            {'id': 'e2', 'type': 'egress_flagged', 'param': '192.0.2.0/24'})
+        self.assertEqual(st, 'ok')
+
+    def test_parse_hex_ip_roundtrip(self):
+        # 127.0.0.1 in /proc/net/tcp little-endian hex is 0100007F
+        self.assertEqual(agent._parse_hex_ip('0100007F'), '127.0.0.1')
+
+
+if __name__ == '__main__':
+    unittest.main()

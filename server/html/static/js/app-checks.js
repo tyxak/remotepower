@@ -117,12 +117,16 @@ const _CC_PARAM_LABELS = {
   file_present: 'File path', file_absent: 'File path', job_fresh: 'File path',
   log_errors: 'Pattern (regex)', systemd_unit: 'Unit name',
   windows_service: 'Service name',
+  file_hash: 'File path', dir_baseline: 'Directory (path or path::glob)',
+  egress_flagged: 'Flagged IPs / CIDRs',
 };
 const _CC_PARAM_PH = {
   process: 'nginx', port_open: '443', port_closed: '23',
   file_present: '/etc/myapp.conf', file_absent: '/etc/nologin',
   job_fresh: '/var/backups/last-run.stamp', log_errors: 'error|fail|panic',
   systemd_unit: 'nginx.service', windows_service: 'wuauserv',
+  file_hash: '/etc/passwd', dir_baseline: '/var/www::*.php',
+  egress_flagged: '203.0.113.0/24, 198.51.100.7',
 };
 // v5.6.0: Check catalog — ready-made check templates. Picking one pre-fills the
 // form (name/type/param). {c:category, l:picker label, t:type, p:param, n:name}.
@@ -133,6 +137,11 @@ const CHECK_CATALOG = [
   { c: 'Web / proxy', l: 'Apache (httpd)', t: 'process', p: 'apache2', n: 'Apache running' },
   { c: 'Web / proxy', l: 'Caddy', t: 'process', p: 'caddy', n: 'Caddy running' },
   { c: 'Web / proxy', l: 'Traefik', t: 'process', p: 'traefik', n: 'Traefik running' },
+  // Web / application security — integrity & egress tripwires
+  { c: 'Web / application security', l: 'Web root code integrity', t: 'dir_baseline', p: '/var/www::*.php', n: 'Web root code integrity' },
+  { c: 'Web / application security', l: 'Accounts file (/etc/passwd)', t: 'file_hash', p: '/etc/passwd', n: 'User accounts file unchanged' },
+  { c: 'Web / application security', l: 'System crontab (/etc/crontab)', t: 'file_hash', p: '/etc/crontab', n: 'System crontab unchanged' },
+  { c: 'Web / application security', l: 'Outbound to flagged ranges', t: 'egress_flagged', p: '192.0.2.0/24', n: 'No outbound to flagged ranges' },
   { c: 'Web / proxy', l: 'HAProxy', t: 'process', p: 'haproxy', n: 'HAProxy running' },
   { c: 'Web / proxy', l: 'HTTP port 80 open', t: 'port_open', p: '80', n: 'HTTP :80 open' },
   { c: 'Web / proxy', l: 'HTTPS port 443 open', t: 'port_open', p: '443', n: 'HTTPS :443 open' },

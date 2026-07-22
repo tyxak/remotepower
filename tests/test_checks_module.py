@@ -51,7 +51,8 @@ class TestPurity(unittest.TestCase):
         self.assertEqual(checks.AGENT_CHECK_TYPES,
                          ('file_present', 'file_absent', 'log_errors',
                           'job_fresh', 'systemd_unit',
-                          'windows_service'))   # v6.2.0: Windows parity
+                          'windows_service',    # v6.2.0: Windows parity
+                          'file_hash', 'dir_baseline', 'egress_flagged'))
 
 
 class TestEngine(unittest.TestCase):
