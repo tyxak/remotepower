@@ -175,7 +175,13 @@ async function ignoreImageUpdate(ref) {
     placeholder: 'reason (optional)', confirmText: 'Ignore'});
   if (reason === null) return;   // cancelled
   const r = await api('POST', '/image-updates/ignore', { ref, reason });
-  if (r && r.ok) { toast('Image ignored', 'success'); loadImageUpdates(); }
+  if (r && r.ok) {
+    loadImageUpdates();
+    pushUndoableAction(`Ignore image ${ref}`,
+      async () => { const u = await api('DELETE', '/image-updates/ignore', { ref }); if (u?.ok) loadImageUpdates(); },
+      async () => { const u = await api('POST', '/image-updates/ignore', { ref, reason }); if (u?.ok) loadImageUpdates(); },
+      'Image ignored');
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 

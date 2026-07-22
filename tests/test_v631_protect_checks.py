@@ -366,3 +366,31 @@ class TestUiWiring(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAutoResolveGaps(unittest.TestCase):
+    """v6.4.0 auto-resolve sweep: conditions that go away must close their alert."""
+
+    def _open(self):
+        return [a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
+                if not a.get('resolved_at')]
+
+    def test_device_delete_resolves_open_alerts(self):
+        api.save(api.DEVICES_FILE, {'dz': {'name': 'gone'}})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api.fire_webhook('custom_check_failed', {
+            'device_id': 'dz', 'name': 'gone', 'check_id': 'ck_x',
+            'check_name': 'x', 'status': 'critical', 'output': 'y'})
+        self.assertTrue([a for a in self._open() if a.get('device_id') == 'dz'])
+        api._purge_device('dz')
+        self.assertFalse([a for a in self._open() if a.get('device_id') == 'dz'])
+
+    def test_identity_fields_cover_dep_edge_and_ticket(self):
+        self.assertIn('dep_edge', api._ALERT_IDENTITY_FIELDS)
+        self.assertIn('ticket_id', api._ALERT_IDENTITY_FIELDS)
+
+    def test_check_delete_resolves_its_alert(self):
+        from tests import apisrc
+        src = apisrc.api_source()
+        self.assertIn("'resolved_by'] = 'check-deleted'", src.replace('"', "'"))
+        self.assertIn("'resolved_by'] = 'script-deleted'", src.replace('"', "'"))

@@ -342,16 +342,29 @@ async function ackGroup(key) {
     if (note.trim()) body.note = note.trim();
   }
   const r = await api('POST', '/alerts/bulk-ack', body);
-  if (r && r.ok) { toast(`Acknowledged ${r.acked}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  if (r && r.ok) {
+    loadAlerts(); refreshAlertsBadge();
+    const _ids = ids.slice();
+    pushUndoableAction(`Acknowledge ${r.acked} alert(s)`,
+      async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
+      async () => { await api('POST', '/alerts/bulk-ack', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
+      `Acknowledged ${r.acked}`);
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 async function resolveGroup(key) {
   const ids = (_alertsCache || []).filter(a =>
     _alertHostKey(a) === key && !a.resolved_at).map(a => a.id);
   if (!ids.length) return;
-  if (!await uiConfirm(`Resolve ${ids.length} alert(s) on this host?`)) return;
   const r = await api('POST', '/alerts/bulk-resolve', { ids });
-  if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  if (r && r.ok) {
+    loadAlerts(); refreshAlertsBadge();
+    const _ids = ids.slice();
+    pushUndoableAction(`Resolve ${r.resolved} alert(s)`,
+      async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unresolve`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
+      async () => { await api('POST', '/alerts/bulk-resolve', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
+      `Resolved ${r.resolved}`);
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -426,7 +439,14 @@ async function bulkAckAlerts() {
     if (note.trim()) body.note = note.trim();
   }
   const r = await api('POST', '/alerts/bulk-ack', body);
-  if (r && r.ok) { toast(`Acknowledged ${r.acked}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  if (r && r.ok) {
+    loadAlerts(); refreshAlertsBadge();
+    const _ids = ids.slice();
+    pushUndoableAction(`Acknowledge ${r.acked} alert(s)`,
+      async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
+      async () => { await api('POST', '/alerts/bulk-ack', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
+      `Acknowledged ${r.acked}`);
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -530,9 +550,15 @@ async function bulkResolveAlerts() {
   const ids = Array.from(document.querySelectorAll('.alerts-row-cb:checked'))
     .map(cb => cb.dataset.id);
   if (!ids.length) return;
-  if (!await uiConfirm(`Resolve ${ids.length} alert(s)?`)) return;
   const r = await api('POST', '/alerts/bulk-resolve', { ids });
-  if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  if (r && r.ok) {
+    loadAlerts(); refreshAlertsBadge();
+    const _ids = ids.slice();
+    pushUndoableAction(`Resolve ${r.resolved} alert(s)`,
+      async () => { for (const id of _ids) { await api('POST', `/alerts/${encodeURIComponent(id)}/unresolve`, {}).catch(() => {}); } loadAlerts(); refreshAlertsBadge(); },
+      async () => { await api('POST', '/alerts/bulk-resolve', { ids: _ids }); loadAlerts(); refreshAlertsBadge(); },
+      `Resolved ${r.resolved}`);
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 

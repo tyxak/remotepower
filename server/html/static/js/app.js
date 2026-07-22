@@ -3574,10 +3574,14 @@ async function removeMonitor(idx) {
 // v6.1.2: pause/resume a monitor without deleting it (which used to be the only
 // way to stop it probing — and threw away its history).
 async function toggleMonitorPause(label, paused) {
-  const r = await api('POST', '/monitors/pause', {label, paused: String(paused) === '1'});
+  const want = String(paused) === '1';
+  const r = await api('POST', '/monitors/pause', {label, paused: want});
   if (r && r.ok) {
-    toast(r.paused ? `Paused — ${label} is no longer probed` : `Resumed ${label}`, 'success');
     runMonitor();
+    const _set = (v) => async () => { const u = await api('POST', '/monitors/pause', {label, paused: v}); if (u?.ok) runMonitor(); };
+    pushUndoableAction(want ? `Pause ${label}` : `Resume ${label}`,
+      _set(!want), _set(want),
+      r.paused ? `Paused — ${label} is no longer probed` : `Resumed ${label}`);
   } else {
     toast((r && r.error) || 'Failed', 'error');
   }
@@ -11797,8 +11801,11 @@ async function toggleScanSchedule(id) {
   const res = await api('POST', '/scan-schedules/' + encodeURIComponent(id) + '/toggle');
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
-  toast(res.enabled ? 'Schedule resumed.' : 'Schedule paused.', 'info');
   loadScanSchedules();
+  // Self-inverse endpoint — toggling again flips it back.
+  const _flip = async () => { const u = await api('POST', '/scan-schedules/' + encodeURIComponent(id) + '/toggle'); if (u && !u.error) loadScanSchedules(); };
+  pushUndoableAction(res.enabled ? 'Resume scan schedule' : 'Pause scan schedule',
+    _flip, _flip, res.enabled ? 'Schedule resumed' : 'Schedule paused');
 }
 
 // v6.3.1: undoable (deferred commit) — was a danger-confirm.
@@ -13981,7 +13988,11 @@ function copyInboundWebhookUrl() {
 async function toggleInboundWebhook(id, enabledStr) {
   const enabled = enabledStr === '1';
   const r = await api('PATCH', `/inbound-webhooks/${encodeURIComponent(id)}`, { enabled });
-  if (r && r.ok) { toast(`Token ${enabled ? 'enabled' : 'disabled'}`, 'success'); loadInboundWebhooks(); }
+  if (r && r.ok) {
+    loadInboundWebhooks();
+    const _set = (v) => async () => { const u = await api('PATCH', `/inbound-webhooks/${encodeURIComponent(id)}`, { enabled: v }); if (u?.ok) loadInboundWebhooks(); };
+    pushUndoableAction(`${enabled ? 'Enable' : 'Disable'} token`, _set(!enabled), _set(enabled), `Token ${enabled ? 'enabled' : 'disabled'}`);
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -15492,7 +15503,13 @@ function _renderSecrets() {
 }
 async function muteSecret(fp) {
   const r = await api('POST', '/secrets/mute', { fingerprint: fp });
-  if (r?.ok) { toast('Finding muted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+  if (r?.ok) {
+    loadSecrets();
+    pushUndoableAction('Mute secret finding',
+      async () => { const u = await api('POST', '/secrets/mute', { fingerprint: fp, unmute: true }); if (u?.ok) loadSecrets(); },
+      async () => { const u = await api('POST', '/secrets/mute', { fingerprint: fp }); if (u?.ok) loadSecrets(); },
+      'Finding muted');
+  } else toast(r?.error || 'Failed', 'error');
 }
 async function unmuteSecret(fp) {
   const r = await api('POST', '/secrets/mute', { fingerprint: fp, unmute: true });
@@ -17846,9 +17863,14 @@ function _renderHomeWidgets(home) {
     : '<div class="hint">No open alerts.</div>');
 }
 async function quickResolveAlert(id) {
-  if (!await uiConfirm('Mark this alert resolved?')) return;
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
-  if (r && r.ok) { toast('Alert resolved', 'success'); loadHome(); refreshAlertsBadge(); }
+  if (r && r.ok) {
+    loadHome(); refreshAlertsBadge();
+    pushUndoableAction('Resolve alert',
+      async () => { const u = await api('POST', `/alerts/${encodeURIComponent(id)}/unresolve`, {}); if (u?.ok) { loadHome(); refreshAlertsBadge(); } },
+      async () => { const u = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {}); if (u?.ok) { loadHome(); refreshAlertsBadge(); } },
+      'Alert resolved');
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -24398,6 +24420,10 @@ async function toggleAutomationRule(id) {
   const res = await api('PUT', '/automation/rules/' + encodeURIComponent(id), rule).catch(() => null);
   if (!res || res.error) { toast((res && res.error) || 'Failed', 'error'); return; }
   loadAutomation();
+  const _set = (v) => async () => { const u = await api('PUT', '/automation/rules/' + encodeURIComponent(id), {...rule, enabled: v}).catch(() => null); if (u && !u.error) loadAutomation(); };
+  pushUndoableAction(`${rule.enabled ? 'Enable' : 'Disable'} rule ${r.name || id}`,
+    _set(!rule.enabled), _set(rule.enabled),
+    `Rule ${rule.enabled ? 'enabled' : 'disabled'}`);
 }
 
 // v6.3.1: undoable (deferred commit) — was a confirm.

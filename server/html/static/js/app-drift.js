@@ -449,11 +449,14 @@ async function driftSetIgnore(path, ignored) {
     if (reason === null) return;   // operator cancelled
   }
   try {
-    const r = await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/ignore`,
+    const devId = _driftCurrentDevice.id;
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/drift/ignore`,
               {path: path, ignored: ignored, reason: reason || ''});
     if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
-    toast(ignored ? 'File ignored' : 'File no longer ignored', 'success');
-    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
+    openDriftDetail(devId, _driftCurrentDevice.name);
+    const _set = (v) => async () => { const u = await api('POST', `/devices/${encodeURIComponent(devId)}/drift/ignore`, {path, ignored: v, reason: reason || ''}); if (u && !u.error && _driftCurrentDevice && _driftCurrentDevice.id === devId) openDriftDetail(devId, _driftCurrentDevice.name); };
+    pushUndoableAction(ignored ? `Ignore drift ${path}` : `Un-ignore drift ${path}`,
+      _set(!ignored), _set(ignored), ignored ? 'File ignored' : 'File no longer ignored');
   } catch (e) {
     toast('Failed: ' + e, 'error');
   }

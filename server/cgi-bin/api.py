@@ -8386,6 +8386,13 @@ _ALERT_IDENTITY_FIELDS = (
     # recovery (nic_errors_cleared sub_match) resolves the wrong one / masks a
     # still-erroring NIC. Same class as pool/process above.
     'iface',
+    # v6.4.0: same coalescing class — dependency_missing fires per EDGE and
+    # ticket_sla_breached per TICKET, both carrying a device_id. Without these,
+    # two broken upstream edges (or two breaching tickets) on one host merged
+    # into a single alert row, so the per-edge / per-ticket recovery resolved
+    # the one row and left the other resource with NO open alert (invisible).
+    'dep_edge',
+    'ticket_id',
 )
 
 
@@ -12246,6 +12253,20 @@ def _purge_device(dev_id):
                 if isinstance(sh, dict):
                     for k in [k for k in sh if k.startswith(f'{dev_id}:')]:
                         sh.pop(k)
+        except Exception:
+            pass
+
+        # v6.4.0: resolve this device's OPEN alerts. The host is gone and can
+        # never emit a recover event, so its inbox rows would otherwise linger
+        # forever pointing at a device that no longer exists. Mark them resolved
+        # (by='device-removed') rather than delete, so history/MTTR stay intact.
+        try:
+            with _LockedUpdate(ALERTS_FILE) as store:
+                now = int(time.time())
+                for a in store.get('alerts', []):
+                    if a.get('device_id') == dev_id and not a.get('resolved_at'):
+                        a['resolved_at'] = now
+                        a['resolved_by'] = 'device-removed'
         except Exception:
             pass
 
@@ -41304,6 +41325,21 @@ def handle_custom_script_delete(script_id):
         for dev in devices.values():
             dev.get('custom_script_results', {}).pop(script_id, None)
 
+    # v6.4.0: resolve open custom_script_fail alerts for this script — the
+    # definition is gone so the ingest can never fire the recover. The alert
+    # coalesces/matches by script_name, so clear by that.
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                if (a.get('event') == 'custom_script_fail'
+                        and (a.get('payload') or {}).get('script_name') == name
+                        and not a.get('resolved_at')):
+                    a['resolved_at'] = now
+                    a['resolved_by'] = 'script-deleted'
+    except Exception:
+        pass
+
     audit_log(actor, 'custom_script_delete', f'script_id={script_id} name={name}')
     _record_fleet_event('custom_script_delete', {'name': name, 'script_id': script_id})
     respond(200, {'ok': True})
@@ -41895,6 +41931,21 @@ def handle_custom_checks_delete():
         checks = cfg.get('custom_checks') or []
         cfg['custom_checks'] = [c for c in checks
                                 if not (isinstance(c, dict) and c.get('id') == cid)]
+    # v6.4.0: resolve every OPEN custom_check_failed alert for this check across
+    # the fleet — the definition is gone, so the ingest sweep can never fire the
+    # recover, and the inbox rows would linger forever. Deletion is fleet-wide
+    # (the check may have been failing on many hosts), so clear by check_id.
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                if (a.get('event') == 'custom_check_failed'
+                        and (a.get('payload') or {}).get('check_id') == cid
+                        and not a.get('resolved_at')):
+                    a['resolved_at'] = now
+                    a['resolved_by'] = 'check-deleted'
+    except Exception:
+        pass
     audit_log(actor, 'custom_check_delete', f'id={cid}')
     respond(200, {'ok': True, 'id': cid})
 
