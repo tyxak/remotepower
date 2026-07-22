@@ -42,6 +42,12 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   something is missing its sample. Lines newer than the alert are excluded (the
   buffer keeps filling after a rule fires; a line from ten minutes later is not
   what tripped it), and the event's own sample always wins over the buffer.
+- The time window is an ORDERING preference, not a filter. Buffer entries carry
+  the timestamp parsed out of the log TEXT, which can sit hours from the server
+  clock (a timezone in the line, or an unparseable format stamped at ingest) —
+  so a strict window silently discarded every line and reported them as aged
+  out while they sat right there. If the window yields nothing, the same
+  device + unit + pattern match is used without it.
 - The only remaining "no line" case is honest: *the matched lines have aged out
   of the 6h log buffer*.
 

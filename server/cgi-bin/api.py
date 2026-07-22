@@ -41849,19 +41849,33 @@ def _log_alert_evidence(payload, buf_cache):
     except re.error:
         return [], False
     ts = int(payload.get('ts') or 0)
-    hits = []
-    # Newest first, and prefer lines at or before the alert — the buffer keeps
-    # accumulating after it fired, and a line from ten minutes later is not what
-    # tripped the rule.
-    for e in reversed(lines[-500:]):
-        ln = e.get('line') if isinstance(e, dict) else e
-        if not isinstance(ln, str) or not rx.search(ln):
-            continue
-        if ts and int(e.get('ts', 0) or 0) > ts + 60:
-            continue
-        hits.append(ln[:200])
-        if len(hits) >= 3:
-            break
+
+    def _scan(window):
+        # Newest first. `window` prefers lines at or before the alert, because
+        # the buffer keeps accumulating after a rule fires and a line from ten
+        # minutes later is not what tripped it.
+        out = []
+        for e in reversed(lines[-500:]):
+            ln = e.get('line') if isinstance(e, dict) else e
+            if not isinstance(ln, str) or not rx.search(ln):
+                continue
+            if window and ts and int(e.get('ts', 0) or 0) > ts + 60:
+                continue
+            out.append(ln[:200])
+            if len(out) >= 3:
+                break
+        return out
+
+    hits = _scan(True)
+    if not hits:
+        # The time window is an ORDERING preference, not a correctness rule, so
+        # it must never be the reason an operator sees nothing. Buffer entries
+        # carry the timestamp parsed out of the log TEXT, which can sit hours
+        # away from the server's clock (a different timezone in the line, an
+        # unparseable format stamped at ingest). Matching the same device, unit
+        # and pattern is already strong evidence; drop the window rather than
+        # claim the lines aged out when they are sitting right there.
+        hits = _scan(False)
     return hits, bool(hits)
 
 

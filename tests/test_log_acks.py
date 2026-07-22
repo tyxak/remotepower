@@ -631,6 +631,28 @@ class TestEvidenceIsRecoveredFromTheBuffer(unittest.TestCase):
         self.assertIn('the real one', row['summary'])
         self.assertNotIn('LATER', str(row.get('samples')))
 
+    def test_a_clock_skewed_line_is_still_shown(self):
+        """THE reason operators kept seeing "aged out" with the lines sitting
+        right there. Buffer entries carry the timestamp parsed out of the log
+        TEXT, which can sit hours from the server clock — a timezone in the
+        line, or an unparseable format stamped at ingest. The time window is an
+        ordering preference; it must never be the reason nothing is shown."""
+        row = self._setup([{'ts': self.now + 7200, 'line': '[error] two hours ahead'}])
+        self.assertIn('two hours ahead', row['summary'])
+
+    def test_a_line_with_no_usable_timestamp_is_still_shown(self):
+        row = self._setup([{'ts': 0, 'line': '[error] no timestamp at all'}])
+        self.assertIn('no timestamp', row['summary'])
+
+    def test_the_window_still_orders_when_it_can(self):
+        """With in-window lines available, a later one must not be preferred."""
+        row = self._setup([
+            {'ts': self.now - 60, 'line': '[warn] the real one'},
+            {'ts': self.now + 600, 'line': '[error] a LATER line'},
+        ])
+        self.assertIn('the real one', row['summary'])
+        self.assertNotIn('LATER', str(row.get('samples')))
+
     def test_a_line_that_does_not_match_the_rule_is_not_offered(self):
         row = self._setup([{'ts': self.now - 60, 'line': 'a perfectly ordinary line'}])
         self.assertIn('aged out', row['summary'])
