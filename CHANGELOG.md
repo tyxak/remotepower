@@ -98,12 +98,44 @@ performance wave.
   red/amber cards are distinct at a glance (flat surfaces, no gradients).
 - **Amber is the default accent** for new users (and the marketing site);
   blue remains one click away in Account → Appearance.
-- **The AI advisor sees more of the fleet.** Five new RAG sources (all
-  default-on, value-free by construction): resolved-incident outcome memory,
-  container-image CVEs (trivy), OpenSCAP results, security findings
-  (secret-scan rule/path counts, PII counts, AV posture), and existing
-  automation rules — grounding incident_rca, prioritise_cves, compliance,
-  security_advisory and automation_suggest, which previously ran blind.
+- **The AI advisor sees more of the fleet.** The RAG corpus grew to **34
+  sources** (all default-on, value-free by construction). The advisor-grounding
+  set: resolved-incident outcome memory, container-image CVEs (trivy), OpenSCAP
+  results, security findings (secret-scan rule/path counts, PII counts, AV
+  posture), automation rules, hardware inventory, billing/time, applied
+  remediations, config-revision history, the privileged-command (sudo) trail,
+  RemotePower's own maintenance-sweep health (self-observability), and physical
+  / IPAM inventory (sites, racks, subnets, warranty/EOL) — grounding
+  incident_rca, prioritise_cves, compliance, security_advisory, access_review
+  and automation_suggest, which previously ran blind.
+
+### Data-binding sweep — everything the agent collects now lands where it belongs
+- **macOS security posture is first-class.** FileVault, the application
+  firewall, Gatekeeper and SIP are surfaced as Checks rows, RAG posture facts
+  and device-drawer pills at parity with the Windows posture set, and each
+  raises an edge-triggered alert on change (`mac_filevault_off/on`,
+  `mac_firewall_off/on`, `mac_gatekeeper_off/on`, `mac_sip_disabled/enabled`)
+  under a new `mac_posture` channel kind.
+- **Two new health signals, both tunable.** A default-gateway latency alert
+  (`gateway_latency_high/normal`, threshold `gateway_latency_high_ms`,
+  default 150 ms) and a battery-health alert (`battery_health_low/ok`,
+  threshold `battery_health_low_pct`, default 50 %) — both edge-triggered,
+  both auto-resolving, both adjustable on Settings → Alert parameters.
+- **USB device inventory** surfaces in the device drawer.
+
+### Living stat tiles, everywhere the numbers matter
+- The count-up + sparkline + meaning-aware-delta treatment from the home hero
+  tiles now lights up the summary rows on **CVE, Patches, Alerts and Checks** —
+  a rising bad number (open alerts, pending patches, criticals) trends red, a
+  rising good one (resolved, fully-patched, OK checks) trends green, each with
+  a 30-point history sparkline. The Alerts and Checks summaries were rebuilt
+  from bespoke text pills into the shared tile shape to get it.
+- **Loading and empty states, tidied.** ~24 bare "Loading…" panels across the
+  app now render the shared skeleton placeholder, and empty CTA panels (host
+  profiles, WireGuard tunnels, config history) use the canonical icon + title +
+  text pattern instead of a bare line of grey text.
+- **Narrow-width fixes.** The kanban board, reports posture grid and 3-column
+  form grid now collapse to a single column on phones instead of clipping.
 
 ### Integrity Guard — Security → Protect
 - **Three agent-side check types.** `file_hash` (SHA-256 of a pinned file),

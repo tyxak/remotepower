@@ -61,7 +61,9 @@ like, and ignores uploaded images and cache churn.
 
 The baseline is **not** auto-updated after a change is detected — the check
 stays critical until you deal with it (a tripwire, not a rolling snapshot). To
-accept a new state, delete and re-add the check.
+accept a new state, click **Reset baseline** on the check's row (see
+[Accepting a legitimate change](#accepting-a-legitimate-change-reset-baseline)
+below) — no need to delete and re-add.
 
 ### `file_contains` — no file may match a pattern
 
