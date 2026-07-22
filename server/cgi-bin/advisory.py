@@ -268,11 +268,26 @@ def _application_findings(dev_id, name, scans):
             if not isinstance(f, dict):
                 continue
             sev = (f.get('severity') or '').lower()
-            if sev not in ('critical', 'high'):
+            # MEDIUM belongs here too. A scanner's medium findings on a public
+            # service are frequently the most actionable thing it reports —
+            # enumerable usernames, an exposed config backup — and dropping
+            # them meant the advisory could show nothing for a site whose
+            # scanner output was full of real work. `info` stays out: that is
+            # inventory (headers, robots.txt), not a decision. Grouping keeps
+            # this to one row per finding type, and severity ordering keeps it
+            # below anything critical or high.
+            if sev not in ('critical', 'high', 'medium'):
                 continue
             title = str(f.get('name') or f.get('title') or f.get('id') or 'finding')
+            # The grouping id must identify the FINDING, not just the tool.
+            # Keyed on `app.<tool>` alone, every wpscan result collapsed into a
+            # single row — a vulnerable plugin and enumerable usernames became
+            # one entry titled with whichever happened to come first. The rule
+            # id is the tool's own stable identity for a check; fall back to the
+            # title so a tool without one still separates.
+            fid = str(f.get('rule_id') or f.get('id') or title)[:80]
             out.append(_finding(
-                f'app.{tool}', 'application', sev,
+                f'app.{tool}.{fid}', 'application', sev,
                 f'{tool}: {title[:120]}',
                 'Found by scanning the service as an outsider sees it — this is '
                 'reachable without any credential on the host.',

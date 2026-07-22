@@ -30,6 +30,17 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Security Advisory — scanner findings were being lost and merged
+- **Everything below `high` was dropped**, so a wpscan reporting enumerable
+  usernames (a medium, and on a credential-compromised site the most actionable
+  line in the report) contributed nothing. `medium` is now kept; `info` and
+  `low` stay out — headers and robots.txt are inventory, not decisions.
+- **All findings from one tool collapsed into a single row.** The grouping id
+  was `app.<tool>`, so a vulnerable plugin and enumerable usernames merged into
+  one entry titled with whichever came first. It now keys on the tool's own
+  rule id, so distinct findings stay distinct while the same finding across
+  many hosts still groups into one decision.
+
 ### The scan detail now always states which MODE the run used
 - A wpscan returning informational findings and no vulnerabilities looks
   identical whether matching ran and the site is clean, or the satellite had no

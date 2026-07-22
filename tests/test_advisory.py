@@ -126,11 +126,62 @@ class TestLayers(unittest.TestCase):
         self.assertIn('wpscan', g['title'])
         self.assertIn('Update the plugin', g['fix'])
 
-    def test_low_severity_scan_findings_do_not_pad_the_list(self):
+    def test_informational_scan_findings_do_not_pad_the_list(self):
+        """Headers, robots.txt and the like are inventory, not a decision."""
         devs = {'d1': _dev('web1')}
         scans = {'d1': [{'tool': 'nikto', 'findings': [
-            {'severity': 'info', 'name': 'Server banner disclosed'}]}]}
+            {'severity': 'info', 'name': 'Server banner disclosed'},
+            {'severity': 'low', 'name': 'Directory index'}]}]}
         self.assertEqual(advisory.build(devs, scans_by_dev=scans)['findings'], [])
+
+    def test_a_medium_scan_finding_is_kept(self):
+        """Enumerable usernames is a medium, and on a site that was already
+        compromised through credentials it is the most actionable line in the
+        whole report. Dropping everything below high meant the advisory showed
+        nothing for a scan full of real work."""
+        devs = {'d1': _dev('web1')}
+        scans = {'d1': [{'tool': 'wpscan', 'findings': [
+            {'severity': 'medium',
+             'name': '2 WordPress user(s) enumerable: Kirsten, kirsten'}]}]}
+        out = advisory.build(devs, scans_by_dev=scans)['findings']
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['severity'], 'medium')
+        self.assertIn('enumerable', out[0]['title'])
+
+    def test_a_medium_never_outranks_a_high(self):
+        devs = {'d1': _dev('web1')}
+        scans = {'d1': [{'tool': 'wpscan', 'findings': [
+            {'severity': 'medium', 'rule_id': 'wpscan-user-enum',
+             'name': 'users enumerable'},
+            {'severity': 'high', 'rule_id': 'WPVDB-123',
+             'name': 'vulnerable plugin foo'}]}]}
+        out = advisory.build(devs, scans_by_dev=scans)['findings']
+        self.assertEqual([g['severity'] for g in out], ['high', 'medium'])
+
+    def test_two_different_findings_from_one_tool_stay_separate(self):
+        """Keyed on the tool alone they collapsed into ONE row titled with
+        whichever came first — a vulnerable plugin and enumerable usernames are
+        not the same decision."""
+        devs = {'d1': _dev('web1')}
+        scans = {'d1': [{'tool': 'wpscan', 'findings': [
+            {'severity': 'medium', 'rule_id': 'wpscan-user-enum',
+             'name': '2 users enumerable: Kirsten, kirsten'},
+            {'severity': 'high', 'rule_id': 'WPVDB-123',
+             'name': 'plugin foo < 1.3 RCE'}]}]}
+        out = advisory.build(devs, scans_by_dev=scans)['findings']
+        self.assertEqual(len(out), 2)
+        titles = ' '.join(g['title'] for g in out)
+        self.assertIn('enumerable', titles)
+        self.assertIn('plugin foo', titles)
+
+    def test_the_same_finding_on_many_hosts_still_groups(self):
+        devs = {f'd{i}': _dev(f'h{i}') for i in range(6)}
+        scans = {f'd{i}': [{'tool': 'wpscan', 'findings': [
+            {'severity': 'medium', 'rule_id': 'wpscan-user-enum',
+             'name': 'users enumerable'}]}] for i in range(6)}
+        out = advisory.build(devs, scans_by_dev=scans)['findings']
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['device_count'], 6)
 
     def test_integrity_layer_surfaces_quarantine_as_critical(self):
         devs = {'d1': _dev('web1', guard_quarantine=[{'orig': '/var/www/s.php', 'id': 'q'}])}
