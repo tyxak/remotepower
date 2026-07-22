@@ -129,6 +129,62 @@ class TestChecksRowsCarryTypeAndKind(unittest.TestCase):
         self.assertEqual(rows[0]['kind'], 'protect')
 
 
+class TestJobFreshMultiPath(unittest.TestCase):
+    """v6.4.0: job_fresh accepts `|`-separated / glob candidate paths and uses
+    the freshest — so the ClamAV check finds daily.cld OR daily.cvd without the
+    operator guessing which extension their host uses (the field-reported
+    'daily.cvd not found' while daily.cld exists)."""
+
+    def setUp(self):
+        import importlib.machinery, importlib.util
+        d = tempfile.mkdtemp()
+        self.d = d
+        Path(d, 'daily.cld').write_text('x')   # only .cld, like a running host
+        ldr = importlib.machinery.SourceFileLoader(
+            'rp_agent_jf', str(Path(__file__).parent.parent / 'client' / 'remotepower-agent.py'))
+        spec = importlib.util.spec_from_loader('rp_agent_jf', ldr)
+        self.ag = importlib.util.module_from_spec(spec)
+        try:
+            ldr.exec_module(self.ag)
+        except SystemExit:
+            pass
+
+    def test_alternation_finds_the_existing_extension(self):
+        c = {'type': 'job_fresh',
+             'param': f'{self.d}/daily.cld|{self.d}/daily.cvd', 'max_age_hours': 48}
+        self.assertEqual(self.ag._eval_one_agent_check(c)[0], 'ok')
+
+    def test_glob_finds_it(self):
+        c = {'type': 'job_fresh', 'param': f'{self.d}/daily.c?d', 'max_age_hours': 48}
+        self.assertEqual(self.ag._eval_one_agent_check(c)[0], 'ok')
+
+    def test_missing_still_critical(self):
+        c = {'type': 'job_fresh', 'param': f'{self.d}/nope.xyz', 'max_age_hours': 48}
+        self.assertEqual(self.ag._eval_one_agent_check(c)[0], 'critical')
+
+    def test_catalog_clamav_entry_checks_both(self):
+        import checks
+        row = next((t for t in checks.CHECK_BASELINE_CATALOG
+                    if t.get('id') == 'clamav_db_fresh'), None)
+        self.assertIsNotNone(row)
+        self.assertIn('daily.cld', row['param'])
+        self.assertIn('daily.cvd', row['param'])
+        self.assertIn('|', row['param'])
+
+
+class TestRebaselineForcesEval(unittest.TestCase):
+    """v6.4.0: a rebaseline guard action must force a sysinfo report on the next
+    heartbeat so the check clears promptly (custom checks otherwise re-evaluate
+    only every SYSINFO_EVERY polls — the 'Reset baseline did nothing' lag)."""
+
+    def test_agent_force_flag_wired(self):
+        src = (Path(__file__).parent.parent / 'client' / 'remotepower-agent.py').read_text()
+        self.assertIn('_FORCE_CHECK_EVAL', src)
+        # set in the rebaseline branch, consumed in the send_sysinfo gate
+        self.assertIn('_FORCE_CHECK_EVAL = True', src)
+        self.assertIn('or _FORCE_CHECK_EVAL', src)
+
+
 class TestUiWiring(unittest.TestCase):
     _JS = Path(__file__).parent.parent / 'server' / 'html' / 'static' / 'js'
     _HTML = Path(__file__).parent.parent / 'server' / 'html' / 'index.html'

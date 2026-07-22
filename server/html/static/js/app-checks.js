@@ -535,9 +535,24 @@ async function rebaselineCheck(deviceId, checkId, scope) {
   const r = await api('POST', '/guard/action',
                       { device_id: deviceId || '', id: checkId, op: 'rebaseline' });
   if (r && r.ok) {
-    toast(`Re-baseline queued on ${r.devices || 1} host${r.devices === 1 ? '' : 's'} `
-          + '— the check clears on the next agent check-in', 'success');
-  } else toast((r && r.error) || 'Failed', 'error');
+    const n = r.devices || 1;
+    toast(`New baseline accepted on ${n} host${n === 1 ? '' : 's'} — the agent `
+          + 'applies it and the check returns to OK on its next check-in (usually '
+          + 'within a poll or two).', 'success', { duration: 6000 });
+    // Optimistically flag the affected rows so the operator sees it took effect
+    // immediately, rather than staring at a stale "critical" until the agent
+    // reports back.
+    if (Array.isArray(_checksRows)) {
+      _checksRows.forEach(row => {
+        if (String(row.key).replace(/^custom:/, '') === String(checkId)
+            && (!deviceId || row.device_id === deviceId)) {
+          row.status = 'ok';
+          row.output = 'baseline reset — awaiting the next agent report';
+        }
+      });
+      if (typeof renderChecks === 'function') renderChecks();
+    }
+  } else toast((r && r.error) || 'Reset baseline failed', 'error');
 }
 async function _guardAction(deviceId, id, op, msg) {
   const r = await api('POST', '/guard/action', { device_id: deviceId, id: id, op: op });

@@ -894,11 +894,19 @@ def _guard_ledger(limit=50):
     return out[:limit]
 
 
+# v6.4.0: set when a rebaseline clears a check's stored baseline, so the poll
+# loop forces a sysinfo report on the NEXT heartbeat (custom checks otherwise
+# only re-evaluate every SYSINFO_EVERY polls — so a Reset-baseline looked like it
+# "did nothing" for up to ~10 poll intervals while the stale critical persisted).
+_FORCE_CHECK_EVAL = False
+
+
 def _apply_guard_actions(actions):
     """Execute server-pushed restore/delete of quarantined files. Each action is
     {id, op:'restore'|'delete'}. Restore moves the vault file back to its origin
     only if that path is now free; delete removes it. Handled entries drop from
     the ledger. Read-only over anything but the vault + the origin path."""
+    global _FORCE_CHECK_EVAL
     import shutil
     vault = STATE_DIR / 'guard-quarantine'
     handled = set()
@@ -916,6 +924,10 @@ def _apply_guard_actions(actions):
             for pfx in ('checkdir-', 'checkhash-', 'checkegress-', 'checkauthsrc-'):
                 _safe_state_unlink(pfx + safe)
             log.info(f'guard rebaseline: cleared stored baseline for check {safe}')
+            # Re-evaluate + report the checks on the very next heartbeat so the
+            # rebaselined check clears to OK immediately, instead of waiting for
+            # the next SYSINFO_EVERY cycle (the "Reset baseline did nothing" lag).
+            _FORCE_CHECK_EVAL = True
             handled.add(qid)
             continue
         # The sidecar is the source of truth, so a trimmed log never costs us
@@ -6593,14 +6605,36 @@ def _eval_one_agent_check(c):
         return ('critical', 'present (should be absent)') if exists else ('ok', 'absent')
     if ctype == 'job_fresh':
         max_age = int(c.get('max_age_hours', 24)) * 3600
-        try:
-            age = time.time() - os.stat(host_path(param)).st_mtime
-        except FileNotFoundError:
+        # v6.4.0: accept MULTIPLE candidate paths (glob and/or `|`-separated) and
+        # use the FRESHEST that exists — so a check for a file that legitimately
+        # has more than one form finds it either way. The motivating case:
+        # ClamAV writes `daily.cvd` on a fresh install but rewrites it as
+        # `daily.cld` once freshclam starts applying incremental updates (the
+        # steady state), so a single hardcoded extension false-alarms on most
+        # running hosts. `param` may be "a", "a|b", or a glob like "…/daily.c?d".
+        import glob as _glob
+        cands = []
+        for _p in str(param).split('|'):
+            _p = _p.strip()
+            if not _p:
+                continue
+            if any(ch in _p for ch in '*?['):
+                cands.extend(_glob.glob(host_path(_p)))
+            else:
+                cands.append(host_path(_p))
+        newest = None
+        for _c in cands:
+            try:
+                _m = os.stat(_c).st_mtime
+                if newest is None or _m > newest:
+                    newest = _m
+            except OSError:
+                continue
+        if newest is None:
             return 'critical', (f'{param} not found — the job that should '
                                 'write it has never run here (or writes '
                                 'elsewhere)')
-        except Exception:
-            return 'unknown', 'stat failed'
+        age = time.time() - newest
         hrs = age / 3600.0
         return ('ok', f'updated {hrs:.1f}h ago') if age <= max_age \
             else ('critical', f'{param} is stale: last written {hrs:.1f}h ago '
@@ -9733,6 +9767,7 @@ def _stable_hash(value):
 
 
 def heartbeat(creds, interval=POLL_INTERVAL):
+    global _FORCE_CHECK_EVAL   # a rebaseline (guard action) forces the next sysinfo report
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
     log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Device: {dev_id}")
     log.info(f"Poll: {interval}s | sysinfo every {SYSINFO_EVERY} polls | patches every {PATCH_EVERY} polls")
@@ -10003,7 +10038,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         if poll_count == 1 and boot_reason:
             payload['boot_reason'] = boot_reason
 
-        send_sysinfo = (poll_count == 1 or poll_count % SYSINFO_EVERY == 0)
+        send_sysinfo = (poll_count == 1 or poll_count % SYSINFO_EVERY == 0
+                        or _FORCE_CHECK_EVAL)
+        if _FORCE_CHECK_EVAL:      # one-shot: a rebaseline forced this report
+            _FORCE_CHECK_EVAL = False
         run_patch    = (poll_count % PATCH_EVERY == 0)
 
         if run_patch:

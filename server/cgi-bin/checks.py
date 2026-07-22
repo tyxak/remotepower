@@ -1103,12 +1103,13 @@ CHECK_BASELINE_CATALOG = (
      "name": "Package index updated recently", "extras": {"max_age_hours": 48},
      "desc": "If apt stopped updating, your patch data (and CVE view) is silently stale."},
     {"cat": "Freshness — scheduled jobs", "id": "clamav_db_fresh", "type": "job_fresh",
-     "param": "/var/lib/clamav/daily.cld",
+     "param": "/var/lib/clamav/daily.cld|/var/lib/clamav/daily.cvd",
      "name": "AV signatures updated recently", "extras": {"max_age_hours": 48},
-     "desc": "Stale antivirus definitions give false comfort. Note the extension: "
-             "freshclam ships daily.cvd on a fresh install but rewrites it as "
-             "daily.cld once it starts applying incremental updates, which is the "
-             "steady state on a running host — edit the path if yours differs."},
+     "desc": "Stale antivirus definitions give false comfort. freshclam ships "
+             "daily.cvd on a fresh install but rewrites it as daily.cld once it "
+             "applies incremental updates (the steady state on a running host), "
+             "so this checks BOTH and uses the freshest — no need to guess which "
+             "extension yours uses."},
 )
 
 
