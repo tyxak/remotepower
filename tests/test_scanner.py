@@ -382,6 +382,36 @@ class TestWpscanArgv(unittest.TestCase):
 
 
 
+class TestTheTwoInstallPathsAgree(unittest.TestCase):
+    """The scripted installer and the hand-written unit in the docs must read
+    the SAME environment file.
+
+    They did not: scanner-setup.sh writes `EnvironmentFile=/etc/remotepower/
+    scanner.env`, while the doc template used only `Environment=` lines. An
+    operator who followed the docs and was then told (by us) to put a token in
+    scanner.env got a silently-ignored file and a scanner that kept reporting
+    the setting as missing.
+    """
+
+    def test_the_doc_unit_reads_the_installer_env_file(self):
+        doc = (_ROOT / 'docs' / 'security-scans.md').read_text()
+        unit = doc[doc.index('[Unit]'):doc.index('[Install]')]
+        self.assertIn('EnvironmentFile', unit,
+                      'the hand-written unit ignores /etc/remotepower/scanner.env')
+        self.assertIn('/etc/remotepower/scanner.env', unit)
+
+    def test_the_installer_uses_that_same_path(self):
+        setup = (_ROOT / 'packaging' / 'scanner-setup.sh').read_text()
+        self.assertIn('ENVF=/etc/remotepower/scanner.env', setup)
+        self.assertIn('EnvironmentFile=${ENVF}', setup)
+
+    def test_the_doc_env_file_is_optional_so_the_unit_still_starts(self):
+        doc = (_ROOT / 'docs' / 'security-scans.md').read_text()
+        unit = doc[doc.index('[Unit]'):doc.index('[Install]')]
+        self.assertIn('EnvironmentFile=-', unit,
+                      'without the leading - the unit fails when the file is absent')
+
+
 class TestAnAbortedScanIsNotACleanScan(unittest.TestCase):
     """wpscan exits 0 and emits valid JSON when it GIVES UP — not WordPress,
     blocked by a WAF, host unreachable. That parses to zero findings, so it was

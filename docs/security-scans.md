@@ -292,6 +292,9 @@ Description=RemotePower scanner satellite
 After=network-online.target docker.service
 
 [Service]
+# Keep settings in ONE file so later additions (e.g. RP_WPSCAN_API_TOKEN) are
+# picked up by a restart alone. `-` means "start even if the file is absent".
+EnvironmentFile=-/etc/remotepower/scanner.env
 Environment=RP_SERVER_URL=https://YOUR-SERVER
 Environment=RP_SATELLITE_TOKEN=PASTE-THE-TOKEN-HERE
 ExecStart=/usr/bin/python3 /opt/remotepower/remotepower-scanner.py

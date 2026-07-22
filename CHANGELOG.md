@@ -30,6 +30,16 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### The two scanner install paths disagreed about the env file
+- `packaging/scanner-setup.sh` writes a unit with
+  `EnvironmentFile=/etc/remotepower/scanner.env`; the hand-written unit in
+  `docs/security-scans.md` used only `Environment=` lines and never referenced
+  that file. An operator who followed the docs and then added a token to
+  `scanner.env` got a silently-ignored file and a scanner that kept reporting
+  the setting as missing. The doc template now reads the same file
+  (`EnvironmentFile=-…`, optional so the unit still starts without it), and a
+  test pins the two paths together.
+
 ### An aborted wpscan was being recorded as a CLEAN scan
 - wpscan exits 0 and emits valid JSON when it gives up — target is not
   WordPress, blocked by a WAF, host unreachable. That parsed to zero findings
