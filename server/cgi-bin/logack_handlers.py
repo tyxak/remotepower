@@ -101,6 +101,19 @@ def filter_acked_lines(device_id, unit, lines):
     return kept, hits
 
 
+def rule_acked(device_id, unit, pattern):
+    """True if the operator silenced this whole RULE on this unit/host.
+
+    Checked before a rule is evaluated, so a silenced rule costs nothing and
+    fires nothing. Distinct from a line acknowledgement: this hides future
+    DIFFERENT messages too, which is why the UI labels it separately.
+    """
+    key = logsig.rule_key(pattern)
+    if not key:
+        return False
+    return A._ack_hit(A._log_acks(), device_id, unit, key) is not None
+
+
 def _bump_ack_hits(device_id, unit, lines):
     """Record that acks are still catching traffic, so the management view can
     show which ones are doing work and which have gone stale (a line cleared a
@@ -147,6 +160,7 @@ def handle_log_acks_list():
             'device': names.get(did, '') if did else 'whole fleet',
             'unit': e.get('unit') or 'any unit',
             'sample': e.get('sample') or '', 'norm': e.get('norm') or '',
+            'kind': e.get('kind') or 'line', 'pattern': e.get('pattern') or '',
             'note': e.get('note') or '', 'by': e.get('by') or '',
             'ts': int(e.get('ts', 0) or 0), 'until': int(e.get('until', 0) or 0),
             'hits': int(e.get('hits', 0) or 0),
@@ -168,9 +182,14 @@ def handle_log_ack_add():
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()
     line = str(body.get('line', ''))[:2000]
-    sig = logsig.signature(line)
+    # Two shapes. A LINE acknowledgement is precise: this exact message, a new
+    # one still fires. A RULE acknowledgement is the coarse escape for an alert
+    # that captured no line — it silences the whole pattern on that unit, so it
+    # is only offered where the precise option genuinely cannot be built.
+    rule_pattern = str(body.get('pattern', ''))[:500]
+    sig = logsig.signature(line) if line else logsig.rule_key(rule_pattern)
     if not sig:
-        A.respond(400, {'error': 'line is required'})
+        A.respond(400, {'error': 'line or pattern is required'})
     did = A._sanitize_str(str(body.get('device_id', '')), 64).strip()
     unit = A._sanitize_str(str(body.get('unit', '')), 128).strip()
     # 'fleet' widens the ack to every host; 'anyunit' keeps the host, any unit.
@@ -192,7 +211,10 @@ def handle_log_ack_add():
     now = int(time.time())
     entry = {
         'device_id': did, 'unit': unit, 'sig': sig,
-        'sample': line[:300], 'norm': logsig.normalize(line),
+        'kind': 'line' if line else 'rule',
+        'pattern': rule_pattern if not line else '',
+        'sample': line[:300] if line else f'whole rule: {rule_pattern}'[:300],
+        'norm': logsig.normalize(line) if line else f'every line matching {rule_pattern}'[:300],
         'note': A._sanitize_str(str(body.get('note', '')), 200),
         'by': actor, 'ts': now, 'until': now + days * 86400 if days else 0,
         'hits': 0, 'last_hit': 0,

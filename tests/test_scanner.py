@@ -382,10 +382,12 @@ class TestWpscanArgv(unittest.TestCase):
 
 
 
-class TestCleanResultIsNotOversold(unittest.TestCase):
+class TestSatelliteCapabilities(unittest.TestCase):
     """A zero-finding scan is ambiguous: "genuinely clean" or "the tool never
-    actually checked". Asserting the first when it is the second is the more
-    dangerous way to be wrong, so the caveat exists."""
+    actually checked". The satellite reports what it COULD do so the detail view
+    can say which — as a static fact about the satellite, never as a per-scan
+    message. An earlier version put it in the per-scan `error` field and one
+    unconfigured token produced an endless stream of identical notices."""
 
     def setUp(self):
         self._tok = os.environ.pop('RP_WPSCAN_API_TOKEN', None)
@@ -395,35 +397,33 @@ class TestCleanResultIsNotOversold(unittest.TestCase):
         if self._tok is not None:
             os.environ['RP_WPSCAN_API_TOKEN'] = self._tok
 
-    def test_wpscan_with_no_token_and_no_findings_says_matching_was_off(self):
-        note = sc._caveat('wpscan', [])
-        self.assertIn('vulnerability matching was DISABLED', note)
-        self.assertIn('RP_WPSCAN_API_TOKEN', note)
+    def test_missing_wpscan_token_is_reported_as_a_capability(self):
+        self.assertEqual(sc._capabilities()['wpscan_vuln_db'], False)
 
-    def test_no_caveat_once_the_token_is_configured(self):
+    def test_configured_token_flips_the_capability(self):
         os.environ['RP_WPSCAN_API_TOKEN'] = 'tok'
-        self.assertEqual(sc._caveat('wpscan', []), '')
+        self.assertEqual(sc._capabilities()['wpscan_vuln_db'], True)
 
-    def test_no_caveat_when_the_scan_actually_found_something(self):
-        self.assertEqual(sc._caveat('wpscan', [{'title': 'x'}]), '')
-
-    def test_other_tools_are_not_annotated(self):
-        self.assertEqual(sc._caveat('nikto', []), '')
-
-    def test_a_caveat_never_marks_the_scan_failed(self):
-        """It rides in the `error` field, so the status decision must be made
-        BEFORE it is attached or a clean scan reads as a broken one."""
+    def test_capabilities_ride_with_the_results_post(self):
         src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
         body = src[src.index('def _process_one('):]
-        self.assertLess(body.index("status = 'failed' if err else 'done'"),
-                        body.index('_caveat(tool, findings)'),
-                        'status must be decided before the caveat is attached')
-        # and it must only ever be attached to a scan that actually completed
-        self.assertIn("if status == 'done':", body)
+        self.assertIn("'capabilities': _capabilities()", body)
+
+    def test_the_note_is_NOT_stuffed_into_the_per_scan_error_field(self):
+        """The regression that made it spam: `error` is surfaced per run, so a
+        static config fact placed there repeats forever."""
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        self.assertNotIn('_caveat', src)
+        self.assertNotIn('RP_WPSCAN_API_TOKEN', src[src.index('def _process_one('):])
+
+    def test_status_is_still_decided_by_the_real_error_alone(self):
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        body = src[src.index('def _process_one('):]
+        self.assertIn("status = 'failed' if err else 'done'", body)
 
     def test_run_tool_still_dispatches_to_both_runner_families(self):
         src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
-        fn = src[src.index('def _run_tool('):src.index('def _caveat(')]
+        fn = src[src.index('def _run_tool('):src.index('def _capabilities(')]
         self.assertIn('STDOUT_TOOLS', fn)
         self.assertIn('REPORT_TOOLS', fn)
         self.assertIn('unsupported tool', fn)

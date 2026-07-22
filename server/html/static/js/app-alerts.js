@@ -188,9 +188,12 @@ function _alertRowHtml(a, role) {
     // v6.3.1: for a log alert, muting the whole EVENT is too blunt — it blinds
     // the rule. Clearing the matched LINE silences this message only, and a
     // genuinely different one still alerts. Offered only when evidence exists.
-    const _logLine = (a.event === 'log_alert') ? _alertSampleLine(a) : '';
-    if (_logLine) {
-      actions += `<button class="btn-icon btn-xs" data-action="clearLogLine" data-arg="${_escapeHtml(a.device_id || '')}" data-arg2="${_escapeHtml((a.payload && a.payload.unit) || '')}" data-arg3="${_escapeHtml(_logLine)}" title="Clear this line: it stops counting toward the rule, but a new message still alerts">${_icon('undo',14)} Clear line</button> `;
+    if (a.event === 'log_alert') {
+      const _logLine = _alertSampleLine(a);
+      const _pat = (a.payload && a.payload.pattern) || '';
+      if (_logLine || _pat) {
+        actions += `<button class="btn-icon btn-xs" data-action="clearLogLine" data-arg="${_escapeHtml(a.device_id || '')}" data-arg2="${_escapeHtml((a.payload && a.payload.unit) || '')}" data-arg3="${_escapeHtml(_logLine)}" data-arg4="${_escapeHtml(_pat)}" title="${_logLine ? 'Clear this line: it stops counting toward the rule, but a new message still alerts' : 'No line was captured — silence this rule on this unit'}">${_icon('undo',14)} ${_logLine ? 'Clear line' : 'Silence rule'}</button> `;
+      }
     }
     actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button> `;
     actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;

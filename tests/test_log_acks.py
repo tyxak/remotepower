@@ -237,5 +237,96 @@ class TestFirePathIsFiltered(unittest.TestCase):
             self.assertLess(after.index('threshold'), after.index('len(matches) >= threshold'))
 
 
+class TestRuleLevelAck(_AckBase):
+    """The escape hatch for an alert that captured NO line.
+
+    This was the reported failure: `Clear line` only rendered when a sample
+    existed, so the alerts actually piling up — older ones, recorded before
+    matched lines were kept — were the exact ones with no way to stop them.
+    """
+
+    PAT = 'err|warn|critical|Critical|Warning|FATAL'
+
+    def _ack_rule(self, device_id='dev1', unit='remotepower-agent.service'):
+        key = logsig.ack_key(device_id, unit, logsig.rule_key(self.PAT))
+        api.save(api.LOG_ACKS_FILE, {'acks': {key: {
+            'device_id': device_id, 'unit': unit, 'kind': 'rule',
+            'sig': logsig.rule_key(self.PAT), 'pattern': self.PAT, 'ts': 1}}})
+        api._invalidate_load_cache(api.LOG_ACKS_FILE)
+
+    def test_a_rule_key_is_stable_and_distinct_from_a_line(self):
+        self.assertEqual(logsig.rule_key(self.PAT), logsig.rule_key(self.PAT))
+        self.assertNotEqual(logsig.rule_key(self.PAT), logsig.signature(self.PAT))
+        self.assertTrue(logsig.rule_key(self.PAT).startswith('rule:'))
+
+    def test_an_empty_pattern_never_silences_anything(self):
+        for blank in ('', '   ', None):
+            self.assertEqual(logsig.rule_key(blank), '')
+
+    def test_the_silenced_rule_stops_firing_on_that_unit(self):
+        self._ack_rule()
+        self.assertTrue(api.rule_acked('dev1', 'remotepower-agent.service', self.PAT))
+
+    def test_it_does_not_silence_the_rule_on_another_unit(self):
+        self._ack_rule(unit='remotepower-agent.service')
+        self.assertFalse(api.rule_acked('dev1', 'nginx.service', self.PAT))
+
+    def test_it_does_not_silence_the_rule_on_another_host(self):
+        self._ack_rule(device_id='dev1')
+        self.assertFalse(api.rule_acked('dev2', 'remotepower-agent.service', self.PAT))
+
+    def test_a_different_rule_still_fires(self):
+        self._ack_rule()
+        self.assertFalse(api.rule_acked('dev1', 'remotepower-agent.service',
+                                        'segfault|OOM'))
+
+    def test_no_acks_means_nothing_is_silenced(self):
+        self.assertFalse(api.rule_acked('dev1', 'u', self.PAT))
+
+
+class TestBothFireSitesHonourRuleAcks(unittest.TestCase):
+    def test_the_gate_runs_before_the_rule_is_evaluated(self):
+        """A silenced rule must cost nothing and fire nothing — checking after
+        the match would still burn the regex and, worse, still fire."""
+        src = (_CGI / 'api.py').read_text()
+        self.assertEqual(src.count('rule_acked(dev_id'), 2, 'both fire sites')
+        for i in [i for i in range(len(src)) if src.startswith('rule_acked(dev_id', i)]:
+            after = src[i:i + 2500]
+            # the gate short-circuits immediately...
+            self.assertIn('continue', after[:220])
+            # ...and does so before this rule's matches are ever collected
+            self.assertLess(after.index('continue'), after.index('matches ='))
+
+
+class TestClearIsOfferedWhenThereIsNoLine(unittest.TestCase):
+    """The UI half of the same bug: the button has to be present on an alert
+    that carries no evidence, or the feature is missing where it is needed."""
+
+    def _js(self, name):
+        return (_CGI.parent / 'html' / 'static' / 'js' / name).read_text()
+
+    def test_na_card_offers_it_without_a_sample(self):
+        js = self._js('app.js')
+        i = js.index('const clearLineBtn')
+        blk = js[i:i + 900]
+        self.assertIn("i.device_id || i.pattern", blk,
+                      'the button must not require i.samples')
+        self.assertIn('data-arg4', blk, 'the rule pattern must be passed through')
+
+    def test_alert_row_offers_it_without_a_sample(self):
+        js = self._js('app-alerts.js')
+        i = js.index("if (a.event === 'log_alert')")
+        blk = js[i:i + 900]
+        self.assertIn('_logLine || _pat', blk)
+        self.assertIn('Silence rule', blk)
+
+    def test_the_coarser_choice_is_labelled_as_such(self):
+        js = self._js('app-logs.js')
+        self.assertIn('Silence this whole rule here', js)
+        html = (_CGI.parent / 'html' / 'index.html').read_text()
+        self.assertIn('log-ack-rule-warn', html)
+        self.assertIn('not</strong> seen yet are hidden too', html)
+
+
 if __name__ == '__main__':
     unittest.main()

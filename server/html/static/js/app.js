@@ -2231,6 +2231,7 @@ document.addEventListener('keydown', e => {
 const _LAZY_PAGE_MODULES = {
   checks: ['app-checks.js'],
   protect: ['app-checks.js'],   // Integrity Guard vault renderer
+  advisory: ['app-checks.js'],  // Security Advisory renderer + host-list filter
   dmarc: ['app-dmarc.js'],
   gpus: ['app-gpu.js'],
   kb: ['app-kb.js'],
@@ -11432,7 +11433,21 @@ function _scanZeroExplanation(data) {
     return `<div class="empty-state">No findings yet (status: ${escHtml(data.status)}).`
          + `${data.error ? ' ' + escHtml(data.error) : ''}</div>`;
   }
-  const note = _SCAN_ZERO_NOTES[data.tool] || '';
+  let note = _SCAN_ZERO_NOTES[data.tool] || '';
+  // If the satellite told us what it could actually do, say the sharper thing.
+  // This lives HERE, on the scan you opened, and not in a per-scan notice: an
+  // unconfigured token is a property of the satellite, so pushing it once per
+  // run turns one config gap into an endless stream of identical messages.
+  const caps = data.capabilities || {};
+  if (data.tool === 'wpscan' && caps.wpscan_vuln_db === false) {
+    note = 'This satellite has no WPScan API token (RP_WPSCAN_API_TOKEN), so '
+         + 'vulnerability matching was DISABLED for this run: wpscan fingerprinted '
+         + 'versions but could not tell which are vulnerable. Zero findings here '
+         + 'says nothing about whether the site is vulnerable.';
+  } else if (data.tool === 'wpscan' && caps.wpscan_vuln_db === true) {
+    note = 'Vulnerability matching was enabled, so this is a real clean result '
+         + 'for the core/plugin/theme versions wpscan could identify.';
+  }
   return '<div class="empty-state ta-left">'
     + `<strong>No findings.</strong> ${escHtml(data.tool || 'The scan')} completed against `
     + `<span class="mono-12">${escHtml(data.target || '')}</span>`
@@ -18264,8 +18279,12 @@ async function _renderHomeAttention(preloaded) {
     // v6.3.1: clearing the LINE is the third option between snoozing (comes
     // back) and deleting the rule (goes blind). Only offered when the alert
     // actually captured evidence — there is nothing to clear otherwise.
-    const clearLineBtn = (i.kind === 'log_alert' && i.samples && i.samples.length)
-      ? `<button class="btn-icon isl-556" title="Clear this line for good — it stops counting toward the rule, a new message still alerts" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escAttr(i.unit || '')}" data-arg3="${escAttr(i.samples[0])}" >${_icon('undo', 14)}</button>`
+    // With a captured line this clears THAT message precisely. Without one
+    // (an older event) it falls back to silencing the rule on this unit — the
+    // button must still be here, because an alert with no evidence is exactly
+    // the one an operator most wants to stop.
+    const clearLineBtn = (i.kind === 'log_alert' && (i.device_id || i.pattern))
+      ? `<button class="btn-icon isl-556" title="${escAttr((i.samples && i.samples.length) ? 'Clear this line for good — it stops counting toward the rule, a new message still alerts' : 'No line was captured — silence this rule on this unit')}" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escAttr(i.unit || '')}" data-arg3="${escAttr((i.samples && i.samples[0]) || '')}" data-arg4="${escAttr(i.pattern || '')}" >${_icon('undo', 14)}</button>`
       : '';
     return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
       <div
@@ -26436,7 +26455,19 @@ document.addEventListener('click', e => {
     if (btnEl.dataset.stopProp) e.stopPropagation();
     if (btnEl.dataset.preventDefault) e.preventDefault();
     const fn = window[btnEl.dataset.actionBtn];
-    if (!fn) return;
+    if (!fn) {
+      // Parity with the data-action branch below: the handler may live in a
+      // lazy module that has not loaded yet, which otherwise makes the whole
+      // control silently inert with no signal anywhere.
+      if (_ALL_LAZY_MODULES.some(f => !_loadedJsModules.has(f))) {
+        _loadAllLazyJs().then(() => {
+          if (window[btnEl.dataset.actionBtn] && document.contains(btnEl)) btnEl.click();
+        });
+      } else {
+        console.warn('[rp] no handler for data-action-btn=' + btnEl.dataset.actionBtn);
+      }
+      return;
+    }
     const boolArg = btnEl.dataset.argBool;
     if (boolArg !== undefined) fn(btnEl, boolArg === 'true');
     else fn(btnEl);
@@ -26459,7 +26490,10 @@ document.addEventListener('click', e => {
     if (_ALL_LAZY_MODULES.some(f => !_loadedJsModules.has(f))) {
       _loadAllLazyJs().then(() => {
         if (window[el.dataset.action] && document.contains(el)) el.click();
+        else console.warn('[rp] no handler for data-action=' + el.dataset.action);
       });
+    } else {
+      console.warn('[rp] no handler for data-action=' + el.dataset.action);
     }
     return;
   }

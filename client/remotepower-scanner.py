@@ -581,25 +581,15 @@ def _run_tool(tool, target, profile='passive', intensity='quick'):
     return [], f'unsupported tool {tool}'
 
 
-def _caveat(tool, findings):
-    """A note for when a CLEAN result does not mean what it looks like.
+def _capabilities():
+    """Static facts about what THIS satellite can actually do.
 
-    A zero-finding wpscan run without an API token is the trap: wpscan can
-    fingerprint versions but cannot match them against the vulnerability
-    database, so it reports nothing and the operator reads "clean". Saying so is
-    the difference between a scan and a false sense of one.
-
-    This is deliberately NOT an error — the scan really did run, so its status
-    stays `done`. It rides in the same `error` field only because that is what
-    the detail view surfaces; callers must not treat it as a failure.
+    Reported once per result so the UI can explain a clean scan, rather than
+    being stuffed into the per-scan `error` field: an unconfigured API token is
+    a property of the satellite, not of the run, so repeating it as a per-scan
+    message turns one config gap into an endless stream of identical notices.
     """
-    if findings:
-        return ''
-    if tool == 'wpscan' and not os.environ.get('RP_WPSCAN_API_TOKEN', '').strip():
-        return ('no WPScan API token on this satellite (RP_WPSCAN_API_TOKEN), so '
-                'vulnerability matching was DISABLED — this run could not have '
-                'reported vulnerable core/plugin/theme versions')
-    return ''
+    return {'wpscan_vuln_db': bool(os.environ.get('RP_WPSCAN_API_TOKEN', '').strip())}
 
 
 # --- main loop --------------------------------------------------------------
@@ -622,21 +612,15 @@ def _process_one():
                                   job.get('intensity', 'quick'))
     finally:
         _cleanup_orphans()   # belt-and-braces: nothing rp-scan-* left behind
-    # Status is decided by `err` ALONE. A caveat is added afterwards so a
-    # "this could not have found anything" note can never masquerade as a
-    # failed scan (or hide one).
     status = 'failed' if err else 'done'
-    if status == 'done':
-        cav = _caveat(tool, findings)
-        if cav:
-            err = cav
     total = len(findings)
     findings = findings[:MAX_FINDINGS]   # keep the POST under the 2 MB body cap
     note = err
     if total > MAX_FINDINGS:
         note = (note + '; ' if note else '') + f'showing {MAX_FINDINGS} of {total} findings'
     _api('POST', f'/api/scans/{sid}/results',
-         {'status': status, 'error': note, 'findings': findings})
+         {'status': status, 'error': note, 'findings': findings,
+          'capabilities': _capabilities()})
     print(f'[scanner] {sid} {status} findings={len(findings)}/{total} {err}', flush=True)
     return True
 

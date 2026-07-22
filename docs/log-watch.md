@@ -46,6 +46,17 @@ Everything cleared is listed under **Logs → Cleared lines**, with how many
 matches each has caught since — un-clear one and it alerts again. Clearing is
 audited (`log_ack_add` / `log_ack_delete`).
 
+### When the alert carries no line
+
+An alert recorded before RemotePower kept matched lines has nothing to clear by
+signature. Those alerts offer **Silence rule** instead: it stops that whole
+pattern firing on that unit and host.
+
+This is deliberately coarser and labelled as such — it hides future messages you
+have not seen yet, which clearing a line does not. Prefer clearing a line
+whenever the alert carries one. Rule silences appear in the same **Cleared
+lines** list and are un-done the same way.
+
 A rule's `exclude_pattern` is still there for the cases where you genuinely
 want a regex; clearing a line needs no regex authoring and is reversible per
 line.

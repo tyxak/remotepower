@@ -554,12 +554,28 @@ async function deleteGlobalLogRule(ruleId) {
 // paging me — but still page me about a new one.
 let _logAckCtx = null;
 
-function clearLogLine(deviceId, unit, line) {
-  if (!line) { toast('No matched line was captured for this alert', 'error'); return; }
-  _logAckCtx = { device_id: deviceId || '', unit: unit || '', line: line };
+// `line` empty => the alert captured no sample (an older event, or a rule whose
+// every match was already cleared). Falling back to silencing the whole RULE is
+// coarser, so it is presented as its own decision rather than pretending to be
+// the same thing.
+function clearLogLine(deviceId, unit, line, pattern) {
+  if (!line && !pattern) {
+    toast('This alert carries neither a matched line nor its rule pattern — '
+          + 'clear it from Logs → Alert rules instead', 'error', {transient: true});
+    return;
+  }
+  _logAckCtx = { device_id: deviceId || '', unit: unit || '', line: line || '',
+                 pattern: line ? '' : (pattern || '') };
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  set('log-ack-line', line);
-  set('log-ack-norm', _logAckNormalize(line));
+  const isRule = !line;
+  set('log-ack-line', isRule ? `every line matching  ${pattern}` : line);
+  set('log-ack-norm', isRule
+        ? `The whole rule on ${unit || 'this unit'} — including messages you have not seen yet.`
+        : _logAckNormalize(line));
+  const t = document.getElementById('log-ack-title');
+  if (t) t.textContent = isRule ? 'Silence this whole rule here' : 'Clear this log line';
+  const warn = document.getElementById('log-ack-rule-warn');
+  if (warn) warn.classList.toggle('d-none', !isRule);
   const sc = document.getElementById('log-ack-scope');
   if (sc) sc.value = deviceId ? 'device' : 'fleet';
   const nt = document.getElementById('log-ack-note'); if (nt) nt.value = '';
@@ -589,15 +605,17 @@ async function saveLogAck() {
   if (!_logAckCtx) return;
   const val = id => document.getElementById(id)?.value || '';
   const r = await api('POST', '/logs/ack', {
-    line: _logAckCtx.line, device_id: _logAckCtx.device_id, unit: _logAckCtx.unit,
+    line: _logAckCtx.line, pattern: _logAckCtx.pattern,
+    device_id: _logAckCtx.device_id, unit: _logAckCtx.unit,
     scope: val('log-ack-scope'), days: parseInt(val('log-ack-days'), 10) || 0,
     note: val('log-ack-note'),
   });
   if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
   closeModal('log-ack-modal');
-  toast(r.resolved
-        ? `Cleared — ${r.resolved} open alert${r.resolved === 1 ? '' : 's'} resolved`
-        : 'Cleared — this line will not alert again', 'success');
+  const what = _logAckCtx.pattern ? 'This rule will not fire here again'
+                                 : 'This line will not alert again';
+  toast(r.resolved ? `Cleared — ${r.resolved} open alert${r.resolved === 1 ? '' : 's'} resolved`
+                   : `Cleared — ${what}`, 'success');
   _logAckCtx = null;
   if (typeof loadLogAcks === 'function') loadLogAcks();
   if (typeof _renderHomeAttention === 'function') _renderHomeAttention();

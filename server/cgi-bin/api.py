@@ -1011,6 +1011,7 @@ logack_handlers_mod.bind(globals())
 for _lo_name in (
         'handle_log_acks_list', 'handle_log_ack_add', 'handle_log_ack_delete',
         '_log_acks', '_ack_hit', 'filter_acked_lines', '_bump_ack_hits',
+        'rule_acked',
         '_resolve_log_alerts_for_signature', 'MAX_LOG_ACKS',
 ):
     globals()[_lo_name] = getattr(logack_handlers_mod, _lo_name)
@@ -42494,11 +42495,14 @@ def _compute_attention():
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
             else:
-                # No sample survived (a pre-v6.3.1 event, or a rule whose
-                # matches were all cleared). Say so plainly rather than echoing
-                # the regex back at the operator, who wrote it.
-                summary_text = (f'{unit} matched pattern {pattern!r} ({count_label})'
-                                ' — no line captured; open the rule to see it live')
+                # No sample on the event. Every alert recorded from v6.3.1 on
+                # carries one, so this is an older event still inside the NA
+                # window — it ages out on its own. Telling the operator to "open
+                # the rule" was a dead end: there is nothing to see there, the
+                # matched line simply was not stored at the time.
+                summary_text = (f'{unit} matched {count_label} '
+                                f'(pattern {pattern!r}) — recorded before matched '
+                                'lines were kept; the next occurrence shows the line')
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
@@ -46126,6 +46130,7 @@ def _scan_public(s):
         'actor': s.get('actor'), 'created': s.get('created'),
         'claimed_by': s.get('claimed_by'), 'claimed_at': s.get('claimed_at'),
         'finished_at': s.get('finished_at'), 'error': s.get('error', ''),
+        'capabilities': s.get('capabilities') or {},
         'attested': bool(s.get('attested')),
         'window_overridden': bool(s.get('window_overridden')),
         'finding_count': len(s.get('findings') or []),
@@ -46467,7 +46472,7 @@ def _validate_scan_finding(f):
 
 
 def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_device=None,
-                        hardening_index=None):
+                        hardening_index=None, capabilities=None):
     """Shared results-ingest for BOTH the satellite endpoint and the agent
     heartbeat path. Moves a running scan → terminal and edge-fires scan_finding
     on high/critical. Returns (ok, http_code).
@@ -46499,6 +46504,15 @@ def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_devic
             s['findings'] = findings
             s['error'] = err
             s['finished_at'] = int(time.time())
+            # What the SATELLITE could do for this run. A clean result means
+            # different things depending on it (wpscan with no vulnerability
+            # database cannot report a vulnerable plugin), so the detail view
+            # needs it — but it is a static property of the satellite, not an
+            # error, and must never be delivered as a per-scan notice.
+            if isinstance(capabilities, dict):
+                s['capabilities'] = {k: bool(v) for k, v in
+                                     list(capabilities.items())[:10]
+                                     if isinstance(k, str)}
             # v4.2.0 sweep: lynis 0–100 host-hardening score — the natural
             # per-host headline for an on-host audit (was parsed out and
             # discarded by the agent before).
@@ -46573,7 +46587,8 @@ def handle_scan_results(scan_id):
     if raw is not None and not isinstance(raw, list):
         respond(400, {'error': 'findings must be a list'})
     ok, code = _apply_scan_results(scan_id, body.get('status', 'done'),
-                                   raw or [], body.get('error', ''), by=sid_sat)
+                                   raw or [], body.get('error', ''), by=sid_sat,
+                                   capabilities=body.get('capabilities'))
     if not ok:
         respond(code, {'error': ('scan claimed by another worker' if code == 403
                                  else 'scan not in a running state')})
@@ -52657,6 +52672,8 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
                     ex_rx = re.compile(ex_pat)
                 except re.error:
                     pass
+            if rule_acked(dev_id, 'syslog', pattern):
+                continue          # operator silenced this whole rule here
             matches = [ln for ln in new_lines
                        if rx.search(ln) and (not ex_rx or not ex_rx.search(ln))]
             matches, _acked = filter_acked_lines(dev_id, 'syslog', matches)
@@ -59648,6 +59665,8 @@ def handle_log_submit():
                 key = (scope, unit, pattern)
                 if key in fired_keys:
                     continue
+                if rule_acked(dev_id, unit, pattern):
+                    continue      # operator silenced this whole rule here
                 try:
                     rx = re.compile(pattern)
                 except re.error:

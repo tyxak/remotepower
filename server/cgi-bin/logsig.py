@@ -68,6 +68,23 @@ def signature(line):
     return hashlib.sha256(norm.encode('utf-8', 'replace')).hexdigest()[:16]
 
 
+def rule_key(pattern):
+    """Identity for a whole RULE rather than one matched line.
+
+    Needed because the precise, line-level acknowledgement is unavailable
+    exactly when an operator most wants to act: an alert that captured no
+    sample (an older event, or a rule whose every match was already cleared)
+    has no line to key on. Silencing the rule on that unit is coarser than
+    clearing a line — it hides future DIFFERENT messages too — so it is a
+    separate, clearly-labelled decision, not a fallback that pretends to be the
+    same thing.
+    """
+    p = str(pattern or '').strip()
+    if not p:
+        return ''
+    return 'rule:' + hashlib.sha256(p.encode('utf-8', 'replace')).hexdigest()[:16]
+
+
 def ack_key(device_id, unit, sig):
     """Storage key for one acknowledgement.
 

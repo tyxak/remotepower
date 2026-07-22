@@ -30,6 +30,33 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Fixed — the clear-a-line escape hatch was missing where it was needed
+- **`Clear line` only appeared on alerts that captured a line**, so the alerts
+  actually piling up — older ones, recorded before matched lines were kept —
+  were exactly the ones with no way to stop them. Those now offer **Silence
+  rule**: it stops that whole pattern firing on that unit and host. It is
+  coarser (it hides messages you have not seen yet) so it is labelled and
+  warned about separately, and it is checked BEFORE a rule is evaluated at both
+  fire sites, so a silenced rule costs nothing and fires nothing.
+- **The no-line message was a dead end.** "open the rule to see it live" sent
+  the operator somewhere with nothing to see; the line simply was not stored at
+  the time. It now says so, and notes that the next occurrence carries the line.
+- **The wpscan no-token note was spam.** It rode in the per-scan `error` field,
+  so one unconfigured satellite produced an identical notice on every single
+  run. It is now a satellite CAPABILITY reported with the results and surfaced
+  only in the scan detail view you opened — a static config fact stated once,
+  where it is asked for, instead of pushed forever.
+- **The Security Advisory page threw `ReferenceError: advScopeChanged is not
+  defined`.** `app-checks.js` is lazy-loaded per page and the new page was never
+  registered in `_LAZY_PAGE_MODULES` — the same "touch two registries" shape as
+  FLEET_EVENTS and the scheduler CADENCE tuple. Registered, plus:
+  `data-action-btn` now recovers by loading the pending modules and retrying
+  (`data-action` already did), and a genuinely missing handler now warns to the
+  console instead of returning silently, which is what made a whole page look
+  dead with no signal. Guardrail: `tests/test_lazy_page_modules.py` parses
+  `showPage`'s dispatch and fails if a page calls a lazy module's function
+  without declaring it.
+
 ### Fixed — invented CSS classes rendered as nothing
 - **The Security Advisory cards had no background.** They used `.card`, which
   the app stylesheet never defines (the house container is `.dash-card`;
