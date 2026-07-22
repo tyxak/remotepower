@@ -8670,7 +8670,7 @@ async function psDiff() {
 async function psDrift(id) {
   const out = document.getElementById('ps-drift-result');
   if (!out) return;
-  out.innerHTML = '<div class="c-muted">Loading…</div>';
+  out.innerHTML = _skeletonBlock();
   const r = await api('GET', `/patch-snapshots/${id}/drift`).catch(() => null);
   if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Drift report failed')}</div>`; return; }
   const scope = r.tag ? `tag "${r.tag}"` : 'the whole visible fleet (not promoted to a tag)';
@@ -16202,7 +16202,7 @@ function _chargebackTable(title, rows, rate) {
 function _renderChargeback() {
   const el = document.getElementById('chargeback-body');
   if (!el) return;
-  if (!_chargebackResp) { el.innerHTML = '<div class="c-muted">Loading…</div>'; return; }
+  if (!_chargebackResp) { el.innerHTML = _skeletonBlock(); return; }
   const rate = _costKwh();
   const t = _chargebackResp.total || {};
   const grp = _chargebackTable('By group', _chargebackResp.groups, rate);
@@ -16343,7 +16343,7 @@ let _swCatalogTimer = null;
 async function loadSoftwareCatalog() {
   const body = document.getElementById('swcatalog-body');
   if (!body) return;
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   const r = await api('GET', '/inventory/catalog').catch(() => null);
   if (!r) { body.innerHTML = '<div class="c-red">Failed to load software inventory.</div>'; return; }
   _swCatalog = r.packages || [];
@@ -22104,7 +22104,7 @@ async function _loadAuditSection(key) {
   const body = document.getElementById(`audit-body-${key}`);
   const badge= document.getElementById(`audit-badge-${key}`);
   if (!body || !id) return;
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
 
   try {
     switch (key) {
@@ -23836,7 +23836,7 @@ async function loadTimeline() {
   if (!sel || !body) return;
   const scope = sel.value || '*';
   _timelineFleet = (scope === '*');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   const url = _timelineFleet
     ? '/fleet/timeline?limit=300'
     : `/devices/${encodeURIComponent(scope)}/timeline?limit=300`;
@@ -27082,7 +27082,7 @@ async function loadDetectionSelftest() {
 
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   _loadSelfObs();
   const s = await api('GET', '/self/status');
   if (!s || s.error) {
