@@ -30,6 +30,21 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Fixed — a check already failing at upgrade time NEVER alerted
+- Reported as "critical on the Checks page, not visible as an alert or a
+  ticket". `_ingest_custom_check_results` defaulted pre-upgrade state (no
+  `alerted` key) to *already alerted* when the check was failing, so every
+  check that was red at the moment of upgrade was **permanently silent** — no
+  inbox row, no ticket, forever. That default existed to avoid an alert burst
+  on upgrade; a one-time burst is a nuisance, a critical finding that never
+  alerts is the failure the whole feature exists to prevent. It now defaults to
+  not-alerted, so each still-failing check announces itself exactly once.
+- **Baseline-check output named the same file twice.** `4 new —
+  remotepower-syslogd.service, remotepower-syslogd.service, clamav-daemon.service`
+  — a unit file and its `multi-user.target.wants/` enable-symlink share a
+  basename. The summary now de-duplicates and, when basenames collide, shows
+  enough of the path to tell them apart, with `+N more` for the remainder.
+
 ### Security Advisory — scanner findings were being lost and merged
 - **Everything below `high` was dropped**, so a wpscan reporting enumerable
   usernames (a medium, and on a credential-compromised site the most actionable

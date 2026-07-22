@@ -6755,7 +6755,22 @@ def _eval_one_agent_check(c):
             counts.append(f'{len(changed)} changed')
         if removed:
             counts.append(f'{len(removed)} removed')
-        sample = ', '.join(os.path.basename(x) for x in (added + changed + removed)[:3])
+        # Name the files distinguishably. Plain basename() collapses
+        # /etc/systemd/system/x.service and its multi-user.target.wants/x.service
+        # enable-symlink into the same string, so the operator sees "4 new — x, x,
+        # y" and cannot tell whether that is one file reported twice or two files
+        # that happen to share a name.
+        picked = list(dict.fromkeys(added + changed + removed))[:3]
+        names = [os.path.basename(x) for x in picked]
+        labels = []
+        for path, base in zip(picked, names):
+            if names.count(base) > 1:
+                parts = path.rstrip('/').split('/')
+                labels.append('/'.join(parts[-2:]) if len(parts) > 1 else base)
+            else:
+                labels.append(base)
+        more = len(dict.fromkeys(added + changed + removed)) - len(picked)
+        sample = ', '.join(labels) + (f' +{more} more' if more > 0 else '')
         out = '; '.join(counts) + (f' — {sample}' if sample else '')
         return 'critical', out[:200]
     if ctype == 'file_contains':

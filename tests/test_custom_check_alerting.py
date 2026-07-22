@@ -100,14 +100,30 @@ class TestFirstObservationAlerting(unittest.TestCase):
         self.assertEqual(self._report('unknown'), [])
         self.assertEqual(self._state().get('status'), 'critical')  # not a recovery
 
-    def test_pre_existing_failing_state_does_not_replay_on_upgrade(self):
-        """State saved by the old code has no `alerted` key; a long-standing
-        failure must not suddenly page everyone after an upgrade."""
+    def test_a_check_already_failing_at_upgrade_alerts_once(self):
+        """State saved by the old code has no `alerted` key.
+
+        This deliberately CHANGED. Defaulting such an entry to "already
+        alerted" avoided a burst on upgrade, but permanently silenced every
+        check that was failing at that moment — critical on the Checks page
+        and nothing in the inbox, ever, which is the exact failure the feature
+        exists to prevent. One alert per failing check, once, is the better
+        trade."""
         devs = api.load(api.DEVICES_FILE) or {}
         devs[DEV]['custom_check_state'] = {
             CHECK['id']: {'status': 'critical', 'output': 'old', 'changed_at': 1}}
         api.save(api.DEVICES_FILE, devs)
         api._invalidate_load_cache(api.DEVICES_FILE)
+        self.assertEqual(self._report('critical'), ['custom_check_failed'])
+
+    def test_and_only_once(self):
+        devs = api.load(api.DEVICES_FILE) or {}
+        devs[DEV]['custom_check_state'] = {
+            CHECK['id']: {'status': 'critical', 'output': 'old', 'changed_at': 1}}
+        api.save(api.DEVICES_FILE, devs)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        self.assertEqual(self._report('critical'), ['custom_check_failed'])
+        self.assertEqual(self._report('critical'), [])
         self.assertEqual(self._report('critical'), [])
 
     def test_open_alert_recovers_even_when_edge_state_was_lost(self):

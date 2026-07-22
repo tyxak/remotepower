@@ -40746,10 +40746,15 @@ def _ingest_custom_check_results(dev_id, dev_name):
                 continue
             prev = prev_state.get(cid) or {}
             prev_status = prev.get('status')
-            # State written before `alerted` existed: assume a currently-failing
-            # entry already alerted under the old ok->failing rule, so upgrading
-            # doesn't replay a burst for every long-standing failure.
-            alerted = bool(prev.get('alerted', prev_status in FAILING))
+            # State written before `alerted` existed has no answer either way.
+            # This used to default to True for a currently-failing entry, to
+            # avoid a burst of alerts on upgrade — but that permanently silenced
+            # every check that was ALREADY failing at upgrade time: critical on
+            # the Checks page, and nothing in the inbox, ever. A one-time burst
+            # is a nuisance; a critical finding that never alerts is the bug the
+            # whole feature exists to prevent. Default to False and let each
+            # still-failing check announce itself exactly once.
+            alerted = bool(prev.get('alerted', False))
             changed_at = prev.get('changed_at', now) if prev_status == status else now
             entry = {'status': status, 'output': str(output)[:200],
                      'changed_at': changed_at}
@@ -42556,6 +42561,12 @@ def _compute_attention():
                 'summary':  summary_text,
                 'samples':  [str(s)[:200] for s in samples[:3]],
                 'pattern':  pattern,
+                # WHEN it fired. Without this the card is undateable: an alert
+                # from four minutes ago and one from yesterday look identical,
+                # so there is no way to tell a live problem from a stale entry
+                # still inside the 24h window.
+                'ts':       int(ts or 0),
+                'device_id': did,
             })
         elif ev_type == 'new_port_detected':
             # Security signal — surface as warning. User dismisses to
