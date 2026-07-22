@@ -35,7 +35,7 @@ async function loadMonitoringProfiles() {
   const data = await api('GET', '/monitoring-profiles');
   const profiles = (data && data.profiles) || [];
   const nameById = {}; (_csData?.scripts || []).forEach(s => { nameById[s.id] = s.name; });
-  if (!profiles.length) { el.innerHTML = '<div class="empty-state-sm">No profiles yet. Click "New profile" to bundle scripts.</div>'; return; }
+  if (!profiles.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">' + _icon('layers', 28) + '</div><div class="empty-title">No profiles yet</div><div class="empty-text">Bundle a set of scripts into a reusable host profile, then apply it to a device, group, or tag.</div></div>'; return; }
   el.innerHTML = profiles.map(p => {
     const names = (p.script_ids || []).map(id => nameById[id] || id).join(', ');
     return `<div class="row-8-center mb-6 flex-between">

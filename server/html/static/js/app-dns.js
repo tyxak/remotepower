@@ -788,7 +788,7 @@ async function acmeOpenDetail(devId, domain) {
   _acmeDetailContext = { devId, domain };
   document.getElementById('acme-detail-title').textContent = domain;
   document.getElementById('acme-detail-subtitle').textContent = '';
-  document.getElementById('acme-detail-overview').innerHTML = '<div class="empty-p20">Loading…</div>';
+  document.getElementById('acme-detail-overview').innerHTML = _skeletonBlock();
   document.getElementById('acme-detail-timeline').innerHTML = '';
   document.getElementById('acme-detail-logs').innerHTML = '';
   acmeDetailTab('overview');
@@ -924,7 +924,7 @@ async function acmeLoadLog(logId) {
   if (!_acmeDetailContext) return;
   const view = document.getElementById('acme-log-view');
   const target = view || document.getElementById('acme-detail-logs');
-  target.innerHTML = '<div class="isl-690">Loading log…</div>';
+  target.innerHTML = _skeletonBlock();
   const r = await api('GET', `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/log/${encodeURIComponent(logId)}`);
   if (!r) { target.innerHTML = '<div class="isl-691">Failed to load log</div>'; return; }
   target.innerHTML = `

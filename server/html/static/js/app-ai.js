@@ -1423,7 +1423,7 @@ async function aiViewRunbook(devId, deviceName) {
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent = 'Loading…';
   const body = document.getElementById('runbook-modal-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   document.getElementById('runbook-modal-copy').disabled = true;
   document.getElementById('runbook-modal-regen').style.display = 'flex';
 
@@ -1597,7 +1597,7 @@ function aiCronCopy(expr) {
 async function loadAiPrompts() {
   const list = document.getElementById('ai-prompts-list');
   if (!list) return;
-  list.innerHTML = '<div class="isl-78">Loading prompts…</div>';
+  list.innerHTML = _skeletonBlock();
   const [r, paramsResp] = await Promise.all([
     api('GET', '/ai/prompts'),
     api('GET', '/ai/params'),

@@ -6117,6 +6117,15 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .rep-sub { font-size: 13.5px; margin-top: 2px; }   /* widget subtitle = body subtext (13.5) */
 .rep-compliance { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* v6.4.0 polish — narrow-width fallbacks for fixed-column grids that had no
+   single-column collapse and clipped their content on phones. Additive: these
+   only NARROW at small widths, never touch the desktop layout or the
+   load-bearing sidebar/drawer breakpoints. */
+@media (max-width: 900px) { .isl-163 { grid-template-columns: repeat(2, 1fr); } }   /* kanban board */
+@media (max-width: 560px) { .isl-163 { grid-template-columns: 1fr; min-height: 0; } }
+@media (max-width: 480px) { .rep-grid { grid-template-columns: 1fr; } }             /* reports posture */
+@media (max-width: 560px) { .isl-241 { grid-template-columns: 1fr; } }              /* 3-col form grid */
 .m-0 { margin: 0; }
 .ml-8 { margin-left: 8px; }
 /* v3.4.2: agent signed/integrity badge next to the version */

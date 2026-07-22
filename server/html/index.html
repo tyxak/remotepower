@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-2">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-3">
 
 </head>
 <body>
@@ -6276,7 +6276,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data <a href="docs/patches.md" class="c-accent">Documentation</a></div>
         <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" data-input-debounce="180" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch device filter"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
         <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button><button class="btn-icon" data-action="exportPatchPdf" title="Render a printable report and save it as PDF">PDF</button></div>
-        <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
+        <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card" data-stat-tone="bad"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
         <div class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
 
         <!-- W1-33: patch-compliance SLA -->
@@ -6365,9 +6365,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="stats-row isl-136">
           <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-red" id="cve-stat-critical">0</div><div class="stat-label">Critical</div></div></div>
           <div class="stat-card" data-stat-tone="bad"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="cve-stat-high">0</div><div class="stat-label">High</div></div></div>
-          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-858ad5c5"/></svg></div><div><div class="stat-value c-amber" id="cve-stat-medium">0</div><div class="stat-label">Medium</div></div></div>
-          <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-1bd07cbf"/></svg></div><div><div class="stat-value c-muted" id="cve-stat-low">0</div><div class="stat-label">Low</div></div></div>
-          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-7d346a8c"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-858ad5c5"/></svg></div><div><div class="stat-value c-amber" id="cve-stat-medium">0</div><div class="stat-label">Medium</div></div></div>
+          <div class="stat-card" data-stat-tone="bad"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-1bd07cbf"/></svg></div><div><div class="stat-value c-muted" id="cve-stat-low">0</div><div class="stat-label">Low</div></div></div>
+          <div class="stat-card" data-stat-tone="good"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-7d346a8c"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
         </div>
         <div class="hint mb-8" id="cve-kev-feed">
           <span id="cve-kev-feed-text"></span>
@@ -10674,34 +10674,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-2"></script>
+<script defer src="static/js/app.js?v=6.4.0-3"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-2"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-3"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-2"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-3"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-2"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-3"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-2"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-2"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-3"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10710,6 +10710,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-2"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-3"></script>
 </body>
 </html>

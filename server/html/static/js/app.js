@@ -3587,7 +3587,7 @@ async function toggleMonitorPause(label, paused) {
   }
 }
 
-async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${escAttr(new Date(h.ts*1000).toLocaleString() + ' — ' + (h.detail||''))}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1];
+async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = _skeletonBlock(); openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${escAttr(new Date(h.ts*1000).toLocaleString() + ' — ' + (h.detail||''))}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1];
   // v6.1.2: response-time percentiles over the window. Successful checks only —
   // a timeout's elapsed time is the timeout value, not the service's latency, so
   // folding failures in would make p99 track the timeout constant. Absent on a
@@ -7939,7 +7939,7 @@ let _metricsCtx = { id: null, name: '', range: 86400 };
 function openMetrics(id, name) {
   _metricsCtx = { id, name, range: 86400 };
   document.getElementById('metrics-title').textContent = `Metrics: ${name}`;
-  document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>';
+  document.getElementById('metrics-body').innerHTML = _skeletonBlock();
   openModal('metrics-modal');
   _loadMetrics();
 }
@@ -10688,7 +10688,7 @@ function exportPatchPdf() {
     setTimeout(() => { rep.innerHTML = ''; }, 500);
   }));
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -11996,7 +11996,7 @@ async function loadServicesReport() {
 async function openServiceDetail(devId, devName) {
   servicesCurrentDeviceId = devId;
   document.getElementById('service-detail-title').textContent = `Services: ${devName}`;
-  document.getElementById('service-detail-body').innerHTML = '<div class="empty-state">Loading…</div>';
+  document.getElementById('service-detail-body').innerHTML = _skeletonBlock();
   document.getElementById('service-edit-btn').onclick = () => { closeModal('service-detail-modal'); editServicesConfig(devId, devName); };
   openModal('service-detail-modal');
   const data = await api('GET', `/devices/${devId}/services`);
@@ -14648,7 +14648,7 @@ let _batchJobTimer = null;
 function openBatchJobModal(jobId) {
   document.getElementById('batch-job-id').value = jobId;
   document.getElementById('batch-job-body').innerHTML =
-    '<div class="empty-state">Loading…</div>';
+    _skeletonBlock();
   document.getElementById('batch-job-title').textContent = 'Batch script run';
   document.getElementById('batch-job-sub').textContent = 'Polling for results…';
   openModal('batch-job-modal');
@@ -20630,7 +20630,7 @@ async function loadConfigRevisions() {
   const r = await api('GET', '/config/revisions').catch(() => null);
   if (!r || !Array.isArray(r.revisions)) { box.innerHTML = ''; return; }
   if (!r.revisions.length) {
-    box.innerHTML = '<div class="empty-state-sm">No configuration changes recorded yet — the first settings save will create one.</div>';
+    box.innerHTML = '<div class="empty-state"><div class="empty-icon">' + _icon('settings', 28) + '</div><div class="empty-title">No configuration changes yet</div><div class="empty-text">The first settings save will record a config revision here — you can then compare and roll back.</div></div>';
     return;
   }
   box.innerHTML = r.revisions.map(v => {
@@ -28459,7 +28459,7 @@ async function openDeviceFlows(devId, name) {
   document.getElementById('flow-title').textContent = `Network flows — ${_flowDevName}`;
   if (typeof openModal === 'function') openModal('flow-modal');
   const el = document.getElementById('flow-body');
-  if (el) el.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (el) el.innerHTML = _skeletonBlock();
   const r = await api('GET', `/devices/${encodeURIComponent(devId)}/flows`).catch(() => null);
   _renderDeviceFlows(r);
 }

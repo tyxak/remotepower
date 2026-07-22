@@ -705,7 +705,7 @@ async function tunnelRenderList() {
   const list = document.getElementById('tun-list');
   const tunnels = await api('GET', '/network-map/tunnels');
   if (!Array.isArray(tunnels) || !tunnels.length) {
-    list.innerHTML = '<div class="empty-state-sm">No tunnels yet. Create one to issue road-warrior clients.</div>';
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">' + _icon('shield', 28) + '</div><div class="empty-title">No tunnels yet</div><div class="empty-text">Create a WireGuard tunnel to issue road-warrior client configs for secure remote access.</div></div>';
     return;
   }
   // Build a name lookup for friendlier rendering

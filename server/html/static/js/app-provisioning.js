@@ -13,7 +13,7 @@ let _provExec = false;       // terraform plan/apply/destroy available (enabled 
 
 async function loadProvisioning() {
   const tree = document.getElementById('provisioning-tree');
-  if (tree) tree.innerHTML = '<div class="empty-state">Loading…</div>';
+  if (tree) tree.innerHTML = _skeletonBlock();
   const d = await api('GET', '/provisioning/blueprints');
   if (!d) return;
   if (!d.enabled) {

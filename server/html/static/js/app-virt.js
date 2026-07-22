@@ -79,7 +79,7 @@ async function loadVirtPlatform(id) {
   if (nodeLabel) nodeLabel.textContent = window._virtActive.type
     ? `${window._virtActive.type}` : '';
   if (!body) return;
-  body.innerHTML = '<div class="table-card isl-578">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   let data;
   try { data = await api('GET', `/virt/${encodeURIComponent(id)}/vms`); }
   catch (e) {
@@ -207,7 +207,7 @@ async function loadVirtSnapshots() {
   const ctx = window._virtSnapCtx;
   if (!ctx) return;
   const list = document.getElementById('virt-snapshot-list');
-  list.innerHTML = '<div class="isl-585">Loading…</div>';
+  list.innerHTML = _skeletonBlock();
   let data;
   try {
     data = await api('GET',

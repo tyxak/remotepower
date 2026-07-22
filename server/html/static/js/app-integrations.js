@@ -224,7 +224,7 @@ async function openOpnsenseConsole() {
   const title = document.getElementById('opnsense-console-title');
   if (title) title.textContent = `OPNsense — ${_drawerDeviceName || id}`;
   const body = document.getElementById('opnsense-console-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense`);
   _renderOpnsenseCard(body, { textContent: '' }, data || {});
   _opnsenseConsoleAppendFirewall(body, data);
@@ -286,7 +286,7 @@ async function loadOpnsenseFirewall() {
   const surf = _opnsenseSurface();
   const body = (surf.body && surf.body.querySelector('#opn-fw-body')) || document.getElementById('opn-fw-body');
   if (!id || !body) return;
-  body.innerHTML = '<div class="c-muted">Loading rules…</div>';
+  body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense/firewall`);
   if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
   _opnFirewall = { filter: data.filter || [], nat: data.nat || [], errors: data.errors || {} };
@@ -505,7 +505,7 @@ async function routerosReload() {
   if (!id) return;
   const { body, badge } = _routerosSurface();
   if (!body) return;
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros`);
   _renderRouterosCard(body, badge, data || {});
 }
@@ -517,7 +517,7 @@ async function openRouterosConsole() {
   const title = document.getElementById('routeros-console-title');
   if (title) title.textContent = `RouterOS — ${_drawerDeviceName || id}`;
   const body = document.getElementById('routeros-console-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros`);
   _renderRouterosCard(body, { textContent: '' }, data || {});
   // Console-only: a Firewall section below the overview (P2).
@@ -570,7 +570,7 @@ async function loadRouterosFirewall() {
   const id = _drawerDeviceId;
   const body = document.getElementById('ros-fw-body');
   if (!id || !body) return;
-  body.innerHTML = '<div class="c-muted">Loading rules…</div>';
+  body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/firewall`);
   if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
   _rosFirewall = { filter: data.filter || [], nat: data.nat || [] };
@@ -775,7 +775,7 @@ async function loadRouterosQos() {
   const id = _drawerDeviceId;
   const body = document.getElementById('ros-qos-body');
   if (!id || !body) return;
-  body.innerHTML = '<div class="c-muted">Loading queues…</div>';
+  body.innerHTML = _skeletonBlock();
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/qos`);
   if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
   const rows = (data.simple || []).concat(data.tree || []);
