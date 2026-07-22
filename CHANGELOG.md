@@ -30,6 +30,14 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### The scan detail now always states which MODE the run used
+- A wpscan returning informational findings and no vulnerabilities looks
+  identical whether matching ran and the site is clean, or the satellite had no
+  token and never checked. The capability note only rendered on a ZERO-finding
+  scan, so the ambiguous case — findings present, vulnerabilities absent — was
+  the one left unexplained. It now shows on every wpscan detail, and stays
+  silent when the satellite reported no capabilities at all rather than guessing.
+
 ### Scanner satellites: you can finally see which version is running
 - A satellite is a script copied onto another host, so it goes stale silently —
   and its version existed ONLY in that host's journal. There was no way to ask

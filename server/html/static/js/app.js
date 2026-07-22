@@ -11467,6 +11467,27 @@ const _SCAN_ZERO_NOTES = {
         + 'filtered the scan — worth confirming the satellite can reach it.',
 };
 
+// What MODE the run used, shown on every scan detail — not only empty ones.
+// A wpscan that returns five informational findings and no vulnerabilities
+// looks identical whether matching was enabled and the site is clean, or the
+// satellite had no token and never checked. The operator cannot tell those
+// apart from the finding list, so say it outright.
+function _scanModeHtml(data) {
+  const caps = data.capabilities || {};
+  if (data.tool !== 'wpscan' || caps.wpscan_vuln_db === undefined) return '';
+  if (caps.wpscan_vuln_db) {
+    return '<div class="hint mb-8">' + _icon('check', 12)
+      + ' Vulnerability matching was <strong>enabled</strong> for this run — '
+      + 'core, plugin and theme versions were checked against the WPScan '
+      + 'database.</div>';
+  }
+  return '<div class="hint c-amber mb-8">' + _icon('alertTriangle', 12)
+    + ' Vulnerability matching was <strong>OFF</strong> for this run (no '
+    + 'RP_WPSCAN_API_TOKEN on the satellite), so no vulnerability could be '
+    + 'reported whatever the state of the site. The findings below are '
+    + 'informational only.</div>';
+}
+
 function _scanZeroExplanation(data) {
   if (data.status !== 'done') {
     return `<div class="empty-state">No findings yet (status: ${escHtml(data.status)}).`
@@ -11536,12 +11557,12 @@ async function viewScan(scanId) {
     ? `<div class="mb-8"><strong>Hardening index:</strong> <span class="${data.hardening_index >= 75 ? 'c-green' : data.hardening_index >= 50 ? 'c-amber' : 'c-red'} fw-600">${data.hardening_index}/100</span> <span class="hint">lynis host-hardening score</span></div>`
     : '';
   if (!findings.length) {
-    body.innerHTML = hidx + _scanZeroExplanation(data);
+    body.innerHTML = hidx + _scanModeHtml(data) + _scanZeroExplanation(data);
   } else {
     const order = { critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 };
     const sevColor = { critical: 'c-red', high: 'c-red', medium: 'c-amber', low: 'c-muted', info: 'c-muted', unknown: 'c-muted' };
     const sorted = findings.slice().sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
-    body.innerHTML = hidx + sorted.map(f =>
+    body.innerHTML = hidx + _scanModeHtml(data) + sorted.map(f =>
       `<div class="mb-8"><span class="${sevColor[f.severity] || 'c-muted'} fw-500">${escHtml(f.severity)}</span> <strong>${escHtml(f.title || f.rule_id)}</strong>${f.rule_id ? ` <span class="hint">${escHtml(f.rule_id)}</span>` : ''}${f.evidence ? `<div class="hint">${escHtml(f.evidence)}</div>` : ''}${/^https?:\/\//.test(f.reference || '') ? `<div class="hint"><a href="${escAttr(f.reference)}" target="_blank" rel="noopener" class="c-accent">reference</a></div>` : ''}</div>`
     ).join('');
   }

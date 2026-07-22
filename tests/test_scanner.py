@@ -383,6 +383,39 @@ class TestWpscanArgv(unittest.TestCase):
 
 
 
+class TestScanModeIsAlwaysStated(unittest.TestCase):
+    """A wpscan returning five INFO findings and no vulnerabilities looks
+    identical whether matching ran and the site is clean, or the satellite had
+    no token and never checked. The earlier note only rendered on a zero-finding
+    scan, so the ambiguous case — findings present, vulnerabilities absent — was
+    exactly the one left unexplained."""
+
+    def _js(self):
+        return (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+
+    def test_the_mode_is_shown_on_scans_WITH_findings(self):
+        js = self._js()
+        i = js.index('function viewScan(')
+        blk = js[i:i + 3000]
+        self.assertEqual(blk.count('_scanModeHtml(data)'), 2,
+                         'the mode must render on BOTH the empty and non-empty '
+                         'branches')
+
+    def test_it_says_which_mode_in_both_directions(self):
+        js = self._js()
+        fn = js[js.index('function _scanModeHtml('):js.index('function _scanZeroExplanation(')]
+        self.assertIn('enabled', fn)
+        self.assertIn('OFF', fn)
+
+    def test_it_stays_silent_when_the_satellite_did_not_report(self):
+        """An older satellite sends no capabilities; claiming either mode would
+        be a guess."""
+        js = self._js()
+        fn = js[js.index('function _scanModeHtml('):js.index('function _scanZeroExplanation(')]
+        self.assertIn("caps.wpscan_vuln_db === undefined", fn)
+        self.assertIn("return ''", fn)
+
+
 class TestScannerVersionIsVisible(unittest.TestCase):
     """A satellite is a script copied onto another host, so it goes stale
     silently. Until now its version lived ONLY in that host's journal: the
