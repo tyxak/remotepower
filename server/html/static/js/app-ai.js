@@ -86,6 +86,12 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-incidents',    rs.incidents !== false);
   _setSrc('ai-rag-src-maintenance',  rs.maintenance !== false);
   _setSrc('ai-rag-src-scripts',      rs.scripts !== false);
+  // v6.3.1: advisor-grounding sources (default on).
+  _setSrc('ai-rag-src-incidentmemory',   rs.incident_memory !== false);
+  _setSrc('ai-rag-src-imagecves',        rs.image_cves !== false);
+  _setSrc('ai-rag-src-scap',             rs.scap !== false);
+  _setSrc('ai-rag-src-securityfindings', rs.security_findings !== false);
+  _setSrc('ai-rag-src-automationrules',  rs.automation_rules !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -365,6 +371,11 @@ async function saveAISettings() {
         incidents:    !!document.getElementById('ai-rag-src-incidents')?.checked,
         maintenance:  !!document.getElementById('ai-rag-src-maintenance')?.checked,
         scripts:      !!document.getElementById('ai-rag-src-scripts')?.checked,
+        incident_memory:   !!document.getElementById('ai-rag-src-incidentmemory')?.checked,
+        image_cves:        !!document.getElementById('ai-rag-src-imagecves')?.checked,
+        scap:              !!document.getElementById('ai-rag-src-scap')?.checked,
+        security_findings: !!document.getElementById('ai-rag-src-securityfindings')?.checked,
+        automation_rules:  !!document.getElementById('ai-rag-src-automationrules')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,

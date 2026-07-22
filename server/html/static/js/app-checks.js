@@ -18,6 +18,7 @@ async function loadChecks() {
         _checksRows.push({ device_id: h.device_id, host: h.name, group: h.group || '',
           monitored: h.monitored !== false,
           key: c.key, check: c.name, cgroup: c.group || '', status: c.status,
+          ctype: c.ctype || '', kind: c.kind || '',
           output: c.output || '', enabled: c.enabled !== false });
       }
     }
@@ -72,13 +73,21 @@ function renderChecks() {
     const fix = (r.enabled && r.status !== 'ok')
       ? `<button class="btn-icon btn-xs" data-action="checkRemediate" data-arg="${escAttr(arg)}" title="Remediation runbook for this check on ${escAttr(r.host)}">${_icon('wrench', 13)}</button> `
       : '';
+    // v6.3.1: a baseline-holding check (file_hash / dir_baseline / …) gets
+    // "Reset baseline" right on its row — accepting a legitimate change used
+    // to require finding the same check again on Security → Protect.
+    const rebase = (r.enabled && _CC_BASELINE_TYPES.has(r.ctype))
+      ? `<button class="btn-icon btn-xs" data-action="rebaselineCheck" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(String(r.key).replace(/^custom:/, ''))}" data-arg3="${escAttr(r.host)}" title="Accept the current state on ${escAttr(r.host)} as the new baseline — the check returns to OK and its alert resolves">${_icon('refresh', 13)}</button> `
+      : '';
+    const kindBadge = r.kind === 'protect'
+      ? ` <span class="patch-badge fs-11" title="Integrity Guard (protect) check">protect</span>` : '';
     return `<tr class="chk-row${r.enabled ? '' : ' disabled'}">
       <td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(r.device_id)}" data-dev-hover="${escAttr(r.device_id)}">${escHtml(r.host)}</button></td>
       <td class="hint">${escHtml(r.group || '—')}</td>
-      <td>${escHtml(r.check)}<div class="hint">${escHtml(r.cgroup)}</div></td>
+      <td>${escHtml(r.check)}${kindBadge}<div class="hint">${escHtml(r.cgroup)}</div></td>
       <td><span class="chk-pill chk-${r.status}">${r.status}</span></td>
       <td class="fs-12">${escHtml(r.output)}</td>
-      <td class="nowrap">${fix}${toggle}</td></tr>`;
+      <td class="nowrap">${fix}${rebase}${toggle}</td></tr>`;
   }), {colspan: 6});
 }
 // v6.3.0 (UX wave 13): remediation deep-link — generate a runbook for the
@@ -423,6 +432,7 @@ function _pcScope(c) {
     : c.target_kind === 'host' ? `host: ${_ccDevNames[c.target] || c.target}`
     : `${c.target_kind}: ${c.target}`;
 }
+function pcFilterChanged() { _pcRender(); }
 function _pcRender() {
   const el = document.getElementById('pc-tbody');
   if (!el) return;
@@ -430,7 +440,15 @@ function _pcRender() {
     el.innerHTML = '<tr><td colspan="5" class="hint">No protect checks applied yet. Use “Baseline protect checks” for a recommended set, or “Add protect check” to define one.</td></tr>';
     return;
   }
-  const rows = tableCtl.sortRows('protectchecks', _pcRows, c => ({
+  // v6.3.1: text filter — a fleet-wide apply lands dozens of rows.
+  const q = ((document.getElementById('pc-filter') || {}).value || '').trim().toLowerCase();
+  let pool = _pcRows;
+  if (q) pool = pool.filter(c => `${c.name} ${c.type} ${c.param} ${_pcScope(c)}`.toLowerCase().includes(q));
+  if (!pool.length) {
+    el.innerHTML = '<tr><td colspan="5" class="hint">No protect checks match the filter.</td></tr>';
+    return;
+  }
+  const rows = tableCtl.sortRows('protectchecks', pool, c => ({
     name: (c.name || '').toLowerCase(),
     type: (c.type || '').toLowerCase(),
     param: (c.param || '').toLowerCase(),
@@ -475,6 +493,7 @@ async function loadGuardVault() {
   _gvRender();
 }
 let _gvRows = [];
+function gvFilterChanged() { _gvRender(); }
 function _gvRender() {
   const el = document.getElementById('guard-vault-tbody');
   if (!el) return;
@@ -482,7 +501,15 @@ function _gvRender() {
     el.innerHTML = '<tr><td colspan="4" class="hint">Nothing quarantined.</td></tr>';
     return;
   }
-  const rows = tableCtl.sortRows('guardvault', _gvRows, i => ({
+  // v6.3.1: text filter — a big fleet's vault can hold hundreds of entries.
+  const q = ((document.getElementById('gv-filter') || {}).value || '').trim().toLowerCase();
+  let pool = _gvRows;
+  if (q) pool = pool.filter(i => `${i.device} ${i.orig}`.toLowerCase().includes(q));
+  if (!pool.length) {
+    el.innerHTML = '<tr><td colspan="4" class="hint">Nothing in the vault matches the filter.</td></tr>';
+    return;
+  }
+  const rows = tableCtl.sortRows('guardvault', pool, i => ({
     device: (i.device || '').toLowerCase(),
     orig: (i.orig || '').toLowerCase(),
     ts: i.ts || 0,
@@ -618,7 +645,7 @@ function _hostListHtml(hosts, total, id) {
     + `<summary class="hint">Show the ${total > hosts.length ? `first ${hosts.length} of ${total} ` : ''}host${hosts.length === 1 ? '' : 's'}</summary>`
     + `<input type="text" class="form-input host-list-filter" placeholder="Filter hosts…" aria-label="Filter hosts" autocomplete="off" data-input="filterHostList" data-input-el="1" data-input-debounce="100">`
     + `<div class="host-list-items scroll-cap-sm">`
-    + hosts.map(h => `<div class="host-list-item">${escHtml(h.device || h.device_id)}</div>`).join('')
+    + hosts.map(h => `<div class="host-list-item">${escHtml(h.device || h.device_id || h.label || h.target || '')}</div>`).join('')
     + `</div>`
     + (total > hosts.length
         ? `<div class="hint">${total - hosts.length} more not shown — open the check to see its full scope.</div>`
@@ -792,14 +819,15 @@ async function saveCustomCheck() {
     loadCustomCheckList();
   } else { toast((r && r.error) || 'Failed', 'error'); }
 }
+// v6.3.1: undoable (deferred commit) — was a danger-confirm.
 async function deleteCustomCheck(id, name) {
-  if (!await uiConfirm({
-        title: 'Delete check',
-        message: `Delete ${name ? `the "${name}" check` : 'this custom check'}? It stops evaluating on every host it was applied to.`,
-        confirmText: 'Delete', danger: true })) return;
-  const r = await api('POST', '/checks/custom/delete', {id});
-  if (r && r.ok) { toast('Check deleted', 'info'); loadCustomCheckList(); }
-  else { toast((r && r.error) || 'Failed', 'error'); }
+  undoableDelete({
+    label: `Check "${name || id}" deleted`,
+    hide: () => _hideRowByAction('deleteCustomCheck', id),
+    commit: () => api('POST', '/checks/custom/delete', {id}),
+    undo: () => loadCustomCheckList(),
+    after: () => loadCustomCheckList(),
+  });
 }
 
 // ── v6.3.1: Security Advisory ────────────────────────────────────────────────

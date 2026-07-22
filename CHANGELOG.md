@@ -7,6 +7,61 @@ All notable changes to RemotePower. Newest first.
 The agentic-diagnosis release: when something is wrong and nobody knows where,
 point the AI at the host — with hard budgets, redaction and an evidence trail.
 
+### Protect/baseline checks actually stop when you disable them (field report)
+- **Disable now disables everywhere.** The Checks-page Disable button used to
+  only hide the row server-side: the heartbeat kept pushing the check to the
+  agent (which kept evaluating and, for guard checks, kept **quarantining**),
+  and the ingest sweep kept alerting on it. The per-device disable now gates
+  the heartbeat push AND the alert ingest.
+- **An empty check set now reaches the agent.** The heartbeat omitted
+  `agent_checks` when the list was empty, and the agent only updates its set
+  when the key is present — so disabling/deleting a device's LAST check left
+  the agent running the stale set until restart. The key is now always sent.
+- **Reset baseline, right on the row.** Baseline-holding checks (`file_hash`,
+  `dir_baseline`, …) get a Reset-baseline button on Monitoring → Checks —
+  accepting a legitimate change no longer requires re-finding the check on
+  Security → Protect. Protect rows are badged `protect` instead of `custom`.
+- **Readable failure text.** `content changed (was d078…, now cc51…)` became
+  `/etc/hosts changed since baseline (sha256 …) — review the file; if the
+  change is legitimate, Reset baseline to accept it`; dir-baseline findings
+  name new/changed/removed files per category; `file missing` says which file
+  and why that matters.
+- **Protect page scales.** Text filters on the protect-check table and the
+  quarantine vault; both were already chunked for big fleets. The baseline
+  catalog's host list no longer renders `undefined`, and host-scoped entries
+  resolve to device names for full admins too.
+
+### Everyday-flow follow-ups (field feedback on v6.3.0)
+- **Undo/redo that you actually see.** The topbar arrows were effectively
+  never lit: most registrations expired with the 6-second delete toast and the
+  rest were rare actions. Now persistent, invertible undo entries cover the
+  mute/ignore family (exposure mutes, log-ignore patterns, needs-attention
+  hide/snooze-undo, container hide, ignored-items restore, alert mutes from
+  the inbox and Tuning), alert resolve (new `POST /api/alerts/<id>/unresolve`
+  endpoint mirrors unack), and ~14 more deletes moved from confirm dialogs to
+  the deferred-commit undo pattern (API keys, smart groups, scan targets/
+  schedules, maintenance windows, automation rules, custom reports, reputation
+  targets, custom checks, KB articles, DNS records — the last only reaches the
+  provider after the undo window closes).
+- **Ignored stuff is filterable.** Row-level filters on Settings → Ignored
+  items, muted services (Security), log-ignore patterns and Tuning's active
+  mutes.
+- **Forecast chart, redrawn.** Observed usage as a line with a gradient area,
+  dashed projection to the fill date, quarter gridlines, a today marker,
+  per-sample tooltips and fit-quality (R²) in the header — instead of dots and
+  a bare regression line.
+- **Severity cards look severe.** Advisory cards, wallboard tiles and toasts
+  carry a faint severity tint + tinted hairline alongside the left stripe, so
+  red/amber cards are distinct at a glance (flat surfaces, no gradients).
+- **Amber is the default accent** for new users (and the marketing site);
+  blue remains one click away in Account → Appearance.
+- **The AI advisor sees more of the fleet.** Five new RAG sources (all
+  default-on, value-free by construction): resolved-incident outcome memory,
+  container-image CVEs (trivy), OpenSCAP results, security findings
+  (secret-scan rule/path counts, PII counts, AV posture), and existing
+  automation rules — grounding incident_rca, prioritise_cves, compliance,
+  security_advisory and automation_suggest, which previously ran blind.
+
 ### Integrity Guard — Security → Protect
 - **Three agent-side check types.** `file_hash` (SHA-256 of a pinned file),
   `dir_baseline` (a subtree's file list, `path` or `path::glob`) and

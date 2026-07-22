@@ -1861,6 +1861,202 @@ def build_network_map_corpus(links, discovery, now=0):
     return docs
 
 
+def build_incident_memory_corpus(store, now=0):
+    """v6.3.1: resolved-incident outcome memory for the RAG, so incident_rca /
+    investigate_alert / triage answers are grounded in what actually fixed
+    similar incidents on THIS fleet. `store` is INCIDENT_MEMORY_FILE
+    {'outcomes': [...]} — already value-free (event names, kinds, resolution
+    summaries), captured by the auto-triage harvester."""
+    docs = []
+    outcomes = (store or {}).get('outcomes') if isinstance(store, dict) else None
+    if not isinstance(outcomes, list) or not outcomes:
+        return docs
+    lines = []
+    for o in outcomes[-200:]:
+        if not isinstance(o, dict):
+            continue
+        ev = str(o.get('event') or o.get('kind') or 'incident')
+        dev = str(o.get('device_name') or o.get('device_id') or '')
+        how = str(o.get('resolution') or o.get('summary') or o.get('how') or '')[:300]
+        rate = o.get('rating')
+        lines.append(f"- {ev}" + (f" on {dev}" if dev else '')
+                     + (f": {how}" if how else '')
+                     + (f" [triage rated {rate}]" if rate in ('up', 'down') else ''))
+    if lines:
+        docs.append(make_doc(
+            'incident_memory/outcomes', 'incident_memory', 'incident_outcomes',
+            f"Resolved-incident outcome memory ({len(lines)} recent) — how past "
+            "alerts on this fleet were actually resolved:\n" + '\n'.join(lines),
+            title='Resolved incident outcomes', ts=now))
+    return docs
+
+
+def build_image_cves_corpus(store, devices=None, now=0):
+    """v6.3.1: container-image CVE summaries (trivy) for the RAG — the CVE
+    advisors previously only saw HOST package CVEs, so 'prioritise my CVEs'
+    answers ignored the container layer entirely. `store` is IMAGE_CVE_FILE
+    {dev_id: {'ts', 'images': [{'image', 'critical', 'high', ...}]}}."""
+    docs = []
+    if not isinstance(store, dict) or not store:
+        return docs
+    devices = devices if isinstance(devices, dict) else {}
+    lines = []
+    for dev_id, rec in list(store.items())[:300]:
+        if not isinstance(rec, dict):
+            continue
+        dname = (devices.get(dev_id) or {}).get('name') or dev_id
+        for img in (rec.get('images') or [])[:50]:
+            if not isinstance(img, dict):
+                continue
+            crit = int(img.get('critical') or 0)
+            high = int(img.get('high') or 0)
+            if not (crit or high):
+                continue
+            lines.append(f"- {img.get('image', '?')} on {dname}: "
+                         f"{crit} critical, {high} high")
+    if lines:
+        docs.append(make_doc(
+            'image_cves/summary', 'image_cves', 'image_cves',
+            f"Container-image CVE findings (trivy; images with critical/high "
+            f"vulnerabilities, {len(lines)} rows):\n" + '\n'.join(lines[:400]),
+            title='Container-image CVEs', ts=now))
+    return docs
+
+
+def build_scap_corpus(store, devices=None, now=0):
+    """v6.3.1: OpenSCAP/USG baseline scan results for the RAG — grounds
+    compliance / hardening advisors in the real per-host scores and failing
+    rules. `store` is SCAP_FILE {dev_id: {ts, profile, score, pass, fail,
+    failed_rules[], available, reason}}."""
+    docs = []
+    if not isinstance(store, dict) or not store:
+        return docs
+    devices = devices if isinstance(devices, dict) else {}
+    lines = []
+    for dev_id, rec in list(store.items())[:300]:
+        if not isinstance(rec, dict):
+            continue
+        dname = (devices.get(dev_id) or {}).get('name') or dev_id
+        if not rec.get('available'):
+            continue
+        top = ', '.join(str(r)[:60] for r in (rec.get('failed_rules') or [])[:5])
+        lines.append(f"- {dname}: profile {rec.get('profile', '?')}, "
+                     f"score {rec.get('score', '?')}%, "
+                     f"{rec.get('pass', '?')} pass / {rec.get('fail', '?')} fail"
+                     + (f"; top failing: {top}" if top else ''))
+    if lines:
+        docs.append(make_doc(
+            'scap/summary', 'scap', 'scap_results',
+            f"OpenSCAP hardening-baseline scan results ({len(lines)} hosts):\n"
+            + '\n'.join(lines),
+            title='OpenSCAP baseline results', ts=now))
+    return docs
+
+
+def build_security_findings_corpus(secrets, pii, av, devices=None, now=0):
+    """v6.3.1: on-disk secret findings + PII inventory + AV posture for the RAG,
+    so security_advisory / access_review can answer from real findings. STRICTLY
+    value-free by construction: secrets → rule + path + count (never preview or
+    fingerprint), PII → kind counts + paths, AV → tool state. The stores are
+    already value-free server-side; this builder narrows them further."""
+    docs = []
+    devices = devices if isinstance(devices, dict) else {}
+
+    def _name(d):
+        return (devices.get(d) or {}).get('name') or d
+
+    sec_lines = []
+    for dev_id, rec in (secrets.items() if isinstance(secrets, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        finds = [f for f in (rec.get('findings') or []) if isinstance(f, dict)]
+        if not finds:
+            continue
+        by_rule = {}
+        for f in finds[:200]:
+            by_rule.setdefault(str(f.get('rule') or 'secret'), []).append(str(f.get('path') or ''))
+        det = '; '.join(f"{r}×{len(ps)} (e.g. {ps[0]})" for r, ps in list(by_rule.items())[:6])
+        sec_lines.append(f"- {_name(dev_id)}: {len(finds)} finding(s) — {det}")
+    if sec_lines:
+        docs.append(make_doc(
+            'security/secrets', 'security_findings', 'secret_findings',
+            f"On-disk secret-scan findings ({len(sec_lines)} hosts; rule + file "
+            "path only, values are never stored):\n" + '\n'.join(sec_lines[:200]),
+            title='Secret-scan findings', ts=now))
+    pii_lines = []
+    for dev_id, rec in (pii.items() if isinstance(pii, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        finds = [f for f in (rec.get('findings') or []) if isinstance(f, dict)]
+        if not finds:
+            continue
+        by_kind = {}
+        for f in finds[:200]:
+            by_kind[str(f.get('kind') or '?')] = by_kind.get(str(f.get('kind') or '?'), 0) + int(f.get('count') or 0)
+        det = ', '.join(f"{k}: {n}" for k, n in by_kind.items())
+        pii_lines.append(f"- {_name(dev_id)}: {det}")
+    if pii_lines:
+        docs.append(make_doc(
+            'security/pii', 'security_findings', 'pii_findings',
+            f"Regulated-data (PII) inventory ({len(pii_lines)} hosts; match "
+            "counts by kind, no values):\n" + '\n'.join(pii_lines[:200]),
+            title='PII inventory', ts=now))
+    av_lines = []
+    for dev_id, rec in (av.items() if isinstance(av, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        bits = []
+        for tool, t in rec.items():
+            if not isinstance(t, dict) or not t.get('installed'):
+                continue
+            b = tool
+            if t.get('infected'):
+                b += f" INFECTED×{t['infected']}"
+            if isinstance(t.get('db_age_days'), int) and t['db_age_days'] > 7:
+                b += f" (defs {t['db_age_days']}d old)"
+            if t.get('realtime_enabled') is False:
+                b += " (realtime OFF)"
+            bits.append(b)
+        if bits:
+            av_lines.append(f"- {_name(dev_id)}: {', '.join(bits)}")
+    if av_lines:
+        docs.append(make_doc(
+            'security/av', 'security_findings', 'av_posture',
+            f"Endpoint AV/malware posture ({len(av_lines)} hosts):\n"
+            + '\n'.join(av_lines[:300]),
+            title='AV posture', ts=now))
+    return docs
+
+
+def build_automation_rules_corpus(store, now=0):
+    """v6.3.1: existing automation rules for the RAG — automation_suggest could
+    see event history but not what automation ALREADY exists, so it kept
+    proposing rules the operator already had. Surfaces name / trigger / action
+    TYPES / enabled state only — never action bodies (a webhook URL or command
+    string can embed a credential)."""
+    docs = []
+    rules = (store or {}).get('rules') if isinstance(store, dict) else None
+    if not isinstance(rules, list) or not rules:
+        return docs
+    lines = []
+    for r in rules[:200]:
+        if not isinstance(r, dict):
+            continue
+        acts = ', '.join(sorted({str(a.get('type') or a.get('action') or '?')
+                                 for a in (r.get('actions') or []) if isinstance(a, dict)})) or '—'
+        lines.append(f"- {str(r.get('name') or r.get('id') or 'rule')[:80]}: "
+                     f"on {str(r.get('event') or r.get('trigger') or 'event')[:60]} "
+                     f"→ {acts}"
+                     + ('' if r.get('enabled', True) else ' [disabled]')
+                     + (f" (fired {int(r.get('fire_count') or 0)}×)" if r.get('fire_count') else ''))
+    if lines:
+        docs.append(make_doc(
+            'automation/rules', 'automation_rules', 'automation_rules',
+            f"Configured automation rules ({len(lines)}):\n" + '\n'.join(lines),
+            title='Automation rules', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

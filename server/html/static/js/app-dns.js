@@ -511,19 +511,28 @@ async function dnsRecordSave() {
   else if (result) result.textContent = (r && r.error) || 'Save failed';
 }
 
+// v6.3.1: undoable (deferred commit) — nothing reaches the DNS provider until
+// the undo window closes, which is strictly safer than confirm-then-instant
+// for a change that can take live services offline.
 async function deleteDnsRecord(id) {
   const rec = (_dnsRecords || []).find(r => String(r.id) === String(id));
   if (!rec) return;
-  if (!await uiConfirm({ title: 'Delete DNS record', message: `Permanently delete ${rec.type} ${rec.name || ''} (${rec.content || ''})? This changes live DNS immediately and can take services offline.`, confirmText: 'Delete', danger: true })) return;
   const prov = _dnsCurrentProvider();
   const zone = _dnsCurrentZone();
   if (!prov || !zone) return;
-  const r = await api('POST', '/dns/records/delete', {
-    provider: prov.key, zone: zone.id, zone_name: zone.name,
-    id: rec.id, type: rec.type, name: rec.name,
-  }, _dnsExtra());
-  if (r && r.ok) { toast('Deleted', 'info'); loadDnsRecords(); }
-  else toast((r && r.error) || 'Delete failed', 'error');
+  const body = { provider: prov.key, zone: zone.id, zone_name: zone.name,
+                 id: rec.id, type: rec.type, name: rec.name };
+  const extra = _dnsExtra();
+  undoableDelete({
+    label: `DNS record ${rec.type} ${rec.name || ''} deleted`,
+    hide: () => _hideRowByAction('deleteDnsRecord', id),
+    commit: async () => {
+      const r = await api('POST', '/dns/records/delete', body, extra);
+      if (!(r && r.ok)) toast((r && r.error) || 'DNS delete failed', 'error');
+    },
+    undo: () => loadDnsRecords(),
+    after: () => loadDnsRecords(),
+  });
 }
 
 async function openAcmeDnsCreds() {

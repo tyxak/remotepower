@@ -243,15 +243,21 @@ async function saveKbArticle() {
   if (openId) openKbArticle(openId);
 }
 
+// v6.3.1: undoable (deferred commit) — was a "cannot be undone" confirm; now
+// nothing reaches the server until the undo window closes.
 async function deleteKbArticle(id) {
-  if (!await uiConfirm('Delete this article? This cannot be undone.')) return;
-  const r = await api('DELETE', '/kb/' + encodeURIComponent(id)).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Delete failed', 'error'); return; }
-  toast('Article deleted', 'success');
-  if (_kbSelId === id) {
-    _kbSelId = '';
-    const view = document.getElementById('kb-view');
-    if (view) view.innerHTML = '<div class="empty-state"><div class="empty-title">No article selected</div></div>';
-  }
-  loadKb();
+  undoableDelete({
+    label: 'Article deleted',
+    hide: () => {
+      if (_kbSelId === id) {
+        _kbSelId = '';
+        const view = document.getElementById('kb-view');
+        if (view) view.innerHTML = '<div class="empty-state"><div class="empty-title">No article selected</div></div>';
+      }
+      _hideRowByAction('deleteKbArticle', id, '.row-8-center');
+    },
+    commit: () => api('DELETE', '/kb/' + encodeURIComponent(id)).catch(() => null),
+    undo: () => loadKb(),
+    after: () => loadKb(),
+  });
 }

@@ -19671,12 +19671,19 @@ def handle_heartbeat():
         common_resp['host_config_desired'] = host_config_desired
     # v4.1.0: push agent-side custom checks scoped to this device. The agent
     # evaluates them on-host and reports results in sysinfo.custom_check_results.
+    # v6.3.1: honour the per-device disable (config.host_checks_disabled) — the
+    # Disable button used to only hide the row server-side while the agent kept
+    # evaluating (and, for protect checks, kept QUARANTINING). A disabled check
+    # must stop existing on the host, not just on the page.
+    _disabled_for_dev = set(
+        (_sec_cfg.get('host_checks_disabled') or {}).get(dev_id) or [])
     _agent_checks = [
         {k: c[k] for k in ('id', 'type', 'param', 'window_min', 'warn', 'crit',
                            'unit', 'max_age_hours', 'protect', 'pattern') if k in c}
         for c in (_sec_cfg.get('custom_checks') or [])
         if isinstance(c, dict) and c.get('type') in AGENT_CHECK_TYPES
         and _custom_check_applies(c, dev_id, saved_dev)
+        and f"custom:{c.get('id', '')}" not in _disabled_for_dev
     ]
     # Integrity Guard rail: never AUTO-QUARANTINE during declared change — a
     # deploy is not an intrusion. Strip `protect` so those checks degrade to
@@ -19687,8 +19694,11 @@ def handle_heartbeat():
             _guard_maintenance_active(dev_id, saved_dev):
         for _c in _agent_checks:
             _c.pop('protect', None)
-    if _agent_checks:
-        common_resp['agent_checks'] = _agent_checks
+    # v6.3.1: ALWAYS send the key, even when empty. The agent only updates its
+    # check set when 'agent_checks' is present in the response, so omitting it
+    # for an empty list meant disabling/deleting a device's LAST check left the
+    # agent evaluating (and quarantining on) the stale set until restart.
+    common_resp['agent_checks'] = _agent_checks
 
     # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
     # credentials on the next poll (admin clicked "Import from agent"). Cleared
@@ -32008,13 +32018,17 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     # v6.3.1: the other edge. new_port_detected fires when a socket appears; a
     # socket DISAPPEARING is the condition clearing, and without this the alert
     # sat open forever after the operator had actually closed the port.
-    cur_pp = {(pp[0], pp[1]) for pp in current}
-    for kp, kport in sorted(known - cur_pp):
-        try:
-            fire_webhook('port_closed', {'device_id': dev_id, 'name': dev_name,
-                                         'proto': kp, 'port': kport})
-        except Exception:
-            pass
+    # Gated on the SAME audit toggle as its firing twin — with the audit off,
+    # neither direction may emit (the toggle's documented contract; shipped
+    # ungated and tripped test_v3120.TestPortAuditToggle).
+    if audit_enabled:
+        cur_pp = {(pp[0], pp[1]) for pp in current}
+        for kp, kport in sorted(known - cur_pp):
+            try:
+                fire_webhook('port_closed', {'device_id': dev_id, 'name': dev_name,
+                                             'proto': kp, 'port': kport})
+            except Exception:
+                pass
 
     for proto, port, proc, scope, addr in current:
         # v3.12.0: surgical per-process/port mutes (Exposure page "Mute"
@@ -36585,6 +36599,18 @@ _AI_DEFAULTS = {
             # bodies). Grounds "what automation do we have?", "is there a
             # script for X?". Bodies pass through a line-level secret scrubber.
             'scripts':      True,
+            # v6.3.1: five sources that ground previously-blind advisors —
+            # resolved-incident outcome memory (incident_rca), container-image
+            # CVEs (prioritise_cves/supply_chain), OpenSCAP results
+            # (compliance/hardening), value-free security findings: secret-scan
+            # rule+path counts / PII kind counts / AV posture
+            # (security_advisory), and existing automation rules
+            # (automation_suggest — it kept proposing rules that already exist).
+            'incident_memory':   True,
+            'image_cves':        True,
+            'scap':              True,
+            'security_findings': True,
+            'automation_rules':  True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -36806,7 +36832,9 @@ def handle_ai_config_set():
                           'firewall', 'integrations', 'backups', 'dns_email',
                           'posture', 'vpn', 'tickets', 'kb',
                           'provisioning', 'rollouts', 'network_map',
-                          'contacts', 'incidents', 'maintenance', 'scripts'):   # v6.2.2 — miss this and the toggle never persists
+                          'contacts', 'incidents', 'maintenance', 'scripts',   # v6.2.2
+                          'incident_memory', 'image_cves', 'scap',
+                          'security_findings', 'automation_rules'):   # v6.3.1 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -36955,6 +36983,17 @@ def _rag_source_files(sources):
     # v6.2.2: saved custom scripts.
     if sources.get('scripts'):
         files.append(SCRIPTS_FILE)
+    # v6.3.1: advisor-grounding sources.
+    if sources.get('incident_memory'):
+        files.append(INCIDENT_MEMORY_FILE)
+    if sources.get('image_cves'):
+        files.append(IMAGE_CVE_FILE)
+    if sources.get('scap'):
+        files.append(SCAP_FILE)
+    if sources.get('security_findings'):
+        files += [SECRETS_FILE, PII_FILE, AV_FILE]
+    if sources.get('automation_rules'):
+        files.append(RULES_FILE)
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -37326,6 +37365,39 @@ def _rag_build_corpus(cfg):
                 load(LINKS_FILE) or [], load(DISCOVERY_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: network_map source failed: {e}\n')
+
+    # v6.3.1: advisor-grounding sources (see _AI_DEFAULTS for what each feeds).
+    if sources.get('incident_memory'):
+        try:
+            docs += rag_index.build_incident_memory_corpus(
+                load(INCIDENT_MEMORY_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: incident_memory source failed: {e}\n')
+    if sources.get('image_cves'):
+        try:
+            docs += rag_index.build_image_cves_corpus(
+                load(IMAGE_CVE_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: image_cves source failed: {e}\n')
+    if sources.get('scap'):
+        try:
+            docs += rag_index.build_scap_corpus(
+                load(SCAP_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: scap source failed: {e}\n')
+    if sources.get('security_findings'):
+        try:
+            docs += rag_index.build_security_findings_corpus(
+                load(SECRETS_FILE) or {}, load(PII_FILE) or {},
+                load(AV_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: security_findings source failed: {e}\n')
+    if sources.get('automation_rules'):
+        try:
+            docs += rag_index.build_automation_rules_corpus(
+                load(RULES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: automation_rules source failed: {e}\n')
 
     return docs
 
@@ -40798,9 +40870,13 @@ def _ingest_custom_check_results(dev_id, dev_name):
     restart without re-firing, and only definitive states ('ok'/'warning'/
     'critical') move the state — 'unknown' (no data yet) is ignored, not a failure.
     """
-    defs = (_config_ro() or {}).get('custom_checks') or []
+    cfg_ro = _config_ro() or {}
+    defs = cfg_ro.get('custom_checks') or []
     if not defs:
         return   # zero overhead on the hot path when no custom checks exist
+    # v6.3.1: a per-device disabled check must not alert either — same gate the
+    # heartbeat push applies (Disable used to be page-only, see agent_checks).
+    _disabled = set((cfg_ro.get('host_checks_disabled') or {}).get(dev_id) or [])
 
     FAILING = ('critical', 'warning')
     # fire_webhook opens its own alert/fleet-event locks; collect inside the
@@ -40822,7 +40898,7 @@ def _ingest_custom_check_results(dev_id, dev_name):
             if not isinstance(cdef, dict) or not _custom_check_applies(cdef, dev_id, dev):
                 continue
             cid = str(cdef.get('id') or '')
-            if not cid:
+            if not cid or f'custom:{cid}' in _disabled:
                 continue
             status, output = _eval_custom_check(cdef, dev)
             if status == 'unknown':
@@ -41732,10 +41808,11 @@ def handle_check_baseline_catalog():
     scope = _caller_scope()
     visible = None if scope is None and _tenant_gate() is None else \
         set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
-    names = {}
-    if visible is not None:
-        devs = _load_ro(DEVICES_FILE) or {}
-        names = {d: (devs.get(d) or {}).get('name') or d for d in visible}
+    # v6.3.1: resolve host names for full-access admins too (visible is None) —
+    # a host-scoped entry used to fall back to the raw device id for them.
+    devs = _load_ro(DEVICES_FILE) or {}
+    names = {d: (devs.get(d) or {}).get('name') or d
+             for d in (visible if visible is not None else devs)}
     for c in (_config_ro().get('custom_checks') or []):
         if not isinstance(c, dict):
             continue
@@ -51827,6 +51904,35 @@ def handle_alert_resolve(alert_id):
     if not found:
         respond(404, {'error': 'alert not found'})
     audit_log(user, 'alert_resolve', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
+    respond(200, {'ok': True})
+
+
+def handle_alert_unresolve(alert_id):
+    """POST /api/alerts/<id>/unresolve — reopen a manually-resolved alert.
+    v6.3.1: the inverse resolve needs so the UI undo stack can cover it
+    (mirrors unack). Reopening does not re-fire notifications — the row just
+    returns to the open inbox."""
+    user = _check_alert_mutation_perm()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    found = False
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            for a in store.get('alerts', []):
+                if a.get('id') == alert_id:
+                    if not _alert_tenant_visible(a):
+                        respond(404, {'error': 'alert not found'})
+                    if not a.get('resolved_at'):
+                        respond(409, {'error': 'alert is not resolved'})
+                    a['resolved_by'] = None
+                    a['resolved_at'] = None
+                    a.pop('resolve_note', None)
+                    found = True
+                    break
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    if not found:
+        respond(404, {'error': 'alert not found'})
+    audit_log(user, 'alert_unresolve', f'id={alert_id}')
     respond(200, {'ok': True})
 
 
@@ -62372,6 +62478,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/alerts/', '/ai-triage', 'handle_alert_ai_triage', "pi.startswith('/api/alerts/') and pi.endswith('/ai-triage') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/ack', 'handle_alert_ack', "pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/unack', 'handle_alert_unack', "pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST'"),
+    ('pat', ('POST',), '/api/alerts/', '/unresolve', 'handle_alert_unresolve', "pi.startswith('/api/alerts/') and pi.endswith('/unresolve') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/resolve', 'handle_alert_resolve', "pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST'"),
     ('pat', None, '/api/webhook/in/', '', 'handle_inbound_webhook', "pi.startswith('/api/webhook/in/')"),
     ('pat', None, '/api/syslog/in/', '', 'handle_syslog_in', "pi.startswith('/api/syslog/in/')"),

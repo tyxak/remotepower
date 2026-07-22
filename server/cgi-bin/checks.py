@@ -607,6 +607,15 @@ def _host_checks(
 # evaluated on-host, and reported back in sysinfo['custom_check_results'].
 SERVER_CHECK_TYPES = ("process", "port_open", "port_closed")
 
+# Integrity-Guard check types: they hold a learned on-host baseline, so a row
+# of one of these types is a "protect" check regardless of how it was created
+# (mirrors the client's _CC_GUARD_TYPES in app-checks.js).
+GUARD_CHECK_TYPES = ("dir_baseline", "file_hash", "egress_flagged")
+# Types whose baseline an operator may legitimately re-accept (a real deploy)
+# — these get a "Reset baseline" action in the UI (client _CC_BASELINE_TYPES).
+BASELINE_CHECK_TYPES = ("dir_baseline", "file_hash",
+                        "egress_baseline", "auth_new_source")
+
 AGENT_CHECK_TYPES = (
     "file_present",
     "file_absent",
@@ -1189,11 +1198,18 @@ def _custom_checks_for(dev_id, dev, defs, disabled):
             continue
         status, output = _eval_custom_check(cdef, dev)
         key = f"custom:{cdef.get('id', '')}"
+        # v6.3.1: expose the check type + protect kind so the Checks page can
+        # offer "Reset baseline" on baseline-holding types and badge protect
+        # checks instead of labelling everything "custom".
+        kind = "protect" if (cdef.get("kind") == "protect"
+                             or cdef.get("type") in GUARD_CHECK_TYPES) else "custom"
         out.append(
             {
                 "key": key,
                 "name": cdef.get("name") or cdef.get("id", "custom"),
-                "group": "custom",
+                "group": kind,
+                "ctype": cdef.get("type") or "",
+                "kind": kind,
                 "status": status,
                 "output": str(output)[:200],
                 "enabled": key not in (disabled or set()),

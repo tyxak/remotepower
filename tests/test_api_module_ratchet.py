@@ -35,7 +35,10 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # module). Do NOT raise it to make room for a new subsystem — scaffold a module
 # with tools/new-handler-module.py instead. (Raise ONLY for a deliberate
 # core-spine handler, with a justification comment.)
-INLINE_HANDLER_CEILING = 629
+# 629→630 (v6.3.1): handle_alert_unresolve — core-spine alert lifecycle
+# (sibling of the inline ack/unack/resolve family; the undo stack's inverse
+# for a manual resolve).
+INLINE_HANDLER_CEILING = 630
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

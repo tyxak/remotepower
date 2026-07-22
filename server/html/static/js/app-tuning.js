@@ -73,16 +73,41 @@ function _renderTuningMutes(rows) {
 async function silenceNoisy(btn) {
   const dev = btn.dataset.dev, event = btn.dataset.event;
   if (!dev || !event) return;
-  if (!await uiConfirm('Silence ' + (btn.dataset.name || dev) + ' · ' + event + '? It stops alerting until you lift it here.')) return;
-  const r = await api('POST', '/alert-mutes', { device_id: dev, device_name: btn.dataset.name || '', event });
-  if (r && r.ok) { toast('Silenced' + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success'); loadTuning(); }
+  // v6.3.1: undo instead of are-you-sure — the mute applies immediately and
+  // the topbar arrow / Ctrl-Z lifts it again.
+  const body = { device_id: dev, device_name: btn.dataset.name || '', event };
+  const r = await api('POST', '/alert-mutes', body);
+  if (r && r.ok) {
+    toast('Silenced' + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
+    loadTuning();
+    let _muteId = r.id;
+    const doUndo = async () => { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(_muteId)); if (u?.ok) loadTuning(); };
+    const doRedo = async () => { const u = await api('POST', '/alert-mutes', body); if (u?.ok) { _muteId = u.id; loadTuning(); } };
+    pushUndoableAction(`Silence ${btn.dataset.name || dev} · ${event}`, doUndo, doRedo);
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
 async function unmuteAlert(id) {
   id = String(id);
-  if (!await uiConfirm('Lift this mute? Alerts of this type from this host will resume.')) return;
+  // v6.3.1: undo instead of are-you-sure — capture the mute so the topbar
+  // arrow / Ctrl-Z can re-create it (a re-created mute gets a fresh id, so
+  // the closures track the current one).
+  const m = ((_tuningData && _tuningData.mutes) || []).find(x => String(x.id) === id);
   const r = await api('DELETE', '/alert-mutes/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Mute lifted', 'info'); loadTuning(); }
+  if (r && r.ok) {
+    toast('Mute lifted', 'info'); loadTuning();
+    if (m) {
+      const reBody = { device_id: m.device_id, event: m.event, device_name: m.device_name || '' };
+      if (m.expires_at) {
+        const hrs = (m.expires_at - Date.now() / 1000) / 3600;
+        if (hrs >= 0.25) reBody.hours = Math.min(8760, Math.round(hrs * 4) / 4);
+      }
+      let curId = null;
+      const doUndo = async () => { const u = await api('POST', '/alert-mutes', reBody); if (u?.ok) { curId = u.id; loadTuning(); } };
+      const doRedo = async () => { if (curId != null) { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(curId)); if (u?.ok) loadTuning(); } };
+      pushUndoableAction(`Unmute ${m.device_name || m.device_id} · ${m.event}`, doUndo, doRedo);
+    }
+  }
   else toast((r && r.error) || 'Failed', 'error');
 }

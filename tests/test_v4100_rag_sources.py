@@ -196,13 +196,19 @@ class TestApiWiring(unittest.TestCase):
     def test_sources_wired_in_orchestrator(self):
         for fn in ("build_firewall_corpus", "build_integrations_corpus",
                    "build_backups_corpus", "build_dns_email_corpus",
-                   "build_posture_corpus", "build_vpn_corpus"):
+                   "build_posture_corpus", "build_vpn_corpus",
+                   # v6.3.1 advisor-grounding sources
+                   "build_incident_memory_corpus", "build_image_cves_corpus",
+                   "build_scap_corpus", "build_security_findings_corpus",
+                   "build_automation_rules_corpus"):
             self.assertIn(f"rag_index.{fn}", _API_SRC, fn)
 
     def test_sources_default_on(self):
         # the new sources are enabled by default
         for key in ("'firewall':", "'integrations':", "'backups':", "'dns_email':",
-                    "'posture':", "'vpn':"):
+                    "'posture':", "'vpn':",
+                    "'incident_memory':", "'image_cves':", "'scap':",
+                    "'security_findings':", "'automation_rules':"):
             self.assertIn(key, _API_SRC, key)
 
     def test_staleness_files_registered(self):
@@ -212,13 +218,20 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn("if sources.get('posture'):", _API_SRC)
         self.assertIn("if sources.get('vpn'):", _API_SRC)
         self.assertIn("files.append(VPN_FILE)", _API_SRC)
+        for key in ("incident_memory", "image_cves", "scap",
+                    "security_findings", "automation_rules"):
+            self.assertIn(f"if sources.get('{key}'):", _API_SRC, key)
+        self.assertIn("files.append(INCIDENT_MEMORY_FILE)", _API_SRC)
+        self.assertIn("files += [SECRETS_FILE, PII_FILE, AV_FILE]", _API_SRC)
 
     def test_dns_email_save_whitelisted(self):
         # the save-handler whitelist must include every default source, or its
         # UI toggle silently won't persist (the v4.10.0 firewall/integrations/
         # backups toggle-persistence bug). posture added in v5.0.0; vpn in v5.2.0.
         for key in ("'firewall'", "'integrations'", "'backups'", "'dns_email'",
-                    "'posture'", "'vpn'"):
+                    "'posture'", "'vpn'",
+                    "'incident_memory'", "'image_cves'", "'scap'",
+                    "'security_findings'", "'automation_rules'"):
             self.assertIn(key, _API_SRC, key)
 
 

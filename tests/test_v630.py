@@ -213,10 +213,19 @@ class TestOptimisticAlertActions(unittest.TestCase):
         self.assertIn("_ackAlertOptimistic(id)", alerts)
 
     def test_resolve_flips_then_reverts(self):
+        # v6.3.1: /unresolve now exists, so resolve moved from confirm-first to
+        # the optimistic undo-toast pattern (same as ack).
         from tests import srcpin
         fn = srcpin.js_function(_js("app-alerts.js"), "resolveAlert")
         self.assertIn("resolved_at", fn)
-        self.assertIn("uiConfirm", fn)   # no /unresolve exists — keep the confirm
+        self.assertNotIn("uiConfirm", fn)
+        self.assertIn("/unresolve", fn)
+        self.assertIn("uiUndoCtl.push", fn)
+
+    def test_server_unresolve_route_exists(self):
+        # resolveAlert's Undo depends on this endpoint staying alive.
+        from tests import apisrc
+        self.assertIn("def handle_alert_unresolve", apisrc.api_source())
 
     def test_server_unack_route_exists(self):
         # The Undo toast depends on this endpoint staying alive.

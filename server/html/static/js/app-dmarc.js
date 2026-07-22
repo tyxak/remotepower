@@ -109,11 +109,15 @@ async function reputationScan() {
   else toast((r && r.error) || 'Scan failed', 'error');
 }
 
+// v6.3.1: undoable (deferred commit) — was a confirm.
 async function deleteReputation(id) {
-  if (!await uiConfirm("Stop monitoring this IP's reputation?")) return;
-  const r = await api('DELETE', '/reputation/targets/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Removed', 'info'); loadReputation(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  undoableDelete({
+    label: 'Reputation target removed',
+    hide: () => _hideRowByAction('deleteReputation', id),
+    commit: () => api('DELETE', '/reputation/targets/' + encodeURIComponent(id)),
+    undo: () => loadReputation(),
+    after: () => loadReputation(),
+  });
 }
 
 async function loadDmarcReports() {

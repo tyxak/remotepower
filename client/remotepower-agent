@@ -6596,12 +6596,15 @@ def _eval_one_agent_check(c):
         try:
             age = time.time() - os.stat(host_path(param)).st_mtime
         except FileNotFoundError:
-            return 'critical', 'file missing'
+            return 'critical', (f'{param} not found — the job that should '
+                                'write it has never run here (or writes '
+                                'elsewhere)')
         except Exception:
             return 'unknown', 'stat failed'
         hrs = age / 3600.0
         return ('ok', f'updated {hrs:.1f}h ago') if age <= max_age \
-            else ('critical', f'stale: {hrs:.1f}h old (max {max_age // 3600}h)')
+            else ('critical', f'{param} is stale: last written {hrs:.1f}h ago '
+                              f'(limit {max_age // 3600}h) — the job stopped running')
     if ctype == 'log_errors':
         if not _which('journalctl') or not param:
             return 'unknown', 'no journalctl' if not _which('journalctl') else 'no pattern'
@@ -6651,7 +6654,8 @@ def _eval_one_agent_check(c):
                     hh.update(blk)
             cur = hh.hexdigest()
         except FileNotFoundError:
-            return 'critical', 'file missing'
+            return 'critical', (f'{param} missing — it was baselined here, so '
+                                'it has been deleted or moved')
         except OSError:
             return 'unknown', 'read failed'
         key = 'checkhash-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
@@ -6661,7 +6665,9 @@ def _eval_one_agent_check(c):
             return 'ok', 'baseline set'
         if prev == cur:
             return 'ok', f'unchanged ({cur[:12]})'
-        return 'critical', f'content changed (was {prev[:8]}…, now {cur[:8]}…)'
+        return 'critical', (f'{param} changed since baseline (sha256 {prev[:8]}… '
+                            f'→ {cur[:8]}…) — review the file; if the change is '
+                            'legitimate, Reset baseline to accept it')
     if ctype == 'dir_baseline':
         # File-integrity tripwire over a subtree: baseline {path: size:mtime} on
         # first run, then alert on any new/changed/removed file. `param` is
@@ -6745,33 +6751,37 @@ def _eval_one_agent_check(c):
                 added = []
         if not (added or removed or changed or quarantined):
             return 'ok', f'{n} files, unchanged'
+
+        # Name the files distinguishably, PER CATEGORY (v6.3.1 — the old merged
+        # "1 new; 2 changed — a, b, c" left the operator guessing which name was
+        # the new one). Plain basename() collapses /etc/systemd/system/x.service
+        # and its multi-user.target.wants/x.service enable-symlink into the same
+        # string, so same-named entries keep their parent dir.
+        def _nm(paths, cap=3):
+            picked = list(dict.fromkeys(paths))[:cap]
+            names = [os.path.basename(x) for x in picked]
+            labels = []
+            for path, base in zip(picked, names):
+                if names.count(base) > 1:
+                    parts = path.rstrip('/').split('/')
+                    labels.append('/'.join(parts[-2:]) if len(parts) > 1 else base)
+                else:
+                    labels.append(base)
+            more = len(dict.fromkeys(paths)) - len(picked)
+            return ', '.join(labels) + (f' +{more} more' if more > 0 else '')
+
         counts = []
         if quarantined:
             counts.append(f'{quarantined} quarantined')
         if added:
-            counts.append(f'{len(added)} new'
-                          + (' (mass change — NOT quarantined)' if mass_change else ''))
+            counts.append(f'{len(added)} new ({_nm(added)})'
+                          + (' — mass change, NOT quarantined' if mass_change else ''))
         if changed:
-            counts.append(f'{len(changed)} changed')
+            counts.append(f'{len(changed)} changed ({_nm(changed)})')
         if removed:
-            counts.append(f'{len(removed)} removed')
-        # Name the files distinguishably. Plain basename() collapses
-        # /etc/systemd/system/x.service and its multi-user.target.wants/x.service
-        # enable-symlink into the same string, so the operator sees "4 new — x, x,
-        # y" and cannot tell whether that is one file reported twice or two files
-        # that happen to share a name.
-        picked = list(dict.fromkeys(added + changed + removed))[:3]
-        names = [os.path.basename(x) for x in picked]
-        labels = []
-        for path, base in zip(picked, names):
-            if names.count(base) > 1:
-                parts = path.rstrip('/').split('/')
-                labels.append('/'.join(parts[-2:]) if len(parts) > 1 else base)
-            else:
-                labels.append(base)
-        more = len(dict.fromkeys(added + changed + removed)) - len(picked)
-        sample = ', '.join(labels) + (f' +{more} more' if more > 0 else '')
-        out = '; '.join(counts) + (f' — {sample}' if sample else '')
+            counts.append(f'{len(removed)} removed ({_nm(removed)})')
+        out = (f'in {raw.strip()}: ' + '; '.join(counts)
+               + ' — if legitimate, Reset baseline to accept')
         return 'critical', out[:200]
     if ctype == 'file_contains':
         # Content match across a subtree: `param` is path or path::glob, `pattern`

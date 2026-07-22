@@ -386,8 +386,17 @@ async function muteAlert(id) {
     toast('Muted — ' + (body.hours ? `for ${body.hours}h` : 'until you lift it')
       + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
     // refresh whichever view surfaced the alert (dashboard widget or inbox)
-    if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
-    else loadAlerts();
+    const _refresh = () => {
+      if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
+      else loadAlerts();
+    };
+    _refresh();
+    // v6.3.1: undoable — lift the mute again from the topbar arrow / Ctrl-Z.
+    // (Alerts the mute auto-resolved stay resolved; only the mute is lifted.)
+    let _muteId = r.id;
+    const doUndo = async () => { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(_muteId)); if (u?.ok) _refresh(); };
+    const doRedo = async () => { const u = await api('POST', '/alert-mutes', body); if (u?.ok) { _muteId = u.id; _refresh(); } };
+    pushUndoableAction('Alert muted', doUndo, doRedo);
   } else toast((r && r.error) || 'Failed to mute', 'error');
 }
 
@@ -422,24 +431,38 @@ async function bulkAckAlerts() {
 }
 
 async function resolveAlert(id) {
-  if (!await uiConfirm('Mark this alert resolved?')) return;
-  // v6.3.0 (UX wave 1): optimistic — the row flips to resolved instantly, the
-  // POST runs after, and a server decline reverts the flip with an error toast.
-  // (There is no /unresolve endpoint, so resolve keeps its confirm dialog
-  // rather than moving to the undo-toast pattern the way ack did.)
+  // v6.3.1: resolve now has a real inverse (POST /alerts/<id>/unresolve), so
+  // the confirm dialog is gone — the row flips instantly and the toast + the
+  // topbar undo arrow can take it back (the same pattern ack moved to in
+  // v6.3.0; "undo instead of are-you-sure").
   const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+  if (a && a.resolved_at) return;
   const prev = a ? { at: a.resolved_at, by: a.resolved_by } : null;
   if (a) {
     a.resolved_at = Math.floor(Date.now() / 1000);
     a.resolved_by = getMe() || 'me';
     renderAlerts();
   }
+  const revert = () => { if (a && prev) { a.resolved_at = prev.at; a.resolved_by = prev.by; renderAlerts(); } };
+  let reopened = false;
+  const doUnresolve = async () => {
+    if (reopened) return;
+    reopened = true;
+    const u = await api('POST', `/alerts/${encodeURIComponent(id)}/unresolve`, {});
+    if (u && u.ok) { loadAlerts(); refreshAlertsBadge(); }
+    else toast((u && u.error) || 'Could not undo', 'error');
+  };
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
-  if (r && r.ok) { toast('Alert resolved', 'success'); loadAlerts(); refreshAlertsBadge(); }
-  else {
-    if (a && prev) { a.resolved_at = prev.at; a.resolved_by = prev.by; renderAlerts(); }
-    toast((r && r.error) || 'Failed', 'error');
-  }
+  if (r && r.ok) {
+    refreshAlertsBadge();
+    uiUndoCtl.push({
+      label: 'Alert resolved',
+      alive: () => !reopened,
+      undo: doUnresolve,
+      redo: () => resolveAlert(id),
+    });
+    toast('Alert resolved', 'success', { action: { label: 'Undo', icon: 'undo', fn: doUnresolve } });
+  } else { revert(); toast((r && r.error) || 'Failed', 'error'); }
 }
 
 // v6.3.0 (UX wave 1): optimistic single-alert ack with a real Undo — the row

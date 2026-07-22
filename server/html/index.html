@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-46">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-47">
 
 </head>
 <body>
@@ -2298,6 +2298,15 @@
             <div class="settings-row"><label class="form-label" for="cfg-warranty-provider">Warranty provider</label><select id="cfg-warranty-provider" class="form-input mw-160"><option value="lenovo">Lenovo</option><option value="dell">Dell (needs TechDirect creds)</option></select></div>
             <div class="settings-row"><label class="form-label" for="cfg-warranty-lenovo-id">Lenovo ClientID</label><form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-warranty-lenovo-id" class="form-input" placeholder="ClientID (stored — leave blank to keep)" autocomplete="off" maxlength="256"></form></div>
             <p class="hint">Muted services — silence new-port / world-exposed alerts for a specific process and/or proto/port (e.g. <code>docker-proxy</code>) without turning the whole audit off. You can also mute straight from the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> table.</p>
+            <div class="mb-8">
+              <input type="text" id="exposure-mute-filter" class="form-input input-wide"
+                     placeholder="Filter mutes… (device, process, port)"
+                     data-input="filterRows" data-input-el="1"
+                     data-filter-target="#exposure-mute-list .sb-controls"
+                     data-filter-count="exposure-mute-filter-count"
+                     aria-label="Filter muted services">
+              <span id="exposure-mute-filter-count" class="hint"></span>
+            </div>
             <div id="exposure-mute-list" class="sb-result"></div>
             <div class="sb-controls">
               <input type="text" id="mute-process" class="form-input" placeholder="process (e.g. docker-proxy)" aria-label="process (e.g. docker-proxy)">
@@ -3115,6 +3124,11 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-incidents" checked> Status-page incidents (operator-posted incident history + update logs — grounds "what incidents have we had?", "is anything ongoing?")</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-maintenance" checked> Maintenance windows (scheduled/active windows + reasons — grounds "is anything in maintenance now?", "why is this alert suppressed?")</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-scripts" checked> Saved scripts (your automation library — names, descriptions and bodies with inline secrets redacted; grounds "what automation do we have?", "is there a script for X?")</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-incidentmemory" checked> Incident memory (how past alerts on this fleet were actually resolved — grounds root-cause and triage advice in your own history)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-imagecves" checked> Container-image CVEs (trivy findings per image/host — the CVE advisors see the container layer, not just host packages)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-scap" checked> OpenSCAP results (per-host hardening-baseline scores + top failing rules)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-securityfindings" checked> Security findings (secret-scan rule/path counts, PII inventory counts, AV posture — value-free by construction)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-automationrules" checked> Automation rules (what automation already exists — names, triggers and action types, never action bodies)</label>
             </div>
 
             <div class="form-group isl-773">
@@ -3430,6 +3444,15 @@
         <div class="settings-section">
           <div class="section-title">Log ignore patterns</div>
           <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc.</p>
+          <div class="mb-8">
+            <input type="text" id="log-ignore-filter" class="form-input input-wide"
+                   placeholder="Filter patterns…"
+                   data-input="filterRows" data-input-el="1"
+                   data-filter-target="#log-ignore-list .isl-655"
+                   data-filter-count="log-ignore-filter-count"
+                   aria-label="Filter log ignore patterns">
+            <span id="log-ignore-filter-count" class="hint"></span>
+          </div>
           <div id="log-ignore-list" class="isl-85 scroll-cap"></div>
           <div class="row-8-center">
             <input type="text" id="log-ignore-input" class="form-input isl-86"
@@ -4166,6 +4189,15 @@
         <div class="settings-section">
           <div class="section-title">Ignored items</div>
           <p class="hint">Items you've hidden using the × button on Needs Attention cards, device rows on the Containers page, or stale container rows. Click <em>Restore</em> on any entry to bring it back into view.</p>
+          <div class="mb-8">
+            <input type="text" id="ignored-filter" class="form-input input-wide"
+                   placeholder="Filter ignored items… (name, CVE, container)"
+                   data-input="filterRows" data-input-el="1"
+                   data-filter-target="#ignored-items-list .isl-669"
+                   data-filter-count="ignored-filter-count"
+                   aria-label="Filter ignored items">
+            <span id="ignored-filter-count" class="hint"></span>
+          </div>
           <div id="ignored-items-list" class="isl-88 scroll-cap">
             <div class="isl-78">Loading…</div>
           </div>
@@ -6645,6 +6677,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Active mutes</div></div>
+          <div class="mb-8">
+            <input type="text" id="tuning-mutes-filter" class="form-input input-wide"
+                   placeholder="Filter mutes… (device, event)"
+                   data-input="filterRows" data-input-el="1"
+                   data-filter-target="#tuning-mutes .ts-entry"
+                   data-filter-count="tuning-mutes-filter-count"
+                   aria-label="Filter active mutes">
+            <span id="tuning-mutes-filter-count" class="hint"></span>
+          </div>
           <div id="tuning-mutes" class="scroll-cap"><div class="empty-state">Loading…</div></div>
         </div>
       </div>
@@ -7105,6 +7146,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon" data-action="openBaselineChecks" data-arg="protect" title="Apply a recommended set of hardening and tamper-detection checks to a host, group, tag or the whole fleet"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg> Baseline protect checks</button>
             <button class="btn-icon" data-action="openCustomChecks" data-arg="protect" title="Define your own protect check, or pick one from the catalog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg> Add protect check</button>
             <button class="btn-icon" data-action="loadProtectChecks"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <input type="text" id="pc-filter" class="form-input"
+                   placeholder="Filter checks… (name, type, path, scope)"
+                   data-input="pcFilterChanged" data-input-el="1" data-input-debounce="150"
+                   aria-label="Filter protect checks">
           </div>
           <p class="hint">Hardening and tamper-detection checks applied to this fleet. They evaluate exactly like any other check — results show per host on <span class="fw-600">Monitoring → Checks</span> and alert through your normal channels. A <span class="fw-600">guard</span> badge means auto-quarantine is enabled for that check. Agent-side results arrive on the next sysinfo report (up to ~10 min), so new rows read <span class="mono-12">unknown</span> until then. <a href="docs/integrity-guard.md" class="c-accent">Documentation</a></p>
           <div class="scrollable-table-wrap audit-scroll mt-8"><table><thead id="pc-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="type">Type</th><th scope="col" data-col="param">Param</th><th scope="col" data-col="scope">Applies to</th><th scope="col"></th></tr></thead><tbody id="pc-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody></table></div>
@@ -7114,6 +7159,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-title">Quarantine vault</div>
           <div class="toolbar">
             <button class="btn-icon" data-action="loadGuardVault"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <input type="text" id="gv-filter" class="form-input"
+                   placeholder="Filter vault… (host, path)"
+                   data-input="gvFilterChanged" data-input-el="1" data-input-debounce="150"
+                   aria-label="Filter quarantine vault">
           </div>
           <p class="hint">Restore returns a file to its original path — only if that path is still free, so a replacement is never overwritten. Delete removes it from the vault permanently. Both are applied by the agent on its next check-in. Quarantine is suppressed during an active maintenance window, and a mass change (a deploy) is reported rather than quarantined.</p>
           <div class="scrollable-table-wrap audit-scroll mt-8"><table><thead id="guard-vault-thead"><tr><th scope="col" data-col="device">Host</th><th scope="col" data-col="orig">Original path</th><th scope="col" data-col="ts">Quarantined</th><th scope="col"></th></tr></thead><tbody id="guard-vault-tbody"><tr><td colspan="4" class="hint">Loading…</td></tr></tbody></table></div>
@@ -10606,34 +10655,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-46"></script>
+<script defer src="static/js/app.js?v=6.3.1-47"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-46"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-47"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-46"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-47"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-46"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-47"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-46"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-46"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-47"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-47"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10642,6 +10691,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-46"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-47"></script>
 </body>
 </html>

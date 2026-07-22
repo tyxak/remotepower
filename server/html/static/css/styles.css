@@ -2085,6 +2085,12 @@
   .toast.success { border-left: 3px solid var(--green); }
   .toast.error   { border-left: 3px solid var(--red); }
   .toast.info    { border-left: 3px solid var(--accent); }
+  /* v6.3.1: severity-tint treatment (same idiom as .adv-sev-* / .board-tile). */
+  @supports (background: color-mix(in srgb, red 6%, white)) {
+    .toast.success { background: color-mix(in srgb, var(--green) 8%, var(--surface)); }
+    .toast.error   { background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
+    .toast.info    { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  }
   .toast-icon    { font-size: 16px; }
   /* v6.3.0 (UX wave 1): inline action button — the "Undo" pattern */
   .toast-action {
@@ -6614,6 +6620,19 @@ body.density-compact .group-title { margin-bottom: 6px; }
 .board-tile:hover { border-color: var(--accent-edge); transform: translateY(-1px); }
 .board-tile.has-down { border-left: 3px solid var(--red); }
 .board-tile.has-warn { border-left: 3px solid var(--amber); }
+/* v6.3.1: same severity-tint treatment as the advisory cards (see .adv-sev-*). */
+@supports (background: color-mix(in srgb, red 6%, white)) {
+  .board-tile.has-down {
+    background: color-mix(in srgb, var(--red) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--red) 26%, var(--border));
+    border-left-color: var(--red);
+  }
+  .board-tile.has-warn {
+    background: color-mix(in srgb, var(--amber) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--amber) 24%, var(--border));
+    border-left-color: var(--amber);
+  }
+}
 .board-tile-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .board-tile-name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-tile-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -7397,11 +7416,32 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
    centred block (the scan "no findings" explanation) silently did nothing. */
 .ta-left { text-align: left; }
 
-/* The advisory card IS a .dash-card — it just carries a severity stripe. */
+/* The advisory card IS a .dash-card — it just carries a severity stripe.
+   v6.3.1: the bare stripe read as the generic "AI card" look — severity cards
+   now also carry a faint severity tint + tinted hairline so red/amber cards are
+   distinct at a glance. Flat surfaces only (no gradients); browsers without
+   color-mix keep the stripe-only fallback. */
 .adv-card { margin-bottom: 12px; border-left: 3px solid var(--hair-2, var(--hair)); }
 .adv-sev-critical { border-left-color: var(--red); }
 .adv-sev-high     { border-left-color: var(--orange, var(--red)); }
 .adv-sev-medium   { border-left-color: var(--amber, var(--muted)); }
+@supports (background: color-mix(in srgb, red 6%, white)) {
+  .adv-sev-critical {
+    background: color-mix(in srgb, var(--red) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--red) 26%, var(--hair));
+    border-left-color: var(--red);
+  }
+  .adv-sev-high {
+    background: color-mix(in srgb, var(--orange, var(--red)) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--orange, var(--red)) 26%, var(--hair));
+    border-left-color: var(--orange, var(--red));
+  }
+  .adv-sev-medium {
+    background: color-mix(in srgb, var(--amber, var(--muted)) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--amber, var(--muted)) 24%, var(--hair));
+    border-left-color: var(--amber, var(--muted));
+  }
+}
 .adv-head {
   display: flex;
   align-items: center;

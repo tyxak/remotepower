@@ -1130,6 +1130,10 @@ function applyAccent() {
   try { a = localStorage.getItem('rp_accent') || ''; } catch (_) {}
   // Branding default (set by #45) applies when the user hasn't picked one.
   if (!a && window._brandAccent && ACCENT_PRESETS.includes(window._brandAccent)) a = window._brandAccent;
+  // v6.3.1: amber is the product default when neither the user nor the brand
+  // picked an accent. Blue stays a first-class choice (it's the CSS base, so
+  // selecting it just clears the attribute).
+  if (!a) a = 'amber';
   if (a && a !== 'blue' && ACCENT_PRESETS.includes(a)) document.body.dataset.accent = a;
   else delete document.body.dataset.accent;
 }
@@ -1319,7 +1323,11 @@ function _buildAppearancePicker() {
   _buildThemeSchedule();   // v6.1.2 (#44)
   const wrap = document.getElementById('acct-accent');
   if (!wrap) return;
-  let cur = 'blue'; try { cur = localStorage.getItem('rp_accent') || 'blue'; } catch (_) {}
+  // Mirror applyAccent's fallback chain so the highlighted swatch matches
+  // what's actually applied (v6.3.1: default is amber, not blue).
+  let cur = ''; try { cur = localStorage.getItem('rp_accent') || ''; } catch (_) {}
+  if (!cur && window._brandAccent && ACCENT_PRESETS.includes(window._brandAccent)) cur = window._brandAccent;
+  if (!cur) cur = 'amber';
   wrap.innerHTML = '';
   ACCENT_PRESETS.forEach(name => {
     const b = document.createElement('button');
@@ -5972,6 +5980,18 @@ const uiUndoCtl = (() => {
 })();
 function uiUndoAction() { uiUndoCtl.undo(); }
 function uiRedoAction() { uiUndoCtl.redo(); }
+// v6.3.1: persistent undo entry for an INVERTIBLE mutation (mutes, ignores,
+// pattern edits — anything with a clean server-side inverse). Unlike
+// undoableDelete these entries have no expiry window, so the topbar arrows
+// stay lit until the stack drains. redoIt() re-applies the action and the
+// entry re-pushes itself, keeping the redo chain alive.
+function pushUndoableAction(label, undoIt, redoIt) {
+  uiUndoCtl.push({
+    label,
+    undo: () => undoIt(),
+    redo: redoIt ? (async () => { await redoIt(); pushUndoableAction(label, undoIt, redoIt); }) : undefined,
+  });
+}
 // v6.3.0 (UX wave 9): right-click (or long-press context menu) on the undo
 // arrow shows the whole stack, editor-style; clicking an entry undoes back
 // to and including it.
@@ -6055,10 +6075,12 @@ function undoableDelete(opts) {
   });
 }
 // Find the table row that hosts a delete button and hide it optimistically.
-function _hideRowByAction(action, arg) {
+// v6.3.1: rowSel lets list-card renderers name their row container
+// ('.mb-8', '.auto-rule', …) — default stays the table row.
+function _hideRowByAction(action, arg, rowSel) {
   const esc = (window.CSS && CSS.escape) ? CSS.escape(String(arg)) : String(arg);
   const btn = document.querySelector(`[data-action="${action}"][data-arg="${esc}"]`);
-  const row = btn && btn.closest('tr');
+  const row = btn && btn.closest(rowSel || 'tr');
   if (row) row.classList.add('d-none');
 }
 // Best-effort: if the tab goes away inside the undo window, fire the pending
@@ -8699,7 +8721,17 @@ async function createApiKey() {
   const sc = _apiKeyScopeFromForm(); if (sc) body.scope = sc;
   if (ipAllow) body.ip_allow = ipAllow;
   const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
-async function deleteApiKey(id) { if (!await uiConfirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+// v6.3.1: undoable (deferred commit) — the key keeps working until the undo
+// window closes, so an accidental click never breaks a script mid-run.
+async function deleteApiKey(id) {
+  undoableDelete({
+    label: 'API key deleted',
+    hide: () => _hideRowByAction('deleteApiKey', id),
+    commit: () => api('DELETE', '/apikeys/' + id),
+    undo: () => loadApiKeys(),
+    after: () => loadApiKeys(),
+  });
+}
 
 // v6.1.1: one-click rotation. Mints a replacement key and deactivates this
 // one; the new secret is revealed exactly once via the SAME reveal panel
@@ -9446,10 +9478,15 @@ async function saveSmartGroup() {
   if (r && (r.ok || r.name)) { toast('Smart group saved', 'success'); closeModal('smart-group-modal'); loadSmartGroups(); }
   else toast((r && r.error) || 'Save failed', 'error');
 }
+// v6.3.1: undoable (deferred commit) — was a danger-confirm.
 async function deleteSmartGroup(name) {
-  if (!await uiConfirm({ title: 'Delete smart group', message: `Delete smart:${name}? Scopes referencing it will no longer match.`, confirmText: 'Delete', danger: true })) return;
-  const r = await api('DELETE', `/smart-groups/${encodeURIComponent(name)}`);
-  if (r && r.ok) { toast('Deleted', 'info'); loadSmartGroups(); } else toast((r && r.error) || 'Failed', 'error');
+  undoableDelete({
+    label: `smart:${name} deleted`,
+    hide: () => _hideRowByAction('deleteSmartGroup', name, '.row-8-center'),
+    commit: () => api('DELETE', `/smart-groups/${encodeURIComponent(name)}`),
+    undo: () => loadSmartGroups(),
+    after: () => loadSmartGroups(),
+  });
 }
 async function viewSmartGroupMembers(name) {
   const r = await api('GET', `/smart-groups/${encodeURIComponent(name)}/members`).catch(() => null);
@@ -11673,16 +11710,19 @@ async function scanTarget(id) {
   loadScans();
 }
 
+// v6.3.1: undoable (deferred commit) — the ownership proof survives an
+// accidental click (nothing is discarded until the undo window closes).
 async function deleteScanTarget(id) {
-  if (!await uiConfirm({
-        title: 'Remove scan target',
-        message: 'Remove this saved scan target? Its ownership proof is discarded, so you\'d re-verify before scanning it again.',
-        confirmText: 'Remove', danger: true })) return;
-  const res = await api('DELETE', '/scan-targets/' + encodeURIComponent(id));
-  if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
-  delete _scanTargetProofs[id];
-  toast('Scan target removed', 'info');
-  loadScanTargets();
+  undoableDelete({
+    label: 'Scan target removed',
+    hide: () => _hideRowByAction('deleteScanTarget', id, '.mb-8'),
+    commit: async () => {
+      const res = await api('DELETE', '/scan-targets/' + encodeURIComponent(id));
+      if (res && !res.error) delete _scanTargetProofs[id];
+    },
+    undo: () => loadScanTargets(),
+    after: () => loadScanTargets(),
+  });
 }
 
 // ── #4: scheduled scans (recurring; high/critical findings raise an alert) ───
@@ -11744,12 +11784,15 @@ async function toggleScanSchedule(id) {
   loadScanSchedules();
 }
 
+// v6.3.1: undoable (deferred commit) — was a danger-confirm.
 async function deleteScanSchedule(id) {
-  if (!await uiConfirm({ message: 'Delete this scan schedule? It stops running on its cron.', confirmText: 'Delete', danger: true })) return;
-  const res = await api('DELETE', '/scan-schedules/' + encodeURIComponent(id));
-  if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
-  toast('Schedule deleted', 'info');
-  loadScanSchedules();
+  undoableDelete({
+    label: 'Scan schedule deleted',
+    hide: () => _hideRowByAction('deleteScanSchedule', id, '.mb-8'),
+    commit: () => api('DELETE', '/scan-schedules/' + encodeURIComponent(id)),
+    undo: () => loadScanSchedules(),
+    after: () => loadScanSchedules(),
+  });
 }
 
 // ── v6.1.1: scheduled LAN discovery — turns handle_device_netscan's one-shot
@@ -12213,11 +12256,19 @@ async function loadMaintSuppressions() {
 
 // Raw dataset.id (not data-arg) so a hex window id can't be number-coerced to Infinity.
 function _deleteMaintenanceBtn(btn) { return deleteMaintenance(btn.dataset.id); }
+// v6.3.1: undoable (deferred commit) — was a confirm.
 async function deleteMaintenance(winId) {
   winId = String(winId);
-  if (!await uiConfirm('Delete this maintenance window?')) return;
-  const result = await api('DELETE', `/maintenance/${encodeURIComponent(winId)}`);
-  if (result && result.ok) { toast('Window deleted', 'success'); loadMaintenance(); }
+  undoableDelete({
+    label: 'Maintenance window deleted',
+    hide: () => {
+      const esc = (window.CSS && CSS.escape) ? CSS.escape(winId) : winId;
+      document.querySelector(`#maint-tbody [data-id="${esc}"]`)?.closest('tr')?.classList.add('d-none');
+    },
+    commit: () => api('DELETE', `/maintenance/${encodeURIComponent(winId)}`),
+    undo: () => loadMaintenance(),
+    after: () => loadMaintenance(),
+  });
 }
 
 // v3.3.0: maintenance modal carries an "editing" pointer so save can
@@ -15568,6 +15619,9 @@ async function addExposureMute() {
     toast('Mute added' + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
     ['mute-process', 'mute-proto', 'mute-port'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     _renderExposureMutes(r.mutes);
+    pushUndoableAction(`Mute ${process || proto || port}`,
+      async () => { const u = await api('POST', '/exposure/mute', Object.assign({}, body, { action: 'remove' })); if (u?.ok) _renderExposureMutes(u.mutes); },
+      async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); });
   } else { toast('Add mute failed', 'error'); }
 }
 async function removeExposureMute(process, proto, port, deviceId) {
@@ -15577,7 +15631,12 @@ async function removeExposureMute(process, proto, port, deviceId) {
   if (proto) body.proto = proto;
   if (port !== '' && port !== undefined && port !== null) body.port = port;
   const r = await api('POST', '/exposure/mute', body);
-  if (r && r.ok) { toast('Mute removed', 'success'); _renderExposureMutes(r.mutes); }
+  if (r && r.ok) {
+    toast('Mute removed', 'success'); _renderExposureMutes(r.mutes);
+    pushUndoableAction(`Unmute ${process || proto || port || 'device'}`,
+      async () => { const u = await api('POST', '/exposure/mute', Object.assign({}, body, { action: 'add' })); if (u?.ok) _renderExposureMutes(u.mutes); },
+      async () => { const u = await api('POST', '/exposure/mute', body); if (u?.ok) _renderExposureMutes(u.mutes); });
+  }
   else { toast('Remove mute failed', 'error'); }
 }
 document.addEventListener('change', e => {
@@ -18392,6 +18451,9 @@ async function ignoreAttention(key, label) {
   if (r?.ok) {
     toast('Hidden from Needs Attention', 'success');
     _renderHomeAttention();
+    pushUndoableAction(`Hide "${label || key}"`,
+      async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _renderHomeAttention(); },
+      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label }); if (u?.ok) _renderHomeAttention(); });
   } else {
     toast(r?.error || 'Failed', 'error');
   }
@@ -18409,6 +18471,9 @@ async function snoozeAttention(key, label) {
   if (r?.ok) {
     toast('Snoozed for 24h', 'success');
     _renderHomeAttention();
+    pushUndoableAction(`Snooze "${label || key}"`,
+      async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _renderHomeAttention(); },
+      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label, expires_at: Math.floor(Date.now() / 1000) + 86400 }); if (u?.ok) _renderHomeAttention(); });
   } else {
     toast(r?.error || 'Failed', 'error');
   }
@@ -24296,12 +24361,15 @@ async function toggleAutomationRule(id) {
   loadAutomation();
 }
 
+// v6.3.1: undoable (deferred commit) — was a confirm.
 async function deleteAutomationRule(id) {
-  if (!await uiConfirm('Delete this automation rule?')) return;
-  const r = await api('DELETE', '/automation/rules/' + encodeURIComponent(id)).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Delete failed', 'error'); return; }
-  toast('Rule deleted', 'success');
-  loadAutomation();
+  undoableDelete({
+    label: 'Automation rule deleted',
+    hide: () => _hideRowByAction('deleteAutomationRule', id, '.auto-rule'),
+    commit: () => api('DELETE', '/automation/rules/' + encodeURIComponent(id)).catch(() => null),
+    undo: () => loadAutomation(),
+    after: () => loadAutomation(),
+  });
 }
 
 // ── Fleet query (v3.4.2) — ad-hoc device filter + saved queries (localStorage) ─
@@ -24972,11 +25040,15 @@ async function saveReportDef() {
   resetReportDef();
   loadReportDefs();
 }
+// v6.3.1: undoable (deferred commit) — was a confirm.
 async function deleteReportDef(id) {
-  if (!await uiConfirm('Delete this custom report?')) return;
-  const r = await api('DELETE', `/report/definitions/${encodeURIComponent(id)}`).catch(() => null);
-  if (r && r.ok) { toast('Report deleted', 'info'); loadReportDefs(); }
-  else toast((r && r.error) || 'Delete failed', 'error');
+  undoableDelete({
+    label: 'Custom report deleted',
+    hide: () => _hideRowByAction('deleteReportDef', id),
+    commit: () => api('DELETE', `/report/definitions/${encodeURIComponent(id)}`).catch(() => null),
+    undo: () => loadReportDefs(),
+    after: () => loadReportDefs(),
+  });
 }
 function downloadReportDef(id) {
   const d = _reportDefs.find(x => x.id === id);
@@ -25071,58 +25143,111 @@ function _renderForecastTable() {
   tableCtl.wireSortOnly('forecast-thead', 'forecast', _renderForecastTable);
 }
 
-// Inline SVG scatter + least-squares regression line, extrapolated to capacity.
+// Inline SVG forecast chart: observed usage as a line + gradient area, the
+// least-squares fit continued as a dashed projection to the fill date, plus
+// gridlines, a "today" marker and native <title> tooltips on the samples.
 // CSP-safe: SVG presentation attributes only, no inline style= attribute.
+let _forecastGradSeq = 0;
 function _renderForecastChart() {
   const host = document.getElementById('forecast-chart');
   if (!host) return;
   const m = _forecastRows[_forecastSel];
   if (!m || !Array.isArray(m.series) || m.series.length < 2) { host.innerHTML = ''; return; }
   const DAY = 86400;
-  const W = 760, H = 300, padL = 58, padR = 96, padT = 18, padB = 36;
+  const W = 760, H = 300, padL = 58, padR = 96, padT = 26, padB = 36;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const pts = m.series;                       // [[ts, gb], ...]
   const t0 = m.t0_ts, slope = m.slope, intercept = m.intercept;
   const fit = ts => slope * ((ts - t0) / DAY) + intercept;
   const tMin = pts[0][0];
-  const tEnd = m.fill_date_ts || pts[pts.length - 1][0];
-  const tMax = Math.max(tEnd, pts[pts.length - 1][0]);
+  const tLast = pts[pts.length - 1][0];
+  const tEnd = m.fill_date_ts || tLast;
+  const tMax = Math.max(tEnd, tLast);
   const yMax = Math.max(m.total_gb, ...pts.map(p => p[1])) * 1.02 || 1;
   const xspan = (tMax - tMin) || 1;
   const X = ts => padL + ((ts - tMin) / xspan) * plotW;
   const Y = gb => padT + (1 - Math.min(gb, yMax) / yMax) * plotH;
+  const clampY = y => Math.max(padT, Math.min(padT + plotH, y));
   const fmtDate = ts => new Date(ts * 1000).toISOString().slice(0, 10);
 
+  // Gradient defs — unique ids per render (SVG ids are document-global).
+  const gid = 'fcg' + (++_forecastGradSeq);
+  const defs = `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="var(--accent)" stop-opacity="0.28"/>`
+    + `<stop offset="1" stop-color="var(--accent)" stop-opacity="0.02"/>`
+    + `</linearGradient></defs>`;
+
+  // Horizontal gridlines at quarter steps with GB labels.
+  let grid = '';
+  for (let i = 1; i <= 3; i++) {
+    const gb = (yMax * i) / 4;
+    const gy = Y(gb).toFixed(1);
+    grid += `<line x1="${padL}" y1="${gy}" x2="${padL + plotW}" y2="${gy}" stroke="var(--hair, var(--border))" stroke-width="1" stroke-dasharray="1 4"/>`
+      + `<text x="${padL - 8}" y="${+gy + 4}" fill="var(--muted)" font-size="10" text-anchor="end">${Math.round(gb)}</text>`;
+  }
   const axis = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1"/>`
     + `<line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1"/>`;
-  // capacity line
+
+  // Faint wash over the projected (unobserved) region so it reads as "estimate".
+  let projRegion = '';
+  if (tMax > tLast) {
+    projRegion = `<rect x="${X(tLast).toFixed(1)}" y="${padT}" width="${(X(tMax) - X(tLast)).toFixed(1)}" height="${plotH}" fill="var(--muted)" fill-opacity="0.05"/>`
+      + `<text x="${((X(tLast) + X(tMax)) / 2).toFixed(1)}" y="${padT + 12}" fill="var(--muted)" font-size="9.5" text-anchor="middle">projected</text>`;
+  }
+
+  // Observed usage: gradient area under a connected line, plus sample dots
+  // with native tooltips.
+  const lineP = 'M' + pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' L');
+  const areaP = lineP + ` L${X(tLast).toFixed(1)},${(padT + plotH).toFixed(1)} L${X(tMin).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
+  const area = `<path d="${areaP}" fill="url(#${gid})"/>`;
+  const obsLine = `<path d="${lineP}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  const dots = pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.5" fill="var(--accent)"><title>${fmtDate(p[0])} · ${p[1]} GB</title></circle>`).join('');
+
+  // Fit line over the observed span (thin, under the data), continued as a
+  // dashed projection from the last sample to the fill date.
+  const fy0 = clampY(Y(fit(tMin))), fyL = clampY(Y(fit(tLast)));
+  const fitLine = `<line x1="${X(tMin)}" y1="${fy0.toFixed(1)}" x2="${X(tLast)}" y2="${fyL.toFixed(1)}" stroke="var(--accent)" stroke-width="1" stroke-opacity="0.5"/>`;
+  let projLine = '';
+  if (tEnd > tLast) {
+    const fyE = clampY(Y(fit(tEnd)));
+    projLine = `<line x1="${X(tLast)}" y1="${fyL.toFixed(1)}" x2="${X(tEnd)}" y2="${fyE.toFixed(1)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 5"/>`;
+  }
+
+  // Capacity line.
   const capY = Y(m.total_gb);
   const cap = `<line x1="${padL}" y1="${capY}" x2="${padL + plotW}" y2="${capY}" stroke="var(--red)" stroke-width="1" stroke-dasharray="5 4"/>`
     + `<text x="${padL + plotW + 6}" y="${capY + 4}" fill="var(--red)" font-size="11">capacity ${m.total_gb} GB</text>`;
-  // y labels (0 and capacity)
+  // Y labels (0 and capacity).
   const ylab = `<text x="${padL - 8}" y="${Y(0) + 4}" fill="var(--muted)" font-size="11" text-anchor="end">0</text>`
     + `<text x="${padL - 8}" y="${capY + 4}" fill="var(--muted)" font-size="11" text-anchor="end">${m.total_gb}</text>`;
-  // x labels (first + last/fill date)
+  // X labels (first + last/fill date).
   const xlab = `<text x="${X(tMin)}" y="${padT + plotH + 22}" fill="var(--muted)" font-size="11" text-anchor="middle">${fmtDate(tMin)}</text>`
     + `<text x="${X(tMax)}" y="${padT + plotH + 22}" fill="var(--muted)" font-size="11" text-anchor="end">${fmtDate(tMax)}</text>`;
-  // regression line, clamped to the plot vertically
-  const ly0 = Math.max(padT, Math.min(padT + plotH, Y(fit(tMin))));
-  const ly1 = Math.max(padT, Math.min(padT + plotH, Y(fit(tEnd))));
-  const line = `<line x1="${X(tMin)}" y1="${ly0}" x2="${X(tEnd)}" y2="${ly1}" stroke="var(--accent)" stroke-width="2"/>`;
-  // observed points
-  const dots = pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
-  // fill marker
+
+  // "Today" marker (only when the projection extends past the last sample —
+  // otherwise it coincides with the right edge and just adds noise).
+  let today = '';
+  const nowTs = Date.now() / 1000;
+  if (tMax > tLast && nowTs >= tMin && nowTs <= tMax) {
+    const tx = X(nowTs).toFixed(1);
+    today = `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${padT + plotH}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 3"/>`
+      + `<text x="${tx}" y="${padT + plotH + 12}" fill="var(--muted)" font-size="9.5" text-anchor="middle">today</text>`;
+  }
+
+  // Fill marker.
   let fillMark = '';
   if (m.fill_date_ts && m.days_to_full != null) {
     const fx = X(m.fill_date_ts);
     fillMark = `<line x1="${fx}" y1="${padT}" x2="${fx}" y2="${padT + plotH}" stroke="var(--red)" stroke-width="1" stroke-dasharray="2 3"/>`
-      + `<circle cx="${fx}" cy="${capY}" r="4" fill="var(--red)"/>`
-      + `<text x="${fx}" y="${padT - 4}" fill="var(--red)" font-size="11" text-anchor="middle">fills ${fmtDate(m.fill_date_ts)} (${_fmtDays(m.days_to_full)})</text>`;
+      + `<circle cx="${fx}" cy="${capY}" r="4" fill="var(--red)"><title>fills ${fmtDate(m.fill_date_ts)}</title></circle>`
+      + `<text x="${fx}" y="${padT - 6}" fill="var(--red)" font-size="11" text-anchor="middle">fills ${fmtDate(m.fill_date_ts)} (${_fmtDays(m.days_to_full)})</text>`;
   }
-  const title = `${escHtml(m.device_name)} — ${escHtml(m.path)} · ${m.trend_gb_per_day} GB/day`;
+  const rate = `${m.trend_gb_per_day} GB/day` + (m.recent_gb_per_day != null && m.recent_gb_per_day !== m.trend_gb_per_day ? ` (recent ${m.recent_gb_per_day})` : '');
+  const conf = m.r2 != null ? ` · fit R² ${m.r2}` : '';
+  const title = `${escHtml(m.device_name)} — ${escHtml(m.path)} · ${rate}${conf} · ${pts.length} samples`;
   host.innerHTML = `<div class="fs-12 c-muted mb-6">${title}</div>`
     + `<svg class="forecast-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Disk-fill forecast for ${escAttr(m.device_name)} ${escAttr(m.path)}">`
-    + axis + cap + ylab + xlab + line + dots + fillMark + `</svg>`;
+    + defs + grid + axis + projRegion + area + fitLine + projLine + obsLine + dots + cap + ylab + xlab + today + fillMark + `</svg>`;
 }
 
 async function loadCompliance() {
@@ -25386,6 +25511,7 @@ async function addLogIgnorePattern() {
   try { new RegExp(pat); } catch(e) { toast('Invalid regex: ' + e.message, 'error'); return; }
   const wasEdit = _logIgnoreEditIdx >= 0;
   const prev    = wasEdit ? _logIgnorePatterns[_logIgnoreEditIdx] : null;
+  const beforePats = _logIgnorePatterns.slice();
   if (wasEdit && _logIgnoreEditIdx < _logIgnorePatterns.length) {
     _logIgnorePatterns[_logIgnoreEditIdx] = pat;
   } else {
@@ -25397,6 +25523,10 @@ async function addLogIgnorePattern() {
     if (input) input.value = '';
     _logIgnoreEditIdx = -1;
     _renderLogIgnoreList();
+    const afterPats = _logIgnorePatterns.slice();
+    pushUndoableAction(wasEdit ? 'Log pattern edit' : 'Log pattern added',
+      async () => { const u = await api('POST', '/config', { log_ignore_patterns: beforePats }); if (u?.ok) { _logIgnorePatterns = beforePats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
+      async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } });
   } else {
     // Roll back the mutation
     if (wasEdit) _logIgnorePatterns[_logIgnoreEditIdx] = prev;
@@ -25406,11 +25536,18 @@ async function addLogIgnorePattern() {
 }
 
 async function removeLogIgnorePattern(idx) {
+  const beforePats = _logIgnorePatterns.slice();
   _logIgnorePatterns.splice(idx, 1);
   if (_logIgnoreEditIdx === idx) _logIgnoreEditIdx = -1;
   else if (_logIgnoreEditIdx > idx) _logIgnoreEditIdx -= 1;
   const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
-  if (r?.ok) { _renderLogIgnoreList(); toast('Removed', 'info'); }
+  if (r?.ok) {
+    _renderLogIgnoreList(); toast('Removed', 'info');
+    const afterPats = _logIgnorePatterns.slice();
+    pushUndoableAction('Log pattern removed',
+      async () => { const u = await api('POST', '/config', { log_ignore_patterns: beforePats }); if (u?.ok) { _logIgnorePatterns = beforePats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } },
+      async () => { const u = await api('POST', '/config', { log_ignore_patterns: afterPats }); if (u?.ok) { _logIgnorePatterns = afterPats.slice(); _logIgnoreEditIdx = -1; _renderLogIgnoreList(); } });
+  }
   else toast('Failed', 'error');
 }
 
@@ -25780,6 +25917,9 @@ async function ignoreContainerDevice(deviceId, name) {
   if (r?.ok) {
     toast('Hidden (restore from Settings → Ignored items)', 'success');
     loadContainersOverview();
+    pushUndoableAction(`Hide "${name}" from Containers`,
+      async () => { const u = await api('POST', '/ignored/remove', { category: 'devices', id: deviceId }); if (u?.ok) loadContainersOverview(); },
+      async () => { const u = await api('POST', '/ignored', { category: 'devices', id: deviceId, label: name }); if (u?.ok) loadContainersOverview(); });
   } else {
     toast(r?.error || 'Failed', 'error');
   }
@@ -25856,7 +25996,13 @@ async function restoreIgnored(category, entry) {
   if (category === 'stale_containers') { body.device_id = entry.device_id; body.container = entry.container; }
   if (category === 'devices')          body.id = entry.id;
   const r = await api('POST', '/ignored/remove', body);
-  if (r?.ok) { toast('Restored', 'success'); loadIgnoredItems(); }
+  if (r?.ok) {
+    toast('Restored', 'success'); loadIgnoredItems();
+    const reAdd = Object.assign({}, body, { label: entry.label });
+    pushUndoableAction(`Restore "${entry.label || entry.key || entry.id || entry.container}"`,
+      async () => { const u = await api('POST', '/ignored', reAdd); if (u?.ok) loadIgnoredItems(); },
+      async () => { const u = await api('POST', '/ignored/remove', body); if (u?.ok) loadIgnoredItems(); });
+  }
   else toast(r?.error || 'Failed', 'error');
 }
 
