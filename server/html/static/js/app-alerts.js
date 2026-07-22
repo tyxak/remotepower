@@ -103,13 +103,25 @@ function _renderAlertsSummary(summary) {
   if (!el) return;
   if (!summary) { el.innerHTML = ''; return; }
   const bs = summary.by_severity || {};
+  // v6.4.0: living stat tiles — the generic statTiles machinery (count-up +
+  // sparkline + meaning-aware delta) enhances any .stat-value integer, so the
+  // Open/Ack/Resolved trend animates like the home hero tiles. data-stat-tone
+  // drives the delta colour: a rising Open count is red, rising Resolved green.
+  const card = (label, val, iconName, iconCls, tone) =>
+    `<div class="stat-card"${tone ? ` data-stat-tone="${tone}"` : ''}>` +
+      `<div class="stat-icon ${iconCls}">${_icon(iconName, 20)}</div>` +
+      `<div><div class="stat-value">${val || 0}</div><div class="stat-label">${label}</div></div>` +
+    `</div>`;
   el.innerHTML =
-    `<span class="alerts-summary-pill">Open: <strong>${summary.open || 0}</strong></span>` +
-    `<span class="alerts-summary-pill">Acknowledged: <strong>${summary.acknowledged || 0}</strong></span>` +
-    `<span class="alerts-summary-pill">Resolved: <strong>${summary.resolved || 0}</strong></span>` +
-    (bs.critical ? `<span class="alerts-summary-pill sev-pill sev-critical">Critical: ${bs.critical}</span>` : '') +
-    (bs.high ? `<span class="alerts-summary-pill sev-pill sev-high">High: ${bs.high}</span>` : '') +
+    `<div class="stats-row mb-12">` +
+      card('Open', summary.open, 'bell', 'red', 'bad') +
+      card('Acknowledged', summary.acknowledged, 'check', 'blue', 'good') +
+      card('Resolved', summary.resolved, 'check', 'green', 'good') +
+      (bs.critical ? card('Critical', bs.critical, 'bell', 'red', 'bad') : '') +
+      (bs.high ? card('High', bs.high, 'bell', 'red', 'bad') : '') +
+    `</div>` +
     _alertsHeatStrip();
+  if (typeof statTiles !== 'undefined') statTiles.enhanceAll(el);
 }
 
 // v6.3.0 (UX wave 10): per-day volume strip over the LOADED alerts (a

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-3">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-4">
 
 </head>
 <body>
@@ -5798,7 +5798,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="showMonitorSection" data-arg="section-scripts" title="Custom monitoring scripts run on each host; their pass/fail shows here as a check"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-4c6702d5"/></svg> Custom scripts</button>
           <button class="btn-icon" data-action="loadChecks"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
         </div>
-        <div id="checks-summary" class="isl-186 mb-16"></div>
+        <div id="checks-summary" class="mb-16"></div>
         <div class="table-card">
           <table>
             <thead id="checks-thead"><tr>
@@ -8051,7 +8051,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="clearResolvedAlerts" title="Remove every alert with status resolved. Open + acknowledged rows stay.">Clear resolved</button>
           <button class="btn-icon c-danger-outline" data-action="clearAllAlerts" title="Remove EVERY alert regardless of status. Cannot be undone.">Clear all</button>
         </div>
-        <div id="alerts-summary" class="isl-186 mb-16"></div>
+        <div id="alerts-summary" class="mb-16"></div>
         <div class="table-card">
           <table>
             <thead id="alerts-thead">
@@ -10674,34 +10674,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-3"></script>
+<script defer src="static/js/app.js?v=6.4.0-4"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-4"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-4"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-4"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-3"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-3"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-4"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-4"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10710,6 +10710,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-3"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-4"></script>
 </body>
 </html>

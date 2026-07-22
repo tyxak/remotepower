@@ -51,11 +51,24 @@ function renderChecks() {
     if (r.enabled) sum[r.status] = (sum[r.status] || 0) + 1;
   });
   const se = document.getElementById('checks-summary');
-  if (se) se.innerHTML =
-    `<span class="chk-pill chk-critical">CRIT ${sum.critical}</span> ` +
-    `<span class="chk-pill chk-warning">WARN ${sum.warning}</span> ` +
-    `<span class="chk-pill chk-unknown">UNK ${sum.unknown}</span> ` +
-    `<span class="chk-pill chk-ok">OK ${sum.ok}</span>`;
+  if (se) {
+    // v6.4.0: living stat tiles — the statTiles machinery enhances each
+    // .stat-value integer (count-up + sparkline + meaning-aware delta). A
+    // rising Critical/Warning/Unknown count trends red; rising OK trends green.
+    const card = (label, val, iconName, iconCls, tone) =>
+      `<div class="stat-card"${tone ? ` data-stat-tone="${tone}"` : ''}>` +
+        `<div class="stat-icon ${iconCls}">${_icon(iconName, 20)}</div>` +
+        `<div><div class="stat-value">${val || 0}</div><div class="stat-label">${label}</div></div>` +
+      `</div>`;
+    se.innerHTML =
+      `<div class="stats-row">` +
+        card('Critical', sum.critical, 'bell', 'red', 'bad') +
+        card('Warning', sum.warning, 'bell', 'blue', 'bad') +
+        card('Unknown', sum.unknown, 'bell', '', 'bad') +
+        card('OK', sum.ok, 'check', 'green', 'good') +
+      `</div>`;
+    if (typeof statTiles !== 'undefined') statTiles.enhanceAll(se);
+  }
   rows = tableCtl.sortRows('checks', rows, r => ({
     host: r.host.toLowerCase(), group: r.group.toLowerCase(),
     check: r.check.toLowerCase(), status: _CHK_RANK[r.status] ?? 9,
