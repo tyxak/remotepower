@@ -884,7 +884,10 @@ def _self_update():
         tmp = self_path + '.rp-new'
         with open(tmp, 'wb') as f:
             f.write(data)
-        os.chmod(tmp, 0o755)
+        # v6.4.0: 0o700 (owner-only rwx), matching the Linux agent's self-update
+        # (least privilege — the launchd daemon runs as root, so the replaced
+        # binary never needs to be world-readable/executable).
+        os.chmod(tmp, 0o700)
         os.replace(tmp, self_path)   # atomic on APFS
     except Exception as e:
         return {'cmd': 'update', 'output': f'install write failed: {e}', 'rc': 1}
