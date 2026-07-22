@@ -86,4 +86,33 @@ defects were found and fixed:
   save/model/get; no success `respond()` under `except Exception`; no
   `.exists()` on a storage key; write-gates correct.
 
-No Critical / High / Medium issue ships; nothing exploitable.
+## Finalize / hardening pass (whole-project, not just new code)
+
+A second sweep across the entire project accompanied the release finalize:
+
+- **SAST, all three tools clean.** `bandit -r server/cgi-bin client` — 0 High,
+  0 Medium (the one Medium found, the macOS agent writing its replaced binary
+  world-executable during self-update, was fixed — see below; remaining
+  findings are by-design Lows: shell-less subprocess, best-effort try/except).
+  `gitleaks` — no leaks across full history and the working tree. `ruff
+  --select F821` on both agents — clean. **CodeQL** (the config-honoring pass
+  that matches production's advanced-setup scan) — **0 results across Python
+  and JavaScript**.
+- **macOS agent self-update hardened.** The mac agent replaced its own binary
+  with mode `0o755` (world-readable/executable) — inconsistent with the Linux
+  agent (`0o700`) and needlessly broad, since the launchd daemon runs as root.
+  Tightened to `0o700` (owner-only). No exploitability, but least-privilege
+  parity across agents.
+- **Live probing of the maintainer's own instance** (authorized internal
+  testing) confirmed a strong external posture: a strict Content-Security-Policy
+  with no `unsafe-inline` (`default-src 'self'`; script/style `'self'`;
+  `frame-ancestors 'none'`), HSTS with preload, `X-Frame-Options: DENY`,
+  `nosniff`, cross-origin opener/resource policies, and a locked
+  permissions-policy. Unauthenticated API requests are rejected with a terse
+  `401`/`404` (no stack traces, no version-dependent error text); unexpected
+  methods and path-traversal attempts are handled (`405`/`403`/`404`); the only
+  unauthenticated endpoint is a minimal health check. No information disclosure
+  beyond the product version.
+
+No Critical / High / Medium issue ships; nothing exploitable. The full local
+SAST suite (Bandit, gitleaks, CodeQL) reports clean.

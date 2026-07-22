@@ -210,14 +210,17 @@ Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security
 
-Security-reviewed every few releases and independently pentested clean —
-the latest full run (Bandit SAST; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb
-DAST) reported no exploitable findings. bcrypt-hashed passwords behind
-rate-limited login, TOTP/passkeys/SAML/OIDC/LDAP, a strict CSP with no
-`unsafe-inline`, an AES-GCM CMDB vault, a tamper-evident audit log, and
-mandatory TLS verification with anti-DNS-rebinding on every outbound call.
-Full posture, threat model and review history →
-**[docs/security.md](docs/security.md)**.
+Security-reviewed every release and pentested as hard as we can — the bar is
+**nothing Critical, High or Medium ships, and nothing exploitable**. Every
+release runs SAST (Bandit, gitleaks, and CodeQL — the same advanced-setup scan
+GitHub runs, reporting clean), adversarial code review, DAST (OWASP ZAP, Nikto,
+Nuclei, Wapiti, WhatWeb), and live probing of our own instance. bcrypt-hashed
+passwords behind rate-limited login, TOTP/passkeys/SAML/OIDC/LDAP, a strict CSP
+with no `unsafe-inline` (plus HSTS preload, frame-ancestors `none`, and a locked
+permissions-policy), an AES-GCM CMDB vault, a tamper-evident audit log, signed
+agent commands, and mandatory TLS verification with anti-DNS-rebinding on every
+outbound call. Each release's write-up is public. Full posture, threat model
+and review history → **[docs/security.md](docs/security.md)**.
 
 ## Documentation
 
