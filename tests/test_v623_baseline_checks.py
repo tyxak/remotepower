@@ -78,6 +78,15 @@ class TestApply(_ApplyBase):
         self.assertEqual(by_param['remotepower-agent.service']['target_kind'], 'group')
         self.assertEqual(by_param['remotepower-agent.service']['target'], 'servers')
 
+    def test_apply_to_a_specific_host(self):
+        # a non-role-tagged template honours a host-scoped apply (device id)
+        checks = self._apply(['accounts_integrity'], 'host', 'dev_abc123')
+        self.assertEqual(self.cap['s'], 200)
+        c = next(x for x in checks if x['param'] == '/etc/passwd')
+        self.assertEqual(c['type'], 'file_hash')
+        self.assertEqual(c['target_kind'], 'host')
+        self.assertEqual(c['target'], 'dev_abc123')
+
     def test_role_tagged_template_keeps_its_tag_when_applied_fleet_wide(self):
         checks = self._apply(['docker_running'], 'all', '')
         d = next(c for c in checks if c['param'] == 'docker.service')

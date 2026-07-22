@@ -41468,7 +41468,7 @@ def handle_check_baseline_catalog():
 
 def handle_check_baselines_apply():
     """POST /api/checks/baseline-apply {ids:[...], target_kind, target} — turn each
-    selected catalog template into a scoped custom_check (target_kind all/tag/group).
+    selected catalog template into a scoped custom_check (target_kind all/host/tag/group).
     Admin. Idempotent: de-dupes on (type, param, scope), so re-applying adds nothing.
     A role-tagged template keeps its own default tag scope when the request scope is
     'all', so applying 'docker running' fleet-wide really lands on the 'docker' tag."""
@@ -41481,8 +41481,8 @@ def handle_check_baselines_apply():
         respond(400, {'error': 'ids must be a non-empty list'})
     ids = {str(i) for i in ids}
     tk = body.get('target_kind', 'all')
-    if tk not in ('all', 'tag', 'group'):
-        respond(400, {'error': 'target_kind must be all, tag or group'})
+    if tk not in ('all', 'tag', 'group', 'host'):
+        respond(400, {'error': 'target_kind must be all, host, tag or group'})
     tv = _sanitize_str(str(body.get('target', '')), 128).strip()
     if tk != 'all' and not tv:
         respond(400, {'error': f'a {tk} target is required'})

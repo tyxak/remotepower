@@ -377,6 +377,11 @@ async function openBaselineChecks() {
   if (el) el.innerHTML = _skeletonBlock(4);
   const r = document.getElementById('bc-result'); if (r) r.textContent = '';
   const k = document.getElementById('bc-kind'); if (k) k.value = 'all';
+  const hs = document.getElementById('bc-host-search'); if (hs) hs.value = '';
+  const bt = document.getElementById('bc-target'); if (bt) bt.value = '';
+  // show the device dropdown on focus (CSP-safe, wired once)
+  const hse = document.getElementById('bc-host-search');
+  if (hse && !hse._wiredFocus) { hse._wiredFocus = 1; hse.addEventListener('focus', bcHostSearch); }
   bcKindChanged();
   openModal('baseline-checks-modal');
   const data = await api('GET', '/checks/baseline-catalog');
@@ -386,6 +391,34 @@ async function openBaselineChecks() {
 function bcKindChanged() {
   const k = document.getElementById('bc-kind')?.value || 'all';
   document.getElementById('bc-target-grp')?.classList.toggle('hidden', k === 'all');
+  const isHost = k === 'host';
+  const lbl = document.getElementById('bc-target-label');
+  if (lbl) lbl.textContent = isHost ? 'Device' : k === 'tag' ? 'Tag' : 'Group';
+  const inp = document.getElementById('bc-target');            // hidden holds the id for host
+  if (inp) { inp.classList.toggle('hidden', isHost); inp.placeholder = k === 'tag' ? 'tag name' : 'group name'; if (isHost) inp.value = ''; }
+  document.getElementById('bc-host-pick')?.classList.toggle('hidden', !isHost);
+}
+// Host target is a device search typeahead (never a raw id field) — mirrors the
+// custom-check host picker so a baseline check can be applied to one device.
+async function bcHostSearch() {
+  const box = document.getElementById('bc-host-results');
+  if (!box) return;
+  const term = (document.getElementById('bc-host-search')?.value || '').toLowerCase().trim();
+  const devs = await _scanDeviceList();
+  let matches = Array.isArray(devs) ? devs : [];
+  if (term) matches = matches.filter(d =>
+    (d.name || '').toLowerCase().includes(term) || (d.ip || '').toLowerCase().includes(term) ||
+    (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d => `<div class="dev-combo-item" data-action="pickBcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="dev-combo-empty">No matching devices.</div>';
+  box.hidden = false;
+}
+function pickBcHost(id, name) {
+  const t = document.getElementById('bc-target'); if (t) t.value = id;
+  const s = document.getElementById('bc-host-search'); if (s) s.value = name;
+  const box = document.getElementById('bc-host-results'); if (box) box.hidden = true;
 }
 function _bcRenderCatalog() {
   const el = document.getElementById('bc-catalog');
@@ -398,7 +431,7 @@ function _bcRenderCatalog() {
     cats[cat].map(t =>
       `<label class="click-row-mb6"><input type="checkbox" class="bc-chk" value="${escAttr(t.id)}"> ` +
       `<strong>${escHtml(t.name)}</strong> <span class="meta-sm">${escHtml(t.type)}` +
-      `${t.target_kind ? ' · tag:' + escHtml(t.target || '') : ''}</span>` +
+      `${t.target_kind ? ' · ' + escHtml(t.target_kind) + ':' + escHtml(t.target || '') : ''}</span>` +
       `<div class="meta-sm c-muted">${escHtml(t.desc || '')}</div></label>`
     ).join('')
   ).join('');

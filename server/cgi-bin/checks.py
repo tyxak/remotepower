@@ -803,8 +803,8 @@ CHECK_BASELINE_CATALOG = (
         "type": "file_hash",
         "param": "/etc/passwd",
         "name": "User accounts file unchanged",
-        "desc": "Alerts if /etc/passwd changes (a new account is a classic "
-                "post-exploitation step). Baselines on first run.",
+        "desc": "Alerts if /etc/passwd changes — a new account is a classic "
+                "post-exploitation step. Baselines on first run.",
     },
     {
         "cat": "Web / application security",
@@ -814,6 +814,15 @@ CHECK_BASELINE_CATALOG = (
         "name": "System crontab unchanged",
         "desc": "Alerts if /etc/crontab changes — a common persistence spot. "
                 "Baselines on first run.",
+    },
+    {
+        "cat": "Web / application security",
+        "id": "crond_dir_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/cron.d",
+        "name": "No new cron jobs (/etc/cron.d)",
+        "desc": "Baselines /etc/cron.d, then alerts if a cron file is added or "
+                "changed — another common persistence spot.",
     },
     {
         "cat": "Web / application security",

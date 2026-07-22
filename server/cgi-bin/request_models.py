@@ -301,7 +301,8 @@ if _AVAILABLE:
 
     class CheckBaselineApplyRequest(BaseModel):
         """handle_check_baselines_apply — `ids` must be a non-empty list; the
-        handler also validates. target_kind ∈ all/tag/group; target free string."""
+        handler also validates. target_kind ∈ all/host/tag/group; target free string
+        (a device id when target_kind is host)."""
         model_config = ConfigDict(extra='ignore')
         ids: list
         target: str = ''
