@@ -655,7 +655,8 @@ class TestEvidenceIsRecoveredFromTheBuffer(unittest.TestCase):
 
     def test_a_line_that_does_not_match_the_rule_is_not_offered(self):
         row = self._setup([{'ts': self.now - 60, 'line': 'a perfectly ordinary line'}])
-        self.assertIn('aged out', row['summary'])
+        self.assertIn('no matching line found', row['summary'])
+        self.assertNotIn('ordinary', row['summary'])
 
     def test_the_events_own_sample_still_wins(self):
         """The buffer is a fallback, never an override — the event recorded what
@@ -664,9 +665,41 @@ class TestEvidenceIsRecoveredFromTheBuffer(unittest.TestCase):
                           {'sample': ['[error] from the event']})
         self.assertIn('from the event', row['summary'])
 
-    def test_an_empty_buffer_says_so_plainly(self):
+    def test_a_recent_alert_with_no_match_says_so_plainly(self):
         row = self._setup([])
-        self.assertIn('aged out of the 6h log buffer', row['summary'])
+        self.assertIn('no matching line found', row['summary'])
+
+    def test_an_alert_older_than_its_evidence_leaves_the_queue(self):
+        """Needs Attention keeps events 24h; the log buffer keeps lines 6h. In
+        between sits a card that can never show what it matched — unactionable
+        by construction, and it was piling up. It stays in Recent Activity,
+        where a record of "this fired" is the whole point."""
+        api.save(api.LOG_WATCH_FILE, {})
+        api.save(api.FLEET_EVENTS_FILE, {'events': [{
+            'ts': self.now - 8 * 3600, 'event': 'log_alert',
+            'payload': {'device_id': self.dev, 'name': 'web1', 'unit': self.UNIT,
+                        'pattern': self.PAT, 'count': 2}}]})
+        for f in (api.DEVICES_FILE, api.LOG_WATCH_FILE, api.FLEET_EVENTS_FILE,
+                  api.IGNORED_ITEMS_FILE, api.CONFIG_FILE, api.LOG_ACKS_FILE):
+            api._invalidate_load_cache(f)
+        self.assertEqual([i for i in api._compute_attention()
+                          if isinstance(i, dict) and i.get('kind') == 'log_alert'], [])
+
+    def test_an_old_alert_that_STILL_has_its_line_is_kept(self):
+        """Age alone must not drop it — only the absence of evidence does."""
+        api.save(api.LOG_WATCH_FILE, {self.dev: {'units': {self.UNIT: [
+            {'ts': self.now - 8 * 3600, 'line': '[error] still here'}]}}})
+        api.save(api.FLEET_EVENTS_FILE, {'events': [{
+            'ts': self.now - 8 * 3600, 'event': 'log_alert',
+            'payload': {'device_id': self.dev, 'name': 'web1', 'unit': self.UNIT,
+                        'pattern': self.PAT, 'count': 2}}]})
+        for f in (api.DEVICES_FILE, api.LOG_WATCH_FILE, api.FLEET_EVENTS_FILE,
+                  api.IGNORED_ITEMS_FILE, api.CONFIG_FILE, api.LOG_ACKS_FILE):
+            api._invalidate_load_cache(f)
+        rows = [i for i in api._compute_attention()
+                if isinstance(i, dict) and i.get('kind') == 'log_alert']
+        self.assertTrue(rows)
+        self.assertIn('still here', rows[0]['summary'])
 
     def test_a_broken_pattern_cannot_take_down_the_digest(self):
         row = self._setup([{'ts': self.now - 60, 'line': '[error] x'}],

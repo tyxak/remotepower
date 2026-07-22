@@ -42703,12 +42703,21 @@ def _compute_attention():
             elif samples:
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
+            elif ts < now - LOG_BUFFER_TTL:
+                # No sample on the event, and its lines have rolled out of the
+                # 6h buffer, so the evidence is gone for good. Needs Attention
+                # keeps events for 24h — nearly a day longer than the logs
+                # behind them — and a card that can never show what it matched
+                # is not something anyone can act on. Drop it from the
+                # actionable queue; it stays in Recent Activity, where a record
+                # of "this fired" is the whole point.
+                continue
             else:
-                # Nothing on the event AND nothing left in the buffer — the
-                # window has rolled past it. That is the only case where a line
-                # genuinely cannot be shown.
-                summary_text = (f'{unit} matched {count_label} — the matched '
-                                'lines have aged out of the 6h log buffer')
+                # Recent, but nothing matched in the buffer: the lines may still
+                # be arriving, or the rule's pattern no longer matches what it
+                # fired on.
+                summary_text = (f'{unit} matched {count_label} — no matching '
+                                'line found in the log buffer')
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
