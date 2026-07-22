@@ -759,6 +759,21 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 wl.append(f"Windows Update service: {wp['wu_service']}")
             if wl:
                 posture.append("Windows security posture:\n  " + '\n  '.join(wl))
+        # v6.4.0: macOS posture parity with Windows.
+        mp = si.get('mac_posture')
+        if isinstance(mp, dict):
+            ml = []
+            for _k, _lbl in (('filevault', 'FileVault disk encryption'),
+                             ('firewall', 'application firewall'),
+                             ('gatekeeper', 'Gatekeeper'),
+                             ('sip', 'System Integrity Protection')):
+                if isinstance(mp.get(_k), bool):
+                    ml.append(f"{_lbl}: " + ("on" if mp[_k] else "OFF"))
+            if isinstance(mp.get('auto_security_update'), bool):
+                ml.append("automatic security updates: "
+                          + ("on" if mp['auto_security_update'] else "off"))
+            if ml:
+                posture.append("macOS security posture:\n  " + '\n  '.join(ml))
         if posture:
             docs.append(make_doc(
                 f"live/{dev_id}#posture", 'live_state', 'device_posture',
@@ -2054,6 +2069,91 @@ def build_automation_rules_corpus(store, now=0):
             'automation/rules', 'automation_rules', 'automation_rules',
             f"Configured automation rules ({len(lines)}):\n" + '\n'.join(lines),
             title='Automation rules', ts=now))
+    return docs
+
+
+def build_hardware_corpus(store, devices=None, now=0):
+    """v6.4.0: per-device hardware health for the RAG — SMART disk health, GPU
+    telemetry, UPS/power, kernel/livepatch (reboot-needed), board temperature,
+    and privileged-account posture. All of this is collected, persisted
+    (HARDWARE_FILE via _ingest_hardware), alerted and shown in the drawer, but
+    was entirely AI-blind — the model could not answer "what's the SMART wear on
+    web01", "does host X need a kernel reboot", "UPS runtime", "who has sudo".
+    One chunk per device with any hardware signal. No secrets (models, states,
+    counts, usernames — usernames are already visible fleet inventory)."""
+    docs = []
+    if not isinstance(store, dict) or not store:
+        return docs
+    devices = devices if isinstance(devices, dict) else {}
+    for dev_id, rec in list(store.items())[:400]:
+        if not isinstance(rec, dict):
+            continue
+        dname = (devices.get(dev_id) or {}).get('name') or dev_id
+        lines = []
+        # SMART / disk health.
+        smart = rec.get('smart')
+        disks = smart if isinstance(smart, list) else (
+            smart.get('disks') if isinstance(smart, dict) else None)
+        if rec.get('_smart_failed'):
+            failed = rec.get('_smart_failed_devs') or []
+            lines.append("SMART: FAILING" + (f" on {', '.join(map(str, failed[:6]))}" if failed else ''))
+        if isinstance(disks, list):
+            for d in disks[:8]:
+                if not isinstance(d, dict):
+                    continue
+                bits = []
+                nm = d.get('disk') or d.get('name') or d.get('model') or 'disk'
+                if d.get('wear_pct') is not None:
+                    bits.append(f"wear {d['wear_pct']}%")
+                if d.get('spare_pct') is not None:
+                    bits.append(f"spare {d['spare_pct']}%")
+                if d.get('temperature_c') is not None:
+                    bits.append(f"{d['temperature_c']}°C")
+                if d.get('reallocated'):
+                    bits.append(f"realloc {d['reallocated']}")
+                if bits:
+                    lines.append(f"disk {nm}: " + ', '.join(bits))
+        # Kernel / livepatch.
+        kern = rec.get('kernel')
+        if isinstance(kern, dict):
+            if kern.get('reboot_for_kernel') or kern.get('reboot_required') or rec.get('_kernel_old'):
+                lines.append("kernel: reboot needed for a newer installed kernel"
+                             + (f" (running {kern.get('running')}, latest {kern.get('latest_installed')})"
+                                if kern.get('running') else ''))
+            lp = kern.get('livepatch')
+            if isinstance(lp, dict) and lp.get('running') is False:
+                lines.append("livepatch: not running")
+        # UPS / power.
+        ups = rec.get('ups')
+        if isinstance(ups, dict) and (ups.get('state') or ups.get('battery_pct') is not None):
+            lines.append(f"UPS: {ups.get('state', '?')}"
+                         + (f", battery {ups['battery_pct']}%" if ups.get('battery_pct') is not None else '')
+                         + (f", runtime {ups.get('runtime_s')}s" if ups.get('runtime_s') is not None else ''))
+        elif rec.get('_ups_on_battery'):
+            lines.append("UPS: ON BATTERY")
+        # GPUs.
+        gpus = rec.get('gpus')
+        if isinstance(gpus, list):
+            for g in gpus[:4]:
+                if not isinstance(g, dict):
+                    continue
+                lines.append(f"GPU {g.get('model', g.get('name', 'gpu'))}: "
+                             + ', '.join(filter(None, [
+                                 f"util {g['util']}%" if g.get('util') is not None else '',
+                                 f"{g['temp_c']}°C" if g.get('temp_c') is not None else ''])) or f"GPU {g.get('model', 'gpu')}")
+        # Temperature flag.
+        if rec.get('_temp_high'):
+            lines.append("board/CPU temperature: HIGH")
+        # Privileged accounts.
+        priv = rec.get('_priv_users') or (rec.get('accounts') or {}).get('privileged') \
+            if isinstance(rec.get('accounts'), dict) else rec.get('_priv_users')
+        if isinstance(priv, list) and priv:
+            lines.append(f"privileged (root-equivalent) accounts: {', '.join(map(str, priv[:12]))}")
+        if lines:
+            docs.append(make_doc(
+                f"live/{dev_id}#hardware", 'live_state', 'device_hardware',
+                f"Hardware health for {dname}:\n" + '\n'.join(lines),
+                title=f"{dname} hardware", device=dev_id, ts=int(rec.get('collected_at') or now)))
     return docs
 
 

@@ -351,6 +351,10 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'win_update_stopped', 'win_defender_stale',
             'win_bitlocker_on', 'win_firewall_on',   # ← recoveries
             'win_update_running', 'win_defender_current',
+            'mac_filevault_off', 'mac_firewall_off', # v6.4.0 macOS posture
+            'mac_gatekeeper_off', 'mac_sip_disabled',
+            'mac_filevault_on', 'mac_firewall_on',   # ← recoveries
+            'mac_gatekeeper_on', 'mac_sip_enabled',
             'oom_detected',                          # v4.1.0 OOM-killer
             # v5.6.x: host-condition alerts now self-clear — each of these is the
             # recover event that auto-resolves its paired trigger alert.

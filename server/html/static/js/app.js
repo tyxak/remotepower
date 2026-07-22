@@ -18621,6 +18621,11 @@ function _renderHomeActivity(fleetEvents) {
     'win_firewall_off', 'win_firewall_on',
     'win_update_stopped', 'win_update_running',
     'win_defender_stale', 'win_defender_current',
+    // v6.4.0: macOS endpoint-posture conditions + recoveries (Windows parity)
+    'mac_filevault_off', 'mac_filevault_on',
+    'mac_firewall_off', 'mac_firewall_on',
+    'mac_gatekeeper_off', 'mac_gatekeeper_on',
+    'mac_sip_disabled', 'mac_sip_enabled',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
@@ -18889,6 +18894,11 @@ function _homeActivityAttrs(event, p) {
     case 'win_firewall_off': case 'win_firewall_on':
     case 'win_update_stopped': case 'win_update_running':
     case 'win_defender_stale': case 'win_defender_current':
+    // v6.4.0: macOS endpoint-posture conditions → the affected host's drawer
+    case 'mac_filevault_off': case 'mac_filevault_on':
+    case 'mac_firewall_off': case 'mac_firewall_on':
+    case 'mac_gatekeeper_off': case 'mac_gatekeeper_on':
+    case 'mac_sip_disabled': case 'mac_sip_enabled':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
@@ -22136,6 +22146,16 @@ async function _loadAuditSection(key) {
           ['Windows Firewall', si.win_posture && (si.win_posture.firewall || []).length
                           ? si.win_posture.firewall.map(p => `${p.name} ${p.enabled ? 'on' : 'OFF'}`).join(', ') : null],
           ['Windows Update', (si.win_posture && si.win_posture.wu_service) || null],
+          // v6.4.0: macOS posture parity — collected + checked + now alerted;
+          // shown here too. Each pill is null on a non-Mac host.
+          ['FileVault', (si.mac_posture && typeof si.mac_posture.filevault === 'boolean')
+                          ? (si.mac_posture.filevault ? 'on' : 'OFF') : null],
+          ['Gatekeeper', (si.mac_posture && typeof si.mac_posture.gatekeeper === 'boolean')
+                          ? (si.mac_posture.gatekeeper ? 'on' : 'OFF') : null],
+          ['SIP', (si.mac_posture && typeof si.mac_posture.sip === 'boolean')
+                          ? (si.mac_posture.sip ? 'on' : 'OFF') : null],
+          ['macOS Firewall', (si.mac_posture && typeof si.mac_posture.firewall === 'boolean')
+                          ? (si.mac_posture.firewall ? 'on' : 'OFF') : null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>

@@ -2088,6 +2088,36 @@ EVENT_REGISTRY = {
     'win_defender_current': dict(
         label='Windows Defender signatures are current again (recovered)',
         kind='win_posture', resolves=('win_defender_stale',)),
+    # v6.4.0: macOS endpoint posture — parity with Windows. Each is a device
+    # CONDITION (fires on entering the bad state incl. first contact,
+    # auto-resolves when it clears), mirroring the mac_posture check rows in
+    # checks.py. mac_posture is persisted by safe_si but previously alerted
+    # nowhere — a disabled FileVault/Gatekeeper/SIP/firewall never paged anyone.
+    'mac_filevault_off': dict(
+        label='FileVault disk encryption is off on a Mac', kind='mac_posture',
+        title='FileVault Off', severity='high', tags='rotating_light,lock'),
+    'mac_filevault_on': dict(
+        label='FileVault re-enabled (recovered)', kind='mac_posture',
+        resolves=('mac_filevault_off',)),
+    'mac_firewall_off': dict(
+        label='The macOS application firewall is disabled', kind='mac_posture',
+        title='macOS Firewall Off', severity='high', tags='rotating_light,shield'),
+    'mac_firewall_on': dict(
+        label='The macOS firewall is enabled again (recovered)', kind='mac_posture',
+        resolves=('mac_firewall_off',)),
+    'mac_gatekeeper_off': dict(
+        label='Gatekeeper is disabled on a Mac', kind='mac_posture',
+        title='Gatekeeper Off', severity='high', tags='warning,shield'),
+    'mac_gatekeeper_on': dict(
+        label='Gatekeeper is enabled again (recovered)', kind='mac_posture',
+        resolves=('mac_gatekeeper_off',)),
+    'mac_sip_disabled': dict(
+        label='System Integrity Protection (SIP) is disabled on a Mac',
+        kind='mac_posture', title='SIP Disabled', severity='high',
+        tags='rotating_light,shield'),
+    'mac_sip_enabled': dict(
+        label='System Integrity Protection is enabled again (recovered)',
+        kind='mac_posture', resolves=('mac_sip_disabled',)),
     # v6.2.2: kernel-module visibility from the agent's execution context. A
     # sandbox that hides /lib/modules turns the next agent-run package upgrade
     # into a module-less, unbootable initramfs. A CONDITION (fires on first
@@ -7691,6 +7721,7 @@ CHANNEL_KIND_DEFS = (
     ('reliability', 'Predicted hardware failure', 'operational'),  # v6.2.0
     ('agent_sandbox', 'Kernel modules hidden from the agent', 'operational'),  # v6.2.2
     ('win_posture', 'Windows endpoint posture', 'operational'),  # v6.2.2
+    ('mac_posture', 'macOS endpoint posture', 'operational'),  # v6.4.0
     ('process', 'Watched process thresholds', 'operational'),
     ('secrets', 'Exposed secrets on disk', 'operational'),
     ('scan', 'Security scan findings', 'operational'),
@@ -32428,6 +32459,36 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         # keep unevaluable prior-bad keys so we don't lose their state
         new['win_bad'] = sorted(cur_win | (prev_win - _evaluable))
 
+    # ── v6.4.0: macOS endpoint-posture conditions (parity with Windows) ───
+    # FileVault off / firewall off / Gatekeeper off / SIP disabled. Same
+    # condition semantics as win_posture: fire on entering the bad state (incl.
+    # first contact), auto-resolve when it clears. Booleans are tri-state — the
+    # mac agent omits a field it can't determine, and that absence must never
+    # fire (only an explicit False is "bad"). Mirrors the check rows in checks.py.
+    mp = si.get('mac_posture')
+    if isinstance(mp, dict):
+        _mac_map = {
+            'filevault':  ('mac_filevault_off',  'mac_filevault_on',  'FileVault disk encryption is off'),
+            'firewall':   ('mac_firewall_off',   'mac_firewall_on',   'The application firewall is disabled'),
+            'gatekeeper': ('mac_gatekeeper_off', 'mac_gatekeeper_on', 'Gatekeeper is disabled'),
+            'sip':        ('mac_sip_disabled',   'mac_sip_enabled',   'System Integrity Protection is disabled'),
+        }
+        _mac_bad, _mac_eval = {}, set()
+        for _k, (_fev, _rev, _det) in _mac_map.items():
+            _v = mp.get(_k)
+            if isinstance(_v, bool):
+                _mac_eval.add(_k)
+                if _v is False:
+                    _mac_bad[_k] = (_fev, _rev, _det)
+        prev_mac = set(prev.get('mac_bad') or [])
+        cur_mac = set(_mac_bad)
+        for _k in sorted(cur_mac - prev_mac):
+            _fev, _rev, _det = _mac_bad[_k]
+            _fire(_fev, {'detail': _det})
+        for _k in sorted((prev_mac - cur_mac) & _mac_eval):
+            _fire(_mac_map[_k][1], {'detail': f'{_k} posture recovered'})
+        new['mac_bad'] = sorted(cur_mac | (prev_mac - _mac_eval))
+
     # ── v6.2.2: kernel-module visibility ───────────────────────────
     # Like av_realtime_off this is a CONDITION, not an edge: a host that
     # ENROLS with /lib/modules already hidden from the agent is exactly the
@@ -36618,6 +36679,11 @@ _AI_DEFAULTS = {
             'scap':              True,
             'security_findings': True,
             'automation_rules':  True,
+            # v6.4.0: per-device hardware health (SMART/GPU/UPS/kernel-reboot/
+            # temps/privileged-accounts) — collected, alerted and shown, but was
+            # entirely AI-blind. Grounds "SMART wear on web01", "does X need a
+            # kernel reboot", "UPS runtime", "who has sudo".
+            'hardware':          True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -36841,7 +36907,8 @@ def handle_ai_config_set():
                           'provisioning', 'rollouts', 'network_map',
                           'contacts', 'incidents', 'maintenance', 'scripts',   # v6.2.2
                           'incident_memory', 'image_cves', 'scap',
-                          'security_findings', 'automation_rules'):   # v6.3.1 — miss this and the toggle never persists
+                          'security_findings', 'automation_rules',
+                          'hardware'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -37001,6 +37068,8 @@ def _rag_source_files(sources):
         files += [SECRETS_FILE, PII_FILE, AV_FILE]
     if sources.get('automation_rules'):
         files.append(RULES_FILE)
+    if sources.get('hardware'):
+        files.append(HARDWARE_FILE)
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -37405,6 +37474,12 @@ def _rag_build_corpus(cfg):
                 load(RULES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: automation_rules source failed: {e}\n')
+    if sources.get('hardware'):
+        try:
+            docs += rag_index.build_hardware_corpus(
+                load(HARDWARE_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: hardware source failed: {e}\n')
 
     return docs
 

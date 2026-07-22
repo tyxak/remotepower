@@ -4895,8 +4895,15 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-249 { font-size:11px; color:var(--muted); margin-top:8px }
 .isl-250 { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:14px; margin-top:8px }
 .isl-251 { font-size:13px; min-height:240px }
-.isl-252 { font-size:13px; min-height:240px; display:none }
+/* v6.4.0 box-overflow: the ACME timeline + logs panes grow one row per cert
+   event / acme.sh run and sat inside an overflow:hidden modal — cap + scroll
+   internally instead of clipping (box-overflow rule). */
+.isl-252 { font-size:13px; min-height:240px; max-height:52vh; overflow-y:auto; display:none }
 .isl-253 { min-height:280px }
+/* v6.4.0 box-overflow: outer stacks that grow one card/table PER DEVICE (command
+   queue) or PER INSTANCE (PBS datastores) — the inner tables are each capped,
+   but the outer stack was unbounded on a busy fleet. Scroll the stack. */
+#cmdqueue-body, #pbs-body { max-height:65vh; overflow-y:auto }
 .isl-254 { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:12px; font-size:11px; max-height:420px; overflow:auto; white-space:pre-wrap; word-break:break-word; margin:0 }
 .isl-255 { display:none; min-height:280px }
 .isl-256 { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:14px; font-size:13px; white-space:pre-wrap; min-height:120px }

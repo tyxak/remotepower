@@ -184,7 +184,23 @@ def build_fleet_context(devices, max_devices=80, now=None, ttl=300):
         ),
     )
 
-    lines = [f"Fleet snapshot ({len(devs)} devices):"]
+    # v6.4.0: a compact fleet-health rollup line so the ALWAYS-ON preamble
+    # carries health, not just inventory (the per-device one-liners are
+    # health-blind, and RAG only fills this in when retrieval fires). Cheap —
+    # computed from the devices already in hand.
+    _offline = sum(1 for d in devs if not _is_online(d, now, ttl)
+                   and not d.get('agentless') and d.get('monitored') is not False)
+    _reboot = sum(1 for d in devs
+                  if (d.get('sysinfo') or {}).get('reboot_required') is True)
+    _rollup = []
+    if _offline:
+        _rollup.append(f"{_offline} offline")
+    if _reboot:
+        _rollup.append(f"{_reboot} need reboot")
+    head = f"Fleet snapshot ({len(devs)} devices"
+    head += (', ' + ', '.join(_rollup)) if _rollup else ''
+    head += '):'
+    lines = [head]
     for d in devs[:max_devices]:
         lines.append('- ' + _device_one_liner(d, now=now, ttl=ttl))
     if len(devs) > max_devices:
