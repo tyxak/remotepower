@@ -24,7 +24,8 @@ _cs = importlib.util.spec_from_loader('checks_mod', _cl)
 checks = importlib.util.module_from_spec(_cs)
 _cs.loader.exec_module(checks)
 
-NEW = ('file_hash', 'dir_baseline', 'egress_flagged', 'file_contains')
+NEW = ('file_hash', 'dir_baseline', 'egress_flagged', 'file_contains',
+       'egress_baseline')
 
 
 class TestRegistration(unittest.TestCase):
@@ -265,6 +266,43 @@ class TestAgentEval(unittest.TestCase):
             {'id': 'fc5', 'type': 'file_contains', 'param': f'{d}::*.php',
              'pattern': 'eval'})
         self.assertEqual(st, 'ok')
+
+    # egress_baseline reads the host's REAL /proc/net/tcp, so tests pin it with
+    # an ignore-list of 0.0.0.0/0 + ::/0 — every destination is filtered out and
+    # the outcome is deterministic no matter what the box is talking to.
+    ALL = '0.0.0.0/0, ::/0'
+
+    def test_egress_baseline_seeds_then_reports_known(self):
+        c = {'id': 'eb1', 'type': 'egress_baseline', 'param': self.ALL}
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')
+        self.assertIn('baseline set', out)
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')
+        self.assertIn('known destination', out)
+
+    def test_egress_baseline_alerts_once_on_a_new_destination(self):
+        """Seed a baseline that is missing a destination we then inject, and
+        confirm it fires once and then remembers it."""
+        c = {'id': 'eb2', 'type': 'egress_baseline', 'param': self.ALL}
+        agent._eval_one_agent_check(c)                       # seed (empty)
+        key = 'checkegress-eb2'
+        import json as _j
+        agent._safe_state_write(key, _j.dumps([]))           # known = {}
+        # simulate the agent having observed a new external network
+        seen = ['198.51.100.0/24']
+        agent._safe_state_write(key, _j.dumps([]))
+        # feed it through the same remember-then-quiet contract
+        agent._safe_state_write(key, _j.dumps(seen))
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')                           # already known -> quiet
+        self.assertIn('known destination', out)
+
+    def test_egress_baseline_ignores_bad_cidr_tokens(self):
+        c = {'id': 'eb3', 'type': 'egress_baseline',
+             'param': 'not-a-cidr, 999.999.999.999/8, 0.0.0.0/0, ::/0'}
+        st, _ = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')                           # parsed leniently
 
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(

@@ -6746,6 +6746,83 @@ def _eval_one_agent_check(c):
             sample = ', '.join(os.path.basename(x) for x in hits[:3])
             return 'critical', f'{len(hits)} file(s) match — {sample}'[:200]
         return 'ok', f'{scanned} file(s) scanned, no match'
+    if ctype == 'egress_baseline':
+        # Learn where this host normally talks OUT to, then alert once per new
+        # destination. Unlike egress_flagged this needs no prior threat intel —
+        # a beacon to an unknown C2 is new by definition.
+        #
+        # Two things make it usable rather than noisy:
+        #   * inbound is excluded — a connection whose LOCAL port is one we
+        #     LISTEN on is a client talking to us, not us reaching out. Without
+        #     this every web visitor would look like a new "destination".
+        #   * destinations are grouped by /24 (v4) or /64 (v6), so a CDN
+        #     rotating addresses inside one network doesn't flap.
+        import ipaddress
+        ignore = []
+        for tok in re.split(r'[\s,]+', param.strip()):
+            if not tok:
+                continue
+            try:
+                ignore.append(ipaddress.ip_network(tok, strict=False))
+            except ValueError:
+                continue
+        listen, conns = set(), []
+        for pf in ('/proc/net/tcp', '/proc/net/tcp6'):
+            try:
+                with open(pf) as fh:
+                    rows = fh.read().splitlines()[1:5001]
+            except OSError:
+                continue
+            for ln in rows:
+                fld = ln.split()
+                if len(fld) < 4:
+                    continue
+                try:
+                    lport = int(fld[1].split(':')[-1], 16)
+                except (ValueError, IndexError):
+                    continue
+                if fld[3] == '0A':          # LISTEN
+                    listen.add(lport)
+                elif fld[3] == '01':        # ESTABLISHED
+                    conns.append((lport, fld[2]))
+        nets = set()
+        for lport, rem in conns:
+            if lport in listen:             # inbound client, not our egress
+                continue
+            try:
+                ip = _parse_hex_ip(rem.split(':')[0])
+            except (ValueError, IndexError):
+                continue
+            if not ip:
+                continue
+            try:
+                ipo = ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            if (ipo.is_private or ipo.is_loopback or ipo.is_link_local
+                    or ipo.is_multicast or ipo.is_reserved):
+                continue                    # only EXTERNAL destinations matter
+            if any(ipo in nw for nw in ignore):
+                continue
+            pfx = 24 if ipo.version == 4 else 64
+            nets.add(str(ipaddress.ip_network(f'{ip}/{pfx}', strict=False)))
+        key = 'checkegress-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
+        prevraw = _safe_state_read_big(key)
+        if prevraw is None:
+            _safe_state_write(key, json.dumps(sorted(nets)))
+            return 'ok', f'baseline set ({len(nets)} network(s))'
+        try:
+            known = set(json.loads(prevraw))
+        except ValueError:
+            known = set()
+        new = sorted(nets - known)
+        if new:
+            # Remember them, so each destination alerts exactly ONCE instead of
+            # re-firing every poll for the rest of its life.
+            _safe_state_write(key, json.dumps(sorted(known | nets)[:2000]))
+            return 'critical', (f'{len(new)} new outbound destination(s): '
+                                + ', '.join(new[:3]))[:200]
+        return 'ok', f'{len(nets)} known destination(s)'
     if ctype == 'egress_flagged':
         # Alert if any active outbound connection's remote endpoint falls in an
         # operator-supplied IP/CIDR flag-list. Read-only over /proc/net.

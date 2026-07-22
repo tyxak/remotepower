@@ -53,7 +53,7 @@ class TestPurity(unittest.TestCase):
                           'job_fresh', 'systemd_unit',
                           'windows_service',    # v6.2.0: Windows parity
                           'file_hash', 'dir_baseline', 'egress_flagged',
-                          'file_contains'))
+                          'file_contains', 'egress_baseline'))
 
 
 class TestEngine(unittest.TestCase):

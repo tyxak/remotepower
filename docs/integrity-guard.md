@@ -28,7 +28,7 @@ To watch a web root and *neutralise* anything dropped into it, see
 
 ---
 
-## The four check types
+## The five check types
 
 These are agent-side checks: the server pushes them in the heartbeat response,
 the agent evaluates them **on-host**, and reports results back. They're
@@ -90,7 +90,27 @@ falls inside your list of flagged IPs/CIDRs (comma- or space-separated). An
 empty list is OK (nothing to match). Use it with a threat-intel feed or the
 indicators from an incident.
 
-> **Platform:** these four are Linux-first. On Windows they report `unknown`
+### `egress_baseline` — no *new* outbound destination
+
+    param:  10.0.0.0/8, 203.0.113.0/24      (an IGNORE-list, optional)
+
+The version of egress monitoring that works with **no threat intel at all**.
+It learns which external networks the host normally reaches, then alerts the
+**first** time it reaches somewhere new — which is what a beacon to an unknown
+C2 looks like. Each new destination alerts once and is then remembered, so it
+converges instead of nagging.
+
+Two details keep it usable rather than noisy: inbound connections are excluded
+(a connection whose local port is one the host LISTENS on is a visitor, not
+egress — otherwise every web client would look like a new destination), and
+destinations are grouped by **/24** (v4) or **/64** (v6) so a CDN rotating
+addresses inside one network doesn't flap. Private, loopback, link-local and
+multicast are never counted.
+
+Use `egress_flagged` when you already know the bad address; use this when you
+don't.
+
+> **Platform:** these five are Linux-first. On Windows they report `unknown`
 > ("not applicable"), which is harmless — no false alerts.
 
 ---
@@ -149,7 +169,7 @@ against the worst failure mode: vaulting an entire site.
 
 ## The template catalog
 
-**Baseline protect checks** ships ~61 hardening templates, applied by checkbox
+**Baseline protect checks** ships ~62 hardening templates, applied by checkbox
 to any scope. They're grouped by intent:
 
 | Category | What it covers |

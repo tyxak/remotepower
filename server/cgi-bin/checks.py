@@ -635,6 +635,12 @@ AGENT_CHECK_TYPES = (
     #                    appeared" into "a file appeared AND it looks like a web
     #                    shell". Read-only, bounded by file count and bytes.
     "file_contains",
+    #   egress_baseline — learns the EXTERNAL destinations a host normally
+    #                     reaches (by /24 or /64, so CDN churn does not flap)
+    #                     and alerts ONCE per genuinely new one. Needs no prior
+    #                     threat intel, unlike egress_flagged. `param` is an
+    #                     optional CIDR ignore-list.
+    "egress_baseline",
 )
 
 
@@ -868,6 +874,21 @@ CHECK_BASELINE_CATALOG = (
         "name": "No new cron jobs (/etc/cron.d)",
         "desc": "Baselines /etc/cron.d, then alerts if a cron file is added or "
                 "changed — another common persistence spot.",
+    },
+    {
+        "cat": "Web / application security",
+        "id": "egress_new_destination",
+        "type": "egress_baseline",
+        "param": "192.0.2.0/24",
+        "name": "No new outbound destinations",
+        "desc": "Learns which external networks this host normally connects out to, "
+                "then alerts the first time it reaches somewhere new — a beacon to a "
+                "C2 you have never heard of shows up with no threat intel at all. "
+                "Each new destination alerts once and is then remembered. The param "
+                "is a CIDR IGNORE-list for your own infrastructure; the shipped "
+                "value is RFC-5737 documentation space, a harmless placeholder.",
+        "target_kind": "tag",
+        "target": "web",
     },
     {
         "cat": "Web / application security",
