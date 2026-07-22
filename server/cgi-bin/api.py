@@ -41764,6 +41764,18 @@ def handle_checks_toggle():
         else:
             d.pop(did, None)
     audit_log(actor, 'check_toggle', f'device={did} check={chk} enabled={enabled}')
+    # v6.4.0: DISABLING a failing custom check must also RESOLVE its open alert —
+    # otherwise the inbox item lingers forever (the ingest sweep now skips the
+    # disabled check, so it can never fire the recover itself). Fire the recover
+    # (device_id + check_id) which _auto_resolve_alerts matches per-check.
+    if not enabled and chk.startswith('custom:'):
+        _cid = chk[len('custom:'):]
+        _dname = (device_get(did) or {}).get('name', did)
+        try:
+            fire_webhook('custom_check_recovered',
+                         {'device_id': did, 'name': _dname, 'check_id': _cid})
+        except Exception:
+            pass
     respond(200, {'ok': True, 'device_id': did, 'check': chk, 'enabled': enabled})
 
 
