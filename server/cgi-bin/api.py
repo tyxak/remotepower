@@ -1477,13 +1477,13 @@ MCP_ACTION_ALLOWLIST = frozenset({
 # needs a firing site that detects the recovery, not just a registry entry.
 # tests/test_alert_autoheal.py fails if this list GROWS.
 _AUTOHEAL_GAPS = frozenset({
+    # Each still needs a firing site that OBSERVES the recovery. A registry
+    # entry alone would claim an auto-heal that nothing emits, which reads as
+    # fixed and is not — so they stay listed until the detection exists.
     'cve_found',                  # clears when the package is patched
     'patch_alert',                # clears when the updates are applied
     'tls_expiry',                 # clears on renewal (days_left recovers)
-    'disk_predict_fail',          # clears when the prediction improves
     'ecc_errors',                 # clears when the counter stops rising
-    'new_port_detected',          # clears when the socket stops listening
-    'software_policy_violation',  # clears when the package is removed
     'secret_exposed',             # clears when the secret is rotated/removed
 })
 
@@ -1720,6 +1720,20 @@ EVENT_REGISTRY = {
     'smart_failure': dict(
         label='A disk reported SMART failure or pre-fail', kind='hardware',
         title='Disk SMART Failure', severity='high'),
+    # ── v6.3.1: the eight alerts that could fire and never clear. Each of these
+    # is a CONDITION, so something can observe it going away; the firing sites
+    # below now detect that and emit these. Recover events carry no severity —
+    # good news does not belong in the paging queue, it just closes the row.
+    'disk_predict_cleared': dict(
+        label='A disk no longer looks like it is failing', kind='hardware',
+        title='Disk Prediction Cleared', resolves=('disk_predict_fail',)),
+    'port_closed': dict(
+        label='A newly-detected listening port is gone', kind='new_port',
+        title='Port Closed', resolves=('new_port_detected',)),
+    'policy_compliant': dict(
+        label='A software-policy violation was fixed', kind='software_policy',
+        title='Policy Violation Cleared', resolves=('software_policy_violation',)),
+
     'smart_recovered': dict(
         label='All disks healthy again (SMART recovered)', kind='hardware',
         resolves=('smart_failure',)),
@@ -31991,6 +32005,17 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                 p.get('scope',''), p.get('addr',''))
                for p in ports if p.get('port')]
 
+    # v6.3.1: the other edge. new_port_detected fires when a socket appears; a
+    # socket DISAPPEARING is the condition clearing, and without this the alert
+    # sat open forever after the operator had actually closed the port.
+    cur_pp = {(pp[0], pp[1]) for pp in current}
+    for kp, kport in sorted(known - cur_pp):
+        try:
+            fire_webhook('port_closed', {'device_id': dev_id, 'name': dev_name,
+                                         'proto': kp, 'port': kport})
+        except Exception:
+            pass
+
     for proto, port, proc, scope, addr in current:
         # v3.12.0: surgical per-process/port mutes (Exposure page "Mute"
         # button) — silence a known-noisy socket (e.g. docker-proxy on 5696)
@@ -40650,6 +40675,14 @@ def _maybe_check_disk_predictions():
         if key not in prev:
             fresh.append(r)
     save(state_file, {'alerted': sorted(cur)})
+    # A disk that dropped off the at-risk list: the prediction improved, the
+    # disk was replaced, or the host left the fleet.
+    for gone in sorted(set(prev) - cur):
+        did, _sep, disk = str(gone).partition('|')
+        try:
+            fire_webhook('disk_predict_cleared', {'device_id': did, 'disk': disk})
+        except Exception:
+            pass
     for r in fresh:
         try:
             fire_webhook('disk_predict_fail', {
@@ -55534,6 +55567,16 @@ def _eval_software_policy(dev_id, dev_name, packages, tags):
                                    'note': _sanitize_str(rule.get('note', ''), 200)})
 
     prev_keys = {v.get('rule_id') for v in (store.get(dev_id, {}) or {}).get('violations', [])}
+    # A rule that WAS violated and no longer is — the operator fixed it, so the
+    # alert must close itself rather than wait to be resolved by hand.
+    for gone in sorted(prev_keys - {v['rule_id'] for v in violations}):
+        if not gone:
+            continue
+        try:
+            fire_webhook('policy_compliant', {'device_id': dev_id, 'name': dev_name,
+                                              'rule': gone})
+        except Exception:
+            pass
     for v in violations:
         if v['rule_id'] not in prev_keys:
             try:

@@ -18560,7 +18560,8 @@ function _renderHomeActivity(fleetEvents) {
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
     'ticket_sla_breached', 'ticket_opened', 'ticket_resolved',
-  ]);
+  // v6.3.1: recover events for alerts that previously could never clear.
+  'port_closed', 'policy_compliant', 'disk_predict_cleared',]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
     entries = fleetEvents;
@@ -18716,6 +18717,10 @@ function _homeActivityAttrs(event, p) {
     case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'container_restarting_cleared': case 'containers_stale': case 'containers_current':
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
+    // v6.3.1 recover events: click through to where the condition lived.
+    case 'port_closed':          return `${base} data-home-act="exposure"`;
+    case 'policy_compliant':     return `${base} data-home-act="software-policy"`;
+    case 'disk_predict_cleared': return `${base} data-home-act="disk-health"`;
     case 'log_alert':      return `${base} data-home-act="logs"`;
     case 'command_queued': case 'command_executed':
       return `${base} data-home-act="history"`;

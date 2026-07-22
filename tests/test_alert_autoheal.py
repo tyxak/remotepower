@@ -78,7 +78,7 @@ class TestEveryAlertCanClear(unittest.TestCase):
     def test_the_gap_list_does_not_grow(self):
         """A ratchet. Shrinking it is the goal; growing it means a new alert was
         added that can never clear."""
-        self.assertLessEqual(len(self.gaps), 8, 'a new never-clearing alert was added')
+        self.assertLessEqual(len(self.gaps), 5, 'a new never-clearing alert was added')
 
     def test_every_gap_is_really_still_a_gap(self):
         """If one of these gains a resolver, delete it from the list — a stale

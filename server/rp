@@ -63,16 +63,21 @@ unit_file(){ systemctl list-unit-files "$1.service" >/dev/null 2>&1 && systemctl
 is_active(){ systemctl is-active --quiet "$1.service" 2>/dev/null; }
 is_enabled(){ systemctl is-enabled --quiet "$1.service" 2>/dev/null; }
 port_open(){ # $1 = port, $2 = unit (optional — selects the UDP probe)
-  if [ -n "${2:-}" ] && [ -n "${UDP_PORT[$2]:-}" ]; then
-    # A UDP socket has no accept state, so only the listening socket proves it:
-    # /dev/udp would "connect" to a dead port just as happily.
-    command -v ss >/dev/null 2>&1 || return 0    # can't tell; don't cry wolf
-    ss -lun 2>/dev/null | grep -q ":$1[[:space:]]"
-    return
+  # A UDP socket has no accept state, so only the listening socket proves it:
+  # /dev/udp would "connect" to a dead port just as happily.
+  local proto=tcp
+  [ -n "${2:-}" ] && [ -n "${UDP_PORT[$2]:-}" ] && proto=udp
+  # The dashboard sets _SS_CACHE once per frame. Without it this ran `ss` once
+  # per unit per redraw, so each component added to the roster made the frame
+  # slower until the repaint became visible.
+  local snap="${_SS_CACHE:-}"
+  if [ -z "$snap" ]; then
+    if command -v ss >/dev/null 2>&1; then snap=$(ss -ltun 2>/dev/null)
+    elif [ "$proto" = udp ]; then return 0          # can't tell; don't cry wolf
+    else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&-; return 0; } || return 1
+    fi
   fi
-  if command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -q ":$1[[:space:]]"
-  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&-; return 0; } || return 1
-  fi
+  printf '%s\n' "$snap" | grep -qE "^${proto}[[:space:]].*:$1[[:space:]]"
 }
 need_root(){ [ "$(id -u)" = 0 ] || { echo "rp $1 needs root — re-run with sudo." >&2; exit 1; }; }
 
@@ -313,8 +318,17 @@ cmd_tui(){
   local YY=$'\033[38;5;214m' DD=$'\033[38;5;244m' BB=$'\033[1m' ZZ=$'\033[0m'
   local W IN; W=$(tput cols 2>/dev/null || echo 80); [ "$W" -gt 82 ] && W=82; [ "$W" -lt 56 ] && W=56; IN=$((W-2))
   local -a units; mapfile -t units < <(installed_units)
+  # Whether a unit FILE exists cannot change while the dashboard is open, so
+  # resolve it once. It used to be re-checked per unit per frame — two
+  # `systemctl` spawns each — and every unit added to the roster made the frame
+  # slower until the redraw became visible as flicker.
+  declare -A INSTALLED=()
+  local _iu; for _iu in "${units[@]}"; do INSTALLED[$_iu]=1; done
   [ ${#units[@]} -eq 0 ] && units=("${UNITS[@]}")   # show the roster even if none installed yet
   local sel=0 msg="" key rest
+  # Rendered per-unit state, refreshed on the tick rather than on every keypress.
+  local -a _C_DOT=() _C_STATE=() _C_BOOT=() _C_PORT=()
+  local _nrun=0 _nstop=0 _nfail=0 _probe=1
 
   _dash(){ printf '─%.0s' $(seq 1 "$1"); }
   # pad a possibly-colored string to visible width $2
@@ -340,17 +354,31 @@ cmd_tui(){
     _row "  ${DD}version${ZZ} ${BB}$ver${ZZ}    ${DD}backend${ZZ} $be    ${DD}uptime${ZZ} $up    ${DD}load${ZZ} $load"
     _sep
     _row "  ${DD}COMPONENT             STATUS        BOOT       PORT${ZZ}"
-    local i u name statecol stateword boot port dot pointer nrun=0 nstop=0 nfail=0
+    local i u name stateword boot port dot pointer
+    # PROBE only when something can have changed — the timed tick, or right
+    # after an action. Moving the selection is a pure repaint: it used to re-run
+    # is-failed + is-active + is-enabled for every unit on every arrow key, so
+    # the cursor visibly lagged and the frame tore while it caught up.
+    if [ "${_probe:-1}" = 1 ]; then
+      _nrun=0; _nstop=0; _nfail=0
+      local _SS_CACHE=''
+      command -v ss >/dev/null 2>&1 && _SS_CACHE=$(ss -ltun 2>/dev/null)
+      for i in "${!units[@]}"; do
+        u="${units[$i]}"
+        if have_systemd && [ -n "${INSTALLED[$u]:-}" ]; then
+          if systemctl is-failed --quiet "$u.service" 2>/dev/null; then _C_DOT[$i]="${RR}✖${ZZ}"; _C_STATE[$i]="${RR}failed${ZZ}"; _nfail=$((_nfail+1))
+          elif is_active "$u"; then _C_DOT[$i]="${GG}●${ZZ}"; _C_STATE[$i]="${GG}running${ZZ}"; _nrun=$((_nrun+1))
+          else _C_DOT[$i]="${DD}○${ZZ}"; _C_STATE[$i]="${DD}stopped${ZZ}"; _nstop=$((_nstop+1)); fi
+          is_enabled "$u" && _C_BOOT[$i]="enabled " || _C_BOOT[$i]="${YY}disabled${ZZ}"
+        else _C_DOT[$i]="${DD}·${ZZ}"; _C_STATE[$i]="${DD}absent${ZZ}"; _C_BOOT[$i]="${DD}—${ZZ}"; fi
+        local p="${PORT[$u]:-}"; _C_PORT[$i]="—       "
+        if [ -n "$p" ]; then port_open "$p" "$u" && _C_PORT[$i]="${GG}:$p ✓${ZZ}" || _C_PORT[$i]="${RR}:$p ✗${ZZ}"; fi
+      done
+    fi
+    local nrun=$_nrun nstop=$_nstop nfail=$_nfail
     for i in "${!units[@]}"; do
       u="${units[$i]}"; name="${u#remotepower-}"
-      if have_systemd && unit_file "$u"; then
-        if systemctl is-failed --quiet "$u.service" 2>/dev/null; then dot="${RR}✖${ZZ}"; stateword="${RR}failed${ZZ}"; nfail=$((nfail+1))
-        elif is_active "$u"; then dot="${GG}●${ZZ}"; stateword="${GG}running${ZZ}"; nrun=$((nrun+1))
-        else dot="${DD}○${ZZ}"; stateword="${DD}stopped${ZZ}"; nstop=$((nstop+1)); fi
-        is_enabled "$u" && boot="enabled " || boot="${YY}disabled${ZZ}"
-      else dot="${DD}·${ZZ}"; stateword="${DD}absent${ZZ}"; boot="${DD}—${ZZ}"; nstop=$((nstop+0)); fi
-      local p="${PORT[$u]:-}"; port="—       "
-      if [ -n "$p" ]; then port_open "$p" "$u" && port="${GG}:$p ✓${ZZ}" || port="${RR}:$p ✗${ZZ}"; fi
+      dot="${_C_DOT[$i]}"; stateword="${_C_STATE[$i]}"; boot="${_C_BOOT[$i]}"; port="${_C_PORT[$i]}"
       if [ "$i" -eq "$sel" ]; then pointer="${AC}▸${ZZ}"; name="${AC}${BB}${name}${ZZ}"; else pointer=" "; fi
       _row " $pointer $dot $(_pad "$name" 18) $(_pad "$stateword" 11) $(_pad "$boot" 9) $port"
     done
@@ -398,6 +426,7 @@ H
     if _sudo systemctl "$1" "$u.service" >/dev/null 2>&1; then msg="${GG}$1 ${u#remotepower-} ✓${ZZ}"
     elif [ $? -eq 90 ]; then msg="${RR}need root — run rp as sudo${ZZ}"
     else msg="${RR}$1 ${u#remotepower-} failed${ZZ}"; fi
+    _probe=1                    # the state just changed — do not show the old one
   }
   _pager(){ if command -v less >/dev/null 2>&1; then less -R; else cat; fi; }
 
@@ -406,7 +435,8 @@ H
   _tui_setup; printf '\033[2J'
   while :; do
     _draw
-    IFS= read -rsn1 -t 2 key || { msg=""; continue; }
+    _probe=0                       # a keypress only moves the cursor…
+    IFS= read -rsn1 -t 2 key || { msg=""; _probe=1; continue; }   # …the tick refreshes
     case "$key" in
       $'\033') read -rsn2 -t 0.05 rest || rest=''
                case "$rest" in '[A') sel=$(( (sel-1+${#units[@]}) % ${#units[@]} ));;
@@ -416,10 +446,10 @@ H
       r|R) _act restart ;;
       s|S) _act start ;;
       x|X) _act stop ;;
-      d|D) _tui_teardown; { cmd_doctor; echo; echo "── press q to return ──"; } | _pager; _tui_setup; printf '\033[2J' ;;
-      l|L) _tui_teardown; { have_systemd && journalctl -u "${units[$sel]}.service" -n 300 --no-pager 2>/dev/null || echo "no logs"; } | _pager; _tui_setup; printf '\033[2J' ;;
-      '?'|h|H) _tui_teardown; _help | _pager; _tui_setup; printf '\033[2J' ;;
-      p|P) _tui_teardown; printf '\033[?25h'; echo "Repairing (rp repair)…"; cmd_repair; echo; echo "── press ENTER to return ──"; read -r _; _tui_setup; printf '\033[2J' ;;
+      d|D) _tui_teardown; { cmd_doctor; echo; echo "── press q to return ──"; } | _pager; _tui_setup; printf '\033[2J'; _probe=1 ;;
+      l|L) _tui_teardown; { have_systemd && journalctl -u "${units[$sel]}.service" -n 300 --no-pager 2>/dev/null || echo "no logs"; } | _pager; _tui_setup; printf '\033[2J'; _probe=1 ;;
+      '?'|h|H) _tui_teardown; _help | _pager; _tui_setup; printf '\033[2J'; _probe=1 ;;
+      p|P) _tui_teardown; printf '\033[?25h'; echo "Repairing (rp repair)…"; cmd_repair; echo; echo "── press ENTER to return ──"; read -r _; _tui_setup; printf '\033[2J'; _probe=1 ;;
       g|G) msg="${DD}refreshed${ZZ}" ;;
       q|Q) break ;;
     esac

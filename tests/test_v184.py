@@ -364,6 +364,10 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'reboot_cleared',                        # ← reboot_required
             'containers_current',                    # ← containers_stale
             'port_unexposed',                        # ← port_exposed_world
+            # v6.3.1: three alerts that could previously fire and never clear.
+            'port_closed',                           # ← new_port_detected
+            'policy_compliant',                      # ← software_policy_violation
+            'disk_predict_cleared',                  # ← disk_predict_fail
         }
         self.assertEqual(names, expected)
 
