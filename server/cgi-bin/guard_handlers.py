@@ -156,10 +156,13 @@ def _queue_guard_action(did, qid, op):
     accepted, so the server suppresses the check authoritatively (see
     checks._eval_custom_check) — instant, surviving refresh/cache, not
     dependent on the agent round-trip; the agent still re-baselines on-host."""
+    _resolve_recover = False   # fire custom_check_recovered after the lock
+    _dev_name = did
     with A._DeviceUpdate(did) as devices:
         dev = devices.get(did) if isinstance(devices, dict) else None
         if not isinstance(dev, dict):
             return False
+        _dev_name = dev.get('name', did)
         acts = dev.setdefault('guard_actions', [])
         if not any(isinstance(a, dict) and a.get('id') == qid and a.get('op') == op
                    for a in acts):
@@ -177,13 +180,27 @@ def _queue_guard_action(did, qid, op):
             cur_out = cur.get('output') if isinstance(cur, dict) else None
             if cur_out:
                 dev.setdefault('custom_check_accepted', {})[qid] = str(cur_out)[:200]
-            # Auto-resolve the open alert now instead of holding it a round-trip.
+            # Mark the edge-state recovered so the ingest sweep doesn't re-fire.
             st = dev.get('custom_check_state')
+            _was_alerted = bool(st.get(qid, {}).get('alerted')) if isinstance(st, dict) else False
             if isinstance(st, dict) and qid in st:
                 st[qid] = {'status': 'ok', 'output': 'change accepted as the new baseline',
                            'changed_at': int(A.time.time()), 'alerted': False}
+            # The open custom_check_failed alert must actually RESOLVE — firing
+            # custom_check_recovered (device_id + check_id sub_match) closes it
+            # via _auto_resolve_alerts. Fire AFTER the lock (fire_webhook takes
+            # its own alert/event locks). Fire regardless of _was_alerted: it's
+            # a no-op if there is no matching open alert, and covers the case
+            # where the alert exists but the edge-state was lost.
+            _resolve_recover = True
         devices[did] = dev   # write the mutated device row back
     if op == 'rebaseline':
+        if _resolve_recover:
+            try:
+                A.fire_webhook('custom_check_recovered', {
+                    'device_id': did, 'name': _dev_name, 'check_id': qid})
+            except Exception:
+                pass
         # Bust the fleet-checks cache so the Checks page reflects the acceptance
         # on the very next load instead of up to its 15s TTL later.
         try:

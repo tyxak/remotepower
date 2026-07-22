@@ -285,6 +285,27 @@ class TestRebaselineEndToEnd(unittest.TestCase):
                          [{'id': CHECK['id'], 'op': 'rebaseline'}])
         self.assertNotIn('guard_actions', api.load(api.DEVICES_FILE))  # not on collection
 
+    def test_accept_resolves_the_open_alert(self):
+        # The whole point: accepting a baseline must CLOSE the open inbox alert,
+        # not just hide the row. Fire a real custom_check_failed, accept, assert
+        # the alert auto-resolves (custom_check_recovered, matched by check_id).
+        api.fire_webhook('custom_check_failed', {
+            'device_id': DEV, 'name': 'h1', 'check_id': CHECK['id'],
+            'check_name': CHECK['name'], 'status': 'critical',
+            'output': self.crit})
+        _open = [a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
+                 if not a.get('resolved_at')]
+        self.assertEqual(len(_open), 1)
+        # device carries the failing edge-state
+        d = self._dev()
+        d['custom_check_state'] = {CHECK['id']: {'status': 'critical',
+                                                 'output': 'x', 'alerted': True}}
+        api.save(api.DEVICES_FILE, {DEV: d}); api._invalidate_load_cache(api.DEVICES_FILE)
+        self.gh._queue_guard_action(DEV, CHECK['id'], 'rebaseline')
+        _open2 = [a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])
+                  if not a.get('resolved_at')]
+        self.assertEqual(len(_open2), 0, 'accepting a baseline must resolve its alert')
+
     def test_acceptance_suppresses_and_survives_reload(self):
         import checks
         self.gh._queue_guard_action(DEV, CHECK['id'], 'rebaseline')
