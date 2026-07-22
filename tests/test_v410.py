@@ -1441,7 +1441,11 @@ class TestChecksView(unittest.TestCase):
         self.assertIn('async function toggleHostCheck', self.js)
         # sortable + status pills
         self.assertIn("wireSortOnly('checks-thead'", self.js)
-        self.assertIn('chk-pill chk-', self.js)
+        # v6.4.0: checks summary is now living stat tiles (count-up + sparkline
+        # + meaning-aware delta) instead of the old chk-pill text spans.
+        self.assertIn("card('Critical', sum.critical", self.js)
+        self.assertIn("card('OK', sum.ok", self.js)
+        self.assertIn('statTiles.enhanceAll(se)', self.js)
 
     def test_custom_checks_ui_wired(self):
         self.assertIn('id="custom-checks-modal"', self.html)
