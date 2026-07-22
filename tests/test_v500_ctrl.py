@@ -903,8 +903,13 @@ class TestT5Polish(unittest.TestCase):
         # backend exposes commands_pending in nav-counts (admin only)
         block = py_function(API_SRC, "handle_nav_counts")
         self.assertIn("out['commands_pending']", block)
-        # CMDS_FILE added to the cache-invalidation sources so the badge is fresh
-        self.assertIn("ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE", API_SRC)
+        # v6.4.0 (perf): CMDS_FILE was REMOVED from the cache-freshness gate —
+        # it's rewritten by every command delivery, which defeated the cache on
+        # any live fleet. The pending-commands count is now bounded by the 15s
+        # TTL (and the content-based ETag keeps the browser exact), while the
+        # gate busts early only on operator stores + the device-set fingerprint.
+        self.assertIn("CVE_FINDINGS_FILE, ALERTS_FILE", block)
+        self.assertIn("_device_set_fingerprint()", block)
         # frontend badge element + painter
         self.assertIn('id="cmdqueue-badge"', HTML)
         self.assertIn("c.commands_pending", APP)
