@@ -54,4 +54,44 @@ telnet closed), **Filesystem / OS** (no OOM-kill, no pending reboot, logins not
 disabled) and **Role-tagged** (Docker/nginx/PostgreSQL, applied to their tag).
 Applying is idempotent — a check already present for that scope is skipped.
 Defaults suit a Debian/Ubuntu fleet and are editable from the Check catalog
-afterwards (e.g. `crond.service` on RHEL, `firewalld`/`nftables`).
+afterwards (e.g. `crond.service` on RHEL, `firewalld`/`nftables`). Besides the
+fleet/group/tag scopes you can also target **a specific host**, picked by a
+device search rather than typed as a raw id.
+
+## Two baseline pickers
+
+The catalog is split by intent, and each picker only offers (and lists) its own
+side:
+
+- **Monitoring → Checks → Baseline checks** — the operational set above: is the
+  host alive, patched, and running what it should.
+- **Security → Protect → Baseline protect checks** — ~57 hardening and
+  tamper-detection templates: ports that must not listen, critical-file
+  integrity, persistence paths, log signals. See
+  [Integrity Guard](integrity-guard.md).
+
+Both create ordinary scoped checks and both evaluate into the same Checks table
+here — only the *definition* lives on separate pages.
+
+## Integrity & egress check types
+
+Three agent-side types back the Protect set and can be used in any check:
+
+- **`file_hash`** — SHA-256 of one file; baselines on first run, alerts on
+  change.
+- **`dir_baseline`** — a subtree's file list (`path` or `path::glob`); alerts on
+  anything added, changed or removed, and can optionally **auto-quarantine** new
+  files into an on-host vault.
+- **`egress_flagged`** — alerts on an active outbound connection to an address
+  in your flagged IP/CIDR list.
+
+Full behaviour, the quarantine vault and the safety rails are documented in
+[Integrity Guard](integrity-guard.md).
+
+## When a check starts alerting
+
+The first definitive observation of a check is **seeded silently**, so applying
+a batch of baselines never emits a storm on the same beat. A check **still
+failing on its next report** raises `custom_check_failed`, then stays quiet
+until it recovers. Agent-side results ride `sysinfo`, which is sent every 10th
+poll — so allow ~10 minutes after applying before rows leave `unknown`.

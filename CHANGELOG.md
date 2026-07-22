@@ -7,6 +7,43 @@ All notable changes to RemotePower. Newest first.
 The agentic-diagnosis release: when something is wrong and nobody knows where,
 point the AI at the host — with hard budgets, redaction and an evidence trail.
 
+### Integrity Guard — Security → Protect
+- **Three agent-side check types.** `file_hash` (SHA-256 of a pinned file),
+  `dir_baseline` (a subtree's file list, `path` or `path::glob`) and
+  `egress_flagged` (an active outbound connection to a flagged IP/CIDR). All
+  baseline on first run and alert on later change; Linux-first, reporting
+  `unknown` on Windows rather than false-alerting.
+- **Auto-quarantine.** A `dir_baseline` check can move NEW matching files into
+  an on-host vault (`/var/lib/remotepower/guard-quarantine`, `0600`) instead of
+  leaving them live. Changed/removed files are only reported, never touched.
+  The vault is self-describing (per-file `.meta` sidecar), so a file stays
+  restorable even after the audit log rotates.
+- **Security → Protect page** — applied protect checks (edit/delete, `guard`
+  badge), its own catalog and baseline picker, and the quarantine vault with
+  restore/delete. Restore refuses to overwrite a re-occupied path.
+- **Two safety rails.** Quarantine is suppressed while a host is inside an
+  active maintenance window, and a mass change (>25 new files — a deploy) is
+  reported rather than vaulted.
+- **~57 hardening templates** applied by checkbox to a host/group/tag/fleet:
+  must-not-listen ports (incl. the unauthenticated Docker API), critical-file
+  integrity, persistence paths, must-not-exist files, log signals, job
+  freshness. Baseline apply also accepts a **specific host** as a scope.
+- Docs: `docs/integrity-guard.md`.
+
+### Fixed
+- **A check failing from its FIRST observation now alerts.** `custom_check_failed`
+  fired only on an `ok → failing` edge and the first observation was seeded
+  silently, so a check that was already failing when it was applied showed
+  critical on the Checks page and alerted nowhere, permanently. The first
+  observation still seeds silently (no storm when applying a batch), but a check
+  still failing on its next report now fires once.
+- **Handlers no longer 500 when pydantic is absent.** `request_models` documents
+  the library as optional and `validate()` already no-ops without it, but ~212
+  call sites resolve the model eagerly (`_read_valid(request_models.XRequest)`),
+  which raised `AttributeError` before `validate()` could degrade. A module-level
+  `__getattr__` now returns `None` for the model names when the library is
+  missing.
+
 ### Hail-mary log sweep ("Diagnose from logs")
 - **One-shot bounded `/var/log` sweep** — a new device-drawer action asks the
   agent for a snapshot of the host's recently-modified log files:

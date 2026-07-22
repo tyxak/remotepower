@@ -799,6 +799,32 @@ CHECK_BASELINE_CATALOG = (
     },
     {
         "cat": "Web / application security",
+        "id": "wp_muplugins_integrity",
+        "type": "dir_baseline",
+        "param": "/var/www/html/wp-content/mu-plugins",
+        "name": "No new must-use plugins (WordPress)",
+        "desc": "mu-plugins load automatically on EVERY request and never appear in "
+                "the plugin admin list, which makes the directory a favourite "
+                "persistence and credential-capture spot. It is normally empty or "
+                "tiny, so anything new here is worth a look. Edit the path to your "
+                "document root.",
+        "target_kind": "tag",
+        "target": "web",
+    },
+    {
+        "cat": "Web / application security",
+        "id": "wp_config_integrity",
+        "type": "file_hash",
+        "param": "/var/www/html/wp-config.php",
+        "name": "WordPress wp-config.php unchanged",
+        "desc": "Holds the database credentials and auth salts. A change is either a "
+                "real config edit or someone tampering with keys and constants. Edit "
+                "the path to your document root.",
+        "target_kind": "tag",
+        "target": "web",
+    },
+    {
+        "cat": "Web / application security",
         "id": "accounts_integrity",
         "type": "file_hash",
         "param": "/etc/passwd",
@@ -1009,9 +1035,12 @@ CHECK_BASELINE_CATALOG = (
      "name": "Package index updated recently", "extras": {"max_age_hours": 48},
      "desc": "If apt stopped updating, your patch data (and CVE view) is silently stale."},
     {"cat": "Freshness — scheduled jobs", "id": "clamav_db_fresh", "type": "job_fresh",
-     "param": "/var/lib/clamav/daily.cvd",
+     "param": "/var/lib/clamav/daily.cld",
      "name": "AV signatures updated recently", "extras": {"max_age_hours": 48},
-     "desc": "Stale antivirus definitions give false comfort."},
+     "desc": "Stale antivirus definitions give false comfort. Note the extension: "
+             "freshclam ships daily.cvd on a fresh install but rewrites it as "
+             "daily.cld once it starts applying incremental updates, which is the "
+             "steady state on a running host — edit the path if yours differs."},
 )
 
 

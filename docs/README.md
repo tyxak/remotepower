@@ -115,6 +115,10 @@ Older release notes (v6.2.2 and earlier) live in
  API reference, backup story, disaster recovery.
 - **[drift.md](drift.md)** — Configuration drift detection: what's
  watched, customising the list, re-baselining, the compliance angle.
+- **[integrity-guard.md](integrity-guard.md)** — Integrity Guard (Security →
+ Protect): file-integrity and egress check types, auto-quarantine and the
+ on-host vault, restore/delete, the maintenance + mass-change safety rails,
+ the hardening template catalog, and troubleshooting.
 - **[firewall.md](firewall.md)** — Fleet firewall + fail2ban: view posture and
  drift, edit nftables/iptables/ufw/firewalld rules, ban/unban IPs and start/stop jails.
 - **[compliance.md](compliance.md)** — Host-security compliance: PCI/HIPAA/SOC2
