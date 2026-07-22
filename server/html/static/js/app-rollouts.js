@@ -126,10 +126,12 @@ async function rolloutAction(id, action) {
 }
 
 async function deleteRollout(id) {
-  if (!await uiConfirm('Delete this rollout? This removes its record only; it does not undo dispatched changes.')) return;
-  const r = await api('DELETE', `/rollouts/${id}`).catch(() => null);
-  if (r?.ok) { toast('Rollout deleted', 'success'); loadRollouts(); }
-  else toast(r?.error || 'Failed to delete', 'error');
+  undoableDelete({
+    label: 'Rollout record deleted',
+    hide: () => _hideRowByAction('deleteRollout', id),
+    commit: () => api('DELETE', `/rollouts/${id}`).catch(() => null),
+    undo: () => loadRollouts(), after: () => loadRollouts(),
+  });
 }
 
 // W2-36: rolling reboot orchestrator.

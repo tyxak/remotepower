@@ -16864,7 +16864,25 @@ def handle_device_monitored(dev_id):
                 changed = True
         if changed:
             save(CONFIG_FILE, cfg)
+        _resolve_open_alerts_for_device(dev_id, 'unmonitored')
     respond(200, {'ok': True, 'monitored': monitored})
+
+
+def _resolve_open_alerts_for_device(dev_id, by):
+    """v6.4.0: resolve a device's OPEN alerts (used when it goes unmonitored /
+    decommissioned). The same guard that suppresses NEW alerts for an
+    unmonitored device also suppresses its recover events, so an existing alert
+    could never clear on its own — it would sit in the inbox forever. Mark
+    resolved (history/MTTR preserved) rather than delete."""
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                if a.get('device_id') == dev_id and not a.get('resolved_at'):
+                    a['resolved_at'] = now
+                    a['resolved_by'] = by
+    except Exception:
+        pass
 
 
 def handle_device_decommission(dev_id):
@@ -16899,6 +16917,7 @@ def handle_device_decommission(dev_id):
                 changed = True
         if changed:
             save(CONFIG_FILE, cfg)
+        _resolve_open_alerts_for_device(dev_id, 'decommissioned')
     audit_log(actor, 'device_decommission',
               detail=f'device={dev_id} decommissioned={dc}')
     respond(200, {'ok': True, 'decommissioned': dc})
@@ -23953,6 +23972,8 @@ def handle_config_get():
     safe.setdefault('contract_soon_days', _CONTRACT_SOON_DAYS)              # contract expiry soon (days)
     safe.setdefault('os_eol_soon_days', 90)            # OS end-of-life soon (days)
     safe.setdefault('av_sig_stale_days', 7)            # AV/Defender signature stale (days)
+    safe.setdefault('gateway_latency_high_ms', 150)    # v6.4.0 gateway rolling-avg RTT alert (0=off)
+    safe.setdefault('battery_health_low_pct', 50)      # v6.4.0 battery wear alert (0=off)
     # v6.2.2 batch 3: previously-hardcoded hardware/thermal/SMART thresholds, now
     # operator-configurable (Settings → Thermal & GPU / Disk wear & SMART).
     # Defaults mirror the code constants so an unconfigured server behaves
@@ -25142,6 +25163,8 @@ def handle_config_save():
         ('contract_soon_days',        1,   3650,   True),
         ('os_eol_soon_days',          1,   3650,   True),
         ('av_sig_stale_days',         1,   365,    True),
+        ('gateway_latency_high_ms',   0,   10000,  True),   # v6.4.0 (0 disables)
+        ('battery_health_low_pct',    0,   100,    True),   # v6.4.0 (0 disables)
         # v6.2.2 batch 3: hardware/thermal/SMART thresholds. Constants were never
         # 0/negative, so each keeps a floor of 1 EXCEPT ecc_error_alert_min_delta
         # (a floor where 0 = fire on any positive delta = today's behaviour).

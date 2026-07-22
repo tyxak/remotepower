@@ -7253,10 +7253,12 @@ async function createSatellite() {
   } else { toast('Create failed: ' + (r && r.error || ''), 'error'); }
 }
 async function deleteSatellite(id) {
-  if (!await uiConfirm('Revoke this satellite? Agents relaying through it will stop reaching the server.')) return;
-  const r = await api('DELETE', '/satellites/' + id);
-  if (r && r.ok) { toast('Satellite revoked', 'info'); loadSatellites(); }
-  else { toast('Revoke failed', 'error'); }
+  undoableDelete({
+    label: 'Satellite revoked',
+    hide: () => _hideRowByAction('deleteSatellite', id),
+    commit: () => api('DELETE', '/satellites/' + id),
+    undo: () => loadSatellites(), after: () => loadSatellites(),
+  });
 }
 
 // ── v3.12.0: per-asset risk ──────────────────────────────────────────────────
@@ -9407,9 +9409,12 @@ async function saveDeviceProfile() {
   else toast((r && r.error) || 'Save failed', 'error');
 }
 async function deleteDeviceProfile(id) {
-  if (!await uiConfirm({ title: 'Delete profile', message: 'Delete this device profile? Devices it was applied to are unaffected.', confirmText: 'Delete', danger: true })) return;
-  const r = await api('DELETE', `/device-profiles/${encodeURIComponent(id)}`);
-  if (r && r.ok) { toast('Deleted', 'info'); loadDeviceProfiles(); } else toast((r && r.error) || 'Failed', 'error');
+  undoableDelete({
+    label: 'Device profile deleted',
+    hide: () => _hideRowByAction('deleteDeviceProfile', id),
+    commit: () => api('DELETE', `/device-profiles/${encodeURIComponent(id)}`),
+    undo: () => loadDeviceProfiles(), after: () => loadDeviceProfiles(),
+  });
 }
 
 let _profileApplyId = null;
@@ -9571,10 +9576,13 @@ async function saveRack() {
   else toast((r && r.error) || 'Save failed', 'error');
 }
 async function deleteRack(id) {
-  if (!await uiConfirm({ title: 'Delete rack', message: 'Delete this rack? Assets placed in it become unplaced.', confirmText: 'Delete', danger: true })) return;
-  const r = await api('DELETE', `/racks/${encodeURIComponent(id)}`);
-  if (r && r.ok) { toast('Deleted', 'info'); loadRacks(); document.getElementById('rack-elevation-wrap')?.classList.add('hidden'); }
-  else toast((r && r.error) || 'Failed', 'error');
+  const _reload = () => { loadRacks(); document.getElementById('rack-elevation-wrap')?.classList.add('hidden'); };
+  undoableDelete({
+    label: 'Rack deleted',
+    hide: () => _hideRowByAction('deleteRack', id),
+    commit: () => api('DELETE', `/racks/${encodeURIComponent(id)}`),
+    undo: _reload, after: _reload,
+  });
 }
 async function viewRackElevation(id) {
   const wrap = document.getElementById('rack-elevation-wrap');
@@ -9667,10 +9675,13 @@ async function saveSubnet() {
   else toast((r && r.error) || 'Save failed', 'error');
 }
 async function deleteSubnet(id) {
-  if (!await uiConfirm({ title: 'Delete subnet', message: 'Delete this subnet definition? (Devices are unaffected.)', confirmText: 'Delete', danger: true })) return;
-  const r = await api('DELETE', `/ipam/subnets/${encodeURIComponent(id)}`);
-  if (r && r.ok) { toast('Deleted', 'info'); loadIpam(); document.getElementById('ipam-occupancy-wrap')?.classList.add('hidden'); }
-  else toast((r && r.error) || 'Failed', 'error');
+  const _reload = () => { loadIpam(); document.getElementById('ipam-occupancy-wrap')?.classList.add('hidden'); };
+  undoableDelete({
+    label: 'Subnet deleted',
+    hide: () => _hideRowByAction('deleteSubnet', id),
+    commit: () => api('DELETE', `/ipam/subnets/${encodeURIComponent(id)}`),
+    undo: _reload, after: _reload,
+  });
 }
 async function viewSubnetOccupancy(id) {
   const wrap = document.getElementById('ipam-occupancy-wrap');
@@ -20519,6 +20530,8 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-contract-soon-days',        'contract_soon_days',         90],
   ['ap-os-eol-days',               'os_eol_soon_days',           90],
   ['ap-av-stale-days',             'av_sig_stale_days',          7],
+  ['ap-gw-latency-ms',             'gateway_latency_high_ms',    150],   // v6.4.0
+  ['ap-batt-health-pct',           'battery_health_low_pct',     50],    // v6.4.0
   // v6.2.2 batch 3: hardware/thermal/SMART thresholds.
   ['ap-thermal-hot-c',             'thermal_hot_c',              75],
   ['ap-thermal-crit-c',            'thermal_crit_c',             85],

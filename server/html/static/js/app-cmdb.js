@@ -936,17 +936,19 @@ async function cmdbDocDelete(docId) {
   if (!_cmdbCurrent) return;
   const doc = (_cmdbCurrent.docs || []).find(d => d.id === docId);
   if (!doc) return;
-  if (!await uiConfirm(`Delete document "${doc.title}"?`)) return;
-  const res = await cmdbApi('DELETE',
-    `/cmdb/${encodeURIComponent(_cmdbCurrent.device_id)}/docs/${encodeURIComponent(docId)}`);
-  if (!res) return;
-  if (!res.ok) {
-    toast('Delete failed: ' + (res.data && res.data.error || res.status), 'error');
-    return;
-  }
-  _cmdbCurrent.docs = (_cmdbCurrent.docs || []).filter(d => d.id !== docId);
-  cmdbRenderDocs(_cmdbCurrent.docs);
-  cmdbReloadList();
+  const devId = _cmdbCurrent.device_id;
+  const _reload = () => { if (_cmdbCurrent && _cmdbCurrent.device_id === devId) { cmdbRenderDocs(_cmdbCurrent.docs); } cmdbReloadList(); };
+  undoableDelete({
+    label: `Document "${doc.title}" deleted`,
+    hide: () => _hideRowByAction('cmdbDocDelete', docId),
+    commit: async () => {
+      const res = await cmdbApi('DELETE', `/cmdb/${encodeURIComponent(devId)}/docs/${encodeURIComponent(docId)}`);
+      if (res && res.ok && _cmdbCurrent && _cmdbCurrent.device_id === devId) {
+        _cmdbCurrent.docs = (_cmdbCurrent.docs || []).filter(d => d.id !== docId);
+      }
+    },
+    undo: _reload, after: _reload,
+  });
 }
 
 // Tiny Markdown renderer — headings, bold, italic, code, links, lists.
