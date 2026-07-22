@@ -238,13 +238,16 @@ async function saveTimeEntry() {
 }
 
 async function deleteTimeEntry(eid, ctxTid) {
-  if (!await uiConfirm('Delete this time entry?')) return;
-  const r = await api('DELETE', '/time-entries/' + encodeURIComponent(eid));
-  if (r && r.ok) {
-    toast('Deleted', 'success');
+  const _reload = () => {
     if (ctxTid) renderTicketHours(ctxTid);
     if (document.getElementById('page-timesheet')?.classList.contains('active')) loadTimesheet();
-  } else { toast((r && r.error) || 'Failed', 'error'); }
+  };
+  undoableDelete({
+    label: 'Time entry deleted',
+    hide: () => _hideRowByAction('deleteTimeEntry', eid),
+    commit: () => api('DELETE', '/time-entries/' + encodeURIComponent(eid)),
+    undo: _reload, after: _reload,
+  });
 }
 
 /* ── ticket hours (injected into the ticket detail by app.js openTicket) ─── */

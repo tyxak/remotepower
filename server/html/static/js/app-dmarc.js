@@ -246,8 +246,10 @@ async function dmarcScan() {
 }
 
 async function deleteDmarc(id) {
-  if (!await uiConfirm('Remove this domain from the DMARC monitor?')) return;
-  const r = await api('DELETE', '/dmarc/targets/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Removed', 'info'); loadDmarc(); }
-  else toast((r && r.error) || 'Failed', 'error');
+  undoableDelete({
+    label: 'DMARC domain removed',
+    hide: () => _hideRowByAction('deleteDmarc', id),
+    commit: () => api('DELETE', '/dmarc/targets/' + encodeURIComponent(id)),
+    undo: () => loadDmarc(), after: () => loadDmarc(),
+  });
 }

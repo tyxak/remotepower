@@ -379,9 +379,12 @@ async function restoreBackupJob(id) {
 }
 
 async function deleteBackupJob(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!await uiConfirm('Delete this backup job?')) return;
-  const d = await api('DELETE', '/backup-jobs/' + encodeURIComponent(id));
-  if (d?.ok) { toast('Job deleted', 'info'); loadBackupJobs(); } else toast(d?.error || 'Failed', 'error');
+  undoableDelete({
+    label: 'Backup job deleted',
+    hide: () => _hideRowByAction('deleteBackupJob', id),
+    commit: () => api('DELETE', '/backup-jobs/' + encodeURIComponent(id)),
+    undo: () => loadBackupJobs(), after: () => loadBackupJobs(),
+  });
 }
 
 async function loadProxmoxBackups() {

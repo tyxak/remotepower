@@ -542,9 +542,12 @@ async function deleteLogRule(devId, unit, pattern) {
 }
 
 async function deleteGlobalLogRule(ruleId) {
-  if (!await uiConfirm('Remove fleet-wide rule?')) return;
-  const result = await api('DELETE', `/logs/rules/global/${ruleId}`);
-  if (result && result.ok) { toast('Fleet-wide rule removed', 'success'); loadGlobalLogRules(); }
+  undoableDelete({
+    label: 'Fleet-wide log rule removed',
+    hide: () => _hideRowByAction('deleteGlobalLogRule', ruleId),
+    commit: () => api('DELETE', `/logs/rules/global/${ruleId}`),
+    undo: () => loadGlobalLogRules(), after: () => loadGlobalLogRules(),
+  });
 }
 
 // ── v6.3.1: log-alert acknowledgements ───────────────────────────────────────

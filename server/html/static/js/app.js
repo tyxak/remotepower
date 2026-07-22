@@ -3730,10 +3730,12 @@ async function saveRole() {
 }
 
 async function deleteRole(name) {
-  if (!await uiConfirm(`Delete role "${name}"?`)) return;
-  const r = await api('DELETE', `/roles/${encodeURIComponent(name)}`).catch(() => null);
-  if (r?.ok) { toast('Role deleted', 'info'); loadRoles(); }
-  else toast(r?.error || 'Failed to delete role', 'error');
+  undoableDelete({
+    label: `Role "${name}" deleted`,
+    hide: () => _hideRowByAction('deleteRole', name),
+    commit: () => api('DELETE', `/roles/${encodeURIComponent(name)}`).catch(() => null),
+    undo: () => loadRoles(), after: () => loadRoles(),
+  });
 }
 
 async function openUserAdd() {
@@ -9798,10 +9800,12 @@ function siteMapClick(siteId) {
   if (filter && s) { filter.value = s.name; filter.dispatchEvent(new Event('input', {bubbles: true})); }
 }
 async function deleteSite(id, name) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!await uiConfirm(`Delete site "${name}"? Devices in it become unassigned.`)) return;
-  const data = await api('DELETE', '/sites/' + encodeURIComponent(id));
-  if (data?.ok) { toast(`Site deleted (${data.unassigned} device(s) unassigned)`, 'info'); loadSites(); }
-  else toast(data?.error || 'Failed', 'error');
+  undoableDelete({
+    label: `Site "${name}" deleted`,
+    hide: () => _hideRowByAction('deleteSite', id),
+    commit: () => api('DELETE', '/sites/' + encodeURIComponent(id)),
+    undo: () => loadSites(), after: () => loadSites(),
+  });
 }
 // Device → site assignment (opened from the device drawer)
 async function openDeviceSite(id, name) {
@@ -20168,10 +20172,12 @@ async function updateIncident(iid) {
   else toast(r?.error || 'Failed', 'error');
 }
 async function deleteIncident(iid) {
-  if (!await uiConfirm('Delete this incident?')) return;
-  const r = await api('DELETE', '/incidents/' + encodeURIComponent(iid));
-  if (r && r.ok) { toast('Incident deleted', 'success'); loadIncidents(); }
-  else toast(r?.error || 'Failed', 'error');
+  undoableDelete({
+    label: 'Incident deleted',
+    hide: () => _hideRowByAction('deleteIncident', iid),
+    commit: () => api('DELETE', '/incidents/' + encodeURIComponent(iid)),
+    undo: () => loadIncidents(), after: () => loadIncidents(),
+  });
 }
 async function saveIncidentRecipients() {
   const v = document.getElementById('cfg-incident-recipients')?.value || '';
