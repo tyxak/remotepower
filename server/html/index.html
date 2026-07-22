@@ -8903,6 +8903,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <span class="hint">Each row says where it landed, so you can see the current coverage without re-applying anything. Re-applying an existing scope changes nothing.</span>
     </div>
   </div>
+  <input type="text" id="bc-text-filter" class="form-input input-wide mt-8" placeholder="Filter templates… (name, path, description)" aria-label="Filter baseline templates" data-input="bcTextFilter" data-input-el="1" data-input-debounce="120">
   <div id="bc-catalog" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
   <div id="bc-result" class="hint mt-6" role="status" aria-live="polite"></div>
   <div class="modal-actions">

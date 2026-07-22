@@ -216,6 +216,20 @@ class TestUiWiring(unittest.TestCase):
         self.assertIn('function pcFilterChanged', js)
         self.assertIn('function gvFilterChanged', js)
 
+    def test_baseline_catalog_is_filterable_and_capped(self):
+        # v6.4.0: big-fleet tidiness — the ~76-template catalog needs a text
+        # filter, and its list + the applied-host list must be capped (never
+        # flood the modal when a template is applied across a huge tag/group).
+        html = self._HTML.read_text()
+        self.assertIn('id="bc-text-filter"', html)
+        # catalog list + host list are scroll-capped
+        self.assertIn('id="bc-catalog" class="scroll-cap', html)
+        js = (self._JS / 'app-checks.js').read_text()
+        self.assertIn('function bcTextFilter', js)
+        # the applied-host list is capped + individually filterable
+        self.assertIn('scroll-cap-sm', js)
+        self.assertIn('function filterHostList', js)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -725,6 +725,7 @@ function filterHostList(inp) {
   }
 }
 
+function bcTextFilter() { _bcRenderCatalog(); }
 function _bcRenderCatalog() {
   const el = document.getElementById('bc-catalog');
   if (!el) return;
@@ -733,13 +734,19 @@ function _bcRenderCatalog() {
   // A row with no kind (older server) is operational, so an out-of-date
   // backend still fills the Checks picker rather than showing nothing.
   const onlyApplied = document.getElementById('bc-only-applied')?.checked;
+  // v6.4.0: text filter across name/param/desc — with ~76 templates, finding
+  // the one to apply (or the one to remove) shouldn't mean scrolling.
+  const q = ((document.getElementById('bc-text-filter') || {}).value || '').trim().toLowerCase();
   _bcCatalog.filter(t => (t.kind || 'ops') === _bcKind)
     .filter(t => !onlyApplied || (t.applied_count || 0) > 0)
+    .filter(t => !q || `${t.name} ${t.param || ''} ${t.desc || ''} ${t.cat || ''}`.toLowerCase().includes(q))
     .forEach(t => { (cats[t.cat] = cats[t.cat] || []).push(t); });
   if (!Object.keys(cats).length) {
-    el.innerHTML = onlyApplied
-      ? '<div class="empty-state">Nothing from this catalog is applied yet.</div>'
-      : '<div class="empty-state">No templates available.</div>';
+    el.innerHTML = q
+      ? '<div class="empty-state">No templates match the filter.</div>'
+      : (onlyApplied
+        ? '<div class="empty-state">Nothing from this catalog is applied yet.</div>'
+        : '<div class="empty-state">No templates available.</div>');
     return;
   }
   el.innerHTML = Object.keys(cats).map(cat =>
