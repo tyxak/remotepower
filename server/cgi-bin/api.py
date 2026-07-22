@@ -981,6 +981,20 @@ for _ri_name in (
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
 
+# Integrity Guard — the quarantine vault: list what agents auto-quarantined and
+# queue one-shot restore/delete directives. DEVICES_FILE + the scope/tenant
+# helpers stay in api.py and are read here via A.
+_gu_spec = _tk_ilu.spec_from_file_location(
+    'guard_handlers', Path(__file__).parent / 'guard_handlers.py')
+guard_handlers_mod = _tk_ilu.module_from_spec(_gu_spec)
+_gu_spec.loader.exec_module(guard_handlers_mod)
+guard_handlers_mod.bind(globals())
+for _gu_name in (
+        'handle_guard_quarantine_list', 'handle_guard_action',
+):
+    globals()[_gu_name] = getattr(guard_handlers_mod, _gu_name)
+del _gu_name
+
 # Detection-chain self-test — verify the alert detection→routing chain is intact
 # fleet-wide (no silent monitoring gaps). v6.3.1 (top-pick #3).
 _ds_spec = _tk_ilu.spec_from_file_location(
@@ -17681,6 +17695,17 @@ def handle_heartbeat():
                     _sanitize_str(str(k), 16): _sanitize_str(str(v), 96)
                     for k, v in list(_usb.items())[:32]
                 }
+            # Integrity Guard: the quarantine ledger the agent reports (the vault
+            # view + the restore/delete driver). Same whitelist rule — drop it here
+            # and the Protect UI has nothing to show.
+            _gq = si.get('guard_quarantine')
+            if isinstance(_gq, list):
+                safe_si['guard_quarantine'] = [
+                    {'id': _sanitize_str(str(e.get('id', '')), 64),
+                     'orig': _sanitize_str(str(e.get('orig', '')), 512),
+                     'check': _sanitize_str(str(e.get('check', '')), 64),
+                     'ts': int(e.get('ts', 0) or 0)}
+                    for e in _gq[:50] if isinstance(e, dict)]
             if 'platform' in si:
                 safe_si['platform'] = _sanitize_str(si['platform'], 256)
             if 'packages' in si and isinstance(si['packages'], dict):
@@ -18472,6 +18497,11 @@ def handle_heartbeat():
         if dev.get('force_secrets_scan'):
             saved_dev['force_secrets_scan'] = True
             dev.pop('force_secrets_scan', None)
+        # Integrity Guard: one-shot restore/delete directives for quarantined
+        # files (a list of {id, op}). Same one-shot delivery as the force flags.
+        if dev.get('guard_actions'):
+            saved_dev['guard_actions'] = dev['guard_actions']
+            dev.pop('guard_actions', None)
         # v6.3.1: one-shot hail-mary /var/log sweep — same one-shot contract.
         if dev.get('force_log_sweep'):
             saved_dev['force_log_sweep'] = True
@@ -19572,6 +19602,8 @@ def handle_heartbeat():
     # just above — the agent honoured it, the server never set it.
     if saved_dev.get('force_secrets_scan'):
         common_resp['force_secrets_scan'] = True
+    if saved_dev.get('guard_actions'):
+        common_resp['guard_actions'] = saved_dev['guard_actions']
     # v6.3.1: one-shot hail-mary log sweep ("Diagnose from logs" button). Set
     # here AND honoured by all three agents — the "flag the server never sets"
     # class is exactly what killed the trivy scan until v6.1.2.
@@ -41519,6 +41551,7 @@ def handle_check_baselines_apply():
     respond(200, {'ok': True, 'added': added})
 
 
+
 def _compute_attention():
     """Build the fleet-wide list of things needing attention.
 
@@ -61235,6 +61268,8 @@ def _build_exact_routes():
         ('POST', '/api/checks/custom/delete'): handle_custom_checks_delete,  # v4.1.0
         ('GET', '/api/checks/baseline-catalog'): handle_check_baseline_catalog,  # v6.2.3
         ('POST', '/api/checks/baseline-apply'): handle_check_baselines_apply,    # v6.2.3
+        ('GET', '/api/guard/quarantine'): handle_guard_quarantine_list,          # Integrity Guard
+        ('POST', '/api/guard/action'): handle_guard_action,                      # Integrity Guard
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,

@@ -122,6 +122,57 @@ class TestAgentEval(unittest.TestCase):
         st, _ = agent._eval_one_agent_check(c)             # recovers to OK: threat gone
         self.assertEqual(st, 'ok')
 
+    def _quarantine_one(self):
+        """Quarantine a file and return (dir, shell_path, ledger_entry)."""
+        d = self.tmp / 'web3'
+        d.mkdir()
+        (d / 'index.php').write_text('<?php echo 1;')
+        c = {'id': 'r1', 'type': 'dir_baseline', 'param': f'{d}::*.php',
+             'protect': 'quarantine'}
+        agent._eval_one_agent_check(c)                       # baseline
+        shell = d / 'dropped.php'
+        shell.write_text('<?php evil();')
+        agent._eval_one_agent_check(c)                       # quarantines it
+        led = agent._guard_ledger()
+        return d, shell, led
+
+    def test_guard_ledger_reports_quarantined_file(self):
+        _d, shell, led = self._quarantine_one()
+        self.assertEqual(len(led), 1)
+        self.assertEqual(led[0]['orig'], str(shell))
+        self.assertTrue(led[0]['id'])
+        self.assertGreater(led[0]['ts'], 0)
+
+    def test_guard_action_restore_puts_the_file_back(self):
+        _d, shell, led = self._quarantine_one()
+        self.assertFalse(shell.exists())
+        n = agent._apply_guard_actions([{'id': led[0]['id'], 'op': 'restore'}])
+        self.assertEqual(n, 1)
+        self.assertTrue(shell.exists())                      # back at its origin
+        self.assertIn('evil()', shell.read_text())
+        self.assertEqual(agent._guard_ledger(), [])          # ledger entry cleared
+
+    def test_guard_action_restore_refuses_if_path_reoccupied(self):
+        _d, shell, led = self._quarantine_one()
+        shell.write_text('something else is here now')       # path no longer free
+        n = agent._apply_guard_actions([{'id': led[0]['id'], 'op': 'restore'}])
+        self.assertEqual(n, 0)                               # refused, not clobbered
+        self.assertEqual(shell.read_text(), 'something else is here now')
+
+    def test_guard_action_delete_removes_from_vault(self):
+        _d, shell, led = self._quarantine_one()
+        qid = led[0]['id']
+        n = agent._apply_guard_actions([{'id': qid, 'op': 'delete'}])
+        self.assertEqual(n, 1)
+        self.assertFalse((agent.STATE_DIR / 'guard-quarantine' / qid).exists())
+        self.assertFalse(shell.exists())                     # NOT restored
+        self.assertEqual(agent._guard_ledger(), [])
+
+    def test_guard_action_ignores_unknown_id(self):
+        self._quarantine_one()
+        self.assertEqual(agent._apply_guard_actions([{'id': 'nope', 'op': 'delete'}]), 0)
+        self.assertEqual(len(agent._guard_ledger()), 1)      # untouched
+
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(
             {'id': 'e1', 'type': 'egress_flagged', 'param': ''})

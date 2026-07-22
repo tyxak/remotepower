@@ -370,6 +370,36 @@ async function openCustomChecks() {
   });
   openModal('custom-checks-modal');
   loadCustomCheckList();
+  loadGuardVault();
+}
+// ── Integrity Guard: the quarantine vault ──────────────────────────────────
+// Files a dir_baseline check auto-quarantined. Restore/delete are queued as
+// one-shot directives the agent applies on its next check-in.
+async function loadGuardVault() {
+  const el = document.getElementById('guard-vault');
+  if (!el) return;
+  const data = await api('GET', '/guard/quarantine');
+  const items = (data && data.items) || [];
+  if (!items.length) {
+    el.innerHTML = '<div class="empty-state">Nothing quarantined.</div>';
+    return;
+  }
+  el.innerHTML = `<div class="table-card"><table><thead><tr><th>Host</th><th>Original path</th><th>Quarantined</th><th></th></tr></thead><tbody>${
+    items.map(i => `<tr><td class="fw-500">${escHtml(i.device)}</td><td class="mono-12">${escHtml(i.orig)}</td><td class="hint">${escHtml(_fmtTs(i.ts))}</td><td><div class="user-actions"><button class="btn-icon btn-xs" title="Restore to its original path" data-action="restoreQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('undo', 14)}</button><button class="btn-icon btn-xs c-danger-outline" title="Delete from the vault" data-action="deleteQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('trash', 14)}</button></div></td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+async function _guardAction(deviceId, id, op, msg) {
+  const r = await api('POST', '/guard/action', { device_id: deviceId, id: id, op: op });
+  if (r && r.ok) { toast(msg, 'success'); loadGuardVault(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+function restoreQuarantine(deviceId, id) {
+  return _guardAction(deviceId, id, 'restore', 'Restore queued — the agent applies it on its next check-in');
+}
+async function deleteQuarantine(deviceId, id) {
+  if (typeof uiConfirm === 'function'
+      && !await uiConfirm('Delete this quarantined file from the vault? This cannot be undone.')) return;
+  return _guardAction(deviceId, id, 'delete', 'Delete queued');
 }
 
 // ── v6.2.3: Baseline checks — apply a recommended catalog set to a scope ──────

@@ -825,6 +825,84 @@ def _guard_quarantine(paths, check_id):
     return moved
 
 
+def _guard_ledger(limit=50):
+    """Recent quarantine ledger entries for the server's Protect view.
+    Each: {id, orig, check, ts}. Reads the JSON-lines vault log."""
+    raw = _safe_state_read_big('guard-quarantine.log') or ''
+    out = []
+    for ln in raw.splitlines()[-limit:]:
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            e = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get('id'):
+            out.append({'id': str(e.get('id'))[:64], 'orig': str(e.get('orig', ''))[:512],
+                        'check': str(e.get('check', ''))[:64], 'ts': int(e.get('ts', 0) or 0)})
+    return out
+
+
+def _apply_guard_actions(actions):
+    """Execute server-pushed restore/delete of quarantined files. Each action is
+    {id, op:'restore'|'delete'}. Restore moves the vault file back to its origin
+    only if that path is now free; delete removes it. Handled entries drop from
+    the ledger. Read-only over anything but the vault + the origin path."""
+    import shutil
+    vault = STATE_DIR / 'guard-quarantine'
+    raw = _safe_state_read_big('guard-quarantine.log') or ''
+    by_id = {}
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        try:
+            e = json.loads(s)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get('id'):
+            by_id[str(e['id'])] = e
+    handled = set()
+    for a in actions:
+        if not isinstance(a, dict):
+            continue
+        qid, op = str(a.get('id', '')), a.get('op')
+        e = by_id.get(qid)
+        if not e:
+            continue
+        src = vault / qid
+        try:
+            if op == 'delete':
+                try:
+                    src.unlink()
+                except FileNotFoundError:
+                    pass
+                handled.add(qid)
+            elif op == 'restore':
+                orig = e.get('orig')
+                if orig and src.is_file() and not Path(orig).exists():
+                    Path(orig).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src), str(orig))
+                    handled.add(qid)
+        except OSError as ex:
+            log.warning(f'guard action {op} {qid} failed: {ex}')
+    if handled:
+        remaining = []
+        for ln in raw.splitlines():
+            s = ln.strip()
+            if not s:
+                continue
+            try:
+                d = json.loads(s)
+            except ValueError:
+                continue
+            if str(d.get('id')) not in handled:
+                remaining.append(s)
+        _safe_state_write('guard-quarantine.log', '\n'.join(remaining))
+    return len(handled)
+
+
 def save_credentials(creds):
     CONF_DIR.mkdir(parents=True, exist_ok=True)
     # v3.0.2: lock the directory to 0700 so a local non-root attacker
@@ -10064,6 +10142,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'battery probe error: {e}')
             try:
+                # Integrity Guard: report the quarantine ledger so the server can
+                # show the vault + drive restore/delete. Inside `if send_sysinfo:`
+                # and AFTER `sysinfo = {...}` (the v6.1.2 scope gotcha).
+                gq = _guard_ledger()
+                if gq:
+                    sysinfo['guard_quarantine'] = gq
+            except Exception as e:
+                log.debug(f'guard ledger error: {e}')
+            try:
                 # v6.3.0: chassis class (same placement rule as battery).
                 ch = get_chassis()
                 if ch:
@@ -10276,6 +10363,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_secrets_scan'):
                 force_secrets_scan = True
                 log.info('Server requested a secrets scan')
+            # Integrity Guard: server-driven restore/delete of quarantined files.
+            _ga = resp.get('guard_actions')
+            if isinstance(_ga, list) and _ga:
+                try:
+                    _n = _apply_guard_actions(_ga)
+                    if _n:
+                        log.info(f'Applied {_n} guard action(s)')
+                except Exception as _e:
+                    log.warning(f'guard actions failed: {_e}')
             # v6.3.1: one-shot hail-mary /var/log sweep ("Diagnose from logs").
             if resp.get('force_log_sweep'):
                 force_log_sweep = True
