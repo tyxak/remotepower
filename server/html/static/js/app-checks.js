@@ -125,6 +125,7 @@ const _CC_PARAM_LABELS = {
   windows_service: 'Service name',
   file_hash: 'File path', dir_baseline: 'Directory (path or path::glob)',
   egress_flagged: 'Flagged IPs / CIDRs',
+  file_contains: 'Directory (path or path::glob)',
 };
 const _CC_PARAM_PH = {
   process: 'nginx', port_open: '443', port_closed: '23',
@@ -133,6 +134,7 @@ const _CC_PARAM_PH = {
   systemd_unit: 'nginx.service', windows_service: 'wuauserv',
   file_hash: '/etc/passwd', dir_baseline: '/var/www::*.php',
   egress_flagged: '203.0.113.0/24, 198.51.100.7',
+  file_contains: '/var/www::*.php',
 };
 // v5.6.0: Check catalog — ready-made check templates. Picking one pre-fills the
 // form (name/type/param). {c:category, l:picker label, t:type, p:param, n:name}.
@@ -349,6 +351,7 @@ function ccTypeChanged() {
   document.getElementById('cc-log-grp')?.classList.toggle('hidden', t !== 'log_errors');
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
   document.getElementById('cc-protect-grp')?.classList.toggle('hidden', t !== 'dir_baseline');
+  document.getElementById('cc-pattern-grp')?.classList.toggle('hidden', t !== 'file_contains');
   // systemd_unit / windows_service: offer to also watch it on the Services page.
   document.getElementById('cc-svc-grp')?.classList.toggle(
     'hidden', t !== 'systemd_unit' && t !== 'windows_service');
@@ -358,7 +361,7 @@ let _ccEditId = null;
 let _ccDevNames = {};   // device id -> hostname, for the saved-checks list + edit
 function _ccResetForm() {
   _ccEditId = null;
-  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-catalog-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
+  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-catalog-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage', 'cc-pattern']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   const ws = document.getElementById('cc-watch-svc'); if (ws) ws.checked = true;
   const pc = document.getElementById('cc-protect'); if (pc) pc.checked = false;
@@ -605,6 +608,7 @@ function editCustomCheck(id) {
   setv('cc-window', c.window_min); setv('cc-warn', c.warn); setv('cc-crit', c.crit);
   setv('cc-unit', c.unit); setv('cc-maxage', c.max_age_hours);
   const pc = document.getElementById('cc-protect'); if (pc) pc.checked = c.protect === 'quarantine';
+  setv('cc-pattern', c.pattern);
   ccKindChanged(); ccTypeChanged();
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Save changes';
   const nm = document.getElementById('cc-name'); if (nm) nm.focus();
@@ -642,6 +646,9 @@ async function saveCustomCheck() {
   } else if (body.type === 'systemd_unit' && body.target_kind === 'host') {
     // wire to the Services page: also watch this unit on the targeted host
     body.watch_service = !!document.getElementById('cc-watch-svc')?.checked;
+  } else if (body.type === 'file_contains') {
+    body.pattern = document.getElementById('cc-pattern')?.value.trim() || '';
+    if (!body.pattern) { toast('A search pattern is required', 'error', {transient: true}); return; }
   } else if (body.type === 'dir_baseline') {
     // Integrity Guard: opt into auto-quarantine of new files
     if (document.getElementById('cc-protect')?.checked) body.protect = 'quarantine';

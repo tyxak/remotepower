@@ -19547,7 +19547,7 @@ def handle_heartbeat():
     # evaluates them on-host and reports results in sysinfo.custom_check_results.
     _agent_checks = [
         {k: c[k] for k in ('id', 'type', 'param', 'window_min', 'warn', 'crit',
-                           'unit', 'max_age_hours', 'protect') if k in c}
+                           'unit', 'max_age_hours', 'protect', 'pattern') if k in c}
         for c in (_sec_cfg.get('custom_checks') or [])
         if isinstance(c, dict) and c.get('type') in AGENT_CHECK_TYPES
         and _custom_check_applies(c, dev_id, saved_dev)
@@ -41470,6 +41470,15 @@ def handle_custom_checks_save():
     # vault instead of only alerting. Opt-in, reversible (files are preserved).
     if ctype == 'dir_baseline' and str(body.get('protect', '')).strip() == 'quarantine':
         extras['protect'] = 'quarantine'
+    if ctype == 'file_contains':
+        pat = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get('pattern', '')))[:256].strip()
+        if not pat:
+            respond(400, {'error': 'a search pattern is required'})
+        try:
+            re.compile(pat)
+        except re.error as _e:
+            respond(400, {'error': f'invalid pattern: {_e}'})
+        extras['pattern'] = pat
     cid = _sanitize_str(str(body.get('id', '')), 64).strip()
     with _LockedUpdate(CONFIG_FILE) as cfg:
         checks = cfg.setdefault('custom_checks', [])

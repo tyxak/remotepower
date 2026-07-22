@@ -1673,7 +1673,8 @@ if _AVAILABLE:
         unit: str = ''
         watch_service: str = ''
         protect: str = ''      # dir_baseline: '' | 'quarantine' (Integrity Guard)
-        _v0 = field_validator('id', 'name', 'param', 'target', 'target_kind', 'type', 'unit', 'watch_service', 'protect', mode='before')(_coerce_str_loose)
+        pattern: str = ''      # file_contains: the regex to search for
+        _v0 = field_validator('id', 'name', 'param', 'target', 'target_kind', 'type', 'unit', 'watch_service', 'protect', 'pattern', mode='before')(_coerce_str_loose)
 
     class DashboardKindsSetRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

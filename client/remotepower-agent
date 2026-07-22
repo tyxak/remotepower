@@ -6702,6 +6702,50 @@ def _eval_one_agent_check(c):
         sample = ', '.join(os.path.basename(x) for x in (added + changed + removed)[:3])
         out = '; '.join(counts) + (f' — {sample}' if sample else '')
         return 'critical', out[:200]
+    if ctype == 'file_contains':
+        # Content match across a subtree: `param` is path or path::glob, `pattern`
+        # a regex. This is the signature half of Integrity Guard — dir_baseline
+        # says a file APPEARED, this says a file LOOKS malicious, so it catches a
+        # filename nobody has seen before. Read-only and bounded on every axis:
+        # file count, bytes per file, and only files matching the glob.
+        import fnmatch
+        pat = str(c.get('pattern', ''))
+        if not pat:
+            return 'unknown', 'no pattern configured'
+        try:
+            rx = re.compile(pat)
+        except re.error:
+            return 'unknown', 'bad pattern'
+        raw, _sep, glob = param.partition('::')
+        base = host_path(raw.strip())
+        skip = {'cache', 'tmp', 'temp', 'log', 'logs', '.git', '.cache',
+                'node_modules', 'vendor'}
+        hits, scanned = [], 0
+        try:
+            for root, dirs, files in os.walk(base):
+                dirs[:] = [d for d in dirs if d not in skip]
+                for fn in files:
+                    if glob and not fnmatch.fnmatch(fn, glob):
+                        continue
+                    fp = os.path.join(root, fn)
+                    try:
+                        with open(fp, 'rb') as fh:
+                            blob = fh.read(262144)      # 256 KB is plenty for a loader
+                    except OSError:
+                        continue
+                    scanned += 1
+                    if rx.search(blob.decode('utf-8', 'replace')):
+                        hits.append(fp)
+                    if scanned >= 2000 or len(hits) >= 50:
+                        break
+                if scanned >= 2000 or len(hits) >= 50:
+                    break
+        except OSError:
+            return 'unknown', 'scan failed'
+        if hits:
+            sample = ', '.join(os.path.basename(x) for x in hits[:3])
+            return 'critical', f'{len(hits)} file(s) match — {sample}'[:200]
+        return 'ok', f'{scanned} file(s) scanned, no match'
     if ctype == 'egress_flagged':
         # Alert if any active outbound connection's remote endpoint falls in an
         # operator-supplied IP/CIDR flag-list. Read-only over /proc/net.

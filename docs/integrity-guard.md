@@ -28,7 +28,7 @@ To watch a web root and *neutralise* anything dropped into it, see
 
 ---
 
-## The three check types
+## The four check types
 
 These are agent-side checks: the server pushes them in the heartbeat response,
 the agent evaluates them **on-host**, and reports results back. They're
@@ -63,6 +63,24 @@ The baseline is **not** auto-updated after a change is detected — the check
 stays critical until you deal with it (a tripwire, not a rolling snapshot). To
 accept a new state, delete and re-add the check.
 
+### `file_contains` — no file may match a pattern
+
+    param:    /var/www::*.php
+    pattern:  eval\s*\(\s*(base64_decode|gzinflate|str_rot13)
+
+The signature half of Guard. `dir_baseline` tells you a file **appeared**; this
+tells you a file **looks malicious** — so it catches a filename nobody has ever
+seen, which is exactly what a packed web shell is. Files under the path/glob are
+scanned for the regex and any match is **critical**.
+
+Bounded on every axis: the first 256 KB of each file, at most 2,000 files and 50
+hits per run, the same noise directories skipped. Binary files are decoded
+leniently rather than raising.
+
+Unlike an antivirus scan this needs no daemon, no signature database and no file
+ownership assumptions — it is just a bounded grep, so it keeps working when the
+AV stack does not.
+
 ### `egress_flagged` — no outbound connection to a flagged address
 
     param:  203.0.113.0/24, 198.51.100.7
@@ -72,7 +90,7 @@ falls inside your list of flagged IPs/CIDRs (comma- or space-separated). An
 empty list is OK (nothing to match). Use it with a threat-intel feed or the
 indicators from an incident.
 
-> **Platform:** these three are Linux-first. On Windows they report `unknown`
+> **Platform:** these four are Linux-first. On Windows they report `unknown`
 > ("not applicable"), which is harmless — no false alerts.
 
 ---
@@ -131,19 +149,19 @@ against the worst failure mode: vaulting an entire site.
 
 ## The template catalog
 
-**Baseline protect checks** ships ~57 hardening templates, applied by checkbox
+**Baseline protect checks** ships ~61 hardening templates, applied by checkbox
 to any scope. They're grouped by intent:
 
 | Category | What it covers |
 |---|---|
-| Hardening — services | fail2ban, AppArmor, sshd, journald, rsyslog, AV updater |
+| Hardening — services | fail2ban, AppArmor, sshd, journald, rsyslog, the AV signature updater **and the AV scanning daemon** (an updater without a running daemon scans nothing — on-access protection fails silently) |
 | Hardening — must not listen | 17 ports that should not be reachable: FTP, rsh/rlogin, rpcbind, NFS, SMB/NetBIOS, VNC, RDP, the unauthenticated **Docker API (2375)**, MySQL, PostgreSQL, Redis, MongoDB, Elasticsearch, memcached, SNMP |
 | Integrity — critical files | `/etc/shadow`, `/etc/group`, `/etc/sudoers`, `sshd_config`, `hosts`, `nsswitch.conf`, PAM, `fstab`, `resolv.conf`, apt sources |
 | Integrity — persistence paths | `/etc/cron.d`, `cron.daily`, `cron.hourly`, `/etc/systemd/system`, `/etc/sudoers.d`, `/root/.ssh`, `/etc/profile.d`, `/usr/local/bin`, `sources.list.d`, `ld.so.conf.d` |
 | Integrity — must not exist | `/etc/ld.so.preload` (userland-rootkit tell), `/root/.rhosts`, `/etc/hosts.equiv` |
 | Detection — log signals | auth-failure bursts, sudo misuse, AppArmor/SELinux denials, segfaults, filesystem/IO errors |
 | Freshness — scheduled jobs | apt index freshness, AV signature freshness |
-| Web / application security | web-root code integrity, accounts/crontab/cron.d integrity, outbound-to-flagged |
+| Web / application security | web-root code integrity, **obfuscated-PHP-loader signature**, WordPress **mu-plugins** + `wp-config.php`, accounts/crontab/cron.d integrity, outbound-to-flagged |
 
 Params suit Debian/Ubuntu and are **editable after applying** (e.g.
 `sshd.service` instead of `ssh.service` on RHEL). Applying is **idempotent** —

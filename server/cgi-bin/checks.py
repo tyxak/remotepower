@@ -630,6 +630,11 @@ AGENT_CHECK_TYPES = (
     "file_hash",
     "dir_baseline",
     "egress_flagged",
+    #   file_contains  — a CONTENT match across a subtree: `param` is the path
+    #                    (or path::glob) and `pattern` a regex. Turns "a file
+    #                    appeared" into "a file appeared AND it looks like a web
+    #                    shell". Read-only, bounded by file count and bytes.
+    "file_contains",
 )
 
 
@@ -799,6 +804,20 @@ CHECK_BASELINE_CATALOG = (
     },
     {
         "cat": "Web / application security",
+        "id": "webshell_signature",
+        "type": "file_contains",
+        "param": "/var/www::*.php",
+        "pattern": r"eval\s*\(\s*(base64_decode|gzinflate|gzuncompress|str_rot13)",
+        "name": "No obfuscated PHP loader in the web root",
+        "desc": "Greps the web root for the classic packed-web-shell idiom — eval() "
+                "wrapped around base64_decode/gzinflate/str_rot13. Content-based, so "
+                "it fires on a NAME you have never seen, unlike a filename tripwire. "
+                "Edit the path/glob for your document root.",
+        "target_kind": "tag",
+        "target": "web",
+    },
+    {
+        "cat": "Web / application security",
         "id": "wp_muplugins_integrity",
         "type": "dir_baseline",
         "param": "/var/www/html/wp-content/mu-plugins",
@@ -881,6 +900,12 @@ CHECK_BASELINE_CATALOG = (
     {"cat": "Hardening — services", "id": "freshclam_running", "type": "systemd_unit",
      "param": "clamav-freshclam.service", "name": "AV signature updater running",
      "desc": "Antivirus definitions keep updating — stale signatures detect nothing new."},
+    {"cat": "Hardening — services", "id": "clamd_running", "type": "systemd_unit",
+     "param": "clamav-daemon.service", "name": "AV scanning daemon running",
+     "desc": "clamd is the engine on-access scanning actually scans WITH. Without it "
+             "a file-integrity monitor still collects events but scans nothing, so "
+             "on-access protection fails silently — check the daemon, not just the "
+             "signature updater. Also confirm it is enabled at boot."},
 
     # ── Hardening — services that must NOT be reachable ───────────────────────
     {"cat": "Hardening — must not listen", "id": "ftp_closed", "type": "port_closed",

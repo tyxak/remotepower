@@ -24,7 +24,7 @@ _cs = importlib.util.spec_from_loader('checks_mod', _cl)
 checks = importlib.util.module_from_spec(_cs)
 _cs.loader.exec_module(checks)
 
-NEW = ('file_hash', 'dir_baseline', 'egress_flagged')
+NEW = ('file_hash', 'dir_baseline', 'egress_flagged', 'file_contains')
 
 
 class TestRegistration(unittest.TestCase):
@@ -224,6 +224,47 @@ class TestAgentEval(unittest.TestCase):
         self.assertEqual(st, 'critical')
         self.assertIn('2 quarantined', out)
         self.assertEqual(len(agent._guard_ledger()), 2)
+
+    def test_file_contains_finds_an_obfuscated_loader(self):
+        d = self.tmp / 'web6'
+        d.mkdir()
+        (d / 'index.php').write_text('<?php echo "hello";')
+        c = {'id': 'fc1', 'type': 'file_contains', 'param': f'{d}::*.php',
+             'pattern': r'eval\s*\(\s*(base64_decode|gzinflate)'}
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')                       # clean tree
+        (d / 'shell.php').write_text('<?php eval( base64_decode($_POST[0])); ?>')
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+        self.assertIn('shell.php', out)
+
+    def test_file_contains_respects_the_glob(self):
+        d = self.tmp / 'web7'
+        d.mkdir()
+        (d / 'notes.txt').write_text('eval(base64_decode(...))')   # not *.php
+        c = {'id': 'fc2', 'type': 'file_contains', 'param': f'{d}::*.php',
+             'pattern': r'eval\s*\(\s*base64_decode'}
+        self.assertEqual(agent._eval_one_agent_check(c)[0], 'ok')
+
+    def test_file_contains_without_a_pattern_is_unknown_not_a_crash(self):
+        st, out = agent._eval_one_agent_check(
+            {'id': 'fc3', 'type': 'file_contains', 'param': str(self.tmp)})
+        self.assertEqual(st, 'unknown')
+
+    def test_file_contains_bad_regex_is_unknown(self):
+        st, _ = agent._eval_one_agent_check(
+            {'id': 'fc4', 'type': 'file_contains', 'param': str(self.tmp),
+             'pattern': '([unclosed'})
+        self.assertEqual(st, 'unknown')
+
+    def test_file_contains_handles_binary_without_raising(self):
+        d = self.tmp / 'web8'
+        d.mkdir()
+        (d / 'blob.php').write_bytes(b'\xff\xfe\x00binary\x00\xff')
+        st, _ = agent._eval_one_agent_check(
+            {'id': 'fc5', 'type': 'file_contains', 'param': f'{d}::*.php',
+             'pattern': 'eval'})
+        self.assertEqual(st, 'ok')
 
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(
