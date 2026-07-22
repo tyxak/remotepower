@@ -512,10 +512,34 @@ TOOL_RUNNERS = {**STDOUT_TOOLS, **REPORT_TOOLS}
 _REPORT_NAME = 'report.json'
 
 
-def _run_stdout_tool(argv, parse_fn):
+def _fatal_from_output(tool, stdout):
+    """An error the tool reported INSIDE its own successful-looking output.
+
+    wpscan exits cleanly and emits valid JSON when it gives up — "does not seem
+    to be running WordPress", blocked by a WAF, target unreachable. That parses
+    to zero findings and would be recorded as a clean scan, which is the worst
+    possible failure mode for a security tool: a false negative that looks like
+    an all-clear. Two seconds and "0 findings" must not read the same as a real
+    scan that found nothing.
+    """
+    if tool != 'wpscan' or not stdout.strip():
+        return ''
+    try:
+        doc = json.loads(stdout)
+    except ValueError:
+        return ''
+    if isinstance(doc, dict) and doc.get('scan_aborted'):
+        return 'wpscan aborted: ' + str(doc['scan_aborted'])[:300]
+    return ''
+
+
+def _run_stdout_tool(argv, parse_fn, tool=''):
     stdout, stderr, err = _run(argv)
     if err:
         return [], err
+    fatal = _fatal_from_output(tool, stdout)
+    if fatal:
+        return [], fatal
     findings = parse_fn(stdout)
     # Distinguish "scanned, genuinely clean" from "tool produced nothing" — if
     # there's no parseable output but the tool wrote to stderr, surface the last
@@ -574,7 +598,7 @@ def _run_tool(tool, target, profile='passive', intensity='quick'):
     """Dispatch to a tool runner. Returns (findings, error)."""
     if tool in STDOUT_TOOLS:
         argv_fn, parse_fn = STDOUT_TOOLS[tool]
-        return _run_stdout_tool(argv_fn(target, profile, intensity), parse_fn)
+        return _run_stdout_tool(argv_fn(target, profile, intensity), parse_fn, tool)
     if tool in REPORT_TOOLS:
         argv_fn, parse_fn = REPORT_TOOLS[tool]
         return _run_report_tool(argv_fn, parse_fn, target, profile, intensity)
@@ -631,6 +655,12 @@ def main():
         sys.exit(2)
     print(f'[scanner] RemotePower scanner satellite v{VERSION} → {SERVER} '
           f'(runner={RUNNER})', flush=True)
+    # Say what this satellite can actually do, at startup, in its own journal.
+    # "Did the env var reach the process?" is otherwise only answerable by
+    # running a scan and reading a note in the web UI — and an EnvironmentFile
+    # the unit does not reference fails exactly this way, silently.
+    for name, on in sorted(_capabilities().items()):
+        print(f'[scanner] capability {name}: {"yes" if on else "NO"}', flush=True)
     _cleanup_orphans()   # clear any rp-scan-* left by a crashed/killed prior run
     while True:
         try:

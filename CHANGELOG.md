@@ -30,6 +30,20 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### An aborted wpscan was being recorded as a CLEAN scan
+- wpscan exits 0 and emits valid JSON when it gives up — target is not
+  WordPress, blocked by a WAF, host unreachable. That parsed to zero findings
+  and was stored as `done`, so a two-second run that never scanned anything
+  read as an all-clear. **A false negative dressed as a clean result is the
+  worst way a security tool can be wrong.** Those runs are now `failed` with
+  wpscan's own reason, checked BEFORE the findings are parsed.
+- **The satellite now logs its capabilities at startup**
+  (`[scanner] capability wpscan_vuln_db: yes|NO`). "Did the env var reach the
+  process?" was otherwise only answerable by running a scan and reading a note
+  in the web UI — and a hand-written unit that never references
+  `/etc/remotepower/scanner.env` fails exactly that way, silently.
+  `docs/security-scans.md` covers both, including the `EnvironmentFile` trap.
+
 ### The wpscan no-token note now tells you how to fix it
 - Naming a missing environment variable is not a resolution if the operator has
   to work out where it goes. The scan detail view now gives the actual steps

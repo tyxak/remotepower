@@ -186,6 +186,29 @@ The satellite reports whether matching was available with each result, so the
 scan detail view tells you which mode a given run used — you never have to
 guess whether an old clean result was a real one.
 
+**Check the token actually reached the process.** The satellite logs what it
+can do at startup:
+
+```
+journalctl -u remotepower-scanner -n 20 | grep capability
+[scanner] capability wpscan_vuln_db: yes
+```
+
+If that says `NO` after you set the token, the variable is not reaching the
+process — most often because the unit was written by hand (the template in this
+document uses `Environment=` lines and does **not** reference
+`/etc/remotepower/scanner.env`). Either add an
+`EnvironmentFile=/etc/remotepower/scanner.env` line to the unit, or put the
+token directly in the unit as another `Environment=` line, then
+`sudo systemctl daemon-reload && sudo systemctl restart remotepower-scanner`.
+
+### "Scan aborted" vs "no findings"
+
+wpscan exits cleanly and emits valid JSON when it gives up — the target is not
+WordPress, a WAF blocked it, the host was unreachable. RemotePower reports those
+runs as **failed** with the reason, not as a clean scan: a two-second scan
+finding nothing is a signal, not an all-clear.
+
 ## On-host audit (lynis) — no scanner satellite needed
 
 The tools above scan a host *from the network*. There's also an **on-host audit**

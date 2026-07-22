@@ -382,6 +382,54 @@ class TestWpscanArgv(unittest.TestCase):
 
 
 
+class TestAnAbortedScanIsNotACleanScan(unittest.TestCase):
+    """wpscan exits 0 and emits valid JSON when it GIVES UP — not WordPress,
+    blocked by a WAF, host unreachable. That parses to zero findings, so it was
+    recorded as `done` with a clean result: a false negative dressed as an
+    all-clear, which is the worst way for a security tool to be wrong.
+
+    Observed in the wild as a two-second "active/full" scan reporting 0/0.
+    """
+
+    ABORTED = json.dumps({
+        'banner': {'version': '3.8.28'}, 'target_url': 'https://example.test/',
+        'scan_aborted': 'The remote website is up, but does not seem to be '
+                        'running WordPress.'})
+
+    def test_an_aborted_run_is_reported_as_an_error(self):
+        err = sc._fatal_from_output('wpscan', self.ABORTED)
+        self.assertTrue(err)
+        self.assertIn('does not seem to be running WordPress', err)
+
+    def test_the_error_makes_the_scan_fail_rather_than_look_clean(self):
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        fn = src[src.index('def _run_stdout_tool('):src.index('def _run_report_tool(')]
+        self.assertIn('_fatal_from_output', fn)
+        # must short-circuit BEFORE parsing, or the empty finding list wins
+        self.assertLess(fn.index('_fatal_from_output'), fn.index('parse_fn(stdout)'))
+        body = src[src.index('def _process_one('):]
+        self.assertIn("status = 'failed' if err else 'done'", body)
+
+    def test_a_genuinely_clean_run_is_untouched(self):
+        clean = json.dumps({'version': {'number': '6.5.2'}, 'plugins': {},
+                            'interesting_findings': []})
+        self.assertEqual(sc._fatal_from_output('wpscan', clean), '')
+
+    def test_other_tools_are_not_second_guessed(self):
+        self.assertEqual(sc._fatal_from_output('nikto', self.ABORTED), '')
+
+    def test_unparseable_or_empty_output_is_left_to_the_existing_paths(self):
+        for out in ('not json', '', '   '):
+            self.assertEqual(sc._fatal_from_output('wpscan', out), '')
+
+    def test_the_satellite_logs_its_capabilities_at_startup(self):
+        """"Did the env var reach the process?" must be answerable from the
+        satellite's own journal — an EnvironmentFile the unit never references
+        fails silently in exactly this way."""
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        self.assertIn('capability {name}', src)
+
+
 class TestTheFixIsSpelledOut(unittest.TestCase):
     """Naming a missing setting is not a resolution if the operator has to work
     out where it goes. The scan detail view must give the real paths."""
