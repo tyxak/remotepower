@@ -30,6 +30,20 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Scanner satellites: you can finally see which version is running
+- A satellite is a script copied onto another host, so it goes stale silently —
+  and its version existed ONLY in that host's journal. There was no way to ask
+  RemotePower "is my scanner current?", which is exactly the question after a
+  scan behaves oddly. Satellites now report their version on every poll
+  (`X-RP-Scanner-Version`); the scan form shows it beside each satellite and
+  flags one older than the version the server ships. Recording it is
+  non-blocking and swallowed on failure — bookkeeping on an auth path must
+  never fail a scan.
+- **Scanner bumped to v4.4.0** (wpscan support, capability reporting, aborted-
+  scan detection). `api.SCANNER_VERSION` is pinned to the file's own `VERSION`
+  by a test, so the two cannot drift and report every satellite as outdated.
+- `docs/security-scans.md` documents the upgrade (copy the file, restart).
+
 ### The two scanner install paths disagreed about the env file
 - `packaging/scanner-setup.sh` writes a unit with
   `EnvironmentFile=/etc/remotepower/scanner.env`; the hand-written unit in

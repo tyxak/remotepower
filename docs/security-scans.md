@@ -202,6 +202,23 @@ document uses `Environment=` lines and does **not** reference
 token directly in the unit as another `Environment=` line, then
 `sudo systemctl daemon-reload && sudo systemctl restart remotepower-scanner`.
 
+### Keeping a satellite up to date
+
+A satellite is a script copied onto another host, so it does **not** update with
+the server. Each one reports its version on every poll; the scan form shows it
+next to the satellite name and flags one that is older than the version this
+server ships.
+
+To upgrade, on the satellite host:
+
+```
+sudo install -m 0755 remotepower-scanner.py /opt/remotepower/remotepower-scanner.py
+sudo systemctl restart remotepower-scanner
+```
+
+A satellite showing "version unknown" is older than v4.4.0 (it does not report
+one yet) or has not polled since the server was updated.
+
 ### "Scan aborted" vs "no findings"
 
 wpscan exits cleanly and emits valid JSON when it gives up — the target is not

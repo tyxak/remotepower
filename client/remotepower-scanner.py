@@ -37,7 +37,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '4.3.0'
+VERSION = '4.4.0'
 
 SERVER       = os.environ.get('RP_SERVER_URL', '').rstrip('/')
 TOKEN        = os.environ.get('RP_SATELLITE_TOKEN', '')
@@ -87,6 +87,11 @@ def _api(method, path, body=None):
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header('X-RP-Satellite', TOKEN)
     req.add_header('Content-Type', 'application/json')
+    # Report what this satellite IS on every call. A satellite is installed by
+    # copying a file onto another host, so it silently goes stale — and until
+    # now the version existed only in the satellite's own journal, leaving the
+    # operator no way to ask "is my scanner current?" from the server side.
+    req.add_header('X-RP-Scanner-Version', VERSION)
     with _opener().open(req, timeout=60) as r:
         return json.loads(r.read().decode() or '{}')
 

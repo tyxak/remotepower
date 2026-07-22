@@ -2767,6 +2767,11 @@ WEBAUTHN_CHALLENGES_FILE = DATA_DIR / 'webauthn_challenges.json'  # v4.2.0 (A1):
 SAML_REQUESTS_FILE = DATA_DIR / 'saml_requests.json'  # v4.2.0 (B1): outstanding AuthnRequest ids (InResponseTo/replay), 10-min TTL
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
 MAX_SCAN_FINDINGS = 1000                              # per-scan finding cap
+# The scanner-satellite version THIS server ships. A satellite is deployed by
+# copying client/remotepower-scanner.py onto another host, so it drifts out of
+# date silently; the UI compares this against what each satellite reports.
+# Kept in lockstep with the file's own VERSION by tests/test_scanner.py.
+SCANNER_VERSION   = '4.4.0'
 SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap', 'wpscan')         # passive-capable (satellite-run)
 SCAN_ACTIVE_TOOLS = ('nuclei', 'nikto', 'nmap', 'wpscan',
                      'zap', 'wapiti')                            # v4.2.0 P3: active profile only
@@ -46049,6 +46054,26 @@ def _scan_target_for_device(dev):
     return ip, ''
 
 
+def _note_scanner_version(sid):
+    """Record the satellite's self-reported version + last contact.
+
+    A satellite is deployed by copying a script onto another host, so it drifts
+    out of date silently and the only place the version appeared was that
+    host's own journal. Written non-blocking and swallowed on failure: this is
+    bookkeeping on an authentication path and must never fail a scan.
+    """
+    ver = _sanitize_str(_env('HTTP_X_RP_SCANNER_VERSION', '').strip(), 32)
+    try:
+        with _LockedUpdate(SATELLITES_FILE, non_blocking=True) as sats:
+            rec = sats.get(sid)
+            if isinstance(rec, dict):
+                if ver and rec.get('scanner_version') != ver:
+                    rec['scanner_version'] = ver
+                rec['scanner_last_seen'] = int(time.time())
+    except Exception:
+        pass
+
+
 def require_satellite_scanner():
     """Authenticate a scanner-satellite worker via its X-RP-Satellite token and
     require the scanner capability. Returns the satellite id. _record_satellite()
@@ -46063,6 +46088,7 @@ def require_satellite_scanner():
                 hmac.compare_digest(s.get('token_hash', ''), h):
             if not s.get('scanner'):
                 respond(403, {'error': 'satellite is not scanner-enabled'})
+            _note_scanner_version(sid)
             return sid
     respond(401, {'error': 'invalid satellite token'})
 
@@ -46226,10 +46252,13 @@ def handle_scans_list():
     out.sort(key=lambda r: r.get('created') or 0, reverse=True)
     # scanner satellites the operator can target (bounded ≤50 — a dropdown is
     # fine here, unlike device pickers). Empty list = no scanner satellite yet.
-    sats = [{'id': sid, 'name': s.get('name', '')}
+    sats = [{'id': sid, 'name': s.get('name', ''),
+             'version': s.get('scanner_version', ''),
+             'last_seen': int(s.get('scanner_last_seen', 0) or 0)}
             for sid, s in (load(SATELLITES_FILE) or {}).items()
             if isinstance(s, dict) and s.get('scanner')]
     respond(200, {'scans': out, 'tools': list(SCAN_TOOLS),
+                  'scanner_version': SCANNER_VERSION,
                   'active_tools': list(SCAN_ACTIVE_TOOLS),
                   'profiles': list(SCAN_PROFILES),
                   'intensities': list(SCAN_INTENSITIES), 'satellites': sats})

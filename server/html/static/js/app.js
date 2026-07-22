@@ -11293,6 +11293,7 @@ async function loadScans() {
   const data = await api('GET', '/scans');
   if (!data || data.error) return;
   scansData = data.scans || [];
+  _SCANNER_VERSION = data.scanner_version || '';
   let crit = 0, high = 0, running = 0;
   for (const s of scansData) {
     crit += s.severity_counts?.critical || 0;
@@ -11307,14 +11308,52 @@ async function loadScans() {
   const satSel = document.getElementById('scan-satellite');
   if (satSel) {
     const cur = satSel.value;
+    // Show the satellite's reported version. A satellite is a script copied
+    // onto another host, so it drifts out of date silently — and "is my scanner
+    // current?" was previously only answerable by SSHing to it.
     satSel.innerHTML = '<option value="">Any scanner satellite</option>' +
-      (data.satellites || []).map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
+      (data.satellites || []).map(s => {
+        const stale = s.version && _SCANNER_VERSION && s.version !== _SCANNER_VERSION;
+        const tag = s.version ? ` — v${s.version}${stale ? ' (outdated)' : ''}`
+                              : ' — version unknown';
+        return `<option value="${escAttr(s.id)}">${escHtml((s.name || s.id) + tag)}</option>`;
+      }).join('');
+    _paintScannerVersionHint(data.satellites || []);
     satSel.value = cur;
   }
   tableCtl.render('scans', scansData);
   loadScanTargets();
   loadScanSchedules();
   loadNetscanSchedules();
+}
+
+// The scanner version this server ships. A satellite older than this is
+// running code the server does not know about — worth saying out loud, since
+// upgrading one means copying the file across by hand.
+let _SCANNER_VERSION = '';
+function _paintScannerVersionHint(sats) {
+  const el = document.getElementById('scan-sat-hint');
+  if (!el) return;
+  const stale = sats.filter(s => s.version && _SCANNER_VERSION
+                                 && s.version !== _SCANNER_VERSION);
+  const unknown = sats.filter(s => !s.version);
+  if (!stale.length && !unknown.length) { el.textContent = ''; return; }
+  const bits = [];
+  if (stale.length) {
+    bits.push(`${stale.map(s => escHtml(s.name || s.id)).join(', ')} `
+              + `running v${escHtml(stale[0].version)}, this server ships `
+              + `v${escHtml(_SCANNER_VERSION)}`);
+  }
+  if (unknown.length) {
+    bits.push(`${unknown.map(s => escHtml(s.name || s.id)).join(', ')} has not `
+              + 'reported a version yet (pre-v4.4.0, or it has not polled since '
+              + 'the server was updated)');
+  }
+  el.innerHTML = `Scanner out of date: ${bits.join('; ')}. `
+    + 'Re-copy <span class="mono-12">client/remotepower-scanner.py</span> to '
+    + '<span class="mono-12">/opt/remotepower/</span> on that host and restart '
+    + '<span class="mono-12">remotepower-scanner</span>. '
+    + '<a href="docs/security-scans.md" class="c-accent">Documentation</a>';
 }
 
 function _selectedScanTool() {

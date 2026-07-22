@@ -7,6 +7,7 @@ PARSE step (tool stdout -> normalised findings) with representative fixtures.
 """
 import importlib.util
 import json
+import re
 import os
 import unittest
 from pathlib import Path
@@ -380,6 +381,47 @@ class TestWpscanArgv(unittest.TestCase):
         self.assertIn('wpscan', sc.STDOUT_TOOLS)
         self.assertIn('wpscan', sc.TOOL_RUNNERS)
 
+
+
+class TestScannerVersionIsVisible(unittest.TestCase):
+    """A satellite is a script copied onto another host, so it goes stale
+    silently. Until now its version lived ONLY in that host's journal: the
+    operator could not answer "is my scanner current?" from RemotePower at all,
+    which is precisely the question asked after a scan behaved oddly."""
+
+    def test_the_server_constant_matches_the_shipped_scanner(self):
+        api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = re.search(r"^SCANNER_VERSION\s*=\s*'([^']+)'", api_src, re.M)
+        self.assertIsNotNone(m, 'api.py has no SCANNER_VERSION')
+        self.assertEqual(m.group(1), sc.VERSION,
+                         'api.py SCANNER_VERSION and the scanner file disagree — '
+                         'every satellite would be reported as outdated')
+
+    def test_the_scanner_reports_its_version_on_every_call(self):
+        src = (_ROOT / 'client' / 'remotepower-scanner.py').read_text()
+        fn = src[src.index('def _api('):src.index('# --- tool runners')]
+        self.assertIn('X-RP-Scanner-Version', fn)
+
+    def test_the_server_records_it_on_authentication(self):
+        api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn('HTTP_X_RP_SCANNER_VERSION', api_src)
+        fn = api_src[api_src.index('def require_satellite_scanner('):]
+        self.assertIn('_note_scanner_version', fn[:1200])
+
+    def test_recording_it_can_never_fail_a_scan(self):
+        api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        fn = api_src[api_src.index('def _note_scanner_version('):
+                     api_src.index('def require_satellite_scanner(')]
+        self.assertIn('non_blocking=True', fn)
+        self.assertIn('except Exception', fn)
+
+    def test_the_version_reaches_the_operator(self):
+        api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn("'scanner_version': SCANNER_VERSION", api_src)
+        self.assertIn("'version': s.get('scanner_version', '')", api_src)
+        js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn('_SCANNER_VERSION', js)
+        self.assertIn('(outdated)', js)
 
 
 class TestTheTwoInstallPathsAgree(unittest.TestCase):
