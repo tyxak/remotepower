@@ -1396,10 +1396,10 @@ MAX_FLEET_EVENTS = 1000
 #             leaked MCP key cannot rm -rf anything outside what's been
 #             pre-vetted.
 #
-# Stage 1 (v3.1.0): the role exists but MCP_ACTION_ALLOWLIST is empty — no
-# write tools yet. Stage 4 fills the allowlist with the initial set of
-# write tools (run_saved_script, reboot_device, force_package_scan,
-# force_acme_rescan).
+# The 'mcp' role is read-only PLUS the MCP_ACTION_ALLOWLIST write tools
+# (run_saved_script, reboot_device, force_package_scan, force_acme_rescan —
+# populated below since v3.2.0 Stage 4). Destructive members still honour the
+# per-device require_confirmation gate.
 VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp', 'auditor', 'finance'})
 USER_ROLES         = frozenset({'admin', 'viewer', 'auditor', 'finance'})  # roles a user account may hold
 APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp', 'auditor', 'finance'})  # roles an API key may hold
@@ -5744,9 +5744,11 @@ def require_mcp_action(action_name):
     log unambiguous: anything passing through require_mcp_action() was
     initiated by an AI host, not a human admin clicking a button.
 
-    Stage 1 stub: the allowlist is empty, so this always 403s. Stage 4
-    populates the allowlist with the initial set of write tools and the
-    function starts handing out access.
+    The allowlist is populated (reboot_device, run_saved_script,
+    force_package_scan, force_acme_rescan — see MCP_ACTION_ALLOWLIST); an
+    action outside it 403s with the allowed set echoed back. Destructive
+    members still gate through the per-device require_confirmation flag in
+    _mcp_handle before anything runs.
     """
     token = get_token_from_request()
     username, role = verify_token(token)
