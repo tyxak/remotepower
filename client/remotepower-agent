@@ -788,6 +788,11 @@ def _parse_hex_ip(h: str):
     return None
 
 
+# Integrity Guard rail: more new files than this in one diff is a deploy or a
+# restore, not a dropped payload — report it, never auto-quarantine it.
+_GUARD_MASS_CHANGE = 25
+
+
 def _guard_quarantine(paths, check_id):
     """Integrity Guard: move flagged files into the on-host quarantine vault
     (STATE_DIR/guard-quarantine, 0700). Files are PRESERVED (0600, forensics +
@@ -6648,20 +6653,27 @@ def _eval_one_agent_check(c):
         added = [k for k in cur if k not in prev]
         removed = [k for k in prev if k not in cur]
         changed = [k for k in cur if k in prev and cur[k] != prev[k]]
-        quarantined = 0
+        quarantined, mass_change = 0, False
         if c.get('protect') == 'quarantine' and added:
-            # Integrity Guard: neutralise NEW files (never changed/removed ones).
-            # They move to the vault, so the baseline stays clean and the check
-            # recovers to OK next run — the threat is gone, not just logged.
-            quarantined = _guard_quarantine(added[:50], c.get('id', ''))
-            added = []
+            if len(added) > _GUARD_MASS_CHANGE:
+                # Rail: a burst of new files is a deploy/restore, not a dropped
+                # shell. Refuse to quarantine (never nuke a legitimate rollout)
+                # and report it loudly instead — a human decides.
+                mass_change = True
+            else:
+                # Neutralise NEW files (never changed/removed ones). They move to
+                # the vault, so the baseline stays clean and the check recovers to
+                # OK next run — the threat is gone, not just logged.
+                quarantined = _guard_quarantine(added, c.get('id', ''))
+                added = []
         if not (added or removed or changed or quarantined):
             return 'ok', f'{n} files, unchanged'
         counts = []
         if quarantined:
             counts.append(f'{quarantined} quarantined')
         if added:
-            counts.append(f'{len(added)} new')
+            counts.append(f'{len(added)} new'
+                          + (' (mass change — NOT quarantined)' if mass_change else ''))
         if changed:
             counts.append(f'{len(changed)} changed')
         if removed:

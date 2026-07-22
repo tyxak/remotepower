@@ -42,6 +42,36 @@ def bind(api_globals):
     A = _ApiNamespace(api_globals)
 
 
+import time
+
+
+# ── safety rails ─────────────────────────────────────────────────────────────
+def _guard_maintenance_active(dev_id, dev):
+    """True if this device is inside an active maintenance window right now.
+
+    Integrity Guard degrades to REPORT-ONLY during declared change: a deploy is
+    not an intrusion, and auto-quarantining a legitimate rollout would be the
+    worst possible failure mode. Callers only consult this when a pushed check
+    actually carries `protect`, so it stays off the heartbeat hot path for the
+    (vast majority of) fleets with no quarantine configured.
+    """
+    windows = (A._load_ro(A.MAINT_FILE) or {}).get('windows') or []
+    if not windows:
+        return False
+    now = int(time.time())
+    grp = (dev or {}).get('group') or ''
+    for w in windows:
+        if not isinstance(w, dict):
+            continue
+        scope = (w.get('scope') or 'device').lower()
+        applies = (scope == 'global'
+                   or (scope == 'group' and grp and w.get('target') == grp)
+                   or (scope == 'device' and dev_id and w.get('target') == dev_id))
+        if applies and A._window_active(w, now):
+            return True
+    return False
+
+
 # ── handlers ─────────────────────────────────────────────────────────────────
 def handle_guard_quarantine_list():
     """GET /api/guard/quarantine — the Integrity Guard vault across the fleet:

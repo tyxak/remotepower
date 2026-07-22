@@ -173,6 +173,40 @@ class TestAgentEval(unittest.TestCase):
         self.assertEqual(agent._apply_guard_actions([{'id': 'nope', 'op': 'delete'}]), 0)
         self.assertEqual(len(agent._guard_ledger()), 1)      # untouched
 
+    def test_mass_change_is_reported_not_quarantined(self):
+        """Rail: a burst of new files is a deploy, not a dropped payload — it
+        must be reported loudly and left ON DISK, never auto-quarantined."""
+        d = self.tmp / 'web4'
+        d.mkdir()
+        (d / 'index.php').write_text('<?php echo 1;')
+        c = {'id': 'm1', 'type': 'dir_baseline', 'param': f'{d}::*.php',
+             'protect': 'quarantine'}
+        agent._eval_one_agent_check(c)                       # baseline
+        made = []
+        for i in range(agent._GUARD_MASS_CHANGE + 5):        # simulate a rollout
+            f = d / f'page{i}.php'
+            f.write_text(f'<?php // {i}')
+            made.append(f)
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+        self.assertIn('NOT quarantined', out)
+        self.assertTrue(all(f.exists() for f in made))       # rollout untouched
+        self.assertEqual(agent._guard_ledger(), [])          # nothing vaulted
+
+    def test_under_the_mass_threshold_still_quarantines(self):
+        d = self.tmp / 'web5'
+        d.mkdir()
+        (d / 'index.php').write_text('<?php echo 1;')
+        c = {'id': 'm2', 'type': 'dir_baseline', 'param': f'{d}::*.php',
+             'protect': 'quarantine'}
+        agent._eval_one_agent_check(c)
+        (d / 'a.php').write_text('<?php a();')
+        (d / 'b.php').write_text('<?php b();')
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+        self.assertIn('2 quarantined', out)
+        self.assertEqual(len(agent._guard_ledger()), 2)
+
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(
             {'id': 'e1', 'type': 'egress_flagged', 'param': ''})

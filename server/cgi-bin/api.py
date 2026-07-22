@@ -991,6 +991,7 @@ _gu_spec.loader.exec_module(guard_handlers_mod)
 guard_handlers_mod.bind(globals())
 for _gu_name in (
         'handle_guard_quarantine_list', 'handle_guard_action',
+        '_guard_maintenance_active',
 ):
     globals()[_gu_name] = getattr(guard_handlers_mod, _gu_name)
 del _gu_name
@@ -19551,6 +19552,15 @@ def handle_heartbeat():
         if isinstance(c, dict) and c.get('type') in AGENT_CHECK_TYPES
         and _custom_check_applies(c, dev_id, saved_dev)
     ]
+    # Integrity Guard rail: never AUTO-QUARANTINE during declared change — a
+    # deploy is not an intrusion. Strip `protect` so those checks degrade to
+    # report-only for the duration of the window. The maintenance lookup only
+    # runs when a pushed check actually carries protect, so fleets without
+    # quarantine configured pay nothing on the heartbeat path.
+    if any(c.get('protect') for c in _agent_checks) and \
+            _guard_maintenance_active(dev_id, saved_dev):
+        for _c in _agent_checks:
+            _c.pop('protect', None)
     if _agent_checks:
         common_resp['agent_checks'] = _agent_checks
 
