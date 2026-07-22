@@ -262,10 +262,28 @@ signatures are going stale. Fix the host, not the check:
 
 ### "AV signatures updated recently" is critical / file missing
 
-The template points at `/var/lib/clamav/daily.cld`. freshclam ships `daily.cvd`
-on a fresh install but rewrites it as `daily.cld` once it starts applying
-incremental updates — the steady state on a running host. If yours differs,
-edit the check's param. Once freshclam is running, this clears on its own.
+The template checks **both** `/var/lib/clamav/daily.cld` and `daily.cvd` and
+uses the freshest — freshclam ships `daily.cvd` on a fresh install but rewrites
+it as `daily.cld` once it starts applying incremental updates (the steady state
+on a running host), so you never have to guess which extension yours uses. Once
+freshclam is running, this clears on its own.
+
+**Multiple paths.** Any file check (`file_hash`, `file_present`, `file_absent`,
+`job_fresh`) accepts several candidate paths separated by `|`, and glob
+patterns — it matches whichever **exists** (the freshest, for job freshness).
+Point a WordPress `wp-config.php` check at every site root at once, for example:
+`/var/www/site-a/wp-config.php|/var/www/site-b/wp-config.php`. Edit the check's
+param on **Security → Protect** (or the custom-check editor) to set yours.
+
+### Accepting a legitimate change ("Reset baseline")
+
+When a protect check fires on a change you made on purpose, click **Reset
+baseline** on the check's row (Monitoring → Checks) or on Security → Protect.
+The check returns to OK immediately — the acceptance is recorded on the server,
+so it holds through a page refresh — its open alert resolves, and the agent
+re-baselines on its next check-in so its own on-host baseline agrees. A
+genuinely *new* change (a different value) re-fires. For a check applied across
+a tag or group, one Reset fans the acceptance out to every host it covers.
 
 ### A check fails for software that isn't installed
 

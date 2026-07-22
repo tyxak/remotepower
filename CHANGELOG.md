@@ -13,6 +13,38 @@ binding sweep so everything the agent collects lands where it belongs (UI,
 RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
 performance wave.
 
+### Reset baseline actually works now, and everything that recovers resolves
+- **Guard actions never reached the agent (root cause).** `_queue_guard_action`
+  wrote the directive to the whole-devices collection instead of the device
+  row, so Reset-baseline / quarantine restore / delete were queued to nowhere —
+  no guard action had reached an agent since the feature shipped. Fixed to
+  target the device row. Reset-baseline now works end to end.
+- **Baseline acceptance is server-authoritative.** Accepting a change records
+  the exact value accepted and suppresses the check instantly — surviving a
+  page refresh and cache, not waiting for the agent round-trip — and re-fires
+  only on a genuinely new change. Accepting (and disabling, and deleting) a
+  check now **resolves its open alert**, and the agent re-baselines on-host so
+  its own state agrees.
+- **Every status that returns to good closes its alert.** Deleting a device now
+  resolves its open alerts (they had no recover path and lingered forever);
+  deleting a custom check or script resolves its alerts fleet-wide; two broken
+  dependency edges / two SLA-breaching tickets on one host no longer coalesce
+  into one alert row (which orphaned the other). Failing protect/baseline
+  checks now also appear in **Needs Attention**, not just the Alerts inbox.
+- **Multi-path file checks.** `file_hash` / `file_present` / `file_absent` and
+  `job_fresh` accept several `|`-separated paths (and globs) and match whichever
+  exists — so a wp-config under `/var/www/<site>/`, or ClamAV's `daily.cvd`
+  vs `daily.cld`, or the apt update stamp vs the package-list mtime, all work
+  without guessing. A one-time migration repairs already-applied checks
+  (backfilling a dropped `file_contains` pattern, upgrading single-extension
+  ClamAV/apt params) so nothing needs re-applying.
+- **Big-fleet tidiness + wider undo.** The baseline catalog is text-filterable
+  (~76 templates), applied checks can be un-applied per scope from the card,
+  and the undo/redo coverage now spans the mute/ignore/toggle/ack/resolve
+  families (monitor pause, scan/automation/webhook toggles, bulk ack & resolve,
+  secret & image & drift ignores, ~28 list-deletes) — each surfacing a visible
+  **Undo** toast, not just a dimmed topbar arrow.
+
 ### Protect/baseline checks actually stop when you disable them (field report)
 - **Disable now disables everywhere.** The Checks-page Disable button used to
   only hide the row server-side: the heartbeat kept pushing the check to the
