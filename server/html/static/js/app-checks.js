@@ -608,6 +608,28 @@ async function bcHostSearch() {
     : '<div class="dev-combo-empty">No matching devices.</div>';
   box.hidden = false;
 }
+// v6.3.1: un-apply an applied catalog check straight from the card. Deferred
+// commit — Undo (toast or topbar arrow) cancels before anything is deleted.
+// Removing the definition also stops the heartbeat push, so the agent drops
+// it on its next check-in.
+async function bcUnapply(id) {
+  undoableDelete({
+    label: 'Applied check removed',
+    hide: () => {
+      const esc = (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id);
+      document.querySelectorAll(`[data-action="bcUnapply"][data-arg="${esc}"]`)
+        .forEach(b => b.classList.add('d-none'));
+    },
+    commit: () => api('POST', '/checks/custom/delete', {id}),
+    undo: () => _bcReloadCatalog(),
+    after: () => _bcReloadCatalog(),
+  });
+}
+async function _bcReloadCatalog() {
+  const data = await api('GET', '/checks/baseline-catalog');
+  _bcCatalog = (data && data.catalog) || [];
+  _bcRenderCatalog();
+}
 function pickBcHost(id, name) {
   const t = document.getElementById('bc-target'); if (t) t.value = id;
   const s = document.getElementById('bc-host-search'); if (s) s.value = name;
@@ -623,13 +645,21 @@ function _bcAppliedHtml(t) {
   // dozens of devices, and inlining every name floods ~76 catalog rows into an
   // unreadable wall. Fleet/tag/group scopes are named (there are few of them);
   // hosts collapse to a count you can open and filter.
-  const named = where.filter(a => a.target_kind !== 'host').map(a => a.label);
-  const hosts = where.filter(a => a.target_kind === 'host');
+  const named = where.filter(a => a.target_kind !== 'host');
+  // v6.3.1: each applied scope carries its custom-check id, so the card can
+  // UN-apply too — before this the only ways to get rid of an applied
+  // template were the per-host Disable on Monitoring → Checks or hunting the
+  // check down in the custom-checks list.
+  const rmBtn = (id, where_) => id
+    ? ` <button class="btn-icon btn-xs c-danger-outline" data-action="bcUnapply" data-arg="${escAttr(id)}" data-stop-prop="1" data-prevent-default title="Remove this applied check (${escAttr(where_)}) — it stops evaluating there">${_icon('trash', 11)}</button>`
+    : '';
   const total = t.applied_count || where.length;
   const hostTotal = total - named.length;
-  const bits = named.slice(0, 3).map(escHtml);
+  const bits = named.slice(0, 3).map(a => escHtml(a.label) + rmBtn(a.id, a.label));
   if (named.length > 3) bits.push(`+${named.length - 3} more scopes`);
   if (hostTotal > 0) bits.push(`${hostTotal} host${hostTotal === 1 ? '' : 's'}`);
+  const hosts = where.filter(a => a.target_kind === 'host')
+    .map(a => ({ label: a.label, rm_check_id: a.id }));
   return `<span class="bc-row-applied" title="Already applied — re-applying changes nothing">`
     + `${_icon('check', 12)} Applied to ${bits.join(', ')}</span>`
     + _hostListHtml(hosts, hostTotal, `bc-hosts-${escAttr(t.id)}`);
@@ -645,7 +675,9 @@ function _hostListHtml(hosts, total, id) {
     + `<summary class="hint">Show the ${total > hosts.length ? `first ${hosts.length} of ${total} ` : ''}host${hosts.length === 1 ? '' : 's'}</summary>`
     + `<input type="text" class="form-input host-list-filter" placeholder="Filter hosts…" aria-label="Filter hosts" autocomplete="off" data-input="filterHostList" data-input-el="1" data-input-debounce="100">`
     + `<div class="host-list-items scroll-cap-sm">`
-    + hosts.map(h => `<div class="host-list-item">${escHtml(h.device || h.device_id || h.label || h.target || '')}</div>`).join('')
+    + hosts.map(h => `<div class="host-list-item">${escHtml(h.device || h.device_id || h.label || h.target || '')}`
+        + (h.rm_check_id ? ` <button class="btn-icon btn-xs c-danger-outline" data-action="bcUnapply" data-arg="${escAttr(h.rm_check_id)}" data-stop-prop="1" data-prevent-default title="Remove this applied check from this host — it stops evaluating there">${_icon('trash', 11)}</button>` : '')
+        + `</div>`).join('')
     + `</div>`
     + (total > hosts.length
         ? `<div class="hint">${total - hosts.length} more not shown — open the check to see its full scope.</div>`

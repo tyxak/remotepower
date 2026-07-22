@@ -41823,6 +41823,10 @@ def handle_check_baseline_catalog():
             continue
         applied.setdefault((c.get('type'), str(c.get('param', ''))), []).append({
             'target_kind': tk, 'target': tv,
+            # v6.3.1: carry the custom-check id so the catalog can offer
+            # "remove this applied check" per scope (the card used to be
+            # apply-only — you could see WHERE it landed but not un-apply it).
+            'id': c.get('id'),
             'label': ('whole fleet' if tk == 'all'
                       else f'host: {names.get(tv, tv)}' if tk == 'host'
                       else f'{tk}: {tv}'),

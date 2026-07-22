@@ -30,6 +30,11 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   quarantine vault; both were already chunked for big fleets. The baseline
   catalog's host list no longer renders `undefined`, and host-scoped entries
   resolve to device names for full admins too.
+- **Un-apply from the catalog card.** The "Applied to …" annotation now
+  carries a remove button per scope (and per host in the expandable list) —
+  the card was apply-only, so getting rid of an applied template meant
+  hunting it down elsewhere. Deferred-commit with Undo, and removal stops the
+  agent-side evaluation on the next check-in.
 
 ### Everyday-flow follow-ups (field feedback on v6.3.0)
 - **Undo/redo that you actually see.** The topbar arrows were effectively

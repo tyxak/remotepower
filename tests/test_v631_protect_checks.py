@@ -139,6 +139,19 @@ class TestUiWiring(unittest.TestCase):
         # renderChecks row builder emits the rebaseline action
         self.assertIn('data-action="rebaselineCheck"', js)
 
+    def test_catalog_card_can_unapply(self):
+        # The "Applied to …" annotation must carry a remove action per scope —
+        # the card used to be apply-only (field report: "where do I disable
+        # it?!"). Server ships the check id; client wires bcUnapply.
+        src = (Path(__file__).parent.parent / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn("'id': c.get('id'),", src)
+        js = (self._JS / 'app-checks.js').read_text()
+        self.assertIn('function bcUnapply', js)
+        self.assertIn('data-action="bcUnapply"', js)
+        # inside the <label class="bc-row"> a plain click would toggle the
+        # apply-checkbox — the button must carry data-prevent-default.
+        self.assertIn('data-action="bcUnapply" data-arg="${escAttr(id)}" data-stop-prop="1" data-prevent-default', js)
+
     def test_protect_and_vault_tables_filterable(self):
         html = self._HTML.read_text()
         self.assertIn('id="pc-filter"', html)
