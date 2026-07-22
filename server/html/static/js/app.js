@@ -11364,11 +11364,41 @@ function _scanOptions() {
 }
 
 async function queueScan() {
-  if (!_scanSelectedDevice) { toast('Search and pick a device to scan first.', 'info'); return; }
+  if (!_scanSelectedDevice) {
+    // The box can LOOK filled — typing clears the selection — so say what is
+    // actually wrong rather than repeating the label.
+    const typed = (document.getElementById('scan-device-search') || {}).value || '';
+    toast(typed.trim()
+            ? `Pick "${typed.trim()}" from the dropdown — typing the name alone does not select it.`
+            : 'Search and pick a device to scan first.',
+          'error', {transient: true});
+    document.getElementById('scan-device-search')?.focus();
+    return;
+  }
   const opts = _scanOptions();
   if (!opts) return;
-  const vhost = (document.getElementById('scan-vhost') || {}).value;
-  if (vhost && vhost.trim()) opts.vhost = vhost.trim();
+  const vhost = ((document.getElementById('scan-vhost') || {}).value || '').trim();
+  if (vhost) {
+    // Fail HERE, where the fix is visible, instead of on the server round-trip:
+    // the vhost must be an ownership-verified target, which stops a host you
+    // own being used to scan somebody else's domain.
+    if (_scanVerifiedVhosts.length && !_scanVerifiedVhosts.includes(vhost.toLowerCase())) {
+      toast(`"${vhost}" is not an ownership-verified target yet — add it under `
+            + `External targets below, publish the DNS TXT or file proof, then Verify.`,
+            'error', {transient: true});
+      document.getElementById('scan-targets-list')?.scrollIntoView({behavior: 'smooth', block: 'center'});
+      return;
+    }
+    opts.vhost = vhost;
+  } else if (opts.tool === 'wpscan') {
+    // wpscan against a bare IP finds nothing useful: WordPress answers on a
+    // hostname, and the scanner needs the right Host header to see the site.
+    toast('wpscan needs a vhost — WordPress answers on a hostname, not the bare IP. '
+          + 'Pick an ownership-verified target in the vhost box.',
+          'error', {transient: true});
+    document.getElementById('scan-vhost')?.focus();
+    return;
+  }
   const res = await api('POST', '/scans', { device_id: _scanSelectedDevice.id, ...opts });
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
@@ -11430,6 +11460,25 @@ function _deleteScanBtn(btn) { deleteScan(btn.dataset.scanId); }
 
 // ── B5 P2: verified non-enrolled scan targets (ACME-style ownership proof) ───
 let _scanTargetProofs = {};   // id -> {token, dns, file} captured at create time
+// Verified web targets, mirrored into the vhost box's datalist so the
+// requirement is visible BEFORE the queue attempt rather than after it.
+let _scanVerifiedVhosts = [];
+function _syncVerifiedVhosts(targets) {
+  _scanVerifiedVhosts = (targets || [])
+    .filter(t => t && t.verified && t.kind !== 'ip')
+    .map(t => String(t.target).toLowerCase());
+  const dl = document.getElementById('scan-vhost-verified');
+  if (dl) {
+    dl.innerHTML = '';
+    for (const v of _scanVerifiedVhosts) dl.appendChild(new Option(v));
+  }
+  const inp = document.getElementById('scan-vhost');
+  if (inp) {
+    inp.placeholder = _scanVerifiedVhosts.length
+      ? 'vhost (optional) — verified targets'
+      : 'vhost — add a verified target first';
+  }
+}
 
 async function loadScanTargets() {
   const box = document.getElementById('scan-targets-list');
@@ -11437,6 +11486,7 @@ async function loadScanTargets() {
   const data = await api('GET', '/scan-targets');
   if (!data || data.error) return;
   const targets = data.targets || [];
+  _syncVerifiedVhosts(targets);
   if (!targets.length) {
     box.innerHTML = '<div class="empty-state">No external targets. Add a domain or IP you own to scan it.</div>';
     return;

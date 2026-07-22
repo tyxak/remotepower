@@ -108,6 +108,83 @@ class TestScanPermission(_ScanBase):
         self.assertEqual(self.cap['s'], 403)
 
 
+class TestWpscanVhostGate(_ScanBase):
+    """wpscan is only useful against a HOSTNAME — WordPress answers on a vhost,
+    not the bare IP — so the ownership-verified-vhost gate is the DEFAULT path
+    for this tool, not an edge case. It must fail with an actionable message.
+    """
+
+    def _queue(self, **over):
+        self._device()
+        api.verify_token = lambda t: ('jakob', 'admin')
+        api.method = lambda: 'POST'
+        body = {'device_id': 'dev1', 'tool': 'wpscan', 'profile': 'passive',
+                'intensity': 'quick', **over}
+        api.get_json_body = lambda: dict(body)
+        return self.call(api.handle_scans_create)
+
+    def test_wpscan_is_queueable_in_the_passive_profile(self):
+        """It is in SCAN_TOOLS, so no profile juggling should be needed."""
+        self.assertIn('wpscan', api.SCAN_TOOLS)
+        self.assertIn('wpscan', api.SCAN_ACTIVE_TOOLS)
+
+    def test_unverified_vhost_is_refused_with_the_way_out(self):
+        out = self._queue(vhost='example.test')
+        self.assertEqual(self.cap['s'], 400)
+        err = out['error']
+        # Naming the rule is not enough — the operator has to be told where to
+        # go and what to do, or the feature is a dead end.
+        self.assertIn('not an ownership-verified', err)
+        for word in ('External targets', 'Verify'):
+            self.assertIn(word, err, f'the error must name {word!r}')
+
+    def test_a_verified_vhost_queues_and_targets_the_hostname(self):
+        api.save(api.SCAN_TARGETS_FILE,
+                 {'t1': {'id': 't1', 'target': 'example.test',
+                         'verified': True, 'kind': 'domain'}})
+        out = self._queue(vhost='example.test')
+        self.assertTrue(out.get('ok'), out)
+        self.assertEqual(out['scan']['status'], 'queued')
+        # The scan must hit the vhost, not the device's bare IP.
+        self.assertEqual(out['scan']['target'], 'example.test')
+
+    def test_the_vhost_is_matched_case_insensitively(self):
+        api.save(api.SCAN_TARGETS_FILE,
+                 {'t1': {'id': 't1', 'target': 'example.test',
+                         'verified': True, 'kind': 'domain'}})
+        out = self._queue(vhost='EXAMPLE.TEST')
+        self.assertTrue(out.get('ok'), out)
+
+
+class TestScanFormGuidesTheOperator(unittest.TestCase):
+    """The queue button used to fail server-side for the two most likely
+    mistakes. Both are now caught where the fix is visible."""
+
+    @property
+    def _js(self):
+        return (Path(__file__).resolve().parent.parent / 'server' / 'html'
+                / 'static' / 'js' / 'app.js').read_text()
+
+    def test_typing_a_device_name_without_picking_it_says_so(self):
+        # The box LOOKS filled — typing clears the selection — so repeating the
+        # label ("pick a device") reads as a bug rather than an instruction.
+        self.assertIn('typing the name alone does not select it', self._js)
+
+    def test_an_unverified_vhost_is_caught_before_the_round_trip(self):
+        self.assertIn('_scanVerifiedVhosts', self._js)
+        self.assertIn('is not an ownership-verified target yet', self._js)
+
+    def test_wpscan_without_a_vhost_is_refused_client_side(self):
+        self.assertIn('wpscan needs a vhost', self._js)
+
+    def test_verified_targets_are_offered_in_the_vhost_box(self):
+        html = (Path(__file__).resolve().parent.parent / 'server' / 'html'
+                / 'index.html').read_text()
+        self.assertIn('list="scan-vhost-verified"', html)
+        self.assertIn('id="scan-vhost-verified"', html)
+        self.assertIn('_syncVerifiedVhosts', self._js)
+
+
 class TestScanLifecycle(_ScanBase):
     def test_create_claim_results_detail(self):
         self._device()

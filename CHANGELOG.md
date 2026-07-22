@@ -30,6 +30,21 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Pentest — the wpscan/vhost dead end
+- Queueing a wpscan against a domain failed on the server round-trip with
+  "vhost must be an ownership-verified web target first" — a correct gate (it
+  stops a host you own being used to scan a third party) stated as a rule with
+  no way out. It now names the fix, and the UI catches all three likely
+  mistakes where they can be corrected: the vhost box offers the already-
+  verified targets, an unverified one is refused client-side with a pointer to
+  External targets, and **wpscan with no vhost at all** is refused up front
+  (WordPress answers on a hostname, so scanning the bare IP finds nothing).
+- Typing a device name without picking it from the dropdown left the box
+  looking filled while the selection was empty; the toast repeated the label
+  instead of saying so. It now names what is wrong and refocuses the field.
+- `docs/security-scans.md` documents the vhost requirement and the three-step
+  verification, in the wpscan section where the question arises.
+
 ### Security Advisory — what to fix first (Security → Advisory)
 - Every other security page answers "what is the state of X". The advisory
   answers the operator's actual question: **what should I fix first, in what

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-25">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-26">
 
 </head>
 <body>
@@ -6369,7 +6369,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <select id="scan-tool" class="form-input input-auto" title="Scan tool" aria-label="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="wpscan">wpscan (WordPress)</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="all">All tools</option><option value="lynis">lynis (on-host audit)</option></select>
           <select id="scan-profile" class="form-input input-auto" title="Passive = safe. Active = intrusive (sends attack traffic)." aria-label="Passive = safe. Active = intrusive (sends attack traffic)"><option value="passive">passive</option><option value="active">active (intrusive)</option></select>
           <select id="scan-intensity" class="form-input input-auto" title="Quick = fast/shallow. Full = thorough (all ports/severities, slower)." aria-label="Quick = fast/shallow. Full = thorough (all ports/severities, slower)"><option value="quick">quick</option><option value="full">full</option></select>
-          <input type="text" id="scan-vhost" class="form-input input-auto" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this device instead of its IP. Must be an ownership-verified web target." aria-label="vhost (optional)">
+          <input type="text" id="scan-vhost" class="form-input input-auto" list="scan-vhost-verified" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this device instead of its IP. It must be an ownership-verified web target — add it under External targets below, publish the proof, then Verify." aria-label="vhost (optional)"><datalist id="scan-vhost-verified"></datalist>
           <select id="scan-satellite" class="form-input input-auto" title="Which scanner satellite runs network scans. Pick the one that can reach the target (e.g. on its network segment)." aria-label="Scan satellite"><option value="">Any scanner satellite</option></select>
           <button class="btn-primary mw-200" data-action="queueScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="22" y2="2"/></svg> Queue scan</button>
           <input type="text" id="scans-filter" class="form-input input-auto" placeholder="Filter by target, status…" aria-label="Filter by target, status">
@@ -10601,34 +10601,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-25"></script>
+<script defer src="static/js/app.js?v=6.3.1-26"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-26"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-26"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-26"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-25"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-26"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-26"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10637,6 +10637,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-25"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-26"></script>
 </body>
 </html>

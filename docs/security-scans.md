@@ -129,8 +129,24 @@ currently running or queued.
 ## WordPress scanning (wpscan)
 
 `wpscan` fingerprints a WordPress site and matches core, plugin and theme
-versions against the WPScan vulnerability database. Pick it like any other
-tool; the target is an enrolled host or a domain you have proven you own.
+versions against the WPScan vulnerability database.
+
+**wpscan needs a hostname, not an IP.** WordPress answers on a vhost, so
+scanning a host's bare address usually finds nothing. Select the enrolled host
+that serves the site, then put the site's domain in the **vhost** box — the
+scanner sends that as the `Host` header.
+
+That vhost must be an **ownership-verified target** first, which is what stops
+a host you own being used to scan somebody else's domain:
+
+1. Under **External targets**, add the domain.
+2. Publish ONE of the two proofs it shows you — a DNS `TXT` record, or a file
+   at the given path on the site.
+3. Press **Verify**.
+
+Once verified, the domain appears in the vhost box's suggestion list and can be
+scanned — either as a vhost on the enrolled host, or on its own with the
+target's **Scan** button.
 
 - **Passive** enumerates vulnerable plugins/themes plus exposed config backups
   and database exports (`vp,vt,cb,dbe`) using passive plugin detection.

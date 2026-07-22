@@ -46269,7 +46269,13 @@ def handle_scans_create():
             vt = next((t for t in (load(SCAN_TARGETS_FILE) or {}).values()
                        if isinstance(t, dict) and t.get('verified') and t.get('target') == vhost), None)
             if not vt:
-                respond(400, {'error': f'vhost {vhost!r} must be an ownership-verified web target first'})
+                # Name the fix, not just the rule: this gate is what stops a
+                # host you own being used to scan somebody else's domain, so
+                # the operator has to be told where to prove ownership.
+                respond(400, {'error': f'vhost {vhost!r} is not an ownership-verified '
+                                       'target. Add it under External targets, publish '
+                                       'the DNS TXT or file proof it gives you, then '
+                                       'press Verify — after that it can be scanned.'})
             target, target_name = vhost, f'{vhost} (on {dev.get("name", dev_id)})'
         elif vhost and is_host:
             respond(400, {'error': 'vhost does not apply to on-host audits'})
