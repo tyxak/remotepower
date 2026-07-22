@@ -1462,6 +1462,31 @@ MCP_ACTION_ALLOWLIST = frozenset({
 # Adding an event HERE wires it everywhere server-side. The frontend still
 # needs its FLEET_EVENTS entry + _homeActivityAttrs case in app.js —
 # guardrail tests test_v223 / test_v225 enforce both.
+# ── alert lifecycle: every alert must have a way OUT ─────────────────────────
+# An alert that fires and can never clear is worse than no alert: the inbox
+# stops being a list of things that are wrong and becomes a list of things that
+# were once wrong, which nobody reads. Every alertable event must therefore be
+# one of:
+#
+#   * auto-healing — some other event `resolves` it (the majority); or
+#   * lifecycle='point' — it records that something HAPPENED, so there is no
+#     condition to observe clearing and the operator confirms it away.
+#
+# Anything that is neither is a gap, listed here so it is visible and bounded.
+# These are real conditions that CAN clear but have no recover path yet; each
+# needs a firing site that detects the recovery, not just a registry entry.
+# tests/test_alert_autoheal.py fails if this list GROWS.
+_AUTOHEAL_GAPS = frozenset({
+    'cve_found',                  # clears when the package is patched
+    'patch_alert',                # clears when the updates are applied
+    'tls_expiry',                 # clears on renewal (days_left recovers)
+    'disk_predict_fail',          # clears when the prediction improves
+    'ecc_errors',                 # clears when the counter stops rising
+    'new_port_detected',          # clears when the socket stops listening
+    'software_policy_violation',  # clears when the package is removed
+    'secret_exposed',             # clears when the secret is rotated/removed
+})
+
 EVENT_REGISTRY = {
     'device_offline': dict(
         label='Device went offline', kind='offline', title='Device Offline',
@@ -1494,6 +1519,7 @@ EVENT_REGISTRY = {
         label='New CVEs detected on a device', kind='cve', title='New CVEs Detected',
         severity=None, priority=5, tags='rotating_light,shield'),
     'campaign_completed': dict(
+        lifecycle='point',
         label='CVE remediation campaign reached zero affected hosts', kind='cve',
         title='CVE Campaign Completed', severity='low', tags='shield,white_check_mark'),
     'service_down': dict(
@@ -1515,6 +1541,7 @@ EVENT_REGISTRY = {
         kind='service', title='Service Flapping Cleared',
         resolves=('unit_flapping',), tags='white_check_mark'),
     'log_alert': dict(
+        lifecycle='point',
         label='Log pattern matched threshold', kind='log_alert', title='Log Pattern Matched',
         severity=None, priority=4, tags='warning,scroll', symptom=True),
     'container_stopped': dict(
@@ -1560,6 +1587,7 @@ EVENT_REGISTRY = {
         label='Command executed on a device', default=False, kind='command',
         title='Command Executed', tags='white_check_mark'),
     'drift_detected': dict(
+        lifecycle='point',
         label='Watched config file diverged from baseline', kind='drift',
         title='Configuration Drift', severity='medium'),
     'mailbox_threshold': dict(
@@ -1583,6 +1611,7 @@ EVENT_REGISTRY = {
         label='Custom check recovered to OK', kind='custom_check',
         title='Custom Check Recovered', resolves=('custom_check_failed',)),
     'config_drift': dict(
+        lifecycle='point',
         label='Host configuration drift detected', kind='drift',
         title='Host Config Drift Detected', severity='medium', priority=4, tags='warning,wrench'),
     'tls_expiry': dict(
@@ -1605,13 +1634,16 @@ EVENT_REGISTRY = {
         label='New listening port appeared on host', kind='new_port',
         title='New Listening Port Detected', severity='medium', priority=4, tags='warning,door'),
     'ssh_key_added': dict(
+        lifecycle='point',
         label='SSH authorized key added to host', kind='ssh_key',
         title='SSH Key Added to Host', severity='high', priority=4, tags='warning,key'),
     'brute_force_detected': dict(
+        lifecycle='point',
         label='Brute-force login attempts detected', kind='brute_force',
         title='Brute-Force Attempts Detected', severity='high', priority=4,
         tags='rotating_light,skull'),
     'vault_break_glass': dict(
+        lifecycle='point',
         label='Break-glass credential reveal requested', kind='break_glass',
         title='Break-Glass Reveal Requested', severity='high'),
     'backup_stale': dict(
@@ -1621,15 +1653,18 @@ EVENT_REGISTRY = {
         label='Stale backup is fresh again', kind='backup', title='Backup Recovered',
         resolves=('backup_stale',)),
     'backup_size_anomaly': dict(
+        lifecycle='point',
         label='Backup shrank sharply vs its recent size', kind='backup',
         title='Backup Size Anomaly', severity='high', priority=4, tags='warning,floppy_disk'),
     'canary_accessed': dict(
+        lifecycle='point',
         label='A canary (decoy) file was accessed or tampered with', kind='exposure',
         title='Canary File Accessed', severity='critical', priority=5, tags='rotating_light,lock'),
     'custom_metric_alert': dict(
         label='A custom metric crossed its threshold', kind='metric',
         title='Custom Metric Threshold', severity=None, priority=4, tags='warning,chart_with_upwards_trend'),
     'path_changed': dict(
+        lifecycle='point',
         label='Network path (traceroute) to a target changed', kind='monitor',
         title='Network Path Changed', severity='medium', priority=4, tags='warning,world_map'),
     'mailflow_delayed': dict(
@@ -1656,6 +1691,7 @@ EVENT_REGISTRY = {
         kind='backup', title='Restore Drill Recovered',
         resolves=('restore_drill_failed',)),
     'rollout_halted': dict(
+        lifecycle='point',
         label='Rollout auto-halted (health gate / verify)', kind='rollout',
         title='Rollout Halted', severity='high'),
     'server_disk_low': dict(
@@ -1674,9 +1710,11 @@ EVENT_REGISTRY = {
         label='SNMP polling recovered', kind='snmp', title='SNMP Device Recovered',
         resolves=('snmp_unreachable', 'snmp_dead')),
     'snmp_trap_received': dict(
+        lifecycle='point',
         label='Inbound SNMP trap received from a host', kind='snmp', title='SNMP Trap',
         severity='medium'),
     'mcp_confirmation_expired': dict(
+        lifecycle='point',
         label='MCP confirmation expired without operator decision', kind='mcp',
         title='MCP Confirmation Expired', severity='medium'),
     'smart_failure': dict(
@@ -1737,6 +1775,7 @@ EVENT_REGISTRY = {
     # the scary ssh warning exists to raise — and which people click through
     # precisely because they have no way to tell the two apart. Now they do.
     'hostkey_changed': dict(
+        lifecycle='point',
         label='SSH host key changed on a device', kind='ssh_key',
         title='SSH Host Key Changed', severity='high', priority=5,
         tags='rotating_light,key'),
@@ -1744,6 +1783,7 @@ EVENT_REGISTRY = {
     # endpoint, the port forwards and every published service now point at an
     # address that belongs to someone else.
     'wan_ip_changed': dict(
+        lifecycle='point',
         label='Public (WAN) IP address changed', kind='network',
         title='Public IP Changed', severity='medium', priority=4,
         tags='warning,globe_with_meridians'),
@@ -1758,6 +1798,7 @@ EVENT_REGISTRY = {
     # v6.1.2: a duplicate MAC is a cloned VM whose NIC was never regenerated —
     # a Proxmox-homelab classic that produces baffling intermittent networking.
     'mac_conflict': dict(
+        lifecycle='point',
         label='The same MAC address is on two devices', kind='network',
         title='Duplicate MAC Address', severity='high', priority=4,
         tags='warning,electric_plug'),
@@ -1767,6 +1808,7 @@ EVENT_REGISTRY = {
     # work. Fired only from run_remediation_verify_if_due (cadence), never
     # from inside fire_webhook. Repeated failures auto-disable the rule.
     'remediation_failed': dict(
+        lifecycle='point',
         label='An auto-remediation ran but its alert did not clear (verify window expired)',
         kind='script', severity='high', priority=4,
         title='Auto-remediation Failed', tags='rotating_light,wrench'),
@@ -1783,13 +1825,16 @@ EVENT_REGISTRY = {
         title='Storage Pool Healthy', resolves=('storage_degraded', 'scrub_overdue'),
         tags='green_circle,floppy_disk'),
     'login_new_source': dict(
+        lifecycle='point',
         label='Login from a new source address', kind='access', title='Login From New Source',
         severity='medium', tags='warning,bust_in_silhouette'),
     'login_geo_anomaly': dict(
+        lifecycle='point',
         label='Impossible travel — one account logged in from two countries in a short window (GeoIP)',
         kind='access', title='Impossible-Travel Login', severity='high',
         tags='warning,airplane'),
     'firewall_changed': dict(
+        lifecycle='point',
         label='Host firewall ruleset changed from baseline', kind='firewall',
         title='Host Firewall Changed', severity='medium', tags='warning,fire'),
     'timer_failed': dict(
@@ -1800,6 +1845,7 @@ EVENT_REGISTRY = {
         kind='timer', title='Scheduled Job Recovered',
         resolves=('timer_failed',), tags='white_check_mark,alarm_clock'),
     'db_integrity_failed': dict(
+        lifecycle='point',
         label='Database integrity check failed (possible corruption)', kind='database',
         title='Database Integrity Check Failed', severity='critical',
         tags='rotating_light,floppy_disk'),
@@ -1874,6 +1920,7 @@ EVENT_REGISTRY = {
         title='NIC Errors Cleared', resolves=('nic_errors',),
         tags='white_check_mark,electric_plug'),
     'oom_detected': dict(
+        lifecycle='point',
         label='The kernel OOM-killer terminated a process', kind='oom',
         title='Out Of Memory Kill', severity='high', tags='skull,brain'),
     'cert_file_expiring': dict(
@@ -1898,6 +1945,7 @@ EVENT_REGISTRY = {
     # Removals do not fire (they are not a security signal, and crying wolf
     # on them would get the event muted — the hostkey_changed lesson).
     'priv_group_added': dict(
+        lifecycle='point',
         label='A user gained privileged-group membership (sudo/wheel/Administrators)',
         kind='accounts', title='Privileged Group Membership Added',
         severity='high', priority=5, tags='rotating_light,bust_in_silhouette'),
@@ -1905,6 +1953,7 @@ EVENT_REGISTRY = {
     # high: on a homelab desktop this is somebody plugging in a phone, and an
     # event that pages at 3am for a phone charger gets muted within a week.
     'usb_device_added': dict(
+        lifecycle='point',
         label='A USB device was connected to a host', kind='usb',
         title='USB Device Connected', severity='medium', tags='warning,electric_plug'),
     'process_alert': dict(
@@ -1917,6 +1966,7 @@ EVENT_REGISTRY = {
         label='A secret was found exposed on a host filesystem', kind='secrets',
         title='Exposed Secret Found', severity='high'),
     'scan_finding': dict(
+        lifecycle='point',
         label='An authorized security scan found a high/critical issue', kind='scan',
         title='Security Scan Findings', severity=None),
     'integration_down': dict(
@@ -1938,9 +1988,11 @@ EVENT_REGISTRY = {
         kind='dependency', title='Service Dependency Restored',
         resolves=('dependency_missing',)),
     'github_new_issue': dict(
+        lifecycle='point',
         label='New issue opened on a watched GitHub repository', kind='github_issue',
         title='New GitHub Issue', severity='low', tags='memo'),
     'ct_new_certificate': dict(
+        lifecycle='point',
         label='New certificate issued for a watched domain (CT log)', kind='tls',
         title='New Certificate Issued (CT)', severity='medium', priority=4,
         tags='warning,lock'),
@@ -1951,6 +2003,7 @@ EVENT_REGISTRY = {
         label='A monitored IP is no longer blocklisted', kind='reputation',
         title='IP Reputation Cleared', resolves=('ip_blacklisted',)),
     'ip_conflict': dict(
+        lifecycle='point',
         label='The same IP address is assigned to two or more devices (IPAM)',
         kind='network', title='IP Address Conflict', severity='high',
         tags='warning,network'),
@@ -1961,6 +2014,7 @@ EVENT_REGISTRY = {
         label='A monitored DNS name resolves again', kind='resolver',
         title='DNS Resolution Recovered', resolves=('resolver_unhealthy',)),
     'fail2ban_ban': dict(
+        lifecycle='point',
         label='fail2ban banned a new IP address on a host', kind='fail2ban',
         title='fail2ban Ban', severity='medium'),
     'failed_unit': dict(
@@ -51022,6 +51076,7 @@ def handle_alerts_list():
     _annotate_alert_correlation(page)   # v4.1.0: host root-cause folding
     _annotate_alert_mitigation(page)    # v5.8.0 (B1.2): Fix-button tagging
     _annotate_alert_kb(page)            # W1-23: KB-runbook link tagging
+    _annotate_alert_lifecycle(page)     # v6.3.1: does this one clear by itself?
     respond(200, {
         'alerts': page,
         'total':  len(filtered),
@@ -51030,6 +51085,24 @@ def handle_alerts_list():
         # when acking. Default on.
         'ack_comment_enabled': bool(_config_ro().get('ack_comment_enabled', True)),
     })
+
+
+def _annotate_alert_lifecycle(alerts):
+    """Tag each alert with whether it can clear on its own.
+
+    A state alert (service down, disk full) disappears when the condition does,
+    so leaving it alone is correct. A point-in-time alert (an SSH key was added,
+    a USB device appeared) records something that HAPPENED — nothing will ever
+    observe it clearing, so it sits there until the operator confirms it. Those
+    two need to look different, or the inbox slowly fills with the second kind
+    and the operator learns to ignore the whole thing.
+    """
+    for a in alerts or []:
+        if not isinstance(a, dict):
+            continue
+        ev = a.get('event') or ''
+        spec = EVENT_REGISTRY.get(ev) or {}
+        a['autoheals'] = not (spec.get('lifecycle') == 'point' or ev in _AUTOHEAL_GAPS)
 
 
 def _check_alert_mutation_perm():

@@ -205,6 +205,12 @@ function _alertRowHtml(a, role) {
     actions = `<span class="c-muted">resolved by ${byWho}</span> `
       + `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
   }
+  // A point-in-time alert records something that HAPPENED — nothing will ever
+  // observe it clearing, so say so rather than letting the operator wait for a
+  // self-heal that cannot come.
+  const confirmTag = (!isResolved && a.autoheals === false)
+    ? ' <span class="patch-badge fs-10" title="This records an event, not an ongoing condition — it will not clear on its own. Resolve it once you have looked.">confirm</span>'
+    : '';
   const cb = isResolved ? '' :
     `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;
   const badge = role === 'root'
@@ -225,7 +231,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>

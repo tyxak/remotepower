@@ -30,6 +30,29 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Every alert must have a way out — the lifecycle sweep
+- Audited all **100 alertable events**: 63 auto-heal, **37 could fire and never
+  clear**. An alert that can never clear is worse than no alert — the inbox
+  stops being "what is wrong" and becomes "what was once wrong", and an operator
+  who learns that entries never leave stops reading it.
+- Every alertable event now declares how it ends:
+  * **auto-healing** — another event `resolves` it (63);
+  * **`lifecycle='point'`** — it records something that HAPPENED, so there is no
+    condition to observe clearing and the operator confirms it away (29: SSH key
+    added, USB device, new source login, config drift, scan finding, log alert…).
+- The remaining **8 are real gaps** — conditions that CAN clear but have no
+  recover path yet (`cve_found`, `patch_alert`, `tls_expiry`, `disk_predict_fail`,
+  `ecc_errors`, `new_port_detected`, `software_policy_violation`,
+  `secret_exposed`). Listed in `_AUTOHEAL_GAPS` so they are visible and bounded;
+  each needs a firing site that detects the recovery, not just a registry entry.
+- **Guardrail `tests/test_alert_autoheal.py`**: a new alertable event that is
+  neither resolvable nor point-in-time fails the build, the gap list cannot
+  grow, a gap that gains a resolver must be removed from the list, and every
+  recover-event match key must be in `_record_alert`'s payload whitelist (the
+  documented "resolves but the key was never stored" trap).
+- The alerts inbox marks a point-in-time alert **confirm**, so it is obvious
+  which ones are waiting on a human rather than on a condition clearing.
+
 ### Fixed — a check already failing at upgrade time NEVER alerted
 - Reported as "critical on the Checks page, not visible as an alert or a
   ticket". `_ingest_custom_check_results` defaulted pre-upgrade state (no

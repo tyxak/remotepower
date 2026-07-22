@@ -29,7 +29,12 @@ _spec.loader.exec_module(api)
 
 SEVERITIES = {'critical', 'high', 'medium', 'low', None}
 ALLOWED_FIELDS = {'label', 'kind', 'title', 'default', 'severity', 'resolves',
-                  'priority', 'tags', 'symptom', 'phantom'}
+                  'priority', 'tags', 'symptom', 'phantom',
+    # v6.3.1: how this alert CLEARS. 'point' = it records something that
+    # happened, so nothing can observe it clearing and the operator confirms
+    # it away. Absent = a state that some recover event resolves.
+    'lifecycle',
+}
 
 
 class TestRegistryShape(unittest.TestCase):
