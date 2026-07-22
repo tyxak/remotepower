@@ -36797,6 +36797,9 @@ _AI_DEFAULTS = {
             'billing':           True,
             'remediations':      True,
             'config_revisions':  True,
+            'sudo_log':          True,
+            'self_obs':          True,
+            'inventory':         True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -37021,7 +37024,8 @@ def handle_ai_config_set():
                           'contacts', 'incidents', 'maintenance', 'scripts',   # v6.2.2
                           'incident_memory', 'image_cves', 'scap',
                           'security_findings', 'automation_rules',
-                          'hardware', 'billing', 'remediations', 'config_revisions'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
+                          'hardware', 'billing', 'remediations', 'config_revisions',
+                          'sudo_log', 'self_obs', 'inventory'):   # v6.3.1/v6.4.0 — miss this and the toggle never persists
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -37189,6 +37193,12 @@ def _rag_source_files(sources):
         files.append(REMEDIATIONS_FILE)
     if sources.get('config_revisions'):
         files.append(CONFIG_REVS_FILE)
+    if sources.get('sudo_log'):
+        files.append(SUDO_LOG_FILE)
+    if sources.get('self_obs'):
+        files.append(SELF_OBS_FILE)
+    if sources.get('inventory'):
+        files += [SITES_FILE, RACKS_FILE, SUBNETS_FILE, WARRANTY_CACHE_FILE]
     # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
     if sources.get('provisioning'):
         files.append(PROVISION_FILE)
@@ -37616,6 +37626,24 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_config_revisions_corpus(load(CONFIG_REVS_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: config_revisions source failed: {e}\n')
+    if sources.get('sudo_log'):
+        try:
+            docs += rag_index.build_sudo_corpus(load(SUDO_LOG_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: sudo_log source failed: {e}\n')
+    if sources.get('self_obs'):
+        try:
+            docs += rag_index.build_self_obs_corpus(load(SELF_OBS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: self_obs source failed: {e}\n')
+    if sources.get('inventory'):
+        try:
+            docs += rag_index.build_inventory_corpus(
+                load(SITES_FILE) or {}, load(RACKS_FILE) or {},
+                load(SUBNETS_FILE) or {}, load(WARRANTY_CACHE_FILE) or {},
+                devices=load(DEVICES_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: inventory source failed: {e}\n')
 
     return docs
 

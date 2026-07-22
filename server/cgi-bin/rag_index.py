@@ -2246,6 +2246,94 @@ def build_config_revisions_corpus(store, now=0):
     return docs
 
 
+def build_sudo_corpus(store, devices=None, now=0):
+    """v6.4.0: the per-device privileged-command (sudo) trail for the RAG —
+    grounds access_review and incident RCA ("who ran what as root on X").
+    Commands are already redacted at ingest (_redact_sudo_command)."""
+    docs = []
+    if not isinstance(store, dict) or not store:
+        return docs
+    devices = devices if isinstance(devices, dict) else {}
+    lines = []
+    for dev_id, evs in list(store.items())[:300]:
+        if not isinstance(evs, list) or not evs:
+            continue
+        dname = (devices.get(dev_id) or {}).get('name') or dev_id
+        for e in evs[-8:]:
+            if isinstance(e, dict) and e.get('command'):
+                who = e.get('user') or e.get('by') or ''
+                lines.append(f"- {dname}: {who + ': ' if who else ''}{str(e.get('command'))[:200]}")
+    if lines:
+        docs.append(make_doc(
+            'access/sudo', 'sudo_log', 'sudo_trail',
+            f"Recent privileged (sudo) commands across the fleet ({len(lines)}):\n"
+            + '\n'.join(lines[:400]),
+            title='Privileged-command trail', ts=now))
+    return docs
+
+
+def build_self_obs_corpus(store, now=0):
+    """v6.4.0: the controller's own maintenance-sweep health for the RAG —
+    grounds "is RemotePower itself healthy / did feature X stop running"."""
+    docs = []
+    sweeps = (store or {}).get('sweeps') if isinstance(store, dict) else None
+    if not isinstance(sweeps, dict) or not sweeps:
+        return docs
+    lines = []
+    for name, s in sorted(sweeps.items()):
+        if not isinstance(s, dict):
+            continue
+        bit = name
+        if s.get('last_error'):
+            bit += f" — LAST ERROR: {str(s.get('last_error'))[:120]}"
+        elif s.get('last_ok'):
+            bit += " — ok"
+        lines.append(f"- {bit}")
+    if lines:
+        docs.append(make_doc(
+            'self/observability', 'self_obs', 'self_observability',
+            f"RemotePower's own maintenance sweeps ({len(lines)}) — last run / "
+            "recent errors:\n" + '\n'.join(lines),
+            title='Controller self-observability', ts=now))
+    return docs
+
+
+def build_inventory_corpus(sites, racks, subnets, warranty, devices=None, now=0):
+    """v6.4.0: physical + IPAM inventory for the RAG — grounds "which rack/
+    subnet/site is host X in", capacity questions, and out-of-warranty planning.
+    All operator-authored inventory metadata; no secrets."""
+    docs = []
+    devices = devices if isinstance(devices, dict) else {}
+    lines = []
+    if isinstance(sites, dict) and sites:
+        lines.append("Sites: " + ', '.join(
+            str((v or {}).get('name') or k) for k, v in list(sites.items())[:50]))
+    if isinstance(racks, dict) and racks:
+        lines.append(f"Racks ({len(racks)}): " + ', '.join(
+            str((v or {}).get('name') or k) for k, v in list(racks.items())[:50]))
+    if isinstance(subnets, dict) and subnets:
+        _sn = []
+        for k, v in list(subnets.items())[:80]:
+            if isinstance(v, dict):
+                _sn.append(f"{v.get('cidr', k)}" + (f" ({v.get('name')})" if v.get('name') else ''))
+        if _sn:
+            lines.append(f"Subnets ({len(_sn)}): " + ', '.join(_sn))
+    if isinstance(warranty, dict) and warranty:
+        _w = []
+        for serial, v in list(warranty.items())[:80]:
+            if isinstance(v, dict) and v.get('expiry'):
+                _w.append(f"{serial}: warranty/EOL {v.get('expiry')}")
+        if _w:
+            lines.append(f"Warranty/EOL ({len(_w)}):\n  " + '\n  '.join(_w[:60]))
+    if lines:
+        docs.append(make_doc(
+            'inventory/physical', 'inventory', 'physical_inventory',
+            "Physical + IPAM inventory (sites, racks, subnets, warranty):\n"
+            + '\n'.join(lines),
+            title='Physical / IPAM inventory', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

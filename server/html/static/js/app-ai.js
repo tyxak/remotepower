@@ -96,6 +96,9 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-billing',          rs.billing !== false);
   _setSrc('ai-rag-src-remediations',     rs.remediations !== false);
   _setSrc('ai-rag-src-configrevs',       rs.config_revisions !== false);
+  _setSrc('ai-rag-src-sudolog',          rs.sudo_log !== false);
+  _setSrc('ai-rag-src-selfobs',          rs.self_obs !== false);
+  _setSrc('ai-rag-src-inventory',        rs.inventory !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -384,6 +387,9 @@ async function saveAISettings() {
         billing:           !!document.getElementById('ai-rag-src-billing')?.checked,
         remediations:      !!document.getElementById('ai-rag-src-remediations')?.checked,
         config_revisions:  !!document.getElementById('ai-rag-src-configrevs')?.checked,
+        sudo_log:          !!document.getElementById('ai-rag-src-sudolog')?.checked,
+        self_obs:          !!document.getElementById('ai-rag-src-selfobs')?.checked,
+        inventory:         !!document.getElementById('ai-rag-src-inventory')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
