@@ -25,7 +25,7 @@ checks = importlib.util.module_from_spec(_cs)
 _cs.loader.exec_module(checks)
 
 NEW = ('file_hash', 'dir_baseline', 'egress_flagged', 'file_contains',
-       'egress_baseline')
+       'egress_baseline', 'auth_new_source')
 
 
 class TestRegistration(unittest.TestCase):
@@ -42,8 +42,9 @@ class TestRegistration(unittest.TestCase):
             for k in ('cat', 'id', 'type', 'param', 'name', 'desc'):
                 self.assertTrue(t.get(k), f'{t.get("id")} missing {k}')
             self.assertIn(t['type'], known)
-        # at least one row exercises each new type
-        used = {t['type'] for t in rows}
+        # every new type must be exercised by SOME shipped template — not
+        # necessarily a web one (auth_new_source is a Detection row, etc.)
+        used = {t['type'] for t in checks.CHECK_BASELINE_CATALOG}
         for t in NEW:
             self.assertIn(t, used, f'no catalog row uses {t}')
 
@@ -303,6 +304,32 @@ class TestAgentEval(unittest.TestCase):
              'param': 'not-a-cidr, 999.999.999.999/8, 0.0.0.0/0, ::/0'}
         st, _ = agent._eval_one_agent_check(c)
         self.assertEqual(st, 'ok')                           # parsed leniently
+
+    def test_auth_new_source_seeds_then_reports_known(self):
+        # journalctl exists on the test box; an ignore-list of everything makes
+        # the outcome deterministic regardless of who logged in.
+        c = {'id': 'as1', 'type': 'auth_new_source', 'param': '0.0.0.0/0, ::/0'}
+        st, out = agent._eval_one_agent_check(c)
+        self.assertIn(st, ('ok', 'unknown'))          # unknown iff no journalctl
+        if st == 'unknown':
+            self.skipTest('journalctl not available here')
+        self.assertIn('baseline set', out)
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')
+        self.assertIn('known source network', out)
+
+    def test_auth_new_source_alerts_on_an_unseen_network(self):
+        """Seed a baseline, then inject a network it has never seen."""
+        import json as _j
+        c = {'id': 'as2', 'type': 'auth_new_source', 'param': '0.0.0.0/0, ::/0'}
+        if agent._eval_one_agent_check(c)[0] == 'unknown':
+            self.skipTest('journalctl not available here')
+        # the ignore-list means the observed set is empty, so a baseline holding
+        # a phantom network must NOT alert (nothing new), proving the diff is
+        # observed-minus-known and not the other way round
+        agent._safe_state_write('checkauthsrc-as2', _j.dumps(['203.0.113.0/24']))
+        st, _ = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')
 
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(

@@ -127,6 +127,7 @@ const _CC_PARAM_LABELS = {
   egress_flagged: 'Flagged IPs / CIDRs',
   file_contains: 'Directory (path or path::glob)',
   egress_baseline: 'Ignore these IPs / CIDRs',
+  auth_new_source: 'Ignore these IPs / CIDRs',
 };
 const _CC_PARAM_PH = {
   process: 'nginx', port_open: '443', port_closed: '23',
@@ -137,6 +138,7 @@ const _CC_PARAM_PH = {
   egress_flagged: '203.0.113.0/24, 198.51.100.7',
   file_contains: '/var/www::*.php',
   egress_baseline: '10.0.0.0/8, 203.0.113.0/24',
+  auth_new_source: '10.0.0.0/8, 192.168.0.0/16',
 };
 // v5.6.0: Check catalog — ready-made check templates. Picking one pre-fills the
 // form (name/type/param). {c:category, l:picker label, t:type, p:param, n:name}.

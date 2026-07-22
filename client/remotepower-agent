@@ -6746,6 +6746,68 @@ def _eval_one_agent_check(c):
             sample = ', '.join(os.path.basename(x) for x in hits[:3])
             return 'critical', f'{len(hits)} file(s) match — {sample}'[:200]
         return 'ok', f'{scanned} file(s) scanned, no match'
+    if ctype == 'auth_new_source':
+        # Learns which source networks SUCCESSFULLY log in over SSH and alerts
+        # the first time one shows up from somewhere new.
+        #
+        # This is the signal a stolen credential or key actually produces: the
+        # login SUCCEEDS, so an auth-failure-rate check sees nothing at all. The
+        # only anomaly is WHERE it came from.
+        #
+        # Private ranges are deliberately NOT excluded (unlike egress_baseline) —
+        # a new internal source is just as interesting as an external one, e.g.
+        # lateral movement. Use the param ignore-list for your office/VPN.
+        import ipaddress
+        if not _which('journalctl'):
+            return 'unknown', 'no journalctl'
+        ignore = []
+        for tok in re.split(r'[\s,]+', param.strip()):
+            if not tok:
+                continue
+            try:
+                ignore.append(ipaddress.ip_network(tok, strict=False))
+            except ValueError:
+                continue
+        window = int(c.get('window_min', 60) or 60)
+        try:
+            r = subprocess.run(
+                ['journalctl', '--no-pager', '-q', '-t', 'sshd',
+                 '--since', f'-{window}min', '-n', '5000'],
+                capture_output=True, text=True, timeout=15)
+        except Exception:
+            return 'unknown', 'journalctl failed'
+        rx = re.compile(r'Accepted \S+ for (\S+) from ([0-9A-Fa-f:.]+)')
+        nets, who = set(), {}
+        for ln in (r.stdout or '').splitlines():
+            m = rx.search(ln)
+            if not m:
+                continue
+            user, ip = m.group(1), m.group(2)
+            try:
+                ipo = ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            if any(ipo in nw for nw in ignore):
+                continue
+            pfx = 24 if ipo.version == 4 else 64
+            net = str(ipaddress.ip_network(f'{ip}/{pfx}', strict=False))
+            nets.add(net)
+            who.setdefault(net, user)
+        key = 'checkauthsrc-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
+        prevraw = _safe_state_read_big(key)
+        if prevraw is None:
+            _safe_state_write(key, json.dumps(sorted(nets)))
+            return 'ok', f'baseline set ({len(nets)} source network(s))'
+        try:
+            known = set(json.loads(prevraw))
+        except ValueError:
+            known = set()
+        new = sorted(nets - known)
+        if new:
+            _safe_state_write(key, json.dumps(sorted(known | nets)[:2000]))
+            detail = ', '.join(f'{who.get(n, "?")}@{n}' for n in new[:3])
+            return 'critical', f'{len(new)} new SSH source network(s): {detail}'[:200]
+        return 'ok', f'{len(nets)} known source network(s) in {window}min'
     if ctype == 'egress_baseline':
         # Learn where this host normally talks OUT to, then alert once per new
         # destination. Unlike egress_flagged this needs no prior threat intel —

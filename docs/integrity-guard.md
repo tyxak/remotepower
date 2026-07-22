@@ -28,7 +28,7 @@ To watch a web root and *neutralise* anything dropped into it, see
 
 ---
 
-## The five check types
+## The six check types
 
 These are agent-side checks: the server pushes them in the heartbeat response,
 the agent evaluates them **on-host**, and reports results back. They're
@@ -110,7 +110,29 @@ multicast are never counted.
 Use `egress_flagged` when you already know the bad address; use this when you
 don't.
 
-> **Platform:** these five are Linux-first. On Windows they report `unknown`
+### `auth_new_source` — no SSH login from a network you've never seen
+
+    param:  10.0.0.0/8, 192.168.0.0/16      (an IGNORE-list, optional)
+
+Learns which source networks successfully authenticate over SSH, then alerts the
+first time someone signs in from somewhere new.
+
+This is the signal a **stolen credential or key** actually produces. The login
+*succeeds*, so an auth-failure-rate check sees nothing — there is no brute-force
+burst, no failure spike, nothing anomalous except **where it came from**. Each
+new network alerts once and is then remembered, and the output names the user
+(`root@203.0.113.0/24`).
+
+Private ranges are deliberately **not** excluded here (unlike `egress_baseline`):
+a new *internal* source is just as interesting — that is what lateral movement
+looks like. Put your office and VPN ranges in the ignore-list instead.
+
+**Scope:** this covers SSH, read from the journal. Application logins (a
+WordPress admin, for example) never touch the host in an observable way, so they
+are not covered — catching those needs the web application's auth log routed
+through the syslog receiver, which is a separate ingest path.
+
+> **Platform:** these six are Linux-first. On Windows they report `unknown`
 > ("not applicable"), which is harmless — no false alerts.
 
 ---
@@ -169,7 +191,7 @@ against the worst failure mode: vaulting an entire site.
 
 ## The template catalog
 
-**Baseline protect checks** ships ~62 hardening templates, applied by checkbox
+**Baseline protect checks** ships ~63 hardening templates, applied by checkbox
 to any scope. They're grouped by intent:
 
 | Category | What it covers |

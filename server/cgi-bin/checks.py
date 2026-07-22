@@ -641,6 +641,11 @@ AGENT_CHECK_TYPES = (
     #                     threat intel, unlike egress_flagged. `param` is an
     #                     optional CIDR ignore-list.
     "egress_baseline",
+    #   auth_new_source — learns which source networks successfully log in over
+    #                     SSH and alerts the first time one appears from
+    #                     somewhere new. `param` is an optional CIDR
+    #                     ignore-list (office / VPN ranges).
+    "auth_new_source",
 )
 
 
@@ -1054,6 +1059,14 @@ CHECK_BASELINE_CATALOG = (
      "desc": "Grants passwordless access to every user from the listed hosts."},
 
     # ── Detection — log signals ──────────────────────────────────────────────
+    {"cat": "Detection — log signals", "id": "auth_new_source", "type": "auth_new_source",
+     "param": "10.0.0.0/8, 192.168.0.0/16",
+     "name": "No SSH login from a new network",
+     "desc": "Learns which source networks successfully authenticate over SSH, then "
+             "alerts the first time someone signs in from somewhere new — the signal "
+             "a stolen key or password produces, which a failure-rate check cannot "
+             "see because the login SUCCEEDS. Each new network alerts once. The param "
+             "is a CIDR ignore-list for your office/VPN ranges."},
     {"cat": "Detection — log signals", "id": "auth_failures", "type": "log_errors",
      "param": "authentication failure|Failed password|Invalid user",
      "name": "Auth failure burst", "extras": {"window_min": 15, "warn": 10, "crit": 50},
