@@ -30,6 +30,32 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Fixed — invented CSS classes rendered as nothing
+- **The Security Advisory cards had no background.** They used `.card`, which
+  the app stylesheet never defines (the house container is `.dash-card`;
+  `report.css` has a `.card` for the standalone report page, and styles.css
+  mentions it only in a `body.density-compact` padding override) — so every
+  finding rendered as a transparent, border-less box. Same bug in the Logs
+  "Cleared lines" panel.
+- `.ta-left` was used and never existed (only `.ta-center` / `.ta-right`), so a
+  left-align override silently did nothing.
+- Six MORE utilities were used across the app with no rule at all and had been
+  quietly rendering as nothing: `.c-success`, `.c-warning`, `.flex-wrap`,
+  `.mt-0`, `.mb-0`, `.p-6`. All now defined.
+- **Guardrail: `tests/test_css_utilities.py`.** Python fails loudly on an
+  undefined name; CSS does not. This pins every purely-presentational class
+  (utility prefixes + card containers) to an actual rule. It parses interpolated
+  attributes too — the first version matched only non-templated `class="…"` and
+  so missed the very bug it was written for, which is exactly the false-green
+  class these notes warn about.
+
+### Baseline / advisory host lists no longer flood
+- A host-scoped baseline template lands on dozens of devices, and every one was
+  inlined into the catalog row — across ~76 templates that is an unreadable
+  wall. Scopes are now summarised ("whole fleet, tag: docker, 37 hosts") with
+  the host names behind a collapsed, **filterable**, scroll-capped list. The
+  Security Advisory's per-finding host list uses the same control.
+
 ### Pentest — a clean scan now says what it actually checked
 - **Info findings were invisible.** The scans table has Crit/High/Med/Low
   columns, but wpscan's whole passive value (interesting findings, exposed

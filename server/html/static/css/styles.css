@@ -7393,6 +7393,11 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
 .adv-t-crit .adv-tile-val { color: var(--red); }
 .adv-t-high .adv-tile-val { color: var(--orange, var(--red)); }
 
+/* .ta-center and .ta-right existed; .ta-left did not, so an override of a
+   centred block (the scan "no findings" explanation) silently did nothing. */
+.ta-left { text-align: left; }
+
+/* The advisory card IS a .dash-card — it just carries a severity stripe. */
 .adv-card { margin-bottom: 12px; border-left: 3px solid var(--hair-2, var(--hair)); }
 .adv-sev-critical { border-left-color: var(--red); }
 .adv-sev-high     { border-left-color: var(--orange, var(--red)); }
@@ -7416,3 +7421,44 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
 .adv-fix { font-size: 13px; margin-bottom: 6px; }
 .adv-ev ul { margin: 2px 0 6px; padding-left: 18px; }
 .adv-foot { font-size: 12px; }
+
+/* v6.3.1: collapsed, filterable host list. A scope can fan out across a whole
+   fleet, so the COUNT is the headline and the names open on demand — inlining
+   them flooded every catalog row. */
+.host-list { margin-top: 4px; }
+.host-list > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: none;
+}
+.host-list > summary::-webkit-details-marker { display: none; }
+.host-list > summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform .12s ease;
+}
+.host-list[open] > summary::before { content: '▾ '; }
+.host-list-filter {
+  margin: 6px 0 4px;
+  width: 100%;
+  max-width: 280px;
+  font-size: 12.5px;
+}
+.host-list-items { font-size: 12px; }
+.host-list-item {
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+/* v6.3.1: six utilities that were USED but never defined, so they silently
+   rendered as nothing — a `c-success` badge came out in body colour, a `p-6`
+   box had no padding. Found by the utility-class guardrail
+   (tests/test_css_utilities.py), which now requires this set to stay empty. */
+.c-success { color: var(--green); }
+.c-warning { color: var(--amber); }
+.flex-wrap { flex-wrap: wrap; }
+.mt-0 { margin-top: 0; }
+.mb-0 { margin-bottom: 0; }
+.p-6 { padding: 6px; }

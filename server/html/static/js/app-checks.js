@@ -592,10 +592,63 @@ function pickBcHost(id, name) {
 function _bcAppliedHtml(t) {
   const where = t.applied || [];
   if (!where.length) return '';
-  const shown = where.map(a => escHtml(a.label)).join(', ');
-  const more = (t.applied_count || where.length) - where.length;
+  // SUMMARISE, don't enumerate. On a real fleet a host-scoped template lands on
+  // dozens of devices, and inlining every name floods ~76 catalog rows into an
+  // unreadable wall. Fleet/tag/group scopes are named (there are few of them);
+  // hosts collapse to a count you can open and filter.
+  const named = where.filter(a => a.target_kind !== 'host').map(a => a.label);
+  const hosts = where.filter(a => a.target_kind === 'host');
+  const total = t.applied_count || where.length;
+  const hostTotal = total - named.length;
+  const bits = named.slice(0, 3).map(escHtml);
+  if (named.length > 3) bits.push(`+${named.length - 3} more scopes`);
+  if (hostTotal > 0) bits.push(`${hostTotal} host${hostTotal === 1 ? '' : 's'}`);
   return `<span class="bc-row-applied" title="Already applied — re-applying changes nothing">`
-    + `${_icon('check', 12)} Applied to ${shown}${more > 0 ? ` +${more} more` : ''}</span>`;
+    + `${_icon('check', 12)} Applied to ${bits.join(', ')}</span>`
+    + _hostListHtml(hosts, hostTotal, `bc-hosts-${escAttr(t.id)}`);
+}
+
+// A collapsed, filterable host list. Used anywhere a scope can fan out across a
+// fleet — the count is the headline, the names are there when you want them.
+// <details> gives the expand for free (no JS, no CSP concern); the filter is
+// wired through data-input like every other search box.
+function _hostListHtml(hosts, total, id) {
+  if (!hosts.length) return '';
+  return `<details class="host-list" id="${escAttr(id)}">`
+    + `<summary class="hint">Show the ${total > hosts.length ? `first ${hosts.length} of ${total} ` : ''}host${hosts.length === 1 ? '' : 's'}</summary>`
+    + `<input type="text" class="form-input host-list-filter" placeholder="Filter hosts…" aria-label="Filter hosts" autocomplete="off" data-input="filterHostList" data-input-el="1" data-input-debounce="100">`
+    + `<div class="host-list-items scroll-cap-sm">`
+    + hosts.map(h => `<div class="host-list-item">${escHtml(h.device || h.device_id)}</div>`).join('')
+    + `</div>`
+    + (total > hosts.length
+        ? `<div class="hint">${total - hosts.length} more not shown — open the check to see its full scope.</div>`
+        : '')
+    + `</details>`;
+}
+
+// Filters the sibling list of the input that fired. Kept generic so every host
+// list on the page (baseline catalog rows, advisory findings) shares it.
+function filterHostList(inp) {
+  const box = inp.parentElement?.querySelector('.host-list-items');
+  if (!box) return;
+  const term = (inp.value || '').toLowerCase().trim();
+  let shown = 0;
+  for (const row of box.children) {
+    const hit = !term || row.textContent.toLowerCase().includes(term);
+    row.classList.toggle('d-none', !hit);
+    if (hit) shown++;
+  }
+  let empty = box.parentElement.querySelector('.host-list-empty');
+  if (!shown) {
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.className = 'host-list-empty hint';
+      box.parentElement.appendChild(empty);
+    }
+    empty.textContent = `No host matches "${inp.value.trim()}".`;
+  } else if (empty) {
+    empty.remove();
+  }
 }
 
 function _bcRenderCatalog() {
@@ -839,9 +892,7 @@ function _advRenderFindings(r) {
   // Already ordered by the server: severity, then how many hosts are affected.
   // That order IS the product, so the client must not re-sort it.
   el.innerHTML = rows.map((g, i) => {
-    const hosts = (g.devices || []).map(d => escHtml(d.device)).join(', ');
-    const more = (g.device_count || 0) - (g.devices || []).length;
-    return `<div class="card adv-card adv-sev-${escAttr(g.severity)}">
+    return `<div class="dash-card adv-card adv-sev-${escAttr(g.severity)}">
       <div class="adv-head">
         <span class="adv-rank">${i + 1}</span>
         <span class="sev-pill sev-${escAttr(g.severity)}">${escHtml(g.severity)}</span>
@@ -856,8 +907,8 @@ function _advRenderFindings(r) {
           + g.evidence.map(e => `<li class="mono-12">${escHtml(e)}</li>`).join('')
           + '</ul></div>'
         : ''}
-      <div class="hint adv-foot">${hosts ? escHtml(hosts) + (more > 0 ? ` +${more} more` : '') : ''}`
-      + `${g.source ? ` &middot; from ${escHtml(g.source)}` : ''}`
+      ${_hostListHtml(g.devices || [], g.device_count || 0, `adv-hosts-${i}`)}
+      <div class="hint adv-foot">${g.source ? `from ${escHtml(g.source)}` : ''}`
       + `${g.doc ? ` &middot; <a href="${escAttr(g.doc)}" class="c-accent">Documentation</a>` : ''}</div>
     </div>`;
   }).join('');
