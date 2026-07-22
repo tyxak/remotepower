@@ -41460,8 +41460,12 @@ def handle_custom_checks_save():
             n = 1 + max([0] + [int(re.sub(r'\D', '', c.get('id', '')) or 0)
                                for c in checks if isinstance(c, dict)])
             cid = f'ck_{n:05d}'
+        _prev_kind = next((c.get('kind') for c in checks
+                           if isinstance(c, dict) and c.get('id') == cid and c.get('kind')), None)
         entry = {'id': cid, 'name': name or f'{ctype} {param}', 'type': ctype,
                  'param': param, 'target_kind': tk, 'target': tv, **extras}
+        if _prev_kind:
+            entry['kind'] = _prev_kind   # survives an edit; see handle_check_baselines_apply
         for i, c in enumerate(checks):
             if isinstance(c, dict) and c.get('id') == cid:
                 checks[i] = entry
@@ -41556,9 +41560,15 @@ def handle_check_baselines_apply():
                 continue
             existing.add(key)
             _seq += 1
-            checks.append({'id': f'ck_{_seq:05d}', 'name': tmpl['name'], 'type': tmpl['type'],
-                           'param': tmpl['param'], 'target_kind': e_tk, 'target': e_tv,
-                           **(tmpl.get('extras') or {})})
+            _row = {'id': f'ck_{_seq:05d}', 'name': tmpl['name'], 'type': tmpl['type'],
+                    'param': tmpl['param'], 'target_kind': e_tk, 'target': e_tv,
+                    **(tmpl.get('extras') or {})}
+            # Remember which picker it came from so Security -> Protect can list
+            # what it applied. Types alone can't tell (both pickers use
+            # systemd_unit/port_closed/...), so the origin has to be stored.
+            if baseline_kind(tmpl.get('cat', '')) == 'protect':
+                _row['kind'] = 'protect'
+            checks.append(_row)
             added += 1
     audit_log(actor, 'check_baselines_apply', f'added={added} scope={tk}:{tv}')
     respond(200, {'ok': True, 'added': added})

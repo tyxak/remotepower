@@ -112,6 +112,12 @@ async function toggleHostCheck(arg) {
 }
 
 // ── Custom checks (v4.1.0) ─────────────────────────────────────────────────
+// Integrity Guard types + anything applied from the Protect picker (which
+// stamps kind:'protect'). Type alone is not enough: both pickers ship
+// systemd_unit / port_closed / file_absent templates.
+const _CC_GUARD_TYPES = new Set(['dir_baseline', 'file_hash', 'egress_flagged']);
+const _ccIsProtect = c => c.kind === 'protect' || _CC_GUARD_TYPES.has(c.type);
+let _ccKind = 'ops';        // which catalog is open: operational vs Protect
 const _CC_PARAM_LABELS = {
   process: 'Process name', port_open: 'Port', port_closed: 'Port',
   file_present: 'File path', file_absent: 'File path', job_fresh: 'File path',
@@ -277,6 +283,8 @@ function ccCatalogSearch() {
   const term = (document.getElementById('cc-catalog-search')?.value || '').toLowerCase().trim();
   const hits = CHECK_CATALOG
     .map((e, i) => ({ e, i }))
+    .filter(({ e }) => _ccKind !== 'protect'
+      || _CC_GUARD_TYPES.has(e.t) || e.c === 'Web / application security')
     .filter(({ e }) => !term || (`${e.l} ${e.c} ${e.n} ${e.p}`).toLowerCase().includes(term))
     .slice(0, 80);
   box.innerHTML = hits.length
@@ -360,8 +368,15 @@ function _ccResetForm() {
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Add check';
   ccKindChanged(); ccTypeChanged();
 }
-async function openCustomChecks() {
+async function openCustomChecks(kind) {
+  _ccKind = kind === 'protect' ? 'protect' : 'ops';
   _ccResetForm();
+  const t = document.getElementById('custom-checks-modal-title');
+  if (t) t.textContent = _ccKind === 'protect' ? 'Protect check catalog' : 'Check catalog';
+  if (_ccKind === 'protect') {          // most useful starting point there
+    const ty = document.getElementById('cc-type');
+    if (ty) { ty.value = 'dir_baseline'; ccTypeChanged(); }
+  }
   // show the dropdown lists when the search boxes get focus (CSP-safe listeners,
   // wired once per element)
   [['cc-catalog-search', ccCatalogSearch], ['cc-host-search', ccHostSearch]].forEach(([id, fn]) => {
@@ -371,6 +386,52 @@ async function openCustomChecks() {
   openModal('custom-checks-modal');
   loadCustomCheckList();
 }
+// ── Integrity Guard: applied protect checks (Security -> Protect) ──────────
+// Same rows as the operational list, filtered to protect checks, so Protect is
+// self-contained: apply, review, tune and see what was quarantined in one page.
+async function loadProtectChecks() {
+  const el = document.getElementById('pc-list');
+  if (!el) return;
+  const data = await api('GET', '/checks/custom');
+  const checks = (data && data.checks) || [];
+  _ccCache = checks;                       // so editCustomCheck(id) resolves
+  try {
+    const devs = await _scanDeviceList();
+    _ccDevNames = {};
+    (devs || []).forEach(d => { _ccDevNames[d.id] = d.name || d.id; });
+  } catch (_) { /* keep whatever we had */ }
+  const rows = checks.filter(_ccIsProtect);
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-state">No protect checks applied yet. Use “Baseline protect checks” for a recommended set, or “Add protect check” to define one.</div>';
+    return;
+  }
+  const scope = c => c.target_kind === 'all' ? 'whole fleet'
+    : c.target_kind === 'host' ? `host: ${escHtml(_ccDevNames[c.target] || c.target)}`
+    : `${c.target_kind}: ${escHtml(c.target)}`;
+  el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
+    rows.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td>` +
+      `<td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span>${c.protect === 'quarantine' ? ' <span class="patch-badge fs-11" title="Auto-quarantine is on for this check">guard</span>' : ''}</td>` +
+      `<td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td>` +
+      `<td><div class="user-actions">` +
+      `<button class="btn-icon btn-xs" data-action="editProtectCheck" data-arg="${escAttr(c.id)}" title="Edit this check">${_icon('edit', 14)}</button>` +
+      `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteProtectCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}" title="Delete">${_icon('trash', 14)}</button>` +
+      `</div></td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+function editProtectCheck(id) {
+  openCustomChecks('protect');   // the form lives in the modal
+  editCustomCheck(id);
+}
+async function deleteProtectCheck(id, name) {
+  if (!await uiConfirm({
+        title: 'Delete protect check',
+        message: `Delete ${name ? `the "${name}" check` : 'this check'}? It stops evaluating on every host it was applied to. Anything already quarantined stays in the vault.`,
+        confirmText: 'Delete', danger: true })) return;
+  const r = await api('POST', '/checks/custom/delete', {id});
+  if (r && r.ok) { toast('Check deleted', 'info'); loadProtectChecks(); }
+  else { toast((r && r.error) || 'Failed', 'error'); }
+}
+
 // ── Integrity Guard: the quarantine vault ──────────────────────────────────
 // Files a dir_baseline check auto-quarantined. Restore/delete are queued as
 // one-shot directives the agent applies on its next check-in.
@@ -509,20 +570,27 @@ async function loadCustomCheckList() {
   if (!el) return;
   const data = await api('GET', '/checks/custom');
   const checks = (data && data.checks) || [];
-  _ccCache = checks;
+  _ccCache = checks;   // cache stays COMPLETE so editCustomCheck(id) always resolves
   // Resolve host device ids -> hostnames for display (never show the raw id).
   try {
     const devs = await _scanDeviceList();
     _ccDevNames = {};
     (devs || []).forEach(d => { _ccDevNames[d.id] = d.name || d.id; });
   } catch (_) { /* keep whatever we had */ }
-  if (!checks.length) { el.innerHTML = '<div class="empty-state">No custom checks yet.</div>'; return; }
+  // Protect checks are managed on Security -> Protect, so keep them out of the
+  // operational list (and vice versa) — the Checks RESULTS table still shows
+  // every check regardless, so nothing becomes invisible.
+  const shown = checks.filter(c => (_ccKind === 'protect') === _ccIsProtect(c));
+  if (!shown.length) {
+    el.innerHTML = `<div class="empty-state">No ${_ccKind === 'protect' ? 'protect' : 'custom'} checks yet.</div>`;
+    return;
+  }
   const scope = c => c.target_kind === 'all' ? 'whole fleet'
     : c.target_kind === 'host' ? `host: ${escHtml(_ccDevNames[c.target] || c.target)}`
     : `${c.target_kind}: ${escHtml(c.target)}`;
   const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check">${_icon('edit',14)}</button><button class="btn-icon btn-xs" data-action="duplicateCustomCheck" data-arg="${escAttr(id)}" title="Duplicate — prefill a new check from this one">${_icon('copy',14)}</button>`;
   el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
-    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
+    shown.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
   }</tbody></table></div>`;
 }
 function editCustomCheck(id) {

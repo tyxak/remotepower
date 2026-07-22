@@ -136,5 +136,72 @@ class TestBaselinePickerSplit(unittest.TestCase):
             self.assertTrue(t['param'] and t['name'] and t['desc'], t['id'])
 
 
+class TestProtectOriginStamping(unittest.TestCase):
+    """Applying from the Protect picker stamps kind='protect' so the Protect
+    page can list what it applied — and an EDIT must not silently drop it
+    (the save handler rebuilds the entry from scratch)."""
+
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.cap = {}
+        self._r, self._a, self._au = api.respond, api.require_admin_auth, api.audit_log
+
+        def resp(s_, d=None):
+            self.cap['s'], self.cap['d'] = s_, d
+            raise SystemExit
+        api.respond = resp
+        api.require_admin_auth = lambda: 'admin'
+        api.audit_log = lambda *a, **k: None
+        api.method = lambda: 'POST'
+
+    def tearDown(self):
+        api.respond, api.require_admin_auth, api.audit_log = self._r, self._a, self._au
+        for a in ('method', 'get_json_obj', 'get_json_body'):
+            if hasattr(api, a):
+                try:
+                    delattr(api, a)
+                except Exception:
+                    pass
+
+    def _apply(self, ids, tk='all', tv=''):
+        api.get_json_obj = lambda: {'ids': ids, 'target_kind': tk, 'target': tv}
+        api.get_json_body = api.get_json_obj
+        try:
+            api.handle_check_baselines_apply()
+        except SystemExit:
+            pass
+        return (api.load(api.CONFIG_FILE) or {}).get('custom_checks', [])
+
+    def test_protect_template_is_stamped(self):
+        checks = self._apply(['webroot_integrity'], 'host', 'd1')
+        row = next(c for c in checks if c['type'] == 'dir_baseline')
+        self.assertEqual(row.get('kind'), 'protect')
+
+    def test_operational_template_is_not_stamped(self):
+        checks = self._apply(['agent_running'], 'all', '')
+        row = next(c for c in checks if c['param'] == 'remotepower-agent.service')
+        self.assertIsNone(row.get('kind'))
+
+    def test_edit_preserves_the_protect_origin(self):
+        checks = self._apply(['crontab_integrity'], 'all', '')
+        row = next(c for c in checks if c['param'] == '/etc/crontab')
+        self.assertEqual(row.get('kind'), 'protect')
+        # now edit it through the normal save handler (retarget to a host)
+        api.get_json_obj = lambda: {'id': row['id'], 'name': row['name'],
+                                    'type': 'file_hash', 'param': '/etc/crontab',
+                                    'target_kind': 'host', 'target': 'd9'}
+        api.get_json_body = api.get_json_obj
+        try:
+            api.handle_custom_checks_save()
+        except SystemExit:
+            pass
+        after = (api.load(api.CONFIG_FILE) or {}).get('custom_checks', [])
+        edited = next(c for c in after if c['id'] == row['id'])
+        self.assertEqual(edited['target'], 'd9')
+        self.assertEqual(edited.get('kind'), 'protect',
+                         'edit dropped kind -> the check vanishes from Protect')
+
+
 if __name__ == '__main__':
     unittest.main()

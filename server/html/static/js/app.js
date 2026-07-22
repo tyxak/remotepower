@@ -2435,7 +2435,7 @@ function showPage(name, btn) {
   if (name === 'rollouts')   loadRollouts();
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
-  if (name === 'protect')    loadGuardVault();
+  if (name === 'protect')  { loadProtectChecks(); loadGuardVault(); }
   if (name === 'firewall')   loadFirewall();
   if (name === 'files')      loadFileMgr();
   if (name === 'cron')       loadCron();
