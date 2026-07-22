@@ -144,14 +144,20 @@ def _queue_guard_action(did, qid, op):
     """Queue one one-shot directive on a device. Idempotent per (id, op) so a
     double-click can't stack duplicates. False if the device is gone.
 
-    v6.4.0: for a rebaseline, ALSO neutralise the check's last stored result on
-    the device immediately, so the Checks page (and a manual Refresh) shows the
-    reset instead of the stale 'critical' during the ~1-2 heartbeat round-trip
-    while the agent applies it. Without this the operator accepts a baseline,
-    hits Refresh, and every check "comes back" until the agent reports. The
-    agent's fresh report (forced on its next heartbeat) overwrites this — so if
-    the change was NOT actually legitimate, it re-fires on the real re-eval."""
-    with A._DeviceUpdate(did) as dev:
+    v6.4.0 CRITICAL FIX: `_DeviceUpdate` yields the whole devices collection
+    ({dev_id: dev}) — you MUST `.get(dev_id)` to reach the device. The old code
+    treated the yielded value AS the device, so `guard_actions` was written to
+    the collection's top level (next to the device ids), never onto the device
+    — the heartbeat's `dev.get('guard_actions')` therefore never saw it and
+    NO guard action (rebaseline / restore / delete) EVER reached the agent.
+    This is why "Reset baseline did nothing." Now it targets the device row.
+
+    For a rebaseline it also records the exact failing output the operator
+    accepted, so the server suppresses the check authoritatively (see
+    checks._eval_custom_check) — instant, surviving refresh/cache, not
+    dependent on the agent round-trip; the agent still re-baselines on-host."""
+    with A._DeviceUpdate(did) as devices:
+        dev = devices.get(did) if isinstance(devices, dict) else None
         if not isinstance(dev, dict):
             return False
         acts = dev.setdefault('guard_actions', [])
@@ -159,15 +165,32 @@ def _queue_guard_action(did, qid, op):
                    for a in acts):
             acts.append({'id': qid, 'op': op})
         if op == 'rebaseline' and qid:
-            _pending = {'status': 'ok',
-                        'output': 'baseline reset — awaiting the next agent report'}
+            # v6.4.0: record the EXACT failing output the operator is accepting,
+            # so the server suppresses this check (server-authoritatively) until
+            # the reported value changes AGAIN — instant, survives refresh/cache,
+            # and doesn't depend on the agent round-trip. (The earlier approach
+            # overwrote sysinfo, which the next heartbeat clobbered → "it comes
+            # back on refresh".) The agent still re-baselines via the queued
+            # guard action so its own on-host baseline agrees.
             si = dev.get('sysinfo')
-            if isinstance(si, dict) and isinstance(si.get('custom_check_results'), dict):
-                si['custom_check_results'][qid] = dict(_pending)
-            # Also clear the edge-trigger state so _ingest_custom_check_results
-            # auto-resolves the open alert on the next beat instead of holding it.
+            cur = (si.get('custom_check_results') or {}).get(qid) if isinstance(si, dict) else None
+            cur_out = cur.get('output') if isinstance(cur, dict) else None
+            if cur_out:
+                dev.setdefault('custom_check_accepted', {})[qid] = str(cur_out)[:200]
+            # Auto-resolve the open alert now instead of holding it a round-trip.
             st = dev.get('custom_check_state')
             if isinstance(st, dict) and qid in st:
-                st[qid] = {'status': 'ok', 'output': _pending['output'],
+                st[qid] = {'status': 'ok', 'output': 'change accepted as the new baseline',
                            'changed_at': int(A.time.time()), 'alerted': False}
+        devices[did] = dev   # write the mutated device row back
+    if op == 'rebaseline':
+        # Bust the fleet-checks cache so the Checks page reflects the acceptance
+        # on the very next load instead of up to its 15s TTL later.
+        try:
+            A._invalidate_load_cache(A._fleet_checks_cache_file())
+            fc = A._fleet_checks_cache_file()
+            if A.backend_exists(fc):
+                A.save(fc, {})
+        except Exception:
+            pass
     return True

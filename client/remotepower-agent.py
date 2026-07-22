@@ -6586,6 +6586,24 @@ def get_mailq():
         return None
 
 
+# v6.4.0: a check param may name MULTIPLE candidate paths — "|"-separated
+# and/or glob patterns — so one check works when a file legitimately lives in
+# one of several places (e.g. a wp-config under /var/www/<site>/, ClamAV's
+# daily.cvd vs daily.cld). Returns the list of matching host paths.
+def _check_candidate_paths(param):
+    import glob as _glob
+    out = []
+    for _p in str(param).split('|'):
+        _p = _p.strip()
+        if not _p:
+            continue
+        if any(ch in _p for ch in '*?['):
+            out.extend(_glob.glob(host_path(_p)))
+        else:
+            out.append(host_path(_p))
+    return out
+
+
 def _eval_one_agent_check(c):
     """Evaluate a single server-pushed agent-side check. Returns (status, output).
 
@@ -6596,13 +6614,16 @@ def _eval_one_agent_check(c):
     ctype = c.get('type')
     param = str(c.get('param', ''))
     if ctype in ('file_present', 'file_absent'):
+        # Multi-path: present if ANY candidate exists; absent only if NONE do.
         try:
-            exists = os.path.exists(host_path(param))
+            cands = _check_candidate_paths(param)
+            hit = next((p for p in cands if os.path.exists(p)), None)
         except Exception:
             return 'unknown', 'stat failed'
         if ctype == 'file_present':
-            return ('ok', 'present') if exists else ('critical', 'missing')
-        return ('critical', 'present (should be absent)') if exists else ('ok', 'absent')
+            return ('ok', 'present' + (f' ({hit})' if hit and '|' in param else '')) if hit \
+                else ('critical', f'{param} missing')
+        return ('critical', f'present (should be absent): {hit}') if hit else ('ok', 'absent')
     if ctype == 'job_fresh':
         max_age = int(c.get('max_age_hours', 24)) * 3600
         # v6.4.0: accept MULTIPLE candidate paths (glob and/or `|`-separated) and
@@ -6612,16 +6633,16 @@ def _eval_one_agent_check(c):
         # `daily.cld` once freshclam starts applying incremental updates (the
         # steady state), so a single hardcoded extension false-alarms on most
         # running hosts. `param` may be "a", "a|b", or a glob like "…/daily.c?d".
-        import glob as _glob
-        cands = []
-        for _p in str(param).split('|'):
-            _p = _p.strip()
-            if not _p:
-                continue
-            if any(ch in _p for ch in '*?['):
-                cands.extend(_glob.glob(host_path(_p)))
-            else:
-                cands.append(host_path(_p))
+        cands = _check_candidate_paths(param)
+        # Belt-and-braces for a check applied BEFORE the multi-path catalog fix
+        # (single ClamAV daily.cvd/.cld): also try the sibling extension so it
+        # works even if the server-side repair migration hasn't run yet.
+        if len(cands) == 1:
+            _lone = cands[0]
+            if _lone.endswith('daily.cvd'):
+                cands.append(_lone[:-4] + '.cld')
+            elif _lone.endswith('daily.cld'):
+                cands.append(_lone[:-4] + '.cvd')
         newest = None
         for _c in cands:
             try:
@@ -6681,9 +6702,18 @@ def _eval_one_agent_check(c):
     if ctype == 'file_hash':
         # Integrity of a pinned file: baseline its SHA-256 on first run, then
         # alert if it ever changes. Read-only, streamed (no full-file buffer).
+        # v6.4.0: multi-path — the file may legitimately live in one of several
+        # places (e.g. wp-config under /var/www/<site>/); hash the first
+        # candidate that EXISTS. `param` may be "a", "a|b", or a glob.
+        cands = _check_candidate_paths(param)
+        target = next((p for p in cands if os.path.exists(p)), None)
+        if target is None:
+            return 'critical', (f'{param} missing — it was baselined here, so '
+                                'it has been deleted or moved (checked '
+                                f'{len(cands)} path(s))')
         try:
             hh = hashlib.sha256()
-            with open(host_path(param), 'rb') as fh:
+            with open(target, 'rb') as fh:
                 for blk in iter(lambda: fh.read(65536), b''):
                     hh.update(blk)
             cur = hh.hexdigest()

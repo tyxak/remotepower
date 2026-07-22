@@ -1191,7 +1191,19 @@ def _eval_custom_check(cdef, dev):
             "unknown",
         ):
             return "unknown", "not yet reported by agent"
-        return res["status"], str(res.get("output", ""))[:200]
+        status, output = res["status"], str(res.get("output", ""))[:200]
+        # v6.4.0: SERVER-AUTHORITATIVE baseline acceptance. When the operator
+        # clicked "Accept as new baseline", the server recorded the exact
+        # failing output they accepted. Suppress the check (show OK) as long as
+        # the agent keeps reporting that SAME value — instantly, without waiting
+        # for the agent round-trip, surviving refresh/cache. A genuinely NEW
+        # change reports a DIFFERENT output → the match fails → it re-fires. The
+        # agent also re-baselines in the background so its own state agrees.
+        if status in ("critical", "warning"):
+            acc = (dev.get("custom_check_accepted") or {}).get(cdef.get("id"))
+            if acc is not None and output == acc:
+                return "ok", "change accepted as the new baseline"
+        return status, output
     return "unknown", "unknown check type"
 
 

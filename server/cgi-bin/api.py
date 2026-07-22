@@ -40986,6 +40986,17 @@ def _ingest_custom_check_results(dev_id, dev_name):
             if not cid or f'custom:{cid}' in _disabled:
                 continue
             status, output = _eval_custom_check(cdef, dev)
+            # v6.4.0: prune a stale baseline-acceptance. _eval suppresses while
+            # the reported value equals what the operator accepted; once the
+            # agent reports a DIFFERENT value (a new change, or its own
+            # re-baseline settling to 'ok'), the acceptance no longer applies —
+            # drop it so a genuine new change re-fires and the map stays bounded.
+            _acc_map = dev.get('custom_check_accepted')
+            if isinstance(_acc_map, dict) and cid in _acc_map:
+                _raw = ((dev.get('sysinfo') or {}).get('custom_check_results') or {}).get(cid)
+                _raw_out = _raw.get('output') if isinstance(_raw, dict) else None
+                if _raw_out is not None and str(_raw_out)[:200] != _acc_map[cid]:
+                    _acc_map.pop(cid, None)
             if status == 'unknown':
                 # No signal this beat — carry the last known state forward so an
                 # agent that briefly stops reporting doesn't look like a recovery.

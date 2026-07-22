@@ -251,6 +251,52 @@ class TestCustomCheckNeedsAttention(unittest.TestCase):
         self.assertFalse([i for i in items if i.get('kind') == 'custom_check'])
 
 
+class TestRebaselineEndToEnd(unittest.TestCase):
+    """v6.4.0: the guard-action delivery bug + server-authoritative acceptance.
+
+    Root cause of 'Reset baseline does nothing': _DeviceUpdate yields the whole
+    devices collection ({id: dev}); _queue_guard_action treated it AS the
+    device, so guard_actions landed on the collection's top level and NEVER
+    reached the agent (rebaseline/restore/delete were dead since written)."""
+
+    def setUp(self):
+        import guard_handlers
+        guard_handlers.bind(api.__dict__)
+        self.gh = guard_handlers
+        self.crit = '/etc/hosts changed (d078 -> cc51)'
+        api.save(api.CONFIG_FILE, {'custom_checks': [CHECK]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.save(api.DEVICES_FILE, {DEV: {
+            'name': 'h1', 'monitored': True,
+            'last_seen': int(__import__('time').time()),
+            'sysinfo': {'custom_check_results': {
+                CHECK['id']: {'status': 'critical', 'output': self.crit}}}}})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+
+    def _dev(self):
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        return (api.load(api.DEVICES_FILE) or {})[DEV]
+
+    def test_guard_action_lands_on_the_device(self):
+        # the bug: it landed on the collection top-level, never delivered
+        self.gh._queue_guard_action(DEV, CHECK['id'], 'rebaseline')
+        dev = self._dev()
+        self.assertEqual(dev.get('guard_actions'),
+                         [{'id': CHECK['id'], 'op': 'rebaseline'}])
+        self.assertNotIn('guard_actions', api.load(api.DEVICES_FILE))  # not on collection
+
+    def test_acceptance_suppresses_and_survives_reload(self):
+        import checks
+        self.gh._queue_guard_action(DEV, CHECK['id'], 'rebaseline')
+        dev = self._dev()                                  # fresh from storage = a "refresh"
+        self.assertEqual(dev.get('custom_check_accepted'), {CHECK['id']: self.crit})
+        self.assertEqual(checks._eval_custom_check(CHECK, dev)[0], 'ok')
+        # a genuinely NEW change re-fires
+        dev['sysinfo']['custom_check_results'][CHECK['id']] = {
+            'status': 'critical', 'output': 'a DIFFERENT change'}
+        self.assertEqual(checks._eval_custom_check(CHECK, dev)[0], 'critical')
+
+
 class TestUiWiring(unittest.TestCase):
     _JS = Path(__file__).parent.parent / 'server' / 'html' / 'static' / 'js'
     _HTML = Path(__file__).parent.parent / 'server' / 'html' / 'index.html'
