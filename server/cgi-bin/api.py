@@ -42478,7 +42478,16 @@ def _compute_attention():
         events = (load(FLEET_EVENTS_FILE) or {}).get('events') or []
     except Exception:
         events = []
-    for ev in events:
+    # NEWEST FIRST. These events are deduped below by a stable key so a rule
+    # firing 50× a day is one card — but the store is append-ordered, so
+    # iterating forwards made the OLDEST occurrence in the 24h window win. A
+    # single stale event then shadowed every newer one for a whole day: the
+    # reported case was log_alert cards permanently stuck on a pre-v6.3.1 event
+    # that carried no matched line, while every fresh occurrence (which did
+    # carry one) was discarded as a duplicate. The latest occurrence is also
+    # simply the right thing to show — an operator asking "what is happening"
+    # means now, not this morning.
+    for ev in reversed(events):
         if not isinstance(ev, dict): continue
         ts = ev.get('ts', 0)
         if ts < cutoff_ts: continue

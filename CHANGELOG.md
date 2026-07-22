@@ -30,6 +30,18 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Fixed — a stale event could shadow every newer one for 24 hours
+- **Needs-Attention cards were frozen on the OLDEST occurrence.** Event-derived
+  cards dedupe on (device, unit, pattern) so a noisy rule is one card — but the
+  event store is append-ordered and the loop kept the FIRST match, so one stale
+  event shadowed every newer one for the whole 24h window. Reported as log_alert
+  cards permanently reading "no line captured" while every fresh occurrence
+  (which did carry the matched line) was discarded as a duplicate. The newest
+  occurrence now wins, which is also simply the right thing to show. Dedup is
+  unchanged — a rule firing 50× a day is still one card.
+- A completed scan's stored note no longer renders in amber like a failure, and
+  the wpscan no-token note now leads with the fix rather than the explanation.
+
 ### Fixed — an acknowledgement now clears the board immediately
 - **Silencing a rule (or clearing a line) left the existing Needs-Attention
   cards in place** for the rest of the 24h window, because a card is rendered

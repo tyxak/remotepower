@@ -506,5 +506,77 @@ class TestAckAppliesAtTheDigestNotJustAtFireTime(unittest.TestCase):
         self.assertEqual(len(self._rows()), 1)
 
 
+class TestNewestOccurrenceWinsTheCard(unittest.TestCase):
+    """The reported stuck-card bug.
+
+    Event-derived Needs-Attention cards dedupe on (device, unit, pattern) so a
+    rule firing 50x a day is ONE card. The store is append-ordered, so iterating
+    forwards kept the OLDEST occurrence in the 24h window — and one stale event
+    then shadowed every newer one for a full day. Concretely: cards frozen on a
+    pre-v6.3.1 event with no matched line, while every fresh occurrence, which
+    did carry the line, was thrown away as a duplicate.
+    """
+
+    UNIT = 'apache2.service'
+    PAT = 'err|warn|critical'
+
+    def setUp(self):
+        import time
+        self.now = int(time.time())
+        self.dev = 'd-newest'
+        api.save(api.DEVICES_FILE, {self.dev: {
+            'name': 'web1', 'monitored': True, 'last_seen': self.now}})
+        api.save(api.LOG_ACKS_FILE, {'acks': {}})
+        api.save(api.IGNORED_ITEMS_FILE, {})
+        api.save(api.CONFIG_FILE, {})
+
+    def _events(self, *evs):
+        api.save(api.FLEET_EVENTS_FILE, {'events': list(evs)})
+        for f in (api.DEVICES_FILE, api.LOG_ACKS_FILE, api.FLEET_EVENTS_FILE,
+                  api.IGNORED_ITEMS_FILE, api.CONFIG_FILE):
+            api._invalidate_load_cache(f)
+
+    def _ev(self, ts_offset, sample=None, count=1):
+        p = {'device_id': self.dev, 'name': 'web1', 'unit': self.UNIT,
+             'pattern': self.PAT, 'count': count}
+        if sample:
+            p['sample'] = [sample]
+        return {'ts': self.now + ts_offset, 'event': 'log_alert', 'payload': p}
+
+    def _row(self):
+        items = api._compute_attention()
+        items = items if isinstance(items, list) else (items or {}).get('items') or []
+        rows = [i for i in items if isinstance(i, dict) and i.get('kind') == 'log_alert']
+        return rows[0] if rows else None
+
+    def test_the_newer_event_with_a_line_beats_the_older_one_without(self):
+        # append order: stale first, fresh second — exactly the reported shape
+        self._events(self._ev(-7200, None, count=4),
+                     self._ev(-60, '[error] client denied by server config', count=2))
+        row = self._row()
+        self.assertIsNotNone(row)
+        self.assertIn('client denied', row['summary'],
+                      'the stale, line-less event is shadowing the fresh one')
+        self.assertNotIn('no line captured', row['summary'])
+
+    def test_still_exactly_one_card_for_a_noisy_rule(self):
+        self._events(*[self._ev(-i * 60, f'[error] boom {i}') for i in range(30)])
+        items = api._compute_attention()
+        items = items if isinstance(items, list) else (items or {}).get('items') or []
+        self.assertEqual(
+            len([i for i in items if isinstance(i, dict) and i.get('kind') == 'log_alert']),
+            1, 'dedup must still collapse a noisy rule to one card')
+
+    def test_the_count_shown_is_the_latest_occurrences(self):
+        self._events(self._ev(-7200, '[error] old', count=99),
+                     self._ev(-60, '[error] new', count=2))
+        self.assertIn('2 hits', self._row()['summary'])
+
+    def test_a_lone_stale_event_is_still_shown(self):
+        """Preferring the newest must not mean dropping an only occurrence."""
+        self._events(self._ev(-7200, None, count=4))
+        self.assertIn('no line captured', self._row()['summary'])
+
+
 if __name__ == '__main__':
     unittest.main()
