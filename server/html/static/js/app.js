@@ -2436,6 +2436,7 @@ function showPage(name, btn) {
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
   if (name === 'protect')  { loadProtectChecks(); loadGuardVault(); }
+  if (name === 'advisory')   advScopeChanged();   // wire the picker; build on demand
   if (name === 'firewall')   loadFirewall();
   if (name === 'files')      loadFileMgr();
   if (name === 'cron')       loadCron();
@@ -18175,6 +18176,12 @@ async function _renderHomeAttention(preloaded) {
     const logsBtn = (i.kind === 'log_alert' && i.device_id)
       ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >${logsIcon}</button>`
       : '';
+    // v6.3.1: clearing the LINE is the third option between snoozing (comes
+    // back) and deleting the rule (goes blind). Only offered when the alert
+    // actually captured evidence — there is nothing to clear otherwise.
+    const clearLineBtn = (i.kind === 'log_alert' && i.samples && i.samples.length)
+      ? `<button class="btn-icon isl-556" title="Clear this line for good — it stops counting toward the rule, a new message still alerts" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escAttr(i.unit || '')}" data-arg3="${escAttr(i.samples[0])}" >${_icon('undo', 14)}</button>`
+      : '';
     return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
       <div
            data-action-btn="_showPageBtn" data-page="${page}" class="isl-555">
@@ -18183,6 +18190,7 @@ async function _renderHomeAttention(preloaded) {
       </div>
       ${mitBtn}
       ${logsBtn}
+      ${clearLineBtn}
       ${snoozeBtn}
       <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>`;

@@ -293,6 +293,10 @@ COMPLIANCE_HIST_FILE = DATA_DIR / 'compliance_history.json'  # daily baseline % 
 
 # v1.8.2: fleet-wide log alert rules (per-device rules still live on device.log_watch)
 LOG_RULES_GLOBAL_FILE = DATA_DIR / 'log_rules_global.json'
+# v6.3.1: log-alert acknowledgements — a matched LINE the operator has cleared
+# for good, keyed by its signature (logsig.py). Distinct from a rule's
+# exclude_pattern: an ack needs no regex authoring and is reversible per line.
+LOG_ACKS_FILE = DATA_DIR / 'log_acks.json'
 DEBUG_LOG_FILE         = DATA_DIR / 'debug.log'
 # v3.0.0: IaC collection data lives here, keyed by request_id
 IAC_COLLECTION_DIR     = DATA_DIR / 'iac_collection'
@@ -995,6 +999,37 @@ for _gu_name in (
 ):
     globals()[_gu_name] = getattr(guard_handlers_mod, _gu_name)
 del _gu_name
+
+# Log-alert acknowledgements — clear one matched LINE for good instead of
+# snoozing the alert or deleting the rule. The fire path filters matches
+# through these, so an acknowledged line stops counting toward the threshold.
+_lo_spec = _tk_ilu.spec_from_file_location(
+    'logack_handlers', Path(__file__).parent / 'logack_handlers.py')
+logack_handlers_mod = _tk_ilu.module_from_spec(_lo_spec)
+_lo_spec.loader.exec_module(logack_handlers_mod)
+logack_handlers_mod.bind(globals())
+for _lo_name in (
+        'handle_log_acks_list', 'handle_log_ack_add', 'handle_log_ack_delete',
+        '_log_acks', '_ack_hit', 'filter_acked_lines', '_bump_ack_hits',
+        '_resolve_log_alerts_for_signature', 'MAX_LOG_ACKS',
+):
+    globals()[_lo_name] = getattr(logack_handlers_mod, _lo_name)
+del _lo_name
+
+# Security Advisory — one prioritized, cross-layer "what should I fix" list
+# built from data already collected (OS/exposure/identity/integrity/app), at
+# any scope. Pure logic lives in advisory.py; this module only gathers stores.
+_ad_spec = _tk_ilu.spec_from_file_location(
+    'advisory_handlers', Path(__file__).parent / 'advisory_handlers.py')
+advisory_handlers_mod = _tk_ilu.module_from_spec(_ad_spec)
+_ad_spec.loader.exec_module(advisory_handlers_mod)
+advisory_handlers_mod.bind(globals())
+for _ad_name in (
+        'handle_security_advisory', 'handle_security_advisory_brief',
+        '_advisory_scope', '_build_advisory', '_failed_protect_checks',
+):
+    globals()[_ad_name] = getattr(advisory_handlers_mod, _ad_name)
+del _ad_name
 
 # Detection-chain self-test — verify the alert detection→routing chain is intact
 # fleet-wide (no silent monitoring gaps). v6.3.1 (top-pick #3).
@@ -7356,9 +7391,14 @@ def _record_fleet_event(event, payload):
                     # v5.8.0: feed-detail fields read by the activity-feed row
                     # renderer (app.js _homeActivityAttrs / detail line). Dropped
                     # here they rendered as blank/undefined detail text even though
-                    # the fire sites send them. (Arrays like drift `sections` /
-                    # log-alert `sample` are deliberately left out to keep the feed
-                    # log compact; the renderer already falls back for those.)
+                    # the fire sites send them. (Arrays like drift `sections` are
+                    # deliberately left out to keep the feed log compact; the
+                    # renderer already falls back for those.)
+                    # v6.3.1: log_alert's `sample` IS carried — dropping it left
+                    # the Needs-Attention card showing only "matched pattern
+                    # 'err|warn|…'", which tells the operator nothing they didn't
+                    # already know. _record_fleet_event trims it to one line.
+                    'sample', 'acked',
                     'user', 'fingerprint',              # ssh_key_added
                     'source_ip', 'count',               # brute_force_detected / log_alert
                     'vm_name', 'snap_name', 'days_old',  # snapshot_old
@@ -7399,6 +7439,15 @@ def _record_fleet_event(event, payload):
                     # edge + upstream so the activity row is self-describing
                     # (mirrors the _record_alert whitelist).
                     'dep_edge', 'upstream_id', 'upstream_name'):
+            if key == 'sample':
+                # ONE matched line, bounded: the feed is evidence, not a log
+                # shipper. The alerts inbox keeps up to three.
+                sm = payload.get('sample')
+                if isinstance(sm, str):
+                    sm = [sm]
+                if sm:
+                    summary['sample'] = [str(sm[0])[:200]]
+                continue
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -9357,6 +9406,8 @@ def _record_alert(event, payload):
                     'label', 'target', 'source_ip', 'count',
                     'sample',      # log_alert: up to 3 matched lines — kept so a
                                    # ticket opened from the alert carries the evidence
+                    'acked',       # log_alert: how many matches were already
+                                   # cleared, so "2 hits" isn't silently "5 hits"
                     'new_count',   # failed_unit/fail2ban: enables "+N more" in the title
                     'units',       # v6.3.0: failed_unit's full unit batch — the
                                    # failed_unit_cleared auto-resolve needs every
@@ -40662,6 +40713,7 @@ def _ingest_custom_check_results(dev_id, dev_name):
     # fire_webhook opens its own alert/fleet-event locks; collect inside the
     # DEVICES_FILE lock and fire after it exits (same nesting rule as scripts).
     pending_webhooks = []
+    _open_check_alert_ids = None    # lazy; see the ok-branch below
     # v5.6.x perf: single-row _DeviceUpdate, not _locked_update(DEVICES_FILE).
     # This only ever mutates devices[dev_id]; the whole-fleet lock forced an
     # O(fleet) read + reconcile-save on the Postgres backend every heartbeat that
@@ -40715,6 +40767,16 @@ def _ingest_custom_check_results(dev_id, dev_name):
                 else:
                     entry['alerted'] = True     # already alerted; stay quiet
             else:                                # ok
+                # `alerted` is the normal edge. But state can be LOST while the
+                # inbox alert survives — a check re-created under a new id, a
+                # device record rebuilt, an upgrade from before this state
+                # existed — and then nothing would ever close that alert. So on
+                # the (rare) first-observation-is-ok path, ask the inbox
+                # directly; the store is read at most once per beat.
+                if not alerted and prev_status is None:
+                    if _open_check_alert_ids is None:
+                        _open_check_alert_ids = _open_custom_check_alert_keys()
+                    alerted = (dev_id, cid) in _open_check_alert_ids
                 if alerted:
                     pending_webhooks.append(('custom_check_recovered', {
                         'device_id': dev_id, 'name': dev_name,
@@ -40727,6 +40789,25 @@ def _ingest_custom_check_results(dev_id, dev_name):
 
     for event, payload in pending_webhooks:
         fire_webhook(event, payload)
+
+
+def _open_custom_check_alert_keys():
+    """{(device_id, check_id)} for every OPEN custom_check_failed alert.
+
+    Read lazily and at most once per ingest sweep — it exists only to close
+    alerts whose edge-trigger state was lost, which is rare."""
+    out = set()
+    for a in (_load_ro(ALERTS_FILE) or {}).get('alerts') or []:
+        if not isinstance(a, dict) or a.get('event') != 'custom_check_failed':
+            continue
+        if a.get('resolved_at') or a.get('resolved'):
+            continue
+        pl = a.get('payload') or {}
+        did = a.get('device_id') or pl.get('device_id')
+        cid = pl.get('check_id')
+        if did and cid:
+            out.add((str(did), str(cid)))
+    return out
 
 
 MAX_MONITORING_PROFILES = 50
@@ -41538,13 +41619,45 @@ def handle_custom_checks_delete():
 
 def handle_check_baseline_catalog():
     """GET /api/checks/baseline-catalog — the shipped catalog of recommended
-    baseline checks (grouped by `cat`). The UI lets an admin apply a selection to
-    a scope; each becomes a scoped custom_check."""
+    baseline checks (grouped by `cat`), each annotated with WHERE it is already
+    applied. The UI lets an admin apply a selection to a scope; each becomes a
+    scoped custom_check.
+
+    Without the `applied` annotation the picker is write-only: an operator with
+    76 templates and a fleet of scopes has no way to see what a previous apply
+    already landed, so the only safe move is to re-apply everything and hope the
+    de-dupe holds. Matching on (type, param) is exactly the identity
+    handle_check_baselines_apply de-dupes on, so the two agree by construction.
+    """
     require_auth()
-    # `kind` splits the catalog across two pickers: 'ops' for Monitoring ->
-    # Checks, 'protect' for the Security -> Protect hardening set.
-    respond(200, {'catalog': [dict(t, kind=baseline_kind(t.get('cat', '')))
-                              for t in CHECK_BASELINE_CATALOG]})
+    applied = {}
+    scope = _caller_scope()
+    visible = None if scope is None and _tenant_gate() is None else \
+        set(_scope_filter_devices(_load_ro(DEVICES_FILE) or {}))
+    names = {}
+    if visible is not None:
+        devs = _load_ro(DEVICES_FILE) or {}
+        names = {d: (devs.get(d) or {}).get('name') or d for d in visible}
+    for c in (_config_ro().get('custom_checks') or []):
+        if not isinstance(c, dict):
+            continue
+        tk, tv = c.get('target_kind', 'all'), str(c.get('target', ''))
+        # A host-scoped check on a device the caller can't see must not leak
+        # that device's existence through the catalog.
+        if tk == 'host' and visible is not None and tv not in visible:
+            continue
+        applied.setdefault((c.get('type'), str(c.get('param', ''))), []).append({
+            'target_kind': tk, 'target': tv,
+            'label': ('whole fleet' if tk == 'all'
+                      else f'host: {names.get(tv, tv)}' if tk == 'host'
+                      else f'{tk}: {tv}'),
+        })
+    out = []
+    for t in CHECK_BASELINE_CATALOG:
+        where = applied.get((t.get('type'), str(t.get('param', '')))) or []
+        out.append(dict(t, kind=baseline_kind(t.get('cat', '')),
+                        applied=where[:12], applied_count=len(where)))
+    respond(200, {'catalog': out})
 
 
 def handle_check_baselines_apply():
@@ -42367,6 +42480,9 @@ def _compute_attention():
             samples = payload.get('sample') or []
             count = payload.get('count', '?')
             count_label = f'{count} hit{"s" if count != 1 else ""}'
+            acked = int(payload.get('acked', 0) or 0)
+            if acked:
+                count_label += f', {acked} already cleared'
             # v3.2.3 (#3): per-rule display_template renders first when
             # the operator wrote one. Falls back to the default sample
             # text when the rule has no template.
@@ -42378,7 +42494,11 @@ def _compute_attention():
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
             else:
-                summary_text = f'{unit} matched pattern {pattern!r} ({count_label})'
+                # No sample survived (a pre-v6.3.1 event, or a rule whose
+                # matches were all cleared). Say so plainly rather than echoing
+                # the regex back at the operator, who wrote it.
+                summary_text = (f'{unit} matched pattern {pattern!r} ({count_label})'
+                                ' — no line captured; open the rule to see it live')
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
@@ -52533,6 +52653,7 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
                     pass
             matches = [ln for ln in new_lines
                        if rx.search(ln) and (not ex_rx or not ex_rx.search(ln))]
+            matches, _acked = filter_acked_lines(dev_id, 'syslog', matches)
             try:
                 threshold = int(rule.get('threshold', 1))
             except (TypeError, ValueError):
@@ -52550,6 +52671,7 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
                         'pattern':   pattern,
                         'count':     len(matches),
                         'sample':    matches[:3],
+                        'acked':     _acked,
                         'scope':     scope,
                         'severity':  severity,
                     }
@@ -59533,6 +59655,10 @@ def handle_log_submit():
                         pass
                 matches = [e['line'] for e in clean_lines
                            if rx.search(e['line']) and (not ex_rx or not ex_rx.search(e['line']))]
+                # v6.3.1: lines the operator has already cleared stop counting
+                # toward the threshold — that is what makes an acknowledgement
+                # different from a snooze. A NEW line still fires normally.
+                matches, _acked = filter_acked_lines(dev_id, unit, matches)
                 threshold = rule.get('threshold', 1)
                 try:
                     threshold = int(threshold)
@@ -59559,6 +59685,7 @@ def handle_log_submit():
                             'pattern':   pattern,
                             'count':     len(matches),
                             'sample':    matches[:3],
+                            'acked':     _acked,
                             'scope':     scope,  # v1.8.2: 'device' | 'global'
                             'severity':  severity,  # v3.0.1
                         }
@@ -61491,6 +61618,13 @@ def _build_exact_routes():
         ('GET', '/api/logs/rules/global'): handle_log_rules_global_list,
         ('POST', '/api/logs/rules/global'): handle_log_rules_global_add,
         ('GET', '/api/logs/tail'): handle_log_tail,
+        # v6.3.1: log-alert acknowledgements — clear a matched LINE for good.
+        # v6.3.1: Security Advisory — prioritized findings at any scope.
+        ('GET', '/api/security/advisory'): handle_security_advisory,
+        ('POST', '/api/security/advisory/brief'): handle_security_advisory_brief,
+        ('GET', '/api/logs/acks'): handle_log_acks_list,
+        ('POST', '/api/logs/ack'): handle_log_ack_add,
+        ('POST', '/api/logs/ack/delete'): handle_log_ack_delete,
         ('GET', '/api/maintenance'): handle_maintenance_list,
         ('POST', '/api/maintenance'): handle_maintenance_add,
         ('GET', '/api/maintenance/suppressions'): handle_maintenance_suppressions,
@@ -63536,6 +63670,7 @@ def handle_iac_payload(request_id):
 
 # Human-readable labels for each prompt key (shown in Settings UI).
 _AI_PROMPT_LABELS = {
+    'security_advisory': 'Security advisory',
     'free_form':              'Free-form chat',
     'explain_output':         'Explain command output',
     'find_problem':           'Find problem in logs',

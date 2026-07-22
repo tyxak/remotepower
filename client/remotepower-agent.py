@@ -850,6 +850,23 @@ def _guard_vault_entry(qid):
         return None
 
 
+def _guard_sha(path, cap=1048576):
+    """Short content hash for dir_baseline. Bounded read; '' when unreadable.
+
+    size+mtime is only a change HINT — an installer or config-management run
+    rewrites a file byte-for-byte and bumps mtime, which is not a security
+    event. Content is the truth, so a hint is verified against this before the
+    check reports anything.
+    """
+    try:
+        h = hashlib.sha256()
+        with open(path, 'rb') as fh:
+            h.update(fh.read(cap))
+        return h.hexdigest()[:12]
+    except OSError:
+        return ''
+
+
 def _guard_ledger(limit=50):
     """What is actually IN the vault right now, newest first — this drives the
     server's Protect view and therefore what can be restored.
@@ -889,6 +906,18 @@ def _apply_guard_actions(actions):
         if not isinstance(a, dict):
             continue
         qid, op = str(a.get('id', '')), a.get('op')
+        if op == 'rebaseline':
+            # `id` here is a CHECK id, not a vault id: drop that check's stored
+            # baseline so the next evaluation re-seeds from the current state.
+            # This is how a legitimately-changed path is accepted — the check
+            # returns to OK and its alert auto-resolves, without deleting the
+            # check and losing its scope and settings.
+            safe = re.sub(r'[^A-Za-z0-9_.\-]', '', qid)[:64]
+            for pfx in ('checkdir-', 'checkhash-', 'checkegress-', 'checkauthsrc-'):
+                _safe_state_unlink(pfx + safe)
+            log.info(f'guard rebaseline: cleared stored baseline for check {safe}')
+            handled.add(qid)
+            continue
         # The sidecar is the source of truth, so a trimmed log never costs us
         # the ability to put a file back.
         e = _guard_vault_entry(qid)
@@ -6665,7 +6694,8 @@ def _eval_one_agent_check(c):
         key = 'checkdir-' + re.sub(r'[^A-Za-z0-9_.\-]', '', str(c.get('id', '')))[:64]
         prevraw = _safe_state_read_big(key)
         if prevraw is None:
-            _safe_state_write(key, json.dumps(cur))
+            seed = {k: f'{v}:{_guard_sha(k)}' for k, v in cur.items()}
+            _safe_state_write(key, json.dumps(seed))
             return 'ok', f'baseline set ({n} files)'
         try:
             prev = json.loads(prevraw)
@@ -6673,7 +6703,33 @@ def _eval_one_agent_check(c):
             prev = {}
         added = [k for k in cur if k not in prev]
         removed = [k for k in prev if k not in cur]
-        changed = [k for k in cur if k in prev and cur[k] != prev[k]]
+        # size:mtime is only a HINT. A rewrite with identical bytes (an installer
+        # or config-management rerun) bumps mtime and is NOT a security event, so
+        # every hint is verified against the stored content hash before it is
+        # reported. Entries are "size:mtime[:sha]"; the sha is filled in lazily so
+        # a baseline written by an older agent upgrades itself in place.
+        changed, refreshed = [], False
+        for k in cur:
+            if k not in prev:
+                continue
+            pv = str(prev[k])
+            if cur[k] == ':'.join(pv.split(':')[:2]):
+                continue                                  # untouched
+            psha = pv.split(':')[2] if pv.count(':') >= 2 else ''
+            csha = _guard_sha(k)
+            if psha and csha and psha == csha:
+                prev[k] = f'{cur[k]}:{psha}'              # same bytes: re-arm the hint
+                refreshed = True
+                continue
+            changed.append(k)
+            if not psha:                                  # legacy entry, adopt the hash
+                prev[k] = f'{cur[k]}:{csha}'
+                refreshed = True
+                changed.pop()                             # first sight of the hash
+        if refreshed:
+            # Persist only the refreshed HINTS — a real content change never
+            # rewrites the baseline, so the tripwire still latches.
+            _safe_state_write(key, json.dumps(prev))
         quarantined, mass_change = 0, False
         if c.get('protect') == 'quarantine' and added:
             if len(added) > _GUARD_MASS_CHANGE:

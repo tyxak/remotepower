@@ -97,7 +97,7 @@ def handle_guard_quarantine_list():
 
 
 def handle_guard_action():
-    """POST /api/guard/action {device_id, id, op:'restore'|'delete'} — queue a
+    """POST /api/guard/action {device_id, id, op:'restore'|'delete'|'rebaseline'} — queue a
     one-shot directive: the agent restores the quarantined file to its origin (if
     that path is free) or deletes it from the vault. Operator/admin; tenant+scope
     enforced (a cross-tenant device id 403s)."""
@@ -108,16 +108,46 @@ def handle_guard_action():
     did = A._sanitize_str(str(body.get('device_id', '')), 64).strip()
     qid = A._sanitize_str(str(body.get('id', '')), 64).strip()
     op = str(body.get('op', '')).strip()
-    if op not in ('restore', 'delete'):
-        A.respond(400, {'error': "op must be 'restore' or 'delete'"})
-    if not did or not qid:
-        A.respond(400, {'error': 'device_id and id are required'})
+    if op not in ('restore', 'delete', 'rebaseline'):
+        A.respond(400, {'error': "op must be 'restore', 'delete' or 'rebaseline'"})
+    if not qid:
+        A.respond(400, {'error': 'id is required'})
+    if not did:
+        # Fleet/tag/group-scoped re-baseline: `qid` is a CHECK id, so fan the
+        # directive out to every device that check actually applies to (and that
+        # the caller can see). restore/delete address ONE vault entry on ONE
+        # host and stay device-scoped.
+        if op != 'rebaseline':
+            A.respond(400, {'error': 'device_id is required'})
+        defs = (A._load_ro(A.CONFIG_FILE) or {}).get('custom_checks') or []
+        cdef = next((c for c in defs
+                     if isinstance(c, dict) and str(c.get('id')) == qid), None)
+        if not cdef:
+            A.respond(404, {'error': 'check not found'})
+        devs = A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+        targets = [d for d, dev in devs.items()
+                   if isinstance(dev, dict) and A._custom_check_applies(cdef, d, dev)]
+        if not targets:
+            A.respond(404, {'error': 'no devices in scope for this check'})
+        for d in targets:
+            _queue_guard_action(d, qid, op)
+        A.audit_log(actor, 'guard_action', f'devices={len(targets)} id={qid} op={op}')
+        A.respond(200, {'ok': True, 'devices': len(targets)})
     A._scope_block_device(did)     # 403s a device the caller can't see
+    if not _queue_guard_action(did, qid, op):
+        A.respond(404, {'error': 'device not found'})
+    A.audit_log(actor, 'guard_action', f'device={did} id={qid} op={op}')
+    A.respond(200, {'ok': True, 'devices': 1})
+
+
+def _queue_guard_action(did, qid, op):
+    """Queue one one-shot directive on a device. Idempotent per (id, op) so a
+    double-click can't stack duplicates. False if the device is gone."""
     with A._DeviceUpdate(did) as dev:
         if not isinstance(dev, dict):
-            A.respond(404, {'error': 'device not found'})
+            return False
         acts = dev.setdefault('guard_actions', [])
-        if not any(isinstance(a, dict) and a.get('id') == qid for a in acts):
+        if not any(isinstance(a, dict) and a.get('id') == qid and a.get('op') == op
+                   for a in acts):
             acts.append({'id': qid, 'op': op})
-    A.audit_log(actor, 'guard_action', f'device={did} id={qid} op={op}')
-    A.respond(200, {'ok': True})
+    return True

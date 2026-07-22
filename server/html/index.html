@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-20">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-25">
 
 </head>
 <body>
@@ -372,6 +372,10 @@
         <button class="nav-btn" data-page="protect" title="Integrity Guard — files auto-quarantined on your hosts, with restore or delete">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg>
           <span>Protect</span>
+        </button>
+        <button class="nav-btn" data-page="advisory" title="What to fix first — one prioritized list across OS, exposure, identity, integrity and applications">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+          <span>Advisory</span>
         </button>
         <button class="nav-btn" data-page="risk" title="Per-asset risk score from CVEs, exposure, policy, expiry and more">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg>
@@ -6502,6 +6506,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="logs-rules-global-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
+
+        <div class="card mt-16" id="logs-acks-card">
+          <div class="section-title">Cleared lines</div>
+          <p class="hint">A rule matches a class of lines, so one routine message re-fires forever. Clearing a line stops it counting toward the rule's threshold — a genuinely different message still alerts. Un-clear one to hear about it again. <a href="docs/log-watch.md" class="c-accent">Documentation</a></p>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="logs-acks-thead"><tr><th scope="col" data-col="line">Line</th><th scope="col" data-col="device">Scope</th><th scope="col" data-col="unit">Unit</th><th scope="col" data-col="hits" class="ta-center">Caught since</th><th scope="col" data-col="ts">Cleared</th><th scope="col"></th></tr></thead>
+              <tbody id="logs-acks-tbody"><tr><td colspan="6" class="empty-state-sm">Nothing cleared yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- ── v1.8.0: Maintenance page ────────────────────────────────────────── -->
@@ -7054,6 +7069,29 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- ── v3.11.0: Attack-surface / Exposure monitor ─────────────────── -->
+      <div id="page-advisory" class="page">
+        <div class="page-title">Security Advisory</div>
+        <div class="page-subtitle">What to fix first, in order, across every layer — built from data already collected, so nothing is scanned or contacted. <a href="docs/security-advisory.md" class="c-accent">Documentation</a></div>
+
+        <div class="toolbar">
+          <select id="adv-scope" class="form-input" data-change="advScopeChanged" aria-label="Scope">
+            <option value="all">Whole fleet</option>
+            <option value="host">A specific host</option>
+            <option value="group">A group</option>
+            <option value="tag">A tag</option>
+          </select>
+          <span id="adv-target-grp" class="hidden">
+            <input type="text" id="adv-target" class="form-input" placeholder="group / tag name" aria-label="Scope target">
+            <span id="adv-host-pick" class="dev-combo hidden"><input type="text" id="adv-host-search" class="form-input dev-combo-input" placeholder="Search a device by name / IP / tag…" aria-label="Search devices" autocomplete="off" data-input="advHostSearch" data-input-debounce="150"><div id="adv-host-results" class="dev-combo-list" hidden></div></span>
+          </span>
+          <button class="btn-primary" data-action="loadAdvisory">Build advisory</button>
+          <button class="btn-secondary" data-action="advisoryAskAi" title="Send a redacted summary — titles, severities and host counts only, never the evidence — to the AI advisor">Ask AI</button>
+        </div>
+
+        <div id="adv-summary" class="adv-summary mt-8"></div>
+        <div id="adv-findings" class="mt-16"><div class="empty-state">Choose a scope and build the advisory.</div></div>
+      </div>
+
       <div id="page-protect" class="page">
         <div class="page-title">Protect</div>
         <div class="page-subtitle">Integrity Guard neutralises files that appear where they shouldn't. A directory-integrity check with auto-quarantine moves any new file into a vault on the host instead of leaving it live — here you review what was taken, put it back, or delete it for good. Enable it per check under <span class="fw-600">Monitoring → Checks</span>. <a href="docs/integrity-guard.md" class="c-accent">Documentation</a></div>
@@ -8085,6 +8123,22 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <button class="btn-secondary" data-action="exitKiosk" title="Leave kiosk mode (Esc)">Exit kiosk</button>
 </div>
 
+<!-- ── v6.3.1: clear a matched log line. Body level, with the other overlays
+     (.container is a z-index:1 stacking context — see CLAUDE.md). ── -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="log-ack-title" id="log-ack-modal"><div class="modal">
+  <div class="modal-title" id="log-ack-title">Clear this log line</div>
+  <div class="modal-subtitle">This stops the line counting toward its rule's threshold. A genuinely different message still alerts, and you can un-clear it any time from Logs &rarr; Cleared lines.</div>
+  <div class="form-group"><label class="form-label" for="log-ack-line">The line</label><pre id="log-ack-line" class="mono-12 scroll-cap-sm code-block"></pre></div>
+  <div class="form-group"><label class="form-label" for="log-ack-norm">What will be matched</label><pre id="log-ack-norm" class="mono-12 scroll-cap-sm code-block"></pre><div class="hint">Timestamps, process ids, addresses and numbers are folded out, so the same message tomorrow still matches.</div></div>
+  <div class="form-group"><label class="form-label" for="log-ack-scope">Applies to</label><select id="log-ack-scope" class="form-input"><option value="device">This host, this unit</option><option value="anyunit">This host, any unit</option><option value="fleet">Every host (admin)</option></select></div>
+  <div class="form-group"><label class="form-label" for="log-ack-days">Expires after</label><select id="log-ack-days" class="form-input"><option value="0">Never</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></div>
+  <div class="form-group"><label class="form-label" for="log-ack-note">Note (optional)</label><input type="text" id="log-ack-note" class="form-input" maxlength="200" autocomplete="off" placeholder="Why is this expected?"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="log-ack-modal">Cancel</button>
+    <button class="btn-primary" data-action="saveLogAck">Clear</button>
+  </div>
+</div></div>
+
 <!-- ── v2.9.0: Device Drawer (moved here from inside .container at v4.10.0 so
      its z-index:500 sits in the body-level stacking context, above the fixed
      sidebar — fixes the full-width-drawer "split" at narrow viewports). ── -->
@@ -8783,6 +8837,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="form-label" for="bc-target" id="bc-target-label">Target</label>
       <input type="text" id="bc-target" class="form-input" placeholder="group / tag name" aria-label="Scope target">
       <span id="bc-host-pick" class="dev-combo hidden"><input type="text" id="bc-host-search" class="form-input dev-combo-input" placeholder="Search a device by name / IP / tag…" aria-label="Search devices" autocomplete="off" data-input="bcHostSearch" data-input-debounce="150"><div id="bc-host-results" class="dev-combo-list" hidden></div></span>
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-group flex-1">
+      <label class="form-label"><input type="checkbox" id="bc-only-applied" data-change="_bcRenderCatalog"> Show only what is already applied</label>
+      <span class="hint">Each row says where it landed, so you can see the current coverage without re-applying anything. Re-applying an existing scope changes nothing.</span>
     </div>
   </div>
   <div id="bc-catalog" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
@@ -10541,34 +10601,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-20"></script>
+<script defer src="static/js/app.js?v=6.3.1-25"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-25"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-25"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-25"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-20"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-25"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-25"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10577,6 +10637,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-20"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-25"></script>
 </body>
 </html>

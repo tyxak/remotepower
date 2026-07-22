@@ -21,7 +21,10 @@
 #
 # "Component" is one of the RemotePower-owned units without the leading
 # `remotepower-` (e.g. `rp restart push`, `rp logs wsgi`). With no component the
-# lifecycle verbs act on the whole stack.
+# lifecycle verbs act on the whole stack. The optional ingest receivers are
+# components too — `rp logs syslogd` follows the syslog receiver, `rp restart
+# syslogd` bounces it — and they are simply absent from status on a node that
+# never installed them.
 #
 # Lifecycle verbs need root (systemctl); status/doctor/version/logs do not.
 # Installed by install-server.sh to /usr/local/bin/rp. Under Docker (no systemd)
@@ -35,11 +38,14 @@ RP_CODE_DIR="${RP_CODE_DIR:-/var/www/remotepower}"
 MARKER="$RP_DATA_DIR/storage_backend.json"
 
 # RemotePower-owned units, in start order. Optional ones may be absent.
-UNITS=(remotepower-wsgi remotepower-scheduler remotepower-scanner remotepower-push remotepower-webterm)
+UNITS=(remotepower-wsgi remotepower-scheduler remotepower-scanner remotepower-push remotepower-webterm remotepower-syslogd remotepower-flowd)
 # Host services shown in status but NOT touched by start/stop/restart (shared).
 HOST_SVCS=(nginx)
 # Loopback ports each component should be listening on (for probes).
-declare -A PORT=( [remotepower-wsgi]=8090 [remotepower-push]=8766 [remotepower-webterm]=8765 )
+declare -A PORT=( [remotepower-wsgi]=8090 [remotepower-push]=8766 [remotepower-webterm]=8765 \
+                  [remotepower-syslogd]=5514 [remotepower-flowd]=2055 )
+# The receivers listen on UDP, so `ss -ltn` would report them down forever.
+declare -A UDP_PORT=( [remotepower-syslogd]=1 [remotepower-flowd]=1 )
 
 # ── output helpers ────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -56,7 +62,14 @@ have_systemd(){ [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>
 unit_file(){ systemctl list-unit-files "$1.service" >/dev/null 2>&1 && systemctl cat "$1.service" >/dev/null 2>&1; }
 is_active(){ systemctl is-active --quiet "$1.service" 2>/dev/null; }
 is_enabled(){ systemctl is-enabled --quiet "$1.service" 2>/dev/null; }
-port_open(){ # $1 = port
+port_open(){ # $1 = port, $2 = unit (optional — selects the UDP probe)
+  if [ -n "${2:-}" ] && [ -n "${UDP_PORT[$2]:-}" ]; then
+    # A UDP socket has no accept state, so only the listening socket proves it:
+    # /dev/udp would "connect" to a dead port just as happily.
+    command -v ss >/dev/null 2>&1 || return 0    # can't tell; don't cry wolf
+    ss -lun 2>/dev/null | grep -q ":$1[[:space:]]"
+    return
+  fi
   if command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -q ":$1[[:space:]]"
   else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&-; return 0; } || return 1
   fi
@@ -111,7 +124,7 @@ cmd_status(){
     local u p
     for u in "${UNITS[@]}"; do
       p="${PORT[$u]:-}"
-      if [ -n "$p" ] && port_open "$p"; then ok "$u  (listening :$p)"
+      if [ -n "$p" ] && port_open "$p" "$u"; then ok "$u  (listening :$p)"
       elif pgrep -f "$u" >/dev/null 2>&1 || pgrep -f "${u#remotepower-}" >/dev/null 2>&1; then ok "$u  (process up)"
       else info "  ${C_D}····${C_0} $u  (not detected)"; fi
     done
@@ -129,7 +142,7 @@ cmd_status(){
     if systemctl is-failed --quiet "$u.service" 2>/dev/null; then state="${C_R}FAILED${C_0}"; fi
     if is_enabled "$u"; then boot="enabled"; else boot="${C_Y}disabled${C_0}"; fi
     port="${PORT[$u]:-}"; pstat="-"
-    if [ -n "$port" ]; then port_open "$port" && pstat="${C_G}:$port ✓${C_0}" || pstat="${C_R}:$port ✗${C_0}"; fi
+    if [ -n "$port" ]; then port_open "$port" "$u" && pstat="${C_G}:$port ✓${C_0}" || pstat="${C_R}:$port ✗${C_0}"; fi
     printf '  %-26s %-18b %-18b %b\n' "$u" "$state" "$boot" "$pstat"
   done
   local h
@@ -205,7 +218,7 @@ cmd_doctor(){
       unit_file "$u" || { [ "$u" = remotepower-wsgi ] && { fail "$u not installed (the app server)"; rc=1; } || info "  ${C_D}····${C_0} $u not installed (optional)"; continue; }
       if is_active "$u"; then
         local p="${PORT[$u]:-}"
-        if [ -n "$p" ] && ! port_open "$p"; then warn "$u active but nothing on :$p"; else ok "$u running"; fi
+        if [ -n "$p" ] && ! port_open "$p" "$u"; then warn "$u active but nothing on :$p"; else ok "$u running"; fi
       else
         [ "$u" = remotepower-wsgi ] && { fail "$u installed but NOT running"; rc=1; } || warn "$u installed but stopped"
       fi
@@ -337,7 +350,7 @@ cmd_tui(){
         is_enabled "$u" && boot="enabled " || boot="${YY}disabled${ZZ}"
       else dot="${DD}·${ZZ}"; stateword="${DD}absent${ZZ}"; boot="${DD}—${ZZ}"; nstop=$((nstop+0)); fi
       local p="${PORT[$u]:-}"; port="—       "
-      if [ -n "$p" ]; then port_open "$p" && port="${GG}:$p ✓${ZZ}" || port="${RR}:$p ✗${ZZ}"; fi
+      if [ -n "$p" ]; then port_open "$p" "$u" && port="${GG}:$p ✓${ZZ}" || port="${RR}:$p ✗${ZZ}"; fi
       if [ "$i" -eq "$sel" ]; then pointer="${AC}▸${ZZ}"; name="${AC}${BB}${name}${ZZ}"; else pointer=" "; fi
       _row " $pointer $dot $(_pad "$name" 18) $(_pad "$stateword" 11) $(_pad "$boot" 9) $port"
     done

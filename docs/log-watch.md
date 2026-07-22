@@ -11,6 +11,45 @@ across the fleet. Search it, tail it live, or attach alert rules to it.
   `log_alert` event fires (inbox + webhooks). Rules can be global or
   per-device, with cooldowns so a log storm doesn't page you 400 times.
 
+## Clearing a noisy line *(v6.3.1)*
+
+A rule matches a **class** of lines. `err|warn|critical|FATAL` on a PHP-FPM
+unit will keep firing on the same routine message forever, and the two obvious
+escapes are both wrong: snoozing brings it back on schedule, and deleting the
+rule goes blind to the errors you actually wanted.
+
+**Clear line** is the third option — *this exact message is understood, stop
+paging me about it, but still page me about a new one.*
+
+Every log alert now carries the **matched line** that caused it, on the alert
+row and on the Needs-Attention card. From either, `Clear line` opens a dialog
+showing:
+
+- **The line** — the raw text that matched.
+- **What will be matched** — the same line with timestamps, process ids,
+  addresses, hashes and numbers folded out. That folded form is the identity,
+  so the same message tomorrow, from a different worker pid, still matches; a
+  genuinely different error does not.
+
+Choose how wide it applies (this host + unit, this host + any unit, or — for
+admins — the whole fleet) and optionally an expiry and a note explaining why
+it's expected.
+
+Cleared lines stop counting toward their rule's threshold, so a rule whose
+matches are all cleared simply stops firing. The alert count stays honest: an
+alert that matched five lines of which three were cleared reports "2 hits,
+3 already cleared" rather than silently under-reporting. Acknowledging also
+resolves the open alerts that captured that line, so clearing it clears the
+board.
+
+Everything cleared is listed under **Logs → Cleared lines**, with how many
+matches each has caught since — un-clear one and it alerts again. Clearing is
+audited (`log_ack_add` / `log_ack_delete`).
+
+A rule's `exclude_pattern` is still there for the cases where you genuinely
+want a regex; clearing a line needs no regex authoring and is reversible per
+line.
+
 ## Sources
 
 Agents ship recent journald/syslog excerpts with their heartbeats; syslog

@@ -110,6 +110,25 @@ class TestFirstObservationAlerting(unittest.TestCase):
         api._invalidate_load_cache(api.DEVICES_FILE)
         self.assertEqual(self._report('critical'), [])
 
+    def test_open_alert_recovers_even_when_edge_state_was_lost(self):
+        """The alert outlives the state that produced it — a check re-created
+        under a new id, a rebuilt device record, an upgrade. Without this the
+        inbox row could never be closed by anything but a manual resolve."""
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a-1', 'event': 'custom_check_failed', 'device_id': DEV,
+            'ts': 1, 'payload': {'check_id': CHECK['id'], 'check_name': 'x'}}]})
+        api._invalidate_load_cache(api.ALERTS_FILE)
+        devs = api.load(api.DEVICES_FILE) or {}
+        devs[DEV].pop('custom_check_state', None)          # state gone
+        api.save(api.DEVICES_FILE, devs)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        self.assertEqual(self._report('ok'), ['custom_check_recovered'])
+
+    def test_no_open_alert_means_a_healthy_first_report_stays_silent(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api._invalidate_load_cache(api.ALERTS_FILE)
+        self.assertEqual(self._report('ok'), [])
+
 
 if __name__ == '__main__':
     unittest.main()

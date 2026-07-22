@@ -7341,3 +7341,78 @@ body.kiosk .kiosk-exit {
 }
 body.kiosk .kiosk-exit:hover,
 body.kiosk .kiosk-exit:focus-within { opacity: 1; }
+
+/* v6.3.1: log-alert evidence. The matched line IS the alert — showing only the
+   rule's regex tells the operator nothing they didn't already write. Wraps
+   rather than truncating mid-token, and stays clearly secondary to the title. */
+.alert-evidence {
+  margin-top: 3px;
+  color: var(--muted);
+  word-break: break-word;
+  max-width: 60ch;
+}
+/* The clear-a-line modal shows the raw line and its normalized form. Both are
+   untrusted log text, so they get a bounded, scrollable, monospaced well. */
+.code-block {
+  background: var(--surface2);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 4px 0 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* v6.3.1: baseline-picker "already applied" note. The picker used to be
+   write-only — with dozens of templates and several scopes there was no way to
+   read the current coverage back out. */
+.bc-row-applied {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--green, var(--muted));
+}
+.bc-row-applied svg { vertical-align: -2px; margin-right: 2px; }
+
+/* ── v6.3.1: Security Advisory ──────────────────────────────────────────────
+   Order is the product here: the list is already sorted by what to fix first,
+   so the rank number is prominent and nothing invites re-sorting. */
+.adv-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.adv-tile {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 11px;
+  padding: 14px 16px;
+}
+.adv-tile-val { font-size: 28px; font-weight: 700; line-height: 1; }
+.adv-tile-lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.adv-t-crit .adv-tile-val { color: var(--red); }
+.adv-t-high .adv-tile-val { color: var(--orange, var(--red)); }
+
+.adv-card { margin-bottom: 12px; border-left: 3px solid var(--hair-2, var(--hair)); }
+.adv-sev-critical { border-left-color: var(--red); }
+.adv-sev-high     { border-left-color: var(--orange, var(--red)); }
+.adv-sev-medium   { border-left-color: var(--amber, var(--muted)); }
+.adv-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.adv-rank {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 1.5em;
+}
+.adv-title { font-size: 13px; font-weight: 620; flex: 1 1 240px; }
+.adv-hosts { margin-left: auto; }
+.adv-why { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.adv-fix { font-size: 13px; margin-bottom: 6px; }
+.adv-ev ul { margin: 2px 0 6px; padding-left: 18px; }
+.adv-foot { font-size: 12px; }

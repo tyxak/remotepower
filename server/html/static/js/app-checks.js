@@ -117,6 +117,10 @@ async function toggleHostCheck(arg) {
 // systemd_unit / port_closed / file_absent templates.
 const _CC_GUARD_TYPES = new Set(['dir_baseline', 'file_hash', 'egress_flagged']);
 const _ccIsProtect = c => c.kind === 'protect' || _CC_GUARD_TYPES.has(c.type);
+// Types that hold a learned baseline the operator may legitimately need to
+// re-accept (a real config change, a deploy) without deleting the check.
+const _CC_BASELINE_TYPES = new Set(['dir_baseline', 'file_hash',
+                                    'egress_baseline', 'auth_new_source']);
 let _ccKind = 'ops';        // which catalog is open: operational vs Protect
 const _CC_PARAM_LABELS = {
   process: 'Process name', port_open: 'Port', port_closed: 'Port',
@@ -438,6 +442,9 @@ function _pcRender() {
     `<td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span>${c.protect === 'quarantine' ? ' <span class="patch-badge fs-11" title="Auto-quarantine is on for this check">guard</span>' : ''}</td>` +
     `<td class="mono-12">${escHtml(c.param)}</td><td class="hint">${escHtml(_pcScope(c))}</td>` +
     `<td><div class="user-actions">` +
+    (_CC_BASELINE_TYPES.has(c.type)
+      ? `<button class="btn-icon btn-xs" data-action="rebaselineCheck" data-arg="${escAttr(c.target_kind === 'host' ? c.target : '')}" data-arg2="${escAttr(c.id)}" data-arg3="${escAttr(_pcScope(c))}" title="Accept the current state as the new baseline — clears this check and resolves its alert">${_icon('refresh', 14)}</button>`
+      : '') +
     `<button class="btn-icon btn-xs" data-action="editProtectCheck" data-arg="${escAttr(c.id)}" title="Edit this check">${_icon('edit', 14)}</button>` +
     `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteProtectCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}" title="Delete">${_icon('trash', 14)}</button>` +
     `</div></td></tr>`), {colspan: 5});
@@ -487,6 +494,23 @@ function _gvRender() {
     `<button class="btn-icon btn-xs" title="Restore to its original path" data-action="restoreQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('undo', 14)}</button>` +
     `<button class="btn-icon btn-xs c-danger-outline" title="Delete from the vault" data-action="deleteQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('trash', 14)}</button>` +
     `</div></td></tr>`), {colspan: 4});
+}
+async function rebaselineCheck(deviceId, checkId, scope) {
+  // No device id = the check is fleet/tag/group-scoped; the server fans the
+  // directive out to every host it applies to.
+  if (typeof uiConfirm === 'function'
+      && !await uiConfirm({
+           title: 'Accept current state',
+           message: `Take the current state as the new known-good baseline${scope ? ` on ${scope}` : ''}? `
+                  + 'Do this only if you know the change was legitimate — it discards what the '
+                  + 'check was comparing against. The check returns to OK and its alert resolves.',
+           confirmText: 'Accept'})) return;
+  const r = await api('POST', '/guard/action',
+                      { device_id: deviceId || '', id: checkId, op: 'rebaseline' });
+  if (r && r.ok) {
+    toast(`Re-baseline queued on ${r.devices || 1} host${r.devices === 1 ? '' : 's'} `
+          + '— the check clears on the next agent check-in', 'success');
+  } else toast((r && r.error) || 'Failed', 'error');
 }
 async function _guardAction(deviceId, id, op, msg) {
   const r = await api('POST', '/guard/action', { device_id: deviceId, id: id, op: op });
@@ -562,6 +586,18 @@ function pickBcHost(id, name) {
   const s = document.getElementById('bc-host-search'); if (s) s.value = name;
   const box = document.getElementById('bc-host-results'); if (box) box.hidden = true;
 }
+// Where this template is ALREADY applied. Without it the picker is write-only:
+// with dozens of templates and several scopes there is no way to see what a
+// previous apply landed, so the only safe move is to re-apply everything.
+function _bcAppliedHtml(t) {
+  const where = t.applied || [];
+  if (!where.length) return '';
+  const shown = where.map(a => escHtml(a.label)).join(', ');
+  const more = (t.applied_count || where.length) - where.length;
+  return `<span class="bc-row-applied" title="Already applied — re-applying changes nothing">`
+    + `${_icon('check', 12)} Applied to ${shown}${more > 0 ? ` +${more} more` : ''}</span>`;
+}
+
 function _bcRenderCatalog() {
   const el = document.getElementById('bc-catalog');
   if (!el) return;
@@ -569,10 +605,15 @@ function _bcRenderCatalog() {
   const cats = {};
   // A row with no kind (older server) is operational, so an out-of-date
   // backend still fills the Checks picker rather than showing nothing.
+  const onlyApplied = document.getElementById('bc-only-applied')?.checked;
   _bcCatalog.filter(t => (t.kind || 'ops') === _bcKind)
+    .filter(t => !onlyApplied || (t.applied_count || 0) > 0)
     .forEach(t => { (cats[t.cat] = cats[t.cat] || []).push(t); });
   if (!Object.keys(cats).length) {
-    el.innerHTML = '<div class="empty-state">No templates available.</div>'; return;
+    el.innerHTML = onlyApplied
+      ? '<div class="empty-state">Nothing from this catalog is applied yet.</div>'
+      : '<div class="empty-state">No templates available.</div>';
+    return;
   }
   el.innerHTML = Object.keys(cats).map(cat =>
     `<div class="section-title bc-cat">${escHtml(cat)}</div>` +
@@ -587,6 +628,7 @@ function _bcRenderCatalog() {
             : '') +
         `</span>` +
         `<span class="bc-row-desc">${escHtml(t.desc || '')}</span>` +
+        _bcAppliedHtml(t) +
       `</span></label>`
     ).join('')
   ).join('');
@@ -705,4 +747,137 @@ async function deleteCustomCheck(id, name) {
   const r = await api('POST', '/checks/custom/delete', {id});
   if (r && r.ok) { toast('Check deleted', 'info'); loadCustomCheckList(); }
   else { toast((r && r.error) || 'Failed', 'error'); }
+}
+
+// ── v6.3.1: Security Advisory ────────────────────────────────────────────────
+// Every other security page answers "what is the state of X". This one answers
+// the question an operator actually has: what should I fix, in what order, and
+// why — across OS, exposure, identity, integrity and the application layer, at
+// whatever scope they care about.
+let _advLast = null;
+
+function advScopeChanged() {
+  const kind = document.getElementById('adv-scope')?.value || 'all';
+  const grp = document.getElementById('adv-target-grp');
+  const pick = document.getElementById('adv-host-pick');
+  const tgt = document.getElementById('adv-target');
+  if (grp) grp.classList.toggle('hidden', kind === 'all');
+  if (pick) pick.classList.toggle('hidden', kind !== 'host');
+  if (tgt) {
+    tgt.classList.toggle('hidden', kind === 'host');
+    tgt.placeholder = kind === 'group' ? 'group name' : 'tag name';
+  }
+}
+
+async function advHostSearch() {
+  const box = document.getElementById('adv-host-results');
+  if (!box) return;
+  const term = (document.getElementById('adv-host-search')?.value || '').toLowerCase().trim();
+  const devs = await _scanDeviceList();
+  let matches = Array.isArray(devs) ? devs : [];
+  if (term) matches = matches.filter(d =>
+    (d.name || '').toLowerCase().includes(term) || (d.ip || '').toLowerCase().includes(term) ||
+    (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
+  box.innerHTML = matches.length
+    ? matches.slice(0, 25).map(d => `<div class="dev-combo-item" data-action="pickAdvHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="dev-combo-empty">No matching devices.</div>';
+  box.hidden = false;
+}
+function pickAdvHost(id, name) {
+  const t = document.getElementById('adv-target'); if (t) t.value = id;
+  const s = document.getElementById('adv-host-search'); if (s) s.value = name;
+  const box = document.getElementById('adv-host-results'); if (box) box.hidden = true;
+}
+
+function _advScopeParams() {
+  const scope = document.getElementById('adv-scope')?.value || 'all';
+  const target = (document.getElementById('adv-target')?.value || '').trim();
+  return { scope, target };
+}
+
+async function loadAdvisory() {
+  const { scope, target } = _advScopeParams();
+  if (scope !== 'all' && !target) { toast('Pick a target for this scope', 'error', {transient: true}); return; }
+  const el = document.getElementById('adv-findings');
+  if (el) el.innerHTML = _skeletonBlock(4);
+  const q = `?scope=${encodeURIComponent(scope)}&target=${encodeURIComponent(target)}`;
+  const r = await api('GET', '/security/advisory' + q);
+  if (!r || r.error) {
+    if (el) el.innerHTML = `<div class="empty-state">${escHtml((r && r.error) || 'Failed to build the advisory')}</div>`;
+    return;
+  }
+  _advLast = r;
+  _advRenderSummary(r);
+  _advRenderFindings(r);
+}
+
+function _advRenderSummary(r) {
+  const el = document.getElementById('adv-summary');
+  if (!el) return;
+  const c = r.counts || {};
+  const tile = (label, val, tone) =>
+    `<div class="adv-tile${tone ? ' ' + tone : ''}"><div class="adv-tile-val">${val || 0}</div>`
+    + `<div class="adv-tile-lbl">${escHtml(label)}</div></div>`;
+  el.innerHTML =
+    tile('Critical', c.critical, 'adv-t-crit') +
+    tile('High', c.high, 'adv-t-high') +
+    tile('Medium', c.medium) +
+    tile('Hosts assessed', r.device_count);
+}
+
+function _advRenderFindings(r) {
+  const el = document.getElementById('adv-findings');
+  if (!el) return;
+  const rows = r.findings || [];
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-state">'
+      + '<svg class="rp-empty-art" aria-hidden="true" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">'
+      + '<circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>'
+      + `Nothing critical or high for ${escHtml(r.scope_label || 'this scope')} from the data collected so far.</div>`;
+    return;
+  }
+  // Already ordered by the server: severity, then how many hosts are affected.
+  // That order IS the product, so the client must not re-sort it.
+  el.innerHTML = rows.map((g, i) => {
+    const hosts = (g.devices || []).map(d => escHtml(d.device)).join(', ');
+    const more = (g.device_count || 0) - (g.devices || []).length;
+    return `<div class="card adv-card adv-sev-${escAttr(g.severity)}">
+      <div class="adv-head">
+        <span class="adv-rank">${i + 1}</span>
+        <span class="sev-pill sev-${escAttr(g.severity)}">${escHtml(g.severity)}</span>
+        <span class="patch-badge fs-11">${escHtml(g.layer)}</span>
+        <span class="adv-title">${escHtml(g.title)}</span>
+        <span class="adv-hosts hint">${g.device_count || 0} host${g.device_count === 1 ? '' : 's'}</span>
+      </div>
+      <div class="adv-why">${escHtml(g.why)}</div>
+      <div class="adv-fix"><strong>Do this:</strong> ${escHtml(g.fix)}</div>
+      ${(g.evidence || []).length
+        ? `<div class="adv-ev"><div class="hint">Evidence</div><ul class="scroll-cap-sm">`
+          + g.evidence.map(e => `<li class="mono-12">${escHtml(e)}</li>`).join('')
+          + '</ul></div>'
+        : ''}
+      <div class="hint adv-foot">${hosts ? escHtml(hosts) + (more > 0 ? ` +${more} more` : '') : ''}`
+      + `${g.source ? ` &middot; from ${escHtml(g.source)}` : ''}`
+      + `${g.doc ? ` &middot; <a href="${escAttr(g.doc)}" class="c-accent">Documentation</a>` : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+async function advisoryAskAi() {
+  const { scope, target } = _advScopeParams();
+  if (scope !== 'all' && !target) { toast('Pick a target for this scope', 'error', {transient: true}); return; }
+  // The BRIEF is built server-side and redacted there — titles, severities and
+  // host counts only. Building it here from _advLast would ship the evidence
+  // (hostnames, paths, URLs, matched log lines) to whatever provider is
+  // configured, which may be off-box.
+  const r = await api('POST', '/security/advisory/brief', { scope, target });
+  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  if (typeof openAIModal !== 'function') { toast('The AI module is not loaded', 'error'); return; }
+  // Straight to the AI modal with the redacted brief AS the message — the
+  // 'security_advisory' system prompt is written to read exactly this shape.
+  openAIModal({
+    title: `Security advisory — ${r.scope_label || 'fleet'}`,
+    system: 'security_advisory', userMsg: r.brief,
+    context: 'security_advisory', maxTokens: 1800,
+  });
 }

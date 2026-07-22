@@ -331,6 +331,63 @@ class TestAgentEval(unittest.TestCase):
         st, _ = agent._eval_one_agent_check(c)
         self.assertEqual(st, 'ok')
 
+    def test_identical_rewrite_is_not_reported_as_changed(self):
+        """THE FALSE POSITIVE: an installer or config-management run rewrites a
+        file byte-for-byte and bumps mtime. That is not a security event and
+        must not alert."""
+        import os as _os, time as _t
+        d = self.tmp / 'etc'
+        d.mkdir()
+        f = d / 'app.conf'
+        f.write_text('Defaults!x = y\n')
+        c = {'id': 'cv1', 'type': 'dir_baseline', 'param': str(d)}
+        self.assertEqual(agent._eval_one_agent_check(c)[0], 'ok')   # baseline
+        # rewrite the SAME bytes and move mtime forward
+        f.write_text('Defaults!x = y\n')
+        _os.utime(str(f), (_t.time() + 60, _t.time() + 60))
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok', f'identical rewrite must not alert (got {out})')
+
+    def test_real_content_change_still_alerts(self):
+        d = self.tmp / 'etc2'
+        d.mkdir()
+        f = d / 'app.conf'
+        f.write_text('原 original\n')
+        c = {'id': 'cv2', 'type': 'dir_baseline', 'param': str(d)}
+        agent._eval_one_agent_check(c)
+        f.write_text('tampered by someone\n')
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'critical')
+        self.assertIn('changed', out)
+
+    def test_rebaseline_clears_a_latched_finding(self):
+        """The missing lifecycle step: accept the new state without deleting the
+        check, so the alert can auto-resolve."""
+        d = self.tmp / 'etc3'
+        d.mkdir()
+        (d / 'a.conf').write_text('one\n')
+        c = {'id': 'rb1', 'type': 'dir_baseline', 'param': str(d)}
+        agent._eval_one_agent_check(c)
+        (d / 'b.conf').write_text('two\n')
+        self.assertEqual(agent._eval_one_agent_check(c)[0], 'critical')
+        # latched: still critical on the next poll
+        self.assertEqual(agent._eval_one_agent_check(c)[0], 'critical')
+        n = agent._apply_guard_actions([{'id': 'rb1', 'op': 'rebaseline'}])
+        self.assertEqual(n, 1)
+        st, out = agent._eval_one_agent_check(c)
+        self.assertEqual(st, 'ok')                       # re-seeded -> resolves
+        self.assertIn('baseline set', out)
+
+    def test_rebaseline_also_clears_a_file_hash_check(self):
+        f = self.tmp / 'pinned.conf'
+        f.write_text('v1\n')
+        c = {'id': 'rb2', 'type': 'file_hash', 'param': str(f)}
+        agent._eval_one_agent_check(c)
+        f.write_text('v2\n')
+        self.assertEqual(agent._eval_one_agent_check(c)[0], 'critical')
+        agent._apply_guard_actions([{'id': 'rb2', 'op': 'rebaseline'}])
+        self.assertEqual(agent._eval_one_agent_check(c)[0], 'ok')
+
     def test_egress_empty_and_no_match(self):
         st, out = agent._eval_one_agent_check(
             {'id': 'e1', 'type': 'egress_flagged', 'param': ''})

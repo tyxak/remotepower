@@ -115,6 +115,9 @@ Older release notes (v6.2.2 and earlier) live in
  API reference, backup story, disaster recovery.
 - **[drift.md](drift.md)** — Configuration drift detection: what's
  watched, customising the list, re-baselining, the compliance angle.
+- **[security-advisory.md](security-advisory.md)** — Security Advisory
+ (Security → Advisory): what to fix first across application/exposure/OS/
+ identity/integrity, at any scope, plus the redacted AI option.
 - **[integrity-guard.md](integrity-guard.md)** — Integrity Guard (Security →
  Protect): file-integrity and egress check types, auto-quarantine and the
  on-host vault, restore/delete, the maintenance + mass-change safety rails,

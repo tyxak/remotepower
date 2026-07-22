@@ -30,7 +30,87 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
   freshness. Baseline apply also accepts a **specific host** as a scope.
 - Docs: `docs/integrity-guard.md`.
 
+### Security Advisory — what to fix first (Security → Advisory)
+- Every other security page answers "what is the state of X". The advisory
+  answers the operator's actual question: **what should I fix first, in what
+  order, and why** — one prioritized list spanning the whole stack from the
+  operating system up to the application layer.
+- Built entirely from data ALREADY collected (scanner findings incl. wpscan,
+  world-reachable ports, firewall posture, TLS expiry, package CVEs, pending
+  updates/reboots, EOL, sshd config, brute-force pressure, failing protect
+  checks, Integrity Guard quarantine) — nothing is scanned or contacted, so it
+  is cheap to run on demand at **fleet, group, tag or host** scope.
+- Every entry carries **why it matters**, the **concrete action**, and the
+  **evidence** (actual ports, packages, paths, config lines) so the claim can be
+  verified rather than trusted. A finding with no concrete fix does not appear.
+- Ordered by severity then blast radius, and identical findings across hosts are
+  **grouped into one decision** ("23 hosts have pending updates" is one thing to
+  schedule, not 23 rows). A clean fleet returns an empty advisory rather than
+  padded filler.
+- **AI option** — the advisor gets a brief REDACTED SERVER-SIDE to titles,
+  layers, severities and host counts. The evidence never leaves the box, because
+  the configured provider may be off-box; building the brief in the browser
+  would have shipped all of it. Also on the AI hub as a card (34 now).
+- New: `advisory.py` (pure logic, in the typecheck baseline),
+  `advisory_handlers.py`, `GET /api/security/advisory`,
+  `POST /api/security/advisory/brief`, `docs/security-advisory.md`.
+
+### Baseline checks — see what is applied where
+- The baseline picker was write-only: with ~76 templates and several scopes
+  there was no way to read back what a previous apply had landed, so the only
+  safe move was to re-apply everything. Each catalog row now shows **where it is
+  already applied** (and how many more), with a "show only what is applied"
+  filter. Matching is on `(type, param)` — the same identity the apply de-dupes
+  on, so the two agree by construction. Host-scoped checks on devices the caller
+  cannot see are omitted rather than leaking their existence.
+
+### rp CLI
+- **`remotepower-syslogd` and `remotepower-flowd` are components.** Both were
+  missing from `rp status` / `logs` / `restart`, so the two optional receivers
+  were invisible to the node control tool. Their UDP sockets get a UDP probe —
+  `ss -ltn` would have reported them down forever.
+
+### Log alerts — clear a LINE, not the rule
+- **The matched line is now visible everywhere the alert is.** A log alert
+  reported only `matched pattern 'err|warn|…'` on the Needs-Attention card,
+  which tells the operator nothing they didn't already write. The fleet-event
+  whitelist silently dropped `sample`; it now carries one bounded line, and the
+  alerts inbox shows the evidence inline on the row.
+- **`Clear line`** — the third option between snoozing (comes back) and deleting
+  the rule (goes blind). It acknowledges a matched line by its SIGNATURE: the
+  line with timestamps, pids, ids, addresses and sizes folded out, so the same
+  message from a different worker still matches while a genuinely different
+  error still fires. Scope is per (host, unit), widenable to any-unit or — for
+  admins — fleet-wide, with an optional expiry and note.
+- Cleared lines stop counting toward their rule's threshold, so the alert never
+  fires again on its own; the count stays honest ("2 hits, 3 already cleared")
+  rather than silently under-reporting. Acknowledging also resolves the open
+  alerts that captured that line.
+- **Logs → Cleared lines** lists everything cleared with how many matches each
+  has caught since, and un-clears in one click. Both directions are audited.
+- New: `logsig.py` (pure signature logic, in the typecheck baseline),
+  `logack_handlers.py`, `GET /api/logs/acks`, `POST /api/logs/ack`,
+  `POST /api/logs/ack/delete`.
+
 ### Fixed
+- **Log-alert acknowledgements close what they acknowledge.** See above — the
+  alert that prompted the acknowledgement used to survive it.
+- **`dir_baseline` no longer alerts on an identical rewrite.** The baseline
+  fingerprinted `size:mtime`, so an installer or config-management run that
+  rewrote a file byte-for-byte tripped the check. Size+mtime is now only a
+  change HINT, verified against a stored content hash before anything is
+  reported; benign touches silently re-arm the hint and a real content change
+  still latches. Legacy baselines upgrade lazily.
+- **A baseline check can be re-accepted without deleting it.** `Re-baseline` on
+  Security → Protect clears a check's stored baseline (per host, or fanned out
+  across the check's whole scope) so it re-seeds from the current state, returns
+  to OK and its alert auto-resolves — previously the only way out of a
+  legitimately-changed baseline was to delete the check and lose its settings.
+- **A custom-check alert whose edge-trigger state was lost now resolves.** If
+  the state that produced an alert disappeared (check re-created under a new id,
+  device record rebuilt, upgrade from before the state existed), nothing could
+  ever close the inbox row. A healthy first observation now consults the inbox
+  directly.
 - **A check failing from its FIRST observation now alerts.** `custom_check_failed`
   fired only on an `ok → failing` edge and the first observation was seeded
   silently, so a check that was already failing when it was applied showed

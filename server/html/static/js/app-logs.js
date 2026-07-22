@@ -18,6 +18,7 @@ async function enterLogsPage() {
   await loadLogRules();
   // Set the initial tab styling to match state (defaults to per-device)
   switchRulesTab(logsRulesTab);
+  loadLogAcks();
   startLogsTail();
 }
 
@@ -544,4 +545,102 @@ async function deleteGlobalLogRule(ruleId) {
   if (!await uiConfirm('Remove fleet-wide rule?')) return;
   const result = await api('DELETE', `/logs/rules/global/${ruleId}`);
   if (result && result.ok) { toast('Fleet-wide rule removed', 'success'); loadGlobalLogRules(); }
+}
+
+// ── v6.3.1: log-alert acknowledgements ───────────────────────────────────────
+// A rule matches a CLASS of lines, so one routine message re-fires its alert
+// forever. Snoozing brings it back; deleting the rule goes blind. Clearing the
+// LINE is the missing third option: this exact message is understood, stop
+// paging me — but still page me about a new one.
+let _logAckCtx = null;
+
+function clearLogLine(deviceId, unit, line) {
+  if (!line) { toast('No matched line was captured for this alert', 'error'); return; }
+  _logAckCtx = { device_id: deviceId || '', unit: unit || '', line: line };
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('log-ack-line', line);
+  set('log-ack-norm', _logAckNormalize(line));
+  const sc = document.getElementById('log-ack-scope');
+  if (sc) sc.value = deviceId ? 'device' : 'fleet';
+  const nt = document.getElementById('log-ack-note'); if (nt) nt.value = '';
+  const dy = document.getElementById('log-ack-days'); if (dy) dy.value = '0';
+  openModal('log-ack-modal');
+}
+
+// Preview only — the server derives the authoritative signature, so a client
+// can never post one to silence something it never saw. Kept deliberately in
+// step with logsig.py's substitutions.
+function _logAckNormalize(line) {
+  return String(line || '')
+    .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g, '<ts>')
+    .replace(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b/g, '<ts>')
+    .replace(/\b\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\b/g, '<ts>')
+    .replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, '<uuid>')
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '<ip>')
+    .replace(/\[\d+\]/g, '[<pid>]')
+    .replace(/\b(?:0x)?[0-9a-fA-F]{8,}\b/g, '<hex>')
+    .replace(/\b\d+(?:\.\d+)?\s?(?:[KMGT]i?B|bytes?|ms|s|m|h)\b/gi, '<qty>')
+    .replace(/\b\d+(?:\.\d+)?%/g, '<pct>')
+    .replace(/\b\d+(?:\.\d+)?\b/g, '<n>')
+    .replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+async function saveLogAck() {
+  if (!_logAckCtx) return;
+  const val = id => document.getElementById(id)?.value || '';
+  const r = await api('POST', '/logs/ack', {
+    line: _logAckCtx.line, device_id: _logAckCtx.device_id, unit: _logAckCtx.unit,
+    scope: val('log-ack-scope'), days: parseInt(val('log-ack-days'), 10) || 0,
+    note: val('log-ack-note'),
+  });
+  if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
+  closeModal('log-ack-modal');
+  toast(r.resolved
+        ? `Cleared — ${r.resolved} open alert${r.resolved === 1 ? '' : 's'} resolved`
+        : 'Cleared — this line will not alert again', 'success');
+  _logAckCtx = null;
+  if (typeof loadLogAcks === 'function') loadLogAcks();
+  if (typeof _renderHomeAttention === 'function') _renderHomeAttention();
+  if (typeof loadAlerts === 'function' && document.getElementById('page-alerts')?.classList.contains('active')) loadAlerts();
+}
+
+let _logAckRows = [];
+async function loadLogAcks() {
+  // Eager wire-up, so the sort indicators are there before the fetch lands.
+  tableCtl.wireSortOnly('logs-acks-thead', 'logacks', _renderLogAcks);
+  const r = await api('GET', '/logs/acks');
+  _logAckRows = (r && r.acks) || [];
+  _renderLogAcks();
+}
+
+function _renderLogAcks() {
+  const el = document.getElementById('logs-acks-tbody');
+  if (!el) return;
+  if (!_logAckRows.length) {
+    el.innerHTML = '<tr><td colspan="6" class="empty-state-sm">Nothing cleared yet. Clear a line from an alert or from Needs Attention.</td></tr>';
+    return;
+  }
+  const rows = tableCtl.sortRows('logacks', _logAckRows, a => ({
+    line: (a.norm || a.sample || '').toLowerCase(),
+    device: (a.device || '').toLowerCase(),
+    unit: (a.unit || '').toLowerCase(),
+    hits: a.hits || 0,
+    ts: a.ts || 0,
+  }));
+  tableCtl.renderChunked(el, rows.map(a =>
+    `<tr><td class="mono-12" title="${escAttr(a.sample || '')}">${escHtml((a.norm || a.sample || '').slice(0, 120))}` +
+    (a.note ? `<div class="hint">${escHtml(a.note)}</div>` : '') + '</td>' +
+    `<td class="hint">${escHtml(a.device || 'whole fleet')}</td>` +
+    `<td class="hint">${escHtml(a.unit || 'any unit')}</td>` +
+    `<td class="ta-center">${a.hits || 0}</td>` +
+    `<td class="hint">${a.ts ? timeAgo(a.ts) : '—'}` +
+    (a.until ? `<div class="hint">expires ${timeAgo(a.until)}</div>` : '') + '</td>' +
+    `<td><button class="btn-icon btn-xs" data-action="deleteLogAck" data-arg="${escAttr(a.key)}" title="Un-clear — this line alerts again">${_icon('undo', 14)}</button></td></tr>`),
+    {colspan: 6});
+}
+
+async function deleteLogAck(key) {
+  const r = await api('POST', '/logs/ack/delete', { key: key });
+  if (r?.ok) { toast('Un-cleared — this line alerts again', 'success'); loadLogAcks(); }
+  else toast(r?.error || 'Failed', 'error');
 }

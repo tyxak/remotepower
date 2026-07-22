@@ -924,6 +924,10 @@ const AI_INSIGHTS = [
   { key: 'ai_briefing',         cat: 'proactive', label: 'Daily fleet briefing',        desc: 'What needs attention + what changed in the last day.', msg: "Write today's fleet operations briefing." },
   // v5.0.1: surface three mature prompts that previously had no card (only ad-hoc
   // inline buttons / no path). Backend SYSTEM_PROMPTS already exist.
+  // v6.3.1: the Security Advisory's AI option. The page posts the REDACTED
+  // brief as the message, so this card is the same advisor reached from the hub
+  // with no scope preloaded.
+  { key: 'security_advisory',   cat: 'advisors',  label: 'Security advisory',          desc: 'What to fix first across OS, exposure, identity, integrity and applications.', msg: "Review the fleet's security posture and tell me what to fix first, in order, and why." },
   { key: 'explain_tls',         cat: 'advisors',  label: 'TLS / cert triage',          desc: "The fleet's TLS/cert posture — what to renew or fix first.", msg: "Review the fleet's TLS certificate posture (expiry, chain, hostname match) and tell me what to renew or fix first." },
   { key: 'prioritise_cves',     cat: 'advisors',  label: 'CVE prioritisation',         desc: 'Which CVEs to patch first across the fleet, and why.', msg: "Prioritise the fleet's outstanding CVEs — which to patch first and why (severity, exploitability, exposure)." },
   { key: 'investigate_alert',   cat: 'advisors',  label: 'Investigate top alert',      desc: 'Diagnose the most significant current alert + next steps.', msg: "Investigate the most significant currently-open alert: likely cause, blast radius, and the next steps to resolve it." },

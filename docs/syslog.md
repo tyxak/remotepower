@@ -123,8 +123,110 @@ logger -n <server-ip> -P 5514 -d "hello from $(hostname)"
 
 Within a couple of seconds the line appears in that device's **Logs** tab (the
 log-watch buffer) and drives its log-alert rules. If nothing shows up, the
-journal tells you why: a `dropping syslog from unknown source <ip>` line means
-that IP has no matching device **or** no enabled `syslog` token.
+journal names the reason — see *Checking it arrived* below, which lists each
+drop message and what to do about it.
+
+## Pointing a client at it
+
+Below, `<server-ip>` is the host running `remotepower-syslogd` and `5514` is the
+listen port (use `514` if you moved it). Two rules apply to every client:
+
+- **Send from the IP the device record carries.** The source address *is* the
+  authentication, so a box with several interfaces must send from the one in the
+  device's `ip` field — most daemons let you pin it, and the examples do.
+- **Prefer UDP.** The listener is UDP-only; a client configured for TCP or TLS
+  syslog will connect to nothing. Use the HTTP push path instead when you need a
+  reliable or encrypted transport.
+
+### rsyslog (most Linux distributions)
+
+`/etc/rsyslog.d/90-remotepower.conf`:
+
+```
+# Forward everything; @ = UDP (@@ would be TCP, which the listener does not speak)
+*.*  @<server-ip>:5514
+```
+
+To pin the source interface on a multi-homed host, and to keep a bounded queue
+so a RemotePower outage can never block local logging:
+
+```
+$ActionQueueType LinkedList
+$ActionQueueSize 10000
+$ActionResumeRetryCount -1
+$ActionSendUDPRebindInterval 100
+*.*  @<server-ip>:5514
+```
+
+Then `sudo rsyslogd -N1 && sudo systemctl restart rsyslog`.
+
+### syslog-ng
+
+```
+destination d_remotepower { udp("<server-ip>" port(5514)); };
+log { source(s_src); destination(d_remotepower); };
+```
+
+### systemd-journald only (no syslog daemon)
+
+journald does not forward over the network. Either install rsyslog as above, or
+— better on a host you control — install the RemotePower **agent**, which ships
+journal excerpts with its heartbeat and needs no syslog at all. The UDP listener
+exists for appliances you *can't* put an agent on.
+
+### MikroTik RouterOS
+
+```
+/system logging action add name=remotepower target=remote remote=<server-ip> remote-port=5514
+/system logging add topics=info,error,warning,critical action=remotepower
+```
+
+Check `src-address` on the action if the router has several WAN/LAN addresses.
+
+### OPNsense / pfSense
+
+*System → Settings → Logging / Remote Logging* → add a destination
+`<server-ip>:5514`, transport **UDP**, and select the log categories to send.
+Set *Source address* to the interface whose IP the device record carries.
+
+### VMware ESXi
+
+```
+esxcli system syslog config set --loghost=udp://<server-ip>:5514
+esxcli system syslog reload
+esxcli network firewall ruleset set --ruleset-id=syslog --enabled=true
+```
+
+### Switches, printers, UPSes, NAS appliances
+
+Almost all expose a single "syslog server" field in their web UI: enter
+`<server-ip>`, set the port to `5514`, pick UDP, and save. If the appliance only
+allows port 514, move the listener to 514 (see *Configuration* above) rather
+than fighting the device.
+
+### Windows
+
+Windows has no built-in syslog sender. Use the RemotePower **Windows agent**
+(it reads the Event Log directly and needs none of this), or a forwarder such as
+nxlog/winlogbeat pointed at `<server-ip>:5514` over UDP.
+
+### Checking it arrived
+
+```
+# on the RemotePower server
+journalctl -u remotepower-syslogd -f
+```
+
+- Lines flowing, nothing in the UI → the batch is in flight; wait a couple of
+  seconds and refresh the device's **Logs** tab.
+- `dropping syslog from unknown source <ip>: no enrolled device has this IP` →
+  fix the device record's `ip`, or the sender's source address.
+- `dropping syslog from <ip>: the device IS enrolled but has no enabled syslog
+  ingest token` → create one under *Settings → Integrations → Inbound webhooks*
+  (kind `syslog`), scoped to that device.
+- Nothing at all in the journal → the datagrams aren't arriving. Check the
+  server's firewall (`sudo ss -lun | grep 5514` should show the listener) and
+  that the client is really using UDP.
 
 ## Retention
 

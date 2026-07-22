@@ -148,6 +148,21 @@ function _alertHostKey(a) {
   return a.device_id || (a.device_name ? 'name:' + a.device_name : '__fleet__');
 }
 // One alert <tr>. role: '' | 'root' | 'symptom' (controls the badge + indent).
+// v6.3.1: the matched log line, if the alert captured one. A log alert that
+// reports only "matched pattern 'err|warn|…'" tells the operator nothing they
+// didn't already know — they wrote the pattern. The evidence is the point.
+function _alertSampleLine(a) {
+  const sm = a && a.payload && a.payload.sample;
+  if (Array.isArray(sm)) return sm.length ? String(sm[0]) : '';
+  return typeof sm === 'string' ? sm : '';
+}
+function _alertEvidenceHtml(a) {
+  const line = _alertSampleLine(a);
+  if (!line) return '';
+  const acked = (a.payload && a.payload.acked) || 0;
+  return `<div class="hint mono-12 alert-evidence" title="${escAttr(line)}">${_escapeHtml(line.slice(0, 160))}</div>`
+    + (acked ? `<div class="hint">${acked} further match${acked === 1 ? '' : 'es'} already cleared</div>` : '');
+}
 function _alertRowHtml(a, role) {
   const isResolved = !!a.resolved_at;
   const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
@@ -170,6 +185,13 @@ function _alertRowHtml(a, role) {
       actions += `<button class="btn-icon btn-xs" data-action="mitigateAlert" data-arg="${a.id}" title="Fix: run the guided remediation playbook for this alert">${_icon('wrench',14)} Fix</button> `;
     }
     actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button> `;
+    // v6.3.1: for a log alert, muting the whole EVENT is too blunt — it blinds
+    // the rule. Clearing the matched LINE silences this message only, and a
+    // genuinely different one still alerts. Offered only when evidence exists.
+    const _logLine = (a.event === 'log_alert') ? _alertSampleLine(a) : '';
+    if (_logLine) {
+      actions += `<button class="btn-icon btn-xs" data-action="clearLogLine" data-arg="${_escapeHtml(a.device_id || '')}" data-arg2="${_escapeHtml((a.payload && a.payload.unit) || '')}" data-arg3="${_escapeHtml(_logLine)}" title="Clear this line: it stops counting toward the rule, but a new message still alerts">${_icon('undo',14)} Clear line</button> `;
+    }
     actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button> `;
     actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
@@ -200,7 +222,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
