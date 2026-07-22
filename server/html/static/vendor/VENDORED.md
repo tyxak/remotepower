@@ -8,11 +8,11 @@ properly on the next update.
 
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
-| `novnc/` | noVNC | 1.0.3 (from bundled source) | https://github.com/novnc/noVNC | VNC console (device drawer) |
-| `swagger-ui/` | Swagger UI | 3.x bundle (marker `3.1.4`; verify on update) | https://github.com/swagger-api/swagger-ui | API Reference page |
+| `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
+| `swagger-ui/` | Swagger UI | 5.17.14 (`VERSION` string in `swagger-ui-bundle.min.js`) | https://github.com/swagger-api/swagger-ui | API Reference page |
 | `qrcode-generator/` | qrcode-generator | unversioned bundle | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
-| `xterm/` | xterm.js | unversioned bundle | https://github.com/xtermjs/xterm.js | Web terminal |
-| `xterm-addon-fit/` | xterm fit addon | unversioned bundle | https://github.com/xtermjs/xterm.js | Web terminal resize |
+| `xterm/` | xterm.js | 5.5.0 (`@xterm/xterm@5.5.0`) | https://github.com/xtermjs/xterm.js | Web terminal |
+| `xterm-addon-fit/` | xterm fit addon | 0.10.0 (`@0.10.0`) | https://github.com/xtermjs/xterm.js | Web terminal resize |
 | `fonts/` | Inter + JetBrains Mono | see `inter-jetbrains.css` | https://rsms.me/inter/ · https://www.jetbrains.com/lp/mono/ | UI / mono typography |
 
 ## Optional Python dependencies (server)
