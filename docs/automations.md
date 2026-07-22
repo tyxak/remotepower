@@ -30,7 +30,7 @@ The three v5.6.0 actions compose subsystems you already have (tickets, device
 tags, alert mutes), so they add **no new webhook event** and run on the same
 lock-safe path as the existing script/notify actions.
 
-## Guarded, verified remediation *(v6.3.1)*
+## Guarded, verified remediation *(v6.4.0)*
 
 The **Run script** action is the auto-*fix* channel, so it carries its own
 safety rig (per rule, editable in the rule editor):
@@ -64,7 +64,7 @@ with two actions plus a cooldown) cover it. With **Verify within** set to
 | `POST /api/automation/rules` | Create a rule (admin) |
 | `PUT /api/automation/rules/{id}` | Replace a rule (admin) |
 | `DELETE /api/automation/rules/{id}` | Delete a rule (admin) |
-| `GET /api/automation/remediations` | The auto-remediation attempt ledger *(v6.3.1)* |
+| `GET /api/automation/remediations` | The auto-remediation attempt ledger *(v6.4.0)* |
 
 Rules are stored in `automation_rules.json`; remediation attempts in
 `remediations.json` (last 500).

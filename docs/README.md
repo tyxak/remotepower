@@ -32,7 +32,7 @@ holds long-form docs that don't fit there.
  multi-node, relay satellites, PgBouncer, retention, and the encryption matrix.
 - **[ha.md](ha.md)** — High availability: the active/passive reference topology
  (Postgres streaming replication, keepalived floating IP, the scheduler-singleton
- rule), the promote runbook, and the capacity target + load-test recipe *(v6.3.1)*.
+ rule), the promote runbook, and the capacity target + load-test recipe *(v6.4.0)*.
 - **[satellites.md](satellites.md)** — Relay satellites for segmented networks:
  add one, encrypt the agent→satellite hop, point agents at it, revoke.
 - **[push.md](push.md)** — Experimental opt-in agent push channel: near-
@@ -58,8 +58,8 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.3.1.md](security-review-6.3.1.md)** — Latest review: the
- v6.3.1 "Tr1ageMatters" pass — SAST clean (F821 agent + all handler modules,
+- **[security-review-6.4.0.md](security-review-6.4.0.md)** — Latest review: the
+ v6.4.0 "Sh1eldMatters" pass — SAST clean (F821 agent + all handler modules,
  gitleaks clean, Bandit by-design only) plus three parallel adversarial reviewers
  over the new agentic-triage, NetFlow/IPFIX flow receiver, dependency-verification,
  incident-memory and detection-self-test code. The binary flow parser and the AI
@@ -90,7 +90,7 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
-- **[v6.3.1.md](v6.3.1.md)** — "Tr1ageMatters": agentic diagnosis — a hail-mary
+- **[v6.4.0.md](v6.4.0.md)** — "Sh1eldMatters": agentic diagnosis — a hail-mary
  log sweep ("Diagnose from logs": a bounded, secret-redacted snapshot of the
  host's recently-modified /var/log tails with an AI root-cause read) and
  agentic alert triage (the model investigates one alert through read-only
@@ -168,7 +168,7 @@ Older release notes (v6.2.2 and earlier) live in
  HTTP receiver and the native `remotepower-syslogd` UDP listener.
 - **[flow.md](flow.md)** — Agentless network flow visibility: the
  `remotepower-flowd` NetFlow/IPFIX receiver, exporter setup, and the per-device
- top-talkers/conversations view *(v6.3.1)*.
+ top-talkers/conversations view *(v6.4.0)*.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
 - **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),

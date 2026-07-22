@@ -1,7 +1,7 @@
-# Security review — v6.3.1 "Tr1ageMatters"
+# Security review — v6.4.0 "Sh1eldMatters"
 
 A thorough bug-hunt / security sweep across the project, weighted toward the
-freshly-written v6.3.1 code (the agentic log-sweep + triage, the NetFlow/IPFIX/
+freshly-written v6.4.0 code (the agentic log-sweep + triage, the NetFlow/IPFIX/
 sFlow flow receiver, and this cycle's three "top-pick" additions: flow-verified
 service dependencies, cross-fleet incident outcome memory, and the detection
 self-test). Method: deterministic SAST plus three independent adversarial
@@ -28,7 +28,7 @@ this project tracks had clearly been designed against. Three genuine low-severit
 defects were found and fixed:
 
 1. **Cross-tenant AI-triage scoreboard leak** (`handle_ai_stats`, api.py). The
-   v6.3.1 triage scoreboard counted `triaged` / `auto` / `feedback_up` / `down`
+   v6.4.0 triage scoreboard counted `triaged` / `auto` / `feedback_up` / `down`
    over the **raw** alert list, so a tenant admin (or any read-only role) saw
    fleet-wide aggregates across tenants — ironically the `incident_memory` count
    added right beside it was already tenant-filtered. Fixed by routing the alert
@@ -64,7 +64,7 @@ defects were found and fixed:
   (`_tenant_gate` / per-alert `_device_tenant`), `handle_alert_ai_triage` /
   `_feedback` (`_filter_alerts_for_caller` + under-lock re-check),
   `handle_remediation_log` (`_scope_filter_devices`), `_compliance_facts`
-  (already scoped in the v6.3.1 fix), the signed-command channel, and
+  (already scoped in the v6.4.0 fix), the signed-command channel, and
   `handle_flow_in` (capability-token = device scope). `handle_detection_selftest`
   exposes only global notification config (consistent with `handle_config_get`).
 - **Parser safety**: `flow_parse.py` bounds every packet-declared count/length,

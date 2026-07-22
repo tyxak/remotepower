@@ -1,4 +1,4 @@
-# Network flow visibility (NetFlow / IPFIX) — v6.3.1
+# Network flow visibility (NetFlow / IPFIX) — v6.4.0
 
 RemotePower observes hosts through the agent and appliances through syslog/SNMP;
 `remotepower-flowd` adds the **traffic** view for gear that can't run an agent

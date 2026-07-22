@@ -1,4 +1,4 @@
-"""v6.3.1 "Tr1ageMatters" — release pins + feature tests.
+"""v6.4.0 "Sh1eldMatters" — release pins + feature tests.
 
 The CURRENT release carries the strict version pins (older test_vXYZ.py files
 have theirs loosened). Headline: the hail-mary log sweep ("Diagnose from
@@ -24,8 +24,8 @@ _spec = importlib.util.spec_from_file_location("api_v631_pins", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
-V = "6.3.1"
-CODENAME = "Tr1ageMatters"
+V = "6.4.0"
+CODENAME = "Sh1eldMatters"
 
 _JS = _ROOT / "server/html/static/js"
 
@@ -172,7 +172,7 @@ class TestIngest(unittest.TestCase):
         self.assertIn("ok line", joined)
 
     def test_pem_private_key_block_is_redacted(self):
-        # v6.3.1: a multi-line PEM block has no key= prefix, so the per-line
+        # v6.4.0: a multi-line PEM block has no key= prefix, so the per-line
         # scrubber can't catch it — the ingest collapses the whole block.
         sweep = {"files": [{"path": "/var/log/app.log", "mtime": 5, "size": 1,
                             "lines": ["boot ok",
@@ -244,7 +244,7 @@ class TestForceFlagContract(unittest.TestCase):
             self.assertIn("payload['log_sweep']", src, rel)
 
     def test_all_three_agents_use_persisted_secrets_cadence(self):
-        # v6.3.1 parity: the Windows agent was the last on poll_count % N — all
+        # v6.4.0 parity: the Windows agent was the last on poll_count % N — all
         # three now use a persisted wall-clock due-time (survives restarts).
         for rel in ("client/remotepower-agent.py",
                     "client/remotepower-agent-mac.py",
@@ -516,7 +516,7 @@ class TestTriageHandler(unittest.TestCase):
         self.assertEqual(status, 502)
 
     def test_daily_ai_cap_returns_429(self):
-        # v6.3.1: a triage run counts against ai.limits.max_requests_per_user_day.
+        # v6.4.0: a triage run counts against ai.limits.max_requests_per_user_day.
         orig = api._ai_rate_limit_check
         api._ai_rate_limit_check = lambda actor, cfg: (False, 100, 100)
         try:
@@ -617,7 +617,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# ── v6.3.1 wave 2: auto-triage, feedback loop, new tools, syslog watcher ─────
+# ── v6.4.0 wave 2: auto-triage, feedback loop, new tools, syslog watcher ─────
 class TestAutoTriage(unittest.TestCase):
     def setUp(self):
         api.save(api.CONFIG_FILE, {'ai': {
@@ -637,7 +637,7 @@ class TestAutoTriage(unittest.TestCase):
         ]})
         self.calls = []
         self._orig_ai = api._call_ai_with_prompts
-        # v6.3.1: auto-triage now only runs under the out-of-band scheduler
+        # v6.4.0: auto-triage now only runs under the out-of-band scheduler
         # (never the request path) — stub it active for these tests.
         self._orig_sched = api._external_scheduler_active
         api._external_scheduler_active = lambda: True
@@ -696,14 +696,14 @@ class TestAutoTriage(unittest.TestCase):
         self.assertEqual(self._triaged_ids(), [])
 
     def test_requires_the_out_of_band_scheduler(self):
-        # v6.3.1 hardening: never run the multi-call loop on the request path.
+        # v6.4.0 hardening: never run the multi-call loop on the request path.
         api._external_scheduler_active = lambda: False
         api.run_ai_triage_if_due()
         self.assertEqual(self.calls, [])
         self.assertEqual(self._triaged_ids(), [])
 
     def test_picks_severity_then_oldest_not_lifo(self):
-        # v6.3.1 anti-starvation: within the floor, most-severe + longest-waiting
+        # v6.4.0 anti-starvation: within the floor, most-severe + longest-waiting
         # drains first (was newest-first LIFO, which starved the backlog).
         now = int(time.time())
         api.save(api.ALERTS_FILE, {"alerts": [
@@ -754,7 +754,7 @@ class TestTriageFeedback(unittest.TestCase):
         self.assertEqual(fb["by"], "op")
 
     def test_feedback_gates_on_caller_visibility(self):
-        # v6.3.1: an alert the caller can't see (per _filter_alerts_for_caller)
+        # v6.4.0: an alert the caller can't see (per _filter_alerts_for_caller)
         # → 404, even within the same tenant.
         api.get_json_obj = lambda: {"helpful": True}
         orig = api._filter_alerts_for_caller
@@ -804,7 +804,7 @@ class TestWave2Tools(unittest.TestCase):
         self.assertNotIn("CVE-2026-2", out)   # ignored findings stay hidden
 
     def test_metrics_trend_tool(self):
-        # v6.3.1 wave 6: reads the CPU/mem/swap/disk roll-up series (5-min
+        # v6.4.0 wave 6: reads the CPU/mem/swap/disk roll-up series (5-min
         # tier preferred), not the daily disk-mount store.
         now = int(time.time())
         five = api._rollup_merge(

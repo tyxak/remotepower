@@ -187,7 +187,7 @@ command to review) first. Every Insight is a tunable prompt
 Explain/Investigate buttons below. The firewall auditor is also reachable as an
 **AI audit** button on each host in the Firewall page.
 
-## Hail-mary log sweep — "Diagnose from logs" *(v6.3.1)*
+## Hail-mary log sweep — "Diagnose from logs" *(v6.4.0)*
 
 For the *"something is wrong on this host but I don't know where"* moment,
 the device drawer has **Diagnose from logs**:
@@ -215,7 +215,7 @@ Endpoints: `POST /api/devices/{id}/log-sweep/run` (admin),
 `GET /api/devices/{id}/log-sweep`, `POST /api/devices/{id}/log-sweep/diagnose`
 (write role).
 
-## Agentic alert triage *(v6.3.1)*
+## Agentic alert triage *(v6.4.0)*
 
 The alert inbox's **Triage** action (`POST /api/alerts/{id}/ai-triage`) runs a
 bounded investigate loop: instead of answering from a static context blob, the

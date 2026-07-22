@@ -11,7 +11,7 @@ across the fleet. Search it, tail it live, or attach alert rules to it.
   `log_alert` event fires (inbox + webhooks). Rules can be global or
   per-device, with cooldowns so a log storm doesn't page you 400 times.
 
-## Clearing a noisy line *(v6.3.1)*
+## Clearing a noisy line *(v6.4.0)*
 
 A rule matches a **class** of lines. `err|warn|critical|FATAL` on a PHP-FPM
 unit will keep firing on the same routine message forever, and the two obvious

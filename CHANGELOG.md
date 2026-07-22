@@ -2,10 +2,16 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.3.1 — "Tr1ageMatters" — unreleased (test)
+## v6.4.0 — "Sh1eldMatters" — unreleased (test)
 
-The agentic-diagnosis release: when something is wrong and nobody knows where,
-point the AI at the host — with hard budgets, redaction and an evidence trail.
+The security-and-protection release. Integrity-guard/baseline checks that
+actually stop when you disable them, a full public-facing security review and
+pentest pass (no Critical/High/Medium accepted), and agentic diagnosis used
+defensively — sweep the logs, follow the evidence, write a verdict, all under
+hard budgets, secret redaction and a visible evidence trail. Plus a data-
+binding sweep so everything the agent collects lands where it belongs (UI,
+RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
+performance wave.
 
 ### Protect/baseline checks actually stop when you disable them (field report)
 - **Disable now disables everywhere.** The Checks-page Disable button used to
@@ -645,7 +651,7 @@ point the AI at the host — with hard budgets, redaction and an evidence trail.
 
 ### Security sweep — project-wide bug hunt (3 LOW fixed)
 A thorough bug-hunt/security sweep (SAST + three parallel adversarial reviewers),
-weighted toward the new v6.3.1 code. The new code was found notably well-hardened
+weighted toward the new v6.4.0 code. The new code was found notably well-hardened
 (the binary NetFlow/IPFIX/sFlow parser is comprehensively bounds-checked; UI
 escaping is disciplined); three LOW defects were found and fixed, each
 regression-tested:
@@ -658,10 +664,10 @@ regression-tested:
 - **AI daily-cap mis-accounting** — the per-user AI request cap was debited
   before the 404/400 validation checks, so a request that made no provider call
   still spent quota. Now debited only when a provider call is about to happen.
-See [security-review-6.3.1.md](docs/security-review-6.3.1.md) for the full write-up.
+See [security-review-6.4.0.md](docs/security-review-6.4.0.md) for the full write-up.
 
 ### Wave 7 — multi-lens review fixes (security / correctness / a11y)
-Findings from a security + UX + code-quality + product review of the v6.3.1
+Findings from a security + UX + code-quality + product review of the v6.4.0
 waves, fixed before release:
 - **HIGH (cross-tenant) — compliance report leak.** `_compliance_facts` read
   `DEVICES_FILE` unscoped, and the compliance evidence strings embed offender

@@ -15,7 +15,7 @@ inbound ports. Up and running in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.3.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -156,7 +156,7 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 - **CMDB + RAG search** — assets, an encrypted credentials vault, a
   Knowledge Base, and an AI assistant that cites *your* fleet's own data.
 - **Stay compliant** — OpenSCAP CIS/STIG/PCI scans, PCI/HIPAA/SOC 2 mapping.
-- **Integrate** — 42 connectors (homelab apps, hypervisors, and EDR — Wazuh,
+- **Integrate** — 43 connectors (homelab apps, hypervisors, and EDR — Wazuh,
   CrowdStrike, SentinelOne — cross-referenced to find hosts with no EDR at all)
   plus a code-free custom-HTTP-probe plugin, Prometheus/Grafana endpoints,
   webhooks, syslog, and an MCP server.
@@ -168,14 +168,16 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
-- **v6.3.1 "Tr1ageMatters"** — agentic diagnosis: a **hail-mary log sweep**
-  ("Diagnose from logs" — a bounded, secret-redacted snapshot of a host's
-  recently-modified `/var/log` tails, ranked by error density, with an AI
-  root-cause read) and **agentic alert triage** — the model investigates one
-  alert through read-only evidence tools (journal, log search, sibling alerts,
-  the latest sweep; strict JSON protocol, hard tool budget) and stores a
-  verdict with its evidence trail on the alert. The model never executes
-  anything; acting on a verdict stays on the approval-gated paths.
+- **v6.4.0 "Sh1eldMatters"** — the security-and-protection release. Integrity-
+  guard and baseline checks now behave exactly as expected: **disable one and
+  it stops evaluating on the host**, not just in the UI, and accept a
+  legitimate change as the new baseline with one click. Backed by a full,
+  public security review and pentest pass (nothing Critical, High or Medium
+  ships). Plus **agentic diagnosis used defensively** — a bounded, secret-
+  redacted log sweep and read-only alert triage that writes a verdict with its
+  evidence trail — a data-binding sweep so everything the agent collects lands
+  in the UI, RAG and AI context, and a typography / box-overflow / performance
+  polish wave.
 - **v6.3.0 "Fl0wMatters"** — a fourteen-wave UX program: **undo instead of
   "are you sure?"** (topbar undo/redo, deferred-commit deletes, optimistic
   alert ack), a notification center, configuration history with rollback,

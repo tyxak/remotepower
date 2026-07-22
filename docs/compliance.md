@@ -75,7 +75,7 @@ as your audit artifacts.
 > Framework control IDs are indicative and current as of the 2022 ISO revision +
 > the SOC 2 2017 TSC; map to your auditor's current criteria.
 
-## In-app Compliance page — verdicts you can back up *(v6.3.1)*
+## In-app Compliance page — verdicts you can back up *(v6.4.0)*
 
 The **Compliance** page scores a live control checklist from data the fleet
 already reports, across **PCI DSS, HIPAA, SOC 2, ACSC Essential Eight and

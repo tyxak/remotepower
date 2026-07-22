@@ -17323,7 +17323,7 @@ async function loadHome() {
   }
   { const _fn = document.getElementById('home-fleet-note');
     if (_fn) { const t = (home.fleet_note || '').trim();
-      if (t) { _fn.innerHTML = `<div class="fw-500 mb-4">${_icon('edit',14)} Fleet note</div><div class="fs-13">${escHtml(t).replace(/\n/g,'<br>')}</div>`; _fn.classList.remove('d-none'); }
+      if (t) { _fn.innerHTML = `<div class="fw-500 mb-4">${_icon('edit',14)} Fleet note</div><div class="fs-14">${escHtml(t).replace(/\n/g,'<br>')}</div>`; _fn.classList.remove('d-none'); }
       else { _fn.classList.add('d-none'); _fn.innerHTML = ''; } } }
   // The attention payload is embedded so _renderHomeAttention can use
   // it directly without re-fetching /api/attention.
@@ -24578,7 +24578,7 @@ async function loadSigning() {
     <div class="row-8-center mb-12"><strong>Enforcement</strong> ${enPill}
       <strong class="ml-8">Current release</strong> ${sigPill}</div>
     ${sigWhy}
-    <div class="fs-13 c-muted mb-12">${s.has_key
+    <div class="fs-14 c-muted mb-12">${s.has_key
       ? `Server signing key: <code class="ff-mono">${escHtml(s.fingerprint)}</code>`
       : 'No server signing key yet.'}</div>
     <div class="row-8-center">

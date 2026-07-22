@@ -36,7 +36,7 @@ even queue commands for it. The server cannot clear the file — only someone wi
 access to the host can. Remove the file to restore normal operation. Enforced
 identically by the Linux, Windows and macOS agents.
 
-## Signed commands (v6.3.1)
+## Signed commands (v6.4.0)
 
 The same trust model as signed self-update, applied to **every dispatched
 command**. The server detach-signs each command with the release signing key

@@ -62,7 +62,7 @@ async function loadDriftProfiles() {
   _driftProfiles = data.profiles || [];
   _driftAssignments = data.assignments || [];
   if (!_driftProfiles.length) {
-    body.innerHTML = '<div class="c-muted fs-13">No drift profiles yet. Create one to apply a reusable watched-file set to a device, tag, or group.</div>';
+    body.innerHTML = '<div class="c-muted fs-14">No drift profiles yet. Create one to apply a reusable watched-file set to a device, tag, or group.</div>';
     return;
   }
   const scopeChip = (a) => `<span class="tag-pill">${escHtml(a.scope_type)}: ${escHtml(a.scope_value)}` +
