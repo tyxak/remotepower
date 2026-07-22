@@ -817,8 +817,18 @@ def _guard_quarantine(paths, check_id):
                 os.chmod(str(dst), 0o600)
             except OSError:
                 pass
-            ledger.append({'id': qid, 'orig': p, 'check': str(check_id),
-                           'ts': int(time.time())})
+            meta = {'id': qid, 'orig': p, 'check': str(check_id),
+                    'ts': int(time.time())}
+            # Sidecar: the vault is SELF-DESCRIBING so a file stays restorable
+            # even if the append-only ledger rotates. Never rely on the log for
+            # the id -> original-path mapping, or trimming it orphans the file.
+            try:
+                with open(str(vault / (qid + '.meta')), 'w') as mf:
+                    json.dump(meta, mf)
+                os.chmod(str(vault / (qid + '.meta')), 0o600)
+            except OSError:
+                pass
+            ledger.append(meta)
             moved += 1
         except OSError:
             continue
@@ -830,23 +840,41 @@ def _guard_quarantine(paths, check_id):
     return moved
 
 
+def _guard_vault_entry(qid):
+    """Read one quarantined item's sidecar metadata, or None."""
+    try:
+        with open(str(STATE_DIR / 'guard-quarantine' / (str(qid) + '.meta'))) as mf:
+            e = json.load(mf)
+        return e if isinstance(e, dict) and e.get('orig') else None
+    except (OSError, ValueError):
+        return None
+
+
 def _guard_ledger(limit=50):
-    """Recent quarantine ledger entries for the server's Protect view.
-    Each: {id, orig, check, ts}. Reads the JSON-lines vault log."""
-    raw = _safe_state_read_big('guard-quarantine.log') or ''
+    """What is actually IN the vault right now, newest first — this drives the
+    server's Protect view and therefore what can be restored.
+
+    Reads the per-file sidecars, NOT the append-only log: the log is trimmed, so
+    using it here would make an older file invisible (and un-restorable) while it
+    still sits on disk.
+    """
+    vault = STATE_DIR / 'guard-quarantine'
     out = []
-    for ln in raw.splitlines()[-limit:]:
-        ln = ln.strip()
-        if not ln:
+    try:
+        names = sorted(p.name for p in vault.iterdir() if p.name.endswith('.meta'))
+    except OSError:
+        return []
+    for name in names:
+        qid = name[:-5]
+        if not (vault / qid).exists():       # payload gone -> nothing to restore
             continue
-        try:
-            e = json.loads(ln)
-        except ValueError:
+        e = _guard_vault_entry(qid)
+        if not e:
             continue
-        if isinstance(e, dict) and e.get('id'):
-            out.append({'id': str(e.get('id'))[:64], 'orig': str(e.get('orig', ''))[:512],
-                        'check': str(e.get('check', ''))[:64], 'ts': int(e.get('ts', 0) or 0)})
-    return out
+        out.append({'id': str(e.get('id', qid))[:64], 'orig': str(e.get('orig', ''))[:512],
+                    'check': str(e.get('check', ''))[:64], 'ts': int(e.get('ts', 0) or 0)})
+    out.sort(key=lambda x: x['ts'], reverse=True)
+    return out[:limit]
 
 
 def _apply_guard_actions(actions):
@@ -856,55 +884,48 @@ def _apply_guard_actions(actions):
     the ledger. Read-only over anything but the vault + the origin path."""
     import shutil
     vault = STATE_DIR / 'guard-quarantine'
-    raw = _safe_state_read_big('guard-quarantine.log') or ''
-    by_id = {}
-    for ln in raw.splitlines():
-        s = ln.strip()
-        if not s:
-            continue
-        try:
-            e = json.loads(s)
-        except ValueError:
-            continue
-        if isinstance(e, dict) and e.get('id'):
-            by_id[str(e['id'])] = e
     handled = set()
     for a in actions:
         if not isinstance(a, dict):
             continue
         qid, op = str(a.get('id', '')), a.get('op')
-        e = by_id.get(qid)
+        # The sidecar is the source of truth, so a trimmed log never costs us
+        # the ability to put a file back.
+        e = _guard_vault_entry(qid)
         if not e:
+            log.warning(f'guard {op}: no vault metadata for {qid}')
             continue
-        src = vault / qid
+        src, meta = vault / qid, vault / (qid + '.meta')
         try:
             if op == 'delete':
-                try:
-                    src.unlink()
-                except FileNotFoundError:
-                    pass
+                for f in (src, meta):
+                    try:
+                        f.unlink()
+                    except FileNotFoundError:
+                        pass
                 handled.add(qid)
             elif op == 'restore':
                 orig = e.get('orig')
-                if orig and src.is_file() and not Path(orig).exists():
+                if not orig or not src.is_file():
+                    log.warning(f'guard restore {qid}: vault payload missing')
+                elif Path(orig).exists():
+                    # Never clobber whatever now occupies the path — the operator
+                    # must clear it first. Say so instead of failing silently.
+                    log.warning(f'guard restore {qid}: {orig} is occupied, refusing')
+                else:
                     Path(orig).parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src), str(orig))
+                    try:
+                        meta.unlink()
+                    except FileNotFoundError:
+                        pass
+                    log.info(f'guard restore {qid}: put back at {orig}')
                     handled.add(qid)
         except OSError as ex:
             log.warning(f'guard action {op} {qid} failed: {ex}')
-    if handled:
-        remaining = []
-        for ln in raw.splitlines():
-            s = ln.strip()
-            if not s:
-                continue
-            try:
-                d = json.loads(s)
-            except ValueError:
-                continue
-            if str(d.get('id')) not in handled:
-                remaining.append(s)
-        _safe_state_write('guard-quarantine.log', '\n'.join(remaining))
+    # The .log stays APPEND-ONLY: it is the audit trail of what was ever taken,
+    # not the restore index (the sidecars are). Removing the sidecar above is
+    # what drops an item out of the vault view.
     return len(handled)
 
 

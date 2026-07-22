@@ -168,6 +168,24 @@ class TestAgentEval(unittest.TestCase):
         self.assertFalse(shell.exists())                     # NOT restored
         self.assertEqual(agent._guard_ledger(), [])
 
+    def test_restore_survives_a_truncated_ledger(self):
+        """The .log is trimmed over time; restorability must NOT depend on it.
+        The vault sidecar is the source of truth, so a file stays restorable
+        even after its log line is gone."""
+        _d, shell, led = self._quarantine_one()
+        qid = led[0]['id']
+        agent._safe_state_write('guard-quarantine.log', '')   # simulate rotation
+        self.assertEqual(len(agent._guard_ledger()), 1)       # still visible
+        n = agent._apply_guard_actions([{'id': qid, 'op': 'restore'}])
+        self.assertEqual(n, 1)
+        self.assertTrue(shell.exists())
+        self.assertIn('evil()', shell.read_text())
+
+    def test_vault_view_hides_an_item_whose_payload_vanished(self):
+        _d, _shell, led = self._quarantine_one()
+        (agent.STATE_DIR / 'guard-quarantine' / led[0]['id']).unlink()
+        self.assertEqual(agent._guard_ledger(), [])           # nothing to offer
+
     def test_guard_action_ignores_unknown_id(self):
         self._quarantine_one()
         self.assertEqual(agent._apply_guard_actions([{'id': 'nope', 'op': 'delete'}]), 0)

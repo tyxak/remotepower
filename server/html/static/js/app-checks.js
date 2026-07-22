@@ -370,7 +370,6 @@ async function openCustomChecks() {
   });
   openModal('custom-checks-modal');
   loadCustomCheckList();
-  loadGuardVault();
 }
 // ── Integrity Guard: the quarantine vault ──────────────────────────────────
 // Files a dir_baseline check auto-quarantined. Restore/delete are queued as
@@ -426,8 +425,14 @@ function bcKindChanged() {
   const isHost = k === 'host';
   const lbl = document.getElementById('bc-target-label');
   if (lbl) lbl.textContent = isHost ? 'Device' : k === 'tag' ? 'Tag' : 'Group';
-  const inp = document.getElementById('bc-target');            // hidden holds the id for host
-  if (inp) { inp.classList.toggle('hidden', isHost); inp.placeholder = k === 'tag' ? 'tag name' : 'group name'; if (isHost) inp.value = ''; }
+  // For a host the plain input is hidden and only holds the picked device id —
+  // the visible control is the device typeahead. tag/group keep the text input.
+  const inp = document.getElementById('bc-target');
+  if (inp) {
+    inp.classList.toggle('hidden', isHost);
+    inp.placeholder = isHost ? '' : k === 'tag' ? 'tag name' : 'group name';
+    if (isHost) inp.value = '';
+  }
   document.getElementById('bc-host-pick')?.classList.toggle('hidden', !isHost);
 }
 // Host target is a device search typeahead (never a raw id field) — mirrors the
@@ -459,12 +464,19 @@ function _bcRenderCatalog() {
   const cats = {};
   _bcCatalog.forEach(t => { (cats[t.cat] = cats[t.cat] || []).push(t); });
   el.innerHTML = Object.keys(cats).map(cat =>
-    `<div class="section-title mt-8">${escHtml(cat)}</div>` +
+    `<div class="section-title bc-cat">${escHtml(cat)}</div>` +
     cats[cat].map(t =>
-      `<label class="click-row-mb6"><input type="checkbox" class="bc-chk" value="${escAttr(t.id)}"> ` +
-      `<strong>${escHtml(t.name)}</strong> <span class="meta-sm">${escHtml(t.type)}` +
-      `${t.target_kind ? ' · ' + escHtml(t.target_kind) + ':' + escHtml(t.target || '') : ''}</span>` +
-      `<div class="meta-sm c-muted">${escHtml(t.desc || '')}</div></label>`
+      `<label class="bc-row"><input type="checkbox" class="bc-chk" value="${escAttr(t.id)}">` +
+      `<span class="bc-row-body">` +
+        `<span class="bc-row-head">` +
+          `<span class="bc-row-name">${escHtml(t.name)}</span>` +
+          `<span class="patch-badge ok fs-11">${escHtml(t.type)}</span>` +
+          (t.target_kind
+            ? `<span class="bc-row-scope">${escHtml(t.target_kind)}: ${escHtml(t.target || '')}</span>`
+            : '') +
+        `</span>` +
+        `<span class="bc-row-desc">${escHtml(t.desc || '')}</span>` +
+      `</span></label>`
     ).join('')
   ).join('');
 }

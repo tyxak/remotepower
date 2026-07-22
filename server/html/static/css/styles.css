@@ -4531,6 +4531,20 @@ body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block
 .toolbar-mb24 { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
 .click-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .click-row-mb6 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; cursor: pointer; }
+/* Baseline-check catalog rows. A two-column grid (checkbox | body) so the name,
+   the type badge and the description all align on the same left edge instead of
+   becoming flex siblings on one wrapping line (which .click-row-mb6 would do). */
+.bc-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start;
+          padding: 9px 4px; border-top: 1px solid var(--hair); cursor: pointer; }
+.bc-row:first-of-type { border-top: none; }
+.bc-row:hover { background: var(--surface2); }
+.bc-row > input { margin: 3px 0 0; }
+.bc-row-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bc-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bc-row-name { font-size: 13px; font-weight: 620; }
+.bc-row-scope { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.bc-row-desc { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.bc-cat { margin-top: 14px; }
 /* Unified with .click-row / .click-row-mb6 so every checkbox→label gap is 8px
    (checkmarks line up consistently across Settings). */
 .click-row-6 { display: flex; align-items: center; gap: 8px; cursor: pointer; }

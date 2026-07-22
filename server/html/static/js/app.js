@@ -2230,6 +2230,7 @@ document.addEventListener('keydown', e => {
 // runtime (the classic JS failure mode this repo documents).
 const _LAZY_PAGE_MODULES = {
   checks: ['app-checks.js'],
+  protect: ['app-checks.js'],   // Integrity Guard vault renderer
   dmarc: ['app-dmarc.js'],
   gpus: ['app-gpu.js'],
   kb: ['app-kb.js'],
@@ -2434,6 +2435,7 @@ function showPage(name, btn) {
   if (name === 'rollouts')   loadRollouts();
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
+  if (name === 'protect')    loadGuardVault();
   if (name === 'firewall')   loadFirewall();
   if (name === 'files')      loadFileMgr();
   if (name === 'cron')       loadCron();
