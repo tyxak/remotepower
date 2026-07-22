@@ -397,8 +397,11 @@ async function openCustomChecks(kind) {
 // Same rows as the operational list, filtered to protect checks, so Protect is
 // self-contained: apply, review, tune and see what was quarantined in one page.
 async function loadProtectChecks() {
-  const el = document.getElementById('pc-list');
+  const el = document.getElementById('pc-tbody');
   if (!el) return;
+  // Eager wire-up: before the fetch, so the sort indicators are there even
+  // while loading (the documented pattern).
+  tableCtl.wireSortOnly('pc-thead', 'protectchecks', _pcRender);
   const data = await api('GET', '/checks/custom');
   const checks = (data && data.checks) || [];
   _ccCache = checks;                       // so editCustomCheck(id) resolves
@@ -407,23 +410,37 @@ async function loadProtectChecks() {
     _ccDevNames = {};
     (devs || []).forEach(d => { _ccDevNames[d.id] = d.name || d.id; });
   } catch (_) { /* keep whatever we had */ }
-  const rows = checks.filter(_ccIsProtect);
-  if (!rows.length) {
-    el.innerHTML = '<div class="empty-state">No protect checks applied yet. Use “Baseline protect checks” for a recommended set, or “Add protect check” to define one.</div>';
+  _pcRows = checks.filter(_ccIsProtect);
+  _pcRender();
+}
+let _pcRows = [];
+function _pcScope(c) {
+  return c.target_kind === 'all' ? 'whole fleet'
+    : c.target_kind === 'host' ? `host: ${_ccDevNames[c.target] || c.target}`
+    : `${c.target_kind}: ${c.target}`;
+}
+function _pcRender() {
+  const el = document.getElementById('pc-tbody');
+  if (!el) return;
+  if (!_pcRows.length) {
+    el.innerHTML = '<tr><td colspan="5" class="hint">No protect checks applied yet. Use “Baseline protect checks” for a recommended set, or “Add protect check” to define one.</td></tr>';
     return;
   }
-  const scope = c => c.target_kind === 'all' ? 'whole fleet'
-    : c.target_kind === 'host' ? `host: ${escHtml(_ccDevNames[c.target] || c.target)}`
-    : `${c.target_kind}: ${escHtml(c.target)}`;
-  el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
-    rows.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td>` +
-      `<td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span>${c.protect === 'quarantine' ? ' <span class="patch-badge fs-11" title="Auto-quarantine is on for this check">guard</span>' : ''}</td>` +
-      `<td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td>` +
-      `<td><div class="user-actions">` +
-      `<button class="btn-icon btn-xs" data-action="editProtectCheck" data-arg="${escAttr(c.id)}" title="Edit this check">${_icon('edit', 14)}</button>` +
-      `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteProtectCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}" title="Delete">${_icon('trash', 14)}</button>` +
-      `</div></td></tr>`).join('')
-  }</tbody></table></div>`;
+  const rows = tableCtl.sortRows('protectchecks', _pcRows, c => ({
+    name: (c.name || '').toLowerCase(),
+    type: (c.type || '').toLowerCase(),
+    param: (c.param || '').toLowerCase(),
+    scope: _pcScope(c).toLowerCase(),
+  }));
+  // Chunked: a fleet-wide apply can be hundreds of rows.
+  tableCtl.renderChunked(el, rows.map(c =>
+    `<tr><td class="fw-500">${escHtml(c.name)}</td>` +
+    `<td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span>${c.protect === 'quarantine' ? ' <span class="patch-badge fs-11" title="Auto-quarantine is on for this check">guard</span>' : ''}</td>` +
+    `<td class="mono-12">${escHtml(c.param)}</td><td class="hint">${escHtml(_pcScope(c))}</td>` +
+    `<td><div class="user-actions">` +
+    `<button class="btn-icon btn-xs" data-action="editProtectCheck" data-arg="${escAttr(c.id)}" title="Edit this check">${_icon('edit', 14)}</button>` +
+    `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteProtectCheck" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name)}" title="Delete">${_icon('trash', 14)}</button>` +
+    `</div></td></tr>`), {colspan: 5});
 }
 function editProtectCheck(id) {
   openCustomChecks('protect');   // the form lives in the modal
@@ -443,17 +460,33 @@ async function deleteProtectCheck(id, name) {
 // Files a dir_baseline check auto-quarantined. Restore/delete are queued as
 // one-shot directives the agent applies on its next check-in.
 async function loadGuardVault() {
-  const el = document.getElementById('guard-vault');
+  const el = document.getElementById('guard-vault-tbody');
   if (!el) return;
+  tableCtl.wireSortOnly('guard-vault-thead', 'guardvault', _gvRender);
   const data = await api('GET', '/guard/quarantine');
-  const items = (data && data.items) || [];
-  if (!items.length) {
-    el.innerHTML = '<div class="empty-state">Nothing quarantined.</div>';
+  _gvRows = (data && data.items) || [];
+  _gvRender();
+}
+let _gvRows = [];
+function _gvRender() {
+  const el = document.getElementById('guard-vault-tbody');
+  if (!el) return;
+  if (!_gvRows.length) {
+    el.innerHTML = '<tr><td colspan="4" class="hint">Nothing quarantined.</td></tr>';
     return;
   }
-  el.innerHTML = `<div class="table-card"><table><thead><tr><th>Host</th><th>Original path</th><th>Quarantined</th><th></th></tr></thead><tbody>${
-    items.map(i => `<tr><td class="fw-500">${escHtml(i.device)}</td><td class="mono-12">${escHtml(i.orig)}</td><td class="hint">${escHtml(_fmtTs(i.ts))}</td><td><div class="user-actions"><button class="btn-icon btn-xs" title="Restore to its original path" data-action="restoreQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('undo', 14)}</button><button class="btn-icon btn-xs c-danger-outline" title="Delete from the vault" data-action="deleteQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('trash', 14)}</button></div></td></tr>`).join('')
-  }</tbody></table></div>`;
+  const rows = tableCtl.sortRows('guardvault', _gvRows, i => ({
+    device: (i.device || '').toLowerCase(),
+    orig: (i.orig || '').toLowerCase(),
+    ts: i.ts || 0,
+  }));
+  tableCtl.renderChunked(el, rows.map(i =>
+    `<tr><td class="fw-500">${escHtml(i.device)}</td><td class="mono-12">${escHtml(i.orig)}</td>` +
+    `<td class="hint">${escHtml(_fmtTs(i.ts))}</td>` +
+    `<td><div class="user-actions">` +
+    `<button class="btn-icon btn-xs" title="Restore to its original path" data-action="restoreQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('undo', 14)}</button>` +
+    `<button class="btn-icon btn-xs c-danger-outline" title="Delete from the vault" data-action="deleteQuarantine" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.id)}">${_icon('trash', 14)}</button>` +
+    `</div></td></tr>`), {colspan: 4});
 }
 async function _guardAction(deviceId, id, op, msg) {
   const r = await api('POST', '/guard/action', { device_id: deviceId, id: id, op: op });

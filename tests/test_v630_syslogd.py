@@ -171,6 +171,50 @@ class TestOpsWiring(unittest.TestCase):
         self.assertNotIn('User=r', unit)
         self.assertIn('ProtectSystem=strict', unit)
 
+class TestDropReasonIsDiagnostic(unittest.TestCase):
+    """An enrolled device with no syslog token used to log the same "unknown
+    source" line as a genuinely unknown IP, which sends people hunting the wrong
+    problem. The two states must be distinguishable."""
+
+    def _map(self, devices, tokens):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('rp_syslogd', _DAEMON)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        class _R:
+            def load(self, name):
+                return {'devices.json': devices,
+                        'inbound_webhooks.json': tokens}.get(name, {})
+        sm = mod.SourceMap(_R())
+        sm._refresh()
+        return sm
+
+    def test_enrolled_with_token_resolves(self):
+        sm = self._map({'d1': {'ip': '10.0.0.4'}},
+                       {'tokens': [{'kind': 'syslog', 'enabled': True,
+                                    'scope_device_id': 'd1', 'token': 'tok'}]})
+        self.assertEqual(sm.token_for('10.0.0.4'), 'tok')
+        self.assertIn('10.0.0.4', sm.enrolled_ips)
+
+    def test_enrolled_without_token_is_still_recognised_as_enrolled(self):
+        sm = self._map({'d1': {'ip': '10.0.0.4'}}, {'tokens': []})
+        self.assertIsNone(sm.token_for('10.0.0.4'))
+        # THE POINT: "enrolled but no token" is distinguishable from "who?"
+        self.assertIn('10.0.0.4', sm.enrolled_ips)
+
+    def test_a_disabled_token_does_not_resolve_but_ip_is_known(self):
+        sm = self._map({'d1': {'ip': '10.0.0.4'}},
+                       {'tokens': [{'kind': 'syslog', 'enabled': False,
+                                    'scope_device_id': 'd1', 'token': 'tok'}]})
+        self.assertIsNone(sm.token_for('10.0.0.4'))
+        self.assertIn('10.0.0.4', sm.enrolled_ips)
+
+    def test_genuinely_unknown_ip(self):
+        sm = self._map({'d1': {'ip': '10.0.0.4'}}, {'tokens': []})
+        self.assertIsNone(sm.token_for('203.0.113.9'))
+        self.assertNotIn('203.0.113.9', sm.enrolled_ips)
+
 
 if __name__ == '__main__':
     unittest.main()

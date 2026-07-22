@@ -115,6 +115,7 @@ class SourceMap:
     def __init__(self, reader):
         self.reader = reader
         self._map = {}
+        self.enrolled_ips = set()
         self._at = 0.0
 
     def _refresh(self):
@@ -125,13 +126,20 @@ class SourceMap:
             if (t.get('kind') == 'syslog' and t.get('enabled', True)
                     and t.get('scope_device_id') and t.get('token')):
                 by_dev[t['scope_device_id']] = t['token']
-        m = {}
+        m, enrolled = {}, set()
         for dev_id, dev in devices.items():
             ip = (dev or {}).get('ip')
+            if not ip:
+                continue
+            # Remember every enrolled IP, not just the ones that resolved, so a
+            # drop can say WHICH half is missing. "unknown source" on a device
+            # that is plainly enrolled sends people hunting the wrong problem.
+            enrolled.add(str(ip))
             tok = by_dev.get(dev_id)
-            if ip and tok:
+            if tok:
                 m[str(ip)] = tok
         self._map = m
+        self.enrolled_ips = enrolled
         self._at = time.monotonic()
 
     def token_for(self, src_ip):
@@ -182,8 +190,15 @@ def serve(bind=BIND, reader=None, once=False):
             now = time.monotonic()
             if now - unknown_logged.get(src, 0) >= UNKNOWN_LOG_EVERY_S:
                 unknown_logged[src] = now
-                log.info('dropping syslog from unknown source %s (no enrolled '
-                         'device with this IP + a syslog inbound token)', src)
+                if src in srcmap.enrolled_ips:
+                    log.info('dropping syslog from %s: the device IS enrolled but '
+                             'has no enabled syslog ingest token. Create one under '
+                             'Settings -> Inbound webhooks (kind: syslog) scoped to '
+                             'that device, then point the sender here.', src)
+                else:
+                    log.info('dropping syslog from unknown source %s: no enrolled '
+                             'device has this IP. Check the device record\'s IP '
+                             'matches the address the logs actually arrive from.', src)
             return
         post_lines(tok, lines)
 

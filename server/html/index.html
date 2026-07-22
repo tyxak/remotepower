@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-19">
+<link rel="stylesheet" href="static/css/styles.css?v=6.3.1-20">
 
 </head>
 <body>
@@ -6362,7 +6362,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="loadScans"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon" data-action="clearScans" title="Remove all finished scans (done/failed/cancelled) and their findings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Clear finished</button>
           <input type="text" id="scan-device-search" class="form-input input-auto" placeholder="Search a device…" autocomplete="off" aria-label="Search a device">
-          <select id="scan-tool" class="form-input input-auto" title="Scan tool" aria-label="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="all">All tools</option><option value="lynis">lynis (on-host audit)</option></select>
+          <select id="scan-tool" class="form-input input-auto" title="Scan tool" aria-label="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="wpscan">wpscan (WordPress)</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="all">All tools</option><option value="lynis">lynis (on-host audit)</option></select>
           <select id="scan-profile" class="form-input input-auto" title="Passive = safe. Active = intrusive (sends attack traffic)." aria-label="Passive = safe. Active = intrusive (sends attack traffic)"><option value="passive">passive</option><option value="active">active (intrusive)</option></select>
           <select id="scan-intensity" class="form-input input-auto" title="Quick = fast/shallow. Full = thorough (all ports/severities, slower)." aria-label="Quick = fast/shallow. Full = thorough (all ports/severities, slower)"><option value="quick">quick</option><option value="full">full</option></select>
           <input type="text" id="scan-vhost" class="form-input input-auto" placeholder="vhost (optional)" title="Scan a specific hostname/vhost on this device instead of its IP. Must be an ownership-verified web target." aria-label="vhost (optional)">
@@ -7065,7 +7065,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon" data-action="loadProtectChecks"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
           <p class="hint">Hardening and tamper-detection checks applied to this fleet. They evaluate exactly like any other check — results show per host on <span class="fw-600">Monitoring → Checks</span> and alert through your normal channels. A <span class="fw-600">guard</span> badge means auto-quarantine is enabled for that check. Agent-side results arrive on the next sysinfo report (up to ~10 min), so new rows read <span class="mono-12">unknown</span> until then. <a href="docs/integrity-guard.md" class="c-accent">Documentation</a></p>
-          <div id="pc-list" class="mt-8"><div class="empty-state">Loading…</div></div>
+          <div class="scrollable-table-wrap audit-scroll mt-8"><table><thead id="pc-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="type">Type</th><th scope="col" data-col="param">Param</th><th scope="col" data-col="scope">Applies to</th><th scope="col"></th></tr></thead><tbody id="pc-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody></table></div>
         </div>
 
         <div class="dash-card">
@@ -7074,7 +7074,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon" data-action="loadGuardVault"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
           <p class="hint">Restore returns a file to its original path — only if that path is still free, so a replacement is never overwritten. Delete removes it from the vault permanently. Both are applied by the agent on its next check-in. Quarantine is suppressed during an active maintenance window, and a mass change (a deploy) is reported rather than quarantined.</p>
-          <div id="guard-vault" class="mt-8"><div class="empty-state">Loading…</div></div>
+          <div class="scrollable-table-wrap audit-scroll mt-8"><table><thead id="guard-vault-thead"><tr><th scope="col" data-col="device">Host</th><th scope="col" data-col="orig">Original path</th><th scope="col" data-col="ts">Quarantined</th><th scope="col"></th></tr></thead><tbody id="guard-vault-tbody"><tr><td colspan="4" class="hint">Loading…</td></tr></tbody></table></div>
         </div>
       </div>
 
@@ -10541,34 +10541,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.3.1-19"></script>
+<script defer src="static/js/app.js?v=6.3.1-20"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-cmdb.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-containers.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-network.js?v=6.3.1-19"></script>
+<script defer src="static/js/app-calendar.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-cmdb.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-containers.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-network.js?v=6.3.1-20"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-compliance.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-integrations.js?v=6.3.1-19"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-compliance.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-integrations.js?v=6.3.1-20"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-dns.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-drift.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-cve.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-firewall.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-backups.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-iac.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-proxmox.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-virt.js?v=6.3.1-19"></script>
+<script defer src="static/js/app-ai.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-dns.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-drift.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-cve.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-firewall.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-backups.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-iac.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-proxmox.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-virt.js?v=6.3.1-20"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-logs.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-remote.js?v=6.3.1-19"></script>
-<script defer src="static/js/app-tickets.js?v=6.3.1-19"></script>
+<script defer src="static/js/app-alerts.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-logs.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-remote.js?v=6.3.1-20"></script>
+<script defer src="static/js/app-tickets.js?v=6.3.1-20"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10577,6 +10577,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.3.1-19"></script>
+<script defer src="static/js/sw-register.js?v=6.3.1-20"></script>
 </body>
 </html>
