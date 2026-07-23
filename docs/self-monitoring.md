@@ -19,13 +19,27 @@ The Server status page (`/api/self/status`) closes the "who monitors the monitor
 
 **Audit log** — active entry count, configured retention in days, archive size if any entries have been evicted.
 
-**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs. v5.0.0 adds an **encryption** row (AES-256-GCM armed or plaintext, whether the crypto library is present) and **archive counts** (encrypted vs plaintext), plus an **"Encrypt existing backups"** button that converts the plaintext archives on disk with a passphrase you supply for that run only (it's never stored). For ongoing scheduled backups, set `RP_BACKUP_PASSPHRASE` in the server environment — put it in `/etc/remotepower/api.env` (root-owned `0600`), which the `remotepower-api` worker unit loads via `EnvironmentFile=`. Don't add it as an inline `Environment=` line in the unit: the deploy/update scripts overwrite the unit file, so an inline edit is wiped on the next redeploy.
+**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs. v5.0.0 adds an **encryption** row (AES-256-GCM armed or plaintext, whether the crypto library is present) and **archive counts** (encrypted vs plaintext), plus an **"Encrypt existing backups"** button that converts the plaintext archives on disk with a passphrase you supply for that run only (it's never stored). For ongoing scheduled backups, set `RP_BACKUP_PASSPHRASE` in the server environment — put it in `/etc/remotepower/api.env` (root-owned `0600`), which the `remotepower-wsgi` app-server unit loads via `EnvironmentFile=`. Don't add it as an inline `Environment=` line in the unit: the deploy/update scripts overwrite the unit file, so an inline edit is wiped on the next redeploy.
 
 **Maintenance mode** (v5.0.0) — when on, new command dispatch is paused (heartbeats and browsing keep working). Surfaced as a banner; toggled under Settings → Advanced.
 
 **Webhook dead-letter queue** (v5.0.0) — permanently-failed webhook deliveries are parked here for retry/replay (Settings → Notifications → Webhook log). See [webhooks.md](webhooks.md).
 
 **Fleet events** — current rolling file size, archive size.
+
+**Client-side JS errors** (v6.4.0) — the browser error beacon
+(`window.onerror` / `unhandledrejection`, collected since v5.4.1) is rendered
+as a card on this page: uncaught frontend errors from operators' sessions,
+deduped-by-occurrence in a capped ring, newest first, with source file/line,
+the page they fired on and the reporting IP. Admin-only (`GET
+/api/client-error`), with a **Clear** action (`DELETE /api/client-error`) —
+after a fix ships, the list staying empty is the verification.
+
+**Detection self-test** (v6.3.1) — a read-only card verifying the
+detection → routing → delivery chain is intact for every alertable event type
+(muted-everywhere kinds, test mode left on, webhook-routed kinds with no
+destination, recover events that can never close their alert). It fires
+nothing; see [detection-selftest.md](detection-selftest.md).
 
 ## Where the data lives
 

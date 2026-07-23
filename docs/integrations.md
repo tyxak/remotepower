@@ -35,7 +35,10 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
   (anti-rebinding) and redirects are not followed.
 - Credentials are stored server-side and redacted from `GET /api/config` and
   `GET /api/integrations` (a `*_set` boolean is returned instead of the value).
-- All polling is read-only — RemotePower never changes the target's state.
+- Polling is read-only — RemotePower never changes the target's state. The one
+  deliberate exception is **DNS-blocker control** (Pi-hole / AdGuard): an admin
+  can pause blocking for a bounded window (30 s – 4 h, always self-re-enabling,
+  audit-logged) from the Integrations page — see [dns-control.md](dns-control.md).
 
 ## Supported targets
 
@@ -43,15 +46,17 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 |----------|---------|
 | DNS | **Pi-hole** (v6), **AdGuard Home** |
 | Storage / NAS | **TrueNAS** (CORE/SCALE), **Unraid** |
-| Virtualization / orchestration | **Kubernetes / k3s**, **VMware vCenter/ESXi**, **Proxmox Backup Server** |
+| Virtualization / orchestration | **Kubernetes / k3s**, **VMware vSphere / ESXi / vCenter**, **Red Hat OpenShift**, **VMware Cloud Director**, **Proxmox Backup Server** |
 | Network | **UniFi Network** |
 | Reverse proxy / certs | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
 | Observability | **Netdata**, **Grafana**, **Uptime Kuma**, **RemotePower (peer instance)** |
+| Security / EDR | **Wazuh**, **CrowdStrike Falcon**, **SentinelOne** — each reports the hosts it protects, cross-referenced by `GET /api/edr/coverage` to name the machines with no EDR at all (see [edr-coverage.md](edr-coverage.md)) |
 | Media | **Jellyfin**, **Plex**, **Immich**, **Frigate** |
-| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
+| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **WordPress** (site health + the last 5 logins with source IP, via an Application password and the Simple History plugin's REST API; IPs geo-enriched when a GeoIP MMDB is configured), **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
 | Download clients | **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet** |
 | Media automation | **Servarr** (Sonarr / Radarr / Prowlarr / Lidarr — one connector), **Bazarr** |
 | Requests | **Overseerr / Jellyseerr** |
+| Custom | **Custom HTTP probe** — declarative, code-free: turn any endpoint's status code / JSON field into a health signal (see [writing-a-connector.md](writing-a-connector.md) for going beyond it) |
 
 ### Credentials at a glance
 

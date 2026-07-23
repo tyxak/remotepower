@@ -69,7 +69,7 @@ it's drawn with box characters and ANSI colour, so it works over plain SSH.
 
 ```text
 ╭─ RemotePower  ·  tviweb01 ───────────────────────────────────────────────╮
-│  version 6.1.1    backend postgres    uptime 3d 4h    load 0.42           │
+│  version 6.4.0    backend postgres    uptime 3d 4h    load 0.42           │
 ├───────────────────────────────────────────────────────────────────────────┤
 │  COMPONENT             STATUS        BOOT       PORT                       │
 │ ▸ ● wsgi               running       enabled    :8090 ✓                    │
@@ -118,7 +118,7 @@ Example:
 
 ```text
 $ rp doctor
-rp doctor — RemotePower 6.1.1, backend=postgres
+rp doctor — RemotePower 6.4.0, backend=postgres
 
   OK   code present (/var/www/remotepower)
   OK   data dir /var/lib/remotepower (mode 700)

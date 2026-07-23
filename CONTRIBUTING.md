@@ -35,7 +35,7 @@ Full documentation is published in the
 
 ## Development setup
 
-Python 3.8+ (CI runs 3.12). The server imports a few runtime deps:
+Python 3.8+ (CI runs 3.14). The server imports a few runtime deps:
 
 ```bash
 python -m pip install bcrypt cryptography dnspython   # + psutil for the agent

@@ -263,7 +263,7 @@ The parts that make this scale without a framework:
   `textContent`/`appendChild`) before touching the DOM, and operator-authored
   URLs go through a scheme allowlist helper before landing in an `href`. The CSP
   is the backstop; escaping is the primary defense.
-- **A translation observer.** Six languages are handled without a framework: a
+- **A translation observer.** Seven languages are handled without a framework: a
   `MutationObserver` translates page text as it's rendered, and a dictionary
   handles the short labels. Adding UI text means adding a dictionary entry, not
   wiring a pipeline.

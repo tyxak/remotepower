@@ -139,8 +139,9 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 ## What you can do with it
 
 - **Monitor & alert** — live metrics, a CheckMK-style Checks page, active
-  monitors (HTTP/DNS/ICMP/TCP), an Alerts inbox with ack/auto-resolve/mute,
-  and one filterable page to tune every alert threshold, grade and score weight.
+  monitors (HTTP/DNS/ICMP/TCP) with attachable SLA/SLO objects (availability
+  targets + error budgets), an Alerts inbox with ack/auto-resolve/mute, and
+  one filterable page to tune every alert threshold, grade and score weight.
 - **See every signal** — SMART/hardware health, GPU, power/UPS, disk-fill
   forecasting, a per-host timeline, log search.
 - **Manage remotely** — shell + Custom Scripts, a file manager and
@@ -176,8 +177,10 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   ships). Plus **agentic diagnosis used defensively** — a bounded, secret-
   redacted log sweep and read-only alert triage that writes a verdict with its
   evidence trail — a data-binding sweep so everything the agent collects lands
-  in the UI, RAG and AI context, and a typography / box-overflow / performance
-  polish wave.
+  in the UI, RAG and AI context, **SLA/SLO objects** for remote probes
+  (availability targets with error budgets, exported as Prometheus gauges), a
+  WordPress connector showing the last logins with IP + geo, and a
+  typography / box-overflow / performance polish wave.
 - **v6.3.0 "Fl0wMatters"** — a fourteen-wave UX program: **undo instead of
   "are you sure?"** (topbar undo/redo, deferred-commit deletes, optimistic
   alert ack), a notification center, configuration history with rollback,

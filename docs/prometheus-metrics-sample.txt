@@ -1,6 +1,10 @@
+# Sample GET /api/metrics output (Prometheus text exposition), generated
+# from a two-device fleet with one HTTP monitor attached to one SLA/SLO
+# object. Regenerate after adding gauges: the exporter is
+# server/cgi-bin/prometheus_export.py.
 # HELP remotepower_info Server build information.
 # TYPE remotepower_info gauge
-remotepower_info{version="1.8.0"} 1
+remotepower_info{version="6.4.0"} 1
 # HELP remotepower_devices_total Total enrolled devices.
 # TYPE remotepower_devices_total gauge
 remotepower_devices_total 2
@@ -9,64 +13,98 @@ remotepower_devices_total 2
 remotepower_devices_online 1
 # HELP remotepower_device_online Whether device is currently online (1/0).
 # TYPE remotepower_device_online gauge
-remotepower_device_online{device="abc123",name="web-1",group="prod",os="Debian 12"} 1
-remotepower_device_online{device="def456",name="nas",group="homelab",os="Alpine 3.19"} 0
+remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
+remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1714000000
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas",group="homelab"} 1713999500
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1784847690
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1784840490
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
-remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 23.5
+remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
+remotepower_device_cpu_percent{device="def456",name="nas-1",group="lab"} 3
 # HELP remotepower_device_mem_percent Memory utilization percentage.
 # TYPE remotepower_device_mem_percent gauge
-remotepower_device_mem_percent{device="abc123",name="web-1",group="prod"} 68.2
+remotepower_device_mem_percent{device="abc123",name="web-1",group="prod"} 43
+remotepower_device_mem_percent{device="def456",name="nas-1",group="lab"} 70
 # HELP remotepower_device_disk_percent Root filesystem usage percentage.
 # TYPE remotepower_device_disk_percent gauge
-remotepower_device_disk_percent{device="abc123",name="web-1",group="prod"} 45.0
+remotepower_device_disk_percent{device="abc123",name="web-1",group="prod"} 61
+remotepower_device_disk_percent{device="def456",name="nas-1",group="lab"} 82
 # HELP remotepower_device_upgradable_packages Pending package upgrades.
 # TYPE remotepower_device_upgradable_packages gauge
-remotepower_device_upgradable_packages{device="abc123",name="web-1",group="prod",manager="apt"} 3
 # HELP remotepower_device_cve_findings CVE findings by severity (excludes ignored).
 # TYPE remotepower_device_cve_findings gauge
-remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="critical"} 1
-remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="high"} 1
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="critical"} 0
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="high"} 0
 remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="medium"} 0
 remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="low"} 0
 remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="unknown"} 0
-remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="critical"} 0
-remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="high"} 0
-remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="medium"} 0
-remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="low"} 0
-remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="unknown"} 0
+remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severity="critical"} 0
+remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severity="high"} 0
+remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severity="medium"} 0
+remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severity="low"} 0
+remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severity="unknown"} 0
 # HELP remotepower_monitor_up Whether a configured monitor target is up.
 # TYPE remotepower_monitor_up gauge
-remotepower_monitor_up{label="api",type="http",target="https://example.test"} 1
+remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="api",type="http",target="https://example.test"} 1714000000
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1784787990
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
-remotepower_service_active{device="abc123",name="web-1",group="prod",unit="nginx.service",sub="running"} 1
-remotepower_service_active{device="abc123",name="web-1",group="prod",unit="postgresql.service",sub="dead"} 0
 # HELP remotepower_services_down_total Number of watched services currently not active per device.
 # TYPE remotepower_services_down_total gauge
-remotepower_services_down_total{device="abc123",name="web-1",group="prod"} 1
 # HELP remotepower_maintenance_windows_active Number of currently-active maintenance windows.
 # TYPE remotepower_maintenance_windows_active gauge
-remotepower_maintenance_windows_active 1
+remotepower_maintenance_windows_active 0
 # HELP remotepower_commands_pending_total Commands waiting to be picked up.
 # TYPE remotepower_commands_pending_total gauge
-remotepower_commands_pending_total 1
+remotepower_commands_pending_total 0
 # HELP remotepower_scheduled_jobs_total Scheduled jobs currently queued.
 # TYPE remotepower_scheduled_jobs_total gauge
 remotepower_scheduled_jobs_total 0
 # HELP remotepower_webhook_deliveries_total Webhook deliveries observed in log buffer.
 # TYPE remotepower_webhook_deliveries_total gauge
-remotepower_webhook_deliveries_total{status="ok"} 2
-remotepower_webhook_deliveries_total{status="error"} 1
+remotepower_webhook_deliveries_total{status="ok"} 0
+remotepower_webhook_deliveries_total{status="error"} 0
 remotepower_webhook_deliveries_total{status="other"} 0
 # HELP remotepower_webhook_log_size Current size of the webhook delivery log.
 # TYPE remotepower_webhook_log_size gauge
-remotepower_webhook_log_size 3
-
+remotepower_webhook_log_size 0
+# HELP remotepower_fleet_health_score Fleet health score (0-100).
+# TYPE remotepower_fleet_health_score gauge
+remotepower_fleet_health_score 88
+# HELP remotepower_device_health_score Per-device health score (0-100).
+# TYPE remotepower_device_health_score gauge
+remotepower_device_health_score{device="nas-1"} 75
+remotepower_device_health_score{device="web-1"} 100
+# HELP remotepower_attention_items Needs-attention items by severity.
+# TYPE remotepower_attention_items gauge
+remotepower_attention_items{severity="critical"} 1
+remotepower_attention_items{severity="warning"} 0
+remotepower_attention_items{severity="info"} 0
+# HELP remotepower_cve_fixable_total Critical/high CVEs a pending patch would fix.
+# TYPE remotepower_cve_fixable_total gauge
+remotepower_cve_fixable_total 0
+# HELP remotepower_slo_target_percent Configured availability SLO target.
+# TYPE remotepower_slo_target_percent gauge
+remotepower_slo_target_percent 99.9
+# HELP remotepower_monitor_availability_percent Monitor availability over the recent check window.
+# TYPE remotepower_monitor_availability_percent gauge
+remotepower_monitor_availability_percent{label="website"} 99.5
+# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor.
+# TYPE remotepower_monitor_slo_budget_remaining_percent gauge
+remotepower_monitor_slo_budget_remaining_percent{label="website"} 0.0
+# HELP remotepower_monitor_slo_burn_rate Error-budget burn rate (>1 = over budget).
+# TYPE remotepower_monitor_slo_burn_rate gauge
+remotepower_monitor_slo_burn_rate{label="website"} 5.0
+# HELP remotepower_slo_object_target_percent Availability target of the SLA/SLO object.
+# TYPE remotepower_slo_object_target_percent gauge
+remotepower_slo_object_target_percent{name="Public web"} 99.9
+# HELP remotepower_slo_object_availability_percent Check-weighted availability of the attached monitors over the object window.
+# TYPE remotepower_slo_object_availability_percent gauge
+remotepower_slo_object_availability_percent{name="Public web"} 99.5
+# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object.
+# TYPE remotepower_slo_object_budget_remaining_percent gauge
+remotepower_slo_object_budget_remaining_percent{name="Public web"} 0.0
