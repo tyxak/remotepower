@@ -27401,10 +27401,39 @@ async function loadDetectionSelftest() {
     + rows + '</tbody></table></div>';
 }
 
+// v6.4.0: render the frontend error beacon's ring (collected since v5.4.1 with
+// no UI consumer — the "for Server Status" display it was built for). Admin-only
+// on the server; the card stays hidden when the list isn't readable.
+async function _loadClientErrors() {
+  const card = document.getElementById('client-errors-card');
+  const body = document.getElementById('client-errors-body');
+  if (!card || !body) return;
+  let r = null;
+  try { r = await api('GET', '/client-error'); } catch (e) { r = null; }
+  if (!r || !Array.isArray(r.errors)) { card.classList.add('d-none'); return; }
+  card.classList.remove('d-none');
+  if (!r.errors.length) {
+    body.innerHTML = '<div class="empty-state">No client-side errors reported. Quiet console, happy fleet.</div>';
+    return;
+  }
+  body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Time</th><th>Message</th><th>Source</th><th>Page</th><th>From</th></tr></thead><tbody>'
+    + r.errors.map(e => `<tr><td class="hint">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td><td title="${escAttr(e.stack || '')}">${escHtml(e.message || '—')}</td><td class="ff-mono fs-11">${escHtml((e.source || '').split('/').pop() || '—')}${e.line ? ':' + e.line : ''}</td><td class="hint">${escHtml((e.page || '').replace(/^https?:\/\/[^/]+/, '') || '—')}</td><td class="ff-mono fs-11">${escHtml(e.ip || '')}</td></tr>`).join('')
+    + '</tbody></table></div>';
+}
+async function clearClientErrors() {
+  if (!await uiConfirm({
+        title: 'Clear client-side errors',
+        message: 'Clear the reported browser-error ring? After a fix ships, the list refilling (or staying empty) is the verification.',
+        confirmText: 'Clear' })) return;
+  const r = await api('DELETE', '/client-error');
+  if (r && r.ok) { toast(`Cleared ${r.cleared} entr${r.cleared === 1 ? 'y' : 'ies'}`, 'success'); _loadClientErrors(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
   body.innerHTML = _skeletonBlock();
   _loadSelfObs();
+  _loadClientErrors();
   const s = await api('GET', '/self/status');
   if (!s || s.error) {
     body.innerHTML = '<div class="c-red">Failed to load: ' + escHtml(s?.error || 'unknown') + '</div>';

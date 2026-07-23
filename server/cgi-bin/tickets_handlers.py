@@ -972,10 +972,14 @@ def handle_ticket_imap_test():
             M.logout()
         except Exception:
             pass
-        if typ != 'OK':
-            A.respond(200, {'ok': False, 'error': f'login ok but folder "{folder}" select failed'})
     except Exception as e:
         A.respond(200, {'ok': False, 'error': f'IMAP test failed: {str(e)[:200]}'})
+    # v6.4.0 (BUG): this respond used to sit INSIDE the try — respond() raises
+    # HTTPError, so the except arm above caught it and replaced the precise
+    # "folder select failed" message with a mangled "IMAP test failed:
+    # <HTTPError>". Respond outside the try (found by the AST error-path gate).
+    if typ != 'OK':
+        A.respond(200, {'ok': False, 'error': f'login ok but folder "{folder}" select failed'})
     A.audit_log(actor, 'ticket_imap_test', f'host={host}')
     A.respond(200, {'ok': True, 'detail': f'login + select "{folder}" succeeded'})
 

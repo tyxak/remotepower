@@ -30952,9 +30952,9 @@ def _cron_matches(cron, ts):
         if field == '*': return True
         if field.startswith('*/'):
             try: return val % int(field[2:]) == 0
-            except: return False
+            except (ValueError, ZeroDivisionError): return False
         try: return int(field) == val
-        except: return False
+        except ValueError: return False
     return (_match(minute, dt.minute) and _match(hour, dt.hour) and
             _match(dom, dt.day) and _match(month, dt.month) and _match(dow, dt.isoweekday() % 7))
 
@@ -42719,13 +42719,13 @@ def _compute_attention():
         except Exception:
             pass
 
-    # v2.8.0: disk space threshold breaches (reads from sysinfo stored in devices.json).
-    default_warn = cfg.get('disk_warn_percent', 80)
-    default_crit = cfg.get('disk_crit_percent', 90)
+    # v2.8.0: disk space threshold breaches (reads from sysinfo stored in
+    # devices.json). Thresholds resolve per device/mount via
+    # _resolve_metric_thresholds below (the old default_warn/overrides locals
+    # were dead since the v3.0.2 resolver migration).
     for dev_id, dev in monitored.items():
         si = dev.get('sysinfo') or {}
         mounts = si.get('mounts') or []
-        overrides = dev.get('metric_thresholds') or {}
         for mnt in mounts:
             pct  = mnt.get('percent', 0)
             path = mnt.get('path', '?')
@@ -48015,7 +48015,11 @@ def handle_client_error():
     """v5.4.1 (F4): frontend error beacon. POST {message,source,line,col,stack,url}
     from window.onerror / unhandledrejection so client-side failures are visible to
     operators instead of dying silently in a browser console. IP-rate-limited,
-    field-capped, capped ring. GET (admin) lists recent entries for Server Status."""
+    field-capped, capped ring. GET (admin) lists recent entries for Server Status.
+    DELETE (admin, v6.4.0) clears the ring — after a fix ships, the counter
+    restarting from zero is the verification. (The list had no UI consumer from
+    v5.4.1 until v6.4.0 — collected but shown nowhere; the Server-status page
+    now renders it.)"""
     if method() == 'GET':
         require_admin_auth()
         store = load(CLIENT_ERRORS_FILE) or {}
@@ -48023,6 +48027,12 @@ def handle_client_error():
         # ?limit/?offset/?meta). Default cap stays 100 when unpaginated.
         errs = list(reversed(store.get('errors') or []))
         respond(200, _paginate_list(errs) if _env('QUERY_STRING') else {'ok': True, 'errors': errs[:100]})
+    if method() == 'DELETE':
+        actor = require_admin_auth()
+        n = len((load(CLIENT_ERRORS_FILE) or {}).get('errors') or [])
+        save(CLIENT_ERRORS_FILE, {'errors': []})
+        audit_log(actor, 'client_errors_clear', f'{n} entries cleared')
+        respond(200, {'ok': True, 'cleared': n})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _ip_ratelimit('clienterr', _get_client_ip(), 30, window=60):
@@ -57130,14 +57140,19 @@ def handle_posture_digest_test():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     cfg = load(CONFIG_FILE)
+    # v6.4.0 (BUG): the success respond(200) sat INSIDE the try — respond()
+    # raises HTTPError (an Exception), so the `except Exception` arm caught it
+    # and rewrote every SUCCESSFUL test send as a 500. Success responds after
+    # the try, where it can't be swallowed (the handle_server_self_update
+    # class; found by the AST error-path gate).
     try:
         n = _send_posture_digest(cfg, reason=f'manual test by {actor}')
-        audit_log(actor, 'posture_digest_test', f'sent to {n} recipient(s)')
-        respond(200, {'ok': True, 'recipients': n})
     except smtp_notifier.SmtpError as e:
         respond(400, {'error': str(e)})
     except Exception as e:
         respond(500, {'error': f'{type(e).__name__}: {e}'})
+    audit_log(actor, 'posture_digest_test', f'sent to {n} recipient(s)')
+    respond(200, {'ok': True, 'recipients': n})
 
 
 def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
@@ -62600,6 +62615,7 @@ def _build_exact_routes():
         ('POST', '/api/csp-report'): handle_csp_report,
         ('POST', '/api/client-error'): handle_client_error,   # v5.4.1 (F4)
         ('GET', '/api/client-error'): handle_client_error,    # v5.4.1 (F4): admin list
+        ('DELETE', '/api/client-error'): handle_client_error,  # v6.4.0: admin clear
         ('POST', '/api/security/rotate-export-key'): handle_rotate_export_key,  # v5.4.1 (C9)
         ('GET', '/api/slo'): handle_slo,                                        # v5.4.1 (F3)
         ('GET', '/api/custom-scripts'): handle_custom_scripts_list,

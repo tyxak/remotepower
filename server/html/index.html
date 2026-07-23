@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-10">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-11">
 
 </head>
 <body>
@@ -1847,7 +1847,7 @@
             </div>
             <div id="homelab-integrations-body">
               <div id="integrations-list" class="mb-12 scroll-cap"></div>
-              <div class="settings-row isl-iadd">
+              <div class="settings-row">
                 <div class="form-group">
                   <label for="integration-add-type" class="form-label">Add integration</label>
                   <select id="integration-add-type" class="form-input mw-220" data-nofilter></select>
@@ -2957,7 +2957,7 @@
             <div class="section-title">VMware / OpenShift / Cloud Director</div>
             <p class="hint">Connect read-only to other virtualization platforms — VMware vSphere / ESXi / vCenter, Red Hat OpenShift, and VMware Cloud Director. Their status + inventory feed Alerts and the dashboard, the same way Proxmox does. Pick a platform, fill its URL + credentials, Save, then Test.</p>
             <div id="virt-platforms-list" class="mb-12 scroll-cap"></div>
-            <div class="settings-row isl-iadd">
+            <div class="settings-row">
               <div class="form-group">
                 <label for="virt-add-type" class="form-label">Add platform</label>
                 <select id="virt-add-type" class="form-input mw-220" data-nofilter></select>
@@ -5547,6 +5547,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-title">Internal health — maintenance sweeps</div>
           <p class="hint">Each background maintenance sweep's last successful run and any recent error. A sweep that silently stops running or starts failing shows up here instead of quietly taking a feature down with it.</p>
           <div id="self-obs-body"><div class="c-muted">Loading…</div></div>
+        </div>
+        <!-- v6.4.0: the frontend error beacon's ring, finally rendered — it had
+             been collected since v5.4.1 with no UI consumer. -->
+        <div class="dash-card mt-16 d-none" id="client-errors-card">
+          <div class="section-header"><div class="section-title">Client-side JS errors</div><button class="btn-icon c-warn-outline" data-action="clearClientErrors"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-6d179c5f"/></svg> Clear</button></div>
+          <p class="hint">Uncaught browser-side errors reported by operators' sessions (<code>window.onerror</code> beacon). A JS failure dies silently in the user's console otherwise — anything listed here is a bug worth a look. Newest first, ring capped at 200.</p>
+          <div id="client-errors-body"><div class="c-muted">Loading…</div></div>
         </div>
         <!-- v6.3.1: detection self-test — prove the alert chain is wired -->
         <div class="dash-card mt-16" id="detection-selftest-card">
@@ -10703,34 +10710,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-10"></script>
+<script defer src="static/js/app.js?v=6.4.0-11"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-10"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-11"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-10"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-11"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-10"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-11"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-10"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-10"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-11"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-11"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10739,6 +10746,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-10"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-11"></script>
 </body>
 </html>

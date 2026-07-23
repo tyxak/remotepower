@@ -1,0 +1,56 @@
+# Globals the client JS may reference without defining them.
+# Consumed by tests/test_js_noundef.py (eslint no-undef gate).
+#
+# Two kinds only:
+#   - browser / web-platform globals
+#   - globals provided by a vendored script loaded on the same page
+#     (marked with the provider)
+#
+# A PROJECT function name never belongs here — if the gate flags one, the
+# function is misspelled or missing (the openDeviceInfo class); fix the code.
+AbortController
+Blob
+BroadcastChannel
+CSS
+Element
+Event
+FileReader
+Image
+IntersectionObserver
+MutationObserver
+NodeFilter
+Notification
+Option
+TextEncoder
+URL
+URLSearchParams
+WebSocket
+alert
+atob
+btoa
+clearInterval
+clearTimeout
+confirm
+console
+crypto
+document
+fetch
+getComputedStyle
+history
+localStorage
+location
+matchMedia
+navigator
+performance
+prompt
+requestAnimationFrame
+self
+sessionStorage
+setInterval
+setTimeout
+structuredClone
+window
+# vendored: static/vendor/swagger-ui (swagger.html only)
+SwaggerUIBundle
+# vendored: static/vendor/qrcode-generator (guarded by window.qrcode checks)
+qrcode

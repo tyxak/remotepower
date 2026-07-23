@@ -603,8 +603,12 @@ function netmapNodeClick(deviceId) {
     toast(`Discovered host — ${n.ip || 'unknown IP'}${n.mac ? ' · ' + n.mac : ''}${n.hostname ? ' · ' + n.hostname : ''}. Not enrolled.`, 'info');
     return;
   }
-  if (typeof openDeviceInfo === 'function') {
-    openDeviceInfo(deviceId);
+  // v6.4.0 (BUG): this guarded a function named openDeviceInfo that has never
+  // existed, so the guard was always false and every enrolled netmap node
+  // click fell through to the CMDB asset view. The real function is
+  // openDeviceDrawer — open the device like everywhere else in the app.
+  if (typeof openDeviceDrawer === 'function') {
+    openDeviceDrawer(deviceId, (n && (n.name || n.hostname)) || deviceId);
   } else {
     cmdbOpenAsset(deviceId);
   }

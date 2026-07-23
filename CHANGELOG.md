@@ -13,6 +13,47 @@ binding sweep so everything the agent collects lands where it belongs (UI,
 RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
 performance wave.
 
+### Bulletproofing: five new cross-reference gates + an error sweep
+New structural test gates, each turning a "JS/config fails silently" class
+into a build failure — and the sweep they enabled, which fixed every real
+finding:
+- **UI wiring parity** (`test_ui_wiring`): every `data-action`/`data-change`/
+  drawer-act name must resolve to a global function, every `getElementById`
+  target must exist (statically or dynamically created), the panel constants
+  and table registrations stay in lockstep, and every client `api()` call
+  shape must match a server route.
+- **JS undefined-global gate** (`test_js_noundef`): eslint `no-undef` over the
+  load-order bundle with only browser/vendored globals predeclared — the
+  client-side `ruff F821`. First run found the netmap device-click fallback
+  guarding a function that never existed (`openDeviceInfo`), so clicking an
+  enrolled node always fell through to the CMDB view — now opens the device
+  drawer.
+- **AST error-path guards** (`test_error_path_guards`): (a) respond(2xx)
+  inside a try whose `except Exception` also responds — found two live bugs:
+  a successful **posture-digest test send returned 500**, and the ticket
+  IMAP test's folder-failure message was mangled; (b) `Path.exists()` on
+  storage keys (SQLite-blind class); (c) state-mutating handlers gated by
+  bare `require_auth()` — current set reviewed and pinned, new ones fail.
+- **CSS class parity** (`test_css_class_parity`): a markup class must exist
+  in styles.css or be a JS hook. Found the host-config logrotate/cron
+  textareas referencing `isl-752/753` that were never defined (now styled
+  mono, as config content should be) and a phantom `isl-iadd`.
+- **Response-shape contracts** (`test_response_contracts`): the keys the UI
+  binds on `/api/home`, `/api/devices`, `/api/nav-counts`, `/api/slo`,
+  `/api/monitor`, `/api/self/status` and `/api/config` are pinned — a
+  server-side rename now fails a test instead of a finalize sweep.
+- **Client-error beacon finally visible**: the v5.4.1 `window.onerror` beacon
+  collected browser-side errors into a ring that NO UI ever displayed. The
+  Server-status page now renders it (admin), with a Clear action
+  (`DELETE /api/client-error`).
+- Sweep hygiene: an order-dependent test isolation bug in
+  `test_v612_host_signals` (flap state leaked between tests under
+  pytest-randomly), duplicate set entry in the agent's fstype skip-list, two
+  bare excepts, dead threshold locals. Clean layers re-verified: bandit (0
+  new), gitleaks, ruff F821 (agents + modules), vulture, Hypothesis property
+  suites, the per-page e2e smoke in real Chromium, and the full 8k-test
+  suite both-backends-parallel.
+
 ### SLA / SLO objects for remote probes
 - **Named availability targets you attach to probes.** Define an SLA/SLO
   object (name, target %, rolling window in days, description) on the

@@ -7539,7 +7539,7 @@ def get_metrics():
                     'cgroup2', 'devpts', 'mqueue', 'debugfs', 'tracefs',
                     'pstore', 'bpf', 'configfs', 'fusectl', 'hugetlbfs',
                     'binfmt_misc', 'rpc_pipefs', 'ramfs', 'efivarfs',
-                    'nsfs', 'tracefs', 'securityfs'}
+                    'nsfs', 'securityfs'}
     mounts = []
     seen_mp = set()
     seen_dev = set()        # for disk-total dedupe by block device

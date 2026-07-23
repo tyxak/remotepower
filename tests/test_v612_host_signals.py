@@ -197,6 +197,11 @@ class TestUnitFlapping(unittest.TestCase):
         api.fire_webhook = lambda ev, pl=None: self.fired.append((ev, pl or {}))
         api.save(api.DEVICES_FILE, {"f1": {"name": "h", "monitored": True}})
         api.save(api.CONFIG_FILE, {"unit_flap_restarts": 3})
+        # Flap state (prev restart counts + the 'flapping' set) persists in
+        # SERVICES_FILE — reset it or a previously-flagged unit leaks into the
+        # next test and fires unit_flapping_cleared there (order-dependent
+        # failure under pytest-randomly; surfaced by the v6.4.0 error sweep).
+        api.save(api.SERVICES_FILE, {})
         api._LOAD_CACHE.clear()
 
     def _svc(self, n):

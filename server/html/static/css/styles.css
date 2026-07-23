@@ -3054,6 +3054,10 @@ body.density-compact .dash-card > .section-header:first-child {
 .dash-feed-item:last-child { border-bottom: none; }
 .isl-751 { font-size: 11px; padding: 2px 8px; opacity: 0.7; color: #abb3bb; }
 .isl-751:hover { opacity: 1; }
+/* v6.4.0: referenced by the host-config logrotate/cron textareas since their
+   introduction but never defined — config-file content wants the mono font
+   (found by the CSS class-parity gate). */
+.isl-752, .isl-753 { font-family: var(--font-mono); min-height: 120px; }
 .isl-754 { width: 64px !important; text-align: center; }
 .isl-755 { width: 120px !important; }
 .isl-756 { flex: 1; min-width: 0; }

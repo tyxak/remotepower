@@ -977,6 +977,7 @@
     "Add SLO object": { "fr": "Ajouter un objet SLO", "de": "SLO-Objekt hinzufügen", "zh": "添加 SLO 对象", "hi": "SLO ऑब्जेक्ट जोड़ें", "es": "Añadir objeto SLO", "ar": "إضافة كائن SLO" },
     "Add target": { "fr": "Ajouter une cible", "de": "Ziel hinzufügen", "zh": "添加目标", "hi": "लक्ष्य जोड़ें", "es": "Añadir objetivo", "ar": "إضافة هدف" },
     "SLA / SLO objects": { "fr": "Objets SLA / SLO", "de": "SLA-/SLO-Objekte", "zh": "SLA / SLO 对象", "hi": "SLA / SLO ऑब्जेक्ट", "es": "Objetos SLA / SLO", "ar": "كائنات SLA / SLO" },
+    "Client-side JS errors": { "fr": "Erreurs JS côté client", "de": "Clientseitige JS-Fehler", "zh": "客户端 JS 错误", "hi": "क्लाइंट-साइड JS त्रुटियाँ", "es": "Errores JS del lado del cliente", "ar": "أخطاء JS من جانب العميل" },
     "Add user": { "fr": "Ajouter un utilisateur", "de": "Benutzer hinzufügen", "zh": "添加用户", "hi": "उपयोगकर्ता जोड़ें", "es": "Añadir usuario", "ar": "إضافة مستخدم" },
     "Additional SAN (optional, one per line)": { "fr": "SAN supplémentaire (facultatif, un par ligne)", "de": "Zusätzliche SAN (optional, eine pro Zeile)", "zh": "附加 SAN（可选，每行一个）", "hi": "अतिरिक्त SAN (वैकल्पिक, प्रति पंक्ति एक)", "es": "SAN adicional (opcional, uno por línea)", "ar": "SAN إضافي (اختياري، واحد لكل سطر)" },
     "Admin group (optional)": { "fr": "Groupe admin (facultatif)", "de": "Admin-Gruppe (optional)", "zh": "管理员分组（可选）", "hi": "Admin समूह (वैकल्पिक)", "es": "Grupo de administradores (opcional)", "ar": "مجموعة المسؤولين (اختياري)" },
