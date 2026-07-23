@@ -84,6 +84,53 @@ class TestRolloutDispatchTenantGate(_Base):
         self.assertIn('devB', dispatched)
 
 
+class TestRolloutEndToEnd(_Base):
+    """Drive the REAL create -> start -> scheduler-tick chain, not just the
+    dispatch helper: a tenant admin's cross-tenant rollout must queue ZERO
+    commands on the other tenant's host, while its OWN tenant's host still gets
+    the action (positive control — proves it isn't passing by dispatching
+    nothing)."""
+
+    def _attacker_is(self, tenant):
+        self.api.verify_token = lambda tok=None: ('attacker', 'admin')
+        self.api.get_token_from_request = lambda: 'x'
+        self.api.require_admin_auth = lambda *a, **k: 'attacker'
+        self.api._caller_effective_tenant = lambda u, _t=tenant: _t
+        self.api._caller_scope = lambda: None
+        self.api.audit_log = lambda *a, **k: None
+        self.api.method = lambda: 'POST'
+        self.cap = {}
+
+        def _r(s, d=None, headers=None):
+            self.cap['s'] = s
+            self.cap['d'] = d
+            raise self.api.HTTPError(s, d)
+        self.api.respond = _r
+
+    def test_create_start_tick_blocks_cross_tenant(self):
+        self.api.save(self.api.CMDS_FILE, {})
+        self._attacker_is('tenantA')
+        body = {'name': 'x', 'action': 'reboot',
+                'rings': [{'name': 'r', 'selector': {'type': 'tag', 'value': 'prod'}}],
+                'auto_promote': True}
+        self.api.get_json_obj = lambda: body
+        self.api._read_valid = lambda *a, **k: body
+        rid = None
+        try:
+            self.api.handle_rollouts_create()
+        except self.api.HTTPError:
+            rid = (self.cap['d'] or {}).get('rollout', {}).get('id')
+        self.assertIsNotNone(rid)
+        try:
+            self.api.handle_rollout_action(rid, 'start')
+        except self.api.HTTPError:
+            pass
+        self.api._rollout_tick()
+        cmds = self.api.load(self.api.CMDS_FILE) or {}
+        self.assertEqual(cmds.get('devA'), ['reboot'])   # own tenant reached
+        self.assertFalse(cmds.get('devB'))               # other tenant blocked
+
+
 class TestAutopatchTargetTenantGate(_Base):
     """_autopatch_target_devices honours the policy tenant_gate."""
 
