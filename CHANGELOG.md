@@ -13,6 +13,42 @@ binding sweep so everything the agent collects lands where it belongs (UI,
 RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
 performance wave.
 
+### SLA / SLO objects for remote probes
+- **Named availability targets you attach to probes.** Define an SLA/SLO
+  object (name, target %, rolling window in days, description) on the
+  Monitoring page, then tick it on each remote probe (any type, including
+  multi-step HTTP flows and tag/group fan-outs) whose checks should count
+  toward it. A new **SLA / SLO objects** panel lists every object with its
+  check-weighted availability, error-budget-remaining and burn rate over the
+  object's own window — filterable by name/probe and by compliance
+  (breached / meeting / no data), sortable on every column.
+- `GET /api/slo` gains an `objects` list, and the same numbers export as
+  Prometheus gauges (`remotepower_slo_object_*`) for Grafana SLO dashboards.
+  Objects with no measured checks are reported as *no data*, never as a
+  breach. Deleting an object detaches its probes (their history is kept).
+- **Bug fix (v6.1.2 regression):** a *paused* monitor produced no row in
+  `GET /api/monitor` at all, so pausing one made it vanish from the Remote
+  Checks table — the PAUSED badge and Resume button were unreachable, and
+  delete-and-retype was the only way back. Paused monitors now get a display
+  row. Relatedly, Edit/Clone/Delete on a monitor row resolved the config
+  entry by *table position*, which desyncs whenever a paused, satellite or
+  tag/group-fan-out row is present (editing could overwrite the wrong
+  monitor, and dropped fields the results row doesn't carry). They now
+  resolve by label, and editing a paused monitor no longer silently resumes
+  it.
+
+### WordPress connector — last logins with IP + geo
+- New **WordPress** integration connector: monitors the site's REST API
+  reachability and identity; with a username + **Application password** it
+  verifies credentials and — via the free **Simple History** plugin's REST
+  API — shows the **last 5 successful logins** (timestamp, account, source
+  IP) in a *recent logins* panel on the Integrations page. When a GeoIP
+  MMDB is configured (Settings → Security), the server geo-enriches each
+  login IP with the country. Without Simple History the connector still
+  monitors the site; rejected credentials report *warning*, not a fake
+  outage. Login rows are strictly sanitized server-side (IP-shape-validated)
+  and rendered inert.
+
 ### "Clear this log line" now actually clears (three field-reported causes)
 Clearing a matched log line stores the line's *signature* (timestamps/pids/ids
 folded out) and drops future matches; three separate bugs stopped it working on

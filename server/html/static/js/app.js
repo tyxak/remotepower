@@ -2391,7 +2391,7 @@ function showPage(name, btn) {
   if (name === 'home')     { loadHome(); _maybeStartTour(); }   // v5.4.1 (H6)
   if (name === 'devices')  loadDevices();   // v5.0.1 perf: render the grid on entry (was 60s-tick-only)
   if (name === 'board')    loadBoard();
-  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
+  if (name === 'monitor')  { runMonitor(); loadSloObjects(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
   if (name === 'tuning')   loadTuning();
   if (name === 'schedule') loadSchedule();
@@ -2516,7 +2516,7 @@ function _setPageWatermark(name, btn) {
                  src.innerHTML + '</svg>';
 }
 
-const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
+const _MON_PANELS =['mon-panel-targets', 'mon-panel-slo', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
 function _showAllMonPanels() {
   _MON_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
 }
@@ -3365,13 +3365,29 @@ function openMonitorAdd() {
   if (t) t.textContent = 'Add monitor target';
   _monClearFields();
   _fillMonitorSatellites('');
+  _fillMonitorSlos([]);   // v6.4.0
   monTypeChanged();
   openModal('monitor-add-modal');
 }
-function editMonitor(idx) {
-  const m = (window.monitorTargets || [])[idx];
-  if (!m) return;
-  _monitorEditIdx = idx;
+async function editMonitor(idx) {
+  const row = (window.monitorTargets || [])[idx];
+  if (!row) return;
+  // v6.4.0 (BUG): the results index is NOT a config index — paused monitors are
+  // separate display rows, satellite rows are appended at the end, and a
+  // tag/group monitor fans out to one row per matched device — so editing by
+  // results index could open (and then OVERWRITE) the wrong config entry. And a
+  // result row lacks config-only fields (port, body_match, expect_json,
+  // slo_ids…), so saving from it silently dropped them. Resolve the CONFIG
+  // entry by label instead and populate the modal from that.
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const mons = cfg.monitors || [];
+  const base = String(row.label || '').split(' · ')[0];   // fan-out rows are '<label> · <device>'
+  let ci = mons.findIndex(x => x.label === row.label);
+  if (ci < 0) ci = mons.findIndex(x => x.label === base);
+  if (ci < 0) { toast('Monitor not found in the saved config — refresh and retry', 'error'); return; }
+  const m = mons[ci];
+  _monitorEditIdx = ci;
   const t = document.querySelector('#monitor-add-modal .modal-title');
   if (t) t.textContent = 'Edit monitor target';
   _monClearFields();
@@ -3393,6 +3409,7 @@ function editMonitor(idx) {
   set('mon-json-value', (m.expect_json && m.expect_json.value) || '');
   set('mon-flow-steps', Array.isArray(m.steps) ? m.steps.map(s => JSON.stringify(s)).join('\n') : '');  // W4-13
   _fillMonitorSatellites(m.via_satellite || '');   // W4-14
+  _fillMonitorSlos(m.slo_ids || []);               // v6.4.0
   monTypeChanged();
   openModal('monitor-add-modal');
 }
@@ -3400,10 +3417,10 @@ function editMonitor(idx) {
 // v6.1.2: clone — prefill the create form from an existing monitor. Ten
 // near-identical HTTP checks is the normal homelab case, and building each one
 // from an empty form is pure retyping.
-function cloneMonitor(idx) {
+async function cloneMonitor(idx) {
   const m = (window.monitorTargets || [])[idx];
   if (!m) return;
-  editMonitor(idx);
+  await editMonitor(idx);   // v6.4.0: async now (resolves the config entry)
   // Same fields, but it must SAVE AS NEW rather than overwrite the original.
   // The "new" sentinel is -1, NOT null: addMonitor() branches on
   // `_monitorEditIdx >= 0`, and in JS `null >= 0` is TRUE — null would take the
@@ -3490,6 +3507,9 @@ async function _addHttpFlowMonitor(label) {
   if (!cfg) return;
   const monitors = [...(cfg.monitors || [])];
   const entry = { label: label || (steps[0].url || 'flow'), type: 'http_flow', steps };
+  const flowSloIds = _collectMonitorSlos();   // v6.4.0
+  if (flowSloIds.length) entry.slo_ids = flowSloIds;
+  if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length && monitors[_monitorEditIdx].paused) entry.paused = true;
   if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) monitors[_monitorEditIdx] = entry;
   else monitors.push(entry);
   const wasEdit = _monitorEditIdx >= 0;
@@ -3544,7 +3564,13 @@ async function addMonitor() {
   // W4-14: optionally probe from a relay satellite instead of the server.
   const viaSat = document.getElementById('mon-satellite')?.value || '';
   if (viaSat) entry.via_satellite = viaSat;
+  // v6.4.0: SLA/SLO object attachments.
+  const sloIds = _collectMonitorSlos();
+  if (sloIds.length) entry.slo_ids = sloIds;
   if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) {
+    // Editing must not silently resume a paused monitor: the modal has no
+    // paused control, so carry the flag over from the entry being replaced.
+    if (monitors[_monitorEditIdx].paused) entry.paused = true;
     monitors[_monitorEditIdx] = entry;
   } else {
     monitors.push(entry);
@@ -3560,13 +3586,21 @@ async function addMonitor() {
 }
 async function removeMonitor(idx) {
   const cfg = await api('GET', '/config'); if (!cfg) return;
-  const mon = (cfg.monitors || [])[idx];
+  // v6.4.0 (BUG): same results-index ≠ config-index desync as editMonitor —
+  // resolve the config entry by the display row's label, not by position.
+  const row = (window.monitorTargets || [])[idx];
+  const mons = cfg.monitors || [];
+  const base = String((row && row.label) || '').split(' · ')[0];
+  let ci = row ? mons.findIndex(x => x.label === row.label) : -1;
+  if (ci < 0 && row) ci = mons.findIndex(x => x.label === base);
+  if (ci < 0) { toast('Monitor not found in the saved config — refresh and retry', 'error'); return; }
+  const mon = mons[ci];
   const label = (mon && (mon.label || mon.target)) || 'this monitor';
   if (!await uiConfirm({
         title: 'Delete monitor',
         message: `Delete "${label}"? Its probe history is permanently removed and cannot be undone.\n\nTo stop probing without losing history, use Pause instead.`,
         confirmText: 'Delete', danger: true })) return;
-  const monitors = (cfg.monitors || []).filter((_, i) => i !== idx);
+  const monitors = mons.filter((_, i) => i !== ci);
   const res = await api('POST', '/config', {monitors});
   if (res?.ok) { toast('Monitor deleted', 'info'); runMonitor(); }
   else toast(res?.error || 'Failed', 'error');
@@ -3595,6 +3629,132 @@ async function openMonitorHistory(label) { document.getElementById('mon-history-
   const L = data.latency;
   const _lat = L ? `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">p50</div><div class="value">${L.p50} ms</div></div><div class="sysinfo-pill"><div class="label">p95</div><div class="value">${L.p95} ms</div></div><div class="sysinfo-pill"><div class="label">p99</div><div class="value">${L.p99} ms</div></div><div class="sysinfo-pill" title="min / avg / max over ${L.samples} successful checks"><div class="label">min · avg · max</div><div class="value fs-13">${L.min} · ${L.avg} · ${L.max} ms</div></div></div>` : '';
   document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${_scoreClass(pct,90,70)}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div>${_lat}<div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Response</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${h.ms == null ? '—' : escHtml(String(h.ms)) + ' ms'}</td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+// ── v6.4.0: SLA / SLO objects — named availability targets remote probes
+// attach to (slo_ids checkboxes in the monitor editor). Data: GET /api/slo
+// `objects` (per-object availability + error budget over the object window).
+let _sloRegistered = false;
+let _sloEditId = null;   // id being edited, or null for "add new"
+function _sloStatusOf(o) {
+  return o.meeting_slo === null || o.meeting_slo === undefined ? 'nodata'
+    : (o.meeting_slo ? 'meeting' : 'breached');
+}
+function _registerSloTable() {
+  if (_sloRegistered) return;
+  _sloRegistered = true;
+  tableCtl.register({
+    name: 'slo',
+    tbody: 'slo-tbody',
+    filterInput: 'slo-filter',
+    sortHeaders: 'slo-thead',
+    colspan: 8,
+    columns: ['name', 'target', 'window', 'probes', 'availability', 'budget', 'status'],
+    getColumns: (o) => ({
+      name:         o.name || '',
+      target:       o.target || 0,
+      window:       o.window_days || 0,
+      probes:       (o.monitors || []).map(m => m.label).join(' '),
+      availability: o.availability === null ? -1 : (o.availability || 0),
+      budget:       o.budget_remaining_pct === null ? -1 : (o.budget_remaining_pct || 0),
+      status:       _sloStatusOf(o),
+    }),
+    row: (o) => {
+      const probes = o.monitors || [];
+      const probeNames = probes.map(m => m.label).join(', ');
+      const st = _sloStatusOf(o);
+      const pill = st === 'nodata'
+        ? '<span class="hint" title="No attached probe has checks inside the window yet">no data</span>'
+        : `<span class="mon-status ${st === 'meeting' ? 'up' : 'down'}">${st === 'meeting' ? '✓ meeting' : '✗ breached'}</span>`;
+      const avail = o.availability === null || o.availability === undefined ? '—'
+        : `<span class="${o.meeting_slo ? 'c-green' : 'c-red'}">${o.availability.toFixed(3)}%</span>`;
+      const budget = o.budget_remaining_pct === null || o.budget_remaining_pct === undefined ? '—'
+        : `${o.budget_remaining_pct.toFixed(1)}%${o.burn_rate > 1 ? ' <span class="c-red fs-11" title="Error-budget burn rate — over 1 means the budget is blown">×' + o.burn_rate.toFixed(1) + '</span>' : ''}`;
+      return `<tr><td class="fw-500" title="${escAttr(o.description || '')}">${escHtml(o.name)}</td><td>${Number(o.target).toFixed(o.target % 1 ? 3 : 1)}%</td><td>${o.window_days}d</td><td class="hint" title="${escAttr(probeNames)}">${probes.length ? `${probes.length} — ${escHtml(probeNames.length > 60 ? probeNames.slice(0, 57) + '…' : probeNames)}` : '<span class="c-amber">none attached</span>'}</td><td>${avail}</td><td class="hint">${budget}</td><td>${pill}</td><td class="row-6"><button class="btn-icon isl-44" title="Edit" data-action="editSloObject" data-arg="${escAttr(o.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeSloObject" data-arg="${escAttr(o.id)}">${_icon('trash',14)}</button></td></tr>`;
+    },
+    emptyMsg: 'No SLO objects defined.',
+    emptyMsgFiltered: 'No SLO objects match the filter.',
+  });
+}
+async function loadSloObjects() {
+  _registerSloTable();
+  const data = await api('GET', '/slo');
+  if (!data) return;
+  window._sloObjects = data.objects || [];
+  _renderSloObjects();
+}
+function _renderSloObjects() {
+  const want = document.getElementById('slo-status-filter')?.value || 'all';
+  const rows = (window._sloObjects || []).filter(o => want === 'all' || _sloStatusOf(o) === want);
+  tableCtl.render('slo', rows);
+}
+function openSloAdd() {
+  _sloEditId = null;
+  const t = document.getElementById('slo-edit-modal-title');
+  if (t) t.textContent = 'Add SLA / SLO object';
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('slo-name', ''); set('slo-target', '99.9'); set('slo-window', '30'); set('slo-desc', '');
+  openModal('slo-edit-modal');
+}
+function editSloObject(id) {
+  const o = (window._sloObjects || []).find(x => x.id === id);
+  if (!o) return;
+  _sloEditId = id;
+  const t = document.getElementById('slo-edit-modal-title');
+  if (t) t.textContent = 'Edit SLA / SLO object';
+  const set = (i, v) => { const el = document.getElementById(i); if (el) el.value = v; };
+  set('slo-name', o.name || ''); set('slo-target', o.target ?? 99.9);
+  set('slo-window', o.window_days ?? 30); set('slo-desc', o.description || '');
+  openModal('slo-edit-modal');
+}
+async function saveSloObject() {
+  const name = (document.getElementById('slo-name')?.value || '').trim();
+  if (!name) { toast('Name is required', 'error', {transient: true}); return; }
+  const target = parseFloat(document.getElementById('slo-target')?.value || '99.9');
+  if (!(target > 0 && target < 100)) { toast('Target % must be between 0 and 100 (exclusive)', 'error'); return; }
+  const windowDays = Math.max(1, Math.min(365, parseInt(document.getElementById('slo-window')?.value, 10) || 30));
+  const desc = (document.getElementById('slo-desc')?.value || '').trim();
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const objs = [...(cfg.slo_objects || [])];
+  const entry = { name, target_pct: target, window_days: windowDays, description: desc };
+  const i = _sloEditId ? objs.findIndex(o => o.id === _sloEditId) : -1;
+  if (i >= 0) objs[i] = { ...entry, id: _sloEditId };
+  else objs.push(entry);   // id minted server-side ('slo-' prefix)
+  const res = await api('POST', '/config', { slo_objects: objs });
+  if (res?.ok) {
+    toast(i >= 0 ? 'SLO object updated' : 'SLO object added', 'success');
+    _sloEditId = null;
+    closeModal('slo-edit-modal');
+    loadSloObjects();
+  } else toast(res?.error || 'Failed', 'error');
+}
+async function removeSloObject(id) {
+  const cfg = await api('GET', '/config'); if (!cfg) return;
+  const o = (cfg.slo_objects || []).find(x => x.id === id);
+  if (!await uiConfirm({
+        title: 'Delete SLO object',
+        message: `Delete "${(o && o.name) || 'this SLO object'}"? Probes attached to it are detached (their history is kept).`,
+        confirmText: 'Delete', danger: true })) return;
+  const res = await api('POST', '/config', { slo_objects: (cfg.slo_objects || []).filter(x => x.id !== id) });
+  if (res?.ok) { toast('SLO object deleted', 'info'); loadSloObjects(); }
+  else toast(res?.error || 'Failed', 'error');
+}
+// Populate the monitor editor's SLO checkbox list. Hidden entirely while no
+// SLO objects are defined (the common case) so the modal stays uncluttered.
+async function _fillMonitorSlos(selected) {
+  const grp = document.getElementById('mon-slo-grp');
+  const list = document.getElementById('mon-slo-list');
+  if (!grp || !list) return;
+  const cfg = await api('GET', '/config').catch(() => null);
+  const objs = (cfg && cfg.slo_objects) || [];
+  grp.classList.toggle('hidden', !objs.length);
+  const sel = new Set(selected || []);
+  list.innerHTML = objs.map(o =>
+    `<label class="form-row pad-4"><input type="checkbox" data-mon-slo="${escAttr(o.id)}"${sel.has(o.id) ? ' checked' : ''}> <span>${escHtml(o.name)} <span class="hint">${Number(o.target_pct ?? 99.9)}% / ${o.window_days || 30}d</span></span></label>`).join('');
+}
+function _collectMonitorSlos() {
+  return [...document.querySelectorAll('#mon-slo-list input[data-mon-slo]:checked')]
+    .map(el => el.getAttribute('data-mon-slo'));
+}
 // v1.11.6: users page gets filter+sort
 let _usersRegistered = false;
 function _registerUsersTable() {
@@ -13636,6 +13796,7 @@ async function loadIntegrationsPage() {
       detail: i.enabled ? i.last_detail : 'disabled',
       version: i.last_version, checked: i.last_checked, stats: i.last_stats || [],
       top_blocked: i.last_top_blocked || [], top_clients: i.last_top_clients || [],
+      recent_logins: i.last_recent_logins || [],   // v6.4.0: WordPress
     }));
     // v6.2.0: which of these blockers we can actually CONTROL (server registry is
     // authoritative — don't hard-code the type list in the client).
@@ -13645,6 +13806,7 @@ async function loadIntegrationsPage() {
       if (d && d.ok) dnsCtl = d;
     } catch (e) { /* control is optional — the panels still render read-only */ }
     _renderDnsBlockPanels(items, dnsCtl);   // v6.1.2, control v6.2.0
+    _renderWpLoginPanels(items);            // v6.4.0: WordPress recent logins
     const order = { critical: 0, warning: 1, unknown: 2, ok: 3 };
     items.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.label || '').localeCompare(String(b.label || '')));
     wrap.innerHTML = _integrationTiles(items);
@@ -13734,6 +13896,62 @@ function _renderDnsBlockPanels(items, dnsCtl) {
       row.appendChild(col);
     });
     card.appendChild(row);
+    wrap.appendChild(card);
+  });
+}
+
+// ── v6.4.0: WordPress recent logins ──────────────────────────────────────────
+// Last 5 successful logins per WordPress instance — timestamp, account, source
+// IP and (when a GeoIP MMDB is configured) the country. "Who logged into the
+// blog, from where?" is the first question after any WP compromise scare.
+function _renderWpLoginPanels(items) {
+  const wrap = document.getElementById('wp-login-panels');
+  if (!wrap) return;
+  const wps = (items || []).filter(i => i.recent_logins && i.recent_logins.length);
+  wrap.innerHTML = '';
+  if (!wps.length) { wrap.classList.add('d-none'); return; }
+  wrap.classList.remove('d-none');
+  wps.forEach(i => {
+    const card = document.createElement('div');
+    card.className = 'dash-card mb-12';
+    const title = document.createElement('div');
+    title.className = 'section-title';
+    title.textContent = (i.label || i.type) + ' — recent logins';
+    card.appendChild(title);
+    const t = document.createElement('table');
+    t.className = 'data-table';
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    ['Time', 'User', 'Source IP', 'Location'].forEach(htxt => {
+      const th = document.createElement('th');
+      th.textContent = htxt;
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    t.appendChild(thead);
+    const tb = document.createElement('tbody');
+    i.recent_logins.forEach(l => {
+      const tr = document.createElement('tr');
+      const tdTime = document.createElement('td');
+      tdTime.className = 'hint';
+      tdTime.textContent = l.ts ? new Date(l.ts * 1000).toLocaleString() : '—';
+      const tdUser = document.createElement('td');
+      tdUser.textContent = l.user || '?';     // textContent, never innerHTML —
+      const tdIp = document.createElement('td');
+      tdIp.className = 'ff-mono fs-12';
+      tdIp.textContent = l.ip || '—';         // these come from a remote site
+      const tdGeo = document.createElement('td');
+      tdGeo.className = 'hint';
+      tdGeo.textContent = l.country
+        ? l.country + (l.country_code ? ` (${l.country_code})` : '') : '—';
+      [tdTime, tdUser, tdIp, tdGeo].forEach(td => tr.appendChild(td));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    const scroll = document.createElement('div');
+    scroll.className = 'scrollable-table-wrap audit-scroll';
+    scroll.appendChild(t);
+    card.appendChild(scroll);
     wrap.appendChild(card);
   });
 }

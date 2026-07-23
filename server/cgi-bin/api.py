@@ -22455,6 +22455,20 @@ def _monitor_label_is_live(hist_label, valid_labels):
     return False
 
 
+def _sanitize_slo_ids(raw):
+    """v6.4.0: clean a monitor's SLA/SLO-object attachment list. Charset-only —
+    an id naming a since-deleted object is harmless (compute ignores it, and the
+    slo_objects save block prunes monitors when the object list changes)."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for s in raw[:20]:
+        s = re.sub(r'[^A-Za-z0-9_\-]', '', str(s))[:48]
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
 def _prune_orphan_monitor_history(valid_labels):
     """Drop monitor_history entries whose monitor is no longer configured.
 
@@ -22656,6 +22670,21 @@ def _poll_one_integration(inst):
     res['label'] = inst.get('label') or inst.get('type')
     res['type'] = inst.get('type')
     res['checked'] = int(time.time())
+    # v6.4.0: WordPress recent logins — geo-enrich the source IPs here (the
+    # connector layer is pure/offline; geo_enrich reads the operator-supplied
+    # MMDB and returns {} when GeoIP isn't configured). Enriched once per poll,
+    # not per page view.
+    if isinstance(res.get('recent_logins'), list):
+        for _le in res['recent_logins']:
+            if isinstance(_le, dict) and _le.get('ip'):
+                try:
+                    _g = geo_enrich(str(_le['ip']))
+                except Exception:
+                    _g = {}
+                if _g.get('country'):
+                    _le['country'] = _g['country']
+                if _g.get('country_code'):
+                    _le['country_code'] = _g['country_code']
     return res
 
 
@@ -22872,6 +22901,27 @@ def handle_integrations_list():
             for _k in ('top_blocked', 'top_clients'):
                 if isinstance(r.get(_k), list):
                     safe['last_' + _k] = r[_k][:10]
+            # v6.4.0: WordPress recent logins (same read-whitelist rule), field-
+            # sanitized — user/IP come from a remote site's log.
+            if isinstance(r.get('recent_logins'), list):
+                _lg = []
+                for _e in r['recent_logins'][:5]:
+                    if not isinstance(_e, dict):
+                        continue
+                    try:
+                        _ts = int(_e.get('ts') or 0)
+                    except (TypeError, ValueError):
+                        _ts = 0
+                    _lg.append({
+                        'user':         _sanitize_str(str(_e.get('user', '')), 64),
+                        # strict: a non-IP-shaped value becomes '' (the field
+                        # comes from a remote site's log)
+                        'ip':           _sanitize_ip(str(_e.get('ip', ''))),
+                        'ts':           _ts,
+                        'country':      _sanitize_str(str(_e.get('country', '')), 64),
+                        'country_code': _sanitize_str(str(_e.get('country_code', '')), 8),
+                    })
+                safe['last_recent_logins'] = _lg
         insts.append(safe)
     respond(200, {'integrations': insts,
                   'catalog': integrations_mod.list_connectors(),
@@ -23422,6 +23472,19 @@ def handle_monitor_run():
     for r in results:
         r.setdefault('origin', 'server')
     results = results + _satellite_monitor_display(monitors)
+    # v6.4.0 (BUG): a PAUSED monitor produced no row at all — _execute skips it
+    # (correctly: no probe, no history) and nothing re-added it for display, so
+    # pausing a monitor made it VANISH from the Remote Checks table. The v6.1.2
+    # PAUSED badge and its Resume button were unreachable; delete-and-retype was
+    # the only way back. Emit a display-only row per paused monitor (covers
+    # satellite-assigned ones too — they're skipped by both probe paths).
+    for m in monitors:
+        if isinstance(m, dict) and m.get('paused'):
+            results.append({
+                'label': _sanitize_str(m.get('label', m.get('target', '')), 128),
+                'type': m.get('type', 'ping'), 'target': str(m.get('target', '')),
+                'ok': True, 'detail': 'paused', 'checked': 0, 'paused': True,
+                'origin': 'server'})
     respond(200, {'monitors': results})
 
 
@@ -23434,6 +23497,8 @@ def _satellite_monitor_display(monitors):
         sid = m.get('via_satellite')
         if not sid:
             continue
+        if m.get('paused'):
+            continue   # v6.4.0: shown as a paused display row instead (one row, not two)
         label = _sanitize_str(m.get('label', m.get('target', '')), 128)
         prev = stored.get(label)
         if isinstance(prev, dict):
@@ -23862,6 +23927,7 @@ def handle_config_get():
     safe.setdefault('cve_webhook_enabled', True)
     safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
+    safe.setdefault('slo_objects', [])   # v6.4.0: SLA/SLO objects
 
     # v1.8.4 — derived/effective values that the UI uses
     safe.setdefault('server_name', '')
@@ -24800,11 +24866,15 @@ def handle_config_save():
                     steps.append(st)
                 if not steps:
                     respond(400, {'error': 'http_flow needs at least one valid step (url)'})
-                validated.append({
+                _flow_entry = {
                     'label': _sanitize_str(m.get('label', steps[0]['url']), 128),
                     'type': 'http_flow', 'target': steps[0]['url'][:255],
                     'target_kind': 'host', 'steps': steps,
-                    'paused': bool(m.get('paused'))})   # v6.1.2
+                    'paused': bool(m.get('paused'))}   # v6.1.2
+                _fsids = _sanitize_slo_ids(m.get('slo_ids'))   # v6.4.0
+                if _fsids:
+                    _flow_entry['slo_ids'] = _fsids
+                validated.append(_flow_entry)
                 continue
             raw_target = str(m.get('target', ''))
             # v4.1.0: tag/group targeting — target is a tag/group NAME (expanded
@@ -24907,6 +24977,10 @@ def handle_config_save():
                 if vs not in _sats_cache:
                     respond(400, {'error': f'via_satellite: unknown satellite id {vs!r}'})
                 entry['via_satellite'] = vs
+            # v6.4.0: SLA/SLO object attachments (checkboxes in the editor).
+            _sids = _sanitize_slo_ids(m.get('slo_ids'))
+            if _sids:
+                entry['slo_ids'] = _sids
             validated.append(entry)
         cfg['monitors'] = validated
         # v5.6.x: a deleted/renamed monitor used to strand its per-monitor state
@@ -24922,6 +24996,54 @@ def handle_config_save():
             if isinstance(_sv, dict):
                 cfg[_sk] = {k: v for k, v in _sv.items()
                             if _monitor_label_is_live(k, _mon_valid_labels)}
+
+    # v6.4.0: SLA/SLO objects — named availability targets a monitor attaches to
+    # via its slo_ids checkboxes; compliance is computed in _compute_slo() from
+    # each attached monitor's check history over the object's window.
+    if 'slo_objects' in body and isinstance(body['slo_objects'], list):
+        _slo_validated, _slo_seen = [], set()
+        for o in body['slo_objects'][:50]:
+            if not isinstance(o, dict):
+                continue
+            name = _sanitize_str(str(o.get('name') or ''), 128).strip()
+            if not name:
+                continue
+            oid = re.sub(r'[^A-Za-z0-9_\-]', '', str(o.get('id') or ''))[:48]
+            # ids travel through data-arg (numeric-looking values get coerced),
+            # so keep them non-numeric by construction with a fixed prefix.
+            if not oid.startswith('slo-'):
+                oid = 'slo-' + (oid or secrets.token_hex(4))
+            if oid in _slo_seen:
+                continue
+            _slo_seen.add(oid)
+            try:
+                _tgt = float(o.get('target_pct', 99.9))
+            except (TypeError, ValueError):
+                _tgt = 99.9
+            if not (0 < _tgt < 100):
+                respond(400, {'error': f'SLO "{name}": target % must be between 0 and 100 (exclusive)'})
+            try:
+                _win = int(o.get('window_days') or 30)
+            except (TypeError, ValueError):
+                _win = 30
+            _slo_validated.append({
+                'id':          oid,
+                'name':        name,
+                'target_pct':  round(_tgt, 4),
+                'window_days': max(1, min(365, _win)),
+                'description': _sanitize_str(str(o.get('description') or ''), 300),
+            })
+        cfg['slo_objects'] = _slo_validated
+        # A deleted object must not leave stale attachments behind: compute
+        # ignores unknown ids, but the monitor editor's checkboxes would lie.
+        _slo_valid_ids = {o['id'] for o in _slo_validated}
+        for _m in (cfg.get('monitors') or []):
+            if isinstance(_m, dict) and _m.get('slo_ids'):
+                _kept = [s for s in _m['slo_ids'] if s in _slo_valid_ids]
+                if _kept:
+                    _m['slo_ids'] = _kept
+                else:
+                    _m.pop('slo_ids', None)
 
     if 'allow_internal_monitors' in body:
         cfg['allow_internal_monitors'] = bool(body['allow_internal_monitors'])
@@ -30693,7 +30815,92 @@ def _compute_slo():
             'meeting_slo':          avail >= target,
         })
     out.sort(key=lambda x: x['budget_remaining_pct'])   # worst budget first
-    return {'target': target, 'window': 'recent checks', 'monitors': out}
+    return {'target': target, 'window': 'recent checks', 'monitors': out,
+            'objects': _compute_slo_objects(mh)}
+
+
+def _compute_slo_objects(mh):
+    """v6.4.0: per-SLA/SLO-object compliance. Each configured object aggregates
+    the check history of every monitor attached to it (slo_ids) over the
+    object's own time window — a tag/group monitor's fanned-out per-device
+    history keys count too. Availability is check-weighted across the attached
+    monitors; error budget mirrors _compute_slo's per-monitor math."""
+    cfg = _config_ro()
+    objs = [o for o in (cfg.get('slo_objects') or []) if isinstance(o, dict)]
+    if not objs:
+        return []
+    monitors = [m for m in (cfg.get('monitors') or []) if isinstance(m, dict)]
+    by_obj = {}
+    for m in monitors:
+        _lbl = str(m.get('label') or '')
+        if not _lbl:
+            continue   # a blank label would substring-match every history key
+        for sid in (m.get('slo_ids') or []):
+            by_obj.setdefault(sid, []).append(_lbl)
+    now = int(time.time())
+    out = []
+    for o in objs:
+        try:
+            target = float(o.get('target_pct') or 0)
+        except (TypeError, ValueError):
+            target = 0.0
+        if not (0 < target < 100):
+            target = 99.9
+        budget = 100.0 - target
+        try:
+            window_days = max(1, min(365, int(o.get('window_days') or 30)))
+        except (TypeError, ValueError):
+            window_days = 30
+        cutoff = now - window_days * 86400
+        labels = by_obj.get(o.get('id')) or []
+        total = up = 0
+        per_mon = []
+        for lbl in labels:
+            # A tag/group monitor fans out to '<label> · <device>' history keys.
+            checks_n = checks_up = 0
+            for hk, hist in mh.items():
+                if not _monitor_label_is_live(str(hk), {lbl}):
+                    continue
+                for h in (hist if isinstance(hist, list) else []):
+                    if isinstance(h, dict) and 'ok' in h \
+                            and int(h.get('ts') or 0) >= cutoff:
+                        checks_n += 1
+                        if h.get('ok'):
+                            checks_up += 1
+            total += checks_n
+            up += checks_up
+            per_mon.append({
+                'label': _sanitize_str(lbl, 128),
+                'checks': checks_n,
+                'availability': (round(100.0 * checks_up / checks_n, 4)
+                                 if checks_n else None),
+            })
+        avail = (100.0 * up / total) if total else None
+        if avail is None:
+            remaining, burn, meeting = None, None, None
+        else:
+            consumed = max(0.0, 100.0 - avail)
+            remaining = (100.0 if budget <= 0
+                         else max(0.0, min(100.0, (budget - consumed) / budget * 100.0)))
+            burn = 0.0 if budget <= 0 else round(consumed / budget, 3)
+            meeting = avail >= target
+        out.append({
+            'id':                   str(o.get('id') or ''),
+            'name':                 _sanitize_str(str(o.get('name') or ''), 128),
+            'description':          _sanitize_str(str(o.get('description') or ''), 300),
+            'target':               target,
+            'window_days':          window_days,
+            'monitors':             per_mon,
+            'checks':               total,
+            'availability':         round(avail, 4) if avail is not None else None,
+            'budget_remaining_pct': round(remaining, 2) if remaining is not None else None,
+            'burn_rate':            burn,
+            'meeting_slo':          meeting,
+        })
+    # Breaching first (worst budget), then measured-and-meeting, then no-data.
+    out.sort(key=lambda x: (x['availability'] is None,
+                            x['budget_remaining_pct'] if x['budget_remaining_pct'] is not None else 100.0))
+    return out
 
 
 def handle_slo():

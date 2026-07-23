@@ -363,6 +363,27 @@ def generate_metrics(ctx: dict) -> str:
             for m in mons:
                 lines.append(_metric('remotepower_monitor_slo_burn_rate',
                                      {'label': str(m.get('label', ''))}, float(m.get('burn_rate') or 0)))
+        # v6.4.0: named SLA/SLO objects (monitor attachments, per-object window).
+        # Objects with no measured checks yet are skipped — a 0 would read as a
+        # hard breach on a freshly-created object.
+        slo_objs = [o for o in (slo.get('objects') or [])
+                    if isinstance(o, dict) and o.get('availability') is not None]
+        if slo_objs:
+            lines.append('# HELP remotepower_slo_object_target_percent Availability target of the SLA/SLO object.')
+            lines.append('# TYPE remotepower_slo_object_target_percent gauge')
+            for o in slo_objs:
+                lines.append(_metric('remotepower_slo_object_target_percent',
+                                     {'name': str(o.get('name', ''))}, float(o.get('target') or 0)))
+            lines.append('# HELP remotepower_slo_object_availability_percent Check-weighted availability of the attached monitors over the object window.')
+            lines.append('# TYPE remotepower_slo_object_availability_percent gauge')
+            for o in slo_objs:
+                lines.append(_metric('remotepower_slo_object_availability_percent',
+                                     {'name': str(o.get('name', ''))}, float(o.get('availability') or 0)))
+            lines.append('# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object.')
+            lines.append('# TYPE remotepower_slo_object_budget_remaining_percent gauge')
+            for o in slo_objs:
+                lines.append(_metric('remotepower_slo_object_budget_remaining_percent',
+                                     {'name': str(o.get('name', ''))}, float(o.get('budget_remaining_pct') or 0)))
 
     # v5.4.1 (G3): observed control-plane availability over rolling windows.
     # A gap is downtime OR a quiet hour with zero traffic (see the API note).

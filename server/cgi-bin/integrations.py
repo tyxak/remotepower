@@ -1682,6 +1682,125 @@ def _homebridge(inst, c):
     }
 
 
+def _wp_ts(s):
+    """Parse a Simple History GMT timestamp ('YYYY-MM-DD HH:MM:SS') → epoch.
+    0 when unparseable — the UI renders that as '—' rather than 1970."""
+    import calendar
+    import time as _time
+
+    try:
+        return int(calendar.timegm(_time.strptime(str(s).strip(), "%Y-%m-%d %H:%M:%S")))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _wp_login_event(e):
+    """One Simple History event → {user, ip, ts} if it is a successful login,
+    else None. Defensive about shape — the REST payload varies across Simple
+    History major versions (context keys vs. top-level fields)."""
+    if not isinstance(e, dict):
+        return None
+    ctx = e.get("context")
+    if not isinstance(ctx, dict):
+        ctx = {}
+    key = str(ctx.get("_message_key") or e.get("message_key") or "")
+    logger = str(e.get("logger") or "")
+    if key != "user_logged_in" and not (
+        logger == "SimpleUserLogger" and "logged in" in str(e.get("message") or "")
+    ):
+        return None
+    idata = e.get("initiator_data")
+    if not isinstance(idata, dict):
+        idata = {}
+    user = str(idata.get("user_login") or ctx.get("user_login") or "?")[:64]
+    ip = ""
+    ips = e.get("ip_addresses")
+    if isinstance(ips, dict):
+        for v in ips.values():
+            if v:
+                ip = str(v)
+                break
+    elif isinstance(ips, list) and ips:
+        ip = str(ips[0])
+    if not ip:
+        ip = str(ctx.get("_server_remote_addr") or "")
+    return {"user": user, "ip": ip[:64],
+            "ts": _wp_ts(e.get("date_gmt") or e.get("date"))}
+
+
+@_register(
+    "wordpress",
+    "WordPress",
+    "apps",
+    [
+        _field("username", "Username", TEXT, optional=True),
+        _field("secret", "Application password", PASSWORD, optional=True),
+    ],
+    notes="Watches a WordPress site: REST reachability + site identity, and — "
+    "with a username + Application password (Users → Profile → Application "
+    "Passwords) — the last logins with timestamp and source IP via the free "
+    "Simple History plugin's REST API (the server geo-enriches the IPs when a "
+    "GeoIP database is configured in Settings → Security). Without Simple "
+    "History the connector still monitors the site; the login list is just "
+    "unavailable.",
+)
+def _wordpress(inst, c):
+    root = c.get_json("/wp-json/") or {}
+    site = str(root.get("name") or "").strip()
+    h = {}
+    user, pw = inst.get("username") or "", inst.get("secret") or ""
+    authed = False
+    if user and pw:
+        h["Authorization"] = "Basic " + base64.b64encode(
+            f"{user}:{pw}".encode()).decode()
+        try:
+            me = c.get_json("/wp-json/wp/v2/users/me", headers=h)
+            authed = bool(isinstance(me, dict) and me.get("id"))
+        except IntegrationError:
+            authed = False
+        if not authed:
+            return {
+                "status": WARN,
+                "detail": f"{site or 'site up'} — credentials rejected "
+                "(check the Application password)",
+                "metrics": {},
+            }
+    logins = []
+    logins_available = False
+    if authed:
+        try:
+            ev = c.get_json(
+                "/wp-json/simple-history/v1/events",
+                headers=h, params={"per_page": 25, "loggers": "SimpleUserLogger"},
+            )
+            rows = ev.get("data") if isinstance(ev, dict) else ev
+            if isinstance(rows, list):
+                logins_available = True
+                for e in rows:
+                    le = _wp_login_event(e)
+                    if le:
+                        logins.append(le)
+                    if len(logins) >= 5:
+                        break
+        except IntegrationError:
+            logins_available = False
+    import time as _time
+
+    day_ago = int(_time.time()) - 86400
+    detail = site or "site up"
+    if logins_available:
+        detail += f" — {len(logins)} recent login(s)"
+    elif authed:
+        detail += " — login history unavailable (Simple History plugin not detected)"
+    return {
+        "status": OK,
+        "detail": detail,
+        "metrics": {"logins_24h": sum(1 for x in logins if x["ts"] >= day_ago)}
+        if logins_available else {},
+        "recent_logins": logins,
+    }
+
+
 # ── EDR / endpoint-protection connectors (v6.2.0) ─────────────────────────────
 # These are read-only *posture* connectors, but they exist for a reason the other
 # connectors don't have: besides their own health, each one reports the set of
@@ -1879,6 +1998,9 @@ _STATS: dict = {
     "github": [
         ("repos", "Repos", "int"),
         ("open_issues", "Open issues", "int"),
+    ],
+    "wordpress": [
+        ("logins_24h", "Logins 24h", "int"),
     ],
     "pihole": [
         ("queries_today", "Queries", "int"),
