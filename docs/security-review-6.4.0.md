@@ -21,7 +21,43 @@ fixed.
   auth/write-gate, logic-correctness, and dead-feature bugs. Each reviewer drove
   the real code paths with live repros under a scratch data dir.
 
-## Findings (all fixed; all LOW)
+## Second pass — deep adversarial audit (multi-vector)
+
+A second, wider sweep ran eight independent adversarial reviewers in parallel
+(cross-tenant / IDOR, SSRF, XSS / DOM injection, auth / RBAC / session,
+command-injection / RCE, secret leakage, XML / SQL / path / deserialization, and
+logic-correctness), alongside the full local SAST stack (Bandit, gitleaks,
+`ruff --select F821`, and a config-honoring CodeQL run matching production's
+advanced-setup scan — **0 results, Python and JavaScript**). Every reported
+finding was reproduced against the real code path before being fixed, and each
+carries a regression test. All fixes landed **before release** — the affected
+subsystems never shipped in this state.
+
+The most serious was a **cross-tenant authorization gap in the staged-rollout /
+auto-patch subsystem**: those two device-targeting paths did not pass through
+the same tenant/scope filter the rest of the command surface uses, so on a
+multi-tenant deployment a tenant administrator could have directed a patch /
+reboot / script action beyond their own tenant. Fixed by stamping the creator's
+tenant scope onto the rollout or policy at creation and enforcing it wherever
+the target set is resolved; a guardrail test now drives the real dispatch path
+for both. (Multi-tenant isolation is an opt-in enterprise mode, off by default.)
+
+The remaining items were lower-severity hardening, all fixed: free-form
+documentation / ticket / knowledge-base bodies are now run through the same
+inline-secret scrubber as script bodies before they can reach an AI context;
+alert acknowledge / resolve now honours a scoped operator's device scope (not
+just their tenant); a threshold that was meant to disable an alert at `0` now
+does; the storage-maintenance argument validator was tightened to reject spaces
+and leading dashes; operator-authored log-alert regexes are screened for
+catastrophic-backtracking (ReDoS) shapes at save time; and the satellite
+scanner's XML parse gained the same DTD/entity guard the agent already uses.
+
+The SSRF, XSS, command-injection, SQL, XXE and deserialization reviews found
+**no exploitable issue** — the outbound-request guard (connect-time peer-IP
+re-validation, no-redirect, metadata-range blocking) and the escape-everything
+frontend discipline held across the board.
+
+## Findings (first pass — all fixed; all LOW)
 
 The new code was found to be notably well-hardened — the recurring bug classes
 this project tracks had clearly been designed against. Three genuine low-severity
