@@ -7572,7 +7572,7 @@ def _record_fleet_event(event, payload):
                 if isinstance(sm, str):
                     sm = [sm]
                 if sm:
-                    summary['sample'] = [str(sm[0])[:200]]
+                    summary['sample'] = [str(sm[0])[:1024]]  # v6.4.0: clearable — full sig fidelity
                 continue
             if key in payload and payload[key] is not None:
                 v = payload[key]
@@ -42269,7 +42269,7 @@ def _log_alert_evidence(payload, buf_cache):
     if isinstance(sample, str):
         sample = [sample]
     if sample:
-        return [str(x)[:200] for x in sample[:3]], False
+        return [str(x)[:1024] for x in sample[:3]], False  # v6.4.0: full signature-fidelity for the clearable sample (eval line is capped at 1024); display sites re-truncate
 
     did, unit = payload.get('device_id'), payload.get('unit')
     pattern = payload.get('pattern')
@@ -42300,7 +42300,7 @@ def _log_alert_evidence(payload, buf_cache):
                 continue
             if window and ts and int(e.get('ts', 0) or 0) > ts + 60:
                 continue
-            out.append(ln[:200])
+            out.append(ln[:1024])  # v6.4.0: keep full signature fidelity for clearing
             if len(out) >= 3:
                 break
         return out
@@ -43192,7 +43192,7 @@ def _compute_attention():
                 'device':   dev_name,
                 'unit':     unit,
                 'summary':  summary_text,
-                'samples':  [str(s)[:200] for s in samples[:3]],
+                'samples':  [str(s)[:1024] for s in samples[:3]],  # v6.4.0: clearable — full sig fidelity
                 'pattern':  pattern,
                 # WHEN it fired. Without this the card is undateable: an alert
                 # from four minutes ago and one from yesterday look identical,
