@@ -4250,11 +4250,9 @@ async function loadSettings() {
   _webhookDests = Array.isArray(data.webhook_urls) ? data.webhook_urls.map(d => ({...d})) : [];
   renderWebhookDests();
 
-  // v3.0.2: session/audit/backup settings
-  const _ss = document.getElementById('session-ttl-short');
-  if (_ss) _ss.value = data.session_ttl_short || '';
-  const _sl = document.getElementById('session-ttl-long');
-  if (_sl) _sl.value = data.session_ttl_long || '';
+  // v3.0.2: session/audit/backup settings. (The old session-ttl-short/long
+  // inputs are gone — the live surface is the cfg-session-short/long pair,
+  // bound further down in this loader — so only audit retention binds here.)
   const _ar = document.getElementById('audit-retention-days');
   if (_ar) _ar.value = data.audit_log_retention_days ?? '';
 
@@ -4837,11 +4835,9 @@ async function saveSettings(btn) {
     });
   }
 
-  // v3.0.2: session timeout + audit retention + backup config
-  const _sShort = parseInt(document.getElementById('session-ttl-short')?.value || '', 10);
-  if (!isNaN(_sShort)) payload.session_ttl_short = _sShort;
-  const _sLong  = parseInt(document.getElementById('session-ttl-long')?.value || '', 10);
-  if (!isNaN(_sLong)) payload.session_ttl_long = _sLong;
+  // v3.0.2: audit retention + backup config. (session_ttl_short/long are
+  // saved from the live cfg-session-short/long inputs elsewhere; the old
+  // session-ttl-* inputs these lines read no longer exist anywhere.)
   const _aRet   = parseInt(document.getElementById('audit-retention-days')?.value || '', 10);
   if (!isNaN(_aRet)) payload.audit_log_retention_days = _aRet;
   // backup is nested
