@@ -58,6 +58,7 @@ CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 # without scanning thousands of unrelated entries.
 UPDATE_LOGS_FILE = DATA_DIR / 'update_logs.json'
 IGNORED_ITEMS_FILE = DATA_DIR / 'ignored_items.json'  # v3.0.1: per-item ignores
+NA_SUPPRESS_FILE = DATA_DIR / 'na_suppress_rules.json'  # v6.4.0: class-level NA suppression rules
 ACME_STATE_FILE    = DATA_DIR / 'acme_state.json'    # v3.0.1: acme.sh per-device state
 ACME_LOGS_DIR      = DATA_DIR / 'acme_logs'           # v3.0.1: captured acme.sh stdout per renewal/issue
 MAX_UPDATE_LOGS_PER_DEVICE = 10                # rolling buffer
@@ -12294,6 +12295,7 @@ def _purge_device(dev_id):
 
     except Exception:
         pass  # device delete must succeed even if cleanup hits an edge case
+    _prune_ignores_for_device(dev_id)   # v6.4.0 #2: don't leave ignore tombstones
     return True
 
 
@@ -16942,6 +16944,7 @@ def handle_device_decommission(dev_id):
         if changed:
             save(CONFIG_FILE, cfg)
         _resolve_open_alerts_for_device(dev_id, 'decommissioned')
+        _prune_ignores_for_device(dev_id)   # v6.4.0 #2: clear its ignore tombstones
     audit_log(actor, 'device_decommission',
               detail=f'device={dev_id} decommissioned={dc}')
     respond(200, {'ok': True, 'decommissioned': dc})
@@ -43299,13 +43302,16 @@ def _compute_attention():
     # its stable key so the frontend can render an × button.
     ignored = _ignored_keys('needs_attention')
     filtered = []
+    _live_na_keys = set()          # v6.4.0 (#1): RAW keys, for the ignore GC
     for i in items:
         key = _attention_item_key(i)
+        _live_na_keys.add(key)
         if key in ignored:
             continue
         i['_ignore_key'] = key
         filtered.append(i)
     items = filtered
+    _stash_live_attention_keys(_live_na_keys)   # v6.4.0 (#1): feed the prune sweep
 
     # v3.0.1: decorate with device_id (looked up by device-name reverse map)
     # and mitigation_kind iff the alert kind has a playbook. Pre-existing
@@ -43328,6 +43334,15 @@ def _compute_attention():
             # service_down isn't yet emitted — added in a later iteration.
             if i.get('target'):
                 i['mitigation_target'] = i['target']
+
+    # v6.4.0 (counter #4): class-level suppression rules. One rule silences a
+    # whole KIND across the fleet, a group, a tag or a device — so a benign
+    # signal firing on 500 hosts is ONE managed entry, not 500 per-item ignores
+    # (the big-fleet pile-up). device_id is now decorated, so group/tag/device
+    # scopes resolve here. Rules live in _na_suppress_rules() (Settings-managed).
+    _supp = _na_suppress_rules()
+    if _supp:
+        items = [i for i in items if not _na_item_suppressed(i, _supp, devices, name_to_id)]
 
     # v6.1.2: honour per-(host, event) alert mutes here too. A mute is
     # documented as silencing the inbox AND needs-attention, but only the
@@ -62465,6 +62480,9 @@ def _build_exact_routes():
         ('POST', '/api/iac/request'): handle_iac_request,
         ('GET', '/api/ignored'): handle_ignored_list,
         ('POST', '/api/ignored'): handle_ignored_add,
+        ('GET', '/api/na-suppress'): handle_na_suppress_list,          # v6.4.0 #4
+        ('POST', '/api/na-suppress'): handle_na_suppress_add,          # v6.4.0 #4
+        ('POST', '/api/na-suppress/remove'): handle_na_suppress_remove,  # v6.4.0 #4
         ('POST', '/api/ignored/remove'): handle_ignored_remove,
         ('GET', '/api/image-updates'): handle_image_updates_get,
         ('POST', '/api/image-updates/ignore'): handle_image_ignore_add,
@@ -63636,6 +63654,8 @@ def main():
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
+    _safe(run_ignored_prune_if_due, 'run_ignored_prune_if_due')      # v6.4.0 #1 ignore GC
+    _safe(run_autoheal_recheck_if_due, 'run_autoheal_recheck_if_due')  # v6.4.0 #3 auto-heal gap recheck
     # W6-44: scheduled cloud inventory re-sync (opt-in; slow cadence).
     _safe(run_cloud_sync_if_due, 'run_cloud_sync_if_due')
     # W6-4: warranty auto-lookup → CMDB expiry (opt-in; cached per serial).
@@ -64720,6 +64740,270 @@ def _ignored_keys(category):
     return set()
 
 
+# ── v6.4.0: ignore lifecycle — stop the ignored-items list from piling up ──────
+# The pile-up had one root cause: a permanent × ignore was NEVER garbage-
+# collected. It lived forever even after its condition cleared, its device was
+# removed, or its point-in-time event aged out of the 24h fleet-events window.
+# On a big fleet that grows without bound and hides real recurrences. The
+# machinery below GCs a moot ignore (#1), prunes a removed device's ignores (#2)
+# and annotates each ignore with when it was last actually active (#5, surfaced
+# in the UI so stale ignores can be bulk-cleared). Class-level suppression (#4)
+# and the auto-heal recheck sweep (#3) live in their own blocks below.
+
+_NA_GC_GRACE = 3 * 86400          # keep a moot NA ignore this long before pruning
+_NA_LIVE_KEYS = (0, frozenset())  # (ts, keys) — raw NA keys stashed per compute
+
+
+def _stash_live_attention_keys(keys):
+    """Called by _compute_attention with the RAW (pre-ignore-filter) key set, so
+    the prune sweep knows which ignores are still catching a live condition."""
+    global _NA_LIVE_KEYS
+    _NA_LIVE_KEYS = (int(time.time()), frozenset(keys))
+
+
+def _prune_ignored_items():
+    """Counter #1: GC needs_attention ignores whose underlying condition is gone.
+    An ignore is moot once its raw item stops being generated (drift resolved,
+    disk recovered, device removed, point-in-time event aged out). We keep a
+    `last_seen` on each ignore, refresh it while the item is live, and drop the
+    ignore once it has been absent longer than the grace window. Best-effort;
+    never raises. Returns the count removed."""
+    stamp, live = _NA_LIVE_KEYS
+    now = int(time.time())
+    # Only prune off a FRESH fleet-wide key snapshot — never GC because attention
+    # simply wasn't computed recently (that would wrongly drop live ignores).
+    if not stamp or now - stamp > 900:
+        return 0
+    removed = 0
+    try:
+        with _LockedUpdate(IGNORED_ITEMS_FILE) as data:
+            na = data.get('needs_attention')
+            if not isinstance(na, list):
+                return 0
+            kept = []
+            for e in na:
+                if not isinstance(e, dict) or not e.get('key'):
+                    continue
+                if e['key'] in live:
+                    e['last_seen'] = now        # still catching a live condition
+                    kept.append(e)
+                    continue
+                if e.get('expires_at'):
+                    kept.append(e)              # snoozes: _ignored_load handles them
+                    continue
+                # Seed last_seen for legacy entries so they get the full grace
+                # from first sight, not an instant prune.
+                seen = int(e.get('last_seen') or e.get('ts') or now)
+                if 'last_seen' not in e:
+                    e['last_seen'] = seen
+                if now - seen > _NA_GC_GRACE:
+                    removed += 1                # condition cleared → GC
+                    continue
+                kept.append(e)
+            if len(kept) != len(na):
+                data['needs_attention'] = kept
+    except Exception:
+        return 0
+    return removed
+
+
+def _prune_ignores_for_device(dev_id, dev_name=''):
+    """Counter #2: when a device is removed/decommissioned, drop every ignore
+    scoped to it — stale_containers + devices + cleared log lines (log_acks),
+    keyed directly by device id, plus any needs_attention ignore that stored the
+    device id. Fleet churn otherwise leaves permanent tombstones. Best-effort."""
+    dev_id = str(dev_id or '')
+    if not dev_id:
+        return
+    try:
+        with _LockedUpdate(IGNORED_ITEMS_FILE) as data:
+            sc = data.get('stale_containers')
+            if isinstance(sc, list):
+                data['stale_containers'] = [e for e in sc
+                                            if str((e or {}).get('device_id') or '') != dev_id]
+            dv = data.get('devices')
+            if isinstance(dv, list):
+                data['devices'] = [e for e in dv if str((e or {}).get('id') or '') != dev_id]
+            na = data.get('needs_attention')
+            if isinstance(na, list):
+                data['needs_attention'] = [e for e in na
+                                           if str((e or {}).get('device_id') or '') != dev_id]
+    except Exception:
+        pass
+    # cleared log lines are their own store, keyed device_id in the ack key
+    try:
+        with _LockedUpdate(LOG_ACKS_FILE) as store:
+            acks = store.get('acks')
+            if isinstance(acks, dict):
+                for k in [k for k, v in acks.items()
+                          if isinstance(v, dict) and str(v.get('device_id') or '') == dev_id]:
+                    acks.pop(k, None)
+    except Exception:
+        pass
+
+
+def run_ignored_prune_if_due():
+    """Cadence gate for _prune_ignored_items — hourly, cheap, decoupled from the
+    hot _compute_attention read path (only writes when there is something to GC)."""
+    global _IGNORED_PRUNE_LAST
+    now = int(time.time())
+    if now - _IGNORED_PRUNE_LAST < 3600:
+        return
+    _IGNORED_PRUNE_LAST = now
+    _prune_ignored_items()
+
+
+_IGNORED_PRUNE_LAST = 0
+_AUTOHEAL_RECHECK_LAST = 0
+
+
+def run_autoheal_recheck_if_due():
+    """Counter #3: re-evaluate open alerts for auto-heal GAP events whose recovery
+    we CAN observe from current state (patch_alert, cve_found) and resolve any
+    whose condition no longer holds — so they leave the inbox / Needs-Attention on
+    their own instead of forcing an operator to ignore them. Conservative: resolves
+    ONLY when current state unambiguously shows the condition cleared. Throttled."""
+    global _AUTOHEAL_RECHECK_LAST
+    now = int(time.time())
+    if now - _AUTOHEAL_RECHECK_LAST < 300:
+        return
+    _AUTOHEAL_RECHECK_LAST = now
+    try:
+        _autoheal_recheck(now)
+    except Exception:
+        pass
+
+
+def _autoheal_recheck(now):
+    devices = load(DEVICES_FILE) or {}
+    thr = int(_config_ro().get('patch_alert_threshold') or 0)
+    cve_by_dev = None
+    ids = set()
+    for a in (load(ALERTS_FILE) or {}).get('alerts', []):
+        if not isinstance(a, dict) or a.get('resolved_at'):
+            continue
+        ev, did = a.get('event'), a.get('device_id')
+        if ev not in ('patch_alert', 'cve_found') or not did:
+            continue
+        dev = devices.get(did)
+        if not isinstance(dev, dict):
+            continue
+        if ev == 'patch_alert':
+            pkgs = (dev.get('sysinfo') or {}).get('packages') or {}
+            cur = pkgs.get('upgradable')
+            t = int((a.get('payload') or {}).get('threshold') or thr or 0)
+            if isinstance(cur, int) and t and cur < t:
+                ids.add(a.get('id'))
+        elif ev == 'cve_found':
+            if cve_by_dev is None:
+                cve_by_dev = load(CVE_FINDINGS_FILE) or {}
+            rec = cve_by_dev.get(did) or {}
+            still = [f for f in (rec.get('findings') or [])
+                     if isinstance(f, dict) and not f.get('ignored')
+                     and f.get('severity') in CVE_ALERT_SEVERITY]
+            if not still:
+                ids.add(a.get('id'))
+    ids.discard(None)
+    if not ids:
+        return
+    with _LockedUpdate(ALERTS_FILE) as store:
+        for a in store.get('alerts', []):
+            if isinstance(a, dict) and a.get('id') in ids and not a.get('resolved_at'):
+                a['resolved_at'] = now
+                a['resolved_by'] = 'auto'
+                a['resolution'] = f'auto-resolved — {a.get("event")} condition cleared'
+
+
+# ── v6.4.0 (counter #4): class-level Needs-Attention suppression rules ──────────
+# Per-item ignores don't scale: a benign signal on a big fleet fires the same
+# kind on hundreds of hosts, and ignoring each makes hundreds of entries. A
+# suppression rule silences a whole KIND at a scope (all / group / tag / device)
+# as ONE managed entry. Distinct from a per-(host,event) alert MUTE (which also
+# suppresses webhooks) — this only hides the NA card, like an ignore but broad.
+_NA_SUPPRESS_SCOPES = ('all', 'group', 'tag', 'device')
+
+
+def _na_suppress_rules():
+    """The list of active suppression rules ({id,kind,scope,value,note,by,ts})."""
+    data = _load_ro(NA_SUPPRESS_FILE) or {}
+    rules = data.get('rules') if isinstance(data, dict) else None
+    return [r for r in rules if isinstance(r, dict) and r.get('kind')] if isinstance(rules, list) else []
+
+
+def _na_item_suppressed(item, rules, devices, name_to_id):
+    """True if any class rule covers this NA item. Matches on kind (or '*' = any
+    kind) AND scope: all / device(id or name) / group / tag."""
+    kind = str(item.get('kind') or '')
+    did = item.get('device_id') or name_to_id.get(item.get('device'))
+    dev = (devices.get(did) or {}) if did else {}
+    grp = str(dev.get('group') or '')
+    tags = dev.get('tags') or []
+    for r in rules:
+        rk = str(r.get('kind') or '')
+        if rk not in ('*', 'any', kind):
+            continue
+        scope = str(r.get('scope') or 'all')
+        val = str(r.get('value') or '')
+        if scope == 'all':
+            return True
+        if scope == 'device' and val and (val == str(did or '') or val == str(item.get('device') or '')):
+            return True
+        if scope == 'group' and val and val == grp:
+            return True
+        if scope == 'tag' and val and val in tags:
+            return True
+    return False
+
+
+def handle_na_suppress_list():
+    """GET /api/na-suppress — the class-level NA suppression rules."""
+    require_auth()
+    respond(200, {'rules': _na_suppress_rules(), 'scopes': list(_NA_SUPPRESS_SCOPES)})
+
+
+def handle_na_suppress_add():
+    """POST /api/na-suppress {kind, scope, value, note} — add a suppression rule."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    kind = _sanitize_str(str(body.get('kind', '')), 40).strip() or '*'
+    scope = str(body.get('scope', 'all')).strip().lower()
+    if scope not in _NA_SUPPRESS_SCOPES:
+        respond(400, {'error': f'scope must be one of {", ".join(_NA_SUPPRESS_SCOPES)}'})
+    value = _sanitize_str(str(body.get('value', '')), 128).strip()
+    if scope != 'all' and not value:
+        respond(400, {'error': 'value required for this scope'})
+    rule = {'id': secrets.token_hex(6), 'kind': kind, 'scope': scope, 'value': value,
+            'note': _sanitize_str(str(body.get('note', '')), 200), 'by': actor,
+            'ts': int(time.time())}
+    with _LockedUpdate(NA_SUPPRESS_FILE) as data:
+        rules = data.setdefault('rules', [])
+        if not isinstance(rules, list):
+            rules = data['rules'] = []
+        if len(rules) >= 500:
+            respond(400, {'error': 'rule limit reached (500)'})
+        rules.append(rule)
+    audit_log(actor, 'na_suppress_add', f'kind={kind} scope={scope}:{value}')
+    respond(200, {'ok': True, 'rule': rule})
+
+
+def handle_na_suppress_remove():
+    """POST /api/na-suppress/remove {id} — delete a suppression rule."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    rid = _sanitize_str(str(get_json_obj().get('id', '')), 16).strip()
+    if not rid:
+        respond(400, {'error': 'id required'})
+    with _LockedUpdate(NA_SUPPRESS_FILE) as data:
+        rules = data.get('rules')
+        if isinstance(rules, list):
+            data['rules'] = [r for r in rules if (r or {}).get('id') != rid]
+    audit_log(actor, 'na_suppress_remove', f'id={rid}')
+    respond(200, {'ok': True})
+
+
 def handle_ignored_list():
     """GET /api/ignored — full list across all categories."""
     require_auth()
@@ -64775,8 +65059,14 @@ def handle_ignored_add():
                 entry = {
                     'key':   key,
                     'ts':    now,
+                    'last_seen': now,   # v6.4.0 #1: seed for the GC sweep
                     'label': _sanitize_str(str(body.get('label', '')), 200),
                 }
+                # v6.4.0 #2: remember the device so the device-removal prune can
+                # target this ignore (the NA key itself is an opaque hash).
+                _did = _sanitize_str(str(body.get('device_id', '')), 64)
+                if _did:
+                    entry['device_id'] = _did
                 if expires_at:
                     entry['expires_at'] = expires_at
                 data['needs_attention'].append(entry)

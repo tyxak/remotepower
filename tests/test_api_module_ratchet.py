@@ -38,7 +38,12 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # 629→630 (v6.3.1): handle_alert_unresolve — core-spine alert lifecycle
 # (sibling of the inline ack/unack/resolve family; the undo stack's inverse
 # for a manual resolve).
-INLINE_HANDLER_CEILING = 630
+# 630→633 (v6.4.0): handle_na_suppress_{list,add,remove} — class-level
+# Needs-Attention suppression, tightly coupled to _compute_attention (the inline
+# core-spine attention engine) and the inline ignored-items handlers; a bound
+# module would just re-bind the whole attention internals. Part of the
+# ignored-items pile-up counter-measures.
+INLINE_HANDLER_CEILING = 633
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

@@ -18503,14 +18503,14 @@ async function _renderHomeAttention(preloaded) {
       ${logsBtn}
       ${clearLineBtn}
       ${snoozeBtn}
-      <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" data-arg3="${escAttr(i.device_id || '')}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>`;
   }).join('');
 }
 
-async function ignoreAttention(key, label) {
+async function ignoreAttention(key, label, deviceId) {
   if (!key) return;
-  const r = await api('POST', '/ignored', { category: 'needs_attention', key, label });
+  const r = await api('POST', '/ignored', { category: 'needs_attention', key, label, device_id: deviceId || '' });
   if (r?.ok) {
     _renderHomeAttention();
     pushUndoableAction(`Hide "${label || key}"`,
@@ -26038,19 +26038,29 @@ async function loadIgnoredItems() {
     { key: 'stale_containers', label: 'Stale containers', identify: e => `${e.device_id}/${e.container}` },
     { key: 'devices',          label: 'Devices',          identify: e => e.id },
   ];
+  const _ago = ts => { if (!ts) return ''; const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+    if (s < 3600) return Math.floor(s/60)+'m ago'; if (s < 86400) return Math.floor(s/3600)+'h ago';
+    return Math.floor(s/86400)+'d ago'; };
   let html = '';
   for (const sec of sections) {
     const entries = data[sec.key] || [];
+    // v6.4.0 (#4/#5): bulk "Restore all" so a big-fleet pile clears in one click.
+    const bulk = entries.length > 1
+      ? `<button class="btn-secondary badge-sm" data-action="restoreAllIgnored" data-arg="${sec.key}">Restore all (${entries.length})</button>` : '';
     html += `<div class="mb-16">
-      <h4 class="isl-668">${sec.label} <span class="isl-74">(${entries.length})</span></h4>`;
+      <div class="row-8-center"><h4 class="isl-668">${sec.label} <span class="isl-74">(${entries.length})</span></h4>${bulk}</div>`;
     if (!entries.length) {
       html += '<div class="isl-616">— none —</div>';
     } else {
       html += entries.map(e => {
         const id = sec.identify(e);
         const when = e.ts ? new Date(e.ts * 1000).toLocaleString() : '';
+        // v6.4.0 (#5): for NA ignores, show when the condition was last actually
+        // active — a "never" / long-stale ignore is a candidate to drop.
+        const active = (sec.key === 'needs_attention' && e.last_seen)
+          ? ` · last active ${_ago(e.last_seen)}` : '';
         return `<div class="isl-669">
-          <div class="isl-618">${escHtml(e.label || id)}<div class="meta-sm-nm">${escHtml(when)}</div></div>
+          <div class="isl-618">${escHtml(e.label || id)}<div class="meta-sm-nm">${escHtml(when)}${escHtml(active)}</div></div>
           <button class="btn-secondary badge-sm" data-action-btn="_restoreIgnoredFromStore" data-store-key="${_storeEvtData([sec.key, e])}">Restore</button>
         </div>`;
       }).join('');
@@ -26119,12 +26129,73 @@ async function loadIgnoredItems() {
     }).join('');
   }
   html += '</div>';
+  // v6.4.0 (#4): class-level suppression rules — one rule silences a whole KIND
+  // across the fleet / a group / a tag / a device, instead of hundreds of
+  // per-item ignores. This is the big-fleet answer to the pile-up.
+  let supp = { rules: [], scopes: ['all', 'group', 'tag', 'device'] };
+  try { supp = (await api('GET', '/na-suppress')) || supp; } catch (_) {}
+  const rules = supp.rules || [];
+  html += `<div class="mb-16">
+    <div class="row-8-center"><h4 class="isl-668">Suppression rules <span class="isl-74">(${rules.length})</span></h4></div>
+    <p class="hint">Silence a whole Needs-Attention <em>kind</em> at a scope, so a benign signal on many hosts is one rule — not one ignore per host. Leave "kind" blank for any kind.</p>
+    <div class="row-8-center mb-8">
+      <input type="text" id="nasup-kind" class="form-input input-auto" placeholder="kind (e.g. drift, cve_found) or blank = any" maxlength="40">
+      <select id="nasup-scope" class="form-input input-auto">${(supp.scopes || []).map(s => `<option value="${escAttr(s)}">${escHtml(s)}</option>`).join('')}</select>
+      <input type="text" id="nasup-value" class="form-input input-auto" placeholder="group / tag / device (blank for all)" maxlength="128">
+      <button class="btn-primary badge-sm" data-action="naSuppressAdd">Add rule</button>
+    </div>`;
+  if (!rules.length) {
+    html += '<div class="isl-616">— none —</div>';
+  } else {
+    html += rules.map(r => {
+      const scope = r.scope === 'all' ? 'all hosts' : `${escHtml(r.scope)}: ${escHtml(r.value || '')}`;
+      const meta = [r.note ? `“${escHtml(r.note)}”` : null, r.by ? `by ${escHtml(r.by)}` : null].filter(Boolean).join(' · ');
+      return `<div class="isl-669">
+        <div class="isl-618"><code>${escHtml(r.kind || '*')}</code> → ${scope}
+          <div class="meta-sm-nm">${meta}</div></div>
+        <button class="btn-secondary badge-sm" data-action="naSuppressRemove" data-arg="${escAttr(r.id)}">Remove</button>
+      </div>`;
+    }).join('');
+  }
+  html += '</div>';
   list.innerHTML = html;
 }
 
 async function unclearLogAckIgnored(key) {
   const r = await api('POST', '/logs/ack/delete', { key: key });
   if (r?.ok) { toast('Restored — this line alerts again', 'success'); loadIgnoredItems(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// v6.4.0 (#4/#5): bulk-restore a whole ignored category in one click.
+async function restoreAllIgnored(category) {
+  const data = await api('GET', '/ignored');
+  const entries = (data && data[category]) || [];
+  if (!entries.length) return;
+  if (!await uiConfirm(`Restore all ${entries.length} ignored ${category.replace('_', ' ')}?`)) return;
+  for (const e of entries) {
+    const body = { category };
+    if (category === 'needs_attention') body.key = e.key;
+    else if (category === 'stale_containers') { body.device_id = e.device_id; body.container = e.container; }
+    else if (category === 'devices') body.id = e.id;
+    await api('POST', '/ignored/remove', body);
+  }
+  toast(`Restored ${entries.length} item${entries.length === 1 ? '' : 's'}`, 'success');
+  loadIgnoredItems();
+}
+
+// v6.4.0 (#4): create / remove a class-level suppression rule.
+async function naSuppressAdd() {
+  const kind = (document.getElementById('nasup-kind')?.value || '').trim();
+  const scope = document.getElementById('nasup-scope')?.value || 'all';
+  const value = (document.getElementById('nasup-value')?.value || '').trim();
+  const r = await api('POST', '/na-suppress', { kind, scope, value });
+  if (r?.ok) { toast('Suppression rule added', 'success'); loadIgnoredItems(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function naSuppressRemove(id) {
+  const r = await api('POST', '/na-suppress/remove', { id });
+  if (r?.ok) { toast('Rule removed', 'success'); loadIgnoredItems(); }
   else toast(r?.error || 'Failed', 'error');
 }
 
