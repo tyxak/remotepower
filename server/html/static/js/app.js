@@ -18491,7 +18491,7 @@ async function _renderHomeAttention(preloaded) {
     // button must still be here, because an alert with no evidence is exactly
     // the one an operator most wants to stop.
     const clearLineBtn = (i.kind === 'log_alert' && (i.device_id || i.pattern))
-      ? `<button class="btn-icon isl-556" title="${escAttr((i.samples && i.samples.length) ? 'Clear this line for good — it stops counting toward the rule, a new message still alerts' : 'No line was captured — silence this rule on this unit')}" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escAttr(i.unit || '')}" data-arg3="${escAttr((i.samples && i.samples[0]) || '')}" data-arg4="${escAttr(i.pattern || '')}" >${_icon('undo', 14)}</button>`
+      ? `<button class="btn-icon isl-556" title="${escAttr((i.samples && i.samples.length) ? 'Clear this line for good — it stops counting toward the rule, a new message still alerts' : 'No line was captured — silence this rule on this unit')}" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escHtml(i.unit || '')}" data-arg3="${escHtml((i.samples && i.samples[0]) || '')}" data-arg4="${escHtml(i.pattern || '')}" >${_icon('undo', 14)}</button>`
       : '';
     return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
       <div

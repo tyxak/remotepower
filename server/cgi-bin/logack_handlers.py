@@ -43,9 +43,26 @@ def bind(api_globals):
     A = _ApiNamespace(api_globals)
 
 
+import re as _re
 import time
 
 import logsig
+
+# v6.4.0 (field bug): the dashboard Needs-Attention "Clear line" button escapes
+# the matched line with the frontend's escAttr(), which encodes " ' & < > ` \
+# and newlines as literal `\xNN` sequences. The browser does NOT decode those
+# when the attribute is read back (they're a JS-string escape, not an HTML
+# entity), so the line arrived here with `\x22` where it had a real quote — and
+# a signature computed on that mangled text can NEVER match the real line the
+# rule keeps matching (dockerd logs are full of `"`), so the clear silently
+# never took. Decode it back before signing. No-op for the Alerts-inbox path
+# (escHtml → real chars, no `\xNN`), and safe for a literal `\xNN` in a real
+# line (escAttr escapes the backslash → `\x5c`, so it round-trips).
+_ATTR_ESC_RE = _re.compile(r'\\x([0-9a-fA-F]{2})')
+
+
+def _unescape_attr(s):
+    return _ATTR_ESC_RE.sub(lambda m: chr(int(m.group(1), 16)), s or '')
 
 MAX_LOG_ACKS = 2000          # bounded store; oldest-first eviction
 ACK_EXPIRY_MAX_DAYS = 365
@@ -181,12 +198,12 @@ def handle_log_ack_add():
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
     body = A.get_json_obj()
-    line = str(body.get('line', ''))[:2000]
+    line = _unescape_attr(str(body.get('line', ''))[:2000])
     # Two shapes. A LINE acknowledgement is precise: this exact message, a new
     # one still fires. A RULE acknowledgement is the coarse escape for an alert
     # that captured no line — it silences the whole pattern on that unit, so it
     # is only offered where the precise option genuinely cannot be built.
-    rule_pattern = str(body.get('pattern', ''))[:500]
+    rule_pattern = _unescape_attr(str(body.get('pattern', ''))[:500])
     sig = logsig.signature(line) if line else logsig.rule_key(rule_pattern)
     if not sig:
         A.respond(400, {'error': 'line or pattern is required'})

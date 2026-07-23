@@ -110,5 +110,55 @@ class TestBlocklistDomainCollapse(unittest.TestCase):
         self.assertNotEqual(c, d)
 
 
+class TestEscAttrMangledLineClears(unittest.TestCase):
+    """v6.4.0 field bug #3 (tviapp01 dockerd): the dashboard Needs-Attention
+    "Clear line" button escapes the line with escAttr, turning every " into the
+    literal text \\x22. The signature was then computed on \\x22-mangled text and
+    could never match the real quoted line dockerd emits. handle_log_ack_add now
+    un-escapes the \\xNN sequences before signing."""
+
+    def setUp(self):
+        self.api = _fresh_api()
+
+    def test_mangled_quotes_clear_the_real_line(self):
+        api = self.api
+        dev = 'tviapp01'
+        real = ('2026-07-23T03:01:40+02:00 tviapp01.tvipper.com dockerd[1368]: '
+                'time="2026-07-23T03:01:40.526366842+02:00" level=warning '
+                'msg="ShouldRestart failed, container will not be restarted" '
+                'container=9f8e7d6c5b4a3210 daemon=true')
+        # escAttr encodes " ' & < > ` \ and newlines as \xNN
+        import re
+        mangled = re.sub(r'[&<>"\'`\\\n\r]',
+                         lambda m: '\\x' + format(ord(m.group(0)), '02x'), real)
+        self.assertIn(r'\x22', mangled)
+
+        api.save(api.DEVICES_FILE, {dev: {'name': 'tviapp01', 'tenant': 'default', 'token': 't'}})
+        api._LOAD_CACHE.clear()
+        api.verify_token = lambda tok=None: ('op', 'admin')
+        api.get_token_from_request = lambda: 'x'
+        api.require_write_role = lambda *a, **k: 'op'
+        api.require_auth = lambda *a, **k: ('op', 'admin')
+        api._caller_role = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.audit_log = lambda *a, **k: None
+
+        def _r(s, d=None, headers=None):
+            raise api.HTTPError(s, d)
+        api.respond = _r
+        clr = {'line': mangled, 'device_id': dev, 'unit': 'docker.service',
+               'scope': 'device', 'days': 0}
+        api._read_valid = lambda *a, **k: clr
+        api.get_json_obj = lambda: clr
+        try:
+            api.handle_log_ack_add()
+        except api.HTTPError:
+            pass
+        api._LOAD_CACHE.clear()
+        kept, hits = api.filter_acked_lines(dev, 'docker.service', [real])
+        self.assertEqual(hits, 1)      # the REAL quoted line is suppressed
+        self.assertEqual(kept, [])
+
+
 if __name__ == '__main__':
     unittest.main()
