@@ -285,6 +285,9 @@ class TestPausedMonitorDisplayRow(_Base):
         rows = self._run()
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]["paused"])
+        # pausing must not strip the satellite attribution — the "via
+        # satellite" badge keys off origin (v6.4.0 polish)
+        self.assertEqual(rows[0]["origin"], "satellite:sat-1")
 
 
 class TestFrontendWiring(unittest.TestCase):

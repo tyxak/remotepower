@@ -23484,7 +23484,10 @@ def handle_monitor_run():
                 'label': _sanitize_str(m.get('label', m.get('target', '')), 128),
                 'type': m.get('type', 'ping'), 'target': str(m.get('target', '')),
                 'ok': True, 'detail': 'paused', 'checked': 0, 'paused': True,
-                'origin': 'server'})
+                # keep the satellite attribution so the "via satellite" badge
+                # survives a pause (v6.4.0 polish)
+                'origin': (f"satellite:{m['via_satellite']}"
+                           if m.get('via_satellite') else 'server')})
     respond(200, {'monitors': results})
 
 
@@ -48026,6 +48029,17 @@ def handle_client_error():
         # v5.4.1 (E3): newest-first, through the shared list convention (?q/?sort/
         # ?limit/?offset/?meta). Default cap stays 100 when unpaginated.
         errs = list(reversed(store.get('errors') or []))
+        # v6.4.0 polish: annotate the reporting IP with its country (offline
+        # MMDB, same enrichment the WordPress login panel gets; empty when
+        # GeoIP isn't configured). Read-time so old entries benefit too.
+        for _e in errs:
+            if isinstance(_e, dict) and _e.get('ip'):
+                try:
+                    _cc = geo_enrich(str(_e['ip'])).get('country_code')
+                except Exception:
+                    _cc = None
+                if _cc:
+                    _e['country_code'] = _cc
         respond(200, _paginate_list(errs) if _env('QUERY_STRING') else {'ok': True, 'errors': errs[:100]})
     if method() == 'DELETE':
         actor = require_admin_auth()

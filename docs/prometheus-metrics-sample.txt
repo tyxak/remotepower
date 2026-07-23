@@ -1,7 +1,7 @@
 # Sample GET /api/metrics output (Prometheus text exposition), generated
-# from a two-device fleet with one HTTP monitor attached to one SLA/SLO
-# object. Regenerate after adding gauges: the exporter is
-# server/cgi-bin/prometheus_export.py.
+# by tools/gen-prometheus-sample.py from a two-device fleet with one HTTP
+# monitor attached to one SLA/SLO object. Regenerate after adding gauges:
+# the exporter is server/cgi-bin/prometheus_export.py.
 # HELP remotepower_info Server build information.
 # TYPE remotepower_info gauge
 remotepower_info{version="6.4.0"} 1
@@ -17,8 +17,8 @@ remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
 remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1784847690
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1784840490
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1784849488
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1784842288
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
 remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
@@ -50,7 +50,7 @@ remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severit
 remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1784787990
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1784789788
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
 # HELP remotepower_services_down_total Number of watched services currently not active per device.

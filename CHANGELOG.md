@@ -54,6 +54,24 @@ finding:
   suites, the per-page e2e smoke in real Chromium, and the full 8k-test
   suite both-backends-parallel.
 
+### Micropolish (10 items)
+- SLO panel: targets/availability render at natural precision (99.9, not
+  99.900); deleting an object is now **undo-instead-of-confirm** (the toast's
+  Undo restores the object *and* its probe attachments); Add/Edit/Delete hide
+  for read-only roles; the empty state explains the feature and offers an
+  inline Add (admins); the probe editor reuses the already-loaded SLO list
+  instead of an extra `/config` fetch.
+- Pausing a satellite-probed monitor keeps its *via satellite* badge.
+- Client-errors card groups occurrences into error **classes** with a ×N
+  count, and the reporting IP is geo-annotated (same offline MMDB as the
+  WordPress login panel).
+- All new JS-injected strings (SLO status pills, WP panel headers, error-card
+  empty state) translated in the six non-English languages.
+- `tools/gen-prometheus-sample.py` regenerates the metrics sample from the
+  live exporter, with `tests/test_prometheus_sample.py` pinning it against
+  drift; a new lockstep test pins sw.js `CACHE_NAME` against every `?v=` in
+  index.html so a forgotten cache-bust fails the build.
+
 ### SLA / SLO objects for remote probes
 - **Named availability targets you attach to probes.** Define an SLA/SLO
   object (name, target %, rolling window in days, description) on the

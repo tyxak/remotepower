@@ -3638,6 +3638,9 @@ function _sloStatusOf(o) {
   return o.meeting_slo === null || o.meeting_slo === undefined ? 'nodata'
     : (o.meeting_slo ? 'meeting' : 'breached');
 }
+// Natural precision: 99.9 renders as "99.9", not "99.900" (trailing zeros
+// read as false precision on a target the operator typed).
+function _sloPct(v) { return String(parseFloat(Number(v).toFixed(4))); }
 function _registerSloTable() {
   if (_sloRegistered) return;
   _sloRegistered = true;
@@ -3665,12 +3668,15 @@ function _registerSloTable() {
         ? '<span class="hint" title="No attached probe has checks inside the window yet">no data</span>'
         : `<span class="mon-status ${st === 'meeting' ? 'up' : 'down'}">${st === 'meeting' ? '✓ meeting' : '✗ breached'}</span>`;
       const avail = o.availability === null || o.availability === undefined ? '—'
-        : `<span class="${o.meeting_slo ? 'c-green' : 'c-red'}">${o.availability.toFixed(3)}%</span>`;
+        : `<span class="${o.meeting_slo ? 'c-green' : 'c-red'}">${_sloPct(o.availability)}%</span>`;
       const budget = o.budget_remaining_pct === null || o.budget_remaining_pct === undefined ? '—'
-        : `${o.budget_remaining_pct.toFixed(1)}%${o.burn_rate > 1 ? ' <span class="c-red fs-11" title="Error-budget burn rate — over 1 means the budget is blown">×' + o.burn_rate.toFixed(1) + '</span>' : ''}`;
-      return `<tr><td class="fw-500" title="${escAttr(o.description || '')}">${escHtml(o.name)}</td><td>${Number(o.target).toFixed(o.target % 1 ? 3 : 1)}%</td><td>${o.window_days}d</td><td class="hint" title="${escAttr(probeNames)}">${probes.length ? `${probes.length} — ${escHtml(probeNames.length > 60 ? probeNames.slice(0, 57) + '…' : probeNames)}` : '<span class="c-amber">none attached</span>'}</td><td>${avail}</td><td class="hint">${budget}</td><td>${pill}</td><td class="row-6"><button class="btn-icon isl-44" title="Edit" data-action="editSloObject" data-arg="${escAttr(o.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeSloObject" data-arg="${escAttr(o.id)}">${_icon('trash',14)}</button></td></tr>`;
+        : `${_sloPct(o.budget_remaining_pct)}%${o.burn_rate > 1 ? ' <span class="c-red fs-11" title="Error-budget burn rate — over 1 means the budget is blown">×' + o.burn_rate.toFixed(1) + '</span>' : ''}`;
+      const acts = (_meCache && _meCache.admin)
+        ? `<button class="btn-icon isl-44" title="Edit" data-action="editSloObject" data-arg="${escAttr(o.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeSloObject" data-arg="${escAttr(o.id)}">${_icon('trash',14)}</button>`
+        : '';
+      return `<tr><td class="fw-500" title="${escAttr(o.description || '')}">${escHtml(o.name)}</td><td>${_sloPct(o.target)}%</td><td>${o.window_days}d</td><td class="hint" title="${escAttr(probeNames)}">${probes.length ? `${probes.length} — ${escHtml(probeNames.length > 60 ? probeNames.slice(0, 57) + '…' : probeNames)}` : '<span class="c-amber">none attached</span>'}</td><td>${avail}</td><td class="hint">${budget}</td><td>${pill}</td><td class="row-6">${acts}</td></tr>`;
     },
-    emptyMsg: 'No SLO objects defined.',
+    emptyMsg: 'No SLO objects yet — define an availability target (e.g. 99.9% over 30 days), then tick it on the probes that should count toward it.',
     emptyMsgFiltered: 'No SLO objects match the filter.',
   });
 }
@@ -3685,6 +3691,18 @@ function _renderSloObjects() {
   const want = document.getElementById('slo-status-filter')?.value || 'all';
   const rows = (window._sloObjects || []).filter(o => want === 'all' || _sloStatusOf(o) === want);
   tableCtl.render('slo', rows);
+  const isAdmin = !!(_meCache && _meCache.admin);
+  // Non-admins can't save slo_objects — don't offer a form that 403s.
+  document.querySelector('#section-slo .enroll-btn')?.classList.toggle('d-none', !isAdmin);
+  // Empty-state CTA (admin only): the fastest path from "what is this panel?"
+  // to a first object.
+  if (isAdmin && !(window._sloObjects || []).length && want === 'all') {
+    const cell = document.querySelector('#slo-tbody .empty-state');
+    if (cell && !cell.querySelector('[data-action="openSloAdd"]')) {
+      cell.insertAdjacentHTML('beforeend',
+        `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openSloAdd">${_icon('plus', 14)} Add SLO object</button></div>`);
+    }
+  }
 }
 function openSloAdd() {
   _sloEditId = null;
@@ -3730,13 +3748,33 @@ async function saveSloObject() {
 async function removeSloObject(id) {
   const cfg = await api('GET', '/config'); if (!cfg) return;
   const o = (cfg.slo_objects || []).find(x => x.id === id);
-  if (!await uiConfirm({
-        title: 'Delete SLO object',
-        message: `Delete "${(o && o.name) || 'this SLO object'}"? Probes attached to it are detached (their history is kept).`,
-        confirmText: 'Delete', danger: true })) return;
+  if (!o) { toast('SLO object not found — refresh and retry', 'error'); return; }
+  // v6.4.0 polish: undo instead of "are you sure?" — the delete is trivially
+  // reversible (re-POST the object; probes keep their slo_ids only while the
+  // object exists, so undo re-saves those attachments too).
+  const attached = (cfg.monitors || [])
+    .filter(m => (m.slo_ids || []).includes(id))
+    .map(m => m.label);
   const res = await api('POST', '/config', { slo_objects: (cfg.slo_objects || []).filter(x => x.id !== id) });
-  if (res?.ok) { toast('SLO object deleted', 'info'); loadSloObjects(); }
-  else toast(res?.error || 'Failed', 'error');
+  if (!res?.ok) { toast(res?.error || 'Failed', 'error'); return; }
+  loadSloObjects();
+  const _restore = async () => {
+    const c = await api('GET', '/config'); if (!c) return;
+    const body = { slo_objects: [...(c.slo_objects || []), o] };
+    if (attached.length) {
+      body.monitors = (c.monitors || []).map(m => attached.includes(m.label)
+        ? { ...m, slo_ids: [...new Set([...(m.slo_ids || []), id])] } : m);
+    }
+    const r = await api('POST', '/config', body);
+    if (r?.ok) loadSloObjects();
+  };
+  const _delete = async () => {
+    const c = await api('GET', '/config'); if (!c) return;
+    const r = await api('POST', '/config', { slo_objects: (c.slo_objects || []).filter(x => x.id !== id) });
+    if (r?.ok) loadSloObjects();
+  };
+  pushUndoableAction(`Delete SLO object ${o.name}`, _restore, _delete,
+    `Deleted "${o.name}" — probes detached, history kept`);
 }
 // Populate the monitor editor's SLO checkbox list. Hidden entirely while no
 // SLO objects are defined (the common case) so the modal stays uncluttered.
@@ -3744,12 +3782,18 @@ async function _fillMonitorSlos(selected) {
   const grp = document.getElementById('mon-slo-grp');
   const list = document.getElementById('mon-slo-list');
   if (!grp || !list) return;
-  const cfg = await api('GET', '/config').catch(() => null);
-  const objs = (cfg && cfg.slo_objects) || [];
+  // The SLO panel on this same page already fetched the objects (/api/slo) —
+  // reuse them and skip a /config round trip per modal open. The /slo shape
+  // uses `target`; the config shape uses `target_pct` — accept either.
+  let objs = window._sloObjects;
+  if (!Array.isArray(objs)) {
+    const cfg = await api('GET', '/config').catch(() => null);
+    objs = (cfg && cfg.slo_objects) || [];
+  }
   grp.classList.toggle('hidden', !objs.length);
   const sel = new Set(selected || []);
   list.innerHTML = objs.map(o =>
-    `<label class="form-row pad-4"><input type="checkbox" data-mon-slo="${escAttr(o.id)}"${sel.has(o.id) ? ' checked' : ''}> <span>${escHtml(o.name)} <span class="hint">${Number(o.target_pct ?? 99.9)}% / ${o.window_days || 30}d</span></span></label>`).join('');
+    `<label class="form-row pad-4"><input type="checkbox" data-mon-slo="${escAttr(o.id)}"${sel.has(o.id) ? ' checked' : ''}> <span>${escHtml(o.name)} <span class="hint">${_sloPct(o.target ?? o.target_pct ?? 99.9)}% / ${o.window_days || 30}d</span></span></label>`).join('');
 }
 function _collectMonitorSlos() {
   return [...document.querySelectorAll('#mon-slo-list input[data-mon-slo]:checked')]
@@ -13912,7 +13956,12 @@ function _renderWpLoginPanels(items) {
     card.className = 'dash-card mb-12';
     const title = document.createElement('div');
     title.className = 'section-title';
-    title.textContent = (i.label || i.type) + ' — recent logins';
+    // Two text nodes so the i18n engine can translate the fixed suffix
+    // ("Recent logins" is a DICT key; the instance label is operator data).
+    title.textContent = (i.label || i.type) + ' — ';
+    const tsuf = document.createElement('span');
+    tsuf.textContent = 'Recent logins';
+    title.appendChild(tsuf);
     card.appendChild(title);
     const t = document.createElement('table');
     t.className = 'data-table';
@@ -27416,8 +27465,18 @@ async function _loadClientErrors() {
     body.innerHTML = '<div class="empty-state">No client-side errors reported. Quiet console, happy fleet.</div>';
     return;
   }
-  body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Time</th><th>Message</th><th>Source</th><th>Page</th><th>From</th></tr></thead><tbody>'
-    + r.errors.map(e => `<tr><td class="hint">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td><td title="${escAttr(e.stack || '')}">${escHtml(e.message || '—')}</td><td class="ff-mono fs-11">${escHtml((e.source || '').split('/').pop() || '—')}${e.line ? ':' + e.line : ''}</td><td class="hint">${escHtml((e.page || '').replace(/^https?:\/\/[^/]+/, '') || '—')}</td><td class="ff-mono fs-11">${escHtml(e.ip || '')}</td></tr>`).join('')
+  // Group by error CLASS (message + source + line): the ring stores every
+  // occurrence, so one hot bug would otherwise render as 30 identical rows.
+  // Newest occurrence carries the shown time/page/IP; ×N is the real signal.
+  const groups = new Map();
+  r.errors.forEach(e => {   // list arrives newest-first — first hit wins
+    const key = `${e.message}|${e.source}|${e.line}`;
+    const g = groups.get(key);
+    if (g) g.count++;
+    else groups.set(key, { ...e, count: 1 });
+  });
+  body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Last seen</th><th>Count</th><th>Message</th><th>Source</th><th>Page</th><th>From</th></tr></thead><tbody>'
+    + [...groups.values()].map(e => `<tr><td class="hint">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td><td>${e.count > 1 ? `<span class="fw-600">×${e.count}</span>` : '1'}</td><td title="${escAttr(e.stack || '')}">${escHtml(e.message || '—')}</td><td class="ff-mono fs-11">${escHtml((e.source || '').split('/').pop() || '—')}${e.line ? ':' + e.line : ''}</td><td class="hint">${escHtml((e.page || '').replace(/^https?:\/\/[^/]+/, '') || '—')}</td><td class="ff-mono fs-11">${escHtml(e.ip || '')}${e.country_code ? ` <span class="hint">(${escHtml(e.country_code)})</span>` : ''}</td></tr>`).join('')
     + '</tbody></table></div>';
 }
 async function clearClientErrors() {

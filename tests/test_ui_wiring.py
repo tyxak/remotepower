@@ -191,6 +191,25 @@ class TestTableRegistrations(unittest.TestCase):
                          + "\n  ".join(bad))
 
 
+class TestCacheBustLockstep(unittest.TestCase):
+    """sw.js CACHE_NAME and every ?v= in index.html must carry the SAME
+    version string — they were kept in lockstep by hand on every client-asset
+    change, and a forgotten bump means browsers serve a stale shell against a
+    new API. Made structural in the v6.4.0 micropolish pass."""
+
+    def test_cache_name_matches_every_asset_version(self):
+        sw = (_HTML / "sw.js").read_text()
+        m = re.search(r"CACHE_NAME\s*=\s*'remotepower-shell-v([\w.\-]+)'", sw)
+        self.assertIsNotNone(m, "CACHE_NAME not found in sw.js")
+        ver = m.group(1)
+        html = _index_html()
+        versions = set(re.findall(r"\?v=([\w.\-]+)", html))
+        self.assertEqual(versions, {ver},
+                         f"index.html ?v= values {sorted(versions)} out of "
+                         f"lockstep with sw.js CACHE_NAME v{ver} — bump both "
+                         "together on every client-asset change")
+
+
 class TestApiCallsAreServed(unittest.TestCase):
     """Every api('METHOD', path) shape in the client must match a server
     route. Template holes (${...}) and string-concat tails count as one
