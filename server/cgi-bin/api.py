@@ -60286,6 +60286,11 @@ def handle_services_config(dev_id):
                 unit = _sanitize_unit_name(r.get('unit', ''))
                 file_path = None
             pat  = _sanitize_str(r.get('pattern', ''), 128, allow_empty=False)
+            # v6.4.0 (SEC): drop a rule whose pattern is a ReDoS shape (nested
+            # unbounded quantifiers) — the agent + server both run it against
+            # log lines and a pathological one could wedge a worker.
+            if pat and _regex_redos_risky(pat):
+                continue
             try:
                 thr = int(r.get('threshold', 1) or 1)
             except (TypeError, ValueError):
@@ -60650,6 +60655,21 @@ def handle_log_rules():
 
 # ─── v1.8.2: Fleet-wide log alert rules ───────────────────────────────────────
 
+def _regex_redos_risky(pattern):
+    """v6.4.0 (SEC): heuristic ReDoS guard for operator-authored log patterns.
+    A wall-clock regex timeout isn't portable in a threaded gunicorn worker
+    (SIGALRM is main-thread only), so we reject the classic catastrophic-
+    backtracking SHAPE at SAVE time: a parenthesised group whose body contains
+    an unbounded quantifier (+ or *), itself repeated by another unbounded
+    quantifier (+, *, or {n,}) — (a+)+, (.*)+, (?:x+)*, (\\d+)+, (a+){2,}.
+    Ordinary patterns (keywords, alternations, a single quantifier, bounded
+    {n,m}) pass. Bounds a token holder's ability to wedge a worker with a
+    pathological rule + a crafted line. Returns True if the pattern looks unsafe."""
+    if not isinstance(pattern, str) or not pattern:
+        return False
+    return bool(re.search(r'\([^()]*[+*][^()]*\)\s*(?:[+*]|\{\d*,\})', pattern))
+
+
 def _validate_global_rule(body):
     """Return (clean_rule, error) — same shape whether valid or not."""
     if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
@@ -60696,12 +60716,17 @@ def _validate_global_rule(body):
         re.compile(pattern)
     except re.error as e:
         return None, f'invalid regex: {e}'
+    if _regex_redos_risky(pattern):
+        return None, ('pattern has nested unbounded quantifiers (e.g. (a+)+) — a '
+                      'ReDoS risk against long log lines; simplify it')
     exclude_pattern = _sanitize_str(body.get('exclude_pattern', ''), 128, allow_empty=True)
     if exclude_pattern:
         try:
             re.compile(exclude_pattern)
         except re.error as e:
             return None, f'invalid exclude regex: {e}'
+        if _regex_redos_risky(exclude_pattern):
+            return None, 'exclude pattern has nested unbounded quantifiers (ReDoS risk); simplify it'
     # v3.2.3 (#3): optional per-rule display template — strict allowlist
     # of placeholders, validated at save.
     template_raw = body.get('display_template', '')
