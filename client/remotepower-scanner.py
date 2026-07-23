@@ -310,9 +310,15 @@ def _parse_wpscan(text):
 
 def _parse_nmap_xml(text):
     """nmap -oX -> findings. Open services as info; NSE vuln-script hits medium."""
+    import re as _re
     import xml.etree.ElementTree as ET
+    # v6.4.0 (SEC): refuse any DTD/entity declaration before parsing, matching
+    # the agent's XCCDF guard. nmap never emits these, but this keeps every
+    # untrusted-XML parse in the project on one rule (no billion-laughs, no drift).
+    if _re.search(r'<!\s*(?:doctype|entity)', text or '', _re.IGNORECASE):
+        return []
     try:
-        root = ET.fromstring(text)
+        root = ET.fromstring(text)  # nosec B314 - DTD/entity rejected above
     except ET.ParseError:
         return []
     out = []

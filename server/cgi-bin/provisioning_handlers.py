@@ -146,7 +146,20 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
     in place (caller saves). Skips quarantined devices. Returns (dispatched_ids,
     queued_command_string)."""
     ring = roll['rings'][idx]
-    ids = A._rollout_resolve_ring(ring.get('selector'), devices)
+    # SEC (v6.4.0): confine ring resolution to the rollout creator's tenant.
+    # `tenant_gate` is stamped at create time (None = superadmin / tenancy off →
+    # no restriction; a tenant id = a tenant admin → only their own hosts). This
+    # runs in the scheduler context where _tenant_gate() isn't available, so the
+    # gate is carried on the rollout itself. Without it, an ids/group/tag
+    # selector would resolve against the WHOLE fleet — a cross-tenant command
+    # channel (reboot / upgrade / arbitrary exec:). Legacy rollouts with no
+    # stamp (.get → None) are unaffected.
+    _gate = roll.get('tenant_gate')
+    _rdev = devices
+    if _gate is not None:
+        _rdev = {_d: _v for _d, _v in devices.items()
+                 if isinstance(_v, dict) and A._device_tenant(_v) == _gate}
+    ids = A._rollout_resolve_ring(ring.get('selector'), _rdev)
     now = int(time.time())
     is_upgrade = roll.get('action') == 'upgrade'
     reboot = bool(roll.get('reboot'))
@@ -790,6 +803,12 @@ def handle_rollouts_create():
         'created_by': actor,
         'created_at': int(time.time()),
         'updated_at': int(time.time()),
+        # SEC (v6.4.0): stamp the creator's tenant gate — None for a superadmin
+        # or when tenancy isn't enforced; the tenant id for a tenant admin. The
+        # dispatcher confines ring resolution to this gate so a tenant admin
+        # cannot target another tenant's hosts via an ids/group/tag selector
+        # (rollouts bypass the _resolve_targets chokepoint entirely).
+        'tenant_gate': A._tenant_gate(),
     }
     A._rollout_log(roll, f'created — {action}, {len(rings)} ring(s), '
                        f'{"auto" if roll["auto_promote"] else "manual"} promote')

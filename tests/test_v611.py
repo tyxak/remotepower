@@ -123,12 +123,16 @@ class TestAlertsTenantIsolationFix(unittest.TestCase):
             self.assertIn("_filter_alerts_for_caller", body, fn)
 
     def test_alert_mutations_are_tenant_gated(self):
+        # v6.4.0: mutation handlers now gate via _alert_mutable_by_caller, which
+        # enforces the tenant gate (_alert_tenant_visible) AND RBAC device scope.
         for fn in ("def handle_alert_ack", "def handle_alert_unack",
                    "def handle_alert_resolve", "def handle_alerts_bulk_resolve",
                    "def handle_alerts_bulk_ack"):
             i = self.SRC.index(fn)
             body = self.SRC[i : self.SRC.index("\ndef ", i + 10)]
-            self.assertIn("_alert_tenant_visible", body, fn)
+            self.assertIn("_alert_mutable_by_caller", body, fn)
+        # and the combined helper still enforces the tenant gate underneath
+        self.assertIn("_alert_tenant_visible", self.SRC)
 
     def test_alert_mutes_gate_and_diagnostics_bundle_url_pop(self):
         i = self.SRC.index("def handle_alert_mutes")

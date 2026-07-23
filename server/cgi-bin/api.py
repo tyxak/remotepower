@@ -15073,6 +15073,12 @@ def handle_device_firewall_action(dev_id):
 
 # ── v4.10.0: Firewall + fail2ban (visibility + edit) ─────────────────────────
 _FW_TOKEN_RE = re.compile(r'^[A-Za-z0-9 _.:/=,@%+-]+$')   # NO shell metacharacters
+# v6.4.0 (SEC): storage target/snapshot are ZFS pool/dataset@snap names or btrfs
+# mountpoints — none contain a space or lead with '-'. _FW_TOKEN_RE (which the
+# firewall-rule feature needs) permits both, so a value like `tank -r other@snap`
+# would inject an extra flag/argument into `zfs destroy`/`zpool status`. This
+# stricter token blocks the space (arg split) and the leading dash (flag).
+_STORAGE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_.:/@][A-Za-z0-9_.:/@+-]{0,255}$')
 _FW_JAIL_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 
 
@@ -15733,14 +15739,14 @@ def handle_device_storage_action(dev_id):
     target = str(body.get('target', '')).strip()
     if kind not in _STORAGE_ACTIONS:
         respond(400, {'error': 'kind must be zfs or btrfs'})
-    if not _valid_fw_token(target, maxlen=256):
+    if not _STORAGE_TOKEN_RE.match(target):
         respond(400, {'error': 'target (pool / mountpoint) is missing or has invalid characters'})
 
     # Destructive snapshot removal — its own action so it can't be confused with
     # the read-only "snapshots" listing; the exact snapshot is named + validated.
     if action in ('destroy', 'delete'):
         snap = str(body.get('snapshot', '')).strip()
-        if not _valid_fw_token(snap, maxlen=256):
+        if not _STORAGE_TOKEN_RE.match(snap):
             respond(400, {'error': 'snapshot name is missing or has invalid characters'})
         if kind == 'zfs':
             if '@' not in snap:
@@ -15985,8 +15991,13 @@ def _pinned_patch_tags():
     return {s.get('promoted_tag') for s in snaps.values() if s.get('promoted_tag')}
 
 
-def _autopatch_target_devices(target):
+def _autopatch_target_devices(target, tenant_gate=None):
     """Resolve a policy target {type,value} to a list of device ids.
+
+    SEC (v6.4.0): `tenant_gate` (stamped on the policy at create time) confines
+    resolution to one tenant's devices when set — None means no restriction
+    (superadmin / tenancy off). Without it a tenant admin's `type='all'` (or a
+    cross-tenant group/tag) policy would fan the upgrade out across every tenant.
 
     #80: devices carrying a tag with an ACTIVE promoted patch-snapshot are
     excluded from every target type (even type='device' naming one directly,
@@ -16005,6 +16016,8 @@ def _autopatch_target_devices(target):
     out = []
     for did, dev in devices.items():
         if dev.get('quarantined'):
+            continue
+        if tenant_gate is not None and _device_tenant(dev) != tenant_gate:
             continue
         if pinned and pinned.intersection(dev.get('tags') or ()):
             continue
@@ -16154,6 +16167,11 @@ def handle_autopatch_create():
            'target': {'type': ttype, 'value': tval}, 'cron': cron,
            'reboot': bool(body.get('reboot', False)), 'enabled': True,
            'created': int(time.time()), 'created_by': actor,
+           # SEC (v6.4.0): stamp the creator's tenant gate. The policy fires from
+           # cron (no request → _tenant_gate() unavailable at fire time), so the
+           # gate is captured here and enforced when the target resolves. Without
+           # it a tenant admin's policy could patch/reboot the whole fleet.
+           'tenant_gate': _tenant_gate(),
            'last_run': 0, 'last_fired_minute': None}
     # v5.8.0 (B1.3): optional staged rollout. With `rings`, firing the policy
     # spawns a health-gated rollout (canary → wave → rest) instead of a one-shot
@@ -16200,6 +16218,9 @@ def handle_autopatch_update(pol_id):
         tv = _sanitize_str(str(body['target'].get('value', '')), 64)
         if tt in ('all', 'device', 'group', 'tag', 'site'):
             pol['target'] = {'type': tt, 'value': tv}
+            # SEC (v6.4.0): re-stamp the tenant gate to the editor's scope when the
+            # target changes, so an edited target can't reach another tenant.
+            pol['tenant_gate'] = _tenant_gate()
     # v5.8.0 (B1.3): rings + gate. Passing an empty list clears staged mode.
     if 'rings' in body:
         _rings = _autopatch_clean_rings(body.get('rings'))
@@ -16313,6 +16334,7 @@ def _autopatch_spawn_rollout(pol, actor):
             'created_at': int(time.time()),
             'updated_at': int(time.time()),
             '_autopatch_id': pol['id'],      # link back (and the dedup key above)
+            'tenant_gate': pol.get('tenant_gate'),  # SEC (v6.4.0): inherit the policy's tenant gate → dispatcher confines rings
         }
         _rollout_log(roll, f'spawned by auto-patch policy "{pol.get("name")}" — '
                            f'{len(roll["rings"])} ring(s), '
@@ -16337,7 +16359,7 @@ def _autopatch_queue(pol, actor):
         for ring in pol['rings']:
             covered.update(_rollout_resolve_ring(ring.get('selector'), devices))
         return len(covered)
-    targets = _autopatch_target_devices(pol.get('target'))
+    targets = _autopatch_target_devices(pol.get('target'), pol.get('tenant_gate'))
     if not targets:
         return 0
     # v6.2.0 (BUG): this queued ONE bash command for every target, so a Windows
@@ -18246,7 +18268,14 @@ def handle_heartbeat():
                     # average (needs a few samples so a single spike doesn't
                     # page). Operator threshold; 150ms default. Stored flag keeps
                     # it from re-firing every heartbeat.
-                    _lat_thr = int(_config_ro().get('gateway_latency_high_ms', 150) or 150)
+                    # NB: no `or 150` fallback — a stored 0 means "disabled"
+                    # (matched by the `_lat_thr > 0` guard below and the
+                    # battery_health_low_pct sibling); `or 150` would silently
+                    # re-enable it at the default.
+                    try:
+                        _lat_thr = int(_config_ro().get('gateway_latency_high_ms', 150))
+                    except (TypeError, ValueError):
+                        _lat_thr = 150
                     _recent = [p[1] for p in _hist[-10:] if isinstance(p, list) and len(p) == 2]
                     if _lat_thr > 0 and len(_recent) >= 5:
                         _avg = sum(_recent) / len(_recent)
@@ -51719,6 +51748,26 @@ def _filter_alerts_for_caller(all_alerts):
     return out
 
 
+def _alert_mutable_by_caller(alert):
+    """SEC (v6.4.0): the mutation-path visibility check — tenant gate AND RBAC
+    device scope, mirroring the per-alert filter in _filter_alerts_for_caller.
+    The read path (list/summary) already filters on both, but the ack/unack/
+    resolve/unresolve/bulk handlers only checked the tenant gate — so a scoped
+    operator (scope = group A) could ack/resolve an alert for a device in group
+    B (same tenant) that it cannot even see in its own inbox. Fleet-level
+    (device-less) alerts stay mutable; superadmin / unscoped callers unaffected."""
+    if not _alert_tenant_visible(alert):
+        return False
+    scope = _caller_scope()
+    if scope is None:
+        return True
+    did = alert.get('device_id')
+    if not did:
+        return True
+    dev = device_get(did) or {}
+    return _device_in_scope(scope, dev)
+
+
 def _may_touch_alert_state():
     """True if the current caller may ack/resolve an alert as a SIDE EFFECT of a
     ticket action. Mirrors _check_alert_mutation_perm's policy but does NOT raise:
@@ -52031,7 +52080,7 @@ def handle_alert_ack(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
-                    if not _alert_tenant_visible(a):
+                    if not _alert_mutable_by_caller(a):
                         respond(404, {'error': 'alert not found'})
                     if a.get('resolved_at'):
                         respond(409, {'error': 'alert already resolved'})
@@ -52061,7 +52110,7 @@ def handle_alert_unack(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
-                    if not _alert_tenant_visible(a):
+                    if not _alert_mutable_by_caller(a):
                         respond(404, {'error': 'alert not found'})
                     if a.get('resolved_at'):
                         respond(409, {'error': 'alert already resolved'})
@@ -52254,7 +52303,7 @@ def handle_alert_resolve(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
-                    if not _alert_tenant_visible(a):
+                    if not _alert_mutable_by_caller(a):
                         respond(404, {'error': 'alert not found'})
                     if a.get('resolved_at'):
                         respond(409, {'error': 'alert already resolved'})
@@ -52289,7 +52338,7 @@ def handle_alert_unresolve(alert_id):
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
-                    if not _alert_tenant_visible(a):
+                    if not _alert_mutable_by_caller(a):
                         respond(404, {'error': 'alert not found'})
                     if not a.get('resolved_at'):
                         respond(409, {'error': 'alert is not resolved'})
@@ -52517,7 +52566,7 @@ def handle_alerts_bulk_resolve():
             now = int(time.time())
             for a in store.get('alerts', []):
                 if (a.get('id') in ids_set and not a.get('resolved_at')
-                        and _alert_tenant_visible(a)):
+                        and _alert_mutable_by_caller(a)):
                     a['resolved_by'] = user
                     a['resolved_at'] = now
                     if not a.get('acknowledged_at'):
@@ -52557,7 +52606,7 @@ def handle_alerts_bulk_ack():
                 # so re-running over a mixed selection is idempotent.
                 if (a.get('id') in ids_set and not a.get('resolved_at')
                         and not a.get('acknowledged_at')
-                        and _alert_tenant_visible(a)):
+                        and _alert_mutable_by_caller(a)):
                     a['acknowledged_by'] = user
                     a['acknowledged_at'] = now
                     if note:

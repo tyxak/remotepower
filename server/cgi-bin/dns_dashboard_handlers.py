@@ -282,6 +282,12 @@ def handle_dns_import_status():
     A.require_admin_auth()
     qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
     dev_id = (qs.get('device_id', [''])[0] or '').strip()
+    # SEC (v6.4.0): body/query device_id under /api/dns/ — NOT covered by the
+    # pre-dispatch _enforce_device_scope. Without this gate a tenant admin could
+    # poll another tenant's harvest (a provider-list read) AND consume/delete its
+    # result marker below, silently breaking that tenant's import. Matches the
+    # POST sibling handle_dns_import_from_agent.
+    A._scope_block_device(dev_id)
     dev = A.device_get(dev_id) or {}
     if dev.get('dns_harvest_pending'):
         A.respond(200, {'state': 'pending'})

@@ -383,7 +383,7 @@ def build_cmdb_corpus(cmdb_store, resolve_device=None):
         for d in (rec.get('docs') or []):
             if not isinstance(d, dict):
                 continue
-            body = d.get('body') or ''
+            body = _scrub_script_body(d.get('body') or '')  # SEC v6.4.0: scrub inline secrets
             did = d.get('id') or _slug(d.get('title', ''))
             seen = set()
             for path, chunk in chunk_markdown(body):
@@ -1496,7 +1496,7 @@ def build_tickets_corpus(store, resolve_device=None, now=0):
         grp = t.get('group') or ''
         age_h = int((now - int(t.get('created_at') or now)) / 3600)
         msgs = [m for m in (t.get('messages') or []) if isinstance(m, dict)]
-        snippet = (str(msgs[-1].get('body') or '')[:200]).replace('\n', ' ') if msgs else ''
+        snippet = (_scrub_script_body(str(msgs[-1].get('body') or ''))[:200]).replace('\n', ' ') if msgs else ''  # SEC v6.4.0
         body = (f"Ticket {rp}: {t.get('subject', '')}\n"
                 f"Type {t.get('type', 'incident')}, {PRIO.get(pr, 'P4')}, "
                 f"status {t.get('status', '')}.\n"
@@ -1541,7 +1541,7 @@ def build_kb_corpus(store, now=0):
         cat = str(a.get('category') or '')
         tags = a.get('tags') or []
         tagline = (', '.join(str(t) for t in tags)) if isinstance(tags, list) else ''
-        body = str(a.get('body') or '')[:8000]
+        body = _scrub_script_body(str(a.get('body') or ''))[:8000]  # SEC v6.4.0: scrub inline secrets before embedding
         head = f"Knowledge-base article: {title}\n"
         if cat:
             head += f"Category: {cat}\n"
@@ -1702,7 +1702,7 @@ def build_maintenance_corpus(store, now=0):
         if not isinstance(w, dict):
             continue
         wid = w.get('id') or ''
-        reason = str(w.get('reason') or 'Maintenance window')
+        reason = _scrub_script_body(str(w.get('reason') or 'Maintenance window'))  # SEC v6.4.0
         mtype = str(w.get('match_type') or 'all')
         pattern = str(w.get('pattern') or '')
         scope = 'whole fleet' if mtype == 'all' else f'{mtype} {pattern}'.strip()
@@ -1751,7 +1751,7 @@ def build_incidents_corpus(store, now=0):
                  f"Impact: {impact}", f"Status: {status}"]
         for u in (inc.get('updates') or [])[:40]:
             if isinstance(u, dict) and (u.get('body') or u.get('status')):
-                lines.append(f"- [{u.get('status', '')}] {str(u.get('body') or '')[:500]}")
+                lines.append(f"- [{u.get('status', '')}] {_scrub_script_body(str(u.get('body') or ''))[:500]}")  # SEC v6.4.0
         docs.append(make_doc(
             f"incidents/{iid}", 'incidents', 'incident', '\n'.join(lines),
             title=f"Incident: {title[:80]}",
