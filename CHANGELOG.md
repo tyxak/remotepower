@@ -13,6 +13,51 @@ binding sweep so everything the agent collects lands where it belongs (UI,
 RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
 performance wave.
 
+### "Clear this log line" now actually clears (three field-reported causes)
+Clearing a matched log line stores the line's *signature* (timestamps/pids/ids
+folded out) and drops future matches; three separate bugs stopped it working on
+real logs, all fixed:
+- **Quotes were mangled.** The dashboard Needs-Attention "Clear line" button
+  escaped the line with an attribute encoder that turns `"` into the literal
+  text `\x22` — so a dockerd line (`msg="ShouldRestart failed…"`) got its
+  signature computed on mangled text that could never match the real line. The
+  server now un-escapes it before signing (works even against a cached old
+  bundle), and the button uses the same HTML escaping the Alerts inbox does.
+- **Long lines were truncated.** The clearable sample was cut to 200 chars while
+  the rule matches the full line — so any line over ~200 chars (dockerd) never
+  matched. Kept at full signature fidelity now.
+- **Host/domain noise didn't fold.** A postfix `dnsblog` line checks each sender
+  against many blocklists (`…bl.spamcop.net`, `…zen.spamhaus.org`, …); the IP
+  folded but the domain didn't, so every blocklist was a different signature and
+  clearing one left the rest. Signatures now fold 3+-label hostnames/FQDNs to
+  `<host>` (unit names like `docker.service` and filenames like `app.js` are
+  deliberately spared), so clearing one clears the whole class.
+- Cleared log lines are also surfaced under **Settings → Ignored items** now (a
+  "Cleared log lines" section with a Restore button), not only Logs → Cleared
+  lines. *(NB: this changes line signatures, so pre-existing cleared lines need
+  Restoring + re-clearing once.)*
+
+### Ignored items stop piling up (5 counter-measures)
+A permanent × ignore used to live forever — even after its condition cleared,
+its device was removed, or its point-in-time event aged out — so on a large
+fleet the ignore list grew without bound and hid real recurrences. Five fixes:
+- **Self-pruning ignores.** An hourly sweep garbage-collects any Needs-Attention
+  ignore whose underlying item has been absent past a 3-day grace (the condition
+  is gone). The list self-cleans to only currently-active suppressions.
+- **Device-scoped cleanup.** Deleting or decommissioning a host now drops every
+  ignore scoped to it — needs-attention, stale containers, devices, and cleared
+  log lines — so fleet churn leaves no tombstones.
+- **Auto-heal recheck.** A sweep re-evaluates open `patch_alert` / `cve_found`
+  alerts against current state and auto-resolves any whose condition cleared
+  (pending dropped under threshold; no findings left), so they leave the inbox
+  and Needs-Attention on their own instead of forcing an ignore.
+- **Class-level suppression rules.** One rule silences a whole Needs-Attention
+  *kind* across the fleet, a group, a tag or a device — so a benign signal on
+  500 hosts is one managed entry, not 500 ignores. `GET/POST /api/na-suppress`;
+  managed on Settings → Ignored items.
+- **Hygiene.** Each ignore shows when its condition was last actually active, and
+  every category has a bulk **Restore all** so a big pile clears in one click.
+
 ### Reset baseline actually works now, and everything that recovers resolves
 - **Guard actions never reached the agent (root cause).** `_queue_guard_action`
   wrote the directive to the whole-devices collection instead of the device

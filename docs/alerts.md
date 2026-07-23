@@ -29,3 +29,28 @@ page (per host + alert type), suppressed during
 [maintenance windows](maintenance.md), or routed per event kind under
 Settings → Notifications. The **Resolution timeline (MTTR)** card at the
 bottom tracks how quickly alerts get resolved.
+
+## Ignored items — and keeping them from piling up *(v6.4.0)*
+
+Hiding a Needs-Attention card (the × on the card) sends it to **Settings →
+Ignored items**, alongside hidden stale containers, devices, ignored CVEs and
+cleared log lines. On a large fleet that list used to grow without bound —
+so it now maintains itself:
+
+- **Self-pruning.** An ignore is garbage-collected once its underlying condition
+  has been gone past a short grace window (the drift resolved, the disk
+  recovered, the point-in-time event aged out). You only keep the ignores you
+  still need.
+- **Device cleanup.** Deleting or decommissioning a host drops every ignore
+  scoped to it — no tombstones from fleet churn.
+- **Last active.** Each ignore shows when its condition was last actually seen,
+  so a stale one is obvious, and every category has a bulk **Restore all**.
+- **Class-level suppression.** When the same benign signal fires on many hosts,
+  add one **suppression rule** (Settings → Ignored items) that silences a whole
+  *kind* across the fleet, a group, a tag or a device — one entry instead of
+  one ignore per host.
+
+You should also need to ignore *less*, because more alerts now clear themselves:
+open `patch_alert` and `cve_found` alerts are periodically re-checked against
+current state and **auto-resolve** when the condition clears (pending drops under
+threshold; no CVE findings left), so they leave the inbox on their own.

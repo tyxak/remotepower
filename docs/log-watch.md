@@ -27,9 +27,14 @@ showing:
 
 - **The line** — the raw text that matched.
 - **What will be matched** — the same line with timestamps, process ids,
-  addresses, hashes and numbers folded out. That folded form is the identity,
-  so the same message tomorrow, from a different worker pid, still matches; a
-  genuinely different error does not.
+  addresses, hashes, numbers **and hostnames/FQDNs** folded out. That folded
+  form is the identity, so the same message tomorrow, from a different worker
+  pid, still matches; a genuinely different error does not. Folding hostnames
+  matters for host-varying noise — a postfix `dnsblog` line checks each sender
+  against many blocklists (`…bl.spamcop.net`, `…zen.spamhaus.org`, …), and
+  because the domain folds to `<host>`, clearing one clears the whole class.
+  (Two-label names like `docker.service` or `app.js` are deliberately *not*
+  folded, so unrelated unit or file messages stay distinct.)
 
 Choose how wide it applies (this host + unit, this host + any unit, or — for
 admins — the whole fleet) and optionally an expiry and a note explaining why
@@ -42,7 +47,8 @@ alert that matched five lines of which three were cleared reports "2 hits,
 resolves the open alerts that captured that line, so clearing it clears the
 board.
 
-Everything cleared is listed under **Logs → Cleared lines**, with how many
+Everything cleared is listed under **Logs → Cleared lines** *and* under
+**Settings → Ignored items** (a "Cleared log lines" section), with how many
 matches each has caught since — un-clear one and it alerts again. Clearing is
 audited (`log_ack_add` / `log_ack_delete`).
 
