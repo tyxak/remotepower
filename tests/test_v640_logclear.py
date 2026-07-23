@@ -81,5 +81,34 @@ class TestLongLineClear(unittest.TestCase):
         self.assertEqual(kept, [])   # the full long line is now suppressed
 
 
+class TestBlocklistDomainCollapse(unittest.TestCase):
+    """v6.4.0 field bug #2 (pmg01 postfix): reverse-DNS blocklist lookups vary
+    the DOMAIN (bl.spamcop.net / zen.spamhaus.org / b.barracudacentral.org), so
+    without folding the FQDN each was a distinct signature and clearing one did
+    nothing for the next. logsig now folds 3+-label FQDNs to <host>."""
+
+    def setUp(self):
+        import logsig
+        self.logsig = logsig
+
+    def _postfix(self, dnsbl):
+        return ('2026-07-23T08:55:59+02:00 pmg01.tvipper.com postfix/dnsblog[5868]: '
+                'warning: dnsblog_query: lookup error for DNS query 165.182.12.130.' + dnsbl)
+
+    def test_all_blocklists_share_one_signature(self):
+        sigs = {self.logsig.signature(self._postfix(d)) for d in
+                ('bl.spamcop.net', 'zen.spamhaus.org', 'b.barracudacentral.org')}
+        self.assertEqual(len(sigs), 1)
+
+    def test_two_label_names_are_NOT_over_collapsed(self):
+        # unit names / filenames (2 labels) must stay distinct — a regression guard
+        a = self.logsig.signature('systemd[1]: Started docker.service')
+        b = self.logsig.signature('systemd[1]: Started postfix.service')
+        self.assertNotEqual(a, b)
+        c = self.logsig.signature('build error in app.js line 5')
+        d = self.logsig.signature('build error in app.css line 5')
+        self.assertNotEqual(c, d)
+
+
 if __name__ == '__main__':
     unittest.main()

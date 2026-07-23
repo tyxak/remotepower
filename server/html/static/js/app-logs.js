@@ -596,6 +596,9 @@ function _logAckNormalize(line) {
     .replace(/\b\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\b/g, '<ts>')
     .replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, '<uuid>')
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '<ip>')
+    // FQDNs of 3+ labels (blocklist domains, hostnames) — must mirror
+    // logsig.py so the preview matches the server's authoritative signature.
+    .replace(/(?<![\w-])(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.){2,}[a-zA-Z]{2,24}(?![\w-])/g, '<host>')
     .replace(/\[\d+\]/g, '[<pid>]')
     .replace(/\b(?:0x)?[0-9a-fA-F]{8,}\b/g, '<hex>')
     .replace(/\b\d+(?:\.\d+)?\s?(?:[KMGT]i?B|bytes?|ms|s|m|h)\b/gi, '<qty>')

@@ -30,6 +30,20 @@ _SUBS = (
     # IPv4 (+ optional port) and the obvious IPv6 shapes
     (re.compile(r'\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b'), '<ip>'),
     (re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b'), '<ip>'),
+    # hostnames / FQDNs. The reverse-DNS-blocklist noise class varies the
+    # DOMAIN, not just the address: `<ip>.bl.spamcop.net`, `<ip>.zen.spamhaus.org`,
+    # `<ip>.b.barracudacentral.org` are the SAME event against different lists,
+    # yet without folding the domain each is a distinct signature and
+    # "clear this line" can never keep up (the exact report that motivated this).
+    # Runs AFTER the ip subs so an ip literal stays `<ip>`, not `<host>`. Matches
+    # a dotted name of 3+ LABELS (2+ dots) ending in a 2–24 char alpha TLD; a
+    # preceding dot is allowed so the domain riding an `<ip>.` prefix folds too.
+    # The 3-label floor is deliberate: it folds real FQDNs / blocklist domains
+    # (bl.spamcop.net, pmg01.tvipper.com) but SPARES 2-label systemd unit names
+    # (docker.service, postfix.service) and dotted filenames (app.js, nginx.conf),
+    # so unrelated unit-lifecycle or file messages don't over-merge.
+    (re.compile(r'(?<![\w-])(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.){2,}'
+                r'[a-zA-Z]{2,24}(?![\w-])'), '<host>'),
     # process ids in the classic `name[1234]:` prefix, and bare pid= forms
     (re.compile(r'\[\d+\]'), '[<pid>]'),
     (re.compile(r'\b(pid|ppid|tid|uid|gid|port|fd)=\d+', re.I), r'\1=<n>'),
