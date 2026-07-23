@@ -26089,7 +26089,43 @@ async function loadIgnoredItems() {
     }).join('');
   }
   html += '</div>';
+  // Cleared log lines (log_acks) — the "Clear this log line" / "Silence rule"
+  // acknowledgements, surfaced here so every ignored thing lives in one place
+  // (they are ALSO on Logs → Cleared lines). Restore = the line alerts again.
+  let logAcks = [];
+  try {
+    const r = await api('GET', '/logs/acks');
+    logAcks = (r && r.acks) || [];
+  } catch (_) { /* non-fatal */ }
+  html += `<div class="mb-16">
+    <h4 class="isl-668">Cleared log lines <span class="isl-74">(${logAcks.length})</span></h4>`;
+  if (!logAcks.length) {
+    html += '<div class="isl-616">— none —</div>';
+  } else {
+    html += logAcks.map(a => {
+      const what = a.kind === 'rule'
+        ? `whole rule: ${a.pattern || ''}`
+        : (a.norm || a.sample || '(line)');
+      const scope = `${a.device || 'whole fleet'} · ${a.unit || 'any unit'}`;
+      const when = a.ts ? new Date(a.ts * 1000).toLocaleString() : '';
+      const meta = [scope, a.hits ? `${a.hits} caught` : null,
+                    a.until ? `expires ${new Date(a.until * 1000).toLocaleDateString()}` : null,
+                    when].filter(Boolean).join(' · ');
+      return `<div class="isl-669">
+        <div class="isl-618"><span class="mono-12">${escHtml(String(what).slice(0, 160))}</span>
+          <div class="meta-sm-nm">${escHtml(meta)}</div></div>
+        <button class="btn-secondary badge-sm" data-action="unclearLogAckIgnored" data-arg="${escAttr(a.key)}">Restore</button>
+      </div>`;
+    }).join('');
+  }
+  html += '</div>';
   list.innerHTML = html;
+}
+
+async function unclearLogAckIgnored(key) {
+  const r = await api('POST', '/logs/ack/delete', { key: key });
+  if (r?.ok) { toast('Restored — this line alerts again', 'success'); loadIgnoredItems(); }
+  else toast(r?.error || 'Failed', 'error');
 }
 
 
