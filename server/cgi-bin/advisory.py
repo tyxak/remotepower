@@ -81,15 +81,32 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec):
         # `security` — the latter is always absent, so `sec` was ALWAYS 0 and
         # the patch finding never escalated medium→high or showed "(N security)".
         sec = ((si.get('packages') or {}).get('security_updates')) or 0
+        # v6.4.0: fold in the auto-update posture so the advisor distinguishes a
+        # host that will patch itself from one that needs a human. A box with
+        # pending updates AND no auto-patch mechanism is the one that rots.
+        _au = si.get('autoupdate')
+        if not isinstance(_au, dict):
+            _au = {}
+        _self_patches = bool(_au.get('enabled'))
+        _fix = ('Apply updates from Fleet → Patches (or schedule a patch window). '
+                'Security updates first if you are staging the rollout.')
+        if _self_patches:
+            _fix += (f' This host auto-patches via {_au.get("mechanism") or "a timer"}, '
+                     'so these should apply on their own soon — investigate if the '
+                     'count keeps growing.')
+        else:
+            _fix += (' This host does not auto-patch, so nothing will apply these '
+                     'until you do — consider enabling unattended-upgrades / '
+                     'dnf-automatic on hosts that can take unattended reboots.')
         out.append(_finding(
             'os.patches', 'os', 'high' if sec else 'medium',
             f'{upgradable} pending package updates'
-            + (f' ({sec} security)' if sec else ''),
+            + (f' ({sec} security)' if sec else '')
+            + ('' if _self_patches else ' — no auto-patching'),
             'Unapplied updates are the single most common way a fully-supported '
             'system gets compromised — the fix already exists and simply is not '
             'installed.',
-            'Apply updates from Fleet → Patches (or schedule a patch window). '
-            'Security updates first if you are staging the rollout.',
+            _fix,
             device_id=dev_id, device=name, source='package inventory',
             doc='docs/patches.md'))
 

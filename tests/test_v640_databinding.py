@@ -136,6 +136,36 @@ class TestDataBindingFixes(unittest.TestCase):
         self.assertIn("battery 40%", txt)
         self.assertIn("runtime 600s", txt)
 
+    def test_advisory_folds_in_autoupdate_posture(self):
+        import advisory
+        # a host that self-patches: the fix text says so, title has no "-no auto"
+        dev_on = {"sysinfo": {"packages": {"upgradable": 4},
+                              "autoupdate": {"enabled": True,
+                                             "mechanism": "dnf-automatic"}}}
+        f_on = next(f for f in advisory._os_findings("d", "h", dev_on, None, None)
+                    if f["id"] == "os.patches")
+        self.assertIn("dnf-automatic", f_on["fix"])
+        self.assertNotIn("no auto-patching", f_on["title"])
+        # a manual host: title flags it, fix nudges toward unattended-upgrades
+        dev_off = {"sysinfo": {"packages": {"upgradable": 4},
+                               "autoupdate": {"enabled": False, "mechanism": ""}}}
+        f_off = next(f for f in advisory._os_findings("d", "h", dev_off, None, None)
+                     if f["id"] == "os.patches")
+        self.assertIn("no auto-patching", f_off["title"])
+        self.assertIn("does not auto-patch", f_off["fix"])
+
+    def test_autoupdate_enriches_hardware_rag_chunk(self):
+        # a host WITH a notable-hardware chunk gets the auto-patch line folded in
+        txt = self._hw_text(
+            {"d1": {"_temp_high": True}},
+            {"d1": {"name": "web01",
+                    "sysinfo": {"autoupdate": {"enabled": False}}}})
+        self.assertIn("auto-patching: off", txt)
+        # a host with NO notable hardware must NOT get a chunk just for posture
+        docs = rag_index.build_hardware_corpus(
+            {"d2": {}}, {"d2": {"sysinfo": {"autoupdate": {"enabled": False}}}})
+        self.assertEqual([d for d in docs if d.get("device") == "d2"], [])
+
     def test_battery_health_reaches_rag(self):
         txt = self._hw_text(
             {"d1": {"smart": []}},

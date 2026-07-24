@@ -2175,6 +2175,19 @@ def build_hardware_corpus(store, devices=None, now=0):
         # Temperature flag.
         if rec.get('_temp_high'):
             lines.append("board/CPU temperature: HIGH")
+        # v6.4.0: auto-update posture — "which hosts patch themselves" is a real
+        # fleet question ("0 pending" means different things on a self-patching
+        # vs a manual box). Surfaced in the drawer + advisor; enrich the RAG chunk
+        # too — but only for a host that ALREADY has a notable-hardware chunk, so
+        # this stays a "notable signals" corpus and does not emit a chunk per
+        # (otherwise-healthy) fleet member.
+        if lines:
+            _au = (devices.get(dev_id) or {}).get('sysinfo', {}).get('autoupdate')
+            if isinstance(_au, dict):
+                if _au.get('enabled'):
+                    lines.append(f"auto-patching: on ({_au.get('mechanism') or 'enabled'})")
+                else:
+                    lines.append("auto-patching: off (manual patching only)")
         # Privileged accounts.
         priv = rec.get('_priv_users') or (rec.get('accounts') or {}).get('privileged') \
             if isinstance(rec.get('accounts'), dict) else rec.get('_priv_users')
