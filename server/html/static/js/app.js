@@ -2650,7 +2650,7 @@ function renderDevices() {
   const filterBar = document.getElementById('tag-filter-bar');
   if (filterBar) {
     filterBar.innerHTML = allTags.map(t => `<button data-action="setTagFilter" data-arg="${escAttr(t)}" class="isl-311 ${activeTagFilter===t ? 'active' : ''}">${escHtml(t)}</button>`).join('');
-    if (activeTagFilter) filterBar.innerHTML += `<button data-action="_setTagFilterClear" class="isl-312">✕ clear</button>`;
+    if (activeTagFilter) filterBar.innerHTML += `<button data-action="_setTagFilterClear" class="isl-312">${_icon('x', 11)} clear</button>`;
     if (_staleAgentIds.size) {
       filterBar.innerHTML += `<button data-action="toggleSkewFilter" class="isl-311 c-amber ${_skewFilterOn ? 'active' : ''}" title="Agents running an older version than the newest in the fleet (${escAttr(_maxAgentVer)}) — click to show only those">${_icon('refresh', 11)} ${_staleAgentIds.size} agent${_staleAgentIds.size === 1 ? '' : 's'} outdated</button>`;
     }

@@ -10,7 +10,7 @@
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312"]
+target-version = ["py311", "py312", "py313", "py314"]
 # We don't want black reformatting the bundled vendored libs (none yet, but
 # leave the stanza so we don't have to scramble later).
 extend-exclude = '''
@@ -29,7 +29,7 @@ known_first_party = ["api", "cmdb_vault", "cve_scanner", "prometheus_export", "s
 default_section = "THIRDPARTY"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.14"
 ignore_missing_imports = true   # cryptography, ldap3, reportlab, psutil are all optional
 warn_unused_ignores = true
 warn_redundant_casts = true

@@ -284,6 +284,21 @@ _install_deps() {
         pacman) pacman -S --noconfirm python-pydantic 2>/dev/null || pip install pydantic 2>/dev/null;;
       esac; }
   python3 -c "import pydantic" 2>/dev/null || step_no "pydantic install failed — request validation cannot run"
+  # v6.4.0: optional runtime libs — best-effort, api.py degrades gracefully when
+  # absent (mirrors install-server.sh so this unified installer isn't a lesser
+  # install). cryptography → CMDB credential vault; dnspython → DANE/TLSA checks;
+  # webauthn → passkeys; pysaml2 → SAML SSO.
+  for _opt in cryptography dnspython webauthn pysaml2; do
+    python3 -c "import ${_opt/dnspython/dns}" 2>/dev/null && { step_ok "${_opt} ....... present"; continue; }
+    case "$PKG_MGR" in
+      apt)    pip3 install "$_opt" --break-system-packages 2>/dev/null || pip3 install "$_opt" 2>/dev/null || apt-get install -y --no-install-recommends "python3-${_opt}" 2>/dev/null || true;;
+      dnf)    pip3 install "$_opt" 2>/dev/null || dnf install -y -q "python3-${_opt}" 2>/dev/null || true;;
+      pacman) pip install "$_opt" 2>/dev/null || pacman -S --noconfirm "python-${_opt}" 2>/dev/null || true;;
+    esac
+    python3 -c "import ${_opt/dnspython/dns}" 2>/dev/null \
+      && step_ok "${_opt} ....... installed" \
+      || step_ok "${_opt} ....... skipped (optional — the feature it powers stays off)"
+  done
 }
 _copy_files() {
   local SRC="$1" f
