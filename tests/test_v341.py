@@ -147,7 +147,10 @@ class TestV341HealthHistoryAndAlerts(unittest.TestCase):
         self.assertIn("'health_degraded'", self.APP)
         self.assertIn("case 'health_degraded':", self.APP)
         self.assertIn('function _healthSparkline(', self.APP)
-        self.assertIn('function saveHealthAlertSettings(', self.APP)
+        # v6.4.0: saveHealthAlertSettings was removed as dead — the
+        # health-alert-threshold input persists through the generic settings
+        # field map since the alert-params consolidation. Pin the live path.
+        self.assertIn("'health-alert-threshold'", self.APP)
 
 
 class TestV341Backend(unittest.TestCase):

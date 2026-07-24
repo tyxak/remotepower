@@ -915,6 +915,15 @@ def handle_command(cmd):
         # v6.3.0: real self-update (was an honest rc:1 "not implemented" stub;
         # the v6.2.0 bug before THAT reported rc:0 while installing nothing).
         return _self_update()
+    # v6.4.0: conditional reboot for patch policies. On macOS the agent's
+    # `upgrade` is Homebrew, and brew upgrades never require a restart — OS
+    # updates go through softwareupdate, which manages its own. So "reboot if
+    # required" honestly never reboots here; the explicit `reboot` command
+    # remains for operators who want one regardless.
+    if cmd == 'reboot-if-required':
+        return {'cmd': cmd,
+                'output': 'no reboot required (brew upgrades never need one) — skipped',
+                'rc': 0}
     argv = command_argv(cmd)
     if argv is None:
         # W6-32: an upgrade command with no brew installed → a clear message.

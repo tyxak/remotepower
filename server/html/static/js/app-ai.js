@@ -1389,6 +1389,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   body.dataset.rawText = '';
   document.getElementById('runbook-modal-copy').disabled = true;
   document.getElementById('runbook-modal-regen').style.display = 'none';
+  const _rbDel0 = document.getElementById('runbook-modal-delete'); if (_rbDel0) _rbDel0.style.display = 'none';
 
   // Tick elapsed time so the modal doesn't look frozen during the
   // 30-120s round-trip on slow local models.
@@ -1410,6 +1411,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   body.dataset.rawText = resp.content || '';
   document.getElementById('runbook-modal-copy').disabled = false;
   document.getElementById('runbook-modal-regen').style.display = 'flex';
+  const _rbDel = document.getElementById('runbook-modal-delete'); if (_rbDel) _rbDel.style.display = 'flex';
   const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
   document.getElementById('runbook-modal-meta').textContent =
     `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s · generated ${when}`;
@@ -1426,6 +1428,7 @@ async function aiViewRunbook(devId, deviceName) {
   body.innerHTML = _skeletonBlock();
   document.getElementById('runbook-modal-copy').disabled = true;
   document.getElementById('runbook-modal-regen').style.display = 'flex';
+  const _rbDel = document.getElementById('runbook-modal-delete'); if (_rbDel) _rbDel.style.display = 'flex';
 
   const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
   if (!resp.ok) {

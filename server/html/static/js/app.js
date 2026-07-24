@@ -2758,7 +2758,12 @@ function renderDevices() {
       }
     }
     const missedHtml = (!isOnline && d.missed_polls && d.offline_reason === 'missed_polls') ? `<span class="missed-badge">~${d.missed_polls} missed</span>` : '';
-    const iconContent = d.icon ? `<span class="isl-313">${escHtml(d.icon)}</span>` : (isSel ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`);
+    // v6.4.0 (BUG): this rendered the RAW icon value, so a Lucide name picked
+    // from the icon palette showed as the literal word ("server") on the card.
+    // _renderDeviceIcon maps known names → SVG and falls back to the raw value
+    // only for legacy emoji — it existed, escaped correctly, and nothing
+    // called it (found by the half-built-feature sweep).
+    const iconContent = d.icon ? `<span class="isl-313">${_renderDeviceIcon(d.icon)}</span>` : (isSel ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`);
     // v2.2.1: sparkline for the dominant disk/memory metric (whichever
     // is more "interesting" — closer to capacity). The metrics history
     // lives in the device's stored sysinfo trail. If we don't have ≥2
@@ -2950,9 +2955,9 @@ function _registerDevicesMinimalTable() {
         patchHtml = ` <span class="patch-badge ${cls} isl-316" title="${escAttr(ptitle)}">${pkg.upgradable}</span>`;
       }
       const groupHtml = d.group ? `<span class="group-badge fs-10">${escHtml(d.group)}</span>` : '<span class="c-muted">—</span>';
-      // v1.11.7: dropdown HTML is identical to the cards path — exact same
-      // menu items, same handlers, same `dropdown-${d.id}` id so
-      // toggleDropdown() works without changes. Just wrapped in a <td>.
+      // v1.11.7: the "⋮" affordance is identical to the cards path (it opens
+      // the device drawer directly — the pre-drawer dropdown menu is gone).
+      // Just wrapped in a <td>.
       const dropdownHtml = `${deviceDropdownHtml(d, isMonitored)}`;
       // v1.12.1: leading checkbox cell mirrors the cards-mode batch-select
       // experience. Reuses the same selectedDevices Set so cards/minimal
@@ -3039,45 +3044,9 @@ function _renderDevicesMinimal(filtered) {
   }
 }
 
-// v2.1.0: track the live close-handler so a subsequent toggleDropdown()
-// (or device-grid re-render) can remove it cleanly. The 2.0.0 implementation
-// captured `el` in a closure that lived on as long as the user didn't
-// click; if loadDevices() rewrote the device container and destroyed `el`,
-// the handler kept firing on every document click and trying to mutate a
-// detached node. Combined with the escHtml/' bug this was the visible
-// "tab gets weird after a few refreshes" symptom.
-let _dropdownCloseHandler = null;
-function _detachDropdownCloseHandler() {
-  if (_dropdownCloseHandler) {
-    document.removeEventListener('click', _dropdownCloseHandler);
-    _dropdownCloseHandler = null;
-  }
-}
-function toggleDropdown(id) {
-  const el = document.getElementById(`dropdown-${id}`);
-  if (!el) return;
-  // Close any other open dropdowns and detach their stale handler
-  document.querySelectorAll('.device-dropdown.active').forEach(dd => {
-    if (dd.id !== `dropdown-${id}`) dd.classList.remove('active');
-  });
-  _detachDropdownCloseHandler();
-  el.classList.toggle('active');
-  if (!el.classList.contains('active')) return;
-  // Look up the dropdown by ID on every click rather than capturing the
-  // node by reference — survives re-renders cleanly.
-  const dropId = `dropdown-${id}`;
-  _dropdownCloseHandler = (e) => {
-    const live = document.getElementById(dropId);
-    if (!live || !live.contains(e.target)) {
-      if (live) live.classList.remove('active');
-      _detachDropdownCloseHandler();
-    }
-  };
-  setTimeout(() => {
-    if (_dropdownCloseHandler) document.addEventListener('click', _dropdownCloseHandler);
-  }, 10);
-}
-
+// (v6.4.0: the pre-drawer device-dropdown machinery — toggleDropdown and its
+// document-level close handler — was removed as dead; the "⋮" button opens
+// the device drawer directly since v2.9.0.)
 async function confirmShutdown() { closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget}); if (data?.ok) { toast('Shutdown queued', 'success'); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 
 async function confirmReboot() { closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget}); if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
@@ -4405,6 +4374,11 @@ async function loadSettings() {
   // v3.14.0 #35: secrets-on-disk scanning
   const _imgEn = document.getElementById('cfg-image-scan-enabled');   // W6-34
   if (_imgEn) _imgEn.checked = !!data.image_scan_enabled;
+  // v6.4.0: the previously write-orphaned image-update/interval switches
+  const _imgUpd = document.getElementById('cfg-image-updates-enabled');
+  if (_imgUpd) _imgUpd.checked = data.image_updates_enabled !== false;
+  const _imgHrs = document.getElementById('cfg-image-scan-hours');
+  if (_imgHrs) _imgHrs.value = Math.round((data.image_scan_interval || 43200) / 3600);
   const _pushEn = document.getElementById('cfg-push-enabled');        // v6.1.1 #1
   if (_pushEn) _pushEn.checked = !!data.push_enabled;
   const _rdpEn = document.getElementById('cfg-rdp-enabled');          // W6-49
@@ -4977,6 +4951,10 @@ async function saveSettings(btn) {
   // W6-34: container-image CVE scanning (trivy)
   const _imgSaveEn = document.getElementById('cfg-image-scan-enabled');
   if (_imgSaveEn) payload.image_scan_enabled = _imgSaveEn.checked;
+  const _imgSaveUpd = document.getElementById('cfg-image-updates-enabled');
+  if (_imgSaveUpd) payload.image_updates_enabled = _imgSaveUpd.checked;
+  const _imgSaveHrs = parseInt(document.getElementById('cfg-image-scan-hours')?.value || '', 10);
+  if (!isNaN(_imgSaveHrs)) payload.image_scan_interval = Math.max(1, Math.min(168, _imgSaveHrs)) * 3600;
   // v6.1.1 (#1): experimental agent push channel
   const _pushSaveEn = document.getElementById('cfg-push-enabled');
   if (_pushSaveEn) payload.push_enabled = _pushSaveEn.checked;
@@ -15394,6 +15372,7 @@ function _ensureRunbookModal() {
       <div class="isl-529">
         <button class="btn-icon" id="runbook-modal-copy" data-action="runbookModalCopy"  disabled>Copy markdown</button>
         <button class="btn-icon d-none" id="runbook-modal-regen" data-action="runbookModalRegen" >Regenerate</button>
+        <button class="btn-icon d-none c-danger-outline" id="runbook-modal-delete" data-action="runbookModalDelete">${_icon('trash', 14)} Delete</button>
         <div class="flex-1"></div>
         <button class="btn-icon" data-action="closeRunbookModal" >Close</button>
       </div>
@@ -15415,6 +15394,15 @@ function runbookModalCopy() {
 
 let _runbookCurrentDevice = null;   // {id, name} for the Regenerate button
 
+// v6.4.0: the delete half existed on BOTH other sides for releases (client fn
+// aiDeleteRunbook + server DELETE route) with no button reaching either —
+// found by the half-built-feature sweep. Delete, then close (the stored
+// runbook is gone; Regenerate from the drawer brings it back).
+async function runbookModalDelete() {
+  if (!_runbookCurrentDevice) return;
+  await aiDeleteRunbook(_runbookCurrentDevice.id);
+  closeRunbookModal();
+}
 async function runbookModalRegen() {
   if (!_runbookCurrentDevice) return;
   if (!await uiConfirm('Regenerate the runbook? Sends the device snapshot to the configured AI provider again.')) return;
@@ -18806,7 +18794,7 @@ async function snoozeAttention(key, label) {
 }
 
 // v3.2.3 (#4): jump to Logs page with device + unit filters pre-set.
-// Builds on openLogsForDevice() — same poll-for-options pattern.
+// Navigate-then-filter: click through to Logs, then poll for the option.
 function openLogsForLogAlert(devId, unit) {
   const navBtn = document.querySelector('.nav-btn[data-page="logs"]');
   if (navBtn) showPage('logs', navBtn); else return;
@@ -19352,38 +19340,8 @@ window._aiConfigCache = null;
 // back to opening the detail modal if the Logs page or filter aren't
 // in the DOM (older HTML).
 
-function openLogsForDevice(devId, devName) {
-  // Click the Logs nav button so showPage's sidebar-expand logic fires
-  const navBtn = document.querySelector('.nav-btn[data-page="logs"]');
-  if (navBtn) {
-    showPage('logs', navBtn);
-  } else {
-    // Fallback — open detail modal which shows journal too
-    openDetail(devId, devName);
-    return;
-  }
-  // Wait for the page to mount, then set the device filter to this device
-  setTimeout(() => {
-    const sel = document.getElementById('logs-device-filter');
-    if (sel) {
-      // The select is populated by enterLogsPage(); it may not have
-      // the option yet on first paint. Poll briefly.
-      let attempts = 0;
-      const tryApply = () => {
-        attempts++;
-        const opt = Array.from(sel.options).find(o => o.value === devId);
-        if (opt) {
-          sel.value = devId;
-          if (typeof onLogFilterChange === 'function') onLogFilterChange();
-        } else if (attempts < 12) {
-          setTimeout(tryApply, 150);
-        }
-      };
-      tryApply();
-    }
-  }, 100);
-}
-
+// (v6.4.0: openLogsForDevice removed as dead — nothing linked to it;
+// the wired sibling openLogsForLogAlert covers the navigate-then-filter path.)
 // ─── v2.2.1: mobile nav burger toggle ───────────────────────────────────
 //
 // Mobile (<720px) hides the sidebar by default and reveals it via the
@@ -21282,14 +21240,9 @@ async function saveQuietHours() {
   else toast(r?.error || 'Failed', 'error');
 }
 
-async function saveHealthAlertSettings() {
-  let threshold = parseInt(document.getElementById('health-alert-threshold').value, 10);
-  if (isNaN(threshold) || threshold < 0) threshold = 0;
-  threshold = Math.min(100, threshold);
-  const r = await api('POST', '/config', { health_alert_threshold: threshold });
-  if (r?.ok) toast(threshold ? `Health alerts on: below ${threshold}` : 'Health alerts disabled', 'success');
-  else toast(r?.error || 'Failed', 'error');
-}
+// (v6.4.0: saveHealthAlertSettings removed as dead — the health-alert-threshold
+// input saves through the generic settings field map since the alert-params
+// consolidation; nothing referenced the standalone function.)
 
 // ── Backup monitors CRUD ──────────────────────────────────────────────────────
 

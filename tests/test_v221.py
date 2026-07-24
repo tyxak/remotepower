@@ -398,8 +398,12 @@ class TestPolishAssets(unittest.TestCase):
         self.assertIn('toggleMobileNav', self.js)
 
     def test_js_openlogs_helper(self):
-        # Helper used by per-row hover affordance
-        self.assertIn('function openLogsForDevice', self.js)
+        # v6.4.0: the per-row hover affordance that used openLogsForDevice was
+        # removed long ago, stranding the helper — the dead-code sweep deleted
+        # it. The WIRED sibling (openLogsForLogAlert) carries the pattern now;
+        # pin that so the navigate-then-filter capability can't silently vanish.
+        self.assertNotIn('function openLogsForDevice', self.js)
+        self.assertIn('function openLogsForLogAlert', self.js)
 
     def test_html_home_page_present(self):
         self.assertIn('id="page-home"', self.html)

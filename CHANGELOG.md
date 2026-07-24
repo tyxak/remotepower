@@ -54,6 +54,54 @@ finding:
   suites, the per-page e2e smoke in real Chromium, and the full 8k-test
   suite both-backends-parallel.
 
+### Auto-patch "Reboot if required" is finally conditional (field report)
+The policy checkbox has said "Reboot after upgrade **if required**" since it
+shipped — but every path rebooted after every clean patch run, even one that
+upgraded zero packages. Now the reboot fires only on a real need signal:
+- **Linux**: the Debian/Ubuntu `/var/run/reboot-required` marker, a
+  `needs-restarting -r` verdict (dnf/yum), or a newer installed kernel than
+  the running one (covers Arch). No signal → "no reboot required, reboot
+  SKIPPED" in the patch log, exit 0, host stays up. (The v6.2.1 failed-upgrade
+  and initrd-sanity guards still run first.)
+- **Windows / macOS**: patch paths queue a new `reboot-if-required` verb
+  instead of a bare `reboot`. The Windows agent consults its pending-reboot
+  registry signals; macOS honestly never reboots for a brew upgrade. An older
+  agent reports "unsupported command" and stays up (fail-safe). The verb
+  classifies as kind `reboot` so the four-eyes approval gate still covers it.
+Applies to auto-patch policies, staged rollout rings, and scheduled
+`upgrade_and_reboot` jobs alike. The explicit Reboot device action is
+unchanged (unconditional, as an operator expects).
+
+### Promise-vs-behavior sweep — text that lied about the code
+A project-wide hunt for UI text promising behavior the code didn't implement
+(the reboot checkbox's class), plus half-built wiring:
+- **"Open alerts are never purged" was false past 5000 alerts** — the count
+  cap trimmed by insertion order, silently deleting the oldest still-open
+  alerts on a busy fleet. The cap now evicts oldest *resolved* alerts first
+  (open ones only in the pathological all-open case), and the Settings hint
+  says exactly that.
+- **"Token is consumed atomically — same one can't enroll twice" was a
+  TOCTOU**: the enroll-token consume was a lock-free read-modify-write, so
+  two concurrent enrolls racing one token could both succeed. Consumption now
+  happens under the store lock — a real single-use gate.
+- **Runbook Delete finally reachable**: the client function and the server
+  DELETE route both existed for releases with no button anywhere — the
+  runbook modal now has one.
+- **Device icons render as icons**: a Lucide name picked from the icon
+  palette displayed as the literal word ("server") on device cards — the
+  existing name→SVG mapper was never called. Wired.
+- **Two dead config switches made real**: `image_updates_enabled` (stop the
+  server contacting registries) and `image_scan_interval` were honored by the
+  code but had no save path and no UI — both now settable (Settings →
+  Containers), interval clamped 1h–7d.
+- Dead code removed (verified unreferenced): the pre-drawer device-dropdown
+  machinery, `openLogsForDevice`, `saveHealthAlertSettings`. Five look-alike
+  "dead" initializers turned out to be live named IIFEs — left untouched (and
+  noted as a dead-scan false-positive class).
+- Known remaining platform scope (documented, not a regression): the macOS
+  and Windows agents ignore most fleet-wide force-scan/enable heartbeat flags
+  (image/PII/du/SCAP scans etc. are Linux-only today).
+
 ### Micropolish (10 items)
 - SLO panel: targets/availability render at natural precision (99.9, not
   99.900); deleting an object is now **undo-instead-of-confirm** (the toast's

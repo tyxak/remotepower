@@ -190,8 +190,10 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
             if fam in ('windows', 'darwin'):
                 if 'upgrade' not in cmds[dev_id]:
                     cmds[dev_id].append('upgrade')
-                if reboot and 'reboot' not in cmds[dev_id]:
-                    cmds[dev_id].append('reboot')
+                # v6.4.0: conditional verb — "if required" semantics, matching
+                # the Linux path's need-check (agent consults pending-reboot).
+                if reboot and 'reboot-if-required' not in cmds[dev_id]:
+                    cmds[dev_id].append('reboot-if-required')
             else:
                 lin = (f'exec:{A._SCHED_UPGRADE_REBOOT_CMD}' if reboot
                        else f'exec:{A._UPGRADE_CMD}')

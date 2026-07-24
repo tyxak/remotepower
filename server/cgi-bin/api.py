@@ -1368,6 +1368,35 @@ MAX_WEBHOOK_LOG   = 500    # v3.2.0: was 100 — too tight for the 24h-window
                            # traffic survives. Cheap — ~150 KB on disk worst
                            # case (300 byte avg × 500 rows).
 MAX_ALERTS        = 5000   # v3.2.0 (B1): alerts ledger cap
+
+
+def _trim_alerts(alerts):
+    """v6.4.0 (BUG): the count cap used to trim purely by insertion order
+    (a bare del-slice), silently deleting the OLDEST STILL-OPEN
+    alerts on a fleet that accumulates >5000 — while the Settings retention
+    hint promised "Open alerts are never purged". Evict oldest RESOLVED
+    entries first; open alerts go only in the pathological all-open case
+    (the cap is ultimately a memory bound), oldest first. In-place."""
+    over = len(alerts) - MAX_ALERTS
+    if over <= 0:
+        return
+    drop = []
+    for i, a in enumerate(alerts):
+        if isinstance(a, dict) and a.get('resolved_at'):
+            drop.append(i)
+            if len(drop) >= over:
+                break
+    if len(drop) < over:   # not enough resolved — take oldest open too
+        need = over - len(drop)
+        ds = set(drop)
+        for i, _a in enumerate(alerts):
+            if i not in ds:
+                drop.append(i)
+                need -= 1
+                if need <= 0:
+                    break
+    for i in sorted(drop, reverse=True):
+        del alerts[i]
 MAX_CONFIRMATIONS = 200    # v3.2.0 (A1): pending MCP confirmations cap
 CONFIRMATION_TTL_SEC = 3600  # v3.2.0 (A1): confirmations expire after 1h
 SNMP_POLL_INTERVAL  = 300  # v3.2.0 (B5): SNMP poll cadence (seconds)
@@ -9677,8 +9706,7 @@ def _record_alert(event, payload):
                     return merged
             _build(store)
             alerts.append(alert)
-            if len(alerts) > MAX_ALERTS:
-                del alerts[:-MAX_ALERTS]
+            _trim_alerts(alerts)   # v6.4.0: resolved-first eviction
     except Exception:
         pass
     return alert
@@ -16388,10 +16416,13 @@ def _autopatch_queue(pol, actor):
         # The Windows and macOS agents never auto-reboot on `upgrade` (Windows
         # passes -IgnoreReboot; brew has no such concept), so a reboot-on-patch
         # policy needs the reboot queued explicitly. Commands are executed in
-        # queue order, so it lands after the upgrade completes.
+        # queue order, so it lands after the upgrade completes. v6.4.0: the
+        # CONDITIONAL verb — the policy checkbox says "if required", so the
+        # agent consults its pending-reboot state instead of always bouncing
+        # (an older agent reports "unsupported command" and stays up — fail-safe).
         _queue_command_batch(native, 'upgrade', actor)
         if reboot:
-            _queue_command_batch(native, 'reboot', actor)
+            _queue_command_batch(native, 'reboot-if-required', actor)
     return len(targets)
 
 
@@ -17427,21 +17458,22 @@ def handle_enroll_register():
         # token apply unless the agent explicitly provides its own.
         if len(enroll_token) < 16 or len(enroll_token) > 256:
             respond(400, {'error': 'Invalid enrollment token format'})
-        tokens = load(ENROLL_TOKENS_FILE)
+        # v6.4.0 (SECURITY): consume under the store lock. This was a lock-free
+        # load → check → delete → save, so two concurrent enrolls racing the
+        # same one-time token could BOTH pass the existence check and both
+        # enroll — while the docs promised "consumed atomically, can't enroll
+        # twice". The lock makes the check-and-delete a real single-use gate
+        # (the 403 respond inside the lock aborts the save and releases it).
         now = int(time.time())
-        _purge_expired_enroll_tokens(tokens, now)
-        # v5.4.1: look up by HASH (new) or the plaintext key (legacy, pre-hashing).
         _eh = _hash_device_token(enroll_token)
-        _ekey = _eh if _eh in tokens else enroll_token
-        meta = tokens.get(_ekey)
-        if not meta:
-            respond(403, {'error': 'Invalid or expired enrollment token'})
-        # Consume the token *before* creating the device. If save fails
-        # for some reason the device creation below still happens (we
-        # accept that edge case rather than building two-phase commit
-        # over a JSON file). In practice save() is atomic.
-        del tokens[_ekey]
-        save(ENROLL_TOKENS_FILE, tokens)
+        with _LockedUpdate(ENROLL_TOKENS_FILE) as tokens:
+            _purge_expired_enroll_tokens(tokens, now)
+            # v5.4.1: look up by HASH (new) or the plaintext key (legacy).
+            _ekey = _eh if _eh in tokens else enroll_token
+            meta = tokens.get(_ekey)
+            if not meta:
+                respond(403, {'error': 'Invalid or expired enrollment token'})
+            del tokens[_ekey]
         default_group = meta.get('default_group', '') or ''
         default_tags = meta.get('default_tags', []) or []
     elif pin:
@@ -20529,6 +20561,11 @@ def _command_kind(command):
         return 'upgrade'
     if s.startswith('winget:'):
         return 'upgrade'      # third-party app patching is still patching
+    # v6.4.0: the conditional patch-window verb is still a reboot for
+    # approval-gating purposes (same class as the bare-`upgrade` fix above —
+    # an unmapped verb classifies 'other' and silently bypasses four-eyes).
+    if s == 'reboot-if-required':
+        return 'reboot'
     if s in ('reboot', 'shutdown', 'update', 'uninstall', 'scan'):
         return s
     return 'other'
@@ -21477,7 +21514,28 @@ _SCHED_UPGRADE_REBOOT_CMD = (
     'echo "=== upgrade ok BUT initrd sanity check FAILED —$BADIRD contains no kernel modules; reboot ABORTED (host would not boot) ===" >> "$L"; '
     'tail -n 5 "$L"; exit 4; '
     'fi; '
-    'echo "=== exit 0 — rebooting ===" >> "$L"; '
+    # v6.4.0 (BUG): the policy checkbox has always said "Reboot after upgrade
+    # IF REQUIRED", but this command rebooted after EVERY clean run — a
+    # zero-package patch window still bounced the host. Now the reboot fires
+    # only when a need signal says so: the Debian/Ubuntu marker file,
+    # needs-restarting -r (dnf/yum; rc!=0 = needed), or the newest installed
+    # kernel differing from the running one (covers Arch and everyone else).
+    # No signal → "no reboot required", exit 0, host stays up.
+    'NEED=""; '
+    '[ -f /var/run/reboot-required ] && NEED="reboot-required marker"; '
+    'if [ -z "$NEED" ] && command -v needs-restarting >/dev/null 2>&1; then '
+    'needs-restarting -r >/dev/null 2>&1 || NEED="needs-restarting"; '
+    'fi; '
+    'if [ -z "$NEED" ]; then '
+    'RUNK=$(uname -r); NEWK=$(ls -1 /lib/modules 2>/dev/null || ls -1 /usr/lib/modules 2>/dev/null) && '
+    'NEWK=$(printf "%s\\n" $NEWK | sort -V | tail -n 1) && '
+    '[ -n "$NEWK" ] && [ "$NEWK" != "$RUNK" ] && NEED="kernel $RUNK -> $NEWK"; '
+    'fi; '
+    'if [ -z "$NEED" ]; then '
+    'echo "=== exit 0 — upgrade ok, no reboot required, reboot SKIPPED ===" >> "$L"; '
+    'tail -n 5 "$L"; exit 0; '
+    'fi; '
+    'echo "=== exit 0 — rebooting ($NEED) ===" >> "$L"; '
     # Reboot fallbacks so it fires regardless of init system / PATH. The agent
     # gives upgrade commands a 30-min exec timeout so this line is reached.
     'systemctl reboot || /sbin/reboot || reboot'
@@ -23994,6 +24052,8 @@ def handle_config_get():
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
+    safe.setdefault('image_updates_enabled', True)     # v6.4.0: registry digest checks
+    safe.setdefault('image_scan_interval', IMAGE_SCAN_INTERVAL)   # v6.4.0
     # v6.2.0: host-wide disk-usage explorer — opt-in (it walks the filesystem).
     safe.setdefault('du_scan_enabled', False)
     safe.setdefault('du_scan_paths', [])
@@ -25183,6 +25243,18 @@ def handle_config_save():
         cfg['secrets_scan_enabled'] = bool(body['secrets_scan_enabled'])
     if 'image_scan_enabled' in body:      # W6-34: opt-in trivy image CVE scan
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
+    # v6.4.0: these two were read-only "dead switches" — the code honored them
+    # but NO save path or UI could ever set them (found by the half-built
+    # feature sweep). image_updates_enabled gates the registry digest-check
+    # sweep (opt-OUT); image_scan_interval tunes the trivy cadence.
+    if 'image_updates_enabled' in body:
+        cfg['image_updates_enabled'] = bool(body['image_updates_enabled'])
+    if 'image_scan_interval' in body:
+        try:
+            cfg['image_scan_interval'] = max(3600, min(7 * 86400,
+                                             int(body['image_scan_interval'])))
+        except (TypeError, ValueError):
+            respond(400, {'error': 'image_scan_interval must be an integer (seconds, 3600–604800)'})
     if 'push_enabled' in body:            # v6.1.1 #1: opt-in agent push channel
         cfg['push_enabled'] = bool(body['push_enabled'])
     if 'rdp_enabled' in body:             # W6-49: opt-in RDP tunnelling
@@ -31175,8 +31247,9 @@ def process_schedule():
                             # the reboot must be queued separately. It has to land
                             # AFTER the upgrade — appending it here would put it
                             # FIRST in the queue and reboot the box before patching.
+                            # v6.4.0: conditional verb ("if required" semantics).
                             queued = 'upgrade'
-                            _queue_after = 'reboot'
+                            _queue_after = 'reboot-if-required'
                         else:
                             queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
                     elif is_script:
@@ -53492,8 +53565,7 @@ def handle_inbound_webhook(token_str):
             arr = store.setdefault('alerts', [])
             _assign_alertid(store, alert)
             arr.append(alert)
-            if len(arr) > MAX_ALERTS:
-                del arr[:-MAX_ALERTS]
+            _trim_alerts(arr)      # v6.4.0: resolved-first eviction
     except Exception as e:
         respond(500, {'error': f'failed to record alert: {e}'})
 

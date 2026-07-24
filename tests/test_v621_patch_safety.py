@@ -62,7 +62,7 @@ class _ShellHarness(unittest.TestCase):
     """
 
     _REAL_TOOLS = ('cat', 'grep', 'mktemp', 'rm', 'date', 'tail', 'mkdir',
-                   'printf', 'sh')
+                   'printf', 'sh', 'ls', 'sort')   # ls/sort: v6.4.0 kernel-compare
 
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
@@ -133,13 +133,27 @@ class _SchedHarness(_ShellHarness):
         self.log = self.dir / 'log' / 'remotepower_update.log'
         self.stub('systemctl', 'echo "SYSTEMCTL $*" >> "$CALLS"')
         self.stub('reboot', 'echo "REBOOT $*" >> "$CALLS"')
+        # v6.4.0: sandboxed modules dir for the kernel-compare need signal —
+        # seeded with the (stubbed) RUNNING kernel only, i.e. "no reboot
+        # needed". The harness stubs `uname` to 0.0.0-rpfake.
+        self.modules = self.dir / 'modules'
+        (self.modules / '0.0.0-rpfake').mkdir(parents=True)
 
     def sched_cmd(self):
         cmd = api._SCHED_UPGRADE_REBOOT_CMD
         cmd = cmd.replace('/var/log/remotepower', str(self.log.parent))
         cmd = cmd.replace('/boot/initrd.img-', f'{self.boot}/initrd.img-')
         cmd = cmd.replace('/sbin/reboot', str(self.bin / 'reboot'))
+        # v6.4.0: the reboot is CONDITIONAL now — redirect the need-check
+        # paths into the sandbox so the host's real state can't leak in.
+        cmd = cmd.replace('/var/run/reboot-required', str(self.dir / 'reboot-required'))
+        cmd = cmd.replace('/lib/modules', str(self.modules))
+        cmd = cmd.replace('/usr/lib/modules', str(self.dir / 'usr-lib-modules'))
         return cmd
+
+    def need_reboot(self):
+        """Arm the Debian/Ubuntu need signal in the sandbox."""
+        (self.dir / 'reboot-required').write_text('')
 
     def log_text(self):
         return self.log.read_text() if self.log.exists() else ''
@@ -147,7 +161,24 @@ class _SchedHarness(_ShellHarness):
 
 class TestSchedRebootGates(_SchedHarness):
 
-    def test_clean_upgrade_healthy_initrd_reboots(self):
+    def test_clean_upgrade_healthy_initrd_reboots_when_required(self):
+        # v6.4.0: "if required" is real now — this scenario arms the
+        # Debian/Ubuntu marker, so the reboot must fire.
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        (self.boot / 'initrd.img-0.0.0-rpfake').write_text('x')
+        listing = self.dir / 'lsout'
+        listing.write_text('usr/lib/modules/0.0.0-rpfake/kernel/md/dm-mod.ko.zst\n')
+        self.stub('lsinitramfs', f'cat "{listing}"')
+        self.need_reboot()
+        r = self.run_sh(self.sched_cmd())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('SYSTEMCTL reboot', self.called())
+        self.assertIn('rebooting', self.log_text())
+
+    def test_clean_upgrade_without_need_signal_skips_reboot(self):
+        # THE field-reported bug: a run that upgraded nothing still bounced
+        # the host. No marker, no needs-restarting, running kernel == newest
+        # installed → the host must stay up, exit 0.
         self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
         (self.boot / 'initrd.img-0.0.0-rpfake').write_text('x')
         listing = self.dir / 'lsout'
@@ -155,8 +186,27 @@ class TestSchedRebootGates(_SchedHarness):
         self.stub('lsinitramfs', f'cat "{listing}"')
         r = self.run_sh(self.sched_cmd())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn('SYSTEMCTL', self.called())
+        self.assertNotIn('REBOOT', self.called())
+        self.assertIn('no reboot required', self.log_text())
+
+    def test_newer_installed_kernel_triggers_the_reboot(self):
+        # Arch-style signal: no marker file, but the newest installed kernel
+        # differs from the running one.
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        (self.modules / '999.0.0-newer').mkdir()
+        r = self.run_sh(self.sched_cmd())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('SYSTEMCTL reboot', self.called())
-        self.assertIn('rebooting', self.log_text())
+
+    def test_needs_restarting_verdict_triggers_the_reboot(self):
+        # RHEL-style signal: needs-restarting -r exits nonzero when a reboot
+        # is needed.
+        self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        self.stub('needs-restarting', 'exit 1')
+        r = self.run_sh(self.sched_cmd())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('SYSTEMCTL reboot', self.called())
 
     def test_moduleless_initrd_aborts_reboot(self):
         # The killer shape: upgrade exits 0, but an initrd on disk has no
@@ -185,8 +235,10 @@ class TestSchedRebootGates(_SchedHarness):
 
     def test_no_lsinitramfs_still_reboots(self):
         # dracut/mkinitcpio hosts have no lsinitramfs — the sanity check must
-        # skip (not block every RHEL/Arch patch window forever).
+        # skip (not block every RHEL/Arch patch window forever). Need signal
+        # armed so the v6.4.0 conditional gate lets it through.
         self.stub('apt-get', 'echo "APT $*" >> "$CALLS"')
+        self.need_reboot()
         r = self.run_sh(self.sched_cmd())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('SYSTEMCTL reboot', self.called())

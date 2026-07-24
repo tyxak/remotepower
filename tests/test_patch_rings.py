@@ -141,7 +141,10 @@ class TestRebootDispatch(_Base):
         cmds = {}
         api._rollout_dispatch_ring(roll, 0, api.load(api.DEVICES_FILE), cmds)
         self.assertIn('upgrade', cmds['d1'])
-        self.assertIn('reboot', cmds['d1'])
+        # v6.4.0: the CONDITIONAL verb — "reboot if required" semantics; a bare
+        # unconditional `reboot` must no longer be queued by patch paths.
+        self.assertIn('reboot-if-required', cmds['d1'])
+        self.assertNotIn('reboot', cmds['d1'])
         self.assertFalse(any(c.startswith('exec:') for c in cmds['d1']),
                          'a Windows host must never be sent a bash exec: script')
 

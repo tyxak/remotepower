@@ -6,9 +6,11 @@
 
 **The Swiss-army-knife control plane for your Linux fleet — Windows and macOS
 too — or your homelab.** Monitoring, alerting, a CMDB, CVE scanning, patching,
-and remote management, all self-hosted in one place — with optional AI woven
-through it. Push-based agents that run as a supervised service on every OS, zero
-inbound ports. Up and running in five minutes.
+compliance, a built-in helpdesk, and remote management, all self-hosted in one
+place — with optional AI woven through it. Push-based agents that run as a
+supervised service on every OS, zero inbound ports — and agentless receivers
+(syslog, NetFlow, SNMP) for the boxes that can't run one. Up and running in
+five minutes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](https://kernel.org)
@@ -69,11 +71,14 @@ inbound ports. Up and running in five minutes.
 ## What is it?
 
 Most teams stitch together a monitor, a CMDB, a wiki, a vulnerability scanner,
-a patch tool and an SSH jump box. RemotePower is one self-hosted tool that
-does all of it — monitoring & alerting, an asset CMDB, documentation with RAG
-search over your own fleet, CVE scanning, patching, and remote management —
-with AI as an entirely optional layer on top (bring your own local or cloud
-model, or leave it off).
+a patch tool, a ticket system and an SSH jump box. RemotePower is one
+self-hosted tool that does all of it — monitoring & alerting, an asset CMDB,
+documentation with RAG search over your own fleet, CVE scanning, patching,
+compliance reporting, a helpdesk with SLA clocks and email in/out, and remote
+management — with AI as an entirely optional layer on top (bring your own
+local or cloud model, or leave it off; when enabled it can also *triage* an
+alert through a bounded, read-only investigation loop and write a verdict
+with its evidence).
 
 Each host runs a small Python agent that polls the server over outbound
 HTTPS only — nothing opens on the client, ever. Enrolment is a 6-digit PIN,
@@ -143,7 +148,9 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   targets + error budgets), an Alerts inbox with ack/auto-resolve/mute, and
   one filterable page to tune every alert threshold, grade and score weight.
 - **See every signal** — SMART/hardware health, GPU, power/UPS, disk-fill
-  forecasting, a per-host timeline, log search.
+  forecasting, a per-host timeline, log search; agentless syslog,
+  NetFlow/IPFIX/sFlow and SNMP receivers cover the switches, firewalls and
+  printers that can't run an agent.
 - **Manage remotely** — shell + Custom Scripts, a file manager and
   cron/systemd-timer control with zero inbound ports; plus a browser SSH
   terminal and VNC riding your existing SSH, and Proxmox/VMware/OpenShift

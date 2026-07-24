@@ -9,7 +9,14 @@ A policy has:
 
 - **Target** — a group, tag, site, or the whole fleet.
 - **Schedule** — a cron expression (server timezone), validated on save.
-- **Reboot** — whether to reboot after upgrades that require it.
+- **Reboot** — whether to reboot after upgrades that require it. *Requires it*
+  is checked for real (v6.4.0 — earlier releases rebooted after every clean
+  run): Linux reboots only on the Debian/Ubuntu `/var/run/reboot-required`
+  marker, a `needs-restarting -r` verdict (dnf/yum), or a newer installed
+  kernel than the running one (covers Arch); Windows consults its
+  pending-reboot registry signals; macOS never needs one for brew upgrades, so
+  it never reboots from a policy. A run that upgraded nothing keeps the host
+  up, with "reboot SKIPPED" in the patch log.
 - **Enabled** — toggle a policy without deleting it.
 
 At each scheduled run, the policy queues an upgrade to every matching host

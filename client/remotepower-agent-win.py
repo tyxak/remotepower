@@ -1671,6 +1671,17 @@ def handle_command(cmd):
         return _run_process_kill_win(cmd)
     if cmd.startswith('files:'):
         return _handle_file_op_win(cmd)
+    # v6.4.0: conditional reboot for patch policies — the "Reboot after upgrade
+    # if required" checkbox used to queue a bare `reboot` (unconditional). This
+    # verb consults the same pending-reboot registry signals the heartbeat
+    # reports, and only reboots when Windows actually asks for one.
+    if cmd == 'reboot-if-required':
+        if _reboot_required():
+            cmd = 'reboot'   # fall through to the normal reboot argv below
+        else:
+            return {'cmd': cmd,
+                    'output': 'no reboot required (no pending-reboot signal) — skipped',
+                    'rc': 0}
     argv = command_argv(cmd)
     if argv is None:
         return {'cmd': cmd, 'output': f'unsupported command: {cmd}', 'rc': 1}
