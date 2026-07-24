@@ -26,6 +26,14 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
+    // v6.4.0: high-frequency generic operator toasts/actions — these recur
+    // across many pages, so each entry lifts coverage app-wide.
+    'Refreshed':             { fr: 'Actualisé', de: 'Aktualisiert', zh: '已刷新', hi: 'ताज़ा किया गया', es: 'Actualizado', ar: 'تم التحديث' },
+    'Copied':                { fr: 'Copié', de: 'Kopiert', zh: '已复制', hi: 'कॉपी किया गया', es: 'Copiado', ar: 'تم النسخ' },
+    'Copied to clipboard':   { fr: 'Copié dans le presse-papiers', de: 'In die Zwischenablage kopiert', zh: '已复制到剪贴板', hi: 'क्लिपबोर्ड पर कॉपी किया गया', es: 'Copiado al portapapeles', ar: 'تم النسخ إلى الحافظة' },
+    'Saved':                 { fr: 'Enregistré', de: 'Gespeichert', zh: '已保存', hi: 'सहेजा गया', es: 'Guardado', ar: 'تم الحفظ' },
+    'Dashboard reset':       { fr: 'Tableau de bord réinitialisé', de: 'Dashboard zurückgesetzt', zh: '仪表板已重置', hi: 'डैशबोर्ड रीसेट', es: 'Panel restablecido', ar: 'تمت إعادة تعيين لوحة القيادة' },
+    'Table view reset':      { fr: 'Vue tableau réinitialisée', de: 'Tabellenansicht zurückgesetzt', zh: '表格视图已重置', hi: 'तालिका दृश्य रीसेट', es: 'Vista de tabla restablecida', ar: 'تمت إعادة تعيين عرض الجدول' },
     'Alert parameters':      { fr: 'Paramètres des alertes', de: 'Alarmparameter', zh: '警报参数', hi: 'अलर्ट पैरामीटर', es: 'Parámetros de alerta', ar: 'معلمات التنبيه' },
     'Monitors & freshness':  { fr: 'Sondes et actualité', de: 'Monitore & Aktualität', zh: '监控与时效性', hi: 'मॉनिटर और समयबद्धता', es: 'Monitores y actualidad', ar: 'المراقبة والحداثة' },
     'Network & time':        { fr: 'Réseau et heure', de: 'Netzwerk & Zeit', zh: '网络与时间', hi: 'नेटवर्क और समय', es: 'Red y hora', ar: 'الشبكة والوقت' },
