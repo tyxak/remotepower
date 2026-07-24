@@ -43114,14 +43114,23 @@ def _compute_attention():
         clam = av.get('clamav') or {}
         rk = av.get('rkhunter') or {}
         name = dev.get('name', dev_id)
+        # v6.4.0: `target` names the TOOL that raised each item. It propagates
+        # into mitigation_target → the AI mitigation prompt, which pins the
+        # remedy to that tool — without it the model saw the combined
+        # ClamAV+rkhunter diagnostic and could suggest `rkhunter --update` for
+        # a ClamAV signature problem (or freshclam for rkhunter warnings) —
+        # a field-reported crossed suggestion.
         if isinstance(clam.get('infected'), int) and clam['infected'] > 0:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
+                          'target': 'clamav',
                           'summary': f"ClamAV reported {clam['infected']} infected file(s)"})
         elif isinstance(clam.get('db_age_days'), int) and clam['db_age_days'] > _av_stale:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
+                          'target': 'clamav',
                           'summary': f"ClamAV signature DB is {clam['db_age_days']}d old"})
         if isinstance(rk.get('warnings'), int) and rk['warnings'] > 0:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
+                          'target': 'rkhunter',
                           'summary': f"rkhunter reported {rk['warnings']} warning(s)"})
         # v6.2.0: Windows Defender. Infections mirror ClamAV; the NEW signal is
         # real-time protection being OFF — critical, because every other AV
@@ -43129,12 +43138,15 @@ def _compute_attention():
         dfd = av.get('defender') or {}
         if isinstance(dfd.get('infected'), int) and dfd['infected'] > 0:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
+                          'target': 'defender',
                           'summary': f"Defender reported {dfd['infected']} threat(s)"})
         if dfd.get('realtime_enabled') is False:
             items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
+                          'target': 'defender',
                           'summary': 'Defender real-time protection is OFF'})
         elif isinstance(dfd.get('db_age_days'), int) and dfd['db_age_days'] > _av_stale:
             items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
+                          'target': 'defender',
                           'summary': f"Defender signatures are {dfd['db_age_days']}d old"})
 
     # v6.2.0: predicted hardware failure. Only 'high' and above earns a card —
@@ -51902,8 +51914,11 @@ def _annotate_alert_mitigation(alerts):
         if not kind or kind not in playbooks:
             continue
         a['mitigation_kind'] = kind
-        # service_down carries the unit name as the target; others don't need one.
-        tgt = p.get('unit') or p.get('target') or p.get('service')
+        # service_down carries the unit name as the target; av_infected /
+        # av_warning carry `tool` (v6.4.0 — without it the AV mitigation AI saw
+        # Target: (n/a) and could pin the WRONG tool's update, e.g. rkhunter
+        # --update for a ClamAV signature problem); others don't need one.
+        tgt = p.get('unit') or p.get('target') or p.get('service') or p.get('tool')
         if tgt:
             a['mitigation_target'] = tgt
 

@@ -126,6 +126,55 @@ class TestImageSwitchesAreWritable(unittest.TestCase):
         self.assertIn("payload.image_scan_interval", js)
 
 
+class TestAvSuggestionsAreToolMatched(unittest.TestCase):
+    """Field report: an AV alert could suggest the WRONG tool's remedy
+    (`rkhunter --update` for a ClamAV/clamscan problem, or freshclam for an
+    rkhunter warning). Root cause: av_posture items carried no target, so the
+    AI mitigation saw `Target: (n/a)` plus a combined ClamAV+rkhunter dump and
+    freely picked either fix. Now every AV item/alert pins the raising TOOL as
+    the mitigation target, and the prompt carries a hard matching rule."""
+
+    def test_alert_side_target_is_the_raising_tool(self):
+        alerts = [
+            {"device_id": "d1", "event": "av_warning",
+             "payload": {"tool": "rkhunter", "warnings": 3}},
+            {"device_id": "d1", "event": "av_infected",
+             "payload": {"tool": "clamav", "infected": 1}},
+        ]
+        api._annotate_alert_mitigation(alerts)
+        self.assertEqual(alerts[0].get("mitigation_kind"), "av_posture")
+        self.assertEqual(alerts[0].get("mitigation_target"), "rkhunter")
+        self.assertEqual(alerts[1].get("mitigation_target"), "clamav")
+
+    def test_na_items_stamp_the_tool_as_target(self):
+        # The NA builder lives inside the attention compute; pin at source
+        # level that each AV row family carries its own tool as target.
+        src = (_CGI / "api.py").read_text()
+        i = src.index("ClamAV reported")
+        blk = src[i - 900:i + 2200]
+        self.assertIn("'target': 'clamav'", blk)
+        self.assertIn("'target': 'rkhunter'", blk)
+        self.assertIn("'target': 'defender'", blk)
+
+    def test_prompt_carries_the_matching_rule(self):
+        import importlib
+        sys.path.insert(0, str(_CGI))
+        aip = importlib.import_module("ai_provider")
+        prompt = aip.SYSTEM_PROMPTS["mitigate_av"]
+        self.assertIn("HARD RULE", prompt)
+        self.assertIn("ONLY for a ClamAV", prompt)
+        self.assertIn("ONLY for rkhunter", prompt)
+        self.assertIn("always wrong", prompt)
+
+    def test_tool_is_in_the_alert_payload_whitelist(self):
+        # mitigation_target reads payload['tool'] — if the _record_alert
+        # whitelist ever drops 'tool', the fix silently regresses to (n/a).
+        src = (_CGI / "api.py").read_text()
+        i = src.index("def _record_alert")
+        nxt = src.find("\ndef ", i + 10)
+        self.assertIn("'tool'", src[i:nxt])
+
+
 class TestRunbookDeleteIsReachable(unittest.TestCase):
     def test_modal_carries_the_delete_button(self):
         js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
