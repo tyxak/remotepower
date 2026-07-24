@@ -198,6 +198,13 @@ A project-wide hunt for UI text promising behavior the code didn't implement
   live exporter, with `tests/test_prometheus_sample.py` pinning it against
   drift; a new lockstep test pins sw.js `CACHE_NAME` against every `?v=` in
   index.html so a forgotten cache-bust fails the build.
+- Icon/text alignment: inline icon+text pills, badges and action links no
+  longer render the Lucide glyph low on the text baseline; the tag-filter
+  "clear" button uses the Lucide **x** icon instead of a raw ✕ glyph.
+- The unified `install.sh` now best-effort installs the same four optional
+  libraries `install-server.sh` does (cryptography, dnspython, webauthn,
+  pysaml2), so it is no longer a lesser install — the features they power stay
+  off cleanly when a library is unavailable.
 
 ### SLA / SLO objects for remote probes
 - **Named availability targets you attach to probes.** Define an SLA/SLO
@@ -389,6 +396,28 @@ fleet the ignore list grew without bound and hid real recurrences. Five fixes:
   threshold `battery_health_low_pct`, default 50 %) — both edge-triggered,
   both auto-resolving, both adjustable on Settings → Alert parameters.
 - **USB device inventory** surfaces in the device drawer.
+- **Three more collected-but-misrouted signals fixed.** The AI advisor read the
+  wrong package key, so a host with pending **security** updates never escalated
+  medium→high; the UPS RAG line read the wrong shape, so the detailed
+  "on-battery/runtime" fact was dead; and **laptop battery health** was alerted
+  on but AI-blind. All three now reach the advisor / RAG correctly.
+- **Auto-update posture reaches the advisor and RAG.** Whether a host patches
+  itself (unattended-upgrades / dnf-automatic) already showed in the drawer;
+  now the patch advisory says so — a box with pending updates *and* no
+  auto-patching is flagged as the one that will rot — and "which hosts
+  self-patch" is answerable from the RAG.
+
+### Performance — kill the per-request write-lock and deepcopy-before-gate
+- The background job runner took a **JOBS_FILE write lock on every request**
+  (a write transaction even with an empty queue); it now clears a cheap
+  read-only pre-gate first and only locks when a job is actually claimable or a
+  crashed-worker lease needs reclaiming.
+- Four cadence sweeps (remediation-verify, incident-memory harvest, IPAM
+  conflict scan, and the container overview) deep-copied a whole state store
+  *before* their due-check or config-read on every request — now gated on the
+  shared read-only cache first.
+- The RAG reindex made six full-fleet copies of the device store per run; now
+  one shared read.
 
 ### Living stat tiles, everywhere the numbers matter
 - The count-up + sparkline + meaning-aware-delta treatment from the home hero
