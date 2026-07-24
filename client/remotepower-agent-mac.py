@@ -571,6 +571,46 @@ def _collect_net_io(psutil):
 SECRETS_SCAN_INTERVAL_S = 6 * 3600
 _SECRETS_TS_FILE = 'secrets_scan_last'
 _secrets_cfg = {'on': False, 'paths': None, 'force': False}
+# v6.4.0: cross-platform heartbeat-flag parity. These were Linux-only and the
+# mac agent silently dropped them, so an operator clicking "Scan packages" /
+# "Update agent" / configuring backup monitors on a Mac got a success toast and
+# nothing happened. Now honoured here too.
+_force_sysinfo = False          # force_package_scan → refresh sysinfo (incl. brew) next beat
+_backup_monitors = []           # server-pushed backup-freshness monitors
+
+
+def collect_backup_status(backup_monitors):
+    """v6.4.0: backup file/dir freshness (mtime + size) for each configured
+    monitor. Portable mirror of the Linux agent's collector — the server-side
+    staleness/anomaly logic is identical regardless of OS."""
+    results = []
+    for mon in (backup_monitors or []):
+        p = mon.get('path', '')
+        if not p:
+            continue
+        try:
+            exists = os.path.exists(p)
+            st = os.stat(p) if exists else None
+            mtime = st.st_mtime if st else 0
+            if st and os.path.isdir(p):
+                size = 0
+                try:
+                    for i, name in enumerate(os.listdir(p)):
+                        if i >= 5000:
+                            break
+                        try:
+                            size += os.stat(os.path.join(p, name)).st_size
+                        except OSError:
+                            pass
+                except OSError:
+                    size = 0
+            else:
+                size = st.st_size if st else 0
+        except Exception:
+            exists, mtime, size = False, 0, 0
+        results.append({'path': p, 'exists': exists, 'mtime': int(mtime),
+                        'size': int(size)})
+    return results
 
 
 def _load_secrets_scan_ts():
@@ -979,8 +1019,16 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         'version':      VERSION,
         'agent_sha256': self_sha256(),
     }
-    if poll_count <= 1 or poll_count % 12 == 0:
+    global _force_sysinfo
+    if poll_count <= 1 or poll_count % 12 == 0 or _force_sysinfo:
         payload['sysinfo'] = collect_sysinfo()
+        _force_sysinfo = False   # v6.4.0: one-shot force_package_scan consumed
+    # v6.4.0: backup-freshness reporting when the server pushed monitors.
+    if _backup_monitors:
+        try:
+            payload['backup_status'] = collect_backup_status(_backup_monitors)
+        except Exception:
+            pass
     _sec_due = (time.time() - _load_secrets_scan_ts()) >= SECRETS_SCAN_INTERVAL_S
     if _secrets_cfg.get('on') and (_sec_due or _secrets_cfg.get('force')):
         try:
@@ -1056,6 +1104,21 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         # v6.3.1: one-shot hail-mary log sweep, acted on next heartbeat.
         if resp.get('force_log_sweep'):
             _log_sweep_cfg['force'] = True
+        # v6.4.0: cross-platform flag parity (were silently dropped).
+        global _force_sysinfo, _backup_monitors
+        if resp.get('force_package_scan'):
+            _force_sysinfo = True   # refresh sysinfo (incl. brew outdated) next beat
+        _bm = resp.get('backup_monitors')
+        if isinstance(_bm, list):
+            _backup_monitors = _bm
+        if resp.get('force_agent_upgrade'):
+            # Same self-update path as the `update` command; report the result
+            # back on the next beat so the operator sees it took.
+            try:
+                new_pending = _self_update()
+            except Exception as _e:
+                new_pending = {'cmd': 'force_agent_upgrade',
+                               'output': f'self-update failed: {_e}', 'rc': 1}
     return resp, new_pending
 
 

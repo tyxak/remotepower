@@ -20550,6 +20550,24 @@ def _resolve_targets(body):
     return [d for d in ids if d not in known or d in allowed]
 
 
+def _split_targets_by_os_support(ids, supported=('linux',)):
+    """v6.4.0: split a resolved target list into (supported, skipped_names) by
+    OS family. Lets a Linux-only 'scan now' action apply to the Linux hosts in
+    a mixed batch and HONESTLY report the ones it can't run on — instead of the
+    old "success toast, silent no-op" the mac/Windows agents produced for a
+    Linux-only heartbeat flag. skipped_names is device names for the message."""
+    devices = load(DEVICES_FILE) or {}
+    keep, skipped = [], []
+    for d in ids:
+        dev = devices.get(d)
+        fam = _device_os_family(dev) if dev else 'linux'   # unknown → don't block
+        if fam in supported:
+            keep.append(d)
+        else:
+            skipped.append(dev.get('name', d) if dev else d)
+    return keep, skipped
+
+
 def _device_quarantined(dev):
     """True if the device record opts out of exec/reboot/actions (v3.4.0)."""
     return bool((dev or {}).get('quarantined', False))

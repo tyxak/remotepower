@@ -234,7 +234,10 @@ Parity with the Linux agent for the core management surface (v6.2.0 buildout):
 | **Containers** | docker/podman/k8s | docker CLI (Desktop / Windows containers) *(v6.2.0)* |
 | **Custom checks** (file/job/log/service) | yes | yes; `windows_service` type *(v6.2.0)* |
 | Security posture → Checks | (n/a) | BitLocker, Firewall (per profile), Defender real-time + signature age, Windows Update service *(v6.2.0)* |
-| Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline) |
+| Compliance scan | OpenSCAP | not ported (oscap is Linux-only; use the cross-platform CIS baseline). Triggering an OpenSCAP scan on a Windows/macOS host now returns an honest "Linux only, skipped" instead of a silent no-op *(v6.4.0)* |
+| **Scan packages now** (`force_package_scan`) | apt/dnf refresh | Windows Update pending refresh *(v6.4.0)* |
+| **Update agent now** (`force_agent_upgrade`) | signed self-update | signed self-update *(v6.4.0)* |
+| **Backup-freshness monitors** (`backup_monitors`) | mtime + size | mtime + size *(v6.4.0)* |
 | Runs as | systemd service | **Windows service** (services.msc); scheduled-task fallback *(v6.2.0)* |
 | Read-only audit mode | `/etc/remotepower/audit-mode` | `%ProgramData%\RemotePower\audit-mode` |
 

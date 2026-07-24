@@ -278,8 +278,12 @@ async function runScapScan() {
   if (!(body.device_ids || body.group || body.tag) || (body.device_ids && !body.device_ids.length)) { toast('No matching devices', 'error'); return; }
   body.profile = profile;
   const r = await api('POST', '/scap/scan', body).catch(() => null);
-  if (r?.ok) toast(`OpenSCAP scan queued on ${r.queued} host(s) — results arrive on next heartbeat`, 'success');
-  else toast(r?.error || 'Failed to queue scan', 'error');
+  if (r?.ok) {
+    let msg = `OpenSCAP scan queued on ${r.queued} host(s) — results arrive on next heartbeat`;
+    // v6.4.0: honest per-OS feedback — Windows/macOS hosts can't run OpenSCAP.
+    if (r.note) msg += ` · ${r.note}`;
+    toast(msg, r.note ? 'info' : 'success');
+  } else toast(r?.error || 'Failed to queue scan', 'error');
 }
 
 async function runInstall() {

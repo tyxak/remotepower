@@ -54,6 +54,21 @@ finding:
   suites, the per-page e2e smoke in real Chromium, and the full 8k-test
   suite both-backends-parallel.
 
+### Cross-platform agent flag parity — no more silent "success" on mac/Windows
+Three heartbeat flags were Linux-only: the macOS and Windows agents received
+them and silently dropped them, so clicking **Scan packages**, **Update
+agent**, or configuring **backup monitors** on a Mac/Windows host gave a
+success toast and did nothing. All three now work on all three agents:
+- `force_package_scan` refreshes sysinfo out of cadence (brew outdated on
+  macOS, Windows Update pending on Windows).
+- `force_agent_upgrade` runs the agent's own signed self-update.
+- `backup_monitors` collect backup file/dir freshness (mtime + size).
+And the genuinely Linux-only action is now **honest** instead of silent: an
+OpenSCAP scan queued against a Windows/macOS host reports "Linux only —
+N skipped" (and scans the Linux hosts in a mixed batch) rather than
+pretending it queued. New guardrail `tests/test_v640_agent_flag_parity.py`
+drives all three agents and the server gate.
+
 ### Every button gives feedback, every alert auto-resolves, every alert says more
 - **Universal button feedback**: any dispatched button whose handler is async
   now shows a working state — dim + a small spinner + `aria-busy` — while it

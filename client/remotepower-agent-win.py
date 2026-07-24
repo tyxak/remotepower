@@ -2062,6 +2062,44 @@ def _parse_hwinv(stdout):
 # `log_errors` matches against the Event Log in Python (never passing the operator
 # regex into PowerShell).
 _watched_agent_checks = []      # pushed by the server each heartbeat
+# v6.4.0: cross-platform heartbeat-flag parity (were Linux-only, silently
+# dropped here — operator got a success toast and nothing happened).
+_force_sysinfo = False           # force_package_scan → refresh sysinfo next beat
+_backup_monitors = []            # server-pushed backup-freshness monitors
+
+
+def collect_backup_status(backup_monitors):
+    """v6.4.0: backup file/dir freshness (mtime + size) per configured monitor.
+    Portable mirror of the Linux collector — server-side staleness/anomaly
+    logic is OS-independent."""
+    results = []
+    for mon in (backup_monitors or []):
+        p = mon.get('path', '')
+        if not p:
+            continue
+        try:
+            exists = os.path.exists(p)
+            st = os.stat(p) if exists else None
+            mtime = st.st_mtime if st else 0
+            if st and os.path.isdir(p):
+                size = 0
+                try:
+                    for i, name in enumerate(os.listdir(p)):
+                        if i >= 5000:
+                            break
+                        try:
+                            size += os.stat(os.path.join(p, name)).st_size
+                        except OSError:
+                            pass
+                except OSError:
+                    size = 0
+            else:
+                size = st.st_size if st else 0
+        except Exception:
+            exists, mtime, size = False, 0, 0
+        results.append({'path': p, 'exists': exists, 'mtime': int(mtime),
+                        'size': int(size)})
+    return results
 
 
 def _eval_one_agent_check_win(c):
@@ -2331,7 +2369,9 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         'agent_sha256': self_sha256(),
     }
     # sysinfo on a slower cadence (every ~12 polls), like the Linux agent.
-    if poll_count <= 1 or poll_count % 12 == 0:
+    global _force_sysinfo
+    if poll_count <= 1 or poll_count % 12 == 0 or _force_sysinfo:
+        _force_sysinfo = False   # v6.4.0: one-shot force_package_scan consumed
         payload['sysinfo'] = collect_sysinfo()
         # v6.2.0: top processes + proc_names (the latter unblocks the server-side
         # `process` custom-check type, which read sysinfo.proc_names — empty on
@@ -2413,6 +2453,12 @@ def build_heartbeat(creds, poll_count, pending_output=None):
                 payload['drift'] = drift
         except Exception:
             pass
+    # v6.4.0: backup-freshness reporting when the server pushed monitors.
+    if _backup_monitors:
+        try:
+            payload['backup_status'] = collect_backup_status(_backup_monitors)
+        except Exception:
+            pass
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')
@@ -2477,6 +2523,19 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         # v6.3.1: one-shot hail-mary log sweep, acted on next heartbeat.
         if resp.get('force_log_sweep'):
             _log_sweep_cfg['force'] = True
+        # v6.4.0: cross-platform flag parity (were silently dropped).
+        global _force_sysinfo, _backup_monitors
+        if resp.get('force_package_scan'):
+            _force_sysinfo = True   # refresh sysinfo (Windows Update pending) next beat
+        _bm = resp.get('backup_monitors')
+        if isinstance(_bm, list):
+            _backup_monitors = _bm
+        if resp.get('force_agent_upgrade'):
+            try:
+                new_pending = _self_update()   # same path as the `update` command
+            except Exception as _e:
+                new_pending = {'cmd': 'force_agent_upgrade',
+                               'output': f'self-update failed: {_e}', 'rc': 1}
         # v6.2.0: watched services pushed by the server (parity with Linux).
         global _watched_services, _watched_files, _watched_agent_checks
         _sw = resp.get('services_watched')

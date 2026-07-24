@@ -59,14 +59,28 @@ def handle_scap_scan():
         A.respond(400, {'error': 'No valid device targets'})
     actor = A.require_perm('patch', ids)
     profile = A._sanitize_str(body.get('profile', 'cis'), 80) or 'cis'
+    # v6.4.0: OpenSCAP is Linux-only — the Windows/macOS agents can't run it and
+    # would silently drop force_scap_scan. Scan the Linux hosts in a mixed batch
+    # and report the rest as skipped instead of a misleading success.
+    ids, skipped = A._split_targets_by_os_support(ids, supported=('linux',))
+    if not ids:
+        A.respond(400, {'error': 'OpenSCAP scans run on Linux hosts only — '
+                        f'{len(skipped)} target(s) skipped '
+                        f'({", ".join(skipped[:5])}).'})
     with A._LockedUpdate(A.DEVICES_FILE) as devices:
         for did in ids:
             dev = devices.get(did)
             if dev:
                 dev['force_scap_scan'] = True
                 dev['scap_profile'] = profile
-    A.audit_log(actor, 'scap_scan', f'targets={len(ids)} profile={profile}')
-    A.respond(200, {'ok': True, 'queued': len(ids), 'profile': profile})
+    A.audit_log(actor, 'scap_scan',
+                f'targets={len(ids)} profile={profile} skipped={len(skipped)}')
+    _resp = {'ok': True, 'queued': len(ids), 'profile': profile}
+    if skipped:
+        _resp['skipped'] = skipped[:20]
+        _resp['note'] = (f'{len(skipped)} non-Linux host(s) skipped — OpenSCAP '
+                         'runs on Linux only.')
+    A.respond(200, _resp)
 
 
 def handle_scap_report():
