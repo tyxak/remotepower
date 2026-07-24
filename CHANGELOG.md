@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.4.0 — "Sh1eldMatters" — unreleased (test)
+## v6.4.0 — "Sh1eldMatters" — 2026-07-24
 
 The security-and-protection release. Integrity-guard/baseline checks that
 actually stop when you disable them, a full public-facing security review and
