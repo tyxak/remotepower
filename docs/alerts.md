@@ -10,6 +10,15 @@ its alerts fleet-wide, and **accepting or disabling** a protect/baseline check
 fires `custom_check_recovered` so its alert closes — so nothing lingers pointing
 at something that no longer exists.
 
+**The contract (v6.4.0): every alert that records an ongoing condition
+auto-resolves when the condition clears** — including CVEs (patched →
+`cve_cleared`), pending updates (`patch_ok`), expiring watched certificates
+(`tls_renewed`), ECC error bursts (`ecc_stable` after 24 quiet hours) and
+exposed secrets (`secret_cleared`). Point-in-time alerts (something
+*happened* — a login, a config change) can't self-heal by definition; those
+rows carry a **confirm** badge so you know to resolve them yourself after
+looking.
+
 ## Working the inbox
 
 - **Acknowledge** — takes ownership; optionally prompts for a comment

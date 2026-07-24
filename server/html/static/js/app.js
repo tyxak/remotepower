@@ -27470,6 +27470,9 @@ async function _loadClientErrors() {
     + '</tbody></table></div>';
 }
 async function clearClientErrors() {
+  // Deliberately confirm-then-clear, NOT undo-instead-of-confirm (the v6.3.0
+  // house rule): a cleared error ring is gone — there is nothing to restore
+  // an Undo from, and a fake Undo would be worse than a dialog.
   if (!await uiConfirm({
         title: 'Clear client-side errors',
         message: 'Clear the reported browser-error ring? After a fix ships, the list refilling (or staying empty) is the verification.',

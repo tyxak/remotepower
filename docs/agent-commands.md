@@ -67,6 +67,19 @@ mode) — the same honest boundary as server-side release signing; sign
 off-server for the strongest guarantee. Like `audit-mode`, the flag is an
 operator-owned local file the server can never clear.
 
+## Conditional reboot — `reboot-if-required` (v6.4.0)
+
+Patch paths (auto-patch policies, rollout rings, scheduled
+`upgrade_and_reboot` jobs) queue this verb on Windows/macOS instead of a bare
+`reboot` when the policy's "Reboot after upgrade if required" is ticked. The
+Windows agent consults its pending-reboot registry signals and reboots only
+when one is set; macOS reports "no reboot required (brew upgrades never need
+one) — skipped". Linux hosts get the need-check inline in the upgrade shell
+(reboot-required marker / `needs-restarting -r` / newer-installed-kernel).
+An agent older than v6.4.0 reports "unsupported command" and stays up —
+fail-safe. The verb classifies as kind `reboot` for the four-eyes approval
+gate; the explicit `reboot` command remains unconditional.
+
 ## Per-command timeout (v5.0.0)
 
 A queued exec command can carry its own timeout with a `to=<seconds>:` prefix,

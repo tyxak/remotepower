@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-16">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-17">
 
 </head>
 <body>
@@ -4403,7 +4403,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.4.0 sh1eldmatters shield security protection integrity guard baseline checks disable reset baseline quarantine protect check pentest security review bandit gitleaks codeql sast hardware rag smart gpu ups kernel reboot privileged accounts macos posture filevault gatekeeper sip firewall parity data binding triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations signed commands command signing require-signed-commands release.pub replay freshness tamper db compromise ha high availability failover keepalived floating ip netflow ipfix flow receiver remotepower-flowd network traffic top talkers conversations exporter router firewall udp 2055 streaming replication promote runbook load test compliance not assessed capable source essential eight smb1001 acsc verdict discipline att&ck attack technique mitre proof observed inferred theoretical silence clearance reset baseline server authoritative accept change multi path file check glob wp-config clamav daily cvd cld apt stamp gateway latency alert battery health low threshold alert parameters mac_filevault mac_firewall mac_gatekeeper mac_sip edge triggered posture alert usb inventory drawer living stat tiles count up sparkline meaning aware delta skeleton loading empty state kanban narrow width mobile 34 rag sources sudo trail self observability physical ipam inventory sites racks subnets warranty auto resolve lifecycle recover alert clear log line signature escattr quote mangled x22 blocklist spamcop spamhaus dnsblog fqdn host fold docker shouldrestart cleared lines ignored items pile up garbage collect self prune suppression rule class level kind scope group tag na-suppress auto-heal recheck patch_alert cve_found last active restore all decommission tombstone sla slo objects error budget burn rate availability target attach probe checkbox meeting breached no data prometheus gauges slo_object wordpress connector logins application password simple history geoip country recent logins client errors beacon ring window.onerror server status clear wiring gates no-undef css parity response contracts paused monitor visible resume">
+          <details class="doc-card" open data-keywords="release notes changelog v6.4.0 sh1eldmatters shield security protection integrity guard baseline checks disable reset baseline quarantine protect check pentest security review bandit gitleaks codeql sast hardware rag smart gpu ups kernel reboot privileged accounts macos posture filevault gatekeeper sip firewall parity data binding triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations signed commands command signing require-signed-commands release.pub replay freshness tamper db compromise ha high availability failover keepalived floating ip netflow ipfix flow receiver remotepower-flowd network traffic top talkers conversations exporter router firewall udp 2055 streaming replication promote runbook load test compliance not assessed capable source essential eight smb1001 acsc verdict discipline att&ck attack technique mitre proof observed inferred theoretical silence clearance reset baseline server authoritative accept change multi path file check glob wp-config clamav daily cvd cld apt stamp gateway latency alert battery health low threshold alert parameters mac_filevault mac_firewall mac_gatekeeper mac_sip edge triggered posture alert usb inventory drawer living stat tiles count up sparkline meaning aware delta skeleton loading empty state kanban narrow width mobile 34 rag sources sudo trail self observability physical ipam inventory sites racks subnets warranty auto resolve lifecycle recover alert clear log line signature escattr quote mangled x22 blocklist spamcop spamhaus dnsblog fqdn host fold docker shouldrestart cleared lines ignored items pile up garbage collect self prune suppression rule class level kind scope group tag na-suppress auto-heal recheck patch_alert cve_found last active restore all decommission tombstone sla slo objects error budget burn rate availability target attach probe checkbox meeting breached no data prometheus gauges slo_object wordpress connector logins application password simple history geoip country recent logins client errors beacon ring window.onerror server status clear wiring gates no-undef css parity response contracts paused monitor visible resume reboot if required conditional needs-restarting reboot-required kernel pending reboot skipped auto resolve autoheal gap cve_cleared patch_ok tls_renewed ecc_stable secret_cleared confirm badge payload detail accept baseline where checks accept change button feedback spinner busy pulse click sweep">
             <summary><strong>What's new — v6.4.0 &ldquo;Sh1eldMatters&rdquo;</strong> — the security-and-protection release. <strong>Integrity-guard and baseline checks that behave as expected</strong> — disable one and it stops evaluating on the host, not just in the UI; accept a legitimate change as the new baseline with one click — backed by a <strong>full public security review and pentest pass</strong> (nothing Critical, High or Medium ships). Plus <strong>agentic diagnosis used defensively</strong> (a bounded, secret-redacted log sweep and read-only alert triage that writes a verdict with its evidence trail), a <strong>data-binding sweep</strong> so everything the agent collects reaches the UI, RAG and AI, macOS security-posture alerts at Windows parity, <strong>SLA / SLO objects</strong> for remote probes (availability targets with error budgets, filterable and exported as Prometheus gauges), a <strong>WordPress connector</strong> showing the last logins with IP + geo, the client-side error beacon finally rendered on Server status, and a typography / box-overflow / performance polish wave.</summary>
             <div class="doc-body">
               <p><strong>Protection you can trust.</strong> Disabling an integrity-guard or baseline check now stops it everywhere — the agent stops evaluating (and, for guard checks, stops quarantining) it, not just the row hiding. Removing a check reaches the agent immediately. Baseline-holding checks get a <strong>Reset baseline</strong> button right on the Checks row, applied checks can be un-applied straight from the catalog card, and the protect-check tables and quarantine vault are filterable for big fleets. Failure text names the file and what to do about it.</p>
@@ -4419,7 +4419,9 @@
               <p><strong>Signed command channel.</strong> The server now detach-signs every dispatched command with the release signing key, bound to the target device and a fresh timestamp. Pin <code>release.pub</code> and create the operator-owned <code>require-signed-commands</code> marker on a host and its agent <strong>refuses</strong> unsigned, tampered or replayed commands (reported, never silently dropped) &mdash; database or queue tampering alone can no longer execute anything on the fleet. All three agents enforce identically. And <code>docs/ha.md</code> is the new <strong>high-availability reference topology</strong>: Postgres streaming replication, a floating IP, the promote runbook, and a stated capacity target with a load-test recipe.</p>
               <p><strong>SLA / SLO objects.</strong> Define a named availability target (99.9% over 30 days) on the Monitoring page and tick it on each remote probe that should count toward it — the new <strong>SLA / SLO objects</strong> panel shows check-weighted availability, error budget remaining and burn rate per object, filterable by compliance, and the same numbers export as <code>remotepower_slo_object_*</code> Prometheus gauges. Paused probes also show again (they used to vanish from the Remote Checks table, stranding the Resume button).</p>
               <p><strong>WordPress logins.</strong> A new WordPress connector monitors the site's REST API and — with an Application password and the free Simple History plugin — shows the <strong>last 5 successful logins</strong> (time, account, source IP, and country when a GeoIP database is configured) on the Integrations page.</p>
-              <p><strong>Client-side JS errors, finally visible.</strong> The browser error beacon has collected uncaught frontend errors since v5.4.1 with no UI ever showing them — the Server-status page now renders the ring with a Clear action. Behind the scenes, five new cross-reference test gates (UI wiring, JS undefined-globals, error-path AST checks, CSS parity, response contracts) ran a full error sweep and fixed every real finding.</p>
+              <p><strong>Client-side JS errors, finally visible.</strong> The browser error beacon has collected uncaught frontend errors since v5.4.1 with no UI ever showing them — the Server-status page now renders the ring with a Clear action. Behind the scenes, five new cross-reference test gates (UI wiring, JS undefined-globals, error-path AST checks, CSS parity, response contracts) plus a real-click e2e sweep ran a full error hunt and fixed every finding.</p>
+              <p><strong>&ldquo;Reboot if required&rdquo; is finally conditional.</strong> Auto-patch used to reboot after every clean run; now Linux checks the reboot-required marker / <code>needs-restarting</code> / a newer installed kernel, Windows consults its pending-reboot state via a new <code>reboot-if-required</code> verb, and macOS honestly never reboots for brew. A patch window that changed nothing keeps the host up.</p>
+              <p><strong>Every alert auto-resolves; every alert says more.</strong> The auto-heal gap list is empty (<code>cve_cleared</code>, <code>patch_ok</code>, <code>tls_renewed</code>, <code>ecc_stable</code>, <code>secret_cleared</code>), point-in-time alerts carry a <em>confirm</em> badge, every stored payload fact renders as a detail line, protect/baseline alerts link straight to <strong>Monitoring → Checks → Accept change</strong>, the AV mitigation AI is pinned to the tool that raised the alert, and every async button shows a working spinner + settle pulse.</p>
               <p><strong>Syslog receiver watcher.</strong> Server-status → Distributed subsystems now shows the agentless syslog receiver (sources, last intake, unit probe) as an informational row — never a warning; opt into alerting with the new <code>rp_syslogd_running</code> baseline-checks catalog row (tag the server host <code>rp-server</code>).</p>
               <p class="hint">See <code>docs/v6.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -8800,7 +8802,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="form-group flex-1 hidden" id="autopatch-target-device-wrap"><label class="form-label">Device</label><select id="autopatch-target-device" class="form-input device-combo" data-combo-placeholder="Search devices&hellip;" aria-label="Device"></select></div>
   </div>
   <div class="form-group"><label class="form-label">Schedule (cron: min hour dom mon dow)</label><input type="text" id="autopatch-cron" class="form-input" placeholder="0 3 * * 0" aria-label="Schedule (cron: min hour dom mon dow)"></div>
-  <div class="form-group"><label class="form-label"><input type="checkbox" id="autopatch-reboot"> Reboot after upgrade if required</label></div>
+  <div class="form-group"><label class="form-label" title="Only reboots when a need signal says so — Linux: the reboot-required marker, needs-restarting, or a newer installed kernel; Windows: its pending-reboot state; macOS: brew upgrades never need one, so it never reboots. A run that changed nothing keeps the host up."><input type="checkbox" id="autopatch-reboot"> Reboot after upgrade if required</label></div>
   <!-- v5.8.0 (B1.3): optional staged rollout (patch rings) -->
   <div class="form-group"><label class="form-label"><input type="checkbox" id="autopatch-staged" data-change="onAutopatchStagedToggle"> Staged rollout (rings) — patch in waves, health-gated</label>
     <div class="hint">Instead of patching the whole target at once, patch it in ordered rings (canary → wave → rest). Each ring is verified before the next; a health drop can auto-halt the rollout.</div></div>
@@ -10715,34 +10717,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-16"></script>
+<script defer src="static/js/app.js?v=6.4.0-17"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-16"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-17"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-16"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-17"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-16"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-17"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-16"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-16"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-17"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-17"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10751,6 +10753,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-16"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-17"></script>
 </body>
 </html>

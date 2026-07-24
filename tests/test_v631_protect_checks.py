@@ -266,6 +266,12 @@ class TestRebaselineEndToEnd(unittest.TestCase):
         self.crit = '/etc/hosts changed (d078 -> cc51)'
         api.save(api.CONFIG_FILE, {'custom_checks': [CHECK]})
         api._invalidate_load_cache(api.CONFIG_FILE)
+        # v6.4.0: reset the inbox — test_accept_resolves_the_open_alert counts
+        # OPEN alerts globally, and under a cross-module ordering the shared
+        # store carried other tests' alerts (order-dependent failure under
+        # `pytest -k alert`; same leak class as the v6.4.0 flap-state fix).
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api._invalidate_load_cache(api.ALERTS_FILE)
         api.save(api.DEVICES_FILE, {DEV: {
             'name': 'h1', 'monitored': True,
             'last_seen': int(__import__('time').time()),

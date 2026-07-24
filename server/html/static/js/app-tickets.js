@@ -617,7 +617,7 @@ function _tkAttachHtml(tid, list) {
   const chips = list.map(a => {
     const fn = a.filename || 'attachment';
     const view = _TK_INLINE_CT.has(a.content_type)
-      ? ` <button class="btn-icon cell-sm" data-action-btn="_tkAttachView" data-tid="${escAttr(tid)}" data-aid="${escAttr(a.id)}" data-ct="${escAttr(a.content_type || '')}" data-fname="${escAttr(fn)}" title="Preview">${_icon('eye', 12)}</button>`
+      ? ` <button class="btn-icon cell-sm" data-action-btn="_tkAttachView" data-tid="${escAttr(tid)}" data-aid="${escAttr(a.id)}" data-fname="${escAttr(fn)}" title="Preview">${_icon('eye', 12)}</button>`
       : '';
     return `<span class="tk-att-chip">${_icon('paperclip', 12)} <span class="tk-att-name" title="${escAttr(fn)}">${escHtml(fn)}</span> <span class="meta-sm-nm">${escHtml(_fmtBytes(a.size))}</span> <button class="btn-icon cell-sm" data-action-btn="_tkAttachDl" data-tid="${escAttr(tid)}" data-aid="${escAttr(a.id)}" data-fname="${escAttr(fn)}" title="Download">${_icon('download', 12)}</button>${view}</span>`;
   }).join('');

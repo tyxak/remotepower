@@ -255,8 +255,12 @@ if present, else the built-in **Microsoft.Update COM API** — it **never
 auto-reboots**. Third-party app CVEs (Chrome, 7-Zip, VLC, …) are remediated with
 **winget**: `winget:<id>` upgrades one package, `winget:` upgrades all (argv-only,
 package-id charset-validated, no shell). Both ride the audited, maker-checker-gated
-`upgrade` command, and reboot-flagged rollouts queue a `reboot` afterward (Windows
-agents don't reboot on their own).
+`upgrade` command, and reboot-flagged policies/rollouts queue a
+**`reboot-if-required`** afterward *(v6.4.0)* — the agent consults its
+pending-reboot registry signals and reboots only when Windows actually asks
+for one, reporting "no reboot required — skipped" otherwise. (Windows agents
+never reboot on their own; the explicit `reboot` command remains
+unconditional.)
 
 ### Signed self-update
 
