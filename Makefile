@@ -325,6 +325,12 @@ dist: clean
 	  --exclude='.mypy_cache' \
 	  --exclude='.pytest_cache' \
 	  --exclude='.ruff_cache' \
+	  --exclude='.hypothesis' \
+	  --exclude='.coverage' \
+	  --exclude='.ci-parity-run.log' \
+	  --exclude='.ci-parity-venv' \
+	  --exclude='./C:*' \
+	  --exclude='C:\\ProgramData' \
 	  --exclude='.venv' \
 	  --exclude='venv' \
 	  --exclude='node_modules' \
@@ -345,6 +351,7 @@ dist: clean
 	  --exclude='./memory' \
 	  --exclude='./openclaw-workspace-state.json' \
 	  --exclude='./.claude' \
+	  --exclude='./.cursor' \
 	  --exclude='./design' \
 	  --exclude='./packaging/aur/*/src' \
 	  --exclude='./packaging/aur/*/pkg' \
@@ -365,11 +372,13 @@ dist: clean
 	@# Leak gate (v5.8.0): the tarball packs the WORKING TREE, so untracked/
 	@# gitignored local files ship unless the exclude list above names them —
 	@# .claude/ (session tooling) rode into the published v5.2.0–v5.7.0
-	@# tarballs exactly this way. Fail the build LOUDLY if any forbidden
-	@# path is in the file list; a new local tool dir means a new exclude.
+	@# tarballs exactly this way; .cursor/ (a byte-import of CLAUDE.md's
+	@# internal notes) was caught the same way at v6.4.0. Fail the build
+	@# LOUDLY if any forbidden path is in the file list; a new local tool
+	@# dir means a new exclude AND a new alternation in the grep below.
 	@echo "==> Leak-checking the tarball file list"
 	@! tar -tzf $(DIST_DIR)/$(DIST_NAME).tar.gz | grep -E \
-	  '(^|/)(\.claude/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|USER\.md|TOOLS\.md|SOUL\.md|IDENTITY\.md|HEARTBEAT\.md|BOOTSTRAP\.md|MEMORY\.md|DREAMS\.md|memory/|openclaw-workspace-state\.json|site/|deploy/|api\.env|\.ssh/|\.codeql-cache/)|-internal\.md$$|\.enc$$' \
+	  '(^|/)(\.claude/|\.cursor/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|USER\.md|TOOLS\.md|SOUL\.md|IDENTITY\.md|HEARTBEAT\.md|BOOTSTRAP\.md|MEMORY\.md|DREAMS\.md|memory/|openclaw-workspace-state\.json|site/|deploy/|api\.env|\.ssh/|\.codeql-cache/|\.hypothesis/|C:)|-internal\.md$$|\.enc$$|\.coverage$$' \
 	  || { echo "==> LEAK: forbidden files in the tarball (listed above) — add an exclude"; exit 1; }
 	@# Verify the smoke test passes against the staged tree. Extract into
 	@# a scratch dir, run the tests, then nuke it. This catches the kind

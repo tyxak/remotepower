@@ -82,6 +82,16 @@ class TestDistExcludesLocalTooling(unittest.TestCase):
         mk = (_ROOT / "Makefile").read_text()
         self.assertIn("--exclude='./.claude'", mk)
         self.assertIn("--exclude='./design'", mk)
+        # v6.4.0: .cursor/rules/*.mdc is a byte-import of CLAUDE.md's internal
+        # notes — same leak class as .claude, caught in the tarball at v6.4.0.
+        self.assertIn("--exclude='./.cursor'", mk)
+        # and the Makefile's own leak-gate regex must name it too
+        self.assertIn(r"\.cursor/", mk)
+        # v6.4.0: also caught in the tarball — test artifacts + a stray Windows
+        # 'C:\ProgramData' dir (the win-agent code run on Linux). Junk, not
+        # sensitive, but must not ship.
+        self.assertIn("--exclude='.hypothesis'", mk)
+        self.assertIn("--exclude='./C:*'", mk)
 
 
 class TestTlsScheduleWiring(unittest.TestCase):
