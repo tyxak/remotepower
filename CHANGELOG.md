@@ -54,6 +54,25 @@ finding:
   suites, the per-page e2e smoke in real Chromium, and the full 8k-test
   suite both-backends-parallel.
 
+### Click-simulation sweep + full-index attribute audit
+Two deeper layers on the wiring gates, closing the "we checked the names but
+never pressed the buttons" gap:
+- **`test_v640_e2e_click_sweep`** — real Chromium clicks one instance of every
+  visible `data-action`/`data-action-btn` control on every sidebar page
+  (hundreds of actions), through the real dispatcher into the real handler,
+  failing on any uncaught error attributed to the click. Destructive clicks
+  run for real against the scratch stack; only session/stack-ending actions
+  are denylisted.
+- **Full-index `data-*` attribute audit** (in `test_ui_wiring`): every
+  attribute name authored in index.html must have a consumer (dataset read,
+  selector, or CSS). First run found a real one: the OIDC/SAML forms carried
+  `data-submit="saveOidcConfig|saveSamlConfig"` with **no dispatcher** —
+  pressing Enter in those forms did the browser-default GET submit and
+  reloaded the page, silently discarding unsaved settings (the Save buttons
+  worked; only Enter was broken). A `form[data-submit]` dispatcher now exists.
+  Three orphan attribute families from abandoned designs (`data-config` on 15
+  SSO inputs, `data-action-icon`, kanban `data-state`) were removed.
+
 ### Auto-patch "Reboot if required" is finally conditional (field report)
 The policy checkbox has said "Reboot after upgrade **if required**" since it
 shipped — but every path rebooted after every clean patch run, even one that

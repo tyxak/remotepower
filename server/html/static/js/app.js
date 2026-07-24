@@ -26846,6 +26846,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target && e.target.matches('form[data-csp-pw-form]')) {
       e.preventDefault();
     }
+    // v6.4.0 (BUG): form[data-submit] — Enter-key submit dispatch. The
+    // OIDC/SAML settings forms have carried data-submit="saveOidcConfig" /
+    // "saveSamlConfig" since they shipped, but NOTHING consumed the attribute:
+    // pressing Enter in those forms did the browser-default GET submit and
+    // reloaded the page, discarding unsaved settings (the Save buttons worked;
+    // only the Enter path was broken). Found by the full-index data-* audit.
+    const _sf = e.target;
+    const _sfn = _sf && _sf.dataset ? _sf.dataset.submit : null;
+    if (_sfn) {
+      e.preventDefault();
+      const _sh = window[_sfn];
+      if (typeof _sh === 'function') _sh();
+    }
   });
 
   // v3.13.0: Chrome warns "Password forms should have a username field for

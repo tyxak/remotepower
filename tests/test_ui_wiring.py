@@ -210,6 +210,42 @@ class TestCacheBustLockstep(unittest.TestCase):
                          "together on every client-asset change")
 
 
+class TestEveryDataAttributeIsConsumed(unittest.TestCase):
+    """Full-index audit: every data-* attribute NAME used anywhere in
+    index.html (or JS-generated markup) must have a CONSUMER — a dataset.X
+    read, a [data-x] selector, or a getAttribute('data-x') — somewhere in the
+    client JS or a CSS attribute selector. A typo'd or abandoned attribute
+    name silently does nothing (first run found: data-submit carried the
+    OIDC/SAML Enter-submit handler names with NO dispatcher — Enter reloaded
+    the page and discarded the form — plus three orphan attribute families
+    left from abandoned designs, now removed)."""
+
+    def test_every_attribute_name_has_a_consumer(self):
+        # Scope: attributes AUTHORED in index.html — the static surface, where
+        # an unconsumed attribute means broken wiring. JS-generated markup also
+        # stamps data-* values that are deliberate one-way state carriers
+        # (data-ok/down on board bars etc.); those are excluded as low-signal.
+        js_all = _all_js()
+        html = _index_html()
+        css = (_HTML / "static" / "css" / "styles.css").read_text()
+        used = set(re.findall(r"data-([a-z][a-z0-9-]*)=", html))
+        consumed = set()
+        corpus = "".join(js_all.values())
+        for name in used:
+            camel = re.sub(r"-(.)", lambda m: m.group(1).upper(), name)
+            if (f"dataset.{camel}" in corpus
+                    or f"[data-{name}" in corpus
+                    or f"getAttribute('data-{name}')" in corpus
+                    or f'getAttribute("data-{name}")' in corpus
+                    or f"[data-{name}" in css):
+                consumed.add(name)
+        orphans = sorted(used - consumed)
+        self.assertEqual(orphans, [],
+                         "data-* attribute names with NO consumer anywhere — "
+                         "a typo, or wiring that was never built:\n  "
+                         + "\n  ".join(orphans))
+
+
 class TestApiCallsAreServed(unittest.TestCase):
     """Every api('METHOD', path) shape in the client must match a server
     route. Template holes (${...}) and string-concat tails count as one

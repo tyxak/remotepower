@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-14">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-15">
 
 </head>
 <body>
@@ -2026,23 +2026,23 @@
             <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
             <form id="oidc-config-form" data-submit="saveOidcConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
-                <input type="checkbox" id="oidc-enabled" data-config="oidc_enabled">
+                <input type="checkbox" id="oidc-enabled">
                 Enable OIDC sign-in
               </label>
               <label class="form-label">Issuer URL
-                <input type="text" id="oidc-issuer" class="form-input" data-config="oidc_issuer" placeholder="https://auth.example.com/application/o/remotepower/">
+                <input type="text" id="oidc-issuer" class="form-input" placeholder="https://auth.example.com/application/o/remotepower/">
               </label>
               <label class="form-label">Client ID
-                <input type="text" id="oidc-client-id" class="form-input" data-config="oidc_client_id">
+                <input type="text" id="oidc-client-id" class="form-input">
               </label>
               <label class="form-label">Client Secret
-                <form autocomplete="off" data-csp-pw-form><input type="password" id="oidc-client-secret" class="form-input" data-config="oidc_client_secret" placeholder="(unchanged — leave blank to keep current)" autocomplete="off"></form>
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="oidc-client-secret" class="form-input" placeholder="(unchanged — leave blank to keep current)" autocomplete="off"></form>
               </label>
               <label class="form-label">Scopes
-                <input type="text" id="oidc-scopes" class="form-input" data-config="oidc_scopes" placeholder="openid profile email groups">
+                <input type="text" id="oidc-scopes" class="form-input" placeholder="openid profile email groups">
               </label>
               <label class="form-label">Admin group (optional)
-                <input type="text" id="oidc-admin-group" class="form-input" data-config="oidc_admin_group" placeholder="remotepower-admins">
+                <input type="text" id="oidc-admin-group" class="form-input" placeholder="remotepower-admins">
                 <span class="hint">Members of this group get admin role on first login; everyone else gets viewer.</span>
               </label>
               <label class="form-label">Group → role map (optional)
@@ -2063,30 +2063,30 @@
             <p class="hint">Sign in via a SAML identity provider (Okta, Azure AD / Entra, OneLogin, Ping, ADFS, …). Paste the IdP's entity ID, SSO URL and signing certificate; users arrive with the role mapped from their group attribute. Requires the <code class="ff-mono">pysaml2</code> library and the <code class="ff-mono">xmlsec1</code> binary on the server — when either is missing this stays disabled. <a href="docs/sso.md" class="c-accent">Documentation</a></p>
             <form id="saml-config-form" data-submit="saveSamlConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
-                <input type="checkbox" id="saml-enabled" data-config="saml_enabled">
+                <input type="checkbox" id="saml-enabled">
                 Enable SAML sign-in
               </label>
               <label class="form-label">IdP entity ID
-                <input type="text" id="saml-idp-entity-id" class="form-input" data-config="saml_idp_entity_id" placeholder="https://idp.example.com/saml/metadata">
+                <input type="text" id="saml-idp-entity-id" class="form-input" placeholder="https://idp.example.com/saml/metadata">
               </label>
               <label class="form-label">IdP SSO URL (HTTP-Redirect)
-                <input type="text" id="saml-idp-sso-url" class="form-input" data-config="saml_idp_sso_url" placeholder="https://idp.example.com/saml/sso">
+                <input type="text" id="saml-idp-sso-url" class="form-input" placeholder="https://idp.example.com/saml/sso">
               </label>
               <label class="form-label">IdP signing certificate (X.509 PEM or base64)
-                <textarea id="saml-idp-cert" class="form-input" data-config="saml_idp_x509_cert" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;MIID…&#10;-----END CERTIFICATE-----"></textarea>
+                <textarea id="saml-idp-cert" class="form-input" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;MIID…&#10;-----END CERTIFICATE-----"></textarea>
               </label>
               <label class="form-label">Username attribute (optional)
-                <input type="text" id="saml-attr-username" class="form-input" data-config="saml_attr_username" placeholder="(blank = use the SAML NameID)">
+                <input type="text" id="saml-attr-username" class="form-input" placeholder="(blank = use the SAML NameID)">
               </label>
               <label class="form-label">Groups attribute (optional)
-                <input type="text" id="saml-attr-groups" class="form-input" data-config="saml_attr_groups" placeholder="groups">
+                <input type="text" id="saml-attr-groups" class="form-input" placeholder="groups">
               </label>
               <label class="form-label">Admin group (optional)
-                <input type="text" id="saml-admin-group" class="form-input" data-config="saml_admin_group" placeholder="remotepower-admins">
+                <input type="text" id="saml-admin-group" class="form-input" placeholder="remotepower-admins">
                 <span class="hint">Members of this group (in the groups attribute) get admin role on first login; everyone else gets viewer.</span>
               </label>
               <label class="form-label">
-                <input type="checkbox" id="saml-allow-unsolicited" data-config="saml_allow_unsolicited">
+                <input type="checkbox" id="saml-allow-unsolicited">
                 Allow IdP-initiated (unsolicited) sign-in
                 <span class="hint">Off is safer — only responses to a sign-in this server started are accepted (InResponseTo / replay protection).</span>
               </label>
@@ -6827,19 +6827,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <div id="kanban-board" class="isl-163">
-          <div class="kanban-column" data-state="upcoming" data-kanban-col="upcoming" >
+          <div class="kanban-column" data-kanban-col="upcoming" >
             <div class="kanban-header isl-164">● Upcoming <span class="kanban-count" id="tasks-count-upcoming">0</span></div>
             <div class="kanban-list" id="tasks-col-upcoming"></div>
           </div>
-          <div class="kanban-column" data-state="ongoing" data-kanban-col="ongoing" >
+          <div class="kanban-column" data-kanban-col="ongoing" >
             <div class="kanban-header c-amber">● Ongoing <span class="kanban-count" id="tasks-count-ongoing">0</span></div>
             <div class="kanban-list" id="tasks-col-ongoing"></div>
           </div>
-          <div class="kanban-column" data-state="pending" data-kanban-col="pending" >
+          <div class="kanban-column" data-kanban-col="pending" >
             <div class="kanban-header isl-165">● Pending <span class="kanban-count" id="tasks-count-pending">0</span></div>
             <div class="kanban-list" id="tasks-col-pending"></div>
           </div>
-          <div class="kanban-column" data-state="closed" data-kanban-col="closed" >
+          <div class="kanban-column" data-kanban-col="closed" >
             <div class="kanban-header c-muted">● Closed <span class="kanban-count" id="tasks-count-closed">0</span></div>
             <div class="kanban-list" id="tasks-col-closed"></div>
           </div>
@@ -10390,7 +10390,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="one-time-install-modal">Cancel</button><button class="btn-primary" data-action="runOneTimeInstall">Install now</button></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="icon-modal-title" id="icon-modal"><div class="modal"><div class="modal-title" id="icon-modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32" aria-label="Or type a custom icon name (from the Lucide set)"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="icon-modal-title" id="icon-modal"><div class="modal"><div class="modal-title" id="icon-modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32" aria-label="Or type a custom icon name (from the Lucide set)"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear">Clear</button><button class="btn-primary" id="btn-device-icon-save">Save</button></div></div></div>
 
 <!-- v4.8.0: DMARC report mailbox (IMAP) settings -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dmarc-imap-modal-title" id="dmarc-imap-modal"><div class="modal">
@@ -10715,34 +10715,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-14"></script>
+<script defer src="static/js/app.js?v=6.4.0-15"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-14"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-15"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-14"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-15"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-14"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-15"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-14"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-14"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-15"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-15"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10751,6 +10751,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-14"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-15"></script>
 </body>
 </html>
