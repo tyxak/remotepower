@@ -2123,14 +2123,45 @@ def build_hardware_corpus(store, devices=None, now=0):
             lp = kern.get('livepatch')
             if isinstance(lp, dict) and lp.get('running') is False:
                 lines.append("livepatch: not running")
-        # UPS / power.
+        # UPS / power. v6.4.0 (BUG): `ups` is a LIST of per-UPS dicts keyed
+        # `status`/`battery_pct`/`runtime_s` (see api.py _ingest, agent
+        # get_ups_status) — this read it as a single dict with a `state` key, so
+        # the detailed UPS line was DEAD and only the _ups_on_battery bool
+        # fallback ever surfaced. Iterate the list with the real field names.
         ups = rec.get('ups')
-        if isinstance(ups, dict) and (ups.get('state') or ups.get('battery_pct') is not None):
-            lines.append(f"UPS: {ups.get('state', '?')}"
-                         + (f", battery {ups['battery_pct']}%" if ups.get('battery_pct') is not None else '')
-                         + (f", runtime {ups.get('runtime_s')}s" if ups.get('runtime_s') is not None else ''))
-        elif rec.get('_ups_on_battery'):
+        _ups_emitted = False
+        if isinstance(ups, list):
+            for u in ups:
+                if not isinstance(u, dict):
+                    continue
+                st = u.get('status') or ''
+                if st or u.get('battery_pct') is not None:
+                    nm = u.get('name') or 'UPS'
+                    lines.append(f"UPS {nm}: {st or '?'}"
+                                 + (f", battery {u['battery_pct']}%" if u.get('battery_pct') is not None else '')
+                                 + (f", runtime {u.get('runtime_s')}s" if u.get('runtime_s') is not None else ''))
+                    _ups_emitted = True
+        if not _ups_emitted and rec.get('_ups_on_battery'):
             lines.append("UPS: ON BATTERY")
+        # v6.4.0: laptop battery health — collected in device sysinfo (a list of
+        # per-battery {percent,cycles,health_pct,status}) and alerted on wear
+        # (battery_health_low), but AI-blind. Surface it so "which laptops have a
+        # worn battery" is answerable from the corpus.
+        _bat = (devices.get(dev_id) or {}).get('sysinfo', {}).get('battery')
+        if isinstance(_bat, list):
+            for b in _bat[:4]:
+                if not isinstance(b, dict):
+                    continue
+                bits = []
+                if b.get('health_pct') is not None:
+                    bits.append(f"health {b['health_pct']}%")
+                if b.get('cycles') is not None:
+                    bits.append(f"{b['cycles']} cycles")
+                if b.get('percent') is not None:
+                    bits.append(f"charge {b['percent']}%")
+                if bits:
+                    lines.append(f"battery {b.get('name') or ''}: ".replace(' :', ':')
+                                 + ', '.join(bits))
         # GPUs.
         gpus = rec.get('gpus')
         if isinstance(gpus, list):

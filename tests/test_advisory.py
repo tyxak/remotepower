@@ -100,8 +100,10 @@ class TestGrouping(unittest.TestCase):
         self.assertEqual(patches[0]['device_count'], 20)
 
     def test_a_group_takes_the_worst_severity_any_member_reported(self):
-        devs = {'a': _dev('a', packages={'upgradable': 3}),               # medium
-                'b': _dev('b', packages={'upgradable': 3, 'security': 2})}  # high
+        devs = {'a': _dev('a', packages={'upgradable': 3}),                       # medium
+                'b': _dev('b', packages={'upgradable': 3, 'security_updates': 2})}  # high
+        # v6.4.0: `security_updates` is the whitelisted key (was `security`, a
+        # bug — advisory read a key the ingest never sets, so it never escalated).
         g = next(g for g in advisory.build(devs)['findings'] if g['id'] == 'os.patches')
         self.assertEqual(g['severity'], 'high')
 

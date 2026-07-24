@@ -33,7 +33,10 @@ class TestHardwareCorpus(unittest.TestCase):
                        'reallocated': 8}],
             'kernel': {'reboot_for_kernel': True, 'running': '6.1.0',
                        'latest_installed': '6.1.9'},
-            'ups': {'state': 'onbattery', 'battery_pct': 40, 'runtime_s': 300},
+            # v6.4.0: ups is a LIST of per-UPS dicts keyed `status` (the real
+            # shape — the old {'state':…} dict fixture matched the bug).
+            'ups': [{'name': 'apc1', 'status': 'onbattery',
+                     'battery_pct': 40, 'runtime_s': 300}],
             'gpus': [{'model': 'RTX', 'util': 30, 'temp_c': 60}],
             '_temp_high': True,
             '_priv_users': ['root', 'deploy'],
@@ -100,6 +103,46 @@ class TestMacPostureAlerts(unittest.TestCase):
         for ev in ('mac_filevault_off', 'mac_firewall_off', 'mac_gatekeeper_off',
                    'mac_sip_disabled', 'mac_filevault_on', 'mac_sip_enabled'):
             self.assertIn(ev, api.EVENT_REGISTRY, ev)
+
+
+class TestDataBindingFixes(unittest.TestCase):
+    """v6.4.0 release sweep — three signals that reached the wrong spot."""
+
+    def _hw_text(self, store, devices):
+        docs = rag_index.build_hardware_corpus(store, devices)
+        return "\n".join(d.get("text", "") if isinstance(d, dict) else str(d)
+                         for d in docs)
+
+    def test_advisory_reads_security_updates_not_security(self):
+        import advisory
+        dev_hi = {"sysinfo": {"packages": {"upgradable": 5,
+                                           "security_updates": 3}}}
+        patch = next(f for f in advisory._os_findings("d", "h", dev_hi, None, None)
+                     if f["id"] == "os.patches")
+        self.assertEqual(patch["severity"], "high")
+        self.assertIn("3 security", patch["title"])
+        # the OLD wrong key must NOT escalate
+        dev_wrong = {"sysinfo": {"packages": {"upgradable": 5, "security": 9}}}
+        p2 = next(f for f in advisory._os_findings("d", "h", dev_wrong, None, None)
+                  if f["id"] == "os.patches")
+        self.assertEqual(p2["severity"], "medium")
+
+    def test_ups_list_reaches_rag(self):
+        txt = self._hw_text(
+            {"d1": {"ups": [{"name": "apc1", "status": "OB",
+                             "battery_pct": 40, "runtime_s": 600}]}},
+            {"d1": {"name": "web01"}})
+        self.assertIn("apc1", txt)
+        self.assertIn("battery 40%", txt)
+        self.assertIn("runtime 600s", txt)
+
+    def test_battery_health_reaches_rag(self):
+        txt = self._hw_text(
+            {"d1": {"smart": []}},
+            {"d1": {"name": "laptop1", "sysinfo": {"battery": [
+                {"name": "BAT0", "health_pct": 55, "cycles": 800}]}}})
+        self.assertIn("health 55%", txt)
+        self.assertIn("800 cycles", txt)
 
 
 if __name__ == '__main__':

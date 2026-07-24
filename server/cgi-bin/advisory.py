@@ -77,7 +77,10 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec):
     except (TypeError, ValueError):
         upgradable = 0
     if upgradable >= 1:
-        sec = ((si.get('packages') or {}).get('security')) or 0
+        # v6.4.0 (BUG): read the whitelisted key `security_updates`, not
+        # `security` — the latter is always absent, so `sec` was ALWAYS 0 and
+        # the patch finding never escalated medium→high or showed "(N security)".
+        sec = ((si.get('packages') or {}).get('security_updates')) or 0
         out.append(_finding(
             'os.patches', 'os', 'high' if sec else 'medium',
             f'{upgradable} pending package updates'
