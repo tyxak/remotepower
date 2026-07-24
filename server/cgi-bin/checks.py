@@ -619,8 +619,7 @@ SERVER_CHECK_TYPES = ("process", "port_open", "port_closed")
 GUARD_CHECK_TYPES = ("dir_baseline", "file_hash", "egress_flagged")
 # Types whose baseline an operator may legitimately re-accept (a real deploy)
 # — these get a "Reset baseline" action in the UI (client _CC_BASELINE_TYPES).
-BASELINE_CHECK_TYPES = ("dir_baseline", "file_hash",
-                        "egress_baseline", "auth_new_source")
+BASELINE_CHECK_TYPES = ("dir_baseline", "file_hash", "egress_baseline", "auth_new_source")
 
 AGENT_CHECK_TYPES = (
     "file_present",
@@ -807,8 +806,8 @@ CHECK_BASELINE_CATALOG = (
         "param": "remotepower-syslogd.service",
         "name": "RemotePower syslog receiver running",
         "desc": "The agentless syslog intake daemon (remotepower-syslogd) is "
-                "active. Optional — apply to the RemotePower server host "
-                "(tag it rp-server).",
+        "active. Optional — apply to the RemotePower server host "
+        "(tag it rp-server).",
         "target_kind": "tag",
         "target": "rp-server",
     },
@@ -822,9 +821,9 @@ CHECK_BASELINE_CATALOG = (
         "param": "/var/www::*.php",
         "name": "Web root code integrity",
         "desc": "Baselines executable files under the web root on first run, "
-                "then alerts if any PHP file is added, changed, or removed. "
-                "Edit the path/glob to match your document root "
-                "(e.g. /srv/www::*.php).",
+        "then alerts if any PHP file is added, changed, or removed. "
+        "Edit the path/glob to match your document root "
+        "(e.g. /srv/www::*.php).",
         "target_kind": "tag",
         "target": "web",
     },
@@ -836,9 +835,9 @@ CHECK_BASELINE_CATALOG = (
         "pattern": r"eval\s*\(\s*(base64_decode|gzinflate|gzuncompress|str_rot13)",
         "name": "No obfuscated PHP loader in the web root",
         "desc": "Greps the web root for the classic packed-web-shell idiom — eval() "
-                "wrapped around base64_decode/gzinflate/str_rot13. Content-based, so "
-                "it fires on a NAME you have never seen, unlike a filename tripwire. "
-                "Edit the path/glob for your document root.",
+        "wrapped around base64_decode/gzinflate/str_rot13. Content-based, so "
+        "it fires on a NAME you have never seen, unlike a filename tripwire. "
+        "Edit the path/glob for your document root.",
         "target_kind": "tag",
         "target": "web",
     },
@@ -849,10 +848,10 @@ CHECK_BASELINE_CATALOG = (
         "param": "/var/www/html/wp-content/mu-plugins",
         "name": "No new must-use plugins (WordPress)",
         "desc": "mu-plugins load automatically on EVERY request and never appear in "
-                "the plugin admin list, which makes the directory a favourite "
-                "persistence and credential-capture spot. It is normally empty or "
-                "tiny, so anything new here is worth a look. Edit the path to your "
-                "document root.",
+        "the plugin admin list, which makes the directory a favourite "
+        "persistence and credential-capture spot. It is normally empty or "
+        "tiny, so anything new here is worth a look. Edit the path to your "
+        "document root.",
         "target_kind": "tag",
         "target": "web",
     },
@@ -863,8 +862,8 @@ CHECK_BASELINE_CATALOG = (
         "param": "/var/www/html/wp-config.php",
         "name": "WordPress wp-config.php unchanged",
         "desc": "Holds the database credentials and auth salts. A change is either a "
-                "real config edit or someone tampering with keys and constants. Edit "
-                "the path to your document root.",
+        "real config edit or someone tampering with keys and constants. Edit "
+        "the path to your document root.",
         "target_kind": "tag",
         "target": "web",
     },
@@ -875,7 +874,7 @@ CHECK_BASELINE_CATALOG = (
         "param": "/etc/passwd",
         "name": "User accounts file unchanged",
         "desc": "Alerts if /etc/passwd changes — a new account is a classic "
-                "post-exploitation step. Baselines on first run.",
+        "post-exploitation step. Baselines on first run.",
     },
     {
         "cat": "Web / application security",
@@ -884,7 +883,7 @@ CHECK_BASELINE_CATALOG = (
         "param": "/etc/crontab",
         "name": "System crontab unchanged",
         "desc": "Alerts if /etc/crontab changes — a common persistence spot. "
-                "Baselines on first run.",
+        "Baselines on first run.",
     },
     {
         "cat": "Web / application security",
@@ -893,7 +892,7 @@ CHECK_BASELINE_CATALOG = (
         "param": "/etc/cron.d",
         "name": "No new cron jobs (/etc/cron.d)",
         "desc": "Baselines /etc/cron.d, then alerts if a cron file is added or "
-                "changed — another common persistence spot.",
+        "changed — another common persistence spot.",
     },
     {
         "cat": "Web / application security",
@@ -902,11 +901,11 @@ CHECK_BASELINE_CATALOG = (
         "param": "192.0.2.0/24",
         "name": "No new outbound destinations",
         "desc": "Learns which external networks this host normally connects out to, "
-                "then alerts the first time it reaches somewhere new — a beacon to a "
-                "C2 you have never heard of shows up with no threat intel at all. "
-                "Each new destination alerts once and is then remembered. The param "
-                "is a CIDR IGNORE-list for your own infrastructure; the shipped "
-                "value is RFC-5737 documentation space, a harmless placeholder.",
+        "then alerts the first time it reaches somewhere new — a beacon to a "
+        "C2 you have never heard of shows up with no threat intel at all. "
+        "Each new destination alerts once and is then remembered. The param "
+        "is a CIDR IGNORE-list for your own infrastructure; the shipped "
+        "value is RFC-5737 documentation space, a harmless placeholder.",
         "target_kind": "tag",
         "target": "web",
     },
@@ -917,209 +916,471 @@ CHECK_BASELINE_CATALOG = (
         "param": "192.0.2.0/24",
         "name": "No outbound to flagged ranges",
         "desc": "Alerts if a host opens an outbound connection to an address in "
-                "your flag-list. The example range is RFC-5737 documentation "
-                "space — replace it with your threat-intel IPs/CIDRs "
-                "(comma or space separated).",
+        "your flag-list. The example range is RFC-5737 documentation "
+        "space — replace it with your threat-intel IPs/CIDRs "
+        "(comma or space separated).",
     },
-
     # ── Hardening — services that should be running ───────────────────────────
-    {"cat": "Hardening — services", "id": "fail2ban_running", "type": "systemd_unit",
-     "param": "fail2ban.service", "name": "Brute-force protection running",
-     "desc": "fail2ban is active, so repeated auth failures get banned instead of retried forever."},
-    {"cat": "Hardening — services", "id": "apparmor_running", "type": "systemd_unit",
-     "param": "apparmor.service", "name": "AppArmor active",
-     "desc": "Mandatory access control is enforcing (use selinux equivalents on RHEL family)."},
-    {"cat": "Hardening — services", "id": "sshd_running", "type": "systemd_unit",
-     "param": "ssh.service", "name": "SSH daemon running",
-     "desc": "Remote access is up (sshd.service on RHEL family). Pair with the port check."},
-    {"cat": "Hardening — services", "id": "journald_running", "type": "systemd_unit",
-     "param": "systemd-journald.service", "name": "System journal running",
-     "desc": "Without the journal you lose the log trail every other detection depends on."},
-    {"cat": "Hardening — services", "id": "rsyslog_running", "type": "systemd_unit",
-     "param": "rsyslog.service", "name": "Syslog daemon running",
-     "desc": "Needed if you forward logs off-box; a silenced logger hides an intrusion."},
-    {"cat": "Hardening — services", "id": "freshclam_running", "type": "systemd_unit",
-     "param": "clamav-freshclam.service", "name": "AV signature updater running",
-     "desc": "Antivirus definitions keep updating — stale signatures detect nothing new."},
-    {"cat": "Hardening — services", "id": "clamd_running", "type": "systemd_unit",
-     "param": "clamav-daemon.service", "name": "AV scanning daemon running",
-     "desc": "clamd is the engine on-access scanning actually scans WITH. Without it "
-             "a file-integrity monitor still collects events but scans nothing, so "
-             "on-access protection fails silently — check the daemon, not just the "
-             "signature updater. Also confirm it is enabled at boot."},
-
+    {
+        "cat": "Hardening — services",
+        "id": "fail2ban_running",
+        "type": "systemd_unit",
+        "param": "fail2ban.service",
+        "name": "Brute-force protection running",
+        "desc": "fail2ban is active, so repeated auth failures get banned instead of retried forever.",
+    },
+    {
+        "cat": "Hardening — services",
+        "id": "apparmor_running",
+        "type": "systemd_unit",
+        "param": "apparmor.service",
+        "name": "AppArmor active",
+        "desc": "Mandatory access control is enforcing (use selinux equivalents on RHEL family).",
+    },
+    {
+        "cat": "Hardening — services",
+        "id": "sshd_running",
+        "type": "systemd_unit",
+        "param": "ssh.service",
+        "name": "SSH daemon running",
+        "desc": "Remote access is up (sshd.service on RHEL family). Pair with the port check.",
+    },
+    {
+        "cat": "Hardening — services",
+        "id": "journald_running",
+        "type": "systemd_unit",
+        "param": "systemd-journald.service",
+        "name": "System journal running",
+        "desc": "Without the journal you lose the log trail every other detection depends on.",
+    },
+    {
+        "cat": "Hardening — services",
+        "id": "rsyslog_running",
+        "type": "systemd_unit",
+        "param": "rsyslog.service",
+        "name": "Syslog daemon running",
+        "desc": "Needed if you forward logs off-box; a silenced logger hides an intrusion.",
+    },
+    {
+        "cat": "Hardening — services",
+        "id": "freshclam_running",
+        "type": "systemd_unit",
+        "param": "clamav-freshclam.service",
+        "name": "AV signature updater running",
+        "desc": "Antivirus definitions keep updating — stale signatures detect nothing new.",
+    },
+    {
+        "cat": "Hardening — services",
+        "id": "clamd_running",
+        "type": "systemd_unit",
+        "param": "clamav-daemon.service",
+        "name": "AV scanning daemon running",
+        "desc": "clamd is the engine on-access scanning actually scans WITH. Without it "
+        "a file-integrity monitor still collects events but scans nothing, so "
+        "on-access protection fails silently — check the daemon, not just the "
+        "signature updater. Also confirm it is enabled at boot.",
+    },
     # ── Hardening — services that must NOT be reachable ───────────────────────
-    {"cat": "Hardening — must not listen", "id": "ftp_closed", "type": "port_closed",
-     "param": "21", "name": "FTP (21) not listening",
-     "desc": "Cleartext file transfer. Use SFTP/FTPS instead."},
-    {"cat": "Hardening — must not listen", "id": "rlogin_closed", "type": "port_closed",
-     "param": "513", "name": "rlogin (513) not listening",
-     "desc": "Legacy trust-based remote login with no real authentication."},
-    {"cat": "Hardening — must not listen", "id": "rsh_closed", "type": "port_closed",
-     "param": "514", "name": "rsh (514) not listening",
-     "desc": "Legacy remote shell, cleartext and trivially spoofed."},
-    {"cat": "Hardening — must not listen", "id": "rpcbind_closed", "type": "port_closed",
-     "param": "111", "name": "rpcbind (111) not listening",
-     "desc": "Portmapper is a classic reflection/amplification and enumeration vector."},
-    {"cat": "Hardening — must not listen", "id": "nfs_closed", "type": "port_closed",
-     "param": "2049", "name": "NFS (2049) not listening",
-     "desc": "Apply to hosts that are not deliberate NFS servers."},
-    {"cat": "Hardening — must not listen", "id": "smb_closed", "type": "port_closed",
-     "param": "445", "name": "SMB (445) not listening",
-     "desc": "Apply to hosts that are not deliberate file servers — a top ransomware vector."},
-    {"cat": "Hardening — must not listen", "id": "netbios_closed", "type": "port_closed",
-     "param": "139", "name": "NetBIOS (139) not listening",
-     "desc": "Legacy Windows file sharing; should not be exposed on a Linux host."},
-    {"cat": "Hardening — must not listen", "id": "vnc_closed", "type": "port_closed",
-     "param": "5900", "name": "VNC (5900) not listening",
-     "desc": "Remote desktop, frequently unauthenticated. Tunnel it over SSH instead."},
-    {"cat": "Hardening — must not listen", "id": "rdp_closed", "type": "port_closed",
-     "param": "3389", "name": "RDP (3389) not listening",
-     "desc": "Should never be open on a Linux host; a top brute-force target."},
-    {"cat": "Hardening — must not listen", "id": "dockerapi_closed", "type": "port_closed",
-     "param": "2375", "name": "Docker API (2375) not listening",
-     "desc": "The unauthenticated Docker socket over TCP is effectively remote root. Never expose it."},
-    {"cat": "Hardening — must not listen", "id": "mysql_closed", "type": "port_closed",
-     "param": "3306", "name": "MySQL (3306) not listening",
-     "desc": "Apply to hosts that are not database servers — databases should not be network-reachable."},
-    {"cat": "Hardening — must not listen", "id": "postgres_closed", "type": "port_closed",
-     "param": "5432", "name": "PostgreSQL (5432) not listening",
-     "desc": "Apply to hosts that are not database servers."},
-    {"cat": "Hardening — must not listen", "id": "redis_closed", "type": "port_closed",
-     "param": "6379", "name": "Redis (6379) not listening",
-     "desc": "Redis defaults to no auth — an exposed instance is a well-known RCE path."},
-    {"cat": "Hardening — must not listen", "id": "mongo_closed", "type": "port_closed",
-     "param": "27017", "name": "MongoDB (27017) not listening",
-     "desc": "Historically unauthenticated by default; a mass-ransom target."},
-    {"cat": "Hardening — must not listen", "id": "elastic_closed", "type": "port_closed",
-     "param": "9200", "name": "Elasticsearch (9200) not listening",
-     "desc": "Open clusters leak whole datasets and are trivially wiped."},
-    {"cat": "Hardening — must not listen", "id": "memcached_closed", "type": "port_closed",
-     "param": "11211", "name": "memcached (11211) not listening",
-     "desc": "A record-setting UDP amplification source when exposed."},
-    {"cat": "Hardening — must not listen", "id": "snmp_closed", "type": "port_closed",
-     "param": "161", "name": "SNMP (161) not listening",
-     "desc": "v1/v2c community strings are cleartext. Apply where SNMP is not deliberate."},
-
+    {
+        "cat": "Hardening — must not listen",
+        "id": "ftp_closed",
+        "type": "port_closed",
+        "param": "21",
+        "name": "FTP (21) not listening",
+        "desc": "Cleartext file transfer. Use SFTP/FTPS instead.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "rlogin_closed",
+        "type": "port_closed",
+        "param": "513",
+        "name": "rlogin (513) not listening",
+        "desc": "Legacy trust-based remote login with no real authentication.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "rsh_closed",
+        "type": "port_closed",
+        "param": "514",
+        "name": "rsh (514) not listening",
+        "desc": "Legacy remote shell, cleartext and trivially spoofed.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "rpcbind_closed",
+        "type": "port_closed",
+        "param": "111",
+        "name": "rpcbind (111) not listening",
+        "desc": "Portmapper is a classic reflection/amplification and enumeration vector.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "nfs_closed",
+        "type": "port_closed",
+        "param": "2049",
+        "name": "NFS (2049) not listening",
+        "desc": "Apply to hosts that are not deliberate NFS servers.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "smb_closed",
+        "type": "port_closed",
+        "param": "445",
+        "name": "SMB (445) not listening",
+        "desc": "Apply to hosts that are not deliberate file servers — a top ransomware vector.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "netbios_closed",
+        "type": "port_closed",
+        "param": "139",
+        "name": "NetBIOS (139) not listening",
+        "desc": "Legacy Windows file sharing; should not be exposed on a Linux host.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "vnc_closed",
+        "type": "port_closed",
+        "param": "5900",
+        "name": "VNC (5900) not listening",
+        "desc": "Remote desktop, frequently unauthenticated. Tunnel it over SSH instead.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "rdp_closed",
+        "type": "port_closed",
+        "param": "3389",
+        "name": "RDP (3389) not listening",
+        "desc": "Should never be open on a Linux host; a top brute-force target.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "dockerapi_closed",
+        "type": "port_closed",
+        "param": "2375",
+        "name": "Docker API (2375) not listening",
+        "desc": "The unauthenticated Docker socket over TCP is effectively remote root. Never expose it.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "mysql_closed",
+        "type": "port_closed",
+        "param": "3306",
+        "name": "MySQL (3306) not listening",
+        "desc": "Apply to hosts that are not database servers — databases should not be network-reachable.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "postgres_closed",
+        "type": "port_closed",
+        "param": "5432",
+        "name": "PostgreSQL (5432) not listening",
+        "desc": "Apply to hosts that are not database servers.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "redis_closed",
+        "type": "port_closed",
+        "param": "6379",
+        "name": "Redis (6379) not listening",
+        "desc": "Redis defaults to no auth — an exposed instance is a well-known RCE path.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "mongo_closed",
+        "type": "port_closed",
+        "param": "27017",
+        "name": "MongoDB (27017) not listening",
+        "desc": "Historically unauthenticated by default; a mass-ransom target.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "elastic_closed",
+        "type": "port_closed",
+        "param": "9200",
+        "name": "Elasticsearch (9200) not listening",
+        "desc": "Open clusters leak whole datasets and are trivially wiped.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "memcached_closed",
+        "type": "port_closed",
+        "param": "11211",
+        "name": "memcached (11211) not listening",
+        "desc": "A record-setting UDP amplification source when exposed.",
+    },
+    {
+        "cat": "Hardening — must not listen",
+        "id": "snmp_closed",
+        "type": "port_closed",
+        "param": "161",
+        "name": "SNMP (161) not listening",
+        "desc": "v1/v2c community strings are cleartext. Apply where SNMP is not deliberate.",
+    },
     # ── Integrity — critical files (baseline on first run, alert on change) ───
-    {"cat": "Integrity — critical files", "id": "shadow_integrity", "type": "file_hash",
-     "param": "/etc/shadow", "name": "Password hashes unchanged",
-     "desc": "Any edit to /etc/shadow outside a known change is a credential event."},
-    {"cat": "Integrity — critical files", "id": "group_integrity", "type": "file_hash",
-     "param": "/etc/group", "name": "Group membership unchanged",
-     "desc": "Catches a user being quietly added to sudo/wheel/docker."},
-    {"cat": "Integrity — critical files", "id": "sudoers_integrity", "type": "file_hash",
-     "param": "/etc/sudoers", "name": "sudoers unchanged",
-     "desc": "A sudoers edit is a direct privilege-escalation persistence step."},
-    {"cat": "Integrity — critical files", "id": "sshd_config_integrity", "type": "file_hash",
-     "param": "/etc/ssh/sshd_config", "name": "SSH server config unchanged",
-     "desc": "Catches re-enabled root login, password auth, or an added AuthorizedKeysCommand."},
-    {"cat": "Integrity — critical files", "id": "hosts_integrity", "type": "file_hash",
-     "param": "/etc/hosts", "name": "Hosts file unchanged",
-     "desc": "A pinned hostname is a cheap way to redirect updates or exfiltration."},
-    {"cat": "Integrity — critical files", "id": "nsswitch_integrity", "type": "file_hash",
-     "param": "/etc/nsswitch.conf", "name": "Name-service switch unchanged",
-     "desc": "Controls where users/groups resolve from — a subtle backdoor location."},
-    {"cat": "Integrity — critical files", "id": "pam_integrity", "type": "file_hash",
-     "param": "/etc/pam.d/common-auth", "name": "PAM auth stack unchanged",
-     "desc": "A malicious PAM module line captures every password on the host."},
-    {"cat": "Integrity — critical files", "id": "fstab_integrity", "type": "file_hash",
-     "param": "/etc/fstab", "name": "Mount table unchanged",
-     "desc": "Catches a re-mounted or newly attached filesystem."},
-    {"cat": "Integrity — critical files", "id": "resolvconf_integrity", "type": "file_hash",
-     "param": "/etc/resolv.conf", "name": "DNS resolvers unchanged",
-     "desc": "Hijacked resolvers redirect traffic without touching anything else."},
-    {"cat": "Integrity — critical files", "id": "sources_integrity", "type": "file_hash",
-     "param": "/etc/apt/sources.list", "name": "Package sources unchanged",
-     "desc": "A rogue apt source lets an attacker ship you signed-looking packages."},
-
+    {
+        "cat": "Integrity — critical files",
+        "id": "shadow_integrity",
+        "type": "file_hash",
+        "param": "/etc/shadow",
+        "name": "Password hashes unchanged",
+        "desc": "Any edit to /etc/shadow outside a known change is a credential event.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "group_integrity",
+        "type": "file_hash",
+        "param": "/etc/group",
+        "name": "Group membership unchanged",
+        "desc": "Catches a user being quietly added to sudo/wheel/docker.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "sudoers_integrity",
+        "type": "file_hash",
+        "param": "/etc/sudoers",
+        "name": "sudoers unchanged",
+        "desc": "A sudoers edit is a direct privilege-escalation persistence step.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "sshd_config_integrity",
+        "type": "file_hash",
+        "param": "/etc/ssh/sshd_config",
+        "name": "SSH server config unchanged",
+        "desc": "Catches re-enabled root login, password auth, or an added AuthorizedKeysCommand.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "hosts_integrity",
+        "type": "file_hash",
+        "param": "/etc/hosts",
+        "name": "Hosts file unchanged",
+        "desc": "A pinned hostname is a cheap way to redirect updates or exfiltration.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "nsswitch_integrity",
+        "type": "file_hash",
+        "param": "/etc/nsswitch.conf",
+        "name": "Name-service switch unchanged",
+        "desc": "Controls where users/groups resolve from — a subtle backdoor location.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "pam_integrity",
+        "type": "file_hash",
+        "param": "/etc/pam.d/common-auth",
+        "name": "PAM auth stack unchanged",
+        "desc": "A malicious PAM module line captures every password on the host.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "fstab_integrity",
+        "type": "file_hash",
+        "param": "/etc/fstab",
+        "name": "Mount table unchanged",
+        "desc": "Catches a re-mounted or newly attached filesystem.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "resolvconf_integrity",
+        "type": "file_hash",
+        "param": "/etc/resolv.conf",
+        "name": "DNS resolvers unchanged",
+        "desc": "Hijacked resolvers redirect traffic without touching anything else.",
+    },
+    {
+        "cat": "Integrity — critical files",
+        "id": "sources_integrity",
+        "type": "file_hash",
+        "param": "/etc/apt/sources.list",
+        "name": "Package sources unchanged",
+        "desc": "A rogue apt source lets an attacker ship you signed-looking packages.",
+    },
     # ── Integrity — persistence paths (a new file here is how things survive) ─
-    {"cat": "Integrity — persistence paths", "id": "crondaily_integrity", "type": "dir_baseline",
-     "param": "/etc/cron.daily", "name": "No new daily cron jobs",
-     "desc": "Baselines /etc/cron.daily and alerts on anything added or changed."},
-    {"cat": "Integrity — persistence paths", "id": "cronhourly_integrity", "type": "dir_baseline",
-     "param": "/etc/cron.hourly", "name": "No new hourly cron jobs",
-     "desc": "Baselines /etc/cron.hourly and alerts on anything added or changed."},
-    {"cat": "Integrity — persistence paths", "id": "systemdunits_integrity", "type": "dir_baseline",
-     "param": "/etc/systemd/system", "name": "No new systemd units",
-     "desc": "A dropped unit file is the most common modern persistence mechanism."},
-    {"cat": "Integrity — persistence paths", "id": "sudoersd_integrity", "type": "dir_baseline",
-     "param": "/etc/sudoers.d", "name": "No new sudoers drop-ins",
-     "desc": "One file here can grant passwordless root to any account."},
-    {"cat": "Integrity — persistence paths", "id": "rootssh_integrity", "type": "dir_baseline",
-     "param": "/root/.ssh", "name": "root SSH keys unchanged",
-     "desc": "An added authorized_keys entry is silent, permanent remote root."},
-    {"cat": "Integrity — persistence paths", "id": "profiled_integrity", "type": "dir_baseline",
-     "param": "/etc/profile.d", "name": "No new shell profile scripts",
-     "desc": "Runs for every interactive login — a classic quiet persistence spot."},
-    {"cat": "Integrity — persistence paths", "id": "localbin_integrity", "type": "dir_baseline",
-     "param": "/usr/local/bin", "name": "No new local binaries",
-     "desc": "Early on PATH, so a dropped binary here can shadow a real command."},
-    {"cat": "Integrity — persistence paths", "id": "sourceslistd_integrity", "type": "dir_baseline",
-     "param": "/etc/apt/sources.list.d", "name": "No new package sources",
-     "desc": "Catches an added repository that would feed you attacker packages."},
-    {"cat": "Integrity — persistence paths", "id": "ldsoconfd_integrity", "type": "dir_baseline",
-     "param": "/etc/ld.so.conf.d", "name": "No new linker search paths",
-     "desc": "Adding a library path enables library hijacking against every binary."},
-
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "crondaily_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/cron.daily",
+        "name": "No new daily cron jobs",
+        "desc": "Baselines /etc/cron.daily and alerts on anything added or changed.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "cronhourly_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/cron.hourly",
+        "name": "No new hourly cron jobs",
+        "desc": "Baselines /etc/cron.hourly and alerts on anything added or changed.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "systemdunits_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/systemd/system",
+        "name": "No new systemd units",
+        "desc": "A dropped unit file is the most common modern persistence mechanism.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "sudoersd_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/sudoers.d",
+        "name": "No new sudoers drop-ins",
+        "desc": "One file here can grant passwordless root to any account.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "rootssh_integrity",
+        "type": "dir_baseline",
+        "param": "/root/.ssh",
+        "name": "root SSH keys unchanged",
+        "desc": "An added authorized_keys entry is silent, permanent remote root.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "profiled_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/profile.d",
+        "name": "No new shell profile scripts",
+        "desc": "Runs for every interactive login — a classic quiet persistence spot.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "localbin_integrity",
+        "type": "dir_baseline",
+        "param": "/usr/local/bin",
+        "name": "No new local binaries",
+        "desc": "Early on PATH, so a dropped binary here can shadow a real command.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "sourceslistd_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/apt/sources.list.d",
+        "name": "No new package sources",
+        "desc": "Catches an added repository that would feed you attacker packages.",
+    },
+    {
+        "cat": "Integrity — persistence paths",
+        "id": "ldsoconfd_integrity",
+        "type": "dir_baseline",
+        "param": "/etc/ld.so.conf.d",
+        "name": "No new linker search paths",
+        "desc": "Adding a library path enables library hijacking against every binary.",
+    },
     # ── Files that must NOT exist ────────────────────────────────────────────
-    {"cat": "Integrity — must not exist", "id": "ldpreload_absent", "type": "file_absent",
-     "param": "/etc/ld.so.preload", "name": "No global library preload",
-     "desc": "/etc/ld.so.preload injects a library into EVERY process — a hallmark of userland rootkits. It should not exist on a normal host."},
-    {"cat": "Integrity — must not exist", "id": "rhosts_absent", "type": "file_absent",
-     "param": "/root/.rhosts", "name": "No root .rhosts trust file",
-     "desc": "Legacy host-based trust that bypasses authentication entirely."},
-    {"cat": "Integrity — must not exist", "id": "hostsequiv_absent", "type": "file_absent",
-     "param": "/etc/hosts.equiv", "name": "No hosts.equiv trust file",
-     "desc": "Grants passwordless access to every user from the listed hosts."},
-
+    {
+        "cat": "Integrity — must not exist",
+        "id": "ldpreload_absent",
+        "type": "file_absent",
+        "param": "/etc/ld.so.preload",
+        "name": "No global library preload",
+        "desc": "/etc/ld.so.preload injects a library into EVERY process — a hallmark of userland rootkits. It should not exist on a normal host.",
+    },
+    {
+        "cat": "Integrity — must not exist",
+        "id": "rhosts_absent",
+        "type": "file_absent",
+        "param": "/root/.rhosts",
+        "name": "No root .rhosts trust file",
+        "desc": "Legacy host-based trust that bypasses authentication entirely.",
+    },
+    {
+        "cat": "Integrity — must not exist",
+        "id": "hostsequiv_absent",
+        "type": "file_absent",
+        "param": "/etc/hosts.equiv",
+        "name": "No hosts.equiv trust file",
+        "desc": "Grants passwordless access to every user from the listed hosts.",
+    },
     # ── Detection — log signals ──────────────────────────────────────────────
-    {"cat": "Detection — log signals", "id": "auth_new_source", "type": "auth_new_source",
-     "param": "10.0.0.0/8, 192.168.0.0/16",
-     "name": "No SSH login from a new network",
-     "desc": "Learns which source networks successfully authenticate over SSH, then "
-             "alerts the first time someone signs in from somewhere new — the signal "
-             "a stolen key or password produces, which a failure-rate check cannot "
-             "see because the login SUCCEEDS. Each new network alerts once. The param "
-             "is a CIDR ignore-list for your office/VPN ranges."},
-    {"cat": "Detection — log signals", "id": "auth_failures", "type": "log_errors",
-     "param": "authentication failure|Failed password|Invalid user",
-     "name": "Auth failure burst", "extras": {"window_min": 15, "warn": 10, "crit": 50},
-     "desc": "Warns on a spike of failed logins — credential stuffing or a brute-force run."},
-    {"cat": "Detection — log signals", "id": "sudo_abuse", "type": "log_errors",
-     "param": "NOT in the sudoers|incorrect password attempts",
-     "name": "sudo misuse attempts", "extras": {"window_min": 60, "warn": 1, "crit": 5},
-     "desc": "Someone is probing for privilege escalation they don't have."},
-    {"cat": "Detection — log signals", "id": "mac_denials", "type": "log_errors",
-     "param": "apparmor=\"DENIED\"|avc: *denied",
-     "name": "MAC policy denials", "extras": {"window_min": 30, "warn": 5, "crit": 25},
-     "desc": "AppArmor/SELinux blocked something — either a misconfig or a process doing what it shouldn't."},
-    {"cat": "Detection — log signals", "id": "segfaults", "type": "log_errors",
-     "param": "segfault|general protection fault",
-     "name": "Process crashes", "extras": {"window_min": 60, "warn": 3, "crit": 20},
-     "desc": "A burst of segfaults can mean instability — or exploitation attempts against a service."},
-    {"cat": "Detection — log signals", "id": "fs_errors", "type": "log_errors",
-     "param": "EXT4-fs error|I/O error|Buffer I/O error",
-     "name": "Filesystem / disk I/O errors", "extras": {"window_min": 60, "warn": 1, "crit": 10},
-     "desc": "Early warning of a failing disk before it takes data with it."},
-
+    {
+        "cat": "Detection — log signals",
+        "id": "auth_new_source",
+        "type": "auth_new_source",
+        "param": "10.0.0.0/8, 192.168.0.0/16",
+        "name": "No SSH login from a new network",
+        "desc": "Learns which source networks successfully authenticate over SSH, then "
+        "alerts the first time someone signs in from somewhere new — the signal "
+        "a stolen key or password produces, which a failure-rate check cannot "
+        "see because the login SUCCEEDS. Each new network alerts once. The param "
+        "is a CIDR ignore-list for your office/VPN ranges.",
+    },
+    {
+        "cat": "Detection — log signals",
+        "id": "auth_failures",
+        "type": "log_errors",
+        "param": "authentication failure|Failed password|Invalid user",
+        "name": "Auth failure burst",
+        "extras": {"window_min": 15, "warn": 10, "crit": 50},
+        "desc": "Warns on a spike of failed logins — credential stuffing or a brute-force run.",
+    },
+    {
+        "cat": "Detection — log signals",
+        "id": "sudo_abuse",
+        "type": "log_errors",
+        "param": "NOT in the sudoers|incorrect password attempts",
+        "name": "sudo misuse attempts",
+        "extras": {"window_min": 60, "warn": 1, "crit": 5},
+        "desc": "Someone is probing for privilege escalation they don't have.",
+    },
+    {
+        "cat": "Detection — log signals",
+        "id": "mac_denials",
+        "type": "log_errors",
+        "param": 'apparmor="DENIED"|avc: *denied',
+        "name": "MAC policy denials",
+        "extras": {"window_min": 30, "warn": 5, "crit": 25},
+        "desc": "AppArmor/SELinux blocked something — either a misconfig or a process doing what it shouldn't.",
+    },
+    {
+        "cat": "Detection — log signals",
+        "id": "segfaults",
+        "type": "log_errors",
+        "param": "segfault|general protection fault",
+        "name": "Process crashes",
+        "extras": {"window_min": 60, "warn": 3, "crit": 20},
+        "desc": "A burst of segfaults can mean instability — or exploitation attempts against a service.",
+    },
+    {
+        "cat": "Detection — log signals",
+        "id": "fs_errors",
+        "type": "log_errors",
+        "param": "EXT4-fs error|I/O error|Buffer I/O error",
+        "name": "Filesystem / disk I/O errors",
+        "extras": {"window_min": 60, "warn": 1, "crit": 10},
+        "desc": "Early warning of a failing disk before it takes data with it.",
+    },
     # ── Freshness — things that must keep running ────────────────────────────
-    {"cat": "Freshness — scheduled jobs", "id": "apt_update_fresh", "type": "job_fresh",
-     "param": "/var/lib/apt/periodic/update-success-stamp|/var/lib/apt/lists",
-     "name": "Package index updated recently", "extras": {"max_age_hours": 48},
-     "desc": "If apt stopped updating, your patch data (and CVE view) is silently "
-             "stale. Checks the apt-daily success stamp AND the package-list "
-             "directory mtime (updated by every `apt update`, even a manual one) "
-             "and uses the freshest — so it works whether or not unattended-"
-             "upgrades is configured."},
-    {"cat": "Freshness — scheduled jobs", "id": "clamav_db_fresh", "type": "job_fresh",
-     "param": "/var/lib/clamav/daily.cld|/var/lib/clamav/daily.cvd",
-     "name": "AV signatures updated recently", "extras": {"max_age_hours": 48},
-     "desc": "Stale antivirus definitions give false comfort. freshclam ships "
-             "daily.cvd on a fresh install but rewrites it as daily.cld once it "
-             "applies incremental updates (the steady state on a running host), "
-             "so this checks BOTH and uses the freshest — no need to guess which "
-             "extension yours uses."},
+    {
+        "cat": "Freshness — scheduled jobs",
+        "id": "apt_update_fresh",
+        "type": "job_fresh",
+        "param": "/var/lib/apt/periodic/update-success-stamp|/var/lib/apt/lists",
+        "name": "Package index updated recently",
+        "extras": {"max_age_hours": 48},
+        "desc": "If apt stopped updating, your patch data (and CVE view) is silently "
+        "stale. Checks the apt-daily success stamp AND the package-list "
+        "directory mtime (updated by every `apt update`, even a manual one) "
+        "and uses the freshest — so it works whether or not unattended-"
+        "upgrades is configured.",
+    },
+    {
+        "cat": "Freshness — scheduled jobs",
+        "id": "clamav_db_fresh",
+        "type": "job_fresh",
+        "param": "/var/lib/clamav/daily.cld|/var/lib/clamav/daily.cvd",
+        "name": "AV signatures updated recently",
+        "extras": {"max_age_hours": 48},
+        "desc": "Stale antivirus definitions give false comfort. freshclam ships "
+        "daily.cvd on a fresh install but rewrites it as daily.cld once it "
+        "applies incremental updates (the steady state on a running host), "
+        "so this checks BOTH and uses the freshest — no need to guess which "
+        "extension yours uses.",
+    },
 )
 
 
@@ -1127,21 +1388,23 @@ CHECK_BASELINE_CATALOG = (
 # the operational Monitoring → Checks one. Hardening and tamper-detection
 # templates are a different job from liveness checks, so they get their own
 # surface — same apply mechanics, same scoping, different question being asked.
-PROTECT_CATEGORIES = frozenset({
-    "Web / application security",
-    "Hardening — services",
-    "Hardening — must not listen",
-    "Integrity — critical files",
-    "Integrity — persistence paths",
-    "Integrity — must not exist",
-    "Detection — log signals",
-    "Freshness — scheduled jobs",
-})
+PROTECT_CATEGORIES = frozenset(
+    {
+        "Web / application security",
+        "Hardening — services",
+        "Hardening — must not listen",
+        "Integrity — critical files",
+        "Integrity — persistence paths",
+        "Integrity — must not exist",
+        "Detection — log signals",
+        "Freshness — scheduled jobs",
+    }
+)
 
 
 def baseline_kind(cat):
     """'protect' for hardening/tamper-detection templates, else 'ops'."""
-    return 'protect' if cat in PROTECT_CATEGORIES else 'ops'
+    return "protect" if cat in PROTECT_CATEGORIES else "ops"
 
 
 def _custom_check_applies(cdef, dev_id, dev):
@@ -1233,8 +1496,7 @@ def repair_applied_catalog_checks(checks):
         tmpl = by_name.get(c.get("name"))
         if not tmpl:
             continue
-        if (c.get("type") == "file_contains" and not c.get("pattern")
-                and tmpl.get("pattern")):
+        if c.get("type") == "file_contains" and not c.get("pattern") and tmpl.get("pattern"):
             c["pattern"] = tmpl["pattern"]
             changed += 1
         if c.get("type") == "job_fresh":
@@ -1256,8 +1518,11 @@ def _custom_checks_for(dev_id, dev, defs, disabled):
         # v6.3.1: expose the check type + protect kind so the Checks page can
         # offer "Reset baseline" on baseline-holding types and badge protect
         # checks instead of labelling everything "custom".
-        kind = "protect" if (cdef.get("kind") == "protect"
-                             or cdef.get("type") in GUARD_CHECK_TYPES) else "custom"
+        kind = (
+            "protect"
+            if (cdef.get("kind") == "protect" or cdef.get("type") in GUARD_CHECK_TYPES)
+            else "custom"
+        )
         out.append(
             {
                 "key": key,

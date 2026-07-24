@@ -1724,8 +1724,7 @@ def _wp_login_event(e):
         ip = str(ips[0])
     if not ip:
         ip = str(ctx.get("_server_remote_addr") or "")
-    return {"user": user, "ip": ip[:64],
-            "ts": _wp_ts(e.get("date_gmt") or e.get("date"))}
+    return {"user": user, "ip": ip[:64], "ts": _wp_ts(e.get("date_gmt") or e.get("date"))}
 
 
 @_register(
@@ -1751,8 +1750,7 @@ def _wordpress(inst, c):
     user, pw = inst.get("username") or "", inst.get("secret") or ""
     authed = False
     if user and pw:
-        h["Authorization"] = "Basic " + base64.b64encode(
-            f"{user}:{pw}".encode()).decode()
+        h["Authorization"] = "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
         try:
             me = c.get_json("/wp-json/wp/v2/users/me", headers=h)
             authed = bool(isinstance(me, dict) and me.get("id"))
@@ -1771,7 +1769,8 @@ def _wordpress(inst, c):
         try:
             ev = c.get_json(
                 "/wp-json/simple-history/v1/events",
-                headers=h, params={"per_page": 25, "loggers": "SimpleUserLogger"},
+                headers=h,
+                params={"per_page": 25, "loggers": "SimpleUserLogger"},
             )
             rows = ev.get("data") if isinstance(ev, dict) else ev
             if isinstance(rows, list):
@@ -1795,8 +1794,9 @@ def _wordpress(inst, c):
     return {
         "status": OK,
         "detail": detail,
-        "metrics": {"logins_24h": sum(1 for x in logins if x["ts"] >= day_ago)}
-        if logins_available else {},
+        "metrics": (
+            {"logins_24h": sum(1 for x in logins if x["ts"] >= day_ago)} if logins_available else {}
+        ),
         "recent_logins": logins,
     }
 

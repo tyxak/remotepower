@@ -538,11 +538,16 @@ def _webhook_message(event, payload):
         # checks.BASELINE_CHECK_TYPES (guardrail-tested; notify stays
         # api-import-free by design).
         if payload.get("check_type") in (
-                "dir_baseline", "file_hash", "egress_baseline",
-                "auth_new_source"):
-            msg += (" · If this change is legitimate, accept it as the new "
-                    "baseline: Monitoring → Checks → this host's row → "
-                    "\"Accept change\" (or \"Reset baseline\").")
+            "dir_baseline",
+            "file_hash",
+            "egress_baseline",
+            "auth_new_source",
+        ):
+            msg += (
+                " · If this change is legitimate, accept it as the new "
+                "baseline: Monitoring → Checks → this host's row → "
+                '"Accept change" (or "Reset baseline").'
+            )
         return msg
     elif event == "custom_check_recovered":
         return f'{name}: check "{payload.get("check_name", "?")}" recovered'
