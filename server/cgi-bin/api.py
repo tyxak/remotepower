@@ -52801,14 +52801,18 @@ def handle_alert_unresolve(alert_id):
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     found = False
+    denied = None   # v6.4.0: hoist the guard status out of the try — respond()
+                    # raises HTTPError (an Exception), so a 404/409 raised INSIDE
+                    # the `except Exception` block below got swallowed and
+                    # rewritten to 500 (the documented anti-pattern).
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('id') == alert_id:
                     if not _alert_mutable_by_caller(a):
-                        respond(404, {'error': 'alert not found'})
+                        denied = (404, 'alert not found'); break
                     if not a.get('resolved_at'):
-                        respond(409, {'error': 'alert is not resolved'})
+                        denied = (409, 'alert is not resolved'); break
                     a['resolved_by'] = None
                     a['resolved_at'] = None
                     a.pop('resolve_note', None)
@@ -52816,6 +52820,8 @@ def handle_alert_unresolve(alert_id):
                     break
     except Exception as e:
         respond(500, {'error': str(e)})
+    if denied:
+        respond(denied[0], {'error': denied[1]})
     if not found:
         respond(404, {'error': 'alert not found'})
     audit_log(user, 'alert_unresolve', f'id={alert_id}')

@@ -930,6 +930,16 @@ def _apply_guard_actions(actions):
             _FORCE_CHECK_EVAL = True
             handled.add(qid)
             continue
+        # v6.4.0 (defense-in-depth): the vault id is server-supplied and
+        # `_sanitize_str` on the server only trims — it does NOT strip `/` or
+        # `..`. `qid` is interpolated into `vault / qid` (and unlink()'d on
+        # delete), so charset-clamp it to a bare token before ANY path use.
+        # Not exploitable today (the caller is scope/tenant-gated and a valid
+        # `.meta` sidecar must pre-exist, and those names derive from
+        # agent-generated tokens) — this closes the traversal shape regardless.
+        qid = re.sub(r'[^A-Za-z0-9_.\-]', '', qid)[:64]
+        if not qid:
+            continue
         # The sidecar is the source of truth, so a trimmed log never costs us
         # the ability to put a file back.
         e = _guard_vault_entry(qid)

@@ -150,5 +150,30 @@ A second sweep across the entire project accompanied the release finalize:
   unauthenticated endpoint is a minimal health check. No information disclosure
   beyond the product version.
 
+## Pre-production re-verification pass
+
+A final independent review before the release re-ran the full local SAST stack
+(`ruff --select F821`, `bandit` against the baseline, `gitleaks`) — all clean,
+zero High, zero new — and re-probed the maintainer's own live instance
+(authorized): the login endpoint throttles brute-force attempts (HTTP `429`
+after a short burst) and returns a non-enumerating `{"ok": false}`, errors stay
+terse with no stack traces, and the hardened header set (full CSP, HSTS preload,
+`frame-ancestors 'none'`, COOP/CORP, permissions-policy) is confirmed live. A
+fresh adversarial code review of the server and all three agents found **no
+Critical / High / Medium** issue; two LOW items surfaced and were fixed as
+cheap hardening:
+
+- **A status-code correctness nit** — `handle_alert_unresolve` placed its
+  guard responses inside a `try/except Exception`, so a denied reopen returned
+  `500` instead of the intended `404`/`409`. No security impact (the mutation
+  only ran past the guards, so nothing persisted on the denied path); the
+  guards are now hoisted out of the `try`.
+- **Defense-in-depth path hardening in the agent** — the guard-vault delete /
+  restore branches now charset-clamp the server-supplied vault id to a bare
+  token before any filesystem use, matching the rebaseline branch. Not
+  exploitable (the caller is scope- and tenant-gated, and a valid metadata
+  sidecar — derived from agent-generated tokens, never operator input — must
+  pre-exist), but it closes the traversal shape unconditionally.
+
 No Critical / High / Medium issue ships; nothing exploitable. The full local
 SAST suite (Bandit, gitleaks, CodeQL) reports clean.
