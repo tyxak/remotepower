@@ -871,7 +871,10 @@ def run_incident_memory_if_due():
     (idempotent via a seen-id ring), so the knowledge survives alert pruning.
     Cheap: a read-gate before the lock, then one locked append. No AI calls."""
     now = int(time.time())
-    mem = A.load(A.INCIDENT_MEMORY_FILE) or {}
+    # v6.4.0 PERF: read-only gate — _load_ro skips the per-request deepcopy of
+    # the durable outcome store (only read here; the append below re-reads under
+    # _LockedUpdate).
+    mem = A._load_ro(A.INCIDENT_MEMORY_FILE) or {}
     if (now - int(mem.get('last_run') or 0)) < _INCIDENT_MEMORY_INTERVAL_S:
         return
     alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])

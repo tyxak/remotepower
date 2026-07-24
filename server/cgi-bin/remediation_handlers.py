@@ -139,7 +139,10 @@ def run_remediation_verify_if_due():
     alert remains open → 'verified' and the counter resets. Fired from the
     normal cadence (NEVER from inside fire_webhook — no recursion)."""
     now = int(time.time())
-    store_ro = A.load(A.REMEDIATIONS_FILE) or {}
+    # v6.4.0 PERF: read-only gate — _load_ro shares the cached dict (no full
+    # deepcopy of the ledger every request); the mutation below re-reads under
+    # _LockedUpdate.
+    store_ro = A._load_ro(A.REMEDIATIONS_FILE) or {}
     if now - int(store_ro.get('last_verify') or 0) < _VERIFY_INTERVAL_S:
         return
     due = [a for a in (store_ro.get('attempts') or [])

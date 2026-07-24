@@ -375,11 +375,13 @@ def run_ipam_conflicts_if_due():
     exactly the setup most likely to be cloning Proxmox VMs. So the no-subnet
     early-return skips only the IP half, never the whole sweep.
     """
-    subnets = A.load(A.SUBNETS_FILE) or {}
+    # v6.4.0 PERF: gate FIRST on a read-only state load — the old order deepcopied
+    # SUBNETS_FILE + IPAM_STATE_FILE on every request before the 300s due check.
     now = int(time.time())
-    state = A.load(A.IPAM_STATE_FILE) or {}
+    state = A._load_ro(A.IPAM_STATE_FILE) or {}
     if now - int(state.get('last_run', 0) or 0) < 300:
         return
+    subnets = A.load(A.SUBNETS_FILE) or {}
     devices = A.load(A.DEVICES_FILE) or {}
     conflicts = set()
     fires = []

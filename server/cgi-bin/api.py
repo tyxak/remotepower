@@ -33879,6 +33879,9 @@ def handle_containers_overview() -> None:
     # v3.0.1: respect per-device ignores set by the user from the Containers page
     ignored_devs = _ignored_keys('devices')
     ignored_stale = _ignored_keys('stale_containers')
+    # v6.4.0 PERF: hoist the config read out of the per-device loop (it returned
+    # the same value every iteration, deepcopy-free but still a dict walk).
+    _restart_min = int(_config_ro().get('container_restarting_min', 5))
     out = []
     for dev_id, entry in store.items():
         if dev_id not in devices:
@@ -33899,7 +33902,7 @@ def handle_containers_overview() -> None:
             'os':          devices[dev_id].get('os', ''),
             'reported_at': ts,
             'is_stale':    is_stale,
-            'summary':     containers_mod.summarise(items, int(_config_ro().get('container_restarting_min', 5))),
+            'summary':     containers_mod.summarise(items, _restart_min),
         }
         # v6.1.2: `docker system df` footprint (images / containers / volumes /
         # build cache + what's reclaimable). Absent on hosts that haven't
@@ -38021,20 +38024,20 @@ def _rag_build_corpus(cfg):
     if sources.get('image_cves'):
         try:
             docs += rag_index.build_image_cves_corpus(
-                load(IMAGE_CVE_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+                load(IMAGE_CVE_FILE) or {}, devices=_load_ro(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: image_cves source failed: {e}\n')
     if sources.get('scap'):
         try:
             docs += rag_index.build_scap_corpus(
-                load(SCAP_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+                load(SCAP_FILE) or {}, devices=_load_ro(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: scap source failed: {e}\n')
     if sources.get('security_findings'):
         try:
             docs += rag_index.build_security_findings_corpus(
                 load(SECRETS_FILE) or {}, load(PII_FILE) or {},
-                load(AV_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+                load(AV_FILE) or {}, devices=_load_ro(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: security_findings source failed: {e}\n')
     if sources.get('automation_rules'):
@@ -38046,7 +38049,7 @@ def _rag_build_corpus(cfg):
     if sources.get('hardware'):
         try:
             docs += rag_index.build_hardware_corpus(
-                load(HARDWARE_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+                load(HARDWARE_FILE) or {}, devices=_load_ro(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: hardware source failed: {e}\n')
     if sources.get('billing') and _billing_enabled():
@@ -38068,7 +38071,7 @@ def _rag_build_corpus(cfg):
             sys.stderr.write(f'rag: config_revisions source failed: {e}\n')
     if sources.get('sudo_log'):
         try:
-            docs += rag_index.build_sudo_corpus(load(SUDO_LOG_FILE) or {}, devices=load(DEVICES_FILE) or {}, now=now)
+            docs += rag_index.build_sudo_corpus(load(SUDO_LOG_FILE) or {}, devices=_load_ro(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: sudo_log source failed: {e}\n')
     if sources.get('self_obs'):
@@ -38081,7 +38084,7 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_inventory_corpus(
                 load(SITES_FILE) or {}, load(RACKS_FILE) or {},
                 load(SUBNETS_FILE) or {}, load(WARRANTY_CACHE_FILE) or {},
-                devices=load(DEVICES_FILE) or {}, now=now)
+                devices=_load_ro(DEVICES_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: inventory source failed: {e}\n')
 
@@ -50749,6 +50752,23 @@ def _claim_due_jobs(limit=JOBS_PER_RUN):
     whatever the reclaiming attempt already recorded)."""
     now = int(time.time())
     claimed = []
+    # v6.4.0 PERF: cheap read-only pre-gate before the write lock. _LockedUpdate
+    # writes JOBS_FILE on every clean exit (a BEGIN IMMEDIATE txn on SQL), so the
+    # old unconditional lock took a write lock on EVERY request even with an empty
+    # queue. Skip it unless there is a claimable job or a lease to reclaim; the
+    # cadence runs every request, so a one-tick delay on a just-queued job is nil.
+    _ro = _load_ro(JOBS_FILE) or {}
+    _pending = False
+    for _j in (_ro.get('jobs') or []):
+        _st = _j.get('status')
+        if _st == 'queued' and int(_j.get('next_run', 0)) <= now:
+            _pending = True
+            break
+        if _st == 'running' and now - int(_j.get('updated_at', 0)) > JOB_RUNNING_LEASE_S:
+            _pending = True
+            break
+    if not _pending:
+        return []
     with _LockedUpdate(JOBS_FILE) as store:
         jobs = store.get('jobs', [])
         for j in jobs:
