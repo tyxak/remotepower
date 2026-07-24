@@ -120,8 +120,11 @@ class TestNoAlertWithoutExplanation(unittest.TestCase):
         self.assertIn("x.example", t)
 
     def test_new_count_whitelisted_in_record_alert(self):
+        # v6.4.0: function-bounded, not a fixed 4000-char window — whitelist
+        # growth kept pushing the key past the slice (the srcpin gotcha).
         src = (_CGI / "api.py").read_text()
-        rec = src[src.index("def _record_alert"):src.index("def _record_alert") + 4000]
+        i = src.index("def _record_alert")
+        rec = src[i:src.find("\ndef ", i + 10)]
         self.assertIn("'new_count'", rec)
 
     def test_nic_errors_title_reads_as_a_sentence(self):

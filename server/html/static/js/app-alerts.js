@@ -168,12 +168,47 @@ function _alertSampleLine(a) {
   if (Array.isArray(sm)) return sm.length ? String(sm[0]) : '';
   return typeof sm === 'string' ? sm : '';
 }
+// v6.4.0: baseline-holding check types (mirror of checks.BASELINE_CHECK_TYPES;
+// guardrail-tested) — a failure on one of these means "a watched baseline
+// changed" and the remedy lives on the Checks page.
+const _ALERT_BASELINE_TYPES = new Set(['dir_baseline', 'file_hash',
+                                       'egress_baseline', 'auth_new_source']);
+function openChecksFromAlert() {
+  showPage('checks', document.querySelector('.nav-btn[data-page="checks"]'));
+}
 function _alertEvidenceHtml(a) {
+  const p = a.payload || {};
+  let html = '';
   const line = _alertSampleLine(a);
-  if (!line) return '';
-  const acked = (a.payload && a.payload.acked) || 0;
-  return `<div class="hint mono-12 alert-evidence" title="${escAttr(line)}">${_escapeHtml(line.slice(0, 160))}</div>`
-    + (acked ? `<div class="hint">${acked} further match${acked === 1 ? '' : 'es'} already cleared</div>` : '');
+  if (line) {
+    const acked = p.acked || 0;
+    html += `<div class="hint mono-12 alert-evidence" title="${escAttr(line)}">${_escapeHtml(line.slice(0, 160))}</div>`
+      + (acked ? `<div class="hint">${acked} further match${acked === 1 ? '' : 'es'} already cleared</div>` : '');
+  }
+  // v6.4.0 (field report): a protect/baseline alert never said WHERE to accept
+  // the new baseline. Point straight at it, with a click-through.
+  if (a.event === 'custom_check_failed' && _ALERT_BASELINE_TYPES.has(p.check_type)
+      && !a.resolved_at) {
+    html += `<div class="hint">A watched baseline changed. If legitimate, accept it: `
+      + `<a href="#" data-action="openChecksFromAlert" data-prevent-default class="c-accent">Monitoring → Checks</a>`
+      + ` → this host's row → <strong>Accept change</strong> (or Reset baseline).</div>`;
+  }
+  // v6.4.0: generic detail line — every whitelisted payload fact the alert
+  // carries, rendered as key:value pairs so no stored context stays hidden
+  // (the "as informative as possible" pass). Noise keys and ones already
+  // shown elsewhere in the row are skipped.
+  const skip = new Set(['device_id', 'device_name', 'name', 'sample', 'acked',
+                        'inbound_token_id', 'check_type']);
+  const bits = [];
+  for (const [k, v] of Object.entries(p)) {
+    if (skip.has(k) || v === null || v === undefined || v === '') continue;
+    const sv = Array.isArray(v) ? `${v.length} item${v.length === 1 ? '' : 's'}`
+      : (typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v).slice(0, 80));
+    bits.push(`<span class="nowrap">${_escapeHtml(k)}: <strong>${_escapeHtml(sv)}</strong></span>`);
+    if (bits.length >= 8) break;
+  }
+  if (bits.length) html += `<div class="hint fs-11">${bits.join(' · ')}</div>`;
+  return html;
 }
 function _alertRowHtml(a, role) {
   const isResolved = !!a.resolved_at;

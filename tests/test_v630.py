@@ -301,13 +301,18 @@ class TestWave2QuickWins(unittest.TestCase):
         self.assertIn(".btn-primary:not([disabled])", chunk)
 
     def test_dispatcher_auto_inflight(self):
+        # v6.4.0: the inline in-flight block became the shared _btnInflight
+        # helper (spinner + done-pulse, now covering data-action-btn too).
         app = _js("app.js")
-        i = app.index("automatic in-flight state")
-        chunk = app[i:i + 900]
+        i = app.index("function _btnInflight")
+        chunk = app[i:i + 1200]
         self.assertIn("btn-inflight", chunk)
         self.assertIn("aria-busy", chunk)
         # restore must run on BOTH resolve and reject
-        self.assertIn("_ret.then(_restore, _restore)", chunk)
+        self.assertIn("ret.then(_restore, _restore)", chunk)
+        # BOTH dispatch paths route through it
+        self.assertIn("_btnInflight(el, _ret)", app)
+        self.assertIn("_btnInflight(btnEl, _bret)", app)
 
     def test_data_copy_handler_and_sites(self):
         app = _js("app.js")

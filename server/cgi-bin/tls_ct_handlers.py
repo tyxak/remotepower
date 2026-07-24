@@ -287,6 +287,24 @@ def _tls_expiry_crossings(target, prev, cur):
     return out
 
 
+def _tls_renewal_crossings(target, prev, cur):
+    """v6.4.0: the RECOVERY half — ``tls_renewed`` payloads when a probe
+    crosses back ABOVE the warn threshold (the cert was renewed). Same
+    edge-triggered shape as the expiry crossings, so a healthy cert doesn't
+    re-emit on every sweep; auto-resolves the open tls_expiry alert
+    (matched host+port)."""
+    if not prev:
+        return []   # first probe of a target is a baseline, not a renewal
+    _gc = A._config_ro()
+    warn = int(target.get('warn_days', _gc.get('tls_warn_days', A.TLS_DEFAULT_WARN_DAYS)))
+    days      = tls_monitor.days_until_expiry(cur)
+    prev_days = tls_monitor.days_until_expiry(prev)
+    if days > warn >= prev_days:
+        return [{'host': target.get('host', '?'),
+                 'port': int(target.get('port', 443)), 'days_left': days}]
+    return []
+
+
 def run_tls_scan_if_due():
     """Periodic TLS/DANE expiry re-probe so the watchlist is a real monitor.
 
@@ -325,6 +343,7 @@ def run_tls_scan_if_due():
         scanned += 1
         results[tid] = cur
         pending.extend(('tls_expiry', p) for p in A._tls_expiry_crossings(t, prev, cur))
+        pending.extend(('tls_renewed', p) for p in _tls_renewal_crossings(t, prev, cur))
     if not scanned:
         return
     # Drop results for deleted targets so the store can't grow unbounded.

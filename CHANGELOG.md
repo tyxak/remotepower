@@ -54,6 +54,30 @@ finding:
   suites, the per-page e2e smoke in real Chromium, and the full 8k-test
   suite both-backends-parallel.
 
+### Every button gives feedback, every alert auto-resolves, every alert says more
+- **Universal button feedback**: any dispatched button whose handler is async
+  now shows a working state — dim + a small spinner + `aria-busy` — while it
+  runs, and a brief accent pulse when it settles, so even a handler with no
+  toast visibly did something. The `data-action-btn` path (which previously
+  had no feedback at all) is covered by the same shared helper.
+- **The auto-heal gap list is EMPTY** — the last five stateful alerts got
+  real recovery observers: `cve_cleared` (a scan reports no findings left in
+  the severity filter), `patch_ok` (upgradable count back under the
+  threshold), `tls_renewed` (the probe crosses back above the warn window;
+  matched host+port so a renewal on :443 can't clear a still-expiring
+  :8443), `ecc_stable` (24 quiet hours after the last counter rise, latched),
+  and `secret_cleared` (a rescan finds no unmuted findings). Every stateful
+  alert now resolves itself when its condition clears.
+- **Protect/baseline alerts say WHERE to accept the change** (field report:
+  operators didn't know where the accept lives). A baseline-holding check
+  failure (`file_hash`/`dir_baseline`/…) now carries its check type; the
+  notification text and the inbox row both point at Monitoring → Checks →
+  the host's row → **Accept change** / Reset baseline, with a click-through
+  link in the inbox.
+- **Richer alert rows**: every whitelisted payload fact an alert carries now
+  renders as a compact key:value detail line under the title — no stored
+  context stays hidden in the inbox.
+
 ### Click-simulation sweep + full-index attribute audit
 Two deeper layers on the wiring gates, closing the "we checked the names but
 never pressed the buttons" gap:

@@ -1507,14 +1507,13 @@ MCP_ACTION_ALLOWLIST = frozenset({
 # needs a firing site that detects the recovery, not just a registry entry.
 # tests/test_alert_autoheal.py fails if this list GROWS.
 _AUTOHEAL_GAPS = frozenset({
-    # Each still needs a firing site that OBSERVES the recovery. A registry
-    # entry alone would claim an auto-heal that nothing emits, which reads as
-    # fixed and is not — so they stay listed until the detection exists.
-    'cve_found',                  # clears when the package is patched
-    'patch_alert',                # clears when the updates are applied
-    'tls_expiry',                 # clears on renewal (days_left recovers)
-    'ecc_errors',                 # clears when the counter stops rising
-    'secret_exposed',             # clears when the secret is rotated/removed
+    # v6.4.0: EMPTY — the last five gaps got their recovery observers:
+    # cve_cleared (scan reports no filtered findings left), patch_ok (count
+    # back under threshold), tls_renewed (probe crosses back above warn),
+    # ecc_stable (24 quiet hours after a rise), secret_cleared (rescan finds
+    # no unmuted findings). Every stateful alert now auto-resolves. A NEW
+    # severity event with no resolver must add its observer, not this list —
+    # the list exists only for a detection that genuinely can't be built yet.
 })
 
 EVENT_REGISTRY = {
@@ -1539,6 +1538,10 @@ EVENT_REGISTRY = {
     'patch_alert': dict(
         label='Pending updates exceed threshold', kind='patches', title='Patch Alert',
         severity='medium', priority=4, tags='warning,package'),
+    'patch_ok': dict(
+        label='Pending-updates count back under the threshold (recovered)',
+        kind='patches', title='Patches Applied', resolves=('patch_alert',),
+        tags='white_check_mark,package'),
     'patch_sla_violation': dict(
         label='Pending updates past their patch-SLA deadline', kind='patches',
         title='Patch SLA Breached', severity='high', priority=4, tags='warning,package'),
@@ -1548,6 +1551,10 @@ EVENT_REGISTRY = {
     'cve_found': dict(
         label='New CVEs detected on a device', kind='cve', title='New CVEs Detected',
         severity=None, priority=5, tags='rotating_light,shield'),
+    'cve_cleared': dict(
+        label='No CVEs left in the alert severity filter (recovered)',
+        kind='cve', title='CVEs Cleared', resolves=('cve_found',),
+        tags='white_check_mark,shield'),
     'campaign_completed': dict(
         lifecycle='point',
         label='CVE remediation campaign reached zero affected hosts', kind='cve',
@@ -1647,6 +1654,10 @@ EVENT_REGISTRY = {
     'tls_expiry': dict(
         label='TLS/DANE certificate expiring soon', kind='tls',
         title='TLS/DANE Certificate Expiring', severity=None, priority=4, tags='warning,lock'),
+    'tls_renewed': dict(
+        label='Watched certificate renewed — back above the warn window (recovered)',
+        kind='tls', title='Certificate Renewed', resolves=('tls_expiry',),
+        tags='white_check_mark,lock'),
     'reboot_required': dict(
         label='Host requires a reboot', kind='reboot', title='Host Requires Reboot',
         severity='medium', priority=4, tags='warning,arrows_counterclockwise'),
@@ -1814,6 +1825,10 @@ EVENT_REGISTRY = {
         label='ECC memory errors increased', kind='hardware',
         title='ECC Memory Errors', severity=None, priority=4,
         tags='rotating_light,ram'),
+    'ecc_stable': dict(
+        label='ECC error counters stopped rising (24h quiet, recovered)',
+        kind='hardware', title='ECC Errors Stable', resolves=('ecc_errors',),
+        tags='white_check_mark'),
     # v6.1.2 (#40): the host's OWN SSH host key changed. Benignly, the box was
     # reimaged or the keys regenerated. Maliciously, it's the MITM tripwire that
     # the scary ssh warning exists to raise — and which people click through
@@ -2029,6 +2044,10 @@ EVENT_REGISTRY = {
     'secret_exposed': dict(
         label='A secret was found exposed on a host filesystem', kind='secrets',
         title='Exposed Secret Found', severity='high'),
+    'secret_cleared': dict(
+        label='Exposed secrets no longer found on the host (recovered)',
+        kind='secrets', title='Exposed Secrets Cleared', resolves=('secret_exposed',),
+        tags='white_check_mark,key'),
     'scan_finding': dict(
         lifecycle='point',
         label='An authorized security scan found a high/critical issue', kind='scan',
@@ -9554,6 +9573,12 @@ def _record_alert(event, payload):
                     # v6.2.0: dead-man's-switch job id — the ping_missed alert's
                     # match key for ping_recovered auto-resolve.
                     'job_id',
+                    # v6.4.0: TLS target port — tls_renewed's host+port match
+                    # key (host alone would clear a sibling port's alert).
+                    'port',
+                    # v6.4.0: baseline-holding check type — lets the inbox show
+                    # the "where to accept the new baseline" pointer.
+                    'check_type',
                     # v6.2.2: NIC interface name — the nic_errors alert's
                     # per-interface match key for nic_errors_cleared resolve.
                     'iface',
@@ -9781,6 +9806,12 @@ def _auto_resolve_alerts(event, payload):
     elif event == 'restore_drill_ok':
         # W6-43: per backup path — clear only this monitor's open drill alert.
         sub_match['path'] = p.get('path')
+    elif event == 'tls_renewed':
+        # v6.4.0: tls_expiry alerts have no device_id — match host+port so a
+        # renewal on :443 can't clear a still-expiring cert on :8443. Both
+        # keys are in the _record_alert whitelist.
+        sub_match['host'] = p.get('host')
+        sub_match['port'] = p.get('port')
     elif event == 'integration_recovered':
         # v4.7.0: integrations aren't devices (no device_id), so the open
         # integration_down alert is matched by its integration id. Without this
@@ -11362,6 +11393,7 @@ def check_offline_webhooks(skip_dev_id=None):
     offline_fires = []   # (dev_id, name, hostname, last_seen, delta)
     online_fires  = []   # (dev_id, name)
     patch_fires   = []   # (dev_id, name, hostname, count)
+    patch_recover_fires = []   # v6.4.0: (dev_id, name, count) — patch_ok
     patch_threshold = None
 
     with _LockedUpdate(CONFIG_FILE) as cfg:
@@ -11458,6 +11490,11 @@ def check_offline_webhooks(skip_dev_id=None):
                         ))
                     elif not over and was:
                         alerted[dev_id] = False
+                        # v6.4.0: recovery half — updates applied / count back
+                        # under the threshold → patch_ok auto-resolves the open
+                        # patch_alert (it used to sit open until acknowledged).
+                        patch_recover_fires.append((
+                            dev_id, dev.get('name', dev_id), count))
             except Exception:
                 pass
 
@@ -11521,6 +11558,10 @@ def check_offline_webhooks(skip_dev_id=None):
         if sec:   # v5.0.0: highlight vendor-flagged security updates when present
             payload['security_updates'] = sec
         fire_webhook('patch_alert', payload)
+
+    for dev_id, name, count in patch_recover_fires:
+        fire_webhook('patch_ok', {
+            'device_id': dev_id, 'name': name, 'upgradable': count})
 
 # ─── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -32418,8 +32459,11 @@ def _ingest_secret_findings(dev_id, dev_name, findings):
             pass
         clean.append(ent)
     new_fps = []
+    _prev_unmuted = 0
     with _locked_update(SECRETS_FILE) as store:
         rec = store.get(dev_id) or {}
+        _prev_unmuted = sum(1 for f in (rec.get('findings') or [])
+                            if isinstance(f, dict) and not f.get('muted'))
         prev_seen = set(rec.get('_seen') or [])
         cur_fps = {e['fingerprint'] for e in clean}
         new_fps = [e for e in clean
@@ -32428,6 +32472,15 @@ def _ingest_secret_findings(dev_id, dev_name, findings):
         merged_seen = sorted(prev_seen | cur_fps)[-2000:]
         store[dev_id] = {'findings': clean, 'ts': int(time.time()),
                          '_seen': merged_seen}
+    # v6.4.0: recovery half — the host previously had unmuted findings and a
+    # rescan reports none left (rotated/removed) → secret_cleared auto-resolves
+    # the open secret_exposed alert. Fired OUTSIDE the lock like the alert.
+    _cur_unmuted = sum(1 for e in clean if not e['muted'])
+    if _prev_unmuted > 0 and _cur_unmuted == 0:
+        try:
+            fire_webhook('secret_cleared', {'device_id': dev_id, 'name': dev_name})
+        except Exception:
+            pass
     if new_fps and not host_muted:
         # One summary event per ingest (first finding + count) — avoids a webhook
         # storm the first time scanning is enabled on a host with many findings.
@@ -32721,10 +32774,24 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         # v6.2.2 batch 3: operator-configurable floor. Default 0 → `> 0` = today's
         # fire-on-any-positive-delta behaviour, exactly preserved.
         ecc_min = int(_config_ro().get('ecc_error_alert_min_delta', 0) or 0)
+        # v6.4.0: recovery half — "clears when the counter stops rising".
+        # last_rise remembers when a delta last fired; 24 quiet hours after
+        # that (heartbeats arriving, counters flat) emits ecc_stable ONCE
+        # (stable_fired latches so a steady host doesn't re-fire every beat;
+        # a new rise re-arms it).
+        _now_ts = int(time.time())
+        _last_rise = int(p_ecc.get('last_rise') or 0)
+        _stable_fired = bool(p_ecc.get('stable_fired'))
         if not first_seen and (d_ce > ecc_min or d_ue > ecc_min):
             _fire('ecc_errors', {'ce': ce, 'ue': ue,
                                  'new_ce': d_ce, 'new_ue': d_ue})
-        new['ecc'] = {'ce': ce, 'ue': ue}
+            _last_rise, _stable_fired = _now_ts, False
+        elif (_last_rise and not _stable_fired
+                and _now_ts - _last_rise >= 24 * 3600):
+            _fire('ecc_stable', {'ce': ce, 'ue': ue, 'quiet_hours': 24})
+            _stable_fired = True
+        new['ecc'] = {'ce': ce, 'ue': ue,
+                      'last_rise': _last_rise, 'stable_fired': _stable_fired}
 
     # ── v6.1.2 (#40): SSH host-key change ──────────────────────────
     # Baseline the fingerprints, then fire when one CHANGES. Deliberate choices:
@@ -41513,6 +41580,11 @@ def _ingest_custom_check_results(dev_id, dev_name):
                         'device_id': dev_id, 'name': dev_name,
                         'check_id': cid, 'check_name': cname,
                         'status': status, 'output': str(output)[:200],
+                        # v6.4.0: baseline-holding checks (file_hash /
+                        # dir_baseline / …) carry their type so the alert can
+                        # say WHERE to accept the new baseline (field report:
+                        # operators didn't know where the accept lives).
+                        'check_type': str(cdef.get('type') or '')[:32],
                     }))
                     entry['alerted'] = True
                 else:
@@ -57258,6 +57330,23 @@ def handle_posture_digest_test():
 
 def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
     """Fire webhook if new CVEs in the configured severity filter appeared since last scan."""
+    # v6.4.0: the RECOVERY half — the device previously had findings in the
+    # severity filter and this scan reports none left (patched/removed) →
+    # cve_cleared auto-resolves the open cve_found alert. Checked before the
+    # cve_found-enabled early-return so disabling the firing event doesn't
+    # also silence recoveries of alerts already in the inbox.
+    try:
+        _filt = set(get_cve_severity_filter())
+        _prev_bad = any(f.get('severity') in _filt for f in previous
+                        if isinstance(f, dict))
+        _cur_bad = any(f.get('severity') in _filt for f in current
+                       if isinstance(f, dict))
+        if _prev_bad and not _cur_bad:
+            _dev = devices.get(dev_id, {})
+            fire_webhook('cve_cleared', {
+                'device_id': dev_id, 'name': _dev.get('name', dev_id)})
+    except Exception:
+        pass
     if not is_webhook_event_enabled('cve_found'):
         return
 

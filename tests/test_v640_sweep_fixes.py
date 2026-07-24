@@ -175,6 +175,62 @@ class TestAvSuggestionsAreToolMatched(unittest.TestCase):
         self.assertIn("'tool'", src[i:nxt])
 
 
+class TestBaselineAcceptPointer(unittest.TestCase):
+    """Field report: a protect/baseline alert never said WHERE to accept the
+    new baseline. The alert payload now carries check_type; notifications and
+    the inbox row point at Monitoring → Checks → Accept change."""
+
+    @classmethod
+    def setUpClass(cls):
+        import checks as checks_mod
+        import notify
+        cls.checks = checks_mod
+        cls.notify = notify
+
+    def test_notification_points_at_the_accept_for_every_baseline_type(self):
+        for ct in self.checks.BASELINE_CHECK_TYPES:
+            msg = self.notify._webhook_message("custom_check_failed", {
+                "name": "h", "check_name": "wp-config unchanged",
+                "output": "hash changed", "check_type": ct})
+            self.assertIn("Accept change", msg, ct)
+            self.assertIn("Checks", msg, ct)
+
+    def test_non_baseline_types_stay_clean(self):
+        msg = self.notify._webhook_message("custom_check_failed", {
+            "name": "h", "check_name": "nginx running",
+            "output": "not running", "check_type": "process"})
+        self.assertNotIn("Accept change", msg)
+
+    def test_notify_tuple_stays_in_sync_with_checks(self):
+        # notify.py mirrors BASELINE_CHECK_TYPES as a literal (api-import-free
+        # by design) — a drift means pointers appear on the wrong types.
+        src = (_CGI / "notify.py").read_text()
+        i = src.index('check_type") in (')
+        blk = src[i:i + 300]
+        for ct in self.checks.BASELINE_CHECK_TYPES:
+            self.assertIn(f'"{ct}"', blk, f"{ct} missing from notify's mirror")
+
+    def test_payload_carries_check_type_and_whitelist_keeps_it(self):
+        src = (_CGI / "api.py").read_text()
+        i = src.index("pending_webhooks.append(('custom_check_failed'")
+        self.assertIn("'check_type'", src[i:i + 700])
+        j = src.index("def _record_alert")
+        self.assertIn("'check_type'", src[j:src.find("\ndef ", j + 10)])
+
+    def test_inbox_row_offers_the_click_through(self):
+        js = (ROOT / "server" / "html" / "static" / "js" / "app-alerts.js").read_text()
+        self.assertIn('data-action="openChecksFromAlert"', js)
+        self.assertIn("function openChecksFromAlert", js)
+        # the JS mirror of the baseline types must match checks.py too
+        for ct in self.checks.BASELINE_CHECK_TYPES:
+            self.assertIn(f"'{ct}'", js, f"{ct} missing from _ALERT_BASELINE_TYPES")
+
+    def test_generic_payload_detail_renders(self):
+        js = (ROOT / "server" / "html" / "static" / "js" / "app-alerts.js").read_text()
+        self.assertIn("generic detail line", js)
+        self.assertIn("Object.entries(p)", js)
+
+
 class TestRunbookDeleteIsReachable(unittest.TestCase):
     def test_modal_carries_the_delete_button(self):
         js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()

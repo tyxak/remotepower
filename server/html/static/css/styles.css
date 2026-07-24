@@ -2218,7 +2218,23 @@
   #settings-pane-alertparams.ap-mod-only .form-group:not(.ap-modified) { display: none; }
   #settings-pane-alertparams.ap-mod-only .settings-section:not(:has(.form-group.ap-modified)) { display: none; }
   /* v6.3.0 (UX wave 2): async data-action buttons dim while their handler runs */
-  .btn-inflight { opacity: .55; pointer-events: none; cursor: progress; }
+  .btn-inflight { opacity: .55; pointer-events: none; cursor: progress; position: relative; }
+  /* v6.4.0: visible working indicator — dimming alone reads as "disabled",
+     not "busy". A small spinner says work is happening under the hood. */
+  .btn-inflight::after {
+    content: ''; display: inline-block; width: 10px; height: 10px;
+    margin-left: 6px; vertical-align: -1px; border-radius: 50%;
+    border: 2px solid currentColor; border-top-color: transparent;
+    animation: btn-spin .7s linear infinite;
+  }
+  @keyframes btn-spin { to { transform: rotate(360deg); } }
+  /* v6.4.0: completion pulse — a brief accent flash when the async handler
+     settles, so even a handler with no toast visibly "did something". */
+  .btn-done { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow .5s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .btn-inflight::after { animation: none; }
+    .btn-done { box-shadow: none; }
+  }
   /* v6.3.0 (UX wave 2): click-to-copy affordance */
   [data-copy] { cursor: copy; }
   /* v6.3.0 (UX wave 2): pager rows-per-page select — compact, pager-scale */

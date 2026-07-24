@@ -18854,6 +18854,8 @@ function _renderHomeActivity(fleetEvents) {
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
     'monitor_down', 'monitor_up', 'path_changed', 'mailflow_delayed', 'mailflow_ok',
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
+    // v6.4.0: the last five auto-heal recover events
+    'patch_ok', 'cve_cleared', 'tls_renewed', 'ecc_stable', 'secret_cleared',
     'service_down', 'service_up', 'unit_flapping', 'unit_flapping_cleared',   // v6.1.2
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'container_restarting_cleared', 'containers_stale', 'containers_current',
@@ -19084,7 +19086,9 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="self"`;
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
+  case 'cve_cleared':    return `${base} data-home-act="cve"`;   // v6.4.0 recover
     case 'patch_alert':    return `${base} data-home-act="patches"`;
+  case 'patch_ok':       return `${base} data-home-act="patches"`;   // v6.4.0 recover
     case 'patch_sla_violation': return `${base} data-home-act="patches"`;
     case 'patch_sla_ok':   return `${base} data-home-act="patches"`;
     case 'campaign_completed': return `${base} data-home-act="cve"`;
@@ -19112,6 +19116,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="history"`;
     case 'config_drift':   return `${base} data-home-act="devices"`;
     case 'tls_expiry':     return `${base} data-home-act="tls"`;
+  case 'tls_renewed':    return `${base} data-home-act="tls"`;   // v6.4.0 recover
     case 'ct_new_certificate': return `${base} data-home-act="tls"`;
     case 'snapshot_old': case 'snapshot_recovered':   return `${base} data-home-act="virtualization"`;
     case 'snmp_unreachable': case 'snmp_dead': case 'snmp_recover': case 'snmp_trap_received':
@@ -19131,6 +19136,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="netmap"`;
     case 'hostkey_changed':   // v6.1.2 (#40) — the drawer shows the fingerprints
     case 'ecc_errors':   // v6.1.2 — same disk-health/hardware page as SMART
+  case 'ecc_stable':   // v6.4.0 recover — routes with its firing sibling
     case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
@@ -19176,6 +19182,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #35: exposed secret → open the affected host's drawer.
     case 'secret_exposed':
+    case 'secret_cleared':   // v6.4.0 recover
     case 'canary_accessed':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v4.2.0 (B5): scan findings route to the Security Scans page
@@ -27103,6 +27110,31 @@ function _homeNavAction(btn) {
   }
 }
 
+// v6.4.0: universal button feedback. Every dispatched button whose handler
+// returns a promise shows a working state (dim + spinner + aria-busy) while it
+// runs and a brief accent pulse when it settles — so even a handler with no
+// toast visibly "did something under the hood". Shared by the data-action AND
+// data-action-btn paths (the latter previously had no feedback at all).
+// Restore is guarded: a handler that re-renders/replaces the button is
+// unaffected (the old node is simply discarded).
+function _btnInflight(el, ret) {
+  if (!ret || typeof ret.then !== 'function'
+      || !el || el.tagName !== 'BUTTON' || el.disabled) return;
+  el.disabled = true;
+  el.classList.add('btn-inflight');
+  el.setAttribute('aria-busy', 'true');
+  const _restore = () => {
+    el.disabled = false;
+    el.classList.remove('btn-inflight');
+    el.removeAttribute('aria-busy');
+    if (document.contains(el)) {
+      el.classList.add('btn-done');
+      setTimeout(() => el.classList.remove('btn-done'), 500);
+    }
+  };
+  ret.then(_restore, _restore);
+}
+
 // Delegated click handler for page-level buttons using data-action / data-arg
 document.addEventListener('click', e => {
   // data-remove-parent
@@ -27126,6 +27158,8 @@ document.addEventListener('click', e => {
   if (daEl) { const fn = _drawerActMap.get(daEl.dataset.drawerAct); if (fn) fn(); return; }
 
   // data-action-btn: functions that need the element passed as first arg
+  // (v6.4.0: gets the same _btnInflight busy/done feedback as data-action —
+  // it had none, so its buttons gave no sign anything was happening.)
   const btnEl = e.target.closest('[data-action-btn]');
   if (btnEl) {
     if (btnEl.dataset.stopProp) e.stopPropagation();
@@ -27145,8 +27179,9 @@ document.addEventListener('click', e => {
       return;
     }
     const boolArg = btnEl.dataset.argBool;
-    if (boolArg !== undefined) fn(btnEl, boolArg === 'true');
-    else fn(btnEl);
+    const _bret = (boolArg !== undefined) ? fn(btnEl, boolArg === 'true')
+                                          : fn(btnEl);
+    _btnInflight(btnEl, _bret);
     return;
   }
 
@@ -27191,18 +27226,7 @@ document.addEventListener('click', e => {
   // double-submit class app-wide with zero per-handler wiring). Restore is
   // guarded so a handler that re-renders/replaces the button is unaffected.
   const _ret = fn(...args);
-  if (_ret && typeof _ret.then === 'function'
-      && el.tagName === 'BUTTON' && !el.disabled) {
-    el.disabled = true;
-    el.classList.add('btn-inflight');
-    el.setAttribute('aria-busy', 'true');
-    const _restore = () => {
-      el.disabled = false;
-      el.classList.remove('btn-inflight');
-      el.removeAttribute('aria-busy');
-    };
-    _ret.then(_restore, _restore);
-  }
+  _btnInflight(el, _ret);
 
   if (el.dataset.action2) {
     const fn2 = window[el.dataset.action2];

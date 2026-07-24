@@ -529,9 +529,22 @@ def _webhook_message(event, payload):
     elif event == "service_up":
         return f'{name}: {payload.get("unit", "?")} is active again'
     elif event == "custom_check_failed":
-        return f'{name}: check "{payload.get("check_name", "?")}" failed' + (
+        msg = f'{name}: check "{payload.get("check_name", "?")}" failed' + (
             f' — {payload.get("output")}' if payload.get("output") else ""
         )
+        # v6.4.0: baseline-holding checks (file_hash / dir_baseline / multi-path
+        # file checks / job_fresh) fail because a WATCHED BASELINE changed — the
+        # remedy is accepting or resetting it, and operators reported not
+        # knowing where that lives. Keep the literal type tuple in sync with
+        # checks.BASELINE_CHECK_TYPES (guardrail-tested; notify stays
+        # api-import-free by design).
+        if payload.get("check_type") in (
+                "dir_baseline", "file_hash", "egress_baseline",
+                "auth_new_source"):
+            msg += (" · If this change is legitimate, accept it as the new "
+                    "baseline: Monitoring → Checks → this host's row → "
+                    "\"Accept change\" (or \"Reset baseline\").")
+        return msg
     elif event == "custom_check_recovered":
         return f'{name}: check "{payload.get("check_name", "?")}" recovered'
     elif event == "log_alert":
