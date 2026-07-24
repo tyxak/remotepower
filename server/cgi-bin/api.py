@@ -8464,6 +8464,14 @@ _ALERT_IDENTITY_FIELDS = (
     # the one row and left the other resource with NO open alert (invisible).
     'dep_edge',
     'ticket_id',
+    # v6.4.0: disk_predict_fail fires per DISK and software_policy_violation per
+    # RULE — without these two, several failing disks (or violated rules) on one
+    # host coalesced into ONE alert, so the per-disk / per-rule recovery
+    # (disk_predict_cleared / policy_compliant sub_match) cleared the single row
+    # and left the still-bad resources with no open alert. Same class as
+    # pool/process/iface above.
+    'disk',
+    'rule',
 )
 
 
@@ -9604,6 +9612,12 @@ def _record_alert(event, payload):
                                    # ALL of them have left the failed state)
                     'user', 'fingerprint', 'proto', 'port', 'process',
                     'age_hours', 'vm_name', 'vmid', 'snap_name', 'days_old',
+                    # v6.4.0: per-instance discriminators the recover events need
+                    # stored so they clear ONLY their own alert, not every sibling
+                    # on the host — disk (disk_predict_cleared), rule
+                    # (policy_compliant). proto/port (port_closed) + path
+                    # (backup_verified) are already above.
+                    'disk', 'rule',
                     # v6.2.0: which AV engine fired (clamav/rkhunter/defender).
                     # av_infected/av_warning have set this since v5.1.0 but it
                     # was never whitelisted, so the STORED alert lost it and the
@@ -9892,6 +9906,25 @@ def _auto_resolve_alerts(event, payload):
     elif event == 'mailbox_recovered':
         # v6.3.0: per mailbox path — clears that path's mailbox_threshold alert.
         sub_match['path'] = p.get('path')
+    elif event == 'port_closed':
+        # v6.4.0: new_port_detected fires per (proto, port); without this a
+        # closed :8080 cleared EVERY open new-port alert on the host. Match the
+        # exact socket (asymmetric bug vs the correct port_unexposed above).
+        sub_match['proto'] = p.get('proto')
+        sub_match['port'] = p.get('port')
+    elif event == 'backup_verified':
+        # v6.4.0: backup_verify_failed fires per backup path; a device-id-only
+        # recovery cleared every failed-verify alert on the host. Match the
+        # path (already whitelisted; sibling backup_recovered does the same).
+        sub_match['path'] = p.get('path')
+    elif event == 'policy_compliant':
+        # v6.4.0: software_policy_violation fires once per rule; without this,
+        # one rule going compliant cleared every open policy alert on the host.
+        sub_match['rule'] = p.get('rule')
+    elif event == 'disk_predict_cleared':
+        # v6.4.0: disk_predict_fail fires per disk; a device-id-only recovery
+        # cleared every disk-prediction alert on the host. Match the disk.
+        sub_match['disk'] = p.get('disk')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -24222,6 +24255,8 @@ def handle_config_get():
     safe.setdefault('disk_forecast_warn_days', 21)      # disk-fill ETA → warning
     safe.setdefault('oom_recent_window_seconds', OOM_RECENT_WINDOW_SECONDS)  # "recent OOM" window
     safe.setdefault('defender_sig_warn_days', 3)        # Defender sig age → warning (crit = av_sig_stale_days)
+    safe.setdefault('cpu_pct_warn', 85)                 # v6.4.0: Win/mac CPU% band
+    safe.setdefault('cpu_pct_crit', 95)
     safe.setdefault('patch_na_warn_count', 20)          # pending updates → NA warning (else info)
     safe.setdefault('container_restart_delta_threshold', CONTAINER_RESTART_DELTA_THRESHOLD)  # restart delta → alert
     safe.setdefault('container_restarting_min', 5)      # restart_count ≥ → "restarting" (staged; containers.py)
@@ -25474,6 +25509,9 @@ def handle_config_save():
         ('disk_forecast_warn_days',   1,   3650,   True),
         ('oom_recent_window_seconds', 60,  31536000, True),
         ('defender_sig_warn_days',    1,   365,    True),
+        # v6.4.0: Windows/macOS CPU-percent bands (previously hardcoded 85/95).
+        ('cpu_pct_warn',              1,   100,    True),
+        ('cpu_pct_crit',              1,   100,    True),
         ('patch_na_warn_count',       1,   100000, True),
         ('container_restart_delta_threshold', 1, 1000, True),
         ('container_restarting_min',  1,   1000,   True),
@@ -42201,6 +42239,11 @@ def _checks_threshold_kwargs(cfg):
                                         OOM_RECENT_WINDOW_SECONDS),
         'av_sig_stale_days':         _i('av_sig_stale_days', 7),
         'defender_sig_warn_days':    _i('defender_sig_warn_days', 3),
+        # v6.4.0: Windows/macOS CPU-percent band (the loadavg-ratio metric
+        # engine doesn't apply — those hosts report cpu_percent, not loadavg).
+        # Previously hardcoded 85/95 in checks.py with no way to tune.
+        'cpu_pct_warn':              _i('cpu_pct_warn', 85),
+        'cpu_pct_crit':              _i('cpu_pct_crit', 95),
     }
 
 

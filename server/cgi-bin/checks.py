@@ -73,6 +73,8 @@ def _host_checks(
     oom_recent_window_seconds=_SECONDS_PER_DAY,
     av_sig_stale_days=7,
     defender_sig_warn_days=3,
+    cpu_pct_warn=85,
+    cpu_pct_crit=95,
 ):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
@@ -132,13 +134,17 @@ def _host_checks(
     elif isinstance(si.get("cpu_percent"), (int, float)):
         # v6.2.0: Windows/macOS report cpu_percent, not a loadavg. Surface the same
         # CPU check row from that so the resources group isn't empty on Windows.
-        # Thresholds mirror the metric engine's default busy/overloaded bands.
+        # v6.4.0: bands are operator-tunable (Settings → Alert parameters);
+        # descending-clamp so an inverted config can't break the ladder.
         cpu = si["cpu_percent"]
+        _cw, _cc = cpu_pct_warn, cpu_pct_crit
+        if _cc <= _cw:
+            _cc = _cw + 1
         add(
             "cpu",
             "CPU load",
             "resources",
-            "critical" if cpu >= 95 else "warning" if cpu >= 85 else "ok",
+            "critical" if cpu >= _cc else "warning" if cpu >= _cw else "ok",
             f"{cpu:.0f}% busy",
         )
     for key, name, field in (

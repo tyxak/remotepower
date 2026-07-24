@@ -31,7 +31,9 @@ input's placeholder). Each section has its own **Save**.
   ms, pending-update count, controller disk-fill %, UPS battery/runtime, scrub
   and snapshot age, mail-queue depth, inode / file-descriptor / conntrack
   fullness, TLS and cert-file expiry days, contract / OS end-of-life days,
-  AV-signature staleness, disk-fill forecast horizon, and more.
+  AV-signature staleness, disk-fill forecast horizon, the Windows/macOS
+  **CPU-busy warn/critical %** *(v6.4.0 — Linux uses per-device load-ratio
+  thresholds in the device Thresholds modal instead)*, and more.
 - **Laptop offline grace** *(v6.3.0, Reachability)* — extra hours of
   silence allowed before a **laptop-chassis** host becomes an offline
   candidate. Agents report their DMI chassis class; set this to a commute's

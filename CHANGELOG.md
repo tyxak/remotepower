@@ -54,6 +54,27 @@ finding:
   suites, the per-page e2e smoke in real Chromium, and the full 8k-test
   suite both-backends-parallel.
 
+### Alerting audit — coverage, per-instance recovery, honest channeling
+A full audit of the Settings → Alert parameters page, the webhook-event
+routing matrix, and the notification-channel plumbing:
+- **The last un-tunable threshold is gone.** The Windows/macOS CPU-busy band
+  was hardcoded 85/95 in the Checks engine — now `cpu_pct_warn`/`cpu_pct_crit`
+  on the Alert-parameters page (descending-clamped so an inverted config can't
+  break the ladder). Every threshold that fires an alert or sets a grade band
+  is now operator-tunable.
+- **Four recover events cleared too much** — `disk_predict_cleared`,
+  `policy_compliant`, `backup_verified` and `port_closed` fell through to
+  device-id-only matching, so recovering ONE disk / rule / backup path / port
+  cleared *every* sibling alert on the host (the still-failing ones went
+  silent). Fixed with per-instance `sub_match` branches, and `disk`/`rule`
+  added to the coalesce-identity set so several failing disks/rules on one
+  host stay separate alerts (port/proto/path were already discriminators).
+- **Verified complete:** all 181 registered events route to a real channel
+  kind (nothing silently dropped), every `resolves=` target exists, the
+  frontend event registries are in lockstep, and all 14 notification formats
+  (Discord … Matrix) are wired end-to-end — server builder, dispatch, and
+  Settings dropdown.
+
 ### Cross-platform agent flag parity — no more silent "success" on mac/Windows
 Three heartbeat flags were Linux-only: the macOS and Windows agents received
 them and silently dropped them, so clicking **Scan packages**, **Update

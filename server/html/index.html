@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-18">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-19">
 
 </head>
 <body>
@@ -3815,8 +3815,16 @@
               <label for="ap-defender-warn-days" class="form-label">Defender sig warn (days)</label>
               <input type="number" id="ap-defender-warn-days" class="form-input isl-80" min="1" max="365" placeholder="3">
             </div>
+            <div class="form-group">
+              <label for="ap-cpu-pct-warn" class="form-label">CPU busy warn % (Windows/macOS)</label>
+              <input type="number" id="ap-cpu-pct-warn" class="form-input isl-80" min="1" max="100" placeholder="85">
+            </div>
+            <div class="form-group">
+              <label for="ap-cpu-pct-crit" class="form-label">CPU busy critical % (Windows/macOS)</label>
+              <input type="number" id="ap-cpu-pct-crit" class="form-input isl-80" min="1" max="100" placeholder="95">
+            </div>
           </div>
-          <p class="hint">Defender signature age: the Checks engine warns at the warn value and is critical at the AV-signature-stale value above — so all Defender-staleness surfaces agree.</p>
+          <p class="hint">Defender signature age: the Checks engine warns at the warn value and is critical at the AV-signature-stale value above — so all Defender-staleness surfaces agree. The CPU busy % bands apply to Windows/macOS hosts (which report a busy percentage); Linux hosts use per-device load-ratio thresholds in the device Thresholds modal.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
@@ -10717,34 +10725,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-18"></script>
+<script defer src="static/js/app.js?v=6.4.0-19"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-18"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-19"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-18"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-19"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-18"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-19"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-18"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-18"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-19"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-19"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10753,6 +10761,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      lockstep with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-18"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-19"></script>
 </body>
 </html>

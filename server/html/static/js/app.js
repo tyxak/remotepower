@@ -20781,6 +20781,8 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-disk-fc-warn',              'disk_forecast_warn_days',    21],
   ['ap-oom-window-s',              'oom_recent_window_seconds',  86400],
   ['ap-defender-warn-days',        'defender_sig_warn_days',     3],
+  ['ap-cpu-pct-warn',              'cpu_pct_warn',               85],   // v6.4.0
+  ['ap-cpu-pct-crit',              'cpu_pct_crit',               95],   // v6.4.0
   ['ap-patch-na-warn',             'patch_na_warn_count',        20],
   ['ap-container-restart-delta',   'container_restart_delta_threshold', 1],
   ['ap-container-restarting-min',  'container_restarting_min',   5],
