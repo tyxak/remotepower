@@ -556,7 +556,12 @@ class TestProbeFromSatellite(_HandlerBase):
         api.get_json_body = lambda: {'monitors': [
             {'type': 'ping', 'label': 'gw', 'target': '10.0.0.1', 'via_satellite': 'nope'}]}
         out = self.call(api.handle_config_save)
-        self.assertIn('unknown satellite', str(out))
+        # v6.4.0: the message is now phrased for the operator ("no longer
+        # registered") instead of the old bare "unknown satellite id" — assert
+        # the REJECTION and that it names the offending id, not the wording.
+        self.assertIn('nope', str(out))
+        self.assertIn('satellite', str(out))
+        self.assertNotIn("'ok': True", str(out))
         # known id → stored
         api.get_json_body = lambda: {'monitors': [
             {'type': 'ping', 'label': 'gw', 'target': '10.0.0.1', 'via_satellite': self.sid}]}

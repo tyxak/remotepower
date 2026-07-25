@@ -3486,8 +3486,12 @@ async function _addHttpFlowMonitor(label) {
   else monitors.push(entry);
   const wasEdit = _monitorEditIdx >= 0;
   const res = await api('POST', '/config', { monitors });
-  if (res?.ok) { toast(wasEdit ? 'Flow updated' : 'Flow added', 'success'); _monitorEditIdx = -1; closeModal('monitor-add-modal'); runMonitor(); }
-  else toast(res?.error || 'Failed', 'error');
+  if (res?.ok) {
+    toast(wasEdit ? 'Flow updated' : 'Flow added', 'success');
+    _monitorEditIdx = -1; closeModal('monitor-add-modal');
+    _warnStaleMonitors(res.monitor_warnings);
+    runMonitor();
+  } else toast(res?.error || 'Failed', 'error');
 }
 async function addMonitor() {
   const label  = document.getElementById('mon-label').value.trim();
@@ -3553,8 +3557,20 @@ async function addMonitor() {
     toast(wasEdit ? 'Monitor updated' : 'Monitor added', 'success');
     _monitorEditIdx = -1;
     closeModal('monitor-add-modal');
+    // The save can carry through OTHER monitors that no longer validate (a
+    // deleted satellite, a target whose DNS answer changed). They are kept
+    // as-is rather than blocking this save — but say so, or they rot unseen.
+    _warnStaleMonitors(res.monitor_warnings);
     runMonitor();
   } else toast(res?.error || 'Failed', 'error');
+}
+
+function _warnStaleMonitors(warnings) {
+  if (!Array.isArray(warnings) || !warnings.length) return;
+  const head = warnings.length === 1
+    ? '1 other monitor needs attention'
+    : `${warnings.length} other monitors need attention`;
+  toast(`${head}: ${warnings.join('; ')}`, 'error', {duration: 12000});
 }
 async function removeMonitor(idx) {
   const cfg = await api('GET', '/config'); if (!cfg) return;
@@ -3574,8 +3590,11 @@ async function removeMonitor(idx) {
         confirmText: 'Delete', danger: true })) return;
   const monitors = mons.filter((_, i) => i !== ci);
   const res = await api('POST', '/config', {monitors});
-  if (res?.ok) { toast('Monitor deleted', 'info'); runMonitor(); }
-  else toast(res?.error || 'Failed', 'error');
+  if (res?.ok) {
+    toast('Monitor deleted', 'info');
+    _warnStaleMonitors(res.monitor_warnings);
+    runMonitor();
+  } else toast(res?.error || 'Failed', 'error');
 }
 // v6.1.2: pause/resume a monitor without deleting it (which used to be the only
 // way to stop it probing — and threw away its history).

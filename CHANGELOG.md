@@ -4,6 +4,30 @@ All notable changes to RemotePower. Newest first.
 
 ## v6.4.0 — "Sh1eldMatters" — 2026-07-24
 
+### Monitors: a 400 you can act on, and one bad monitor no longer blocks the rest
+Two defects surfaced by a field report — "adding a monitor fails, only for
+http/https checks":
+- **The rejection message could not be acted on.** Every bad target produced
+  `Invalid monitor target: <url>`, which cannot distinguish a typo'd URL from a
+  perfectly good one that **this server's resolver** answers with a blocked
+  address. Only http/https (and tcp) resolve the hostname, which is why the
+  failure looked type-specific. The message now names the resolved IP and the
+  rule that rejected it — and for the common case, the exact setting that
+  permits it: *"bymanden.dk resolves to 127.0.0.1 on this server, which is a
+  loopback address … enable Settings → Allow monitoring of internal / loopback
+  targets"*. A filtering resolver answering `0.0.0.0` (Pi-hole, AdGuard) is
+  called out by name, as are link-local/metadata, bad schemes and a tcp target
+  with no port. Every message names the offending monitor, which matters
+  because the editor posts the whole list.
+- **One stale monitor blocked every other monitor edit.** The editor re-posts
+  the entire list, so a single pre-existing entry that no longer validates — a
+  satellite since deleted, an older-schema tcp entry without a port, a target
+  whose DNS answer changed — `400`d the whole save, naming the *other* monitor.
+  Adding or even **deleting** an unrelated monitor became impossible. Now only
+  the entry the operator actually touched hard-fails; an untouched broken entry
+  is carried through verbatim and reported in `monitor_warnings`, which the UI
+  raises as a toast so it can't rot unseen.
+
 ### KMIP key server — keep NAS and hypervisor encryption keys off the appliance
 An opt-in **KMIP key server** so storage appliances stop keeping their
 encryption keys on the same hardware that holds the encrypted data. Synology

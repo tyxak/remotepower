@@ -6284,28 +6284,99 @@ def current_username():
 # sanitize.py (imported at the top). _sanitize_monitor_target stays here because
 # it reads config (load(CONFIG_FILE)) and so isn't a pure leaf.
 
-def _sanitize_monitor_target(mtype, target):
-    """Validate monitor targets to prevent SSRF and flag injection."""
+def _ip_block_reason(ip_str, allow_loopback=True):
+    """Human-readable class name for an IP the SSRF guard rejects, else None.
+    Mirrors _ip_class_blocked's decisions exactly — keep the two in step."""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address):
+        inner = ip.ipv4_mapped or ip.sixtofour
+        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
+            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
+        if inner is not None:
+            ip = inner
+    if str(ip) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
+        return 'a cloud instance-metadata address'
+    if ip.is_loopback:
+        return None if allow_loopback else 'a loopback address'
+    if ip.is_link_local:
+        return 'a link-local / cloud-metadata address'
+    if ip.is_unspecified:
+        return 'the unspecified address 0.0.0.0 (a filtering resolver such as ' \
+               'Pi-hole or AdGuard answers this way for a blocked domain)'
+    if ip.is_multicast:
+        return 'a multicast address'
+    if ip.is_reserved:
+        return 'a reserved address'
+    return None
+
+
+def _monitor_host_block_reason(host, allow_loopback):
+    """Why the SSRF guard rejected `host`, phrased for the operator.
+
+    The old code returned a bare None from _sanitize_monitor_target, so the
+    handler could only say "Invalid monitor target: <url>" — which does not
+    distinguish a typo'd URL from a perfectly good one that THIS SERVER's
+    resolver happens to answer with a blocked address. That left the operator
+    with nothing to act on (the class of "UI text that doesn't explain" in
+    CLAUDE.md). Name the resolved IP and, for loopback, the exact setting that
+    permits it. Admin-gated endpoint, and it is the operator's own
+    infrastructure, so echoing the resolved address leaks nothing.
+    """
+    import socket
+    try:
+        addrs = {sa[0] for *_x, sa in socket.getaddrinfo(host, None)}
+    except socket.gaierror:
+        return None      # unresolvable is NOT a rejection — the guard allows it
+    for a in sorted(addrs):
+        why = _ip_block_reason(a, allow_loopback)
+        if why:
+            msg = (f'"{host}" resolves to {a} on this server, which is {why}. '
+                   'Monitoring it is blocked by the SSRF guard')
+            if 'loopback' in why:
+                msg += (' — enable Settings → "Allow monitoring of internal / '
+                        'loopback targets" if this is a service on the '
+                        'RemotePower host itself')
+            return msg + '.'
+    return None
+
+
+def _sanitize_monitor_target(mtype, target, with_reason=False):
+    """Validate monitor targets to prevent SSRF and flag injection.
+
+    Returns the cleaned target, or None when rejected. With `with_reason=True`
+    returns `(target_or_None, reason_or_None)` so the caller can tell the
+    operator WHY — the plain form is unchanged for the other call sites and
+    the existing tests.
+    """
+    def _out(value, reason=None):
+        return (value, reason) if with_reason else value
+
     target = str(target).strip()[:512]
     if mtype in ('ping', 'icmp', 'dns', 'path'):
         # hostname / IP only — no flags (leading dash). icmp = multi-ping;
         # dns = name to resolve; path (W4-15) = traceroute target. Same class.
         host = re.sub(r'[^a-zA-Z0-9.\-]', '', target)
         if not host or host.startswith('-'):
-            return None
-        return host
+            return _out(None, 'expected a hostname or IP address'
+                              + (' (a target cannot start with "-")'
+                                 if host.startswith('-') else ''))
+        return _out(host)
     elif mtype in ('tcp', 'db'):
         # host:port — validate both parts (db = credential-less DB liveness)
         host, _, port_s = target.partition(':')
         host = re.sub(r'[^a-zA-Z0-9.\-]', '', host)
         if not host or host.startswith('-'):
-            return None
+            return _out(None, 'expected host:port')
         try:
             port = int(port_s)
             if not (1 <= port <= 65535):
-                return None
+                return _out(None, f'port must be 1–65535 (got {port_s!r})')
         except (ValueError, TypeError):
-            return None
+            return _out(None, f'expected host:port — no valid port in {target!r}')
         # SSRF guard — same IP-class check the http branch applies. Without it a
         # tcp monitor was a blind internal port scanner (target 127.0.0.1:22 or
         # 169.254.169.254:80 returns open/closed as an oracle), ignoring the
@@ -6317,15 +6388,18 @@ def _sanitize_monitor_target(mtype, target):
         if _url_targets_local_or_meta(
                 urllib.parse.urlparse(f'//{host}', scheme='tcp'),
                 allow_loopback=allow_internal):
-            return None
-        return f"{host}:{port}"
+            return _out(None, _monitor_host_block_reason(host, allow_internal))
+        return _out(f"{host}:{port}")
     elif mtype == 'http':
         # Only allow http:// and https://, no file:// or internal schemes
         parsed = urllib.parse.urlparse(target)
         if parsed.scheme not in ('http', 'https'):
-            return None
+            return _out(None, 'an HTTP monitor needs a full URL starting with '
+                              'http:// or https://'
+                              + (f' (got scheme {parsed.scheme!r})'
+                                 if parsed.scheme else ''))
         if not (parsed.hostname or ''):
-            return None
+            return _out(None, 'the URL has no hostname')
         # SSRF guard via the shared IP classifier (handles IPv6 [::1],
         # integer/octal/hex IPv4 encodings, and DNS that the old literal
         # string-prefix blocklist missed). Cloud-metadata / link-local is
@@ -6336,9 +6410,10 @@ def _sanitize_monitor_target(mtype, target):
         cfg = load(CONFIG_FILE)
         allow_internal = bool(cfg.get('allow_internal_monitors', False))
         if _url_targets_local_or_meta(parsed, allow_loopback=allow_internal):
-            return None
-        return target
-    return None
+            return _out(None, _monitor_host_block_reason(parsed.hostname,
+                                                         allow_internal))
+        return _out(target)
+    return _out(None, f'unknown monitor type {mtype!r}')
 
 # ── Command history ────────────────────────────────────────────────────────────
 def log_command(actor, device_id, device_name, command):
@@ -25022,6 +25097,30 @@ def handle_config_save():
     if 'monitors' in body and isinstance(body['monitors'], list):
         validated = []
         _sats_cache = None      # W4-14: lazily loaded satellite registry for via_satellite
+        # The editor re-posts the WHOLE monitor list (it reads GET /config, appends
+        # one entry, and saves the lot back). So a single pre-existing entry that no
+        # longer validates — a satellite that has since been deleted, a tcp monitor
+        # stored without a port by an older schema, an http target whose DNS answer
+        # changed — used to 400 the entire save, and the error named the OTHER
+        # monitor. Adding an unrelated monitor became impossible with no obvious way
+        # to find out why. Fix: only the entry the operator actually TOUCHED is a
+        # hard failure; an untouched, already-stored entry is carried through
+        # verbatim and reported as a warning, so editing still works and nothing
+        # silently disappears. `_mon_stored` is the exact currently-saved list, so
+        # "untouched" means byte-identical, not merely similar.
+        import copy as _mon_copy      # api.py imports copy locally, not globally
+        _mon_stored = [e for e in (cfg.get('monitors') or []) if isinstance(e, dict)]
+        _mon_warnings = []
+
+        def _mon_reject(entry_label, reason, raw_entry):
+            """Hard-400 a touched entry; warn-and-keep an untouched stored one."""
+            if raw_entry in _mon_stored:
+                _mon_warnings.append(f'{entry_label}: {reason} — left unchanged')
+                validated.append(_mon_copy.deepcopy(raw_entry))
+                return
+            respond(400, {'error': f'{entry_label}: {reason}',
+                          'monitor': entry_label})
+
         for m in body['monitors'][:50]:  # max 50 monitors
             if not isinstance(m, dict):
                 continue
@@ -25029,11 +25128,14 @@ def handle_config_save():
             if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp', 'db',
                              'http_flow', 'path'):   # W4-13/15
                 continue
+            _mon_name = _sanitize_str(str(m.get('label')
+                                          or m.get('target') or mtype), 128)
             # W4-13: http_flow carries `steps`, not a single target. Validate the
             # steps and use the first step's URL as the display target.
             if mtype == 'http_flow':
                 raw_steps = m.get('steps') if isinstance(m.get('steps'), list) else []
                 steps = []
+                _bad_extract = None
                 for s in raw_steps[:5]:
                     if not isinstance(s, dict):
                         continue
@@ -25057,11 +25159,18 @@ def handle_config_save():
                             re.compile(str(ex['regex']))
                             st['extract'] = {'name': re.sub(r'[^A-Za-z0-9_]', '', str(ex['name']))[:32],
                                              'regex': str(ex['regex'])[:200]}
-                        except re.error:
-                            respond(400, {'error': 'invalid extract regex in http_flow'})
+                        except re.error as _ex_err:
+                            _bad_extract = ('a step\'s extract regex does not '
+                                            f'compile ({_ex_err})')
                     steps.append(st)
+                if _bad_extract:
+                    _mon_reject(_mon_name, _bad_extract, m)
+                    continue
                 if not steps:
-                    respond(400, {'error': 'http_flow needs at least one valid step (url)'})
+                    _mon_reject(_mon_name,
+                                'a browser-flow monitor needs at least one step '
+                                'with a http:// or https:// URL', m)
+                    continue
                 _flow_entry = {
                     'label': _sanitize_str(m.get('label', steps[0]['url']), 128),
                     'type': 'http_flow', 'target': steps[0]['url'][:255],
@@ -25078,15 +25187,22 @@ def handle_config_save():
             tkind = m.get('target_kind', 'host')
             if tkind in ('tag', 'group'):
                 if mtype not in ('ping', 'icmp', 'tcp'):
-                    respond(400, {'error': f'{mtype} cannot target a {tkind}; use ping/icmp/tcp'})
+                    _mon_reject(_mon_name,
+                                f'a {mtype} monitor cannot target a {tkind} — '
+                                'only ping, icmp and tcp can', m)
+                    continue
                 target = re.sub(r'[^a-zA-Z0-9_\-/. ]', '', raw_target)[:128].strip()
                 if not target:
-                    respond(400, {'error': f'a {tkind} name is required'})
+                    _mon_reject(_mon_name, f'a {tkind} name is required', m)
+                    continue
             else:
                 tkind = 'host'
-                target = _sanitize_monitor_target(mtype, raw_target)
+                target, _why = _sanitize_monitor_target(mtype, raw_target,
+                                                        with_reason=True)
                 if target is None:
-                    respond(400, {'error': f'Invalid monitor target: {raw_target[:80]}'})
+                    _mon_reject(_mon_name,
+                                _why or f'invalid target {raw_target[:80]!r}', m)
+                    continue
             entry = {
                 'label':  _sanitize_str(m.get('label', target), 128),
                 'type':   mtype,
@@ -25107,7 +25223,10 @@ def handle_config_save():
                         raise ValueError
                     entry['port'] = p
                 except (TypeError, ValueError):
-                    respond(400, {'error': 'tcp tag/group monitor needs a valid port'})
+                    _mon_reject(_mon_name,
+                                'a tcp monitor targeting a tag or group needs a '
+                                'port (the name carries none)', m)
+                    continue
             # v3.12.0: optional HTTP body content match.
             bm = m.get('body_match')
             if mtype == 'http' and isinstance(bm, dict) and bm.get('value'):
@@ -25117,8 +25236,11 @@ def handle_config_save():
                     val = _sanitize_str(str(bm.get('value', '')), 200)
                     try:
                         re.compile(val)
-                    except re.error:
-                        respond(400, {'error': f'invalid body_match regex on "{entry["label"]}"'})
+                    except re.error as _re_err:
+                        _mon_reject(_mon_name,
+                                    f'the body-match regex does not compile '
+                                    f'({_re_err})', m)
+                        continue
                     entry['body_match'] = {'mode': 'regex', 'value': val}
                 else:
                     entry['body_match'] = {
@@ -25138,7 +25260,8 @@ def handle_config_save():
             if mtype == 'db':
                 dk = m.get('db_kind', 'postgres')
                 if dk not in ('postgres', 'mysql', 'mariadb', 'redis', 'valkey'):
-                    respond(400, {'error': f'unknown db kind: {dk}'})
+                    _mon_reject(_mon_name, f'unknown database kind {dk!r}', m)
+                    continue
                 entry['db_kind'] = dk
             # v4.1.0: per-type assertions (all optional, validated to sane ranges).
             if mtype == 'dns' and m.get('expect'):
@@ -25171,7 +25294,10 @@ def handle_config_save():
                 if _sats_cache is None:
                     _sats_cache = load(SATELLITES_FILE) or {}
                 if vs not in _sats_cache:
-                    respond(400, {'error': f'via_satellite: unknown satellite id {vs!r}'})
+                    _mon_reject(_mon_name,
+                                f'it probes via satellite {vs!r}, which is no '
+                                'longer registered', m)
+                    continue
                 entry['via_satellite'] = vs
             # v6.4.0: SLA/SLO object attachments (checkboxes in the editor).
             _sids = _sanitize_slo_ids(m.get('slo_ids'))
@@ -26674,6 +26800,10 @@ def handle_config_save():
     # v3.14.0 (#30): if we just minted a SCIM token, return it once so the
     # operator can copy it into the IdP (it's masked on every subsequent GET).
     _resp = {'ok': True}
+    if locals().get('_mon_warnings'):
+        # Pre-existing monitors kept as-is because they no longer validate. The
+        # save succeeded; the operator still needs to know these are broken.
+        _resp['monitor_warnings'] = _mon_warnings
     if locals().get('_scim_minted_token'):
         _resp['scim_token'] = _scim_minted_token
     respond(200, _resp)
