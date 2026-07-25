@@ -120,6 +120,30 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### KMIP: certificates appliances actually accept
+Reported while importing into Synology DSM: *"there is no Subject Alternative
+Name"* and *"it says intermediate (not CA)"*. Both were real defects in the
+issued certificates, not DSM being fussy.
+- **The CA had no Authority Key Identifier and carried `pathlen:0`.** A
+  self-signed root normally references its own key in its AKI — that is how a
+  validator confirms it is self-issued rather than an intermediate whose parent
+  is missing. Combined with a path-length constraint of zero (the signature of
+  the *last* intermediate in a chain), DSM classified it as an intermediate and
+  would not use it as a trust anchor. The AKI is now self-referential and the
+  path length unconstrained.
+- **Client certificates had no SAN at all.** CN-only matching was deprecated by
+  RFC 6125, so modern validators flag a SAN-less leaf. Every certificate now
+  carries one — the server's from the configured hostnames/IPs, a client's
+  derived from its name as a DNS-safe label.
+- **Neither leaf had Subject/Authority Key Identifiers**, which is what chain
+  building uses. Both now do, and `openssl verify` accepts the chain.
+- The client CN dropped its `(kind)` suffix — it displays verbatim in appliance
+  UIs, where "nas-01 (synology)" reads like a mistake.
+- A CA minted by the earlier build is detected and **replaced automatically —
+  but only while no clients exist**. Once appliances depend on it, replacing it
+  would cut them off, so it is kept and flagged instead for a deliberate
+  re-issue.
+
 ### KMIP: handshake failures say what to fix
 OpenSSL names the protocol failure, not the operator's mistake. Three errors
 turned up within ten minutes of a real Synology setup session and each means

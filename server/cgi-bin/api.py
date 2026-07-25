@@ -1234,6 +1234,7 @@ for _km_name in (
         'handle_kmip_daemon_op',
         '_kmip_gen_ca', '_kmip_issue_cert', '_kmip_ensure_pki', '_kmip_log',
         '_cert_not_after_epoch', '_kmip_utcnow', '_kmip_secret_from_file',
+        '_kmip_ca_is_legacy', '_kmip_san_label',
         '_kmip_secret_file_exists',
         '_kmip_client_or_404', '_kmip_op_fail', '_kmip_object_visible',
         '_kmip_daemon_secret', '_kmip_secret_file', '_kmip_master_key',

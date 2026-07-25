@@ -243,6 +243,20 @@ def _kmip_key_usage(x509, cert_sign=False):
         encipher_only=False, decipher_only=False)
 
 
+def _kmip_san_label(cn):
+    """A DNS-safe label derived from a client name, for its SAN.
+
+    Names are operator-typed ("nas-01", "Rack 3 NAS"), so squeeze them into a
+    valid hostname label: lowercase, non-alphanumerics to '-', no leading or
+    trailing '-', max 63 octets. Falls back to a fixed label when nothing
+    usable survives — a SAN that exists always beats a missing one.
+    """
+    import re as _re
+    lab = _re.sub(r'[^a-z0-9-]+', '-', str(cn or '').strip().lower())
+    lab = _re.sub(r'-{2,}', '-', lab).strip('-')[:63].strip('-')
+    return lab or 'kmip-client'
+
+
 def _kmip_gen_ca():
     """Fresh RSA-3072 CA. Returns (cert_pem, key_pem, sha256_fp, not_after)."""
     x509, hashes, ser, rsa, NameOID, _eku, dt = _kmip_x509()
@@ -257,10 +271,23 @@ def _kmip_gen_ca():
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - dt.timedelta(minutes=5))
             .not_valid_after(now + dt.timedelta(days=_KMIP_CA_DAYS))
-            .add_extension(x509.BasicConstraints(ca=True, path_length=0),
+            # path_length=None, not 0. A self-signed root carrying
+            # `pathlen:0` reads to many appliance validators as the LAST
+            # INTERMEDIATE of a chain rather than a root — Synology DSM labels
+            # it "intermediate" and then cannot use it as a trust anchor. The
+            # constraint also buys little here: anyone holding this CA key can
+            # already mint any leaf they like, so forbidding sub-CAs does not
+            # meaningfully bound the damage.
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None),
                            critical=True)
             .add_extension(_kmip_key_usage(x509, cert_sign=True), critical=True)
             .add_extension(x509.SubjectKeyIdentifier.from_public_key(
+                key.public_key()), critical=False)
+            # A root's AKI points at its OWN key. Without it a validator cannot
+            # confirm the certificate is self-issued and treats it as an
+            # intermediate with a missing parent — the other half of why DSM
+            # refused to import this as a CA.
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
                 key.public_key()), critical=False)
             .sign(key, hashes.SHA256()))
     cert_pem = cert.public_bytes(ser.Encoding.PEM).decode()
@@ -295,20 +322,30 @@ def _kmip_issue_cert(cn, ca_cert_pem, ca_key_pem, days, server=False,
                .add_extension(x509.BasicConstraints(ca=False, path_length=None),
                               critical=True)
                .add_extension(_kmip_key_usage(x509), critical=True)
-               .add_extension(x509.ExtendedKeyUsage([eku]), critical=False))
-    if server and san_hosts:
-        sans = []
-        for h in san_hosts:
-            h = str(h).strip()
-            if not h:
-                continue
-            try:
-                sans.append(x509.IPAddress(ipaddress.ip_address(h)))
-            except ValueError:
-                sans.append(x509.DNSName(h))
-        if sans:
-            builder = builder.add_extension(
-                x509.SubjectAlternativeName(sans), critical=False)
+               .add_extension(x509.ExtendedKeyUsage([eku]), critical=False)
+               # Chain building uses these; without them some validators cannot
+               # link the leaf to the CA even when both are installed.
+               .add_extension(x509.SubjectKeyIdentifier.from_public_key(
+                   key.public_key()), critical=False)
+               .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                   ca_key.public_key()), critical=False))
+    sans = []
+    for h in (san_hosts or []):
+        h = str(h).strip()
+        if not h:
+            continue
+        try:
+            sans.append(x509.IPAddress(ipaddress.ip_address(h)))
+        except ValueError:
+            sans.append(x509.DNSName(h))
+    if not sans:
+        # Every certificate gets a SAN, client ones included. RFC 6125 and the
+        # CA/Browser rules deprecated matching on CN alone, so a SAN-less leaf
+        # is flagged by modern validators — Synology reports "no Subject
+        # Alternative Name" on import. Derive a hostname-safe label from the CN.
+        sans = [x509.DNSName(_kmip_san_label(cn))]
+    builder = builder.add_extension(
+        x509.SubjectAlternativeName(sans), critical=False)
     cert = builder.sign(ca_key, hashes.SHA256())
     cert_pem = cert.public_bytes(ser.Encoding.PEM).decode()
     key_pem = key.private_bytes(
@@ -348,9 +385,45 @@ def _kmip_hosts(store):
     return hosts
 
 
+def _kmip_ca_is_legacy(ca_pem):
+    """True for a CA minted before the v6.4.1 extension fix.
+
+    Those carry no AuthorityKeyIdentifier and a `pathlen:0` constraint, so
+    appliances classify them as an intermediate and refuse them as a trust
+    anchor. Detect by the missing AKI — cheap and unambiguous.
+    """
+    try:
+        from cryptography import x509
+        cert = x509.load_pem_x509_certificate(ca_pem.encode())
+        cert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier)
+        return False
+    except Exception:
+        return True
+
+
 def _kmip_ensure_pki(store, key):
-    """Generate CA + server cert on first enable (idempotent)."""
+    """Generate CA + server cert on first enable (idempotent).
+
+    Also self-heals a CA from the pre-v6.4.1 build — but ONLY when no clients
+    have been issued yet. Replacing the CA invalidates every certificate it
+    signed, so once appliances depend on it the operator has to make that call
+    deliberately (re-issue each client) rather than have a version bump cut
+    them off.
+    """
     changed = False
+    _ca_pem = (store.get('ca') or {}).get('cert_pem')
+    if _ca_pem and A._kmip_ca_is_legacy(_ca_pem):
+        if store.get('clients'):
+            store.setdefault('warnings', {})['legacy_ca'] = (
+                'This CA predates v6.4.1 and appliances may refuse it as a '
+                'trust anchor (it reports as an intermediate and has no '
+                'Authority Key Identifier). Re-issuing it would invalidate '
+                'every client certificate, so it was left alone.')
+        else:
+            # No clients yet — nothing can break, so replace it silently.
+            store.pop('ca', None)
+            store.pop('server_cert', None)
+            store.pop('warnings', None)
     if not (store.get('ca') or {}).get('cert_pem'):
         cert_pem, key_pem, fp, not_after = A._kmip_gen_ca()
         store['ca'] = {'cert_pem': cert_pem,
@@ -582,8 +655,7 @@ def handle_kmip_client_create():
         try:
             ca_key_pem = A.cmdb_vault.decrypt(key, ca['key_enc'])
             cert_pem, key_pem, fp, not_after = A._kmip_issue_cert(
-                f'{name} ({kind})', ca['cert_pem'], ca_key_pem,
-                _KMIP_CLIENT_CERT_DAYS)
+                name, ca['cert_pem'], ca_key_pem, _KMIP_CLIENT_CERT_DAYS)
         except A.HTTPError:
             raise
         except Exception as e:
@@ -648,8 +720,7 @@ def handle_kmip_client_reissue(cid):
             A.respond(400, {'error': 'KMIP CA missing — enable KMIP first'})
         ca_key_pem = A.cmdb_vault.decrypt(key, ca['key_enc'])
         cert_pem, key_pem, fp, not_after = A._kmip_issue_cert(
-            f"{c.get('name')} ({c.get('kind')})", ca['cert_pem'], ca_key_pem,
-            _KMIP_CLIENT_CERT_DAYS)
+            c.get('name'), ca['cert_pem'], ca_key_pem, _KMIP_CLIENT_CERT_DAYS)
         c['fingerprint'] = fp
         c['cert_pem'] = cert_pem
         c['not_after'] = not_after

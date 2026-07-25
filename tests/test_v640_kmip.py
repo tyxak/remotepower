@@ -593,6 +593,128 @@ class TestCryptographyVersionCompat(unittest.TestCase):
                          'read expiry through _cert_not_after_epoch')
 
 
+class TestCertificatesAreAppliancePortable(unittest.TestCase):
+    """Field report from a Synology import: "there is no Subject Alternative
+    Name", and "it says intermediate (not CA)". Both were real defects — the
+    CA carried no AuthorityKeyIdentifier and a pathlen:0 constraint (so
+    validators read it as the last intermediate of a chain rather than a
+    root), and client certificates had no SAN at all, which modern validators
+    reject since CN-only matching was deprecated."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ca_pem, cls.ca_key, _, _ = api._kmip_gen_ca()
+        cls.client_pem = api._kmip_issue_cert('nas-01', cls.ca_pem, cls.ca_key, 1825)[0]
+        cls.server_pem = api._kmip_issue_cert(
+            'remotepower-kmip', cls.ca_pem, cls.ca_key, 1460,
+            server=True, san_hosts=['kms.lan', '192.168.1.10'])[0]
+
+    @staticmethod
+    def _cert(pem):
+        from cryptography import x509
+        return x509.load_pem_x509_certificate(pem.encode())
+
+    def _ext(self, pem, cls_):
+        return self._cert(pem).extensions.get_extension_for_class(cls_).value
+
+    def test_ca_is_an_unconstrained_self_signed_root(self):
+        from cryptography import x509
+        cert = self._cert(self.ca_pem)
+        self.assertEqual(cert.issuer, cert.subject, 'must be self-signed')
+        bc = self._ext(self.ca_pem, x509.BasicConstraints)
+        self.assertTrue(bc.ca)
+        self.assertIsNone(bc.path_length,
+                          'pathlen:0 on a root makes appliances read it as an '
+                          'intermediate and refuse it as a trust anchor')
+
+    def test_ca_authority_key_id_points_at_itself(self):
+        from cryptography import x509
+        ski = self._ext(self.ca_pem, x509.SubjectKeyIdentifier)
+        aki = self._ext(self.ca_pem, x509.AuthorityKeyIdentifier)
+        self.assertEqual(aki.key_identifier, ski.digest,
+                         "a root's AKI must reference its own key, or a "
+                         'validator cannot tell it is self-issued')
+
+    def test_every_leaf_has_a_san(self):
+        from cryptography import x509
+        for label, pem in (('client', self.client_pem), ('server', self.server_pem)):
+            san = self._ext(pem, x509.SubjectAlternativeName)
+            self.assertTrue(list(san), f'{label} certificate has no SAN')
+
+    def test_client_san_is_derived_from_the_name(self):
+        from cryptography import x509
+        san = self._ext(self.client_pem, x509.SubjectAlternativeName)
+        self.assertIn('nas-01', san.get_values_for_type(x509.DNSName))
+
+    def test_server_san_carries_both_dns_and_ip(self):
+        import ipaddress
+        from cryptography import x509
+        san = self._ext(self.server_pem, x509.SubjectAlternativeName)
+        self.assertIn('kms.lan', san.get_values_for_type(x509.DNSName))
+        self.assertIn(ipaddress.ip_address('192.168.1.10'),
+                      san.get_values_for_type(x509.IPAddress))
+
+    def test_leaves_link_to_the_ca_for_chain_building(self):
+        from cryptography import x509
+        ca_ski = self._ext(self.ca_pem, x509.SubjectKeyIdentifier).digest
+        for label, pem in (('client', self.client_pem), ('server', self.server_pem)):
+            aki = self._ext(pem, x509.AuthorityKeyIdentifier)
+            self.assertEqual(aki.key_identifier, ca_ski, label)
+            self._ext(pem, x509.SubjectKeyIdentifier)      # must exist
+
+    def test_client_cn_has_no_decoration(self):
+        """It shows verbatim in the appliance UI; "nas-01 (synology)" reads
+        like a mistake and trips stricter name parsers."""
+        from cryptography.x509.oid import NameOID
+        cn = self._cert(self.client_pem).subject.get_attributes_for_oid(
+            NameOID.COMMON_NAME)[0].value
+        self.assertEqual(cn, 'nas-01')
+
+    def test_san_label_sanitises_operator_typed_names(self):
+        self.assertEqual(api._kmip_san_label('Rack 3 NAS!'), 'rack-3-nas')
+        self.assertEqual(api._kmip_san_label('  --weird--  '), 'weird')
+        self.assertEqual(api._kmip_san_label('***'), 'kmip-client')
+        self.assertLessEqual(len(api._kmip_san_label('x' * 200)), 63)
+
+
+class TestLegacyCaSelfHeal(_KmipHandlerCase):
+    """A CA minted by the pre-fix build is unusable as a trust anchor. Replace
+    it automatically while nothing depends on it; never once clients exist."""
+
+    def test_detector_flags_a_ca_without_an_authority_key_id(self):
+        self.assertFalse(api._kmip_ca_is_legacy(api._kmip_gen_ca()[0]))
+        self.assertTrue(api._kmip_ca_is_legacy('not a certificate'))
+
+    def test_legacy_ca_is_replaced_when_there_are_no_clients(self):
+        self.call(api.handle_kmip_config,
+                  body={'enabled': True, 'port': 5696, 'hosts': 'kms.test'})
+        store = api.load(api.KMIP_FILE)
+        original = store['ca']['fingerprint']
+        # Simulate the old build's output by stripping the AKI-bearing cert.
+        with api._LockedUpdate(api.KMIP_FILE) as st:
+            st['ca']['cert_pem'] = 'legacy placeholder without an AKI'
+        self.call(api.handle_kmip_config,
+                  body={'enabled': True, 'port': 5696, 'hosts': 'kms.test'})
+        fresh = api.load(api.KMIP_FILE)['ca']
+        self.assertNotEqual(fresh['fingerprint'], original)
+        self.assertFalse(api._kmip_ca_is_legacy(fresh['cert_pem']))
+
+    def test_legacy_ca_is_kept_and_flagged_once_clients_exist(self):
+        self.call(api.handle_kmip_config,
+                  body={'enabled': True, 'port': 5696, 'hosts': 'kms.test'})
+        self.call(api.handle_kmip_client_create,
+                  body={'name': 'nas-01', 'kind': 'synology'})
+        with api._LockedUpdate(api.KMIP_FILE) as st:
+            st['ca']['cert_pem'] = 'legacy placeholder without an AKI'
+        self.call(api.handle_kmip_config,
+                  body={'enabled': True, 'port': 5696, 'hosts': 'kms.test'})
+        store = api.load(api.KMIP_FILE)
+        self.assertEqual(store['ca']['cert_pem'],
+                         'legacy placeholder without an AKI',
+                         'replacing the CA would invalidate live client certs')
+        self.assertIn('legacy_ca', store.get('warnings') or {})
+
+
 class TestKmipClients(_KmipHandlerCase):
     def _new_client(self, name='nas-01', kind='synology'):
         return self.call(api.handle_kmip_client_create,
