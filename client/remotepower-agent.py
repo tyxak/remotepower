@@ -792,6 +792,23 @@ def _parse_hex_ip(h: str):
 # restore, not a dropped payload — report it, never auto-quarantine it.
 _GUARD_MASS_CHANGE = 25
 
+# Filenames that churn BY DESIGN and are therefore noise, not evidence. Matched
+# against the basename with fnmatch in the dir-integrity check.
+#
+# Snap mount units carry the snap REVISION in the name, so every `snap refresh`
+# removes snap-snapd-26865.mount and adds snap-snapd-27591.mount — plus the two
+# enable-symlinks under multi-user.target.wants/ and snapd.mounts.target.wants/.
+# A watch on /etc/systemd/system therefore reported a critical
+# added/removed diff every few days on any Ubuntu host, for a package manager
+# doing exactly its job. Real units keep stable names, so excluding the
+# revisioned pattern costs no detection: a malicious unit dropped in that
+# directory still has to be named something, and anything not matching these
+# patterns is still compared byte-for-byte.
+_CHECKDIR_CHURN = (
+    'snap-*.mount',          # snap-<name>-<revision>.mount + its .wants symlinks
+    'snap.*.service',        # per-revision snap app units
+)
+
 
 def _guard_quarantine(paths, check_id):
     """Integrity Guard: move flagged files into the on-host quarantine vault
@@ -6470,6 +6487,65 @@ def get_autoupdate_posture():
     return out
 
 
+def get_ssh_config():
+    """v6.4.1: the sshd settings that decide how hard this host is to get into.
+
+    `sshd -T` is the authoritative answer — it resolves Includes, Match blocks
+    and defaults, so it reports what sshd will ACTUALLY do rather than what the
+    main config file happens to say. It needs root (we have it) and a valid
+    config; if it fails for any reason we fall back to parsing the file, where
+    an absent directive means the compiled-in default.
+
+    Returns {} when sshd isn't installed at all — the absence of a finding is
+    correct there, and an empty dict keeps it out of the delta hash.
+    """
+    if not _which('sshd') and not os.path.exists(host_path('/etc/ssh/sshd_config')):
+        return {}
+    text = ''
+    sshd = _which('sshd')
+    if sshd:
+        try:
+            r = subprocess.run([sshd, '-T'], capture_output=True, text=True,
+                               timeout=10)
+            if r.returncode == 0:
+                text = r.stdout
+        except Exception:
+            text = ''
+    from_file = False
+    if not text:
+        text = _safe_read(host_path('/etc/ssh/sshd_config'), 65536) or ''
+        from_file = True
+        if not text:
+            return {}
+    vals = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.replace('=', ' ', 1).split(None, 1)
+        if len(parts) != 2:
+            continue
+        vals.setdefault(parts[0].lower(), parts[1].strip())
+    # sshd -T prints every directive; the file may omit them, in which case the
+    # compiled-in default applies. Reporting "not set" as "off" would invent a
+    # clean bill of health for a host we did not actually read.
+    defaults = {'permitrootlogin': 'prohibit-password',
+                'passwordauthentication': 'yes'}
+    out = {}
+    for key, field in (('permitrootlogin', 'permit_root_login'),
+                       ('passwordauthentication', 'password_authentication'),
+                       ('permitemptypasswords', 'permit_empty_passwords'),
+                       ('x11forwarding', 'x11_forwarding')):
+        v = vals.get(key)
+        if v is None and from_file:
+            v = defaults.get(key)
+        if v:
+            out[field] = str(v).split()[0][:32]
+    if out:
+        out['source'] = 'sshd -T' if not from_file else 'sshd_config'
+    return out
+
+
 def get_network_gateway():
     """v4.1.0: default gateway IP + ping reachability. {ip, reachable} or {}.
 
@@ -6757,6 +6833,8 @@ def _eval_one_agent_check(c):
                 dirs[:] = [d for d in dirs if d not in skip]
                 for fn in files:
                     if glob and not fnmatch.fnmatch(fn, glob):
+                        continue
+                    if any(fnmatch.fnmatch(fn, p) for p in _CHECKDIR_CHURN):
                         continue
                     fp = os.path.join(root, fn)
                     try:
@@ -9796,7 +9874,7 @@ def compute_drift_report(paths):
 # the response's delta_resend. Never omitted until the server has advertised
 # `delta_ok` — a new agent against an old server keeps sending full payloads.
 _DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
-                         'ssh_hostkeys', 'usb', 'autoupdate')
+                         'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config')
 
 
 def _stable_hash(value):
@@ -10490,6 +10568,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo['autoupdate'] = get_autoupdate_posture()
             except Exception as e:
                 log.debug(f'autoupdate probe error: {e}')
+            try:
+                sc = get_ssh_config()
+                if sc:
+                    sysinfo['ssh_config'] = sc
+            except Exception as e:
+                log.debug(f'ssh_config probe error: {e}')
             try:
                 hk = get_ssh_hostkeys()
                 if hk:

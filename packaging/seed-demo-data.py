@@ -1886,7 +1886,10 @@ def build_hardware() -> dict:
             'ts': ts,
         }
         if dev_id in temps_map:
-            rec['temps'] = [{'label': lbl, 'current_c': c} for lbl, c in temps_map[dev_id]]
+            # Same shape a real agent report lands in: board/CPU sensors live
+            # under `hardware`, unlike smart/gpus which sit at the top level.
+            rec['hardware'] = {'temps': [{'label': lbl, 'current_c': c}
+                                         for lbl, c in temps_map[dev_id]]}
         if dev_id in gpus_map:
             rec['gpus'] = gpus_map[dev_id]
         if dev_id in ups_map:
@@ -3415,7 +3418,7 @@ def build_thermal_history() -> dict:
     n, step = 48, 300
     out = {}
     for dev_id, rec in hw.items():
-        vals = [t.get('current_c') for t in (rec.get('temps') or [])
+        vals = [t.get('current_c') for t in ((rec.get('hardware') or {}).get('temps') or [])
                 if isinstance(t.get('current_c'), (int, float))]
         vals += [d.get('temperature_c') for d in (rec.get('smart') or [])
                  if isinstance(d.get('temperature_c'), (int, float))]

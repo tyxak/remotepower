@@ -108,11 +108,113 @@ def _failed_protect_checks(devs):
     return out
 
 
+def _advisory_brute_force(ids):
+    """{device_id: [{unit, source_ip, count}, …]} for hosts under active
+    guessing, using the same store and window the Home page reads.
+
+    advisory.py used to look for this under `sysinfo.brute_force`, a key
+    nothing has ever written.
+    """
+    if not A._config_ro().get('brute_force_enabled', True):
+        return {}
+    try:
+        store = A._load_ro(A.BRUTE_FORCE_FILE) or {}
+    except Exception:
+        return {}
+    cfg = A._config_ro()
+    window = int(cfg.get('brute_force_window_seconds') or A.BRUTE_WINDOW_SECONDS)
+    thresh = int(cfg.get('brute_force_threshold') or A.BRUTE_THRESHOLD)
+    cutoff = int(time.time()) - window
+    out = {}
+    for did in ids:
+        try:
+            rows = A._bf_active(store.get(did) or {}, cutoff, thresh)
+        except Exception:
+            continue
+        if rows:
+            out[did] = rows
+    return out
+
+
+def _advisory_stale_backups(ids, devs):
+    """{device_id: ['label — 96h old (threshold 24h)', …]} from the backup
+    monitor's own state, keyed `<device>:<path>` like the digest reads it."""
+    bs_file = A.DATA_DIR / 'backup_state.json'
+    if not A.backend_exists(bs_file):
+        return {}
+    try:
+        state = A._load_ro(bs_file) or {}
+    except Exception:
+        return {}
+    mons = {m['path']: m for m in (A._config_ro().get('backup_monitors') or [])
+            if isinstance(m, dict) and m.get('path')}
+    out = {}
+    for key, entry in state.items():
+        if ':' not in str(key) or not isinstance(entry, dict) or entry.get('ok', True):
+            continue
+        did, path = str(key).split(':', 1)
+        if did not in ids:
+            continue
+        mon = mons.get(path) or {}
+        age = entry.get('age_h')
+        max_h = mon.get('max_age_hours', 24)
+        try:
+            age_s = f'{float(age):.0f}h old' if age else 'missing'
+        except (TypeError, ValueError):
+            age_s = 'missing'
+        out.setdefault(did, []).append(
+            f"{mon.get('label') or path} — {age_s} (threshold {float(max_h):.0f}h)")
+    return out
+
+
+def _advisory_tls_expiring():
+    """[{label, days_left}] for monitored TLS targets at or past their warning
+    window — fleet-level, since the TLS monitor probes targets, not devices."""
+    try:
+        targets = A._load_ro(A.TLS_TARGETS_FILE) or {}
+        results = A._load_ro(A.TLS_RESULTS_FILE) or {}
+    except Exception:
+        return []
+    out = []
+    for tid, res in results.items():
+        if not isinstance(res, dict) or res.get('dns_error') or res.get('tls_error'):
+            continue
+        if not res.get('expires_at'):
+            continue
+        tgt = targets.get(tid) if isinstance(targets.get(tid), dict) else {}
+        host = tgt.get('host') or res.get('host') or tid
+        port = tgt.get('port') or res.get('port')
+        label = f'{host}:{port}' if port and int(port) != 443 else str(host)
+        try:
+            days = A.tls_monitor.days_until_expiry(res)
+        except Exception:
+            continue
+        if days <= 14:
+            out.append({'label': label, 'days_left': days})
+    out.sort(key=lambda c: c['days_left'])
+    return out[:25]
+
+
 def _build_advisory(devs):
     """Assemble the advisory. Every store is read read-only and passed in — the
     pure logic lives in advisory.py."""
     ids = set(devs)
-    cve = {d: v for d, v in (A._load_ro(A.CVE_FINDINGS_FILE) or {}).items() if d in ids}
+    cve = {}
+    ignore = A._load_ro(A.CVE_IGNORE_FILE) or {}
+    _kev, _epss = A._kev_epss()
+    for d, v in (A._load_ro(A.CVE_FINDINGS_FILE) or {}).items():
+        if d not in ids or not isinstance(v, dict):
+            continue
+        finds = list(v.get('findings') or [])
+        # `ignored` and `kev` are both read-time decorations the store does not
+        # carry — apply them here or the advisory keeps recommending an
+        # accepted-risk CVE and cannot tell an exploited one from the rest.
+        try:
+            finds = A.cve_scanner.apply_ignore_list(finds, ignore, d)
+            A._enrich_cve_findings(finds, _kev, _epss)
+        except Exception:
+            pass
+        cve[d] = {'findings': finds}
     pkgs = A._load_ro(A.PACKAGES_FILE) or {}
     eol = {}
     for d, dev in devs.items():
@@ -127,11 +229,19 @@ def _build_advisory(devs):
         tdid = s.get('target_device_id') or ''
         if tdid in ids:
             scans.setdefault(tdid, []).append(s)
+    secrets = {d: (v.get('findings') or [])
+               for d, v in (A._load_ro(A.SECRETS_FILE) or {}).items()
+               if d in ids and isinstance(v, dict)}
     return advisory.build(
         devs, cve_by_dev=cve, eol_by_dev=eol, scans_by_dev=scans,
         failed_checks_by_dev=A._failed_protect_checks(devs),
         exposure_mutes=(A._config_ro().get('exposure_mutes') or []),
-        muted_fn=A._exposure_muted, now=int(time.time()))
+        muted_fn=A._exposure_muted,
+        bf_by_dev=A._advisory_brute_force(ids),
+        secrets_by_dev=secrets,
+        backups_by_dev=A._advisory_stale_backups(ids, devs),
+        tls_expiring=A._advisory_tls_expiring(),
+        now=int(time.time()))
 
 
 # ── handlers ─────────────────────────────────────────────────────────────────

@@ -3526,11 +3526,15 @@ class TestDemoSeedCoversNewFeatures(unittest.TestCase):
 
     def test_hardware_has_thermal_power_sensors(self):
         hw = self.seed.build_hardware()
-        self.assertTrue(any(rec.get('temps') for rec in hw.values()), 'no temps seeded')
+        # v6.4.1: board/CPU sensors seed under `hardware`, the shape a real
+        # agent report lands in — `smart`/`gpus`/`ups` stay at the top level.
+        def _temps(rec):
+            return (rec.get('hardware') or {}).get('temps') or []
+        self.assertTrue(any(_temps(rec) for rec in hw.values()), 'no temps seeded')
         self.assertTrue(any(rec.get('ups') for rec in hw.values()), 'no UPS seeded')
         self.assertTrue(any(rec.get('gpus') for rec in hw.values()), 'no GPU seeded')
         # at least one host runs critically hot so the Thermal page shows red
-        hottest = max(t['current_c'] for rec in hw.values() for t in (rec.get('temps') or []))
+        hottest = max(t['current_c'] for rec in hw.values() for t in _temps(rec))
         self.assertGreaterEqual(hottest, 85.0)
 
     def test_kev_epss_overlay_seeded(self):

@@ -52,23 +52,40 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec):
     out = []
     si = dev.get('sysinfo') or {}
 
+    # The caller applies the CVE ignore list before handing findings over, so
+    # `ignored` is already stamped where it applies. (Until v6.4.1 it never was
+    # — the flag is a read-time decoration the scanner adds on a COPY, and the
+    # advisory read the raw store, so an accepted-risk CVE vanished from Risk
+    # and kept driving the advisory.)
     findings = (cve_rec or {}).get('findings') or []
     crit = [f for f in findings if isinstance(f, dict)
             and (f.get('severity') or '').lower() == 'critical' and not f.get('ignored')]
     high = [f for f in findings if isinstance(f, dict)
             and (f.get('severity') or '').lower() == 'high' and not f.get('ignored')]
     if crit or high:
-        ev = [f"{f.get('vuln_id', '?')} in {f.get('package', '?')}"
-              for f in (crit + high)[:6]]
+        # KEV membership means "observed being exploited in the wild right now",
+        # which outranks severity: a KEV-listed high is more urgent than a
+        # critical nobody has weaponised. The scanner stamps `kev` per finding.
+        kev = [f for f in (crit + high) if f.get('kev')]
+        ev = [(f"{f.get('vuln_id', '?')} in {f.get('package', '?')}"
+               + (' — KEV, exploited in the wild' if f.get('kev') else ''))
+              for f in (kev + [f for f in (crit + high) if not f.get('kev')])[:6]]
         out.append(_finding(
-            'os.cve', 'os', 'critical' if crit else 'high',
-            f'{len(crit) + len(high)} critical/high CVEs in installed packages',
-            'These are known-exploitable flaws in software this host is running '
-            'right now. Public exploit code usually appears within days of '
-            'disclosure, and mass scanning follows within hours of that.',
-            'Patch the named packages, then re-run the CVE scan to confirm. '
-            'Use Security → CVEs → “Fix this first” for the exposure-weighted '
-            'order if you cannot patch everything at once.',
+            'os.cve', 'os', 'critical' if (crit or kev) else 'high',
+            (f'{len(kev)} actively-exploited (KEV) '
+             f'and {len(crit) + len(high) - len(kev)} other critical/high CVEs'
+             if kev else
+             f'{len(crit) + len(high)} critical/high CVEs in installed packages'),
+            ('These are known-exploitable flaws in software this host is running '
+             'right now. Public exploit code usually appears within days of '
+             'disclosure, and mass scanning follows within hours of that.'
+             + (' The KEV-listed ones are not a forecast — CISA lists them '
+                'because exploitation has already been observed.' if kev else '')),
+            ('Patch the KEV-listed packages first — those are being exploited '
+             'today. Then work down the rest. '
+             if kev else 'Patch the named packages, then re-run the CVE scan to confirm. ')
+            + 'Use Security → CVEs → “Fix this first” for the exposure-weighted '
+              'order if you cannot patch everything at once.',
             device_id=dev_id, device=name, evidence=ev, source='CVE scan',
             doc='docs/cve.md'))
 
@@ -123,7 +140,9 @@ def _os_findings(dev_id, name, dev, cve_rec, eol_rec):
     if eol in ('eol', 'expired'):
         out.append(_finding(
             'os.eol', 'os', 'high',
-            f"{si.get('os') or 'The operating system'} is past end-of-life",
+            # The OS string lives on the device, not in sysinfo — reading
+            # si['os'] always degraded this to the generic wording.
+            f"{dev.get('os') or 'The operating system'} is past end-of-life",
             'No further security updates will ever be issued. Every flaw found '
             'from now on stays unpatched on this host permanently.',
             'Plan an upgrade to a supported release. Until then, treat the host '
@@ -172,31 +191,50 @@ def _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn):
             device_id=dev_id, device=name, source='firewall posture',
             doc='docs/firewall.md'))
 
-    for c in (si.get('tls_certs') or []):
+    return out
+
+
+def _tls_findings(tls_expiring):
+    """TLS certificates about to expire — a FLEET-level finding.
+
+    Until v6.4.1 this read `sysinfo.tls_certs`, a key no agent has ever set and
+    the heartbeat sanitizer has never whitelisted, so the finding could not
+    fire. The real data is the TLS monitor's own probe results, which are keyed
+    by monitored target rather than by device — hence no device_id here.
+    """
+    out = []
+    for c in tls_expiring or []:
         if not isinstance(c, dict):
             continue
         try:
-            days = int(c.get('days_left') or 0)
+            days = int(c.get('days_left'))
         except (TypeError, ValueError):
             continue
-        if not c.get('days_left') and c.get('days_left') != 0:
-            continue
-        if days <= 14:
+        label = str(c.get('label') or '?')
+        if days < 0:
+            out.append(_finding(
+                'exp.tls.expired', 'exposure', 'critical',
+                f'TLS certificate for {label} has expired',
+                'The service is presenting an invalid certificate right now. '
+                'Clients either fail outright or are being taught to click '
+                'through the warning, which is the worse outcome.',
+                'Renew it immediately. If ACME is configured, the renewal has '
+                'been failing for weeks — fix the cause, not just this cert.',
+                source='TLS monitor', doc='docs/tls-monitor.md'))
+        elif days <= 14:
             out.append(_finding(
                 'exp.tls', 'exposure', 'high' if days <= 3 else 'medium',
-                f"TLS certificate for {c.get('cn') or c.get('domain') or '?'} "
-                f"expires in {days} day(s)",
+                f'TLS certificate for {label} expires in {days} day(s)',
                 'An expired certificate breaks the service outright and trains '
                 'users to click through certificate warnings, which is worse '
                 'than the outage.',
                 'Renew it. If ACME is configured, check why the renewal did not '
                 'run rather than renewing by hand.',
-                device_id=dev_id, device=name, source='TLS monitor',
-                doc='docs/tls-monitor.md'))
+                source='TLS monitor', doc='docs/tls-monitor.md'))
     return out
 
 
-def _identity_findings(dev_id, name, dev):
+def _identity_findings(dev_id, name, dev, bf_sources=None):
     """Who can get in, and how."""
     out = []
     si = dev.get('sysinfo') or {}
@@ -212,6 +250,18 @@ def _identity_findings(dev_id, name, dev):
                 device_id=dev_id, device=name,
                 evidence=[f"PermitRootLogin {ssh.get('permit_root_login')}"],
                 source='sshd config', doc='docs/security.md'))
+        if str(ssh.get('permit_empty_passwords', '')).lower() == 'yes':
+            out.append(_finding(
+                'id.sshempty', 'identity', 'critical',
+                'SSH accepts accounts with an empty password',
+                'Any account on this host with a blank password can be logged '
+                'into from anywhere, with no credential at all. This is one '
+                'misconfigured user away from an open shell.',
+                'Set PermitEmptyPasswords no, then audit for accounts that '
+                'actually have a blank password — the setting is only half of it.',
+                device_id=dev_id, device=name,
+                evidence=['PermitEmptyPasswords yes'],
+                source='sshd config', doc='docs/security.md'))
         if str(ssh.get('password_authentication', '')).lower() == 'yes':
             out.append(_finding(
                 'id.sshpw', 'identity', 'medium', 'SSH accepts password authentication',
@@ -221,17 +271,62 @@ def _identity_findings(dev_id, name, dev):
                 device_id=dev_id, device=name, source='sshd config',
                 doc='docs/security.md'))
 
-    bf = si.get('brute_force') or {}
-    if isinstance(bf, dict) and (bf.get('failed') or 0) > 50:
+    # Brute-force pressure. Until v6.4.1 this read `sysinfo.brute_force`, which
+    # nothing writes — the real data has always lived in its own store, keyed
+    # per device, and is passed in by the caller.
+    if bf_sources:
+        attempts = sum(int(s.get('count') or 0) for s in bf_sources
+                       if isinstance(s, dict))
+        ev = [f"{s.get('count')} failed from {s.get('source_ip')} "
+              f"({s.get('unit') or 'auth'})"
+              for s in bf_sources[:6] if isinstance(s, dict)]
+        # fail2ban is the fix we recommend — say whether it is even installed
+        # rather than telling the operator to check something we already know.
+        f2b = si.get('fail2ban')
+        jails = (f2b.get('jails') or []) if isinstance(f2b, dict) else []
+        if isinstance(f2b, dict) and not f2b.get('available'):
+            f2b_note = (' fail2ban is not installed on this host, so nothing is '
+                        'currently rate-limiting the attempts.')
+        elif isinstance(f2b, dict) and not jails:
+            f2b_note = (' fail2ban is installed but has no active jails, so it '
+                        'is not banning anything.')
+        else:
+            f2b_note = ''
         out.append(_finding(
-            'id.bruteforce', 'identity', 'medium',
-            f"{bf.get('failed')} failed authentication attempts",
+            'id.bruteforce', 'identity', 'high' if len(bf_sources) > 2 else 'medium',
+            f'{attempts} failed authentication attempts from '
+            f'{len(bf_sources)} source(s)',
             'Sustained guessing means this host is a known target. It only has '
             'to succeed once.',
-            'Confirm fail2ban (or equivalent) is running and jailing, and turn '
-            'off password authentication if it is still on.',
-            device_id=dev_id, device=name, source='auth log',
+            'Block the source addresses, confirm fail2ban (or equivalent) is '
+            'jailing them, and turn off password authentication if it is still '
+            'on.' + f2b_note,
+            device_id=dev_id, device=name, evidence=ev, source='auth log',
             doc='docs/security.md'))
+
+    # Windows posture — the identity/endpoint controls that keep an operator
+    # account from becoming an administrator one.
+    wp = si.get('win_posture')
+    if isinstance(wp, dict):
+        gaps = []
+        if wp.get('tamper_protection') is False:
+            gaps.append('Defender tamper protection is off')
+        if wp.get('uac_enabled') is False:
+            gaps.append('UAC is disabled')
+        if wp.get('secure_boot') is False:
+            gaps.append('Secure Boot is off')
+        if gaps:
+            out.append(_finding(
+                'id.winposture', 'identity',
+                'high' if wp.get('tamper_protection') is False else 'medium',
+                f'{len(gaps)} Windows security control(s) disabled',
+                'These are the controls that stop malware from disabling the '
+                'rest. With tamper protection off, the first thing a payload '
+                'does is turn Defender off — and it will succeed.',
+                'Re-enable them via Group Policy or Intune so a local change '
+                'cannot switch them back off.',
+                device_id=dev_id, device=name, evidence=gaps,
+                source='Windows posture', doc='docs/security.md'))
     return out
 
 
@@ -269,6 +364,83 @@ def _integrity_findings(dev_id, name, dev, failed_checks):
             device_id=dev_id, device=name,
             evidence=[str(c.get('output', ''))[:200]] if c.get('output') else None,
             source='protect check', doc='docs/integrity-guard.md'))
+    return out
+
+
+def _data_findings(dev_id, name, dev, secrets, stale_backups):
+    """What is on the disk that should not be, and what is not backed up.
+
+    The `data` layer was declared in LAYERS from the start but had no builder
+    until v6.4.1, so two of the most actionable stores in the product — the
+    secret scanner and backup freshness — reached the advisory nowhere.
+    """
+    out = []
+    si = dev.get('sysinfo') or {}
+
+    live = [f for f in (secrets or [])
+            if isinstance(f, dict) and not f.get('muted')]
+    if live:
+        ev = [f"{f.get('rule') or 'secret'} in {f.get('path') or '?'}"
+              + (f":{f.get('line')}" if f.get('line') else '')
+              for f in live[:6]]
+        out.append(_finding(
+            'data.secrets', 'data', 'high',
+            f'{len(live)} credential(s) found in files on disk',
+            'A key checked into a config file or left in a script is a '
+            'credential with no expiry, no audit trail and no revocation — and '
+            'anyone who reads the file has it. Backups and container images '
+            'carry the copies along.',
+            'Rotate each one first (assume it is compromised), then remove it '
+            'from the file and load it from a secret store or the environment. '
+            'Mute a match on Security → Secrets only once you have confirmed '
+            'it is a placeholder.',
+            device_id=dev_id, device=name, evidence=ev,
+            source='secret scan', doc='docs/secret-scan.md'))
+
+    if stale_backups:
+        ev = [str(b)[:120] for b in stale_backups[:6]]
+        out.append(_finding(
+            'data.backup', 'data', 'high',
+            f'{len(stale_backups)} backup(s) stale or missing',
+            'A backup you believe in and do not have is worse than no backup '
+            'at all — it is the difference between planning a restore and '
+            'discovering there is nothing to restore from, during the incident.',
+            'Find out why the job stopped producing files. Then run a restore '
+            'drill against what you do have, because an unverified backup is '
+            'still an assumption.',
+            device_id=dev_id, device=name, evidence=ev,
+            source='backup monitor', doc='docs/backups.md'))
+
+    # Disk encryption — the one control that makes a stolen or RMA'd disk a
+    # non-event. Reported per platform; Linux has no equivalent signal yet.
+    mp = si.get('mac_posture')
+    if isinstance(mp, dict) and mp.get('filevault') is False:
+        out.append(_finding(
+            'data.filevault', 'data', 'high', 'FileVault disk encryption is off',
+            'Everything on the disk is readable by anyone who can boot from '
+            'external media or pull the drive — no password required.',
+            'Turn FileVault on (System Settings → Privacy & Security) and '
+            'escrow the recovery key somewhere you will still have access to.',
+            device_id=dev_id, device=name, source='macOS posture',
+            doc='docs/security.md'))
+    wp = si.get('win_posture')
+    if isinstance(wp, dict) and isinstance(wp.get('bitlocker'), list):
+        unenc = [v for v in wp['bitlocker'] if isinstance(v, dict)
+                 and str(v.get('status') or '').lower() not in
+                 ('', 'fullyencrypted', 'encryptioninprogress')]
+        if unenc:
+            out.append(_finding(
+                'data.bitlocker', 'data', 'high',
+                f'{len(unenc)} volume(s) not encrypted with BitLocker',
+                'Everything on the volume is readable by anyone who can boot '
+                'from external media or pull the drive — no password required.',
+                'Enable BitLocker on the named volumes and escrow the recovery '
+                'keys in AD/Entra so an encrypted disk does not become an '
+                'unrecoverable one.',
+                device_id=dev_id, device=name,
+                evidence=[f"{v.get('mount') or '?'} — {v.get('status') or 'unprotected'}"
+                          for v in unenc[:6]],
+                source='Windows posture', doc='docs/security.md'))
     return out
 
 
@@ -323,7 +495,8 @@ def _application_findings(dev_id, name, scans):
 # ── the roll-up ──────────────────────────────────────────────────────────────
 def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           failed_checks_by_dev=None, exposure_mutes=None, muted_fn=None,
-          now=None):
+          bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
+          tls_expiring=None, now=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -338,6 +511,9 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     eol_by_dev = eol_by_dev or {}
     scans_by_dev = scans_by_dev or {}
     failed_checks_by_dev = failed_checks_by_dev or {}
+    bf_by_dev = bf_by_dev or {}
+    secrets_by_dev = secrets_by_dev or {}
+    backups_by_dev = backups_by_dev or {}
 
     findings = []
     for dev_id, dev in (devices or {}).items():
@@ -347,10 +523,14 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
         findings += _os_findings(dev_id, name, dev, cve_by_dev.get(dev_id),
                                  eol_by_dev.get(dev_id))
         findings += _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn)
-        findings += _identity_findings(dev_id, name, dev)
+        findings += _identity_findings(dev_id, name, dev, bf_by_dev.get(dev_id))
         findings += _integrity_findings(dev_id, name, dev,
                                         failed_checks_by_dev.get(dev_id))
+        findings += _data_findings(dev_id, name, dev, secrets_by_dev.get(dev_id),
+                                   backups_by_dev.get(dev_id))
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))
+    # Fleet-level: the TLS monitor probes targets, not devices.
+    findings += _tls_findings(tls_expiring)
 
     # Group identical findings across hosts: "23 hosts have pending updates" is
     # one decision, not 23 rows. The per-host detail is kept underneath.

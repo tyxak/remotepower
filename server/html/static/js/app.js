@@ -3693,15 +3693,6 @@ function _renderSloObjects() {
   const isAdmin = !!(_meCache && _meCache.admin);
   // Non-admins can't save slo_objects — don't offer a form that 403s.
   document.querySelector('#section-slo .enroll-btn')?.classList.toggle('d-none', !isAdmin);
-  // Empty-state CTA (admin only): the fastest path from "what is this panel?"
-  // to a first object.
-  if (isAdmin && !(window._sloObjects || []).length && want === 'all') {
-    const cell = document.querySelector('#slo-tbody .empty-state');
-    if (cell && !cell.querySelector('[data-action="openSloAdd"]')) {
-      cell.insertAdjacentHTML('beforeend',
-        `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openSloAdd">${_icon('plus', 14)} Add SLO object</button></div>`);
-    }
-  }
 }
 function openSloAdd() {
   _sloEditId = null;

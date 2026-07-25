@@ -1043,6 +1043,7 @@ advisory_handlers_mod.bind(globals())
 for _ad_name in (
         'handle_security_advisory', 'handle_security_advisory_brief',
         '_advisory_scope', '_build_advisory', '_failed_protect_checks',
+        '_advisory_brute_force', '_advisory_stale_backups', '_advisory_tls_expiring',
 ):
     globals()[_ad_name] = getattr(advisory_handlers_mod, _ad_name)
 del _ad_name
@@ -17874,7 +17875,7 @@ def _agent_mtls_ok(dev_id):
 _METRIC_SEEDED = set()
 
 _DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network',
-                         'ssh_hostkeys', 'usb', 'autoupdate')
+                         'ssh_hostkeys', 'usb', 'autoupdate', 'ssh_config')
 
 
 def handle_heartbeat():
@@ -18121,6 +18122,20 @@ def handle_heartbeat():
                     'enabled': bool(_au.get('enabled')),
                     'mechanism': _sanitize_str(str(_au.get('mechanism', '')), 48),
                 }
+            # v6.4.1: resolved sshd posture (root login / password auth). The
+            # Security Advisory's whole identity layer keys off this — it was
+            # written against the field for releases while nothing collected or
+            # persisted it, so every identity finding was unreachable.
+            _sc = si.get('ssh_config')
+            if isinstance(_sc, dict):
+                safe_sc = {}
+                for _sk in ('permit_root_login', 'password_authentication',
+                            'permit_empty_passwords', 'x11_forwarding', 'source'):
+                    _sv = _sc.get(_sk)
+                    if isinstance(_sv, str) and _sv:
+                        safe_sc[_sk] = _sanitize_str(_sv, 32)
+                if safe_sc:
+                    safe_si['ssh_config'] = safe_sc
             # v6.3.0: chassis class — the offline sweep's laptop grace and the
             # drawer read this; safe_si is a WHITELIST, drop = feature dead.
             _ch = si.get('chassis')
@@ -40694,6 +40709,24 @@ def handle_av_scan(dev_id):
     _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
 
 
+def _hw_temps(rec):
+    """Board/CPU sensor list out of a persisted hardware.json record.
+
+    `smart` and `gpus` sit at the record's top level but `temps` is written
+    one level deeper, under `hardware` — reading it flat (as three call sites
+    did until v6.4.1) silently yields [] on every real agent-reported host, so
+    the Thermal page and the overheating risk signal saw disks and GPUs only.
+    The flat fallback keeps older records and the seeded demo data working.
+    """
+    if not isinstance(rec, dict):
+        return []
+    nested = (rec.get('hardware') or {}) if isinstance(rec.get('hardware'), dict) else {}
+    temps = nested.get('temps')
+    if not isinstance(temps, list):
+        temps = rec.get('temps')
+    return temps if isinstance(temps, list) else []
+
+
 def _ingest_hardware(dev_id, dev_name, body, now):
     """Persist the agent's SMART / kernel / hardware report and fire
     edge-triggered events (smart_failure, kernel_outdated).
@@ -40851,7 +40884,9 @@ def _ingest_hardware(dev_id, dev_name, body, now):
         if isinstance(temps, list):
             safe['temps'] = [
                 {'label': _sanitize_str(str(t.get('label', '')), 64),
-                 'current_c': round(float(t['current_c']), 1)}
+                 'current_c': round(float(t['current_c']), 1),
+                 **({'crit_c': round(float(t['crit_c']), 1)}
+                    if isinstance(t.get('crit_c'), (int, float)) else {})}
                 for t in temps[:MAX_TEMPS]
                 if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))
             ]
@@ -44349,7 +44384,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
              f"{eol.get('label', 'OS')} reaches end-of-life in {eol.get('days', 0)}d")
     # Overheating — hottest board/disk/GPU sensor vs the thermal thresholds.
     hottest_c = None
-    for _src, _key in ((hw_rec.get('temps') or [], 'current_c'),
+    for _src, _key in ((_hw_temps(hw_rec), 'current_c'),
                        (hw_rec.get('smart') or [], 'temperature_c'),
                        (hw_rec.get('gpus') or [], 'temp_c')):
         for _e in _src:
@@ -44621,7 +44656,7 @@ def _device_reliability(dev_id, dev, hw_rec, smart_hist, health_series, uptime_r
                  f'health score trending down (~{abs(slope):.1f} points/day)')
 
     # ── heat kills hardware ───────────────────────────────────────────────────
-    temps = [t.get('current_c') for t in (hw_rec.get('temps') or [])
+    temps = [t.get('current_c') for t in _hw_temps(hw_rec)
              if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))]
     # v6.2.2 batch 3: operator-configurable overheating threshold.
     _crit_c = float(_config_ro().get('thermal_crit_c', THERMAL_CRIT_C) or THERMAL_CRIT_C)
@@ -57137,7 +57172,9 @@ def handle_fleet_thermal():
         sensors = 0
         detail = []      # per-sensor breakdown (hover); capped below
         gpu_extra = None  # fan/util/power, carried when a GPU is the hottest sensor
-        for t in (hw.get('temps') or []):
+        for t in _hw_temps(hw):
+            if not isinstance(t, dict):
+                continue
             c = t.get('current_c')
             if not isinstance(c, (int, float)):
                 continue
