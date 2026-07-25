@@ -662,6 +662,30 @@ class TestCertificatesAreAppliancePortable(unittest.TestCase):
             self.assertEqual(aki.key_identifier, ca_ski, label)
             self._ext(pem, x509.SubjectKeyIdentifier)      # must exist
 
+    def test_both_leaves_carry_both_ekus(self):
+        """KMIP mutual TLS blurs the roles. The reference implementation known
+        to work with Synology DSM (rnurgaliyev/kmip-server-dsm) issues
+        `serverAuth, clientAuth` on BOTH its server and client certificates; a
+        single-purpose EKU is stricter than the appliances expect."""
+        from cryptography import x509
+        from cryptography.x509.oid import ExtendedKeyUsageOID
+        for label, pem in (('client', self.client_pem), ('server', self.server_pem)):
+            eku = set(self._ext(pem, x509.ExtendedKeyUsage))
+            self.assertIn(ExtendedKeyUsageOID.SERVER_AUTH, eku, label)
+            self.assertIn(ExtendedKeyUsageOID.CLIENT_AUTH, eku, label)
+
+    def test_client_san_uses_the_appliance_address_when_given(self):
+        """The reference encodes the NAS's OWN address in its client cert
+        (SSL_CLIENT_NAME=IP:<nas>); some appliances check it."""
+        import ipaddress
+        from cryptography import x509
+        pem = api._kmip_issue_cert('nas-01', self.ca_pem, self.ca_key, 1825,
+                                   san_hosts=['192.168.2.100'])[0]
+        san = self._cert(pem).extensions.get_extension_for_class(
+            x509.SubjectAlternativeName).value
+        self.assertIn(ipaddress.ip_address('192.168.2.100'),
+                      san.get_values_for_type(x509.IPAddress))
+
     def test_client_cn_has_no_decoration(self):
         """It shows verbatim in the appliance UI; "nas-01 (synology)" reads
         like a mistake and trips stricter name parsers."""
@@ -719,6 +743,23 @@ class TestKmipClients(_KmipHandlerCase):
     def _new_client(self, name='nas-01', kind='synology'):
         return self.call(api.handle_kmip_client_create,
                          body={'name': name, 'kind': kind})
+
+    def test_address_is_stored_and_reused_on_reissue(self):
+        """Re-issue must keep the SAN — otherwise a replacement certificate
+        silently loses the address the appliance is checked against."""
+        import ipaddress
+
+        from cryptography import x509
+        self.enable_kmip()
+        out = self.call(api.handle_kmip_client_create,
+                        body={'name': 'nas-01', 'kind': 'synology',
+                              'address': '192.168.2.100'})
+        again = self.call(api.handle_kmip_client_reissue, out['id'])
+        san = x509.load_pem_x509_certificate(
+            again['cert_pem'].encode()).extensions.get_extension_for_class(
+                x509.SubjectAlternativeName).value
+        self.assertIn(ipaddress.ip_address('192.168.2.100'),
+                      san.get_values_for_type(x509.IPAddress))
 
     def test_client_create_returns_a_usable_bundle_once(self):
         self.enable_kmip()

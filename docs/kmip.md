@@ -70,8 +70,10 @@ certificate.
 
 **Security → KMIP → Add client** runs a three-step wizard:
 
-1. **Appliance** — pick the type (Synology DSM, TrueNAS, vSphere, generic) and
-   give it a name.
+1. **Appliance** — pick the type (Synology DSM, TrueNAS, vSphere, generic),
+   give it a name, and — recommended — enter the appliance's **own** hostname
+   or IP. That address is written into its certificate, which some appliances
+   verify; leaving it blank still produces a valid certificate.
 2. **Credentials** — download `ca.crt`, `client.crt` and `client.key`. The
    private key is shown **once** and never stored on the server.
 3. **Connect** — per-appliance setup steps, and the page waits for the client's
@@ -84,6 +86,29 @@ appliance off; the sidecar refuses it within 30 seconds.
 
 Each appliance can only read its own keys. One compromised NAS certificate
 cannot fetch another appliance's volume keys.
+
+## Certificate details
+
+Useful if you are comparing against another KMIP setup or debugging an import:
+
+| | CA | Server | Client |
+|---|---|---|---|
+| Key | RSA 3072 | RSA 2048 | RSA 2048 |
+| Validity | 10 years | 4 years | 5 years |
+| Basic constraints | `CA:TRUE` (no path-length limit) | `CA:FALSE` | `CA:FALSE` |
+| Extended key usage | — | `serverAuth, clientAuth` | `serverAuth, clientAuth` |
+| SAN | — | configured hostnames + IPs | the appliance's address (or a label from its name) |
+| Key identifiers | SKI + self-referential AKI | SKI + AKI → CA | SKI + AKI → CA |
+
+Both leaf certificates carry **both** extended key usages. KMIP mutual TLS
+blurs the client/server roles and appliances expect both — this matches the
+community `kmip-server-dsm` setup that Synology users run successfully. The CA
+deliberately carries **no path-length constraint**: a self-signed root with
+`pathlen:0` is read by some appliances (DSM included) as an intermediate, and
+then refused as a trust anchor.
+
+Private keys are PKCS#8 PEM (`BEGIN PRIVATE KEY`). Everything is issued
+in-process with the `cryptography` library — no `openssl` binary required.
 
 ## Security model
 

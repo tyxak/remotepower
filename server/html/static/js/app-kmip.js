@@ -294,6 +294,7 @@ function kmipOpenWizard() {
   _kmipWizStep = 1;
   _kmipWizCreds = null;
   document.getElementById('kmip-wiz-name').value = '';
+  document.getElementById('kmip-wiz-address').value = '';
   document.getElementById('kmip-wiz-kind').value = 'synology';
   document.getElementById('kmip-wiz-fp').textContent = '';
   document.getElementById('kmip-wiz-instructions').textContent = '';
@@ -328,9 +329,10 @@ async function kmipWizardNext() {
   if (_kmipWizStep === 1) {
     const name = document.getElementById('kmip-wiz-name').value.trim();
     const kind = document.getElementById('kmip-wiz-kind').value;
+    const address = document.getElementById('kmip-wiz-address').value.trim();
     if (!name) { toast('Enter a name for this appliance', 'error', { transient: true }); return; }
     try {
-      const r = await api('POST', '/kmip/clients', { name, kind });
+      const r = await api('POST', '/kmip/clients', { name, kind, address });
       if (!_kmipOk(r, 'Issuing the certificate')) return;
       _kmipWizCreds = r;
       document.getElementById('kmip-wiz-fp').textContent =

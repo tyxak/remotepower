@@ -2440,12 +2440,15 @@ if _AVAILABLE:
         _v0 = field_validator('enabled', mode='before')(_coerce_bool_loose)
 
     class KmipClientCreateRequest(BaseModel):
-        """handle_kmip_client_create POST (v6.4.0)."""
+        """handle_kmip_client_create POST (v6.4.0). `address` (v6.4.1) is the
+        appliance's own hostname/IP, encoded in the client cert's SAN."""
         model_config = ConfigDict(extra='ignore')
         name: str = ''
         kind: str = 'generic'
+        address: str = ''
 
-        _v0 = field_validator('name', 'kind', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('name', 'kind', 'address',
+                              mode='before')(_coerce_str_loose)
 
     class KmipExportRequest(BaseModel):
         """handle_kmip_export POST (v6.4.0). Length is checked by the handler

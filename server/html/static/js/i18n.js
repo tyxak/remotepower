@@ -312,6 +312,7 @@
     'KMIP':        { fr: 'KMIP', de: 'KMIP', zh: 'KMIP', hi: 'KMIP', es: 'KMIP', ar: 'KMIP' },
     'Server settings': { fr: 'Paramètres du serveur', de: 'Servereinstellungen', zh: '服务器设置', hi: 'सर्वर सेटिंग्स', es: 'Configuración del servidor', ar: 'إعدادات الخادم' },
     'Install sidecar': { fr: 'Installer le service auxiliaire', de: 'Sidecar installieren', zh: '安装边车服务', hi: 'साइडकार इंस्टॉल करें', es: 'Instalar el servicio auxiliar', ar: 'تثبيت الخدمة المساعدة' },
+    'Appliance hostname or IP': { fr: 'Nom d’hôte ou IP de l’équipement', de: 'Hostname oder IP des Geräts', zh: '设备主机名或 IP', hi: 'उपकरण का होस्टनाम या IP', es: 'Nombre de host o IP del dispositivo', ar: 'اسم مضيف الجهاز أو عنوان IP' },
     'Add client':  { fr: 'Ajouter un client', de: 'Client hinzufügen', zh: '添加客户端', hi: 'क्लाइंट जोड़ें', es: 'Añadir cliente', ar: 'إضافة عميل' },
     'Copy commands': { fr: 'Copier les commandes', de: 'Befehle kopieren', zh: '复制命令', hi: 'कमांड कॉपी करें', es: 'Copiar comandos', ar: 'نسخ الأوامر' },
     'Export bundle': { fr: 'Exporter l’archive', de: 'Paket exportieren', zh: '导出恢复包', hi: 'बंडल निर्यात करें', es: 'Exportar paquete', ar: 'تصدير الحزمة' },

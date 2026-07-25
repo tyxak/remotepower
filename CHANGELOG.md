@@ -139,6 +139,16 @@ issued certificates, not DSM being fussy.
   building uses. Both now do, and `openssl verify` accepts the chain.
 - The client CN dropped its `(kind)` suffix — it displays verbatim in appliance
   UIs, where "nas-01 (synology)" reads like a mistake.
+- **Both leaf certificates now carry both extended key usages**
+  (`serverAuth, clientAuth`). KMIP mutual TLS blurs the client/server roles and
+  the community `kmip-server-dsm` setup that Synology users run successfully
+  issues both on both — a single-purpose EKU is stricter than the appliances
+  expect. Checked against that implementation rather than guessed at.
+- **The client wizard now asks for the appliance's own hostname/IP** and writes
+  it into the certificate's SAN, which is what that reference encodes
+  (`SSL_CLIENT_NAME=IP:<nas>`) and what some appliances verify. Optional; a
+  label derived from the name is used when it is left blank. Re-issue keeps the
+  address, so a replacement certificate does not silently lose it.
 - A CA minted by the earlier build is detected and **replaced automatically —
   but only while no clients exist**. Once appliances depend on it, replacing it
   would cut them off, so it is kept and flagged instead for a deliberate

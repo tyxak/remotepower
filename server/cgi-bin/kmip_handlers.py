@@ -311,8 +311,12 @@ def _kmip_issue_cert(cn, ca_cert_pem, ca_key_pem, days, server=False,
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'RemotePower'),
         x509.NameAttribute(NameOID.COMMON_NAME, str(cn)[:64] or 'kmip')])
     now = _kmip_utcnow(dt)
-    eku = (ExtendedKeyUsageOID.SERVER_AUTH if server
-           else ExtendedKeyUsageOID.CLIENT_AUTH)
+    # BOTH EKUs on BOTH leaves. KMIP mutual TLS blurs the roles, and the
+    # reference implementation known to work with Synology DSM
+    # (rnurgaliyev/kmip-server-dsm) issues `serverAuth, clientAuth` on its
+    # server AND client certificates. A single-purpose EKU is stricter than
+    # the appliances expect and is rejected by some of them.
+    eku = [ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH]
     builder = (x509.CertificateBuilder()
                .subject_name(name).issuer_name(ca_cert.subject)
                .public_key(key.public_key())
@@ -322,7 +326,7 @@ def _kmip_issue_cert(cn, ca_cert_pem, ca_key_pem, days, server=False,
                .add_extension(x509.BasicConstraints(ca=False, path_length=None),
                               critical=True)
                .add_extension(_kmip_key_usage(x509), critical=True)
-               .add_extension(x509.ExtendedKeyUsage([eku]), critical=False)
+               .add_extension(x509.ExtendedKeyUsage(eku), critical=False)
                # Chain building uses these; without them some validators cannot
                # link the leaf to the CA even when both are installed.
                .add_extension(x509.SubjectKeyIdentifier.from_public_key(
@@ -621,6 +625,7 @@ def handle_kmip_clients():
                     'last_seen': c.get('last_seen'),
                     'last_peer': c.get('last_peer'),
                     'not_after': c.get('not_after'),
+                    'address': c.get('address'),
                     'objects': per_client.get(cid, 0)})
     out.sort(key=lambda c: c.get('created') or 0, reverse=True)
     A.respond(200, {'clients': out})
@@ -628,7 +633,14 @@ def handle_kmip_clients():
 
 def handle_kmip_client_create():
     """POST /api/kmip/clients — register an appliance + issue its mTLS cert.
-    The private key is returned ONCE and never stored server-side."""
+    The private key is returned ONCE and never stored server-side.
+
+    `address` is the appliance's OWN hostname or IP and goes into the client
+    certificate's SAN. The reference DSM setup encodes exactly that
+    (`SSL_CLIENT_NAME=IP:<NAS address>`), and some appliances check it. It is
+    optional — without one the SAN falls back to a label derived from the name,
+    which at least keeps the certificate well-formed.
+    """
     actor = _kmip_require_admin()
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
@@ -640,6 +652,7 @@ def handle_kmip_client_create():
     if kind not in _KMIP_CLIENT_KINDS:
         A.respond(400, {'error': 'kind must be one of: '
                                  + ', '.join(_KMIP_CLIENT_KINDS)})
+    address = str(body.get('address') or '').strip()[:255]
     key = _kmip_master_key()
     if key is None:
         A.respond(400, {'error': 'KMIP is not set up yet — enable it first'})
@@ -655,7 +668,8 @@ def handle_kmip_client_create():
         try:
             ca_key_pem = A.cmdb_vault.decrypt(key, ca['key_enc'])
             cert_pem, key_pem, fp, not_after = A._kmip_issue_cert(
-                name, ca['cert_pem'], ca_key_pem, _KMIP_CLIENT_CERT_DAYS)
+                name, ca['cert_pem'], ca_key_pem, _KMIP_CLIENT_CERT_DAYS,
+                san_hosts=[address] if address else None)
         except A.HTTPError:
             raise
         except Exception as e:
@@ -665,7 +679,7 @@ def handle_kmip_client_create():
         clients[cid] = {'name': name, 'kind': kind, 'fingerprint': fp,
                         'cert_pem': cert_pem, 'created': int(time.time()),
                         'created_by': actor, 'revoked': False,
-                        'not_after': not_after}
+                        'not_after': not_after, 'address': address}
         ca_pem = ca['cert_pem']
         _kmip_bump_rev(store)
     A.audit_log(actor, 'kmip_client_create', detail=f'{name} ({kind}) {cid}',
@@ -719,8 +733,10 @@ def handle_kmip_client_reissue(cid):
         if not ca.get('cert_pem'):
             A.respond(400, {'error': 'KMIP CA missing — enable KMIP first'})
         ca_key_pem = A.cmdb_vault.decrypt(key, ca['key_enc'])
+        _addr = str(c.get('address') or '').strip()
         cert_pem, key_pem, fp, not_after = A._kmip_issue_cert(
-            c.get('name'), ca['cert_pem'], ca_key_pem, _KMIP_CLIENT_CERT_DAYS)
+            c.get('name'), ca['cert_pem'], ca_key_pem, _KMIP_CLIENT_CERT_DAYS,
+            san_hosts=[_addr] if _addr else None)
         c['fingerprint'] = fp
         c['cert_pem'] = cert_pem
         c['not_after'] = not_after
