@@ -15,6 +15,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -1588,6 +1589,61 @@ class TestUiWiring(unittest.TestCase):
         page = page[:page.index('id="page-risk"')]
         self.assertNotIn('onclick=', page)
         self.assertNotIn('style="', page)
+
+    def test_synology_steps_include_the_certificate_assignment(self):
+        """Importing a certificate into DSM does NOT make it used. There is a
+        separate Settings → Configure → KMIP dropdown, and skipping it fails
+        as "the appliance presented its own certificate" — which reads like a
+        certificate fault and is really an assignment fault. The steps must
+        say so explicitly."""
+        js = self.JS
+        block = js[js.index('synology: (a) =>'):]
+        block = block[:block.index('truenas:')]
+        for needle in ('Settings', 'Configure', 'dropdown'):
+            self.assertIn(needle, block,
+                          f'the assignment step must mention {needle!r}')
+        self.assertIn('Intermediate Certificate', block,
+                      'the CA-in-the-intermediate-field trap must be called out')
+        self.assertIn('again', block,
+                      'ca.crt is used twice — the second use must be explicit')
+
+    def test_docs_cover_the_same_assignment_step(self):
+        d = (_ROOT / 'docs' / 'kmip.md').read_text()
+        sec = d[d.index('## Synology DSM'):]
+        sec = sec[:sec.index('## How Synology DSM differs')]
+        self.assertIn('Settings → Configure', sec)
+        self.assertIn('Intermediate Certificate', sec)
+        self.assertIn('Reboot the NAS', sec,
+                      'the only check that actually proves it works')
+        self.assertIn('recovery keys', sec)
+
+    def test_docs_cover_maintenance_and_rotation(self):
+        """A key server is infrastructure other machines boot against — the
+        routine work has to be written down, including the part where
+        Re-issue keeps the identity and Add client does not."""
+        d = (_ROOT / 'docs' / 'kmip.md').read_text()
+        sec = d[d.index('## Maintaining it'):d.index('## Removing it')]
+        for topic in ('Rotating a client certificate', 'Rotating the CA',
+                      'Rotating the server certificate',
+                      'Rotating the daemon secret', 'What expires',
+                      'Recovery bundles', 'Limitations'):
+            self.assertIn(topic, sec, f'maintenance docs missing: {topic}')
+        # The trap that loses data: new client != re-issue.
+        self.assertIn('same client identity', sec)
+        # Honest about what is not implemented.
+        self.assertIn('master key cannot be rotated', sec)
+
+    def test_documented_lifetimes_match_the_code(self):
+        """Stale numbers in docs are worse than none — they get planned on."""
+        d = (_ROOT / 'docs' / 'kmip.md').read_text()
+        src = (_CGI / 'kmip_handlers.py').read_text()
+        for const, years in (('_KMIP_CA_DAYS', '10 years'),
+                             ('_KMIP_SERVER_CERT_DAYS', '4 years'),
+                             ('_KMIP_CLIENT_CERT_DAYS', '5 years')):
+            days = int(re.search(rf'{const} = (\d+)', src).group(1))
+            self.assertAlmostEqual(days / 365.0, float(years.split()[0]),
+                                   delta=0.2, msg=f'{const} vs docs {years}')
+            self.assertIn(years, d, f'{const} lifetime not documented')
 
     def test_wizard_offers_every_client_type(self):
         for kind in ('synology', 'truenas', 'vsphere', 'generic'):

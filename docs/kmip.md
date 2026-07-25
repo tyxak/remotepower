@@ -139,32 +139,145 @@ in-process with the `cryptography` library — no `openssl` binary required.
 - KMIP administration is restricted to **global administrators**; it is host
   infrastructure and is not tenant-scoped.
 
-## Synology DSM, step by step
+## Synology DSM — the complete walkthrough
 
-DSM needs the certificate installed in one place and referenced in another, and
-its import dialog's field names do not match what you would expect. Requires
-**DSM 7.2-64570** or newer.
+Requires **DSM 7.2-64570** or newer (tested by the community through
+DSM 7.3.1-86003).
 
-1. **Control Panel → Security → Certificate** → **Add** → *Add a new
-   certificate* → Description `KMIP` → *Import certificate*.
-2. Fill the three fields with the wizard's downloads:
-   - **Private Key** → `client.key`
-   - **Certificate** → `client.crt`
-   - **Intermediate Certificate** → `ca.crt`
+DSM makes this harder than it needs to be in three specific ways, and every one
+of them has cost someone an evening:
 
-   DSM labels that third field *Intermediate Certificate*. The CA goes there
-   anyway — DSM is not asking for a real intermediate, and seeing your root
-   land in a field called "intermediate" is expected, not a mistake.
-3. Click **Settings** and select the newly imported certificate for **KMIP**.
-4. Switch to the **KMIP** tab and configure **Remote Key Client**: the hostname
-   and port of this server, and **`ca.crt` again** for *Certificate Authority*.
-   The same file is used twice — once as part of the identity in step 2, once
-   as the trust anchor here.
-5. Move a shared folder's key across: **Control Panel → Shared Folder →
-   Encryption → Key Manager**.
+1. The CA goes in a field labelled **Intermediate Certificate**.
+2. Importing the certificate is **not** the same as using it. There is a
+   separate assignment step, several clicks away, and skipping it fails in a
+   way that looks like a certificate problem.
+3. `ca.crt` is used **twice**, in two different places, for two different
+   reasons.
 
-If DSM reports errors, `sudo journalctl -u kmip.service -ef` on the NAS is the
-matching log to this server's activity page.
+Follow the order below and none of that matters.
+
+### Before you start
+
+- Note the address your NAS will use to reach this server. It must appear in
+  the server certificate's SAN list (**Security → KMIP → Server settings →
+  Server hostnames / IPs**). If the NAS is on a different subnet, the address it
+  routes to is the one that must be listed.
+- The NAS must be able to reach the server on **tcp/5696 at its own boot time**,
+  or encrypted volumes will not mount after a reboot.
+- **Have your volume recovery keys saved somewhere off the NAS** before moving
+  a key vault anywhere. This is the point of no return in the whole procedure.
+
+### 1. Issue the client certificate
+
+In RemotePower: **Security → KMIP → Add client**.
+
+- **Appliance type** — Synology DSM
+- **Name** — whatever you call the NAS, e.g. `nas-01`
+- **Appliance hostname or IP** — the NAS's *own* address, e.g. `192.168.2.100`.
+  DSM setups encode this in the client certificate; it is optional here but
+  worth filling in.
+
+Download all three files. **The private key is shown once and never stored on
+this server** — if you lose it, use *Re-issue* on the client's row rather than
+creating a second client (re-issue keeps the identity, so stored keys survive).
+
+You should have: `ca.crt`, `client.crt`, `client.key`.
+
+### 2. Import the certificate into DSM
+
+**Control Panel → Security → Certificate → Add → Add a new certificate**
+
+- Select **Import certificate**
+- **Description**: `KMIP` — name it something you will recognise in a dropdown
+- Click **Next**, then fill exactly:
+
+| DSM field | File |
+|---|---|
+| **Private Key** | `client.key` |
+| **Certificate** | `client.crt` |
+| **Intermediate Certificate** | `ca.crt` |
+
+> DSM calls that third field *Intermediate Certificate*. Put `ca.crt` there
+> anyway. DSM is not asking for a real intermediate — it is simply where the
+> issuing certificate goes, and seeing your root CA land in a field named
+> "intermediate" is expected, not a mistake.
+
+Click **OK**. The certificate now exists in DSM's store — but nothing is using
+it yet.
+
+### 3. Assign the certificate to the KMIP service
+
+**This is the step that is easy to miss, and everything fails without it.**
+
+**Control Panel → Security → Certificate → Settings → Configure**
+
+You get a list of DSM services, each with a certificate dropdown. Find the
+**KMIP** row, open its dropdown, and select the certificate you named `KMIP` in
+step 2. Click **Save**.
+
+Until you do this, DSM holds a perfectly good client certificate and never
+presents it. It falls back to its own default certificate instead, and this
+server rejects the connection. In the KMIP activity log that appears as:
+
+> the appliance presented its own self-signed certificate, not the client.crt
+> issued here
+
+which reads like a certificate problem but is really an assignment problem.
+
+### 4. Point DSM at the key server
+
+**Control Panel → Security → KMIP** tab → **Remote Key Client**
+
+- **Hostname** — the address of this RemotePower server (must match a SAN on
+  its certificate — see *Before you start*)
+- **Port** — `5696`
+- **Certificate Authority** — select `ca.crt` **again**
+
+That is the second use of `ca.crt`: in step 2 it completed your identity chain,
+here it is the trust anchor DSM uses to decide whether *this server* is genuine.
+Both are required.
+
+Click **Apply**.
+
+### 5. Move the key vault across
+
+**Control Panel → Shared Folder → Encryption → Key Manager** (or Storage
+Manager for volume encryption), and switch the key store to the KMIP server.
+
+DSM will register its vault objects, name them, and activate them. On this side
+you will see them appear under **Stored keys** as `secret data` in state
+**active**.
+
+If DSM reports *"The system is unable to reset the encryption key vault"*, check
+the KMIP activity log here — a failed operation is logged by name, which tells
+you exactly what DSM asked for and did not get.
+
+### 6. Verify before you rely on it
+
+Three checks, in increasing order of how much they prove:
+
+1. **Security → KMIP** — the client shows a recent *Last seen*, and its key
+   count is non-zero.
+2. **Stored keys** — the objects are **active**, not *pre-active*. A key stuck
+   at pre-active means DSM registered it but never finished setting up.
+3. **Reboot the NAS.** This is the only check that actually proves the thing
+   works: encrypted shares must come back on their own. You have just moved the
+   unlock path onto a network dependency, and it is far better to discover a
+   problem now, deliberately, than during an unplanned power cut.
+
+On the NAS, `sudo journalctl -u kmip.service -ef` is DSM's side of the
+conversation and lines up with this server's activity log.
+
+### When something is wrong
+
+| The activity log says | What it means | Fix |
+|---|---|---|
+| *the appliance does not trust our CA* | DSM rejected **our** server certificate | `ca.crt` is missing or stale in step 4's *Certificate Authority* |
+| *the appliance presented its own self-signed certificate* | DSM is not sending the client cert | Step 3 — assign the certificate to the KMIP service |
+| *presented a certificate signed by a DIFFERENT CA* | Old `client.crt` from a previous CA | Re-download all three files and redo steps 2–4 |
+| *no cipher suite in common* | The appliance offers only legacy suites | Set `RP_KMIP_LEGACY_CIPHERS=1` in `/etc/remotepower/kmipd.env`, restart the sidecar |
+| *operation … not supported* | DSM called something unimplemented | Report it — the log names the operation and its code |
+| Nothing at all in the log | The connection never arrived | Check `tcp/5696` is reachable from the NAS, and that the sidecar shows a recent check-in |
 
 ## How Synology DSM differs from plain KMIP
 
@@ -215,6 +328,128 @@ working after a restore without re-issuing certificates.
 Losing both the server and the bundle means the encrypted data on every client
 is unrecoverable. There is no back door — that is what makes the design worth
 anything.
+
+## Maintaining it
+
+A key server is infrastructure other machines depend on to boot. The routine
+work is small, but skipping it fails at the worst possible moment — so here is
+everything that expires, rotates, or needs an eye on it.
+
+### What expires, and when
+
+| | Lifetime | What happens when it expires |
+|---|---|---|
+| **CA certificate** | 10 years | Everything stops. Every client certificate it signed becomes untrusted at once. |
+| **Server certificate** | 4 years | Appliances refuse to connect — they cannot verify this server. |
+| **Client certificate** | 5 years | That one appliance can no longer authenticate; the rest are unaffected. |
+
+Expiry dates are shown on the KMIP page: the CA and server certificate on the
+**Server** card, each client's on its row. Nothing currently *alerts* on an
+approaching expiry — put a calendar reminder against the earliest date, or
+apply the *RemotePower KMIP key server running* check and treat the page as
+something you look at when you touch the fleet. (An expiry alert is a known
+gap; see *Limitations* below.)
+
+### Rotating a client certificate
+
+The routine case: an appliance's certificate is expiring, the private key was
+mishandled, or you are re-imaging the NAS.
+
+Use **Re-issue** on the client's row — *not* Add client. Re-issue mints a fresh
+certificate and key under the **same client identity**, so every key that
+appliance stored stays reachable. Creating a new client instead gives you a new
+identity that cannot see the old keys, which is unrecoverable if the appliance
+has already stored a vault.
+
+After re-issuing, install the new files on the appliance. On Synology that is
+steps 2–4 of the walkthrough above, including the assignment step — a re-issued
+certificate is a new certificate, so it must be selected for KMIP again.
+
+Re-issue also clears a revocation: it is an explicit decision to trust that
+appliance again.
+
+### Rotating the server certificate
+
+Change the address list in **Server settings → Server hostnames / IPs** and
+save. The server certificate is re-issued with the new SANs.
+
+This is transparent to appliances **as long as the CA is unchanged** — they
+trust the CA, not the individual certificate, so nothing needs reinstalling.
+The sidecar picks up the new certificate within 30 seconds.
+
+Do this whenever the server moves, gains a DNS name, or an appliance starts
+reaching it by a different address.
+
+### Rotating the CA
+
+There is no way to do this without disruption, by design — the CA *is* the
+trust anchor.
+
+Replacing it invalidates every client certificate at once. The procedure is:
+re-issue **every** client, then reinstall all three files on **every**
+appliance, before any of them next needs to unlock. Plan it as a maintenance
+window, not a background task.
+
+RemotePower will not silently replace a CA that has clients. It replaces one
+automatically only when no clients exist (which is safe, since nothing can
+break), and otherwise records a warning and leaves it alone.
+
+### Rotating the daemon secret
+
+The shared secret between the API and the sidecar. Rotate it if it may have
+been exposed — for instance if the install snippet was pasted somewhere it
+should not have been.
+
+Open **Install sidecar**, run the printed commands (they overwrite
+`/etc/remotepower/kmipd.env`), then `systemctl restart remotepower-kmipd`. The
+API records the new value as it prints it, so both sides stay in step. No
+appliance is affected — this secret is internal to the server.
+
+### Rotating the keys themselves
+
+The encryption keys inside the vault belong to the **appliance**, not to this
+server. When DSM re-keys a shared folder it registers new objects and destroys
+the old ones over KMIP; you will see both in **Stored keys** and the activity
+log. There is nothing to do here, and nothing you *should* do here — destroying
+a key from this side that an appliance still needs makes its data unrecoverable.
+
+The exception is decommissioning: once an appliance is retired and its data is
+gone, use **Delete** on its client row (which offers to destroy its keys), or
+clear individual tombstones with **Remove**.
+
+### Recovery bundles
+
+Export a fresh bundle whenever the set of keys or clients changes — after
+adding an appliance, after a re-issue, after a re-key. A bundle is a snapshot;
+an old one restores an old world.
+
+Store it off this machine and off any appliance that depends on this server.
+Test one at least once: stand up a scratch install, restore into it, and
+confirm the client list and key count come back. An untested backup is a
+hypothesis.
+
+### Routine checks
+
+- **Monthly-ish**: glance at the KMIP page. Clients show a recent *Last seen*,
+  keys are **active**, and the activity log has no repeating `auth fail` or
+  `op failed` rows.
+- **After any upgrade**: `deploy-server.sh` refreshes the sidecar binary but
+  only restarts it if it was already running. Confirm the Sidecar row still
+  shows a recent check-in afterwards.
+- **After a reboot of anything**: confirm the appliances came back unlocked.
+  This is the check that matters most and the one people skip.
+- **`rp status` / `rp tui`** show the daemon's health and the client/key counts
+  in the INGEST & KEYS block, with `sudo`.
+
+### Limitations worth knowing
+
+- **The master key cannot be rotated in place.** There is no re-encrypt-all
+  operation; the master key changes only when you reset the server or restore a
+  bundle. If you need a new one, that is a reset plus re-adding every appliance.
+- **Nothing alerts on certificate expiry.** The dates are shown but not
+  monitored. Diary them.
+- **The sidecar caches state for 30 seconds**, so a revocation takes up to that
+  long to bite. It is not instant.
 
 ## Removing it / starting over
 

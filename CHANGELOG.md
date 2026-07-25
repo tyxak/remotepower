@@ -120,6 +120,32 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### KMIP: documentation that matches what you actually have to click
+`docs/kmip.md` gains a complete **Synology DSM walkthrough** and a
+**Maintaining it** section.
+
+The walkthrough exists because DSM makes this harder than it needs to be in
+three specific ways, each of which has cost someone an evening: the CA goes in
+a field labelled *Intermediate Certificate*; `ca.crt` is used **twice**, in two
+places, for two different reasons; and — the one that is easy to miss —
+importing a certificate is **not** the same as using it. There is a separate
+**Security → Certificate → Settings → Configure → KMIP** dropdown, and skipping
+it leaves DSM sending its own default certificate, which fails looking exactly
+like a certificate fault when it is an assignment fault. Every step now names
+the screen, the button and the field, with a table mapping each activity-log
+message to its fix, and a verification section ending in the only check that
+proves anything: reboot the NAS and confirm the shares come back.
+
+**Maintaining it** covers what expires and when (CA 10 years, server 4, client
+5), how to rotate each — including that **Re-issue keeps the client identity
+and Add client does not**, which is the difference between a routine
+certificate swap and permanently orphaned keys — rotating the server
+certificate and the daemon secret, why the keys themselves are the appliance's
+business, recovery-bundle hygiene, routine checks, and an honest list of
+limitations: the master key cannot be rotated in place, nothing alerts on
+certificate expiry, and revocation takes up to 30 seconds. A test pins the
+documented lifetimes against the constants so the numbers cannot drift.
+
 ### KMIP: the operations a real appliance actually calls
 Synology registered its two vault secrets successfully and then failed with
 "unable to reset the encryption key vault", leaving both objects stuck at

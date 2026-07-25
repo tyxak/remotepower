@@ -392,12 +392,12 @@ const _KMIP_SETUP_STEPS = {
   // dialog calls its third field "Intermediate Certificate" — that is simply
   // where the CA goes; it is not asking for an intermediate.
   synology: (a) => [
-    'In DSM open <strong>Control Panel → Security → Certificate</strong>, click <strong>Add</strong> → <strong>Add a new certificate</strong>, type <code>KMIP</code> as the Description, then choose <strong>Import certificate</strong>.',
-    'Set <strong>Private Key</strong> = <code>client.key</code>, <strong>Certificate</strong> = <code>client.crt</code>, and <strong>Intermediate Certificate</strong> = <code>ca.crt</code>. DSM calls that last field "Intermediate" — the CA goes there regardless.',
-    'Click <strong>Settings</strong> and select the newly imported certificate for <strong>KMIP</strong>.',
-    `Switch to the <strong>KMIP</strong> tab, configure <strong>Remote Key Client</strong>: Hostname <strong>${escHtml(a.host)}</strong>, Port <strong>${escHtml(String(a.port))}</strong>, and pick <code>ca.crt</code> again for <strong>Certificate Authority</strong>.`,
-    'Then move a shared folder’s key to the remote vault: <strong>Control Panel → Shared Folder → Encryption → Key Manager</strong>.',
-    'Requires <strong>DSM 7.2-64570</strong> or newer. DSM needs this key server reachable at ITS boot — never host it on the NAS it protects.',
+    '<strong>Import.</strong> Control Panel → Security → Certificate → <strong>Add</strong> → <em>Add a new certificate</em> → Description <code>KMIP</code> → <em>Import certificate</em>.',
+    'Fill it exactly: <strong>Private Key</strong> = <code>client.key</code>, <strong>Certificate</strong> = <code>client.crt</code>, <strong>Intermediate Certificate</strong> = <code>ca.crt</code>. DSM labels that last field "Intermediate" — the CA goes there anyway; that is not a mistake.',
+    '<strong>Assign it — the step everyone misses.</strong> Control Panel → Security → Certificate → <strong>Settings</strong> → <strong>Configure</strong>, find the <strong>KMIP</strong> row, pick the certificate you just named <code>KMIP</code> from its dropdown, and Save. Importing alone does nothing: without this DSM keeps sending its own default certificate and this server refuses it.',
+    `<strong>Connect.</strong> KMIP tab → <strong>Remote Key Client</strong>: Hostname <strong>${escHtml(a.host)}</strong>, Port <strong>${escHtml(String(a.port))}</strong>, Certificate Authority = <code>ca.crt</code> <em>again</em> (second use — here it is the trust anchor). Apply.`,
+    '<strong>Move the vault.</strong> Control Panel → Shared Folder → Encryption → <strong>Key Manager</strong>. Keys should then appear here as <em>active</em>.',
+    '<strong>Then reboot the NAS to prove it.</strong> Encrypted shares must come back on their own — you have moved the unlock path onto this server, so test it deliberately now rather than during a power cut. Requires DSM 7.2-64570+.',
   ],
   truenas: (a) => [
     'Open TrueNAS → System Settings → Services and confirm outbound access to this server.',
