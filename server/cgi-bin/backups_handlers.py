@@ -60,6 +60,48 @@ def _backup_jobs_load():
     return data
 
 
+def _default_backup_dir():
+    """`<data dir>/backups` — derived, never a hardcoded absolute path.
+
+    v6.4.1 (SECURITY/correctness): the default used to be the literal
+    '/var/lib/remotepower/backups'. A SECOND instance on the same host — the
+    read-only demo, which runs its own gunicorn with RP_DATA_DIR=
+    /var/lib/remotepower-demo — therefore wrote ITS backups into the
+    PRODUCTION backup directory. Observed in the field as a small plaintext
+    *.tar.gz appearing among the real encrypted archives: the demo's tiny data
+    dir, unencrypted because that unit has no RP_BACKUP_PASSPHRASE.
+
+    It was not only confusing. The two instances shared a directory, so each
+    one's retention pruner deleted the other's archives; the restore drill
+    picks the NEWEST archive and could therefore verify the demo's data while
+    reporting on production; and production's posture page flagged "plaintext
+    archives" because of the demo. Deriving from DATA_DIR keeps every instance
+    in its own tree.
+    """
+    return str(A.DATA_DIR / 'backups')
+
+
+def _sweep_stale_partials(p_base, max_age_s=6 * 3600):
+    """Remove abandoned in-progress archives.
+
+    A partial only exists if a previous run died mid-write (service restart
+    during a deploy, OOM, an exception in the SQLite snapshot). It is plaintext
+    by definition, so leaving it is exactly the leak the temp-name scheme
+    exists to prevent. Age-gated so a CONCURRENT run's partial is never
+    deleted out from under it.
+    """
+    now = time.time()
+    for f in list(p_base.glob('.remotepower_data_*.partial')):
+        try:
+            if now - f.stat().st_mtime > max_age_s:
+                f.unlink()
+                sys.stderr.write(
+                    f'[remotepower] removed abandoned partial backup {f.name} '
+                    '(a previous run was interrupted before it completed)\n')
+        except OSError:
+            pass
+
+
 def _backup_passphrase():
     """v5.0.0 (#C2): the DR-backup encryption passphrase, sourced ONLY from the
     `RP_BACKUP_PASSPHRASE` environment variable — never the config/data dir (the
@@ -173,13 +215,27 @@ def _run_data_backup(triggered_by='scheduled'):
     enabled = bcfg.get('enabled', True)
     if not enabled and triggered_by != 'manual':
         return {'skipped': True, 'reason': 'backup disabled in config'}
-    base = bcfg.get('path') or '/var/lib/remotepower/backups'
+    base = bcfg.get('path') or _default_backup_dir()
     keep = int(bcfg.get('retain_days') or 14)
     p_base = A.Path(base)
     p_base.mkdir(parents=True, exist_ok=True, mode=0o700)
     import tarfile
     ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-    out_path = p_base / f'remotepower_data_{ts}.tar.gz'
+    final_path = p_base / f'remotepower_data_{ts}.tar.gz'
+    # v6.4.1 (SECURITY): build into a PRIVATE, non-final path, publish only when
+    # complete. The tarball used to be written straight to its final name with
+    # default umask perms (0644) and only encrypted afterwards, so:
+    #   * a full plaintext copy of the whole data dir existed at the resting
+    #     name for the duration of the run, world-readable, and
+    #   * if the process died in that window — a deploy restarting the service,
+    #     an OOM kill, an exception in the SQLite snapshot — a PARTIAL plaintext
+    #     archive was left behind forever, retained by the pruner and counted as
+    #     a backup. Observed in the field: a 192K 0644 *.tar.gz next to healthy
+    #     4.6M 0600 *.tar.gz.enc files, written while a deploy restarted the app.
+    # The temp name is deliberately outside both prune globs so a stale one can
+    # never masquerade as an archive; _sweep_stale_partials() cleans them up.
+    out_path = p_base / f'.remotepower_data_{ts}.{os.getpid()}.partial'
+    _sweep_stale_partials(p_base)
     # kmip_master.key: NEVER in generic backups — it travels only in the
     # passphrase-encrypted KMIP recovery bundle, so a stolen backup archive
     # holds only ciphertext (mirrors A._BACKUP_EXCLUDE_NAMES on the
@@ -208,7 +264,10 @@ def _run_data_backup(triggered_by='scheduled'):
         return tarinfo
     _snap_tmp = None
     skipped_unreadable = []
-    with tarfile.open(str(out_path), 'w:gz') as tar:
+    # 0600 from creation — never rely on the directory mode alone, and never
+    # leave a readable window even before the encrypt step.
+    _fd = os.open(str(out_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(_fd, 'wb') as _raw, tarfile.open(fileobj=_raw, mode='w:gz') as tar:
         # v6.2.2: add entries one by one instead of one recursive tar.add — a
         # single unreadable file used to abort the WHOLE backup with
         # PermissionError, and the daily gate then retried (and failed) on
@@ -255,15 +314,24 @@ def _run_data_backup(triggered_by='scheduled'):
                 pass
             raise RuntimeError("RP_BACKUP_PASSPHRASE is set but the 'cryptography' "
                                "library is missing — refusing to write a plaintext backup")
-        enc_path = out_path.with_suffix(out_path.suffix + '.enc')
-        A.backup_crypto.encrypt_file(out_path, enc_path, passphrase)
+        enc_path = final_path.with_suffix(final_path.suffix + '.enc')
         try:
-            out_path.unlink()
-        except OSError:
-            pass
+            A.backup_crypto.encrypt_file(out_path, enc_path, passphrase)
+        finally:
+            # The plaintext working copy goes even if encryption raised — a
+            # failed run must not leave readable data behind.
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
         out_path = enc_path
         encrypted = True
     else:
+        # No passphrase: publish the completed archive under its real name.
+        # os.replace is atomic, so a plaintext archive that EXISTS is always a
+        # COMPLETE one — never a truncated leftover.
+        os.replace(str(out_path), str(final_path))
+        out_path = final_path
         # v6.3.0: a scheduled backup written without RP_BACKUP_PASSPHRASE is
         # plaintext at rest — and the archive contains the whole data dir
         # (session tokens, hashed passwords, config secrets, the CMDB vault
@@ -345,7 +413,7 @@ def handle_backup_clear():
         A.respond(405, {'error': 'Method not allowed'}); return
     cfg = A.load(A.CONFIG_FILE) or {}
     bcfg = cfg.get('backup') or {}
-    base = bcfg.get('path') or '/var/lib/remotepower/backups'
+    base = bcfg.get('path') or _default_backup_dir()
     p_base = A.Path(base)
     deleted = 0
     if p_base.exists():
@@ -418,7 +486,7 @@ def handle_backup_encrypt_existing():
     if len(passphrase) < 8:
         A.respond(400, {'error': 'passphrase must be at least 8 characters'}); return
     bcfg = (A.load(A.CONFIG_FILE) or {}).get('backup') or {}
-    bdir = A.Path(bcfg.get('path') or '/var/lib/remotepower/backups')
+    bdir = A.Path(bcfg.get('path') or _default_backup_dir())
     encrypted = failed = 0
     import tempfile as _tf
     for f in sorted(bdir.glob('remotepower_data_*.tar.gz')):
@@ -931,10 +999,33 @@ def handle_backup_restore():
     # 1) Safety snapshot of the current state before we overwrite anything.
     try:
         snap_dir = A.DATA_DIR / A._BACKUP_SNAPSHOT_DIR
-        snap_dir.mkdir(parents=True, exist_ok=True)
+        snap_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # v6.4.1 (SECURITY): this is a FULL copy of the data dir — tokens, API
+        # keys, the vault blob, the audit log, config secrets. It used to be
+        # written plaintext with umask perms whatever RP_BACKUP_PASSPHRASE said,
+        # and nothing ever pruned it, so every restore left a permanent
+        # unencrypted image of the install. Same treatment as a real backup:
+        # 0600, built under a temp name, encrypted when a passphrase is set.
         snap_name = f'pre-restore-{stamp}.tar.gz'
-        with tarfile.open(str(snap_dir / snap_name), 'w:gz') as snap:
+        _snap_final = snap_dir / snap_name
+        _snap_work = snap_dir / f'.pre-restore-{stamp}.{os.getpid()}.partial'
+        _sfd = os.open(str(_snap_work), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(_sfd, 'wb') as _sraw, \
+                tarfile.open(fileobj=_sraw, mode='w:gz') as snap:
             A._write_data_dir_tar(snap)
+        _snap_pw = A._backup_passphrase()
+        if _snap_pw and A.backup_crypto.available():
+            try:
+                A.backup_crypto.encrypt_file(
+                    _snap_work, _snap_final.with_suffix('.tar.gz.enc'), _snap_pw)
+                snap_name += '.enc'
+            finally:
+                try:
+                    _snap_work.unlink()
+                except OSError:
+                    pass
+        else:
+            os.replace(str(_snap_work), str(_snap_final))
     except Exception as e:
         A.respond(500, {'error': f'pre-restore snapshot failed (nothing changed): {e}'})
     # 2) Open + validate the uploaded archive.
@@ -988,7 +1079,7 @@ def handle_backup_run():
 
     Mirrors what the scheduled job does (`_maybe_run_scheduled_backup`).
     Writes a tarball into the configured backup_path (default
-    `/var/lib/remotepower/backups/`), records state, prunes by retention.
+    `<RP_DATA_DIR>/backups/`), records state, prunes by retention.
     """
     actor = A.require_admin_auth()
     if A.method() != 'POST':
@@ -1008,7 +1099,7 @@ def _restore_drill_core():
     the manual POST /api/backup/test-restore and the scheduled drill (v6.3.0).
     `http` in the result is a status hint for the manual handler only."""
     cfg = A.load(A.CONFIG_FILE) or {}
-    base = (cfg.get('backup') or {}).get('path') or '/var/lib/remotepower/backups'
+    base = (cfg.get('backup') or {}).get('path') or _default_backup_dir()
     p_base = A.Path(base)
     files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
                          + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]

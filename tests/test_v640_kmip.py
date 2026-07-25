@@ -505,6 +505,52 @@ class TestKmipSetupAndPki(_KmipHandlerCase):
         self.assertNotIn('key_enc', blob)
 
 
+class TestCryptographyVersionCompat(unittest.TestCase):
+    """`not_valid_after_utc` only exists from cryptography 42 (Jan 2024).
+    Debian 12 ships 38.x, where reading it raises AttributeError — which
+    surfaced as a bare 500 the first time an operator clicked Enable on a
+    stock distro. The read must work across the supported range."""
+
+    def test_expiry_reader_handles_the_pre_42_api(self):
+        class _Old:
+            """A cert exposing only the legacy naive property."""
+            import datetime as _d
+            not_valid_after = _d.datetime(2030, 1, 1, 12, 0, 0)
+
+        got = api._cert_not_after_epoch(_Old())
+        import datetime as _dt
+        want = int(_dt.datetime(2030, 1, 1, 12, 0, 0,
+                                tzinfo=_dt.timezone.utc).timestamp())
+        self.assertEqual(got, want,
+                         'a naive not_valid_after is UTC — do not let the '
+                         'local timezone shift the recorded expiry')
+
+    def test_expiry_reader_prefers_the_modern_api(self):
+        import datetime as _dt
+        aware = _dt.datetime(2031, 6, 1, tzinfo=_dt.timezone.utc)
+
+        class _New:
+            not_valid_after_utc = aware
+            not_valid_after = _dt.datetime(1999, 1, 1)   # must be ignored
+        self.assertEqual(api._cert_not_after_epoch(_New()),
+                         int(aware.timestamp()))
+
+    def test_builder_is_fed_naive_utc(self):
+        """The builder takes naive UTC on every version; that keeps one code
+        path from 38.x through current."""
+        src = (_CGI / 'kmip_handlers.py').read_text()
+        self.assertIn('def _kmip_utcnow', src)
+        self.assertIn('replace(tzinfo=None)', src)
+        self.assertNotIn('now = dt.datetime.now(dt.timezone.utc)', src)
+
+    def test_no_raw_utc_property_reads_remain(self):
+        src = (_CGI / 'kmip_handlers.py').read_text()
+        code = '\n'.join(l for l in src.splitlines()
+                          if not l.lstrip().startswith('#'))
+        self.assertNotIn('cert.not_valid_after_utc', code,
+                         'read expiry through _cert_not_after_epoch')
+
+
 class TestKmipClients(_KmipHandlerCase):
     def _new_client(self, name='nas-01', kind='synology'):
         return self.call(api.handle_kmip_client_create,
@@ -1004,6 +1050,23 @@ class TestUiWiring(unittest.TestCase):
         self.assertIn("if (name === 'kmip')", app)
         # A module in BOTH the lazy map and a <script> tag loads twice.
         self.assertNotIn('src="static/js/app-kmip.js', self.INDEX)
+
+    def test_no_call_site_trusts_a_bare_truthy_response(self):
+        """api() resolves the parsed body for EVERY status, so `if (!r) return`
+        lets a 500 through — and the code after it toasted success and closed
+        the modal. That shipped: enabling the server 500'd while the UI said
+        "KMIP server enabled" and left the checkbox unticked."""
+        self.assertIn('function _kmipOk', self.JS)
+        self.assertNotIn('if (!r) return;', self.JS,
+                         'every KMIP response must go through _kmipOk')
+
+    def test_every_api_call_is_guarded(self):
+        import re
+        calls = len(re.findall(r'await api\(', self.JS))
+        guards = self.JS.count('_kmipOk(')
+        self.assertGreaterEqual(guards, calls - 1,
+                                f'{calls} api() calls but only {guards} guards '
+                                '(the polling one may go unguarded)')
 
     def test_destructive_actions_confirm(self):
         for fn in ('kmipRevokeClient', 'kmipDestroyKey'):

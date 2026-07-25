@@ -80,6 +80,46 @@ at. Now there is one, and it is monitored by the same system that runs it.
   missing or present-but-unreadable, and a rejected secret is logged as a loud
   `403` with the fix rather than swallowed at debug level.
 
+### Backups: one instance's archives stay in its own directory
+Field report of an unencrypted archive appearing among the encrypted ones — a
+192K `0644 *.tar.gz` between healthy 4.6M `0600 *.tar.gz.enc` files. Three
+distinct defects:
+- **The default backup path was a hardcoded absolute
+  `/var/lib/remotepower/backups`, not `<RP_DATA_DIR>/backups`.** So the
+  read-only demo instance — its own gunicorn, its own data dir, and no
+  `RP_BACKUP_PASSPHRASE` — wrote its small plaintext archives straight into
+  **production's** backup directory. Beyond the confusion, the two instances
+  shared a directory, so each one's retention pruner deleted the other's
+  archives, the restore drill (which verifies the NEWEST archive) could report
+  on the wrong instance, and production's posture page flagged "plaintext
+  archives" because of the demo. Now derived from the data dir.
+- **The tarball was written to its final name, then encrypted.** A complete
+  readable copy of the whole data dir existed at the resting name for the
+  length of the run, and a process death in that window (a deploy restarting
+  the service, an OOM) left a partial plaintext archive behind permanently —
+  retained by the pruner as though it were a backup. Archives are now built
+  under a private `.partial` name that matches neither prune glob and
+  published atomically, so a `*.tar.gz` that exists is always complete.
+  Abandoned partials are swept on the next run.
+- **Archives were created with the default umask (0644), not 0600** — as was
+  the pre-restore snapshot, which was additionally never encrypted and never
+  pruned, so every restore left a permanent unencrypted image of the install.
+  Both are 0600 now, and the snapshot honours `RP_BACKUP_PASSPHRASE`.
+
+### KMIP: works on distro cryptography, and stops claiming success it did not have
+- **Enabling the server returned a bare 500 on Debian 12.** Certificate expiry
+  was read via `not_valid_after_utc`, which only exists from cryptography 42
+  (Jan 2024); Debian 12 ships 38.x, where it raises `AttributeError`. Reads now
+  fall back to the legacy naive property (stamping UTC so the local timezone
+  cannot shift the recorded expiry), and the builder is fed naive UTC, which
+  every version accepts. PKI failures also report their cause instead of a
+  bare 500.
+- **The UI toasted "KMIP server enabled" over a failed save.** `api()` resolves
+  the parsed body for every status, so `if (!r) return` let a 500 through and
+  the code after it closed the modal and declared success — leaving the
+  checkbox unticked, which is how it was spotted. Every KMIP call now goes
+  through one guard that surfaces the server's error instead.
+
 ### Optional sidecars are installable, and visible in the CLI
 - **`install-server.sh` gained `--with-kmip`, `--with-syslogd` and
   `--with-flowd`.** The syslog and flow receivers previously had no installer

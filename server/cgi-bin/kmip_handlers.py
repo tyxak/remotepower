@@ -207,6 +207,34 @@ def _kmip_x509():
                                  'for the KMIP server — re-run install-server.sh'})
 
 
+def _kmip_utcnow(dt):
+    """Naive-UTC 'now' for CertificateBuilder.
+
+    The builder accepts naive UTC on every cryptography version; aware
+    datetimes only became the norm in 42. Naive keeps one code path from
+    Debian 12's 38.x through current.
+    """
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+
+
+def _cert_not_after_epoch(cert):
+    """Expiry as a unix timestamp, across cryptography versions.
+
+    `not_valid_after_utc` only exists from cryptography 42 (Jan 2024). Debian
+    12 ships 38.x, where reading it raises AttributeError — which surfaced as a
+    bare 500 the first time an operator clicked Enable on a stock distro. The
+    older `not_valid_after` returns a NAIVE datetime that is UTC by definition,
+    so stamp the timezone rather than letting the local zone shift the expiry.
+    """
+    import datetime as _dt
+    got = getattr(cert, 'not_valid_after_utc', None)
+    if got is None:
+        got = cert.not_valid_after
+        if got.tzinfo is None:
+            got = got.replace(tzinfo=_dt.timezone.utc)
+    return int(got.timestamp())
+
+
 def _kmip_key_usage(x509, cert_sign=False):
     return x509.KeyUsage(
         digital_signature=not cert_sign, content_commitment=False,
@@ -222,7 +250,7 @@ def _kmip_gen_ca():
     name = x509.Name([
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'RemotePower'),
         x509.NameAttribute(NameOID.COMMON_NAME, 'RemotePower KMIP CA')])
-    now = dt.datetime.now(dt.timezone.utc)
+    now = _kmip_utcnow(dt)
     cert = (x509.CertificateBuilder()
             .subject_name(name).issuer_name(name)
             .public_key(key.public_key())
@@ -240,7 +268,7 @@ def _kmip_gen_ca():
         ser.Encoding.PEM, ser.PrivateFormat.PKCS8,
         ser.NoEncryption()).decode()
     fp = hashlib.sha256(cert.public_bytes(ser.Encoding.DER)).hexdigest()
-    return cert_pem, key_pem, fp, int(cert.not_valid_after_utc.timestamp())
+    return cert_pem, key_pem, fp, _cert_not_after_epoch(cert)
 
 
 def _kmip_issue_cert(cn, ca_cert_pem, ca_key_pem, days, server=False,
@@ -255,7 +283,7 @@ def _kmip_issue_cert(cn, ca_cert_pem, ca_key_pem, days, server=False,
     name = x509.Name([
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'RemotePower'),
         x509.NameAttribute(NameOID.COMMON_NAME, str(cn)[:64] or 'kmip')])
-    now = dt.datetime.now(dt.timezone.utc)
+    now = _kmip_utcnow(dt)
     eku = (ExtendedKeyUsageOID.SERVER_AUTH if server
            else ExtendedKeyUsageOID.CLIENT_AUTH)
     builder = (x509.CertificateBuilder()
@@ -287,7 +315,7 @@ def _kmip_issue_cert(cn, ca_cert_pem, ca_key_pem, days, server=False,
         ser.Encoding.PEM, ser.PrivateFormat.PKCS8,
         ser.NoEncryption()).decode()
     fp = hashlib.sha256(cert.public_bytes(ser.Encoding.DER)).hexdigest()
-    return cert_pem, key_pem, fp, int(cert.not_valid_after_utc.timestamp())
+    return cert_pem, key_pem, fp, _cert_not_after_epoch(cert)
 
 
 # ── activity log ─────────────────────────────────────────────────────────────
@@ -438,7 +466,17 @@ def handle_kmip_config():
             store.pop('server_cert', None)
             reissue = True
         if enabled:
-            A._kmip_ensure_pki(store, key)
+            try:
+                A._kmip_ensure_pki(store, key)
+            except A.HTTPError:
+                raise                       # a deliberate respond(), pass it on
+            except Exception as e:
+                # Certificate generation touches the `cryptography` API, whose
+                # surface shifts between distro versions. An uncaught error
+                # here used to surface as a bare 500 with nothing to go on.
+                A.log_json('error', 'kmip pki generation failed', error=str(e))
+                A.respond(500, {'error': 'could not generate the KMIP CA / '
+                                         f'server certificate: {e}'})
         _kmip_bump_rev(store)
     A.audit_log(actor, 'kmip_config',
                 detail=f'enabled={enabled} port={port}'
@@ -446,6 +484,10 @@ def handle_kmip_config():
                 source_ip=A._get_client_ip())
     A._kmip_log('admin', op='config', actor=actor, ok=True,
                 detail=f'enabled={enabled} port={port}')
+    # Returns the fresh status so the page repaints from one round-trip. The
+    # client checks for an `error` key rather than a status code (api() resolves
+    # the body for every status), so a failure above must have responded 4xx/5xx
+    # with `error` — never fall through to here.
     A.handle_kmip_status()
 
 
@@ -537,10 +579,17 @@ def handle_kmip_client_create():
         if not (store.get('ca') or {}).get('cert_pem'):
             A._kmip_ensure_pki(store, key)
         ca = store['ca']
-        ca_key_pem = A.cmdb_vault.decrypt(key, ca['key_enc'])
-        cert_pem, key_pem, fp, not_after = A._kmip_issue_cert(
-            f'{name} ({kind})', ca['cert_pem'], ca_key_pem,
-            _KMIP_CLIENT_CERT_DAYS)
+        try:
+            ca_key_pem = A.cmdb_vault.decrypt(key, ca['key_enc'])
+            cert_pem, key_pem, fp, not_after = A._kmip_issue_cert(
+                f'{name} ({kind})', ca['cert_pem'], ca_key_pem,
+                _KMIP_CLIENT_CERT_DAYS)
+        except A.HTTPError:
+            raise
+        except Exception as e:
+            A.log_json('error', 'kmip client cert issue failed', error=str(e))
+            A.respond(500, {'error': f'could not issue the client '
+                                     f'certificate: {e}'})
         clients[cid] = {'name': name, 'kind': kind, 'fingerprint': fp,
                         'cert_pem': cert_pem, 'created': int(time.time()),
                         'created_by': actor, 'revoked': False,

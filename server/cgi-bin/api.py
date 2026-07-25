@@ -886,6 +886,7 @@ _bk_spec.loader.exec_module(backups_handlers_mod)
 backups_handlers_mod.bind(globals())
 for _bk_name in (
         '_backup_include', '_backup_jobs_load', '_backup_passphrase',
+        '_default_backup_dir', '_sweep_stale_partials',
         '_maybe_run_scheduled_backup', '_maybe_run_restore_drill', '_restore_drill_core',
         '_refresh_proxmox_backup_cache', '_run_data_backup',
         'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
@@ -1232,6 +1233,8 @@ for _km_name in (
         'handle_kmip_daemon_state', 'handle_kmip_daemon_event',
         'handle_kmip_daemon_op',
         '_kmip_gen_ca', '_kmip_issue_cert', '_kmip_ensure_pki', '_kmip_log',
+        '_cert_not_after_epoch', '_kmip_utcnow', '_kmip_secret_from_file',
+        '_kmip_secret_file_exists',
         '_kmip_client_or_404', '_kmip_op_fail', '_kmip_object_visible',
         '_kmip_daemon_secret', '_kmip_secret_file', '_kmip_master_key',
         '_kmip_require_daemon', '_kmip_require_admin', '_kmip_hosts',
@@ -29640,7 +29643,7 @@ def handle_self_status():
         # v5.0.0: archive counts so the UI can offer "encrypt existing backups".
         try:
             _bcfg = (load(CONFIG_FILE) or {}).get('backup') or {}
-            _bdir = Path(_bcfg.get('path') or '/var/lib/remotepower/backups')
+            _bdir = Path(_bcfg.get('path') or (DATA_DIR / 'backups'))
             out['backup']['plaintext_archives'] = sum(
                 1 for f in _bdir.glob('remotepower_data_*.tar.gz')
                 if not f.name.endswith('.enc'))

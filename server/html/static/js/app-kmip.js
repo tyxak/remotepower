@@ -30,6 +30,21 @@ function _kmipDate(ts) {
   return ts ? new Date(ts * 1000).toLocaleDateString() : '—';
 }
 
+// api() resolves with the parsed body for EVERY status, 2xx or not — it only
+// returns null on a 401 (where it has already logged out). So `if (!r) return`
+// happily lets a 500 body through, and the code below would close the modal and
+// toast success over a failed save. That shipped: enabling the KMIP server
+// 500'd server-side while the UI said "KMIP server enabled" and left the
+// checkbox unticked. Every KMIP call goes through this instead.
+function _kmipOk(r, what) {
+  if (!r) return false;                     // 401 — doLogout() already ran
+  if (r.error) {
+    toast(`${what} failed: ${r.error}`, 'error', { duration: 10000 });
+    return false;
+  }
+  return true;
+}
+
 // ── page load ───────────────────────────────────────────────────────────────
 async function loadKmip() {
   const tbody = document.getElementById('kmip-clients-tbody');
@@ -44,7 +59,7 @@ async function loadKmip() {
       api('GET', '/kmip/clients'),
       api('GET', '/kmip/keys'),
     ]);
-    if (!status) return;                       // 401 → doLogout() already ran
+    if (!_kmipOk(status, 'Loading KMIP status')) return;
     _kmipStatus = status;
     _kmipClients = (clients && clients.clients) || [];
     _kmipKeys = (keys && keys.keys) || [];
@@ -240,7 +255,7 @@ async function kmipSaveConfig() {
   if (port < 1 || port > 65535) { toast('Enter a valid port', 'error', { transient: true }); return; }
   try {
     const r = await api('POST', '/kmip/config', { enabled, port, hosts });
-    if (!r) return;
+    if (!_kmipOk(r, 'Saving KMIP settings')) { loadKmip(); return; }
     closeModal('kmip-config-modal');
     toast(enabled ? 'KMIP server enabled' : 'KMIP server disabled', 'success');
     loadKmip();
@@ -252,7 +267,7 @@ async function kmipSaveConfig() {
 async function kmipShowInstall() {
   try {
     const r = await api('GET', '/kmip/install');
-    if (!r) return;
+    if (!_kmipOk(r, 'Loading the install snippet')) return;
     document.getElementById('kmip-install-snippet').textContent = r.snippet || '';
     const note = document.getElementById('kmip-install-note');
     note.textContent = r.already_installed
@@ -316,8 +331,7 @@ async function kmipWizardNext() {
     if (!name) { toast('Enter a name for this appliance', 'error', { transient: true }); return; }
     try {
       const r = await api('POST', '/kmip/clients', { name, kind });
-      if (!r) return;
-      if (r.error) { toast(r.error, 'error'); return; }
+      if (!_kmipOk(r, 'Issuing the certificate')) return;
       _kmipWizCreds = r;
       document.getElementById('kmip-wiz-fp').textContent =
         `Certificate fingerprint: ${(r.fingerprint || '').slice(0, 32)}…`;
@@ -446,7 +460,7 @@ async function kmipRevokeClient(btn) {
   if (!ok) return;
   try {
     const r = await api('POST', `/kmip/clients/${encodeURIComponent(cid)}/revoke`);
-    if (!r) return;
+    if (!_kmipOk(r, 'Revoking the client')) return;
     toast(`${name} revoked`, 'success');
     loadKmip();
   } catch (e) {
@@ -465,7 +479,7 @@ async function kmipReissueClient(btn) {
   if (!ok) return;
   try {
     const r = await api('POST', `/kmip/clients/${encodeURIComponent(cid)}/reissue`);
-    if (!r) return;
+    if (!_kmipOk(r, 'Re-issuing the certificate')) return;
     _kmipWizCreds = Object.assign({ id: cid, name, kind: 'generic' }, r);
     _kmipWizStep = 2;
     document.getElementById('kmip-wiz-fp').textContent =
@@ -491,7 +505,7 @@ async function kmipDestroyKey(btn) {
   if (!ok) return;
   try {
     const r = await api('DELETE', `/kmip/keys/${encodeURIComponent(uid)}`);
-    if (!r) return;
+    if (!_kmipOk(r, 'Destroying the key')) return;
     toast(`Key ${name} destroyed`, 'success');
     loadKmip();
   } catch (e) {
