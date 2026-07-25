@@ -215,6 +215,38 @@ def decrypt(key: bytes, blob: dict) -> str:
     return pt.decode("utf-8")
 
 
+def encrypt_bytes(key: bytes, plaintext: bytes) -> dict:
+    """Encrypt raw bytes (KMIP key material is binary, not UTF-8).
+    Returns {'nonce': hex, 'ct': hex} — same blob shape as encrypt()."""
+    if not isinstance(key, (bytes, bytearray)) or len(key) != KDF_KEY_LEN:
+        raise VaultKeyError("invalid key")
+    if not isinstance(plaintext, (bytes, bytearray)):
+        raise VaultError("plaintext must be bytes")
+    _, _, AESGCM = _crypto()
+    nonce = secrets.token_bytes(GCM_NONCE_LEN)
+    ct = AESGCM(bytes(key)).encrypt(nonce, bytes(plaintext), None)
+    return {"nonce": nonce.hex(), "ct": ct.hex()}
+
+
+def decrypt_bytes(key: bytes, blob: dict) -> bytes:
+    """Decrypt a {'nonce': hex, 'ct': hex} blob → raw bytes."""
+    if not isinstance(key, (bytes, bytearray)) or len(key) != KDF_KEY_LEN:
+        raise VaultKeyError("invalid key")
+    if not isinstance(blob, dict) or "nonce" not in blob or "ct" not in blob:
+        raise VaultError("invalid ciphertext blob")
+    try:
+        nonce = bytes.fromhex(blob["nonce"])
+        ct = bytes.fromhex(blob["ct"])
+    except ValueError as e:
+        raise VaultError(f"corrupt ciphertext blob: {e}")
+    _, _, AESGCM = _crypto()
+    try:
+        return AESGCM(bytes(key)).decrypt(nonce, ct, None)
+    except Exception as e:
+        # Don't leak whether it's auth-tag failure vs key mismatch
+        raise VaultKeyError("decryption failed") from e
+
+
 def parse_key_header(value: str) -> bytes:
     """Decode a hex key sent in the X-RP-Vault-Key header. Strict on length."""
     if not isinstance(value, str) or not value:

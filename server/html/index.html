@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-20">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.0-21">
 
 </head>
 <body>
@@ -356,9 +356,17 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items">
+        <button class="nav-btn" data-page="advisory" title="What to fix first — one prioritized list across OS, exposure, identity, integrity and applications">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+          <span>Advisory</span>
+        </button>
         <button class="nav-btn" data-page="cve" title="Package vulnerabilities per device via OSV.dev — installed packages vs known CVEs">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           <span>CVEs</span>
+        </button>
+        <button class="nav-btn" data-page="drift" title="Watched config files — alerts when a file hash diverges from its baseline">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
+          <span>Drift</span>
         </button>
         <button class="nav-btn" data-page="exposure" title="World/LAN/local exposure of every listening socket">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9e897a47"/></svg>
@@ -368,37 +376,33 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v6M15 9v6M9 15v6"/></svg>
           <span>Firewall</span>
         </button>
-        <button class="nav-btn" data-page="drift" title="Watched config files — alerts when a file hash diverges from its baseline">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
-          <span>Drift</span>
-        </button>
-        <button class="nav-btn" data-page="protect" title="Integrity Guard — files auto-quarantined on your hosts, with restore or delete">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg>
-          <span>Protect</span>
-        </button>
-        <button class="nav-btn" data-page="advisory" title="What to fix first — one prioritized list across OS, exposure, identity, integrity and applications">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
-          <span>Advisory</span>
-        </button>
-        <button class="nav-btn" data-page="risk" title="Per-asset risk score from CVEs, exposure, policy, expiry and more">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg>
-          <span>Risk</span>
+        <button class="nav-btn" data-page="kmip" title="KMIP key server — store Synology / TrueNAS / vSphere encryption keys here instead of on the appliance">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5V7M12 17v-1.5M8.5 12H7M17 12h-1.5"/></svg>
+          <span>KMIP</span>
         </button>
         <button class="nav-btn" data-page="scans" title="Authorized penetration testing / vulnerability scans">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6a6 6 0 1 0 6 6"/><line x1="12" y1="12" x2="22" y2="2"/></svg>
           <span>Pentest</span>
         </button>
-        <button class="nav-btn" data-page="tls" title="TLS certificate + domain/DNS expiry monitoring and ACME (Let’s Encrypt) certificates">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-          <span>TLS / DNS</span>
+        <button class="nav-btn" data-page="protect" title="Integrity Guard — files auto-quarantined on your hosts, with restore or delete">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>Protect</span>
+        </button>
+        <button class="nav-btn" data-page="risk" title="Per-asset risk score from CVEs, exposure, policy, expiry and more">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg>
+          <span>Risk</span>
+        </button>
+        <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-896fd277"/></svg>
+          <span>Software policy</span>
         </button>
         <button class="nav-btn" data-page="ssh-keys" title="Audit authorized_keys across the fleet">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
           <span>SSH keys</span>
         </button>
-        <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-896fd277"/></svg>
-          <span>Software policy</span>
+        <button class="nav-btn" data-page="tls" title="TLS certificate + domain/DNS expiry monitoring and ACME (Let’s Encrypt) certificates">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <span>TLS / DNS</span>
         </button>
       </div>
     </div>
@@ -4411,8 +4415,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.4.0 sh1eldmatters shield security protection integrity guard baseline checks disable reset baseline quarantine protect check pentest security review bandit gitleaks codeql sast hardware rag smart gpu ups kernel reboot privileged accounts macos posture filevault gatekeeper sip firewall parity data binding triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations signed commands command signing require-signed-commands release.pub replay freshness tamper db compromise ha high availability failover keepalived floating ip netflow ipfix flow receiver remotepower-flowd network traffic top talkers conversations exporter router firewall udp 2055 streaming replication promote runbook load test compliance not assessed capable source essential eight smb1001 acsc verdict discipline att&ck attack technique mitre proof observed inferred theoretical silence clearance reset baseline server authoritative accept change multi path file check glob wp-config clamav daily cvd cld apt stamp gateway latency alert battery health low threshold alert parameters mac_filevault mac_firewall mac_gatekeeper mac_sip edge triggered posture alert usb inventory drawer living stat tiles count up sparkline meaning aware delta skeleton loading empty state kanban narrow width mobile 34 rag sources sudo trail self observability physical ipam inventory sites racks subnets warranty auto resolve lifecycle recover alert clear log line signature escattr quote mangled x22 blocklist spamcop spamhaus dnsblog fqdn host fold docker shouldrestart cleared lines ignored items pile up garbage collect self prune suppression rule class level kind scope group tag na-suppress auto-heal recheck patch_alert cve_found last active restore all decommission tombstone sla slo objects error budget burn rate availability target attach probe checkbox meeting breached no data prometheus gauges slo_object wordpress connector logins application password simple history geoip country recent logins client errors beacon ring window.onerror server status clear wiring gates no-undef css parity response contracts paused monitor visible resume reboot if required conditional needs-restarting reboot-required kernel pending reboot skipped auto resolve autoheal gap cve_cleared patch_ok tls_renewed ecc_stable secret_cleared confirm badge payload detail accept baseline where checks accept change button feedback spinner busy pulse click sweep">
-            <summary><strong>What's new — v6.4.0 &ldquo;Sh1eldMatters&rdquo;</strong> — the security-and-protection release. <strong>Integrity-guard and baseline checks that behave as expected</strong> — disable one and it stops evaluating on the host, not just in the UI; accept a legitimate change as the new baseline with one click — backed by a <strong>full public security review and pentest pass</strong> (nothing Critical, High or Medium ships). Plus <strong>agentic diagnosis used defensively</strong> (a bounded, secret-redacted log sweep and read-only alert triage that writes a verdict with its evidence trail), a <strong>data-binding sweep</strong> so everything the agent collects reaches the UI, RAG and AI, macOS security-posture alerts at Windows parity, <strong>SLA / SLO objects</strong> for remote probes (availability targets with error budgets, filterable and exported as Prometheus gauges), a <strong>WordPress connector</strong> showing the last logins with IP + geo, the client-side error beacon finally rendered on Server status, and a typography / box-overflow / performance polish wave.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.4.0 sh1eldmatters shield security protection integrity guard baseline checks disable reset baseline quarantine protect check pentest security review bandit gitleaks codeql sast hardware rag smart gpu ups kernel reboot privileged accounts macos posture filevault gatekeeper sip firewall parity data binding triage agentic mxdr hail mary log sweep diagnose from logs var log collect logs ai root cause rca error density redaction redacted secrets bearer password force_log_sweep drawer file search tails 24h bounded budget eventlog windows system application ai triage alert investigate loop evidence tools verdict confidence recommended action journal tail log search open alerts recent commands tool budget json protocol log_sweep_rca alert_triage prompt badge ai verdict auto triage automatic tiered autonomy severity floor daily cap feedback thumbs helpful governed executor propose fix confirmations ticket verdict cves metrics trend self provisioning syslog receiver watcher server status rp-syslogd rp_syslogd_running rp-server catalog auto remediation guarded verified blast radius cap per host cooldown verify window remediation_failed auto disable ledger recent auto-remediations signed commands command signing require-signed-commands release.pub replay freshness tamper db compromise ha high availability failover keepalived floating ip netflow ipfix flow receiver remotepower-flowd network traffic top talkers conversations exporter router firewall udp 2055 streaming replication promote runbook load test compliance not assessed capable source essential eight smb1001 acsc verdict discipline att&ck attack technique mitre proof observed inferred theoretical silence clearance reset baseline server authoritative accept change multi path file check glob wp-config clamav daily cvd cld apt stamp gateway latency alert battery health low threshold alert parameters mac_filevault mac_firewall mac_gatekeeper mac_sip edge triggered posture alert usb inventory drawer living stat tiles count up sparkline meaning aware delta skeleton loading empty state kanban narrow width mobile 34 rag sources sudo trail self observability physical ipam inventory sites racks subnets warranty auto resolve lifecycle recover alert clear log line signature escattr quote mangled x22 blocklist spamcop spamhaus dnsblog fqdn host fold docker shouldrestart cleared lines ignored items pile up garbage collect self prune suppression rule class level kind scope group tag na-suppress auto-heal recheck patch_alert cve_found last active restore all decommission tombstone sla slo objects error budget burn rate availability target attach probe checkbox meeting breached no data prometheus gauges slo_object wordpress connector logins application password simple history geoip country recent logins client errors beacon ring window.onerror server status clear wiring gates no-undef css parity response contracts paused monitor visible resume reboot if required conditional needs-restarting reboot-required kernel pending reboot skipped auto resolve autoheal gap cve_cleared patch_ok tls_renewed ecc_stable secret_cleared confirm badge payload detail accept baseline where checks accept change button feedback spinner busy pulse click sweep kmip key server key management encryption keys synology dsm truenas vsphere vmware kms nas volume encryption shared folder sed zfs dataset vtpm mutual tls mtls client certificate certificate authority ca revoke reissue recovery bundle rpkmip master key ttlv oasis 5696 remotepower-kmipd sidecar with-kmip with-syslogd with-flowd ingest keys rp tui">
+            <summary><strong>What's new — v6.4.0 &ldquo;Sh1eldMatters&rdquo;</strong> — the security-and-protection release. <strong>Integrity-guard and baseline checks that behave as expected</strong> — disable one and it stops evaluating on the host, not just in the UI; accept a legitimate change as the new baseline with one click — backed by a <strong>full public security review and pentest pass</strong> (nothing Critical, High or Medium ships). Plus <strong>agentic diagnosis used defensively</strong> (a bounded, secret-redacted log sweep and read-only alert triage that writes a verdict with its evidence trail), a <strong>data-binding sweep</strong> so everything the agent collects reaches the UI, RAG and AI, macOS security-posture alerts at Windows parity, <strong>SLA / SLO objects</strong> for remote probes (availability targets with error budgets, filterable and exported as Prometheus gauges), a <strong>WordPress connector</strong> showing the last logins with IP + geo, a <strong>built-in KMIP key server</strong> so Synology / TrueNAS / vSphere keep their encryption keys off the appliance that holds the encrypted data, the client-side error beacon finally rendered on Server status, and a typography / box-overflow / performance polish wave.</summary>
             <div class="doc-body">
               <p><strong>Protection you can trust.</strong> Disabling an integrity-guard or baseline check now stops it everywhere — the agent stops evaluating (and, for guard checks, stops quarantining) it, not just the row hiding. Removing a check reaches the agent immediately. Baseline-holding checks get a <strong>Reset baseline</strong> button right on the Checks row, applied checks can be un-applied straight from the catalog card, and the protect-check tables and quarantine vault are filterable for big fleets. Failure text names the file and what to do about it.</p>
               <p><strong>Pentested for the public.</strong> A full security review and pentest pass (SAST clean across Bandit, gitleaks and CodeQL; adversarial code review; live probing of the maintainer's own instance) backs this release — the bar is no Critical, High or Medium, and nothing exploitable. See <code>docs/security-review-6.4.0.md</code>.</p>
@@ -4422,6 +4426,7 @@
               <p><strong>Tiered autonomy.</strong> Settings → AI Assistant → <strong>Automatic alert triage</strong> (off by default) runs the same loop on new open alerts from the maintenance cadence — one per tick, severity floor, daily run cap — so alerts arrive pre-investigated (<code>by: auto</code>). Every verdict takes thumbs-up/down feedback (aggregated in AI stats), tickets opened from a triaged alert carry the verdict in their seeded note, and with the AI-executor module enabled, <strong>Propose fix (governed executor)</strong> turns a verdict into a human-approved remediation pick from your saved actions.</p>
               <p><strong>Guarded auto-remediation.</strong> Automation rules&rsquo; run-script fixes now carry a safety rig: a <strong>per-host cooldown</strong> and a <strong>max-hosts-per-hour blast cap</strong>, an opt-in <strong>verify window</strong> that fires a <code>remediation_failed</code> alert when the fix didn&rsquo;t clear the triggering alert, <strong>auto-disable after consecutive failures</strong>, and a per-attempt ledger on the Automations page.</p>
               <p><strong>Agentless network flows.</strong> A new <strong>NetFlow/IPFIX receiver</strong> (<code>remotepower-flowd</code>, udp/2055) — the flow sibling of the syslog receiver. Routers, firewalls and L3 switches export flows; the receiver maps each exporter to its enrolled device and shows <strong>top talkers, top conversations and a protocol breakdown</strong> in the device drawer (<b>Network flows</b>). Parses NetFlow v5/v9 + IPFIX. Add a <code>kind=flow</code> inbound token and point the router at it.</p>
+              <p><strong>KMIP key server.</strong> A built-in <strong>KMIP</strong> key server (<code>remotepower-kmipd</code>, tcp/5696, opt-in) so Synology DSM, TrueNAS and VMware vSphere store their encryption keys here instead of on the appliance holding the encrypted data. Mandatory mutual TLS with a private CA; a three-step wizard picks the appliance type, issues the certificate, hands you the three files and waits for the client&rsquo;s first connection. Keys are AES-256-GCM at rest and scoped to the owning client; every connection, auth failure, key operation and admin action lands in an on-page activity log. A passphrase-encrypted <strong>recovery bundle</strong> holds the master key, CA and every key — and the master key is deliberately excluded from scheduled backups, so a stolen archive is ciphertext only. <strong>An appliance that unlocks against this server needs it reachable at boot — never run it on a machine that depends on it to unlock.</strong> Also: <code>--with-kmip</code>, <code>--with-syslogd</code> and <code>--with-flowd</code> installer flags (all off by default), and an <strong>INGEST &amp; KEYS</strong> block in <code>rp status</code> / <code>rp tui</code> showing what the receivers actually ingested.</p>
               <p><strong>Metrics incident-zoom band.</strong> A new <strong>5-minute roll-up tier</strong> (kept ~8 days) fills the resolution gap between the raw 24-hour window and the hourly-30-day tier — the band you want when investigating an incident a few days old (hourly smooths away the spike; raw has rolled off). New “7 days (5-min avg)” option on the Trends range selector, and the agentic-triage evidence tool reads it too.</p>
               <p><strong>Compliance you can back up.</strong> After Assay’s “silence isn’t clearance” discipline: a control no longer reads <strong>Pass</strong> off an empty offenders list when the telemetry that would assess it never ran — patch/CVE/EOL/reboot/privileged-access controls return <strong>Not assessed</strong> (never a silent green) when no host reported the signal, and the score ignores Not-assessed so it can’t be inflated. Two frameworks join PCI/HIPAA/SOC 2: <strong>ACSC Essential Eight</strong> (process controls it can’t observe are honestly Not assessed) and <strong>SMB1001:2026</strong>. Triage verdicts can now carry <strong>proof-labelled MITRE ATT&amp;CK techniques</strong> (observed/inferred/theoretical, validated server-side).</p>
               <p><strong>Signed command channel.</strong> The server now detach-signs every dispatched command with the release signing key, bound to the target device and a fresh timestamp. Pin <code>release.pub</code> and create the operator-owned <code>require-signed-commands</code> marker on a host and its agent <strong>refuses</strong> unsigned, tampered or replayed commands (reported, never silently dropped) &mdash; database or queue tampering alone can no longer execute anything on the fleet. All three agents enforce identically. And <code>docs/ha.md</code> is the new <strong>high-availability reference topology</strong>: Postgres streaming replication, a floating IP, the promote runbook, and a stated capacity target with a load-test recipe.</p>
@@ -7441,6 +7446,91 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
         <div id="fail2ban-detail" class="mt-16"></div>
+        </div>
+      </div>
+
+      <!-- ── v6.4.0: KMIP key-management server ─────────────────────────── -->
+      <div id="page-kmip" class="page">
+        <div class="page-title">KMIP</div>
+        <div class="page-subtitle">A built-in KMIP key server: Synology DSM, TrueNAS and VMware vSphere store their encryption keys <span class="fw-600">here</span> instead of on the appliance that holds the encrypted data. Clients authenticate with mutual TLS; every connection and key operation lands in the activity log. Do not run this server on a machine that depends on it to unlock. <a href="docs/kmip.md" class="c-accent">Documentation</a></div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadKmip"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="kmipOpenConfig"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Server settings</button>
+          <button class="btn-icon" data-action="kmipShowInstall"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Install sidecar</button>
+          <button class="btn-primary" data-action="kmipOpenWizard"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add client</button>
+        </div>
+
+        <div class="hc-grid-2">
+          <div class="dash-card">
+            <div class="section-title">Server</div>
+            <div id="kmip-server-status"><div class="empty-state">Loading…</div></div>
+          </div>
+          <div class="dash-card">
+            <div class="section-title">Recovery</div>
+            <p class="hint">The master key and every stored key travel ONLY in a passphrase-encrypted recovery bundle — scheduled backups deliberately hold ciphertext without the master key. Export a bundle after setup and whenever keys change, and keep it away from the appliances that depend on this server.</p>
+            <div class="toolbar">
+              <button class="btn-icon" data-action="kmipOpenExport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Export bundle</button>
+              <button class="btn-icon" data-action="kmipOpenImport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Restore bundle</button>
+            </div>
+            <div id="kmip-recovery-hint" class="hint mt-8"></div>
+          </div>
+        </div>
+
+        <div class="dash-card mt-16">
+          <div class="section-title">Clients</div>
+          <p class="hint">Appliances allowed to talk to this KMIP server. Each holds a client certificate issued here; revoke to cut an appliance off, re-issue to replace a lost certificate without losing its keys.</p>
+          <div class="table-card">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table class="data-table w-full">
+                <thead id="kmip-clients-thead"><tr>
+                  <th scope="col" data-col="name">Name</th><th scope="col" data-col="kind">Type</th>
+                  <th scope="col" data-col="fingerprint">Certificate</th><th scope="col" data-col="last_seen">Last seen</th>
+                  <th scope="col" data-col="objects">Keys</th><th scope="col" data-col="status">Status</th><th scope="col"></th>
+                </tr></thead>
+                <tbody id="kmip-clients-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-card mt-16">
+          <div class="section-title">Stored keys</div>
+          <p class="hint">Managed objects held for the clients above — metadata only; key material is never shown. Destroying a key that an appliance still needs makes its encrypted data permanently unrecoverable.</p>
+          <div class="table-card">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table class="data-table w-full">
+                <thead id="kmip-keys-thead"><tr>
+                  <th scope="col" data-col="uid">ID</th><th scope="col" data-col="name">Name</th>
+                  <th scope="col" data-col="object_type">Type</th><th scope="col" data-col="algorithm">Algorithm</th>
+                  <th scope="col" data-col="state">State</th><th scope="col" data-col="client">Client</th>
+                  <th scope="col" data-col="last_access">Last access</th><th scope="col"></th>
+                </tr></thead>
+                <tbody id="kmip-keys-tbody"><tr><td colspan="8" class="hint">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-card mt-16">
+          <div class="section-title">Activity log</div>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="kmipLoadLog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <input type="text" class="form-input page-filter" placeholder="Filter client / operation…" data-input="filterRows" data-input-el="1" data-filter-target="#kmip-log-tbody tr" aria-label="Filter client / operation">
+            <span id="kmip-log-summary" class="isl-100"></span>
+          </div>
+          <div class="table-card">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table class="data-table w-full">
+                <thead id="kmip-log-thead"><tr>
+                  <th scope="col" data-col="ts">Time</th><th scope="col" data-col="kind">Event</th>
+                  <th scope="col" data-col="client">Client</th><th scope="col" data-col="op">Operation</th>
+                  <th scope="col" data-col="uid">Object</th><th scope="col" data-col="ok">Result</th>
+                  <th scope="col" data-col="detail">Detail</th>
+                </tr></thead>
+                <tbody id="kmip-log-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -10697,6 +10787,115 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div>
 
+<!-- ── v6.4.0: KMIP modals ─────────────────────────────────────────────── -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-config-title" id="kmip-config-modal"><div class="modal">
+  <div class="modal-title" id="kmip-config-title">KMIP server settings</div>
+  <div class="modal-subtitle">Enabling generates the master key, the private CA and the server certificate. The sidecar picks changes up within 30 seconds.</div>
+  <div class="form-group">
+    <label class="form-label"><input type="checkbox" id="kmip-cfg-enabled"> KMIP server enabled</label>
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="kmip-cfg-port">Listen port</label>
+    <input id="kmip-cfg-port" class="form-input" type="number" min="1" max="65535" placeholder="5696">
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="kmip-cfg-hosts">Server hostnames / IPs (for the certificate)</label>
+    <input id="kmip-cfg-hosts" class="form-input" placeholder="kms.lan 192.168.1.10">
+    <div class="hint">Space or comma separated. What your appliances will type as the KMIP server address. Changing this re-issues the server certificate.</div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="kmip-config-modal">Cancel</button>
+    <button class="btn-primary" data-action="kmipSaveConfig">Save</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-install-title" id="kmip-install-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="kmip-install-title">Install the KMIP sidecar</div>
+  <div class="modal-subtitle">The listener is a separate hardened service. This snippet writes the shared secret (shown once — a fresh one is generated per view), installs the daemon and starts it.</div>
+  <pre id="kmip-install-snippet" class="code-block scroll-cap"></pre>
+  <div id="kmip-install-note" class="hint"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="kmip-install-modal">Close</button>
+    <button class="btn-primary" data-action="kmipCopySnippet">Copy commands</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-wizard-title" id="kmip-wizard-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="kmip-wizard-title">Add a KMIP client</div>
+  <div class="isl-243">
+    <span class="acme-step-pill" data-step="1">1 · Appliance</span>
+    <span class="acme-step-pill" data-step="2">2 · Credentials</span>
+    <span class="acme-step-pill" data-step="3">3 · Connect</span>
+  </div>
+  <div class="kmip-step" data-step="1">
+    <div class="form-group">
+      <label class="form-label" for="kmip-wiz-kind">Appliance type</label>
+      <select id="kmip-wiz-kind" class="form-input">
+        <option value="synology">Synology DSM (encrypted shared folders / volumes)</option>
+        <option value="truenas">TrueNAS (SED / dataset keys)</option>
+        <option value="vsphere">VMware vSphere (VM encryption / vTPM)</option>
+        <option value="generic">Generic KMIP client</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="kmip-wiz-name">Name</label>
+      <input id="kmip-wiz-name" class="form-input" placeholder="nas-01" maxlength="64">
+      <div class="hint">A label for this appliance — shown in the client list and the activity log.</div>
+    </div>
+  </div>
+  <div class="kmip-step d-none" data-step="2">
+    <p class="hint">Certificate issued. <strong>Download all three files now</strong> — the private key is shown once and never stored on the server. If it is lost, re-issue from the client row (keys are kept).</p>
+    <div class="toolbar">
+      <button class="btn-icon" data-action="kmipDownloadCred" data-arg="ca">ca.crt</button>
+      <button class="btn-icon" data-action="kmipDownloadCred" data-arg="cert">client.crt</button>
+      <button class="btn-icon" data-action="kmipDownloadCred" data-arg="key">client.key</button>
+    </div>
+    <div id="kmip-wiz-fp" class="hint mt-8"></div>
+  </div>
+  <div class="kmip-step d-none" data-step="3">
+    <div id="kmip-wiz-instructions"></div>
+    <div id="kmip-wiz-waiting" class="hint mt-12"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="kmipWizardClose">Cancel</button>
+    <button class="btn-primary" id="kmip-wiz-next" data-action="kmipWizardNext">Next →</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-export-title" id="kmip-export-modal"><div class="modal">
+  <div class="modal-title" id="kmip-export-title">Export recovery bundle</div>
+  <div class="modal-subtitle">One encrypted file holding the master key, the CA and every stored key — everything needed to rebuild this KMIP server. Store it offline, away from the appliances that unlock against it.</div>
+  <div class="form-group">
+    <label class="form-label" for="kmip-export-pass">Bundle passphrase (min 12 characters)</label>
+    <input id="kmip-export-pass" class="form-input" type="password" autocomplete="new-password">
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="kmip-export-pass2">Repeat passphrase</label>
+    <input id="kmip-export-pass2" class="form-input" type="password" autocomplete="new-password">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="kmip-export-modal">Cancel</button>
+    <button class="btn-primary" data-action="kmipDoExport">Export bundle</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-import-title" id="kmip-import-modal"><div class="modal">
+  <div class="modal-title" id="kmip-import-title">Restore recovery bundle</div>
+  <div class="modal-subtitle">Restores the master key, CA, clients and stored keys from a bundle exported here. If this server already holds keys they are replaced — appliances keep working because client identities travel with the bundle.</div>
+  <div class="form-group">
+    <label class="form-label" for="kmip-import-file">Bundle file (.rpkmip)</label>
+    <input id="kmip-import-file" class="form-input" type="file" accept=".rpkmip">
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="kmip-import-pass">Bundle passphrase</label>
+    <input id="kmip-import-pass" class="form-input" type="password" autocomplete="off">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="kmip-import-modal">Cancel</button>
+    <button class="btn-primary" data-action="kmipDoImport">Restore</button>
+  </div>
+</div></div>
+
 <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 <!-- v4.3.0: persistent connectivity banner — shown when an /api fetch fails at
      the network level (server down / connection lost), cleared automatically by
@@ -10725,42 +10924,43 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.0-20"></script>
+<script defer src="static/js/app.js?v=6.4.0-21"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-containers.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-network.js?v=6.4.0-20"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-containers.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-network.js?v=6.4.0-21"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.0-20"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.0-21"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-dns.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-drift.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-cve.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-backups.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-iac.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-virt.js?v=6.4.0-20"></script>
+<script defer src="static/js/app-ai.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-dns.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-drift.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-cve.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-backups.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-iac.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-virt.js?v=6.4.0-21"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-logs.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-remote.js?v=6.4.0-20"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.0-20"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-logs.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-remote.js?v=6.4.0-21"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.0-21"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
      buttons): app-checks, app-dmarc, app-gpu, app-kb, app-power, wg-access,
-     app-provisioning, app-rollouts, app-tuning, app-billing. Keep that map in
-     lockstep with this comment; a module BOTH here and there loads twice. -->
+     app-provisioning, app-rollouts, app-tuning, app-billing, app-kmip. Keep
+     that map in lockstep with this comment; a module BOTH here and there
+     loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.0-20"></script>
+<script defer src="static/js/sw-register.js?v=6.4.0-21"></script>
 </body>
 </html>

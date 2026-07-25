@@ -77,11 +77,27 @@ it's drawn with box characters and ANSI colour, so it works over plain SSH.
 │   ● scanner            running       enabled    —                         │
 │   ● push               running       enabled    :8766 ✓                    │
 │   ○ webterm            stopped       disabled   :8765 ✗                    │
+│   ● syslogd            running       enabled    :5514 ✓                    │
+│   · flowd              absent        —          —                         │
+│   ● kmipd              running       enabled    :5696 ✓                    │
 ├───────────────────────────────────────────────────────────────────────────┤
-│  ● 4 running   ○ 1 stopped   ✖ 0 failed                                    │
+│  ● 6 running   ○ 1 stopped   ✖ 0 failed                                    │
+├───────────────────────────────────────────────────────────────────────────┤
+│  INGEST & KEYS                                                             │
+│  syslog  4 src · 1820 lines · just now                                     │
+│  flow    0 mapped · 0 reporting · never                                    │
+│  kmip    on · 2/2 clients · 3/3 keys · op 4m ago                           │
 ╰───────────────────────────────────────────────────────────────────────────╯
   ↑/↓ select   [r]estart [s]tart [x]stop   [d]octor [l]ogs   [q]uit
 ```
+
+The **INGEST & KEYS** block is the part that answers "is it actually working?"
+rather than "is it running?" — how many syslog sources and flow exporters are
+mapped, how much they have ingested, and the KMIP client/key counts with a
+recent-failure count when something is being rejected. It reads through the
+storage backend, so it needs root (`sudo rp tui`); unprivileged it says so
+instead of reporting a misleading zero. It refreshes every 20 seconds, not on
+every frame.
 
 Keys: **↑/↓** (or `j`/`k`) move the selection; **r/s/x** restart / start / stop
 the selected component (via `sudo` if you're not root); **d** runs `rp doctor` in

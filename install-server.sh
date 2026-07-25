@@ -22,6 +22,14 @@ WITH_SCHEDULER="${RP_WITH_SCHEDULER:-1}" # 1 → out-of-band maintenance schedul
 WITH_POSTGRES="${RP_WITH_POSTGRES:-1}"   # 1 → provision a PostgreSQL backend
 WITH_SCANNER="${RP_WITH_SCANNER:-1}"     # 1 → install a co-located scanner satellite
 WITH_PUSH="${RP_WITH_PUSH:-1}"           # 1 → install the agent push (wake-nudge) daemon
+# Opt-IN sidecars (default 0). These listen on the network for THIRD-PARTY
+# devices, so they only exist when the operator asks for them — no install
+# should open a port nobody requested. Previously these had no installer path
+# at all and were documented as manual copy-paste; the flags make them a
+# supported one-liner without changing the default posture.
+WITH_SYSLOGD="${RP_WITH_SYSLOGD:-0}"     # 1 → agentless syslog receiver (udp/5514)
+WITH_FLOWD="${RP_WITH_FLOWD:-0}"         # 1 → agentless NetFlow/IPFIX receiver (udp/2055)
+WITH_KMIP="${RP_WITH_KMIP:-0}"           # 1 → KMIP key server for NAS/hypervisor clients (tcp/5696)
 
 _usage() {
   cat <<EOF
@@ -43,6 +51,14 @@ Usage: sudo bash install-server.sh [options]
   --with-push             Install the agent push (wake-nudge) daemon so the
                         push channel is a single Settings toggle (default)
   --no-push               Opt out — don't install remotepower-push
+  --with-syslogd        Install the agentless syslog receiver on udp/5514
+                        (off by default — it opens a listening port)
+  --with-flowd          Install the agentless NetFlow/IPFIX receiver on
+                        udp/2055 (off by default)
+  --with-kmip           Install the KMIP key server on tcp/5696 so Synology /
+                        TrueNAS / vSphere can store encryption keys here
+                        (off by default; generates the daemon secret and
+                        prints the next steps — see docs/kmip.md)
   -h, --help          Show this help
 
 This is the "enterprise" single-node default: Postgres + gunicorn/Flask +
@@ -61,6 +77,12 @@ while [[ $# -gt 0 ]]; do
     --no-scanner)     WITH_SCANNER=0 ;;
     --with-push)      WITH_PUSH=1 ;;
     --no-push)        WITH_PUSH=0 ;;
+    --with-syslogd)   WITH_SYSLOGD=1 ;;
+    --no-syslogd)     WITH_SYSLOGD=0 ;;
+    --with-flowd)     WITH_FLOWD=1 ;;
+    --no-flowd)       WITH_FLOWD=0 ;;
+    --with-kmip)      WITH_KMIP=1 ;;
+    --no-kmip)        WITH_KMIP=0 ;;
     -h|--help)        _usage; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
@@ -666,6 +688,66 @@ if [[ "$WITH_PUSH" == "1" ]]; then
     info "  Turn the channel ON later in Settings → Advanced → agent push channel (push_enabled)."
 fi
 
+# ── Optional ingest receivers + KMIP key server (all opt-IN) ──────────────────
+# These listen for THIRD-PARTY devices, so none is installed unless asked for:
+# an install should never open a port the operator didn't request. Their units
+# are deliberately STATIC (DynamicUser=yes, no install-time User= rendering), so
+# deploy-server.sh can safely refresh them in place later.
+if [[ "$WITH_SYSLOGD" == "1" ]]; then
+    info "Installing the agentless syslog receiver..."
+    install -m 755 "$SCRIPT_DIR/server/syslog/remotepower-syslogd.py" /usr/local/bin/remotepower-syslogd
+    install -m 644 "$SCRIPT_DIR/packaging/remotepower-syslogd.service" \
+        /etc/systemd/system/remotepower-syslogd.service
+    systemctl daemon-reload
+    systemctl enable --now remotepower-syslogd \
+        && success "Syslog receiver installed (remotepower-syslogd on udp/5514)" \
+        || warn "Could not start remotepower-syslogd — check: systemctl status remotepower-syslogd"
+    info "  Add a per-device syslog token in the UI, then point the sender at this host. See docs/syslog.md."
+fi
+
+if [[ "$WITH_FLOWD" == "1" ]]; then
+    info "Installing the agentless NetFlow/IPFIX receiver..."
+    install -m 755 "$SCRIPT_DIR/server/flow/remotepower-flowd.py" /usr/local/bin/remotepower-flowd
+    install -m 755 "$SCRIPT_DIR/server/flow/flow_parse.py" /usr/local/bin/flow_parse.py
+    install -m 644 "$SCRIPT_DIR/packaging/remotepower-flowd.service" \
+        /etc/systemd/system/remotepower-flowd.service
+    systemctl daemon-reload
+    systemctl enable --now remotepower-flowd \
+        && success "Flow receiver installed (remotepower-flowd on udp/2055)" \
+        || warn "Could not start remotepower-flowd — check: systemctl status remotepower-flowd"
+fi
+
+# KMIP needs one thing the other sidecars don't: a shared secret so the daemon
+# can call the loopback API. It is generated HERE, written 0640 root:<web group>
+# (systemd reads it as root and injects it; the API user reads it to verify),
+# and never persisted in a store — the file is the single source of truth for
+# both sides. Generating it at install time means the operator never has to
+# copy a secret by hand.
+if [[ "$WITH_KMIP" == "1" ]]; then
+    info "Installing the KMIP key server..."
+    install -d -m 755 /etc/remotepower
+    if [[ ! -f /etc/remotepower/kmipd.env ]]; then
+        _kmip_secret=$(python3 -c "import secrets;print(secrets.token_hex(32))")
+        printf 'RP_KMIP_SECRET=%s\n' "$_kmip_secret" > /etc/remotepower/kmipd.env
+        chown "root:${NGINX_USER}" /etc/remotepower/kmipd.env 2>/dev/null || true
+        chmod 640 /etc/remotepower/kmipd.env
+        unset _kmip_secret
+        info "  Generated the KMIP daemon secret at /etc/remotepower/kmipd.env"
+    else
+        info "  Keeping the existing /etc/remotepower/kmipd.env secret"
+    fi
+    install -m 755 "$SCRIPT_DIR/server/kmip/remotepower-kmipd.py" /usr/local/bin/remotepower-kmipd
+    install -m 644 "$SCRIPT_DIR/packaging/remotepower-kmipd.service" \
+        /etc/systemd/system/remotepower-kmipd.service
+    systemctl daemon-reload
+    systemctl enable --now remotepower-kmipd \
+        && success "KMIP key server installed (remotepower-kmipd on tcp/5696)" \
+        || warn "Could not start remotepower-kmipd — check: systemctl status remotepower-kmipd"
+    info "  Finish in the UI: Security → KMIP → Server settings (enable), then Add client."
+    info "  ⚠ Appliances that unlock against this server need it reachable at THEIR boot —"
+    info "    never run it on a machine that depends on it to unlock. See docs/kmip.md."
+fi
+
 # Refresh RP_BACKEND now that the storage marker exists (the Postgres migration
 # above writes it) so a non-root `rp status`/`rp tui` shows the backend name.
 { printf 'RP_SRC=%s\n' "$SCRIPT_DIR"
@@ -689,6 +771,7 @@ echo ""
 echo "  Control:   rp status | rp doctor | rp restart | rp logs   (omd-style CLI)"
 echo ""
 echo "  Topology:  app-server=gunicorn  postgres=${WITH_POSTGRES}  scheduler=${WITH_SCHEDULER}  scanner=${WITH_SCANNER}  push=${WITH_PUSH}"
+echo "  Optional:  syslogd=${WITH_SYSLOGD}  flowd=${WITH_FLOWD}  kmip=${WITH_KMIP}"
 echo ""
 echo "  Next: Install the client on each machine you want to control:"
 echo "    sudo bash install-client.sh"

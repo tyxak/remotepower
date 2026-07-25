@@ -233,6 +233,9 @@ class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
         '‹', '›',            # glyph-only carousel/pager arrows
         '{ } JSON',          # format-toggle glyph + acronym; nothing to translate
         'Delete snapshot',   # destructive op label — covered via DICT 'Delete'
+        # v6.4.0 KMIP wizard: literal FILENAMES the operator saves to disk and
+        # types into the appliance — translating them would be wrong.
+        'ca.crt', 'client.crt', 'client.key',
     })
 
     def setUp(self):

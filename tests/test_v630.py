@@ -94,12 +94,16 @@ class TestVersionBumps(unittest.TestCase):
         # that it leads the file.
         self.assertIn(f'## v{V} — "{CODENAME}"', (_ROOT / "CHANGELOG.md").read_text())
 
-    def test_gen_wiki_codename(self):
+    def test_gen_wiki_has_a_hardcoded_codename(self):
+        """gen-wiki.py's Home line hardcodes ONE codename, so pinning this
+        release's name here breaks the moment the next release bumps it
+        (v6.4.0 did). The CURRENT release owns that pin — see
+        test_v640.TestVersionBumps.test_gen_wiki_codename. All this older
+        test can still assert is that the line exists to be bumped."""
         p = _ROOT / "tools/gen-wiki.py"
         if not p.exists():
             self.skipTest("excluded from dist tree")
-        self.assertIn(CODENAME, p.read_text(),
-                      "gen-wiki.py's Home line hardcodes the codename — bump it")
+        self.assertRegex(p.read_text(), r'Current release: \*\*\{newest\} \\"\w+\\"')
 
     def test_readme_recent_releases_capped_at_five(self):
         readme = (_ROOT / "README.md").read_text()

@@ -21,10 +21,14 @@
 #
 # "Component" is one of the RemotePower-owned units without the leading
 # `remotepower-` (e.g. `rp restart push`, `rp logs wsgi`). With no component the
-# lifecycle verbs act on the whole stack. The optional ingest receivers are
-# components too — `rp logs syslogd` follows the syslog receiver, `rp restart
-# syslogd` bounces it — and they are simply absent from status on a node that
-# never installed them.
+# lifecycle verbs act on the whole stack. The optional ingest receivers and the
+# KMIP key server are components too — `rp logs syslogd` follows the syslog
+# receiver, `rp restart kmipd` bounces the key server — and they are simply
+# absent from status on a node that never installed them.
+#
+# `rp status` and `rp tui` also print an INGEST & KEYS block: how much the
+# syslog/flow receivers have actually ingested and the KMIP client/key/failure
+# counts, read through the storage backend (needs root — the data dir is 0700).
 #
 # Lifecycle verbs need root (systemctl); status/doctor/version/logs do not.
 # Installed by install-server.sh to /usr/local/bin/rp. Under Docker (no systemd)
@@ -38,12 +42,12 @@ RP_CODE_DIR="${RP_CODE_DIR:-/var/www/remotepower}"
 MARKER="$RP_DATA_DIR/storage_backend.json"
 
 # RemotePower-owned units, in start order. Optional ones may be absent.
-UNITS=(remotepower-wsgi remotepower-scheduler remotepower-scanner remotepower-push remotepower-webterm remotepower-syslogd remotepower-flowd)
+UNITS=(remotepower-wsgi remotepower-scheduler remotepower-scanner remotepower-push remotepower-webterm remotepower-syslogd remotepower-flowd remotepower-kmipd)
 # Host services shown in status but NOT touched by start/stop/restart (shared).
 HOST_SVCS=(nginx)
 # Loopback ports each component should be listening on (for probes).
 declare -A PORT=( [remotepower-wsgi]=8090 [remotepower-push]=8766 [remotepower-webterm]=8765 \
-                  [remotepower-syslogd]=5514 [remotepower-flowd]=2055 )
+                  [remotepower-syslogd]=5514 [remotepower-flowd]=2055 [remotepower-kmipd]=5696 )
 # The receivers listen on UDP, so `ss -ltn` would report them down forever.
 declare -A UDP_PORT=( [remotepower-syslogd]=1 [remotepower-flowd]=1 )
 
@@ -163,6 +167,145 @@ cmd_status(){
       printf '  %-26s %-18b\n' "postgresql ${C_D}(host)${C_0}" "${C_Y}unknown${C_0}"
     fi
   fi
+  info ""
+  info "  ${C_B}INGEST & KEYS${C_0}"
+  _ingest_summary
+}
+
+# ── ingest + key-server data summary ──────────────────────────────────────────
+# The unit rows above prove a receiver is RUNNING; these lines prove it is
+# actually DOING something (lines ingested, flows rolled up, KMIP clients and
+# key reads). Backend-aware on purpose: under Postgres/SQLite the *.json stores
+# are DB rows, so a raw file read would report "nothing" forever — the same bug
+# class that silently killed the push daemon in v6.1.1. Needs root (the data
+# dir is 0700); prints a hint instead when run unprivileged.
+_ingest_summary(){
+  if [ "$(id -u)" -ne 0 ]; then
+    printf '  %s····%s ingest/keys — skipped (needs root: sudo rp status)\n' "$C_D" "$C_0"
+    return 0
+  fi
+  python3 - <<'RPINGEST' 2>/dev/null || printf '  %s····%s ingest/keys — unavailable (storage unreadable)\n' "$C_D" "$C_0"
+import json, os, sys, time
+DATA = os.environ.get('RP_DATA_DIR', '/var/lib/remotepower')
+sys.path.insert(0, os.path.join(os.environ.get('RP_CODE_DIR', '/var/www/remotepower'), 'cgi-bin'))
+
+
+def _reader():
+    """Same backend-aware read the sidecars use: marker -> storage/storage_pg,
+    flat-file fallback for the JSON backend."""
+    try:
+        import storage as st
+        marker = st.read_marker(DATA) or {}
+        backend = (marker.get('backend') or 'json').lower()
+        if backend == 'sqlite':
+            return st.load
+        if backend == 'postgres':
+            import storage_pg as pg
+            dsn = marker.get('dsn') or os.environ.get('RP_PG_DSN')
+            if dsn and not os.environ.get('RP_PG_DSN'):
+                pg.configure_dsn(dsn)
+            return pg.load
+    except Exception:
+        pass
+
+    def _flat(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return _flat
+
+
+load = _reader()
+
+
+def get(name):
+    try:
+        return load(os.path.join(DATA, name)) or {}
+    except Exception:
+        return {}
+
+
+def ago(ts):
+    if not ts:
+        return 'never'
+    d = max(0, int(time.time()) - int(ts))
+    if d < 60:
+        return 'just now'
+    if d < 3600:
+        return '%dm ago' % (d // 60)
+    if d < 86400:
+        return '%dh ago' % (d // 3600)
+    return '%dd ago' % (d // 86400)
+
+
+hooks = get('inbound_webhooks.json').get('tokens') or []
+
+
+def toks(kind):
+    return sum(1 for t in hooks
+               if t.get('kind') == kind and t.get('enabled', True)
+               and t.get('scope_device_id'))
+
+
+# syslog — mapped sources, buffered lines, newest arrival
+lw = get('log_watch.json')
+lines = newest = 0
+for dev in (lw.values() if isinstance(lw, dict) else []):
+    entries = (dev or {}).get('lines') if isinstance(dev, dict) else None
+    if isinstance(entries, list):
+        lines += len(entries)
+        for e in entries[-1:]:
+            if isinstance(e, dict):
+                newest = max(newest, int(e.get('ts') or 0))
+COMPACT = os.environ.get('RP_INGEST_COMPACT') == '1'
+
+if COMPACT:
+    print('  syslog  %d src · %d lines · %s' % (toks('syslog'), lines, ago(newest)))
+else:
+    print('  syslog    %d source(s) mapped · %d line(s) buffered · newest %s'
+          % (toks('syslog'), lines, ago(newest)))
+
+# flow — mapped exporters, exporters actually reporting, newest rollup
+fl = get('flow.json')
+exporters = len(fl) if isinstance(fl, dict) else 0
+fnew = 0
+for dev in (fl.values() if isinstance(fl, dict) else []):
+    if isinstance(dev, dict):
+        fnew = max(fnew, int(dev.get('ts') or dev.get('updated') or 0))
+if COMPACT:
+    print('  flow    %d mapped · %d reporting · %s'
+          % (toks('flow'), exporters, ago(fnew)))
+else:
+    print('  flow      %d exporter(s) mapped · %d reporting · newest %s'
+          % (toks('flow'), exporters, ago(fnew)))
+
+# kmip — clients, keys, sidecar check-in, last operation, recent failures
+km = get('kmip.json')
+objs = get('kmip_objects.json').get('objects') or {}
+log = get('kmip_log.json').get('entries') or []
+clients = km.get('clients') or {}
+if not km.get('enabled') and not clients:
+    print('  kmip      not configured')
+else:
+    active = sum(1 for c in clients.values() if not c.get('revoked'))
+    live = sum(1 for o in objs.values() if o.get('state') == 'active')
+    fetched = int((km.get('daemon') or {}).get('last_state_fetch') or 0)
+    last = int(log[-1].get('ts') or 0) if log else 0
+    fails = sum(1 for e in log[-200:]
+                if e.get('kind') == 'auth_fail' or e.get('ok') is False)
+    if COMPACT:
+        print('  kmip    %s · %d/%d clients · %d/%d keys · op %s%s'
+              % ('on' if km.get('enabled') else 'OFF', active, len(clients),
+                 live, len(objs), ago(last),
+                 (' · %d fail' % fails) if fails else ''))
+    else:
+        print('  kmip      %s · %d/%d client(s) · %d/%d key(s) active · sidecar %s · last op %s%s'
+              % ('enabled' if km.get('enabled') else 'DISABLED',
+                 active, len(clients), live, len(objs), ago(fetched), ago(last),
+                 (' · %d recent failure(s)' % fails) if fails else ''))
+RPINGEST
 }
 
 # ── lifecycle ─────────────────────────────────────────────────────────────────
@@ -329,6 +472,11 @@ cmd_tui(){
   # Rendered per-unit state, refreshed on the tick rather than on every keypress.
   local -a _C_DOT=() _C_STATE=() _C_BOOT=() _C_PORT=()
   local _nrun=0 _nstop=0 _nfail=0 _probe=1
+  # Ingest/keys costs a python3 spawn (and possibly a Postgres connect), so it
+  # refreshes on its OWN slow cadence — never on the 2s tick, and never on a
+  # keypress repaint. Counters move on the order of minutes; a stale-by-20s
+  # line is fine, a per-frame subprocess is not.
+  local -a _C_INGEST=(); local _ingest_at=0
 
   _dash(){ printf '─%.0s' $(seq 1 "$1"); }
   # pad a possibly-colored string to visible width $2
@@ -384,6 +532,17 @@ cmd_tui(){
     done
     _sep
     _row "  ${GG}● $nrun running${ZZ}   ${DD}○ $nstop stopped${ZZ}   ${RR}✖ $nfail failed${ZZ}${msg:+     $msg}"
+    local _now; _now=$(date +%s 2>/dev/null || echo 0)
+    if [ $((_now - _ingest_at)) -ge 20 ]; then
+      _ingest_at=$_now
+      mapfile -t _C_INGEST < <(RP_INGEST_COMPACT=1 _ingest_summary 2>/dev/null)
+    fi
+    if [ ${#_C_INGEST[@]} -gt 0 ]; then
+      _sep
+      _row "  ${DD}INGEST & KEYS${ZZ}"
+      local _il
+      for _il in "${_C_INGEST[@]}"; do _row "$_il"; done
+    fi
     _edge '╰' '╯' ""
     printf '%s  ↑/↓%s select  %s[r]%sestart %s[s]%start %s[x]%stop  %s[d]%soctor %s[l]%sogs %s[P]%srepair  %s[?]%shelp %s[q]%suit%s\033[K\n' \
       "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$AC" "$ZZ" "$ZZ"

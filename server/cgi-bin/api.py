@@ -319,6 +319,18 @@ SUBNETS_FILE        = DATA_DIR / 'subnets.json'  # W5-2 IPAM subnet registry
 IPAM_STATE_FILE     = DATA_DIR / 'ipam_state.json'  # W5-2 fired ip_conflict dedup
 CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
 BREAKGLASS_FILE     = DATA_DIR / 'breakglass_requests.json'  # v5.0.0 #C3
+
+# ── v6.4.0: KMIP key-management server (remotepower-kmipd sidecar) ────────────
+KMIP_FILE           = DATA_DIR / 'kmip.json'          # config + PKI + clients
+KMIP_OBJECTS_FILE   = DATA_DIR / 'kmip_objects.json'  # material encrypted at rest
+KMIP_LOG_FILE       = DATA_DIR / 'kmip_log.json'      # activity log (capped)
+# A REAL file, not a storage key (like STORAGE_MARKER_FILE): excluded from
+# scheduled backups on purpose — it travels only in the passphrase-encrypted
+# recovery bundle, so a stolen backup holds only ciphertext.
+KMIP_MASTER_KEY_FILE = DATA_DIR / 'kmip_master.key'
+MAX_KMIP_LOG        = 2000
+MAX_KMIP_OBJECTS    = 5000
+MAX_KMIP_CLIENTS    = 100
 # v3.5.0: sites/teams — a first-class grouping above device `group`, for
 # organising a fleet by location/team/customer. Soft boundary (super-admin
 # always sees all); used to scope dashboard/device views, not as a security
@@ -1199,6 +1211,33 @@ for _sd_name in (
 ):
     globals()[_sd_name] = getattr(ssh_device_handlers_mod, _sd_name)
 del _sd_name
+
+# KMIP key-management server (sidecar control plane): CA + client certs,
+# managed key objects encrypted at rest (cmdb_vault primitives under a
+# dedicated master key), activity log, recovery export/import. Same
+# private-instance loader. KMIP_* constants stay in api.py, read via A.;
+# the remotepower-kmipd sidecar talks to the /api/kmip/daemon/* endpoints.
+_km_spec = _tk_ilu.spec_from_file_location(
+    'kmip_handlers', Path(__file__).parent / 'kmip_handlers.py')
+kmip_handlers_mod = _tk_ilu.module_from_spec(_km_spec)
+_km_spec.loader.exec_module(kmip_handlers_mod)
+kmip_handlers_mod.bind(globals())
+for _km_name in (
+        'handle_kmip_status', 'handle_kmip_config',
+        'handle_kmip_install_snippet', 'handle_kmip_clients',
+        'handle_kmip_client_create', 'handle_kmip_client_revoke',
+        'handle_kmip_client_reissue', 'handle_kmip_keys',
+        'handle_kmip_key_destroy', 'handle_kmip_log_list',
+        'handle_kmip_export', 'handle_kmip_import',
+        'handle_kmip_daemon_state', 'handle_kmip_daemon_event',
+        'handle_kmip_daemon_op',
+        '_kmip_gen_ca', '_kmip_issue_cert', '_kmip_ensure_pki', '_kmip_log',
+        '_kmip_client_or_404', '_kmip_op_fail', '_kmip_object_visible',
+        '_kmip_daemon_secret', '_kmip_secret_file', '_kmip_master_key',
+        '_kmip_require_daemon', '_kmip_require_admin', '_kmip_hosts',
+):
+    globals()[_km_name] = getattr(kmip_handlers_mod, _km_name)
+del _km_name
 
 # Per-device SNMP — config (v2c/v3) + latest data, on-demand poll, and the deep
 # read. Same private-instance loader. DEVICES_FILE / SNMP_DATA_FILE /
@@ -46569,7 +46608,11 @@ def handle_drift_assign():
 # encrypted credentials vault) as a gzip tarball; restore it the same way. The
 # operator already needs the vault passphrase to decrypt secrets, so the
 # encrypted vault is safe to include in the backup.
-_BACKUP_EXCLUDE_NAMES = {'attention_cache.json', 'fleet_risk_cache.json'}
+_BACKUP_EXCLUDE_NAMES = {'attention_cache.json', 'fleet_risk_cache.json',
+                         # KMIP master key: NEVER in generic backups — it
+                         # travels only in the passphrase-encrypted KMIP
+                         # recovery bundle (backups keep the ciphertext only).
+                         'kmip_master.key'}
 _BACKUP_SNAPSHOT_DIR = 'restore-snapshots'
 
 
@@ -63232,6 +63275,19 @@ def _build_exact_routes():
         ('POST', '/api/webhook/replay'): handle_webhook_replay,
         ('POST', '/api/webterm/audit'): handle_webterm_session_audit,
         ('POST', '/api/webterm/auth'): handle_webterm_auth,
+        # v6.4.0: KMIP key-management server (kmip_handlers.py)
+        ('GET', '/api/kmip/status'): handle_kmip_status,
+        ('POST', '/api/kmip/config'): handle_kmip_config,
+        ('GET', '/api/kmip/install'): handle_kmip_install_snippet,
+        ('GET', '/api/kmip/clients'): handle_kmip_clients,
+        ('POST', '/api/kmip/clients'): handle_kmip_client_create,
+        ('GET', '/api/kmip/keys'): handle_kmip_keys,
+        ('GET', '/api/kmip/log'): handle_kmip_log_list,
+        ('POST', '/api/kmip/export'): handle_kmip_export,
+        ('POST', '/api/kmip/import'): handle_kmip_import,
+        ('GET', '/api/kmip/daemon/state'): handle_kmip_daemon_state,
+        ('POST', '/api/kmip/daemon/op'): handle_kmip_daemon_op,
+        ('POST', '/api/kmip/daemon/event'): handle_kmip_daemon_event,
         (None, '/api/wol'): handle_wol,
     }
 
@@ -63455,6 +63511,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/alerts/', '/unack', 'handle_alert_unack', "pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/unresolve', 'handle_alert_unresolve', "pi.startswith('/api/alerts/') and pi.endswith('/unresolve') and m == 'POST'"),
     ('pat', ('POST',), '/api/alerts/', '/resolve', 'handle_alert_resolve', "pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST'"),
+    ('pat', ('POST',), '/api/kmip/clients/', '/revoke', 'handle_kmip_client_revoke', "pi.startswith('/api/kmip/clients/') and pi.endswith('/revoke') and m == 'POST'"),
+    ('pat', ('POST',), '/api/kmip/clients/', '/reissue', 'handle_kmip_client_reissue', "pi.startswith('/api/kmip/clients/') and pi.endswith('/reissue') and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/kmip/keys/', '', 'handle_kmip_key_destroy', "pi.startswith('/api/kmip/keys/') and m == 'DELETE'"),
     ('pat', None, '/api/webhook/in/', '', 'handle_inbound_webhook', "pi.startswith('/api/webhook/in/')"),
     ('pat', None, '/api/syslog/in/', '', 'handle_syslog_in', "pi.startswith('/api/syslog/in/')"),
     ('pat', None, '/api/snmp/trap/', '', 'handle_snmp_trap_in', "pi.startswith('/api/snmp/trap/')"),

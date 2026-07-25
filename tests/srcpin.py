@@ -15,6 +15,8 @@ counting) — good enough for this repo's code style; they raise ValueError
 loudly rather than returning a truncated region.
 """
 
+import re
+
 
 def _scan_balanced(src, open_idx, open_ch='{', close_ch='}'):
     """Return the index just past the delimiter that balances
@@ -119,3 +121,18 @@ def py_function(src, name, start=0):
     while out and not out[-1].strip():
         out.pop()
     return '\n'.join(out)
+
+
+def html_page(html, page_id, start=0):
+    """The markup of one `<div id="page-X" class="page">` section.
+
+    Bounded by the NEXT `id="page-` occurrence, not a hardcoded neighbour —
+    a test that pins "the next page id" breaks the day someone inserts a page
+    between the two, which is exactly the fixed-window fragility srcpin
+    exists to kill (see the v6.2.3 source-window migration).
+    """
+    anchor = 'id="page-%s"' % page_id
+    i = html.index(anchor, start)
+    m = re.search(r'id="page-[a-z0-9-]+"', html[i + len(anchor):])
+    end = i + len(anchor) + m.start() if m else len(html)
+    return html[i:end]

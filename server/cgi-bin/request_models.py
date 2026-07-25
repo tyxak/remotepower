@@ -2427,6 +2427,44 @@ if _AVAILABLE:
 
         _v0 = field_validator('device_id', 'cred_id', 'reason', mode='before')(_coerce_str_loose)
 
+    class KmipConfigRequest(BaseModel):
+        """handle_kmip_config POST (v6.4.0). `port` is Any: the handler does
+        int(body.get('port') or 5696) and range-checks itself; `hosts` is Any
+        (string of space/comma-separated names — the handler splits/ignores
+        non-str)."""
+        model_config = ConfigDict(extra='ignore')
+        enabled: bool = False
+        port: Any = None
+        hosts: Any = None
+
+        _v0 = field_validator('enabled', mode='before')(_coerce_bool_loose)
+
+    class KmipClientCreateRequest(BaseModel):
+        """handle_kmip_client_create POST (v6.4.0)."""
+        model_config = ConfigDict(extra='ignore')
+        name: str = ''
+        kind: str = 'generic'
+
+        _v0 = field_validator('name', 'kind', mode='before')(_coerce_str_loose)
+
+    class KmipExportRequest(BaseModel):
+        """handle_kmip_export POST (v6.4.0). Length is checked by the handler
+        (min 12) so the model stays an additive superset."""
+        model_config = ConfigDict(extra='ignore')
+        passphrase: str = ''
+
+        _v0 = field_validator('passphrase', mode='before')(_coerce_str_loose)
+
+    class KmipImportRequest(BaseModel):
+        """handle_kmip_import POST (v6.4.0)."""
+        model_config = ConfigDict(extra='ignore')
+        passphrase: str = ''
+        bundle_b64: str = ''
+        confirm: bool = False
+
+        _v0 = field_validator('passphrase', 'bundle_b64', mode='before')(_coerce_str_loose)
+        _v1 = field_validator('confirm', mode='before')(_coerce_bool_loose)
+
 else:
     # Placeholders so `request_models.UserCreateRequest` etc. always resolve as
     # an attribute at call sites -- validate() short-circuits on `_AVAILABLE`
@@ -2680,6 +2718,10 @@ else:
     QuoteCreateRequest = None
     QuoteUpdateRequest = None
     AiExecProposeRequest = None
+    KmipConfigRequest = None
+    KmipClientCreateRequest = None
+    KmipExportRequest = None
+    KmipImportRequest = None
 
 
 def validate(model_cls, body):

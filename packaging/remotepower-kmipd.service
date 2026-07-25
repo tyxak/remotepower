@@ -1,0 +1,46 @@
+[Unit]
+Description=RemotePower KMIP key-management sidecar (mTLS TTLV -> loopback API)
+Documentation=https://github.com/tyxak/remotepower
+After=network-online.target remotepower-wsgi.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Completely stateless: no DATA_DIR access at all — TLS material, the client
+# registry and every key operation go over loopback HTTP to the API, which
+# owns storage, at-rest encryption and the activity log. DynamicUser sandboxes
+# it fully (NO install-time User= rendering — this unit is deliberately
+# static, same as remotepower-syslogd; see the deploy-server.sh "rendered
+# unit" rule). The shared daemon secret is injected by systemd (read as root)
+# from the 0640 root-owned env file, so the sandboxed process never needs to
+# read a protected path itself.
+DynamicUser=yes
+ExecStart=/usr/local/bin/remotepower-kmipd
+EnvironmentFile=/etc/remotepower/kmipd.env
+# Default: tcp/5696 (the IANA KMIP port, unprivileged).
+#Environment=RP_KMIP_BIND=0.0.0.0:5696
+Environment=RP_KMIP_SERVER_URL=http://127.0.0.1:8090
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-kmipd
+
+[Install]
+WantedBy=multi-user.target

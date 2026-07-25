@@ -68,6 +68,17 @@ class TestVersionBumps(unittest.TestCase):
             (_ROOT / "client/remotepower-agent").read_bytes(),
         )
 
+    def test_gen_wiki_codename(self):
+        """gen-wiki.py's Home "Current release" line hardcodes the codename
+        (the version is templated, the codename is not), so it ships the
+        PREVIOUS release's name unless bumped. The current release owns this
+        pin — move it forward with the next rename."""
+        p = _ROOT / "tools/gen-wiki.py"
+        if not p.exists():
+            self.skipTest("excluded from dist tree")
+        self.assertIn(CODENAME, p.read_text(),
+                      "gen-wiki.py's Home line hardcodes the codename — bump it")
+
     def test_sw_and_cachebust(self):
         self.assertIn(f"remotepower-shell-v{V}", (_ROOT / "server/html/sw.js").read_text())
         self.assertIn(f"?v={V}", _html())

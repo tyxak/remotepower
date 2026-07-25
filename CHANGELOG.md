@@ -4,6 +4,65 @@ All notable changes to RemotePower. Newest first.
 
 ## v6.4.0 — "Sh1eldMatters" — 2026-07-24
 
+### KMIP key server — keep NAS and hypervisor encryption keys off the appliance
+An opt-in **KMIP key server** so storage appliances stop keeping their
+encryption keys on the same hardware that holds the encrypted data. Synology
+DSM, TrueNAS and VMware vSphere all speak KMIP natively; there was no
+self-hostable, lightweight server for a homelab or small fleet to point them
+at. Now there is one, and it is monitored by the same system that runs it.
+- **`remotepower-kmipd` sidecar** (tcp/5696, `--with-kmip`, off by default) —
+  a native TTLV/KMIP 1.0–1.4 implementation over mandatory mutual TLS.
+  Deliberately stateless: it terminates TLS and parses the protocol, then
+  forwards each operation over loopback. It holds no keys, no master key and
+  no data-directory access at all, which is why its unit runs under
+  `DynamicUser=yes`. Operations: Discover Versions, Query, Create, Register,
+  Get, Get Attributes, Get Attribute List, Locate, Activate, Revoke, Destroy.
+- **Security → KMIP page + 3-step wizard** — pick the appliance type from a
+  dropdown (Synology DSM / TrueNAS / vSphere / generic), issue its certificate,
+  download `ca.crt` / `client.crt` / `client.key`, then follow per-appliance
+  setup steps while the page waits for the client's first connection to
+  confirm it worked. Plus server state, client and key inventories, and the
+  activity log.
+- **Everything is traceable.** Connections, authentication failures, every KMIP
+  operation and every admin action (enable, issue, revoke, re-issue, destroy,
+  export, import) land in a capped activity log on the page, with admin
+  actions also written to the audit log — for security review and for
+  debugging a client that will not connect.
+- **Key custody.** A private CA + per-client certificates issued in-process;
+  key material encrypted AES-256-GCM under a dedicated master key using the
+  credential vault's primitives; objects scoped to the owning client, so one
+  appliance can never read another's keys; the API re-verifies client identity
+  and revocation on every operation rather than trusting the sidecar's cache.
+  Re-issuing a lost certificate keeps the client identity, so its stored keys
+  survive.
+- **Encrypted recovery bundle** — one passphrase-encrypted `.rpkmip` file with
+  the master key, CA, client certificates and every key object, enough to
+  rebuild the server on new hardware. Restore refuses to overwrite a live
+  store without explicit confirmation. The master key is **excluded from
+  scheduled backups on purpose**, so a stolen backup archive holds only
+  ciphertext.
+- **Availability coupling is called out, not buried** — an appliance that
+  stores keys here needs the server reachable at its own boot; the page, the
+  installer and `docs/kmip.md` all say so, including the circular-dependency
+  trap of hosting it on the NAS it unlocks.
+- New docs: `docs/kmip.md`. New check-catalog row *RemotePower KMIP key server
+  running*.
+
+### Optional sidecars are installable, and visible in the CLI
+- **`install-server.sh` gained `--with-kmip`, `--with-syslogd` and
+  `--with-flowd`.** The syslog and flow receivers previously had no installer
+  path at all — they were documented as manual copy-paste. All three stay
+  **off by default**: an install should never open a port nobody asked for.
+  The KMIP flag also generates the daemon secret so no secret is copied by hand.
+- **`rp status` / `rp tui` gained an INGEST & KEYS block** answering "is it
+  actually working?" rather than just "is it running?" — syslog sources mapped
+  and lines buffered, flow exporters reporting, KMIP client/key counts and
+  recent failures. Read through the storage backend (so it is correct under
+  Postgres and SQLite, not just JSON), refreshed on its own slow cadence rather
+  than per frame, and honest about needing root instead of reporting a
+  misleading zero. `remotepower-kmipd` is now a first-class component row, and
+  the stale TUI mock in `docs/cli.md` was refreshed.
+
 The security-and-protection release. Integrity-guard/baseline checks that
 actually stop when you disable them, a full public-facing security review and
 pentest pass (no Critical/High/Medium accepted), and agentic diagnosis used

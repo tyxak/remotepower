@@ -811,6 +811,19 @@ CHECK_BASELINE_CATALOG = (
         "target_kind": "tag",
         "target": "rp-server",
     },
+    {
+        "cat": "Role-tagged",
+        "id": "rp_kmipd_running",
+        "type": "systemd_unit",
+        "param": "remotepower-kmipd.service",
+        "name": "RemotePower KMIP key server running",
+        "desc": "The KMIP key server (remotepower-kmipd) is active. Apply this "
+        "if any appliance unlocks its encrypted storage against this "
+        "host — those volumes will not mount while it is down. Optional; "
+        "apply to the RemotePower server host (tag it rp-server).",
+        "target_kind": "tag",
+        "target": "rp-server",
+    },
     # ── Web / application security (apply to the `web` tag) ───────────────────
     # Tripwires for hosts that serve web applications. Params are EDITABLE after
     # applying — point them at your own web root, configs, and threat ranges.

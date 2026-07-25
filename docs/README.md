@@ -169,6 +169,10 @@ Older release notes (v6.2.2 and earlier) live in
 - **[flow.md](flow.md)** — Agentless network flow visibility: the
  `remotepower-flowd` NetFlow/IPFIX receiver, exporter setup, and the per-device
  top-talkers/conversations view *(v6.4.0)*.
+- **[kmip.md](kmip.md)** — The built-in KMIP key server: keep Synology DSM /
+ TrueNAS / vSphere encryption keys off the appliance that holds the encrypted
+ data. Sidecar install, the client wizard, the security model and the encrypted
+ recovery bundle *(v6.4.0)*.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
 - **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),

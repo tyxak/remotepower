@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import srcpin
+
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / 'server' / 'cgi-bin'
@@ -140,8 +142,10 @@ class TestFrontend(unittest.TestCase):
         self.assertIn('id="fail2ban-thead"', _HTML)
 
     def test_tables_capped(self):
-        # the page's tables sit inside the scroll-capped wrapper
-        seg = _HTML[_HTML.index('id="page-firewall"'):_HTML.index('id="page-risk"')]
+        # the page's tables sit inside the scroll-capped wrapper. Bounded by
+        # the NEXT page id, not a hardcoded neighbour — inserting a page
+        # between firewall and risk used to silently widen this slice.
+        seg = srcpin.html_page(_HTML, 'firewall')
         self.assertEqual(seg.count('scrollable-table-wrap audit-scroll'), 2, 'both tables must be capped')
 
     def test_i18n_entry(self):

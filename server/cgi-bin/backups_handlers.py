@@ -180,7 +180,11 @@ def _run_data_backup(triggered_by='scheduled'):
     import tarfile
     ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     out_path = p_base / f'remotepower_data_{ts}.tar.gz'
-    excluded_names = {'backups'}
+    # kmip_master.key: NEVER in generic backups — it travels only in the
+    # passphrase-encrypted KMIP recovery bundle, so a stolen backup archive
+    # holds only ciphertext (mirrors A._BACKUP_EXCLUDE_NAMES on the
+    # download-path filter).
+    excluded_names = {'backups', 'kmip_master.key'}
     # v3.12.0: under SQLite, never tar the live DB or its WAL sidecars — a
     # mid-checkpoint copy can be torn/unrecoverable. We exclude them here and
     # add a consistent online-backup snapshot below instead.

@@ -270,6 +270,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Exposure (attack surface) | Listening sockets classified local/lan/world; `port_exposed_world`; Exposure page *(v3.11.0)* |
+| KMIP key server | Built-in KMIP 1.0–1.4 server (`remotepower-kmipd`, tcp/5696, opt-in sidecar) so Synology DSM, TrueNAS and vSphere keep encryption keys off the appliance holding the data; mandatory mutual TLS with a private CA, per-client key scoping, keys AES-256-GCM at rest, full activity log, passphrase-encrypted recovery bundle; Security → KMIP wizard *(v6.4.0)* |
 | Secrets-on-disk scanning | Opt-in agent scan (~6h, configurable paths) for keys/cloud-keys/tokens; masked findings + dedup fingerprint on the Exposure page; `secret_exposed`; off by default *(v4.0.0)* |
 | Canary files (honeytokens) | Agent plants decoy files (fake credentials) at configured paths — never over an existing file — and watches them; any read/change/deletion raises a critical `canary_accessed` alert; removed on agent uninstall *(v6.0.0)* |
 | Firewall + fail2ban | Fleet page to view + edit host firewalls (nftables/iptables/ufw/firewalld) and fail2ban jails/bans; edits via the audited command queue, server-validated *(v4.10.0)* |

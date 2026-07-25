@@ -7542,3 +7542,16 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
 .mt-0 { margin-top: 0; }
 .mb-0 { margin-bottom: 0; }
 .p-6 { padding: 6px; }
+
+/* ── v6.4.0: KMIP page ─────────────────────────────────────────────────── */
+/* Server-status key/value grid: label column sized to content, value fills. */
+.kmip-status-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 6px 16px;
+  align-items: baseline;
+  font-size: 13.5px;
+}
+/* Per-appliance setup steps in the client wizard. */
+.kmip-steps { margin: 8px 0 0; padding-left: 20px; }
+.kmip-steps li { margin-bottom: 8px; line-height: 1.55; }

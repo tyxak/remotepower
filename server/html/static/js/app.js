@@ -1751,6 +1751,7 @@ const _SIDEBAR_KW = {
   'home': 'dashboard fleet heat map heatmap needs attention roster fleet health score status overview',
   'alerts': 'inbox notifications webhook events open alerts',
   'links': 'bookmarks quick links shortcuts',
+  'kmip': 'kmip key server key management encryption keys synology dsm truenas vsphere vmware kms nas volume encryption mtls certificate recovery bundle',
   'devices': 'inventory agent hosts roster machines endpoints ssh web terminal wol wake-on-lan reboot shutdown run command upgrade quarantine enroll',
   'cmdb': 'configuration management database vault secrets assets documentation notes',
   'agent containers': 'docker containers compose images podman',
@@ -2250,6 +2251,7 @@ const _LAZY_PAGE_MODULES = {
   provisioning: ['app-provisioning.js'],
   rollouts: ['app-rollouts.js'],
   tuning: ['app-tuning.js'],
+  kmip: ['app-kmip.js'],
   vpn: ['wg-access.js'],
   timesheet: ['app-billing.js'],
   billing: ['app-billing.js'],
@@ -2447,6 +2449,7 @@ function showPage(name, btn) {
   if (name === 'protect')  { loadProtectChecks(); loadGuardVault(); }
   if (name === 'advisory')   advScopeChanged();   // wire the picker; build on demand
   if (name === 'firewall')   loadFirewall();
+  if (name === 'kmip')       loadKmip();
   if (name === 'files')      loadFileMgr();
   if (name === 'cron')       loadCron();
   if (name === 'catalog')    loadCatalog();
