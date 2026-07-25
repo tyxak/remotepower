@@ -90,6 +90,11 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.4.1.md](v6.4.1.md)** — "Cust0dyMatters": a built-in KMIP key server so
+ Synology / TrueNAS / vSphere keep their encryption keys off the appliance that
+ holds the encrypted data (opt-in sidecar, mutual TLS, encrypted recovery
+ bundle); installer flags for the optional receivers; and two monitor fixes —
+ an actionable rejection message and a stale monitor no longer blocking saves.
 - **[v6.4.0.md](v6.4.0.md)** — "Sh1eldMatters": agentic diagnosis — a hail-mary
  log sweep ("Diagnose from logs": a bounded, secret-redacted snapshot of the
  host's recently-modified /var/log tails with an AI root-cause read) and
@@ -100,12 +105,7 @@ The three most recent per-release notes are kept here:
  optimistic alert ack/resolve with a real un-ack Undo, "N of M shown" + Clear
  chips on filtered tables, Retry buttons on failed loads, an unsaved-changes
  guard on Settings, and bulk resolve/assign on Tickets.
-- **[v6.2.3.md](v6.2.3.md)** — "Un1fyMatters": a consolidation and tidy-up pass —
- an optional listen port on Create tunnel, an ACME page that loads on navigation,
- clearer empty-snapshot feedback, and a removed duplicate dampening setting; plus
- a project-wide sweep that collapsed repeated code idioms, deleted dead code and
- de-duplicated the docs.
-Older release notes (v6.2.2 and earlier) live in
+Older release notes (v6.2.3 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

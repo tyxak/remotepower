@@ -295,6 +295,110 @@ class _KmipHandlerCase(unittest.TestCase):
         return {'HTTP_X_KMIP_SECRET': 'unit-test-secret'}
 
 
+class TestDaemonSecretResolution(unittest.TestCase):
+    """Field bug: the sidecar ran fine but the page said "Not installed".
+
+    The install snippet derived the env file's group from `api.env` — which is
+    root:root, because only systemd ever reads THAT too — so kmipd.env landed
+    unreadable by the gunicorn user. The API then saw no secret, reported the
+    sidecar missing, and 403'd every daemon state fetch. The API must never
+    depend on reading a root-owned file: systemd feeds it to the daemon as
+    root, so the API keeps its own copy in config.
+    """
+
+    def setUp(self):
+        self._etc = tempfile.mkdtemp()
+        self._envf = Path(self._etc) / 'kmipd.env'
+        self._prev = (os.environ.get('RP_KMIP_SECRET_FILE'),
+                      os.environ.get('RP_KMIP_SECRET'))
+        os.environ['RP_KMIP_SECRET_FILE'] = str(self._envf)
+        os.environ.pop('RP_KMIP_SECRET', None)
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def tearDown(self):
+        for k, v in zip(('RP_KMIP_SECRET_FILE', 'RP_KMIP_SECRET'), self._prev):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def _set_config_secret(self, value):
+        with api._LockedUpdate(api.CONFIG_FILE) as cfg:
+            cfg['kmip_daemon_secret'] = value
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def test_config_secret_works_with_no_readable_file(self):
+        """THE regression: file unreadable/absent, API still knows the secret."""
+        self._set_config_secret('cfg-secret')
+        self.assertEqual(api._kmip_daemon_secret(), 'cfg-secret')
+
+    def test_readable_file_wins_and_is_adopted(self):
+        """systemd hands the FILE's value to the daemon, so it must win — and
+        get copied into config so a later permission change can't blind us."""
+        self._set_config_secret('stale-cfg')
+        self._envf.write_text('RP_KMIP_SECRET=from-file\n')
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertEqual(api._kmip_daemon_secret(), 'from-file')
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertEqual((api.load(api.CONFIG_FILE) or {}).get('kmip_daemon_secret'),
+                         'from-file', 'a readable file must be adopted into config')
+
+    def test_env_beats_everything(self):
+        self._set_config_secret('cfg')
+        self._envf.write_text('RP_KMIP_SECRET=file\n')
+        os.environ['RP_KMIP_SECRET'] = 'env'
+        self.assertEqual(api._kmip_daemon_secret(), 'env')
+
+    def test_snippet_persists_and_never_rotates(self):
+        """Re-opening the dialog must not mint a new secret — that would
+        silently invalidate a working install the moment someone looked."""
+        cap = {}
+        real_resp, real_vt, real_env, real_method = (
+            api.respond, api.verify_token, api._env, api.method)
+
+        def _resp(s, b=None):
+            cap['b'] = b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.verify_token = lambda *a, **k: ('admin', 'admin')
+        api._env = lambda k, d='': d
+        api.method = lambda: 'GET'
+        try:
+            def snippet():
+                cap.clear()
+                try:
+                    api.handle_kmip_install_snippet()
+                except api.HTTPError:
+                    pass
+                return cap['b']['snippet']
+            first, second = snippet(), snippet()
+            self.assertEqual(first, second, 'snippet must be stable')
+            stored = (api.load(api.CONFIG_FILE) or {}).get('kmip_daemon_secret')
+            self.assertTrue(stored, 'the snippet must persist the secret')
+            self.assertIn(stored, first, 'the snippet must show the STORED secret')
+            self.assertIn('-o root -g root -m 600', first,
+                          'the env file needs no group grant — systemd reads '
+                          'it as root')
+            self.assertNotIn('api.env', first,
+                             "never derive a group from api.env — it is "
+                             "root:root and says nothing about the app user")
+        finally:
+            (api.respond, api.verify_token, api._env, api.method) = (
+                real_resp, real_vt, real_env, real_method)
+
+    def test_secret_is_redacted_from_config_reads(self):
+        self._set_config_secret('top-secret-value')
+        scrubbed = dict(api.load(api.CONFIG_FILE) or {})
+        api._scrub_config_secrets(scrubbed)
+        self.assertNotIn('kmip_daemon_secret', scrubbed)
+
+    def test_no_secret_anywhere_is_falsy(self):
+        self.assertEqual(api._kmip_daemon_secret(), '')
+
+
 class TestKmipSetupAndPki(_KmipHandlerCase):
     def test_enabling_generates_master_key_ca_and_server_cert(self):
         out = self.enable_kmip()

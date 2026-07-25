@@ -17,7 +17,7 @@ five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-6.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-6.4.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -176,6 +176,13 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
 
 ### Recent releases
 
+- **v6.4.1 "Cust0dyMatters"** — key custody: a built-in **KMIP key server** so a
+  Synology NAS, TrueNAS box or vSphere cluster stops keeping its encryption keys
+  on the same hardware that holds the encrypted data. Off by default, a separate
+  sandboxed sidecar, mutual TLS only, with an encrypted recovery bundle. Plus
+  installer flags for the optional syslog/flow receivers, an INGEST & KEYS view
+  in `rp status`/`rp tui`, and two monitor fixes: an actionable rejection message
+  and one stale monitor no longer blocking every other monitor edit.
 - **v6.4.0 "Sh1eldMatters"** — the security-and-protection release. Integrity-
   guard and baseline checks now behave exactly as expected: **disable one and
   it stops evaluating on the host**, not just in the UI, and accept a
@@ -210,12 +217,6 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   modules *before* patch day; re-running the installer now upgrades in place;
   and the UI gains a keyboard-driven alert inbox, device hover cards,
   tab-level device deep links and faster large-fleet tables.
-- **v6.2.1 "In1tMatters"** — a critical fix for Linux hosts using initramfs
-  (Debian/Ubuntu): systemd unit hardening could make upgrades run through
-  RemotePower rebuild the initramfs **without kernel modules**, leaving the host
-  unbootable at its next reboot. The unit is fixed, the upgrade command now
-  refuses to run in that situation, and patch-window reboots verify the initrd
-  (and a clean upgrade) before firing.
 Full history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Security

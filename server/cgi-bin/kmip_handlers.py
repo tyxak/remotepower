@@ -17,10 +17,13 @@ resolves unchanged. The KMIP_* file constants stay in api.py, read via A.
 Security model (documented in docs/kmip.md):
   * Admin routes: global admins only — a tenant admin 404s (KMIP is host
     infrastructure, like the storage backend; it is not tenant-scoped).
-  * Daemon routes (/api/kmip/daemon/*): authenticated by the shared secret
-    from /etc/remotepower/kmipd.env (env RP_KMIP_SECRET / RP_KMIP_SECRET_FILE
-    override), compared constant-time. The file is the single source of
-    truth — the API never persists the secret in a store.
+  * Daemon routes (/api/kmip/daemon/*): authenticated by a shared secret,
+    compared constant-time. Resolved env → /etc/remotepower/kmipd.env → the
+    config store (`kmip_daemon_secret`, auto-redacted by the secret-name
+    scrub). systemd feeds the file to the daemon AS ROOT, so it stays 0600
+    root:root and the API never needs to read it — it keeps its own copy.
+    Requiring the app to read that file is what made the page report
+    "Not installed" while the daemon was running perfectly well.
   * Key material: returned ONLY on the daemon `get` op (to serve a KMIP Get
     to an mTLS-authenticated client). Admin/auditor endpoints see metadata
     only, never material.
@@ -86,22 +89,61 @@ def _kmip_secret_file():
                                '/etc/remotepower/kmipd.env'))
 
 
-def _kmip_daemon_secret():
-    """The shared daemon secret. Env wins (docker); else parsed from the
-    root-installed env file (0640, group-readable by the API user). Returns
-    '' when not installed yet. Never persisted in a store — the file IS the
-    single source of truth for both sides."""
-    env = (os.environ.get('RP_KMIP_SECRET') or '').strip()
-    if env:
-        return env
+def _kmip_secret_file_exists():
+    """True if the env file is present, regardless of whether we can READ it —
+    'there but unreadable' and 'not there at all' need different advice."""
+    try:
+        return _kmip_secret_file().exists()
+    except OSError:
+        return False
+
+
+def _kmip_secret_from_file():
+    """The secret as written in the env file, or None if absent/unreadable.
+    Distinguishes the two so the UI can say WHICH it is."""
     try:
         for line in _kmip_secret_file().read_text().splitlines():
             line = line.strip()
             if line.startswith('RP_KMIP_SECRET='):
                 return line.split('=', 1)[1].strip().strip('"\'')
     except OSError:
-        pass
-    return ''
+        return None
+    return None
+
+
+def _kmip_daemon_secret():
+    """The shared daemon secret, resolved so a file-permission problem can
+    never blind the API.
+
+    Order: env (docker) → the env FILE → the config store.
+
+    The file is preferred over config because systemd feeds that exact value
+    to the daemon, so trusting it keeps both sides in step; when we can read
+    it we adopt it into config. Config is the fallback for the normal case
+    where the file is 0600 root:root — systemd reads it as root for the
+    daemon, so it never needs to be readable by the app user, and an earlier
+    design that REQUIRED the app to read it was wrong: the install snippet
+    derived the group from `api.env`, which is root:root because only systemd
+    ever reads THAT too, so the secret landed unreadable and the page said
+    "Not installed" while the daemon ran happily.
+    """
+    env = (os.environ.get('RP_KMIP_SECRET') or '').strip()
+    if env:
+        return env
+    from_file = _kmip_secret_from_file()
+    if from_file:
+        if (A._config_ro() or {}).get('kmip_daemon_secret') != from_file:
+            try:
+                with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+                    cfg['kmip_daemon_secret'] = from_file
+            except Exception:  # nosec B110 — see below
+                # Deliberate: adopting the secret into config is an
+                # OPTIMISATION. If the config is locked or read-only we still
+                # return the file's value, so auth keeps working; raising here
+                # would turn a cache miss into an outage.
+                pass
+        return from_file
+    return str((A._config_ro() or {}).get('kmip_daemon_secret') or '').strip()
 
 
 def _kmip_require_daemon():
@@ -317,10 +359,34 @@ def handle_kmip_status():
     last_fetch = int(daemon.get('last_state_fetch') or 0)
     ca = store.get('ca') or {}
     sc = store.get('server_cert') or {}
+    # Why the sidecar isn't visible, phrased so the operator can act. A bare
+    # "not installed" was actively misleading in the case where the daemon is
+    # running fine and only the API's view of the secret is broken.
+    _secret = _kmip_daemon_secret()
+    _file_secret = _kmip_secret_from_file()
+    _secret_hint = None
+    if not _secret:
+        if _kmip_secret_file_exists():
+            _secret_hint = (
+                f'{_kmip_secret_file()} exists but this server cannot read it '
+                'and no secret is stored in the config. Re-run the install '
+                'snippet below — it writes the file and records the secret here.')
+        else:
+            # nosec B105 — a UI hint string, not a credential (bandit
+            # matches on the '_secret_hint' variable name).
+            _secret_hint = ('Run the install snippet to set up the '
+                            'sidecar.')  # nosec B105
+    elif _file_secret is None and not _kmip_secret_file_exists():
+        _secret_hint = (
+            f'A secret is configured but {_kmip_secret_file()} is missing, so '
+            'the sidecar has nothing to authenticate with — run the install '
+            'snippet on this host.')
+
     A.respond(200, {
         'enabled': bool(store.get('enabled')),
         'port': int(store.get('port') or 5696),
-        'secret_installed': bool(_kmip_daemon_secret()),
+        'secret_installed': bool(_secret),
+        'secret_hint': _secret_hint,
         'master_key': _kmip_master_key() is not None,
         'daemon_alive': bool(last_fetch and now - last_fetch < 90),
         'daemon_last_seen': last_fetch or None,
@@ -384,19 +450,30 @@ def handle_kmip_config():
 
 
 def handle_kmip_install_snippet():
-    """GET /api/kmip/install — the one-time root install snippet for the
-    sidecar. Embeds a FRESH secret each call; once the operator writes the
-    env file, that file is the single source of truth (the API reads it
-    back). Admin-only, same trust model as the agent-install one-liner."""
+    """GET /api/kmip/install — the root install snippet for the sidecar.
+
+    The secret is generated ONCE and persisted in config (`kmip_daemon_secret`,
+    auto-redacted from GET /api/config by the secret-name scrub). Two reasons
+    it lives here rather than only in the env file:
+      * The API must know it without reading a root-owned file — systemd feeds
+        the file to the daemon as root, so it can stay 0600 root:root.
+      * Re-opening this dialog must NOT mint a new secret: that would silently
+        invalidate a working install the moment an operator looked twice.
+    Admin-only, same trust model as the agent-install one-liner.
+    """
     _kmip_require_admin()
-    secret = secrets.token_hex(32)
+    secret = _kmip_daemon_secret()
+    if not secret:
+        secret = secrets.token_hex(32)
+        with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+            cfg['kmip_daemon_secret'] = secret
     path = str(_kmip_secret_file())
+    # 0600 root:root on purpose — systemd reads EnvironmentFile as root, so no
+    # group grant is needed and none should be given.
     snippet = (
         '# Run on the RemotePower server as root, from the repo checkout:\n'
-        "WEBGROUP=$(stat -c '%G' /etc/remotepower/api.env 2>/dev/null "
-        '|| echo www-data)\n'
         f"printf 'RP_KMIP_SECRET=%s\\n' '{secret}' | "
-        f'sudo install -o root -g "$WEBGROUP" -m 640 /dev/stdin {path}\n'
+        f'sudo install -o root -g root -m 600 /dev/stdin {path}\n'
         'sudo install -m 755 server/kmip/remotepower-kmipd.py '
         '/usr/local/bin/remotepower-kmipd\n'
         'sudo install -m 644 packaging/remotepower-kmipd.service '
@@ -405,7 +482,7 @@ def handle_kmip_install_snippet():
         'sudo systemctl enable --now remotepower-kmipd\n'
         '# Or simply: sudo ./install-server.sh --with-kmip\n')
     A.respond(200, {'snippet': snippet, 'secret_file': path,
-                    'already_installed': bool(_kmip_daemon_secret())})
+                    'already_installed': _kmip_secret_from_file() is not None})
 
 
 def handle_kmip_clients():

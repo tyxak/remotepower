@@ -66,9 +66,14 @@ function _renderKmipServer() {
   const stateText = !s.enabled ? 'Disabled'
     : (s.daemon_alive ? `Running · port ${s.port}` : 'Enabled, but the sidecar has not checked in');
   rows.push(['Status', stateText, stateTone]);
+  // secret_hint explains a half-installed state ("the file is there but this
+  // server cannot read it") — a bare "not installed" was actively misleading
+  // when the daemon was running fine and only the API's view was broken.
   rows.push(['Sidecar', s.secret_installed
-    ? (s.daemon_alive ? `Last seen ${_kmipAgo(s.daemon_last_seen)}` : 'Installed, not reporting')
-    : 'Not installed — use “Install sidecar”', s.secret_installed ? '' : 'warn']);
+    ? (s.daemon_alive ? `Last seen ${_kmipAgo(s.daemon_last_seen)}`
+       : (s.secret_hint || 'Installed, but the sidecar has not checked in'))
+    : (s.secret_hint || 'Not installed — use “Install sidecar”'),
+    (s.secret_installed && s.daemon_alive) ? '' : 'warn']);
   rows.push(['Certificate authority', s.ca
     ? `Expires ${_kmipDate(s.ca.not_after)}` : 'Not generated yet', '']);
   rows.push(['Server certificate', s.server_cert

@@ -51,16 +51,22 @@ def _call(handler, *args):
 
 
 class TestVersionBumps(unittest.TestCase):
-    def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, V)
+    """Loosened at the v6.4.1 bump: the CURRENT release owns the exact-version
+    pins (test_v641.TestVersionBumps). What survives here is the SHAPE — the
+    fields must still exist and stay in lockstep — plus this release's own
+    history, which never changes."""
 
-    def test_agent_versions(self):
+    def test_server_version_shape(self):
+        self.assertRegex(api.SERVER_VERSION, r"^\d+\.\d+\.\d+$")
+
+    def test_agent_versions_match_the_server(self):
+        v = api.SERVER_VERSION
         self.assertIn(
-            f"VERSION      = '{V}'",
+            f"VERSION      = '{v}'",
             (_ROOT / "client/remotepower-agent.py").read_text(),
         )
         for rel in ("client/remotepower-agent-win.py", "client/remotepower-agent-mac.py"):
-            self.assertIn(f"VERSION = '{V}'", (_ROOT / rel).read_text(), rel)
+            self.assertIn(f"VERSION = '{v}'", (_ROOT / rel).read_text(), rel)
 
     def test_agent_extensionless_in_sync(self):
         self.assertEqual(
@@ -68,27 +74,21 @@ class TestVersionBumps(unittest.TestCase):
             (_ROOT / "client/remotepower-agent").read_bytes(),
         )
 
-    def test_gen_wiki_codename(self):
-        """gen-wiki.py's Home "Current release" line hardcodes the codename
-        (the version is templated, the codename is not), so it ships the
-        PREVIOUS release's name unless bumped. The current release owns this
-        pin — move it forward with the next rename."""
-        p = _ROOT / "tools/gen-wiki.py"
-        if not p.exists():
-            self.skipTest("excluded from dist tree")
-        self.assertIn(CODENAME, p.read_text(),
-                      "gen-wiki.py's Home line hardcodes the codename — bump it")
-
     def test_sw_and_cachebust(self):
-        self.assertIn(f"remotepower-shell-v{V}", (_ROOT / "server/html/sw.js").read_text())
-        self.assertIn(f"?v={V}", _html())
+        # v6.4.1 superseded these — the CURRENT release owns the exact stamp
+        # (test_v641.test_sw_and_cachebust_agree). Assert only that the
+        # lockstep shape survives.
+        sw = (_ROOT / "server/html/sw.js").read_text()
+        self.assertRegex(sw, r"remotepower-shell-v\d+\.\d+\.\d+-\d+")
+        self.assertRegex(_html(), r"\?v=\d+\.\d+\.\d+-\d+")
 
     def test_no_stale_cachebust(self):
         self.assertNotIn("?v=6.3.0", _html())
 
-    def test_readme_and_changelog(self):
-        self.assertIn(f"version-{V}-blue", (_ROOT / "README.md").read_text())
-        self.assertIn(f'## v{V} — "{CODENAME}"', (_ROOT / "CHANGELOG.md").read_text()[:400])
+    def test_changelog_still_records_this_release(self):
+        # The badge + "leads the file" pins moved to test_v641; this release's
+        # own CHANGELOG section is history and must never disappear.
+        self.assertIn(f'## v{V} — "{CODENAME}"', (_ROOT / "CHANGELOG.md").read_text())
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{V}.md").exists())

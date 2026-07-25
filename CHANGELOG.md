@@ -2,31 +2,15 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.4.0 — "Sh1eldMatters" — 2026-07-24
+## v6.4.1 — "Cust0dyMatters" — unreleased (test)
 
-### Monitors: a 400 you can act on, and one bad monitor no longer blocks the rest
-Two defects surfaced by a field report — "adding a monitor fails, only for
-http/https checks":
-- **The rejection message could not be acted on.** Every bad target produced
-  `Invalid monitor target: <url>`, which cannot distinguish a typo'd URL from a
-  perfectly good one that **this server's resolver** answers with a blocked
-  address. Only http/https (and tcp) resolve the hostname, which is why the
-  failure looked type-specific. The message now names the resolved IP and the
-  rule that rejected it — and for the common case, the exact setting that
-  permits it: *"bymanden.dk resolves to 127.0.0.1 on this server, which is a
-  loopback address … enable Settings → Allow monitoring of internal / loopback
-  targets"*. A filtering resolver answering `0.0.0.0` (Pi-hole, AdGuard) is
-  called out by name, as are link-local/metadata, bad schemes and a tcp target
-  with no port. Every message names the offending monitor, which matters
-  because the editor posts the whole list.
-- **One stale monitor blocked every other monitor edit.** The editor re-posts
-  the entire list, so a single pre-existing entry that no longer validates — a
-  satellite since deleted, an older-schema tcp entry without a port, a target
-  whose DNS answer changed — `400`d the whole save, naming the *other* monitor.
-  Adding or even **deleting** an unrelated monitor became impossible. Now only
-  the entry the operator actually touched hard-fails; an untouched broken entry
-  is carried through verbatim and reported in `monitor_warnings`, which the UI
-  raises as a toast so it can't rot unseen.
+Key custody. RemotePower can now hold the encryption keys for the storage that
+depends on it — a built-in **KMIP key server** so a Synology NAS, TrueNAS box
+or vSphere cluster stops keeping its keys on the same hardware that holds the
+encrypted data. Off by default, a separate sandboxed sidecar, mutual TLS only,
+with an encrypted recovery bundle because key custody without a way back is a
+liability. Plus two monitor fixes from the field: an error you can actually act
+on, and one stale monitor no longer blocking every other monitor edit.
 
 ### KMIP key server — keep NAS and hypervisor encryption keys off the appliance
 An opt-in **KMIP key server** so storage appliances stop keeping their
@@ -72,6 +56,7 @@ at. Now there is one, and it is monitored by the same system that runs it.
 - New docs: `docs/kmip.md`. New check-catalog row *RemotePower KMIP key server
   running*.
 
+
 ### Optional sidecars are installable, and visible in the CLI
 - **`install-server.sh` gained `--with-kmip`, `--with-syslogd` and
   `--with-flowd`.** The syslog and flow receivers previously had no installer
@@ -95,6 +80,34 @@ hard budgets, secret redaction and a visible evidence trail. Plus a data-
 binding sweep so everything the agent collects lands where it belongs (UI,
 RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
 performance wave.
+
+
+### Monitors: a 400 you can act on, and one bad monitor no longer blocks the rest
+Two defects surfaced by a field report — "adding a monitor fails, only for
+http/https checks":
+- **The rejection message could not be acted on.** Every bad target produced
+  `Invalid monitor target: <url>`, which cannot distinguish a typo'd URL from a
+  perfectly good one that **this server's resolver** answers with a blocked
+  address. Only http/https (and tcp) resolve the hostname, which is why the
+  failure looked type-specific. The message now names the resolved IP and the
+  rule that rejected it — and for the common case, the exact setting that
+  permits it: *"bymanden.dk resolves to 127.0.0.1 on this server, which is a
+  loopback address … enable Settings → Allow monitoring of internal / loopback
+  targets"*. A filtering resolver answering `0.0.0.0` (Pi-hole, AdGuard) is
+  called out by name, as are link-local/metadata, bad schemes and a tcp target
+  with no port. Every message names the offending monitor, which matters
+  because the editor posts the whole list.
+- **One stale monitor blocked every other monitor edit.** The editor re-posts
+  the entire list, so a single pre-existing entry that no longer validates — a
+  satellite since deleted, an older-schema tcp entry without a port, a target
+  whose DNS answer changed — `400`d the whole save, naming the *other* monitor.
+  Adding or even **deleting** an unrelated monitor became impossible. Now only
+  the entry the operator actually touched hard-fails; an untouched broken entry
+  is carried through verbatim and reported in `monitor_warnings`, which the UI
+  raises as a toast so it can't rot unseen.
+
+
+## v6.4.0 — "Sh1eldMatters" — 2026-07-24
 
 ### Bulletproofing: five new cross-reference gates + an error sweep
 New structural test gates, each turning a "JS/config fails silently" class
