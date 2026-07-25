@@ -1400,7 +1400,12 @@ OFFLINE_MISSED_POLLS     = 5            # offline threshold = max(global ttl, po
 DEFAULT_POLL_INTERVAL    = 60
 DEFAULT_CVE_CACHE_DAYS   = 7
 MAX_HISTORY       = 200
-MAX_MON_HISTORY   = 50
+# v6.4.1: raised 50 → 300. At the default 60s monitor cadence 50 checks was
+# under an hour of history, which made the Live Monitor sparkline, the latency
+# percentiles and the SLO availability window all far shorter than the periods
+# operators actually reason about. Tunable as `monitor_history_max`; the
+# time-based `monitor_history_retention_days` sweep still applies on top.
+MAX_MON_HISTORY   = 300
 MAX_CMD_OUTPUT    = 100
 MAX_CMD_OUT_BYTES = 32768   # per-entry output cap enforced at ingestion (v5.0.0: 8K→32K)
 MAX_METRICS       = 1440
@@ -22654,6 +22659,12 @@ def _persist_monitor_results(results):
                 except (TypeError, ValueError):
                     thresholds[_m['label']] = 1
         dirty = False
+        # Hoisted out of the per-result loop — one read, not one per monitor.
+        try:
+            _hist_cap = max(10, min(5000, int(cfg.get('monitor_history_max')
+                                              or MAX_MON_HISTORY)))
+        except (TypeError, ValueError):
+            _hist_cap = MAX_MON_HISTORY
         _path_baselines = cfg.get('path_baselines') or {}
         for r in results:
             key = r['label']
@@ -22666,7 +22677,7 @@ def _persist_monitor_results(results):
             if isinstance(r.get('ms'), (int, float)):
                 _row['ms'] = int(r['ms'])   # v6.1.2: feeds the latency percentiles
             mh[key].append(_row)
-            mh[key] = mh[key][-MAX_MON_HISTORY:]
+            mh[key] = mh[key][-_hist_cap:]
             # W4-15: path monitors — diff the hop set against a stored baseline
             # and fire path_changed (edge-triggered) when the route changes.
             if r.get('type') == 'path' and r.get('hops'):
@@ -24414,6 +24425,7 @@ def handle_config_get():
     safe.setdefault('unstable_host_window_days', 7)     # unstable-host detection window
     safe.setdefault('reliability_reboot_churn_min', _REBOOT_CHURN_MIN)  # returns in window → reboot-churn factor
     safe.setdefault('reliability_wear_high_pct', _WEAR_HIGH_PCT)        # SSD wear → high-wear reliability factor
+    safe.setdefault('monitor_history_max', MAX_MON_HISTORY)             # checks kept per monitor (sparkline / p95 / SLO window)
     # v6.2.2 batch 6: FLOAT thresholds (Settings → Forecast & CVE tuning). Defaults
     # mirror the code constants so an unconfigured server behaves identically; kept
     # as real floats so the GET body round-trips fractional values (never truncated).
@@ -25726,6 +25738,10 @@ def handle_config_save():
         ('unstable_host_window_days', 1,   365,    True),
         ('reliability_reboot_churn_min', 1, 1000,  True),
         ('reliability_wear_high_pct', 1,   100,    True),
+        # v6.4.1: how many checks each monitor keeps. Also the window the Live
+        # Monitor sparkline, the latency percentiles and SLO availability are
+        # computed over — 50 checks was under an hour at the default cadence.
+        ('monitor_history_max',       10,  5000,   True),
     # v6.2.2 batch 4: per-factor score weights (health/risk/reliability), 0..1000,
     # blankable (blank → the code default). Generated from the constant dicts.
     ) + _weight_param_specs():

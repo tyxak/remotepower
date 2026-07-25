@@ -5516,6 +5516,7 @@ document.addEventListener('keydown', e => {
 // few modals that activate themselves directly (drift, AI, runbook).
 function _raiseModalZ(el) {
   if (!el) return;
+  _ensureModalClose(el);  // covers the modals that activate themselves directly
   el.style.zIndex = '';   // drop any prior inline raise before measuring
   let top = 0;
   document.querySelectorAll('.modal-overlay.active').forEach(m => {
@@ -5526,9 +5527,44 @@ function _raiseModalZ(el) {
   const ownZ = parseInt(getComputedStyle(el).zIndex, 10) || 1000;
   if (top && top + 10 > ownZ) el.style.zIndex = String(top + 10);
 }
+// v6.4.1: every dialog gets a dismiss control in its top-right corner. Injected
+// rather than hand-added to ~90 static overlays: it cannot be forgotten on a new
+// modal, and it stays consistent. CSP-safe — element + addEventListener, no
+// inline handler. Skipped where the modal already ships its own close affordance
+// in that corner, and for the ad-hoc AI modal which builds its own chrome.
+const _NO_INJECT_CLOSE = new Set(['ui-prompt-modal', 'ai-modal']);
+function _ensureModalClose(el) {
+  if (!el || _NO_INJECT_CLOSE.has(el.id)) return;
+  const panel = el.querySelector(':scope > .modal');
+  if (!panel || panel.querySelector(':scope > .modal-close')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'modal-close';
+  btn.setAttribute('aria-label', 'Close dialog');
+  btn.title = 'Close (Esc)';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '15');
+  svg.setAttribute('height', '15');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M18 6 6 18M6 6l12 12');
+  svg.appendChild(path);
+  btn.appendChild(svg);
+  // The ui-prompt modal resolves a promise on close; everything else routes
+  // through closeModal so the focus/scroll/stack bookkeeping stays in one place.
+  btn.addEventListener('click', () => closeModal(el.id));
+  panel.insertBefore(btn, panel.firstChild);
+}
+
 function openModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
+  _ensureModalClose(el);
   document.body.classList.remove('mobile-nav-open');
   // Remember what to restore focus to, and track open order for Escape/trap.
   _modalReturnFocus.set(el, document.activeElement);
@@ -5655,10 +5691,24 @@ document.addEventListener('keydown', e => {
 // Backdrop click cancels (and resolves null, so the awaiting caller unblocks).
 // Scoped to the modal element (not document) so it doesn't shadow other
 // global click handlers. The modal exists in static HTML before app.js loads.
+// v6.4.1: backdrop click no longer dismisses on desktop. Losing a half-filled
+// form to a stray click beside the dialog is a real cost, and there is now an
+// explicit × in the corner (plus Escape). On touch/narrow viewports the dialog
+// can fill the screen and the corner button is a smaller target, so tapping the
+// backdrop stays a dismiss there.
+function _backdropDismisses() {
+  return window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
+}
 document.getElementById('ui-prompt-modal')?.addEventListener('click', e => {
-  if (_uiPromptResolve && e.target.id === 'ui-prompt-modal') _uiPromptFinish(false);
+  if (_uiPromptResolve && e.target.id === 'ui-prompt-modal' && _backdropDismisses()) {
+    _uiPromptFinish(false);
+  }
 });
-document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); }); });
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => {
+    if (e.target === el && _backdropDismisses()) closeModal(el.id);
+  });
+});
 // v2.1.0: escHtml escapes for HTML content + double-quoted attribute values.
 // It deliberately does NOT escape ' — HTML entity decoding turns &#39; back
 // into ' before the JS-in-attribute parser sees it, which would break any
@@ -18841,6 +18891,7 @@ const _ALERT_PARAM_FIELDS = [
   ['ap-unstable-window-days',      'unstable_host_window_days',  7],
   ['ap-rel-reboot-churn',          'reliability_reboot_churn_min', 3],
   ['ap-rel-wear-high',             'reliability_wear_high_pct',  85],
+  ['ap-monitor-history-max',       'monitor_history_max',        300],
   // v6.2.2 batch 6: FLOAT thresholds (Forecast & CVE tuning). These MUST NOT be
   // parseInt'd on save — 0.5 would truncate to 0; see _ALERT_PARAM_FLOAT_KEYS +
   // the float branch in saveAlertParams.

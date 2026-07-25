@@ -1039,12 +1039,10 @@
   /* CMDB asset modal: fixed dialog height so switching tabs (Properties /
      Documentation / Credentials / Hardware / Contracts & contacts / SNMP)
      doesn't resize and re-centre the window. The active pane scrolls inside. */
-  #cmdb-asset-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
-  /* v5.0.0: the storage maintenance modal matches the CMDB asset modal width. */
-  #storage-maint-modal > .modal { max-width: min(940px, 94vw); }
+  #cmdb-asset-modal > .modal { height: min(88vh, 760px); max-width: var(--modal-w-wide); display: flex; flex-direction: column; overflow: hidden; }
   /* Ticket detail modal — same proportions as the CMDB asset modal: fixed
      window, header + footer pinned, the body scrolls inside. */
-  #ticket-detail-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
+  #ticket-detail-modal > .modal { height: min(88vh, 760px); max-width: var(--modal-w-wide); display: flex; flex-direction: column; overflow: hidden; }
   #ticket-detail-modal #tk-detail-body { flex: 1; overflow-y: auto; min-height: 0; }
   /* Sub-ticket rows are indented under their master in the ticket tables. */
   .tk-child-row > td:first-child { padding-left: 22px; }
@@ -1281,8 +1279,8 @@
   .btn-icon:hover { background: var(--hair-2); color: var(--text); }
   .btn-icon svg { width: 14px; height: 14px; }
   /* v6.0.1 (item 10): compact button size for dense rows / table action cells. */
-  .btn-sm { padding: 5px 10px; font-size: 12px; min-height: 0; }
-  .btn-xs { padding: 3px 8px; font-size: 11px; min-height: 0; }
+  .btn-sm { padding: 5px 16px; font-size: 12px; min-height: 0; }
+  .btn-xs { padding: 3px 13px; font-size: 11px; min-height: 0; }
   .enroll-btn {
     background: var(--accent);
     color: var(--accent-contrast, #fff);
@@ -1776,23 +1774,63 @@
     from { opacity: 0; }
     to   { opacity: 1; }
   }
+  /* v6.4.1: ONE width scale. Three tiers, no per-modal max-width overrides —
+     the CMDB / ticket / storage dialogs each carried their own min(940px,94vw)
+     and everything else sat at 680px, so two dialogs opened from the same page
+     were visibly different widths. --modal-w-wide is the standard content
+     width (the CMDB dialog is the reference); the narrow default stays for
+     confirms and short forms, where 940px would be absurd. */
+  :root {
+    --modal-w:       480px;
+    --modal-w-wide:  min(940px, 94vw);
+    --modal-w-xwide: min(1360px, 94vw);
+  }
   .modal {
+    position: relative;          /* anchor for .modal-close */
     background: var(--surface);
     border: 1px solid var(--hair);
     border-radius: 14px;
     padding: 28px;
     width: 100%;
-    max-width: 480px;
+    max-width: var(--modal-w);
     transform: translateY(20px);
     transition: transform 0.2s;
     max-height: 90vh;
     overflow-y: auto;
   }
   .modal-overlay.active .modal { transform: translateY(0); }
-  .modal-wide { max-width: 680px; }
-  /* v3.3.4: roughly twice modal-wide, for dense views like the RouterOS
-     console; capped to the viewport so it never overflows. */
-  .modal-xwide { max-width: min(1360px, 94vw); }
+  .modal-wide { max-width: var(--modal-w-wide); }
+  /* Dense views like the RouterOS console; capped to the viewport. */
+  .modal-xwide { max-width: var(--modal-w-xwide); }
+  /* v6.4.1: dismiss control, injected into every dialog by openModal. Sits
+     inside the padding box aligned to the dialog's own border rather than
+     floating over the content, so a long title never runs underneath it. */
+  .modal-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    z-index: 2;
+  }
+  .modal-close:hover  { background: var(--bg); color: var(--text); border-color: var(--hair); }
+  .modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* Keep a long title clear of the button. */
+  .modal-title { padding-right: 34px; }
+  /* A dialog that manages its own scrolling (flex column + overflow hidden)
+     would scroll the button away with the content — pin it to the frame. */
+  #cmdb-asset-modal > .modal > .modal-close,
+  #ticket-detail-modal > .modal > .modal-close,
+  #host-config-modal > .modal > .modal-close { position: absolute; }
   .modal-title    { font-size: 16px; font-weight: 640; margin-bottom: 6px; }
   .modal-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
   .pin-display {
@@ -2357,7 +2395,7 @@
   .settings-pane.active { display: block; }
 
   /* v5.6.0: Knowledge base list/article styles. */
-  .chip-sm { font-size: 11px; padding: 1px 6px; }
+  .chip-sm { font-size: 11px; padding: 1px 10px; }
   /* v5.8.0 (B2.2): wrapping row for the 3-2-1 backup-rule leg pills. */
   .flex-wrap-6 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .kb-cat-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
@@ -4630,7 +4668,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .mw-380 { max-width: 380px; }
 .input-wide { max-width: 400px; padding: 8px 12px; font-size: 13px; }
 .input-wide-sm { max-width: 380px; padding: 8px 12px; font-size: 13px; }
-.input-auto { width: auto; padding: 8px 12px; font-size: 13px; }
+.input-auto { width: auto; min-width: 160px; padding: 8px 12px; font-size: 13px; }
 .input-search { padding: 8px 12px 8px 34px; font-size: 13px; }
 .select-sm { padding: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; min-width: 160px; }
 .icon-btn { width: 14px; height: 14px; margin-right: 4px; display: inline-block; vertical-align: -2px; }
@@ -4726,9 +4764,9 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-76 { font-size:13px; color:var(--muted) }
 .isl-77 { display:flex; flex-direction:column; gap:14px; margin-top:12px }
 .isl-78 { color:var(--muted); font-size:13px; text-align:center; padding:30px }
-.isl-79 { width:auto }
-.isl-80 { width:100px }
-.isl-81 { width:80px }
+.isl-79 { width:auto; min-width:160px }
+.isl-80 { width:150px }
+.isl-81 { width:130px }
 .isl-82 { flex-wrap:wrap; gap:8px; align-items:flex-end }
 .isl-83 { flex:2; min-width:200px }
 .isl-84 { flex:1; min-width:140px }

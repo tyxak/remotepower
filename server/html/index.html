@@ -4198,7 +4198,12 @@
               <label for="ap-rel-wear-high" class="form-label">Wear high % (reliability)</label>
               <input type="number" id="ap-rel-wear-high" class="form-input isl-80" min="1" max="100" placeholder="85">
             </div>
+            <div class="form-group">
+              <label for="ap-monitor-history-max" class="form-label">Monitor checks kept</label>
+              <input type="number" id="ap-monitor-history-max" class="form-input isl-80" min="10" max="5000" placeholder="300">
+            </div>
           </div>
+          <p class="hint">Monitor checks kept is the window the Live Monitor sparkline, the latency percentiles and SLO availability are all computed over — at a 60-second cadence, 300 checks is about five hours. Raising it costs storage proportionally; the retention sweep on Settings → Data still prunes by age on top.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 

@@ -390,6 +390,69 @@ def _oid_in_subtree(oid_str, root_str):
     return oid_str.startswith(root_str + '.')
 
 
+# Well-known subtrees, longest-prefix matched, so a raw walk result reads as
+# something rather than a wall of digits. Deliberately small: this is an
+# orientation aid for the walk browser, not a MIB compiler. A device's
+# enterprise OIDs stay numeric — resolving those needs its vendor MIB, which
+# we do not ship and will not guess at.
+_OID_NAMES = {
+    '1.3.6.1.2.1.1':          'system',
+    '1.3.6.1.2.1.1.1':        'sysDescr',
+    '1.3.6.1.2.1.1.2':        'sysObjectID',
+    '1.3.6.1.2.1.1.3':        'sysUpTime',
+    '1.3.6.1.2.1.1.4':        'sysContact',
+    '1.3.6.1.2.1.1.5':        'sysName',
+    '1.3.6.1.2.1.1.6':        'sysLocation',
+    '1.3.6.1.2.1.1.7':        'sysServices',
+    '1.3.6.1.2.1.2':          'interfaces',
+    '1.3.6.1.2.1.2.1':        'ifNumber',
+    '1.3.6.1.2.1.2.2.1.1':    'ifIndex',
+    '1.3.6.1.2.1.2.2.1.2':    'ifDescr',
+    '1.3.6.1.2.1.2.2.1.3':    'ifType',
+    '1.3.6.1.2.1.2.2.1.4':    'ifMtu',
+    '1.3.6.1.2.1.2.2.1.5':    'ifSpeed',
+    '1.3.6.1.2.1.2.2.1.6':    'ifPhysAddress',
+    '1.3.6.1.2.1.2.2.1.7':    'ifAdminStatus',
+    '1.3.6.1.2.1.2.2.1.8':    'ifOperStatus',
+    '1.3.6.1.2.1.2.2.1.10':   'ifInOctets',
+    '1.3.6.1.2.1.2.2.1.14':   'ifInErrors',
+    '1.3.6.1.2.1.2.2.1.16':   'ifOutOctets',
+    '1.3.6.1.2.1.2.2.1.20':   'ifOutErrors',
+    '1.3.6.1.2.1.4':          'ip',
+    '1.3.6.1.2.1.6':          'tcp',
+    '1.3.6.1.2.1.7':          'udp',
+    '1.3.6.1.2.1.25':         'host (HOST-RESOURCES-MIB)',
+    '1.3.6.1.2.1.25.1.1':     'hrSystemUptime',
+    '1.3.6.1.2.1.25.2.3.1.3': 'hrStorageDescr',
+    '1.3.6.1.2.1.25.2.3.1.5': 'hrStorageSize',
+    '1.3.6.1.2.1.25.2.3.1.6': 'hrStorageUsed',
+    '1.3.6.1.2.1.25.3.3.1.2': 'hrProcessorLoad',
+    '1.3.6.1.2.1.25.4.2.1.2': 'hrSWRunName',
+    '1.3.6.1.2.1.31.1.1.1.1': 'ifName',
+    '1.3.6.1.2.1.31.1.1.1.18': 'ifAlias',
+    '1.3.6.1.2.1.47':         'entityMIB',
+    '1.3.6.1.4.1':            'enterprises',
+    '1.3.6.1.4.1.2021':       'ucdavis (UCD-SNMP-MIB)',
+    '1.3.6.1.4.1.14988':      'mikrotik',
+    '1.3.6.1.4.1.10002':      'ubiquiti',
+}
+
+
+def oid_label(oid_str):
+    """Longest-prefix well-known name for an OID, or '' if we don't know it.
+
+    Returned alongside the raw OID rather than instead of it — an operator
+    cross-referencing against a vendor MIB needs the digits.
+    """
+    best = ''
+    best_len = 0
+    for prefix, name in _OID_NAMES.items():
+        if (oid_str == prefix or oid_str.startswith(prefix + '.')) \
+                and len(prefix) > best_len:
+            best, best_len = name, len(prefix)
+    return best
+
+
 def snmp_walk(host, community, root_oid, port=161, timeout=2.0, retries=1,
               max_results=256):
     """Walk an OID subtree via repeated GETNEXT. Returns {oid: value}.

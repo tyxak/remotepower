@@ -287,9 +287,13 @@ class TestV226Assets(unittest.TestCase):
         self.assertIn('body.modal-open', self.css)
 
     def test_modal_helpers_close_mobile_nav(self):
-        # openModal closes the mobile nav drawer
-        idx = self.js.find('function openModal')
-        chunk = self.js[idx:idx + 400]
+        # openModal closes the mobile nav drawer and takes the scroll lock.
+        # srcpin extracts the whole function rather than a fixed-size window —
+        # the old js[idx:idx+400] slice broke the moment a line was added at
+        # the top of openModal (v6.4.1's close-button injection did exactly
+        # that), which is a test-fixture problem, not a regression.
+        import srcpin
+        chunk = srcpin.js_function(self.js, 'openModal')
         self.assertIn('mobile-nav-open', chunk)
         self.assertIn('modal-open', chunk)
 
