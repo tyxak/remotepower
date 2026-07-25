@@ -910,28 +910,58 @@ def handle_kmip_keys():
 
 
 def handle_kmip_key_destroy(uid):
-    """DELETE /api/kmip/keys/<uid> — admin override destroy (the appliance
-    normally destroys its own keys via KMIP). Material is dropped; the
-    metadata row stays as a tombstone for the audit trail."""
+    """DELETE /api/kmip/keys/<uid> — destroy a key, or with `?purge=1` remove
+    the row outright.
+
+    Destroy drops the key material and keeps the row as a tombstone, which is
+    the right default: it records that a key existed and was destroyed. But a
+    tombstone has no further use once reviewed, and leaving no way to clear it
+    means the inventory fills with rows carrying no action — so purge deletes
+    the record itself. The material is already gone by then either way.
+    """
     actor = _kmip_require_admin()
     if A.method() != 'DELETE':
         A.respond(405, {'error': 'Method not allowed'})
+    purge = 'purge=1' in (A._env('QUERY_STRING', '') or '')
     now = int(time.time())
     with A._LockedUpdate(A.KMIP_OBJECTS_FILE) as store:
         objs = store.get('objects') or {}
         o = objs.get(uid)
         if not o:
             A.respond(404, {'error': 'no such object'})
-        o.pop('material', None)
-        o['state'] = 'destroyed'
-        o['state_enum'] = _KMIP_STATES['destroyed']
-        o['destroyed'] = now
-        o['updated'] = now
-    A.audit_log(actor, 'kmip_key_destroy', detail=f'uid={uid}',
+        was = o.get('state')
+        if purge:
+            del objs[uid]
+        else:
+            o.pop('material', None)
+            o['state'] = 'destroyed'
+            o['state_enum'] = _KMIP_STATES['destroyed']
+            o['destroyed'] = now
+            o['updated'] = now
+    A.audit_log(actor, 'kmip_key_purge' if purge else 'kmip_key_destroy',
+                detail=f'uid={uid} was={was}', source_ip=A._get_client_ip())
+    A._kmip_log('admin', op='purge' if purge else 'destroy', actor=actor,
+                uid=uid, ok=True,
+                detail=('record removed' if purge else 'admin override'))
+    A.respond(200, {'ok': True, 'purged': purge})
+
+
+def handle_kmip_keys_purge_destroyed():
+    """DELETE /api/kmip/keys — clear every destroyed tombstone in one go."""
+    actor = _kmip_require_admin()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    removed = 0
+    with A._LockedUpdate(A.KMIP_OBJECTS_FILE) as store:
+        objs = store.get('objects') or {}
+        for uid in [u for u, o in objs.items() if o.get('state') == 'destroyed']:
+            del objs[uid]
+            removed += 1
+    A.audit_log(actor, 'kmip_keys_purge', detail=f'{removed} tombstone(s)',
                 source_ip=A._get_client_ip())
-    A._kmip_log('admin', op='destroy', actor=actor, uid=uid, ok=True,
-                detail='admin override')
-    A.respond(200, {'ok': True})
+    A._kmip_log('admin', op='purge_destroyed', actor=actor, ok=True,
+                detail=f'{removed} destroyed record(s) removed')
+    A.respond(200, {'ok': True, 'removed': removed})
 
 
 def handle_kmip_log_list():
@@ -1109,7 +1139,7 @@ def handle_kmip_daemon_event():
     _kmip_require_daemon()
     body = A.get_json_obj()
     kind = str(body.get('kind') or '')[:32]
-    if kind not in ('started', 'connect', 'auth_fail'):
+    if kind not in ('started', 'connect', 'auth_fail', 'op_failed'):
         A.respond(400, {'error': 'unknown event kind'})
     cid = str(body.get('client_id') or '')[:32] or None
     name = None
@@ -1124,6 +1154,8 @@ def handle_kmip_daemon_event():
                 c['last_peer'] = str(body.get('peer') or '')[:64]
                 name = c.get('name')
     A._kmip_log(kind, client_id=cid, client=name,
+                op=str(body.get('op') or '')[:32] or None,
+                ok=False if kind in ('auth_fail', 'op_failed') else None,
                 peer=str(body.get('peer') or '')[:64] or None,
                 fingerprint=str(body.get('fingerprint') or '')[:64] or None,
                 detail=str(body.get('detail') or '')[:256] or None)
@@ -1284,6 +1316,48 @@ def handle_kmip_daemon_op():
                     live['access_count'] = int(live.get('access_count') or 0) + 1
         _log_op(uid=uid)
         A.respond(200, {'ok': True, 'object': out})
+
+    if op == 'check':
+        objs = (A.load(A.KMIP_OBJECTS_FILE) or {}).get('objects') or {}
+        o = objs.get(uid)
+        if not o or not A._kmip_object_visible(o, cid):
+            _log_op(uid=uid, ok=False, detail='not found')
+            A._kmip_op_fail('not_found', 'object not found')
+        if o.get('state') == 'destroyed':
+            _log_op(uid=uid, ok=False, detail='destroyed')
+            A._kmip_op_fail('state', 'object has been destroyed')
+        _log_op(uid=uid)
+        A.respond(200, {'ok': True, 'uid': uid})
+
+    if op in ('set_attribute', 'delete_attribute'):
+        name = str(params.get('name') or '').strip()[:128]
+        if not name:
+            _log_op(uid=uid, ok=False, detail='attribute name missing')
+            A._kmip_op_fail('missing', 'attribute name required')
+        with A._LockedUpdate(A.KMIP_OBJECTS_FILE) as store:
+            o = (store.get('objects') or {}).get(uid)
+            if not o or not A._kmip_object_visible(o, cid):
+                A.respond(200, {'ok': False, 'reason': 'not_found',
+                                'message': 'object not found'})
+            attrs = o.setdefault('attributes', {})
+            if op == 'delete_attribute':
+                attrs.pop(name, None)
+            else:
+                if len(attrs) >= A.MAX_KMIP_ATTRS and name not in attrs:
+                    A.respond(200, {'ok': False, 'reason': 'invalid',
+                                    'message': 'attribute cap reached'})
+                attrs[name] = params.get('value')
+                # A Name attribute is what the inventory shows, so mirror it.
+                if name.strip().lower() == 'name':
+                    v = params.get('value')
+                    if isinstance(v, dict):
+                        v = next((x for x in v.values()
+                                  if isinstance(x, str)), None)
+                    if isinstance(v, str) and v:
+                        o['name'] = v[:128]
+            o['updated'] = now
+        _log_op(uid=uid, detail=f'{op} {name}')
+        A.respond(200, {'ok': True, 'uid': uid})
 
     if op in ('activate', 'revoke', 'destroy'):
         with A._LockedUpdate(A.KMIP_OBJECTS_FILE) as store:

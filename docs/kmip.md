@@ -26,9 +26,14 @@ sandboxed sidecar service, so nothing listens until you ask for it.
 | Any KMIP 1.0–1.4 client | Generic symmetric keys, secret data, opaque objects |
 
 Supported operations: Discover Versions, Query, Create, Register, Get, Get
-Attributes, Get Attribute List, Locate, Activate, Revoke, Destroy — the subset
-these appliances actually use. Object types: symmetric keys, secret data,
-opaque objects.
+Attributes, Get Attribute List, Add/Modify/Delete Attribute, Check, Obtain
+Lease, Get Usage Allocation, Locate, Activate, Revoke, Destroy, Archive,
+Recover. Object types: symmetric keys, secret data, opaque objects.
+
+That set is deliberately matched to the community `kmip-server-dsm` PyKMIP
+policy, which is the best available statement of what DSM actually calls. An
+appliance that hits an unimplemented operation aborts its whole setup with a
+generic error, so anything the policy grants is implemented here.
 
 ## How it fits together
 

@@ -75,6 +75,7 @@ MAX_MESSAGE = 1 << 20     # 1 MiB cap on a single KMIP request message
 MAX_CONNS = 64            # concurrent connection cap
 AUTH_FAIL_LOG_EVERY_S = 60   # per-peer-IP auth-failure log throttle
 AUTH_FAIL_SEEN_MAX = 4096    # bound the throttle map (spoof-flood safety)
+LEASE_TIME_S = 3600          # advertised lease for ObtainLease
 
 
 def _secret():
@@ -156,9 +157,17 @@ OP_LOCATE = 0x08
 OP_GET = 0x0A
 OP_GET_ATTRIBUTES = 0x0B
 OP_GET_ATTRIBUTE_LIST = 0x0C
+OP_CHECK = 0x09
+OP_ADD_ATTRIBUTE = 0x0D
+OP_MODIFY_ATTRIBUTE = 0x0E
+OP_DELETE_ATTRIBUTE = 0x0F
+OP_OBTAIN_LEASE = 0x10
+OP_GET_USAGE_ALLOCATION = 0x11
 OP_ACTIVATE = 0x12
 OP_REVOKE = 0x13
 OP_DESTROY = 0x14
+OP_ARCHIVE = 0x15
+OP_RECOVER = 0x16
 OP_QUERY = 0x18
 OP_DISCOVER_VERSIONS = 0x1E
 
@@ -168,7 +177,21 @@ OP_NAMES = {
     OP_GET_ATTRIBUTE_LIST: 'get_attribute_list', OP_ACTIVATE: 'activate',
     OP_REVOKE: 'revoke', OP_DESTROY: 'destroy', OP_QUERY: 'query',
     OP_DISCOVER_VERSIONS: 'discover_versions',
+    # The rest of what a real appliance uses. The reference DSM setup's
+    # PyKMIP policy grants exactly this set, which is the best available
+    # statement of what DSM actually calls — a missing one is answered with
+    # "operation not supported" and the appliance aborts the whole vault
+    # setup with a generic error.
+    OP_CHECK: 'check', OP_ADD_ATTRIBUTE: 'add_attribute',
+    OP_MODIFY_ATTRIBUTE: 'modify_attribute',
+    OP_DELETE_ATTRIBUTE: 'delete_attribute',
+    OP_OBTAIN_LEASE: 'obtain_lease',
+    OP_GET_USAGE_ALLOCATION: 'get_usage_allocation',
+    OP_ARCHIVE: 'archive', OP_RECOVER: 'recover',
 }
+
+# Lease Time is an Interval; Last Change Date a DateTime (KMIP 1.x registry).
+T_LEASE_TIME = 0x42004A
 
 # Object type enumeration.
 OT_CERTIFICATE = 1
@@ -359,6 +382,24 @@ def _parse_managed_object(items):
             info['material'] = od[1]
         return OT_OPAQUE, info
     return None, info
+
+
+def _attr_value_to_json(aval):
+    """A TTLV AttributeValue reduced to something JSON can carry."""
+    if not aval:
+        return None
+    ty, val = aval
+    if ty == TY_BYTES:
+        return {'_b64': base64.b64encode(val).decode()}
+    if ty == TY_STRUCT:
+        # Named structures (Name, Cryptographic Parameters …) — keep the
+        # readable leaves so the UI can show something meaningful.
+        out = {}
+        for t, sty, sv in val:
+            if sty in (TY_TEXT, TY_INT, TY_ENUM, TY_LONG, TY_DATETIME, TY_BOOL):
+                out[hex(t)] = sv
+        return out or None
+    return val
 
 
 def _key_block(obj):
@@ -628,13 +669,35 @@ def handle_message(raw, client, api):
                 body.append((T_RESPONSE_PAYLOAD, TY_STRUCT, result))
             resp_items.append((T_BATCH_ITEM, TY_STRUCT, body))
         except KmipOpError as e:
+            # A protocol-level rejection never reached the activity log, so an
+            # appliance aborting on "operation not supported" was invisible in
+            # the UI — the operator saw a generic appliance error and had
+            # nothing on this side to look at. Report every one, with the
+            # numeric code, so an unimplemented operation names itself.
+            log.info('op %s from %s rejected: %s',
+                     OP_NAMES.get(op, hex(op)), client.get('name'), e.message)
+            _report(api, {'kind': 'op_failed', 'client_id': client.get('id'),
+                          'op': OP_NAMES.get(op, hex(op)),
+                          'detail': f'{e.message} (operation {hex(op)})'})
             resp_items.append(_error_item(op, e.reason, e.message, batch_id))
         except Exception as e:
             log.warning('op %s failed for %s: %s',
-                        OP_NAMES.get(op, op), client.get('name'), e)
+                        OP_NAMES.get(op, hex(op)), client.get('name'), e)
+            _report(api, {'kind': 'op_failed', 'client_id': client.get('id'),
+                          'op': OP_NAMES.get(op, hex(op)),
+                          'detail': f'control plane unavailable: {e}'})
             resp_items.append(_error_item(
                 op, RR_GENERAL_FAILURE, 'control plane unavailable', batch_id))
     return _wrap_response(pv_major, pv_minor, resp_items)
+
+
+def _report(api, payload):
+    """Best-effort activity-log post. Reporting a failure must never turn into
+    a second failure — the client is still owed a response."""
+    try:
+        api.event(payload)
+    except Exception as e:                       # incl. a stubbed api client
+        log.debug('event post failed: %s', e)
 
 
 def _wrap_response(pv_major, pv_minor, batch_items):
@@ -797,8 +860,54 @@ def _handle_op(op, payload, client, api, id_placeholder):
         _api_op(api, client, 'destroy', {'uid': uid})
         return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid)], uid
 
+    if op == OP_CHECK:
+        uid = _uid_from(payload, id_placeholder)
+        _api_op(api, client, 'check', {'uid': uid})
+        return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid)], uid
+
+    if op in (OP_ADD_ATTRIBUTE, OP_MODIFY_ATTRIBUTE):
+        uid = _uid_from(payload, id_placeholder)
+        attr = _find(payload, T_ATTRIBUTE)
+        if not attr or attr[0] != TY_STRUCT:
+            raise KmipOpError(RR_MISSING_DATA, 'attribute required')
+        name = str(_find_val(attr[1], T_ATTRIBUTE_NAME, '') or '')
+        aval = _find(attr[1], T_ATTRIBUTE_VALUE)
+        _api_op(api, client, 'set_attribute', {
+            'uid': uid, 'name': name,
+            'value': _attr_value_to_json(aval),
+            'replace': op == OP_MODIFY_ATTRIBUTE})
+        return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid),
+                (T_ATTRIBUTE, TY_STRUCT, attr[1])], uid
+
+    if op == OP_DELETE_ATTRIBUTE:
+        uid = _uid_from(payload, id_placeholder)
+        name = str(_find_val(payload, T_ATTRIBUTE_NAME, '') or '')
+        _api_op(api, client, 'delete_attribute', {'uid': uid, 'name': name})
+        return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid),
+                (T_ATTRIBUTE, TY_STRUCT,
+                 [(T_ATTRIBUTE_NAME, TY_TEXT, name)])], uid
+
+    if op == OP_OBTAIN_LEASE:
+        uid = _uid_from(payload, id_placeholder)
+        resp = _api_op(api, client, 'get_attributes', {'uid': uid})
+        obj = resp.get('object') or {}
+        return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid),
+                (T_LEASE_TIME, TY_INTERVAL, LEASE_TIME_S),
+                (T_LAST_CHANGE_DATE, TY_DATETIME,
+                 int(obj.get('updated') or obj.get('created') or time.time()))], uid
+
+    if op == OP_GET_USAGE_ALLOCATION:
+        uid = _uid_from(payload, id_placeholder)
+        _api_op(api, client, 'check', {'uid': uid})
+        return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid)], uid
+
+    if op in (OP_ARCHIVE, OP_RECOVER):
+        uid = _uid_from(payload, id_placeholder)
+        _api_op(api, client, 'check', {'uid': uid})
+        return [(T_UNIQUE_IDENTIFIER, TY_TEXT, uid)], uid
+
     raise KmipOpError(RR_OP_NOT_SUPPORTED,
-                      f'operation {op} not supported')
+                      f'operation {OP_NAMES.get(op, hex(op))} not supported')
 
 
 # ── connection handling ──────────────────────────────────────────────────────

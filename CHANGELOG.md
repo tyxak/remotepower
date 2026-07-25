@@ -120,6 +120,36 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### KMIP: the operations a real appliance actually calls
+Synology registered its two vault secrets successfully and then failed with
+"unable to reset the encryption key vault", leaving both objects stuck at
+*pre-active*. Register worked; whatever it called next did not.
+
+The reference DSM setup's PyKMIP policy grants **Check, AddAttribute,
+ModifyAttribute, DeleteAttribute, ObtainLease, GetUsageAllocation, Archive and
+Recover** — the best available statement of what DSM actually calls, and none
+of them existed here. The appliance got "operation not supported" and aborted
+the whole vault setup with a generic message. All eight are now implemented and
+advertised in Query, and the full sequence (register → name → check → activate
+→ get → modify → delete attribute → locate) leaves the object **active** with
+the name the appliance supplied.
+
+Custom attributes are stored per object and capped; a `Name` attribute updates
+the inventory name. Attribute operations are client-scoped like everything else.
+
+**A rejected operation now reaches the activity log.** Protocol-level
+rejections were answered to the appliance but never recorded, so the page
+showed nothing while the appliance failed — which is why this took several
+rounds to find. Every rejection is logged with its operation name and numeric
+code, through a reporting path that cannot itself break the response the client
+is owed.
+
+**Destroyed keys can be removed.** A destroyed key kept its row as a tombstone
+with no action attached, so the inventory filled with rows that could never be
+cleared. Each destroyed row gains **Remove**, plus a **Clear destroyed** bulk
+action. The key material is already gone at that point — this only clears the
+record, and the wording says so rather than implying a second destruction.
+
 ### KMIP: a supported way to remove it and start over
 **Security → KMIP → Remove and start over** wipes the master key, the CA, every
 client registration and every stored key, so a botched setup can be redone from

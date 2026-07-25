@@ -184,7 +184,8 @@ function _renderKmipKeys() {
     <td><span class="status-pill ${stateBadge[r.state] || 'neutral'}">${escHtml((r.state || '').replace(/_/g, '-'))}</span></td>
     <td>${escHtml(r.client || '—')}</td>
     <td>${escHtml(_kmipAgo(r.last_access))}${r.access_count ? `<br><span class="hint">${r.access_count} reads</span>` : ''}</td>
-    <td class="ta-right">${r.state === 'destroyed' ? ''
+    <td class="ta-right">${r.state === 'destroyed'
+      ? `<button class="btn-icon" data-action-btn="kmipPurgeKey" data-uid="${escAttr(r.uid)}" data-name="${escAttr(r.name || r.uid)}" title="Remove this destroyed record from the inventory">Remove</button>`
       : `<button class="btn-icon" data-action-btn="kmipDestroyKey" data-uid="${escAttr(r.uid)}" data-name="${escAttr(r.name || r.uid)}" title="Permanently destroy this key">Destroy</button>`}</td>
   </tr>`).join('');
 }
@@ -564,6 +565,48 @@ async function kmipDestroyKey(btn) {
     loadKmip();
   } catch (e) {
     toast(`Destroy failed: ${String(e)}`, 'error');
+  }
+}
+
+async function kmipPurgeKey(btn) {
+  const uid = btn.dataset.uid;
+  const name = btn.dataset.name || uid;
+  // The material is already gone — this only clears the tombstone, so the
+  // warning should not imply otherwise.
+  const ok = await uiConfirm({
+    title: 'Remove destroyed key',
+    message: `Remove the record for ${name}? Its key material was already `
+      + 'destroyed; this just clears the row from the inventory.',
+    confirmText: 'Remove',
+  });
+  if (!ok) return;
+  try {
+    const r = await api('DELETE', `/kmip/keys/${encodeURIComponent(uid)}?purge=1`);
+    if (!_kmipOk(r, 'Removing the record')) return;
+    toast(`Removed ${name}`, 'info');
+    loadKmip();
+  } catch (e) {
+    toast(`Remove failed: ${String(e)}`, 'error');
+  }
+}
+
+async function kmipPurgeDestroyed() {
+  const n = (_kmipKeys || []).filter(k => k.state === 'destroyed').length;
+  if (!n) { toast('No destroyed keys to clear', 'info', { transient: true }); return; }
+  const ok = await uiConfirm({
+    title: 'Clear destroyed keys',
+    message: `Remove ${n} destroyed record(s) from the inventory. Their key `
+      + 'material was already destroyed; this only clears the rows.',
+    confirmText: 'Clear',
+  });
+  if (!ok) return;
+  try {
+    const r = await api('DELETE', '/kmip/keys');
+    if (!_kmipOk(r, 'Clearing destroyed keys')) return;
+    toast(`Removed ${r.removed || 0} record(s)`, 'info');
+    loadKmip();
+  } catch (e) {
+    toast(`Clear failed: ${String(e)}`, 'error');
   }
 }
 

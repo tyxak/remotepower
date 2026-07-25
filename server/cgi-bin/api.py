@@ -331,6 +331,7 @@ KMIP_MASTER_KEY_FILE = DATA_DIR / 'kmip_master.key'
 MAX_KMIP_LOG        = 2000
 MAX_KMIP_OBJECTS    = 5000
 MAX_KMIP_CLIENTS    = 100
+MAX_KMIP_ATTRS      = 64    # per-object custom attributes an appliance may set
 # v3.5.0: sites/teams — a first-class grouping above device `group`, for
 # organising a fleet by location/team/customer. Soft boundary (super-admin
 # always sees all); used to scope dashboard/device views, not as a security
@@ -1230,7 +1231,8 @@ for _km_name in (
         'handle_kmip_client_delete', 'handle_kmip_log_clear',
         'handle_kmip_reset',
         'handle_kmip_client_reissue', 'handle_kmip_keys',
-        'handle_kmip_key_destroy', 'handle_kmip_log_list',
+        'handle_kmip_key_destroy', 'handle_kmip_keys_purge_destroyed',
+        'handle_kmip_log_list',
         'handle_kmip_export', 'handle_kmip_import',
         'handle_kmip_daemon_state', 'handle_kmip_daemon_event',
         'handle_kmip_daemon_op',
@@ -63418,6 +63420,7 @@ def _build_exact_routes():
         ('GET', '/api/kmip/clients'): handle_kmip_clients,
         ('POST', '/api/kmip/clients'): handle_kmip_client_create,
         ('GET', '/api/kmip/keys'): handle_kmip_keys,
+        ('DELETE', '/api/kmip/keys'): handle_kmip_keys_purge_destroyed,
         ('GET', '/api/kmip/log'): handle_kmip_log_list,
         ('DELETE', '/api/kmip/log'): handle_kmip_log_clear,
         ('POST', '/api/kmip/export'): handle_kmip_export,

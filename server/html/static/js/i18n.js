@@ -317,6 +317,7 @@
     'Start over':  { fr: 'Repartir de zéro', de: 'Neu beginnen', zh: '重新开始', hi: 'फिर से शुरू करें', es: 'Empezar de nuevo', ar: 'البدء من جديد' },
     'Remove and start over': { fr: 'Supprimer et repartir de zéro', de: 'Entfernen und neu beginnen', zh: '移除并重新开始', hi: 'हटाएँ और फिर से शुरू करें', es: 'Eliminar y empezar de nuevo', ar: 'إزالة والبدء من جديد' },
     'Remove everything': { fr: 'Tout supprimer', de: 'Alles entfernen', zh: '移除全部', hi: 'सब कुछ हटाएँ', es: 'Eliminar todo', ar: 'إزالة كل شيء' },
+    'Clear destroyed': { fr: 'Effacer les détruites', de: 'Zerstörte entfernen', zh: '清除已销毁', hi: 'नष्ट किए गए हटाएँ', es: 'Borrar las destruidas', ar: 'مسح المدمَّرة' },
     'Add client':  { fr: 'Ajouter un client', de: 'Client hinzufügen', zh: '添加客户端', hi: 'क्लाइंट जोड़ें', es: 'Añadir cliente', ar: 'إضافة عميل' },
     'Copy commands': { fr: 'Copier les commandes', de: 'Befehle kopieren', zh: '复制命令', hi: 'कमांड कॉपी करें', es: 'Copiar comandos', ar: 'نسخ الأوامر' },
     'Export bundle': { fr: 'Exporter l’archive', de: 'Paket exportieren', zh: '导出恢复包', hi: 'बंडल निर्यात करें', es: 'Exportar paquete', ar: 'تصدير الحزمة' },

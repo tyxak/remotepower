@@ -1116,6 +1116,175 @@ class TestKmipOperations(_KmipHandlerCase):
         self.assertNotIn('material', json.dumps(out))
 
 
+class TestFullApplianceSequence(_KmipHandlerCase):
+    """Field failure: DSM registered two SecretData objects, both stuck at
+    pre-active, then reported "unable to reset the encryption key vault".
+
+    Register worked; whatever it called NEXT did not. The reference DSM setup's
+    PyKMIP policy grants Check / AddAttribute / ModifyAttribute /
+    DeleteAttribute / ObtainLease / GetUsageAllocation / Archive / Recover —
+    none of which existed here, so the appliance got "operation not supported"
+    and aborted the whole vault setup with a generic message.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.enable_kmip()
+        self.c1 = self.call(api.handle_kmip_client_create,
+                            body={'name': 'tvinas01', 'kind': 'synology'})
+
+    def op(self, name, params=None):
+        return self.call(api.handle_kmip_daemon_op, headers=self.daemon_hdr(),
+                         body={'client_id': self.c1['id'],
+                               'fingerprint': self.c1['fingerprint'],
+                               'op': name, 'params': params or {}})
+
+    def test_every_operation_the_reference_policy_grants_is_advertised(self):
+        """Query drives client capability discovery — an operation missing
+        from the advertised set is one the appliance may never try, and one
+        present but unimplemented aborts its setup."""
+        for want in ('check', 'add_attribute', 'modify_attribute',
+                     'delete_attribute', 'obtain_lease',
+                     'get_usage_allocation', 'archive', 'recover'):
+            self.assertIn(want, kmipd.OP_NAMES.values(), want)
+
+    def test_the_dsm_sequence_ends_with_an_active_named_object(self):
+        reg = self.op('register', {
+            'material_b64': base64.b64encode(b'\x5a' * 32).decode(),
+            'object_type': 'secret_data', 'name': 'edc5d34fb678'})
+        uid = reg['uid']
+        self.assertTrue(self.op('set_attribute', {
+            'uid': uid, 'name': 'x-Vault-Id', 'value': 'dsm-vault-1'})['ok'])
+        self.assertTrue(self.op('check', {'uid': uid})['ok'])
+        self.assertTrue(self.op('activate', {'uid': uid})['ok'])
+        self.assertTrue(self.op('get', {'uid': uid})['ok'])
+        obj = self.op('get_attributes', {'uid': uid})['object']
+        self.assertEqual(obj['state'], 'active',
+                         'the vault key must not be left pre-active')
+        self.assertEqual(obj['name'], 'edc5d34fb678')
+
+    def test_a_name_attribute_updates_the_inventory_name(self):
+        uid = self.op('create', {'length': 256})['uid']
+        self.op('set_attribute', {'uid': uid, 'name': 'Name',
+                                  'value': 'vault-key-a'})
+        rows = self.call(api.handle_kmip_keys, method='GET')['keys']
+        self.assertEqual([r['name'] for r in rows if r['uid'] == uid],
+                         ['vault-key-a'])
+
+    def test_delete_attribute_removes_it(self):
+        uid = self.op('create', {'length': 256})['uid']
+        self.op('set_attribute', {'uid': uid, 'name': 'x-Tag', 'value': 'a'})
+        self.op('delete_attribute', {'uid': uid, 'name': 'x-Tag'})
+        obj = (api.load(api.KMIP_OBJECTS_FILE)['objects'])[uid]
+        self.assertNotIn('x-Tag', obj.get('attributes') or {})
+
+    def test_attributes_are_capped(self):
+        uid = self.op('create', {'length': 256})['uid']
+        for i in range(api.MAX_KMIP_ATTRS + 5):
+            self.op('set_attribute', {'uid': uid, 'name': f'x-{i}',
+                                      'value': 'v'})
+        obj = (api.load(api.KMIP_OBJECTS_FILE)['objects'])[uid]
+        self.assertLessEqual(len(obj.get('attributes') or {}),
+                             api.MAX_KMIP_ATTRS)
+
+    def test_attribute_ops_are_client_scoped(self):
+        """Same isolation as every other operation."""
+        other = self.call(api.handle_kmip_client_create,
+                          body={'name': 'nas-02', 'kind': 'truenas'})
+        uid = self.op('create', {'length': 256})['uid']
+        out = self.call(api.handle_kmip_daemon_op, headers=self.daemon_hdr(),
+                        body={'client_id': other['id'],
+                              'fingerprint': other['fingerprint'],
+                              'op': 'set_attribute',
+                              'params': {'uid': uid, 'name': 'x', 'value': 'y'}})
+        self.assertFalse(out['ok'])
+        self.assertEqual(out['reason'], 'not_found')
+
+    def test_a_rejected_operation_reaches_the_activity_log(self):
+        """The diagnostic gap that made this a guessing game: a protocol-level
+        rejection was answered to the appliance but never recorded, so the UI
+        showed nothing while the appliance failed."""
+        self.call(api.handle_kmip_daemon_event, headers=self.daemon_hdr(),
+                  body={'kind': 'op_failed', 'client_id': self.c1['id'],
+                        'op': 'add_attribute',
+                        'detail': 'operation 0xd not supported'})
+        entries = self.call(api.handle_kmip_log_list, method='GET')['entries']
+        hit = [e for e in entries if e.get('kind') == 'op_failed']
+        self.assertTrue(hit, 'a rejected operation must be visible in the UI')
+        self.assertEqual(hit[0]['op'], 'add_attribute')
+        self.assertIs(hit[0]['ok'], False)
+
+    def test_daemon_reports_rejections(self):
+        src = (_ROOT / 'server' / 'kmip' / 'remotepower-kmipd.py').read_text()
+        blk = src[src.index('except KmipOpError as e:'):]
+        blk = blk[:blk.index('resp_items.append(_error_item(op, e.reason')]
+        self.assertIn('_report(api,', blk,
+                      'report through the non-fatal helper — a failed report '
+                      'must not break the response the client is owed')
+        self.assertIn("'op_failed'", blk)
+
+
+class TestDestroyedKeysCanBeRemoved(_KmipHandlerCase):
+    """A destroyed key kept its row as a tombstone with no action attached, so
+    the inventory filled with rows that could never be cleared."""
+
+    def setUp(self):
+        super().setUp()
+        self.enable_kmip()
+        self.c1 = self.call(api.handle_kmip_client_create,
+                            body={'name': 'tvinas01', 'kind': 'synology'})
+
+    def _key(self):
+        return self.call(api.handle_kmip_daemon_op, headers=self.daemon_hdr(),
+                         body={'client_id': self.c1['id'],
+                               'fingerprint': self.c1['fingerprint'],
+                               'op': 'create',
+                               'params': {'length': 256}})['uid']
+
+    def _uids(self):
+        return [k['uid'] for k in
+                self.call(api.handle_kmip_keys, method='GET')['keys']]
+
+    def test_destroy_keeps_a_tombstone_by_default(self):
+        uid = self._key()
+        self.env_extra['QUERY_STRING'] = ''
+        self.call(api.handle_kmip_key_destroy, uid, method='DELETE')
+        self.assertIn(uid, self._uids(), 'destroy records that it happened')
+
+    def test_purge_removes_the_record(self):
+        uid = self._key()
+        self.env_extra['QUERY_STRING'] = 'purge=1'
+        out = self.call(api.handle_kmip_key_destroy, uid, method='DELETE')
+        self.assertTrue(out['purged'])
+        self.assertNotIn(uid, self._uids())
+
+    def test_bulk_clear_removes_only_destroyed_records(self):
+        dead, live = self._key(), self._key()
+        self.env_extra['QUERY_STRING'] = ''
+        self.call(api.handle_kmip_key_destroy, dead, method='DELETE')
+        out = self.call(api.handle_kmip_keys_purge_destroyed, method='DELETE')
+        self.assertEqual(out['removed'], 1)
+        self.assertEqual(self._uids(), [live], 'a live key must survive')
+
+    def test_purge_is_audited(self):
+        uid = self._key()
+        seen = []
+        real = api.audit_log
+        api.audit_log = lambda actor, action, *a, **k: seen.append(action)
+        try:
+            self.env_extra['QUERY_STRING'] = 'purge=1'
+            self.call(api.handle_kmip_key_destroy, uid, method='DELETE')
+        finally:
+            api.audit_log = real
+        self.assertIn('kmip_key_purge', seen)
+
+    def test_ui_offers_remove_on_destroyed_rows(self):
+        js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-kmip.js').read_text()
+        self.assertIn('kmipPurgeKey', js)
+        self.assertIn('kmipPurgeDestroyed', js)
+        self.assertIn("r.state === 'destroyed'", js)
+
+
 class TestKmipActivityLog(_KmipHandlerCase):
     """Every action must be traceable — for review and for debugging."""
 
