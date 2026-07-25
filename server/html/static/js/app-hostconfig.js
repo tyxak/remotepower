@@ -277,7 +277,6 @@ async function openCustomScriptModal(scriptId) {
     }
   }
 
-  // Build device picker
   await _buildCsDevicePicker(scriptId);
 
   openModal('custom-script-modal');
@@ -573,9 +572,7 @@ function _hcPopulateAll(desired) {
   // Services: list → textarea (one per line)
   const svcEl = document.getElementById('hc-text-services');
   if (svcEl) svcEl.value = (desired.services || []).join('\n');
-  // Users
   _hcRenderUsers(desired.users || []);
-  // Groups
   _hcRenderGroups(desired.groups || []);
 }
 

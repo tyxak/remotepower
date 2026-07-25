@@ -120,6 +120,65 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### Refactor, cleanup, and a pre-release audit
+**app.js split** — 2,468 lines moved out of the 28.9k-line monolith into five
+page modules (`app-scans`, `app-vpn`, `app-hostops`, `app-storage`,
+`app-self`). Four are lazy-loaded on first navigation; `app-self` is eager
+because `app-backups` calls into it. Eleven source-pin tests that grepped
+`app.js` directly were repointed at `tests/clientjs.py`, which concatenates
+every `static/js/*.js` — the helper that exists precisely so moving code
+between files can never break a content assertion.
+
+**Sidecars joined the SAST scope.** `bandit` covered `server/cgi-bin` and the
+agents only, so the four processes that ACCEPT NETWORK TRAFFIC from untrusted
+devices — syslog, flow, KMIP — and the one holding a shared secret were the
+only shipped Python never scanned. Exactly backwards. They are in scope now,
+their by-design findings are annotated with reasons, and **`bandit` is wired
+into `make pre-release`**: it had been a standalone target wired into nothing,
+so it had rotted to red unnoticed. A gate nobody runs is not a gate.
+
+**Findings fixed** (adversarial audit of the new subsystem):
+- **TTLV amplification (High).** A 72-byte request could demand 4 GiB: the
+  batch-item id was decoded with whatever type the client declared and
+  re-encoded unconditionally as a byte string, so `bytes(int)` allocated that
+  many zero bytes — on the host that also runs the API and the database. The
+  encoder now refuses a non-bytes byte string and the field is dropped unless
+  it already is one.
+- **Pre-auth denial of service (High).** The TLS handshake ran on the accept
+  loop, so any peer that completed TCP and then sent nothing stalled the entire
+  key server for the handshake timeout — no certificate, no protocol knowledge,
+  and in a loop, indefinitely. For a key server that means appliances cannot
+  unlock at boot. The handshake moved into the worker thread.
+- Nested-struct decoding copied the buffer at every level (~940 MB of memcpy
+  for a crafted 1 MiB message); depth is now bounded and the copy is gone.
+- **DR archives had started embedding every prior pre-restore snapshot.**
+  Encrypting those snapshots removed the accident that had been excluding them
+  (the walk drops `*.gz`), so each backup carried a full data-dir image per past
+  restore, compounding.
+- The encrypted pre-restore snapshot was written under a name the operator was
+  never given (`with_suffix` replaces rather than appends), and fell back to
+  plaintext when `cryptography` was missing — the exact leak that block exists
+  to close. It now refuses, like the DR backup already did.
+- A stored monitor with no label raised `KeyError` → 500, blocking every later
+  settings save until `config.json` was hand-edited.
+- `rp status`/`rp tui` read two store keys no writer produces, so a busy
+  receiver reported "0 lines buffered · newest never" — precisely the broken
+  state that view exists to reveal.
+- **The KMIP listen port was an editable setting nothing honoured**: the daemon
+  binds from `RP_KMIP_BIND` and never read it, while the page and the appliance
+  walkthrough both quoted it. The daemon now reports its actual bind and the
+  field is display-only.
+- The install dialog claimed a fresh secret per view; the handler deliberately
+  does the opposite. Re-issue lost the client's type, dropping the
+  Synology-specific assignment step. The wizard leaked its poll and retained the
+  issued private key when closed with Escape. The installer wrote the daemon
+  secret world-readable for a moment, silenced a failed `chown`, and left
+  already-running sidecars on old code after an upgrade.
+
+**Cleanup**: a superseded constant, six restatement comments, and a
+byte-identical duplicate of the public-action page (two copies of a hardcoded
+CSP block being the drift risk this codebase has already been bitten by).
+
 ### KMIP: documentation that matches what you actually have to click
 `docs/kmip.md` gains a complete **Synology DSM walkthrough** and a
 **Maintaining it** section.

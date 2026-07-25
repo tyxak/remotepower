@@ -147,7 +147,7 @@ function _renderKmipClients() {
       ? '<span class="status-pill critical">Revoked</span>'
       : '<span class="status-pill ok">Active</span>'}</td>
     <td class="ta-right">
-      <button class="btn-icon" data-action-btn="kmipReissueClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" title="Issue a replacement certificate — the appliance keeps its stored keys">Re-issue</button>
+      <button class="btn-icon" data-action-btn="kmipReissueClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" data-kind="${escAttr(r.kind || 'generic')}" title="Issue a replacement certificate — the appliance keeps its stored keys">Re-issue</button>
       ${r.revoked ? '' : `<button class="btn-icon" data-action-btn="kmipRevokeClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" title="Block this appliance from the KMIP server">Revoke</button>`}
       <button class="btn-icon" data-action-btn="kmipDeleteClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" data-keys="${r.objects || 0}" title="Remove this client registration entirely">Delete</button>
     </td>
@@ -252,11 +252,12 @@ function kmipOpenConfig() {
 
 async function kmipSaveConfig() {
   const enabled = document.getElementById('kmip-cfg-enabled').checked;
-  const port = parseInt(document.getElementById('kmip-cfg-port').value, 10) || 5696;
   const hosts = document.getElementById('kmip-cfg-hosts').value;
-  if (port < 1 || port > 65535) { toast('Enter a valid port', 'error', { transient: true }); return; }
+  // The port is display-only: the sidecar binds from RP_KMIP_BIND and never
+  // reads a configured value, so sending one here only created a setting that
+  // appeared to work while the daemon stayed where it was.
   try {
-    const r = await api('POST', '/kmip/config', { enabled, port, hosts });
+    const r = await api('POST', '/kmip/config', { enabled, hosts });
     if (!_kmipOk(r, 'Saving KMIP settings')) { loadKmip(); return; }
     closeModal('kmip-config-modal');
     toast(enabled ? 'KMIP server enabled' : 'KMIP server disabled', 'success');
@@ -436,10 +437,21 @@ function _kmipWatchFirstContact() {
   const cid = _kmipWizCreds && _kmipWizCreds.id;
   if (!el || !cid) return;
   el.textContent = 'Waiting for the appliance to connect…';
+  el.classList.remove('c-green');      // a previous run's success must not stick
   if (_kmipWizPoll) clearInterval(_kmipWizPoll);
   let ticks = 0;
   _kmipWizPoll = setInterval(async () => {
     ticks += 1;
+    // Only the Cancel button routes through kmipWizardClose — Escape and a
+    // backdrop click call closeModal directly. Without this self-guard the
+    // poll kept running for five minutes, toasting over an unrelated page,
+    // and _kmipWizCreds kept holding the client PRIVATE KEY that the server
+    // deliberately never stores.
+    const open = document.getElementById('kmip-wizard-modal');
+    if (!open || !open.classList.contains('active')) {
+      clearInterval(_kmipWizPoll); _kmipWizPoll = null; _kmipWizCreds = null;
+      return;
+    }
     if (ticks > 60) { clearInterval(_kmipWizPoll); _kmipWizPoll = null; return; }
     try {
       const r = await api('GET', '/kmip/clients');
@@ -535,7 +547,12 @@ async function kmipReissueClient(btn) {
   try {
     const r = await api('POST', `/kmip/clients/${encodeURIComponent(cid)}/reissue`);
     if (!_kmipOk(r, 'Re-issuing the certificate')) return;
-    _kmipWizCreds = Object.assign({ id: cid, name, kind: 'generic' }, r);
+    // Carry the client's REAL type over — the reissue response has no `kind`,
+    // so defaulting to generic showed generic prose to a Synology admin and
+    // dropped the assign-the-certificate step the code itself calls "the step
+    // everyone misses". Without it DSM keeps sending its default cert.
+    _kmipWizCreds = Object.assign(
+      { id: cid, name, kind: btn.dataset.kind || 'generic' }, r);
     _kmipWizStep = 2;
     document.getElementById('kmip-wiz-fp').textContent =
       `Certificate fingerprint: ${(r.fingerprint || '').slice(0, 32)}…`;

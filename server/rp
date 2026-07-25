@@ -249,16 +249,21 @@ def toks(kind):
                and t.get('scope_device_id'))
 
 
-# syslog — mapped sources, buffered lines, newest arrival
+# syslog — mapped sources, buffered lines, newest arrival.
+# Shape is {dev_id: {'units': {'<unit>': [ {ts,line,sev,source}, … ]}}} — an
+# earlier version of this read a top-level 'lines' key that no writer produces,
+# so a busy receiver reported "0 lines buffered · newest never" forever, which
+# is exactly the broken state this view exists to reveal.
 lw = get('log_watch.json')
 lines = newest = 0
 for dev in (lw.values() if isinstance(lw, dict) else []):
-    entries = (dev or {}).get('lines') if isinstance(dev, dict) else None
-    if isinstance(entries, list):
-        lines += len(entries)
-        for e in entries[-1:]:
-            if isinstance(e, dict):
-                newest = max(newest, int(e.get('ts') or 0))
+    units = (dev or {}).get('units') if isinstance(dev, dict) else None
+    for entries in (units.values() if isinstance(units, dict) else []):
+        if isinstance(entries, list):
+            lines += len(entries)
+            for e in entries[-1:]:
+                if isinstance(e, dict):
+                    newest = max(newest, int(e.get('ts') or 0))
 COMPACT = os.environ.get('RP_INGEST_COMPACT') == '1'
 
 if COMPACT:
@@ -267,13 +272,16 @@ else:
     print('  syslog    %d source(s) mapped · %d line(s) buffered · newest %s'
           % (toks('syslog'), lines, ago(newest)))
 
-# flow — mapped exporters, exporters actually reporting, newest rollup
+# flow — mapped exporters, exporters actually reporting, newest rollup.
+# Shape is {dev_id: {'latest': {…,'ts':…}, 'history': […]}} — the timestamp is
+# under 'latest', not at the top level (same class of mistake as syslog above).
 fl = get('flow.json')
 exporters = len(fl) if isinstance(fl, dict) else 0
 fnew = 0
 for dev in (fl.values() if isinstance(fl, dict) else []):
     if isinstance(dev, dict):
-        fnew = max(fnew, int(dev.get('ts') or dev.get('updated') or 0))
+        latest = dev.get('latest') if isinstance(dev.get('latest'), dict) else {}
+        fnew = max(fnew, int(latest.get('ts') or 0))
 if COMPACT:
     print('  flow    %d mapped · %d reporting · %s'
           % (toks('flow'), exporters, ago(fnew)))

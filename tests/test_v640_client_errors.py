@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from clientjs import client_js
+
 ROOT = Path(__file__).resolve().parent.parent
 _CGI = ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
@@ -109,7 +111,8 @@ class TestUiConsumesTheRing(unittest.TestCase):
     """The gap this release closes: the list endpoint must have a UI consumer."""
 
     def test_self_page_renders_and_clears(self):
-        js = (ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+        from clientjs import client_js
+        js = client_js()   # split-proof: the self page moved to app-self.js
         html = (ROOT / "server" / "html" / "index.html").read_text()
         self.assertIn('id="client-errors-card"', html)
         self.assertIn('id="client-errors-body"', html)

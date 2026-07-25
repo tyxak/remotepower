@@ -192,7 +192,10 @@ def _ip(raw):
             return str(ipaddress.IPv4Address(raw))
         if len(raw) == 16:
             return str(ipaddress.IPv6Address(raw))
-    except Exception:
+    except Exception:  # nosec B110
+        # Deliberate: flow bytes come off the wire from a spoofable UDP
+        # source. An unparseable address yields '' and the record is
+        # skipped — a malformed datagram must never kill the receiver.
         pass
     return ''
 
@@ -364,7 +367,9 @@ def build_v5(records):
     for (src, dst, sport, dport, proto, octets, pkts) in records:
         body += ipaddress.IPv4Address(src).packed
         body += ipaddress.IPv4Address(dst).packed
-        body += ipaddress.IPv4Address('0.0.0.0').packed   # nexthop
+        # nosec B104 — the NetFlow v5 'next hop' field of a SYNTHESISED
+        # packet, not a socket bind. 0.0.0.0 means 'none' in that record.
+        body += ipaddress.IPv4Address('0.0.0.0').packed   # nosec B104 nexthop
         body += struct.pack('!HH', 0, 0)                  # snmp in/out
         body += struct.pack('!II', pkts, octets)          # dPkts, dOctets
         body += struct.pack('!II', 0, 0)                  # first/last uptime

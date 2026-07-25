@@ -328,7 +328,9 @@ class PushServer:
         if old is not None and old is not websocket:
             try:
                 await old.close(code=4409, reason='superseded by a new connection')
-            except Exception:
+            except Exception:  # nosec B110
+                # Best-effort close of a superseded socket. The peer may
+                # already be gone; the replacement is installed either way.
                 pass
         self.connections[dev_id] = websocket
         log.info("push: %s connected (%d total)", dev_id, len(self.connections))

@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from clientjs import client_js
+
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
@@ -37,7 +39,7 @@ rag_index = _load("rag_index_v511", "rag_index.py")
 
 API_SRC = (_CGI / "api.py").read_text()
 INDEX_HTML = (_ROOT / "server" / "html" / "index.html").read_text()
-APP_JS = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+APP_JS = client_js()   # split-proof: every static/js/*.js
 CMDB_JS = (_ROOT / "server" / "html" / "static" / "js" / "app-cmdb.js").read_text()
 
 

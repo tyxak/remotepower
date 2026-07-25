@@ -200,7 +200,8 @@ def _post(token, agg):
                                  headers={'Content-Type': 'application/json'},
                                  method='POST')
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        # nosec B310 — fixed loopback base from the unit; literal path.
+        with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
             r.read()
         return True
     except Exception as e:
@@ -210,7 +211,9 @@ def _post(token, agg):
 
 def serve():
     host, _, port = BIND.rpartition(':')
-    host = host or '0.0.0.0'
+    # nosec B104 — routers export NetFlow from across the LAN; that is the
+    # point. Pin one interface with RP_FLOW_BIND.
+    host = host or '0.0.0.0'  # nosec B104
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, int(port)))

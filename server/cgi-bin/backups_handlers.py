@@ -240,7 +240,13 @@ def _run_data_backup(triggered_by='scheduled'):
     # passphrase-encrypted KMIP recovery bundle, so a stolen backup archive
     # holds only ciphertext (mirrors A._BACKUP_EXCLUDE_NAMES on the
     # download-path filter).
-    excluded_names = {'backups', 'kmip_master.key'}
+    # restore-snapshots/ joined this list at v6.4.1. The walk's filter drops
+    # `bn.endswith('.gz')`, which used to exclude pre-restore-*.tar.gz by
+    # accident — encrypting them to *.enc removed that accident, so every DR
+    # archive started embedding a FULL data-dir image per past restore, and
+    # they compound (two restores → the next backup carries both).
+    # _write_data_dir_tar already skips this directory; match it.
+    excluded_names = {'backups', 'kmip_master.key', A._BACKUP_SNAPSHOT_DIR}
     # v3.12.0: under SQLite, never tar the live DB or its WAL sidecars — a
     # mid-checkpoint copy can be torn/unrecoverable. We exclude them here and
     # add a consistent online-backup snapshot below instead.
@@ -1014,11 +1020,27 @@ def handle_backup_restore():
                 tarfile.open(fileobj=_sraw, mode='w:gz') as snap:
             A._write_data_dir_tar(snap)
         _snap_pw = A._backup_passphrase()
-        if _snap_pw and A.backup_crypto.available():
+        if _snap_pw:
+            if not A.backup_crypto.available():
+                # Match _run_data_backup: when the operator asked for
+                # encryption, refuse rather than quietly writing a full
+                # plaintext image of the data dir — that is the exact leak
+                # this block exists to close.
+                try:
+                    _snap_work.unlink()
+                except OSError:
+                    pass
+                raise RuntimeError(
+                    "RP_BACKUP_PASSPHRASE is set but the 'cryptography' "
+                    'library is missing — refusing to write a plaintext '
+                    'pre-restore snapshot')
+            snap_name += '.enc'
+            # `with_suffix` REPLACES the last suffix, so pre-restore-X.tar.gz
+            # became pre-restore-X.tar.tar.gz.enc — a file the operator was
+            # then told to look for under a name that did not exist. Append.
+            _snap_enc = _snap_final.with_suffix(_snap_final.suffix + '.enc')
             try:
-                A.backup_crypto.encrypt_file(
-                    _snap_work, _snap_final.with_suffix('.tar.gz.enc'), _snap_pw)
-                snap_name += '.enc'
+                A.backup_crypto.encrypt_file(_snap_work, _snap_enc, _snap_pw)
             finally:
                 try:
                     _snap_work.unlink()

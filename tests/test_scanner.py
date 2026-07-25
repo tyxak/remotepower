@@ -391,7 +391,9 @@ class TestScanModeIsAlwaysStated(unittest.TestCase):
     exactly the one left unexplained."""
 
     def _js(self):
-        return (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        # Split-proof: the scans page moved to app-scans.js at v6.4.1.
+        from clientjs import client_js
+        return client_js()
 
     def test_the_mode_is_shown_on_scans_WITH_findings(self):
         js = self._js()
@@ -452,7 +454,8 @@ class TestScannerVersionIsVisible(unittest.TestCase):
         api_src = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         self.assertIn("'scanner_version': SCANNER_VERSION", api_src)
         self.assertIn("'version': s.get('scanner_version', '')", api_src)
-        js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        from clientjs import client_js
+        js = client_js()   # split-proof: _SCANNER_VERSION lives in app-scans.js
         self.assertIn('_SCANNER_VERSION', js)
         self.assertIn('(outdated)', js)
 
@@ -540,7 +543,9 @@ class TestTheFixIsSpelledOut(unittest.TestCase):
     out where it goes. The scan detail view must give the real paths."""
 
     def _js(self):
-        return (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        # Split-proof: the scans page moved to app-scans.js at v6.4.1.
+        from clientjs import client_js
+        return client_js()
 
     def test_the_note_gives_the_env_file_the_installer_actually_writes(self):
         js = self._js()

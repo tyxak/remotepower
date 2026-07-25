@@ -23,6 +23,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from clientjs import client_js
+
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
@@ -32,7 +34,7 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 _API_SRC   = (_CGI / 'api.py').read_text()
-_APP_JS    = (_ROOT / 'server/html/static/js/app.js').read_text()
+_APP_JS    = client_js()   # split-proof: every static/js/*.js
 _CAL_JS    = (_ROOT / 'server/html/static/js/app-calendar.js').read_text()
 _HTML      = (_ROOT / 'server/html/index.html').read_text()
 _AGENT_SRC = (_ROOT / 'client/remotepower-agent.py').read_text()

@@ -13141,10 +13141,6 @@ def handle_device_profile_apply(pid):
 # It is NOT a device's real `group` field — it's a scope for routing/patching/
 # reports/baselines. Namespaced so it can't collide with a real group.
 SMART_GROUP_INTERVAL = 60
-_SMART_GROUP_FACETS = ('group', 'group_in', 'tag', 'tags_any', 'tags_all', 'site',
-                       'os_contains', 'agent_version_contains', 'monitored',
-                       'agentless', 'reboot_required', 'drift',
-                       'mem_gt', 'disk_gt', 'cpu_gt', 'swap_gt')
 
 
 def _validate_smart_rules(raw):
@@ -18318,8 +18314,7 @@ def handle_heartbeat():
                 v = si.get(fkey)
                 if isinstance(v, (int, float)) and 0.0 <= v <= 1000.0:
                     safe_si[fkey] = round(float(v), 2)
-            # cpu_count
-            cc = si.get('cpu_count')
+                cc = si.get('cpu_count')
             if isinstance(cc, int) and 1 <= cc <= 1024:
                 safe_si['cpu_count'] = cc
             # W3-11: operator-supplied custom metrics ({name: number}, capped +
@@ -25117,7 +25112,13 @@ def handle_config_save():
         # silently disappears. `_mon_stored` is the exact currently-saved list, so
         # "untouched" means byte-identical, not merely similar.
         import copy as _mon_copy      # api.py imports copy locally, not globally
-        _mon_stored = [e for e in (cfg.get('monitors') or []) if isinstance(e, dict)]
+        # Only a LABELLED stored entry can be carried through: the pruning below
+        # builds `_mon_valid_labels` from `e['label']`, so keeping a label-less
+        # one (possible in a hand-edited or declaratively-applied config) turned
+        # a clean 400 into a KeyError 500 that then blocked EVERY later settings
+        # save until config.json was edited by hand.
+        _mon_stored = [e for e in (cfg.get('monitors') or [])
+                       if isinstance(e, dict) and e.get('label')]
         _mon_warnings = []
 
         def _mon_reject(entry_label, reason, raw_entry):
@@ -25320,7 +25321,7 @@ def handle_config_save():
         # per-monitor state keyed to a label that's no longer configured. The
         # in-config flag maps are pruned here (they save with cfg below); the
         # separate history file is pruned after the save (own lock, no nesting).
-        _mon_valid_labels = {e['label'] for e in validated}
+        _mon_valid_labels = {e['label'] for e in validated if e.get('label')}
         for _sk in ('monitor_notified', 'monitor_fail_streak'):
             _sv = cfg.get(_sk)
             if isinstance(_sv, dict):
@@ -60252,9 +60253,7 @@ def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
                 return
         state[key] = new_level
 
-    # Memory
     _check('memory', '', safe_si.get('mem_percent'))
-    # Swap
     _check('swap', '', safe_si.get('swap_percent'))
     # CPU as load ratio (loadavg / cpu_count)
     load = safe_si.get('loadavg_1m')

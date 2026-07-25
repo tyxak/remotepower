@@ -699,6 +699,11 @@ if [[ "$WITH_SYSLOGD" == "1" ]]; then
     install -m 644 "$SCRIPT_DIR/packaging/remotepower-syslogd.service" \
         /etc/systemd/system/remotepower-syslogd.service
     systemctl daemon-reload
+    # `enable --now` is a no-op start on an already-active unit — it does NOT
+    # restart it. Re-running the installer therefore upgraded the binary on
+    # disk and left the OLD process serving. Restart explicitly when it is
+    # already up (deploy-server.sh gets this right; this path did not).
+    systemctl is-active --quiet remotepower-syslogd 2>/dev/null && systemctl restart remotepower-syslogd || true
     systemctl enable --now remotepower-syslogd \
         && success "Syslog receiver installed (remotepower-syslogd on udp/5514)" \
         || warn "Could not start remotepower-syslogd — check: systemctl status remotepower-syslogd"
@@ -712,6 +717,11 @@ if [[ "$WITH_FLOWD" == "1" ]]; then
     install -m 644 "$SCRIPT_DIR/packaging/remotepower-flowd.service" \
         /etc/systemd/system/remotepower-flowd.service
     systemctl daemon-reload
+    # `enable --now` is a no-op start on an already-active unit — it does NOT
+    # restart it. Re-running the installer therefore upgraded the binary on
+    # disk and left the OLD process serving. Restart explicitly when it is
+    # already up (deploy-server.sh gets this right; this path did not).
+    systemctl is-active --quiet remotepower-flowd 2>/dev/null && systemctl restart remotepower-flowd || true
     systemctl enable --now remotepower-flowd \
         && success "Flow receiver installed (remotepower-flowd on udp/2055)" \
         || warn "Could not start remotepower-flowd — check: systemctl status remotepower-flowd"
@@ -728,15 +738,26 @@ if [[ "$WITH_KMIP" == "1" ]]; then
     install -d -m 755 /etc/remotepower
     if [[ ! -f /etc/remotepower/kmipd.env ]]; then
         _kmip_secret=$(python3 -c "import secrets;print(secrets.token_hex(32))")
-        printf 'RP_KMIP_SECRET=%s\n' "$_kmip_secret" > /etc/remotepower/kmipd.env
-        # 0640 root:<web user> — NOT 0600, and deliberately different from the
+        # umask FIRST: a plain `>` creates the file 0644 under root's default
+        # umask, so the daemon secret was world-readable for the moment between
+        # the write and the chmod. Anyone who read it in that window can drive
+        # the loopback KMIP API.
+        ( umask 077; printf 'RP_KMIP_SECRET=%s\n' "$_kmip_secret" > /etc/remotepower/kmipd.env )
+        # 0640 root:<web group> — NOT 0600, and deliberately different from the
         # in-app install snippet. There the API generates the secret and already
         # knows it, so the file can be root-only. HERE the installer invents it,
         # so the app must be able to read it ONCE to adopt it into its config;
         # after that the permissions stop mattering. Do not "harden" this to
         # 0600 without also teaching the installer to seed the config (which it
         # cannot do portably — under Postgres/SQLite the config is in the DB).
-        chown "root:${NGINX_USER}" /etc/remotepower/kmipd.env 2>/dev/null || true
+        # A failure here is REPORTED, not silenced: it leaves the app unable to
+        # read the secret, which surfaces as "sidecar not installed" on a host
+        # where the daemon is running perfectly — the exact confusing state
+        # this whole path was rewritten to avoid.
+        if ! chown "root:${NGINX_USER}" /etc/remotepower/kmipd.env 2>/dev/null; then
+            warn "could not set group ${NGINX_USER} on /etc/remotepower/kmipd.env —"
+            warn "  the app may not be able to read it; use Security → KMIP → Install sidecar instead"
+        fi
         chmod 640 /etc/remotepower/kmipd.env
         unset _kmip_secret
         info "  Generated the KMIP daemon secret at /etc/remotepower/kmipd.env"
@@ -747,6 +768,11 @@ if [[ "$WITH_KMIP" == "1" ]]; then
     install -m 644 "$SCRIPT_DIR/packaging/remotepower-kmipd.service" \
         /etc/systemd/system/remotepower-kmipd.service
     systemctl daemon-reload
+    # `enable --now` is a no-op start on an already-active unit — it does NOT
+    # restart it. Re-running the installer therefore upgraded the binary on
+    # disk and left the OLD process serving. Restart explicitly when it is
+    # already up (deploy-server.sh gets this right; this path did not).
+    systemctl is-active --quiet remotepower-kmipd 2>/dev/null && systemctl restart remotepower-kmipd || true
     systemctl enable --now remotepower-kmipd \
         && success "KMIP key server installed (remotepower-kmipd on tcp/5696)" \
         || warn "Could not start remotepower-kmipd — check: systemctl status remotepower-kmipd"

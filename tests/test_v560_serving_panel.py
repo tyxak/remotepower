@@ -22,7 +22,10 @@ _spec = importlib.util.spec_from_file_location("api_v560serve", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
-_APP_JS = (_ROOT / "server/html/static/js/app.js").read_text()
+# Split-proof: the self-monitoring page moved to app-self.js at v6.4.1. Read
+# every static/js/*.js so moving code between files never breaks an assertion.
+from clientjs import client_js  # noqa: E402
+_APP_JS = client_js()
 _SCALING = (_ROOT / "docs/scaling.md").read_text()
 
 

@@ -161,7 +161,9 @@ def post_lines(token, lines, server_url=SERVER_URL, timeout=10):
                  'User-Agent': 'RemotePower-Syslogd'},
         method='POST')
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # nosec B310 — SERVER_URL is a fixed loopback base from the systemd
+        # unit; the path is a literal. No file:/ or custom scheme reaches here.
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return 200 <= resp.status < 300
     except Exception as e:
         log.warning('forward failed (%d lines): %s', len(lines), e)
@@ -172,7 +174,9 @@ def serve(bind=BIND, reader=None, once=False):
     host, _, port = bind.rpartition(':')
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((host or '0.0.0.0', int(port)))
+    # nosec B104 — binding all interfaces is the FEATURE: appliances send
+    # syslog from across the LAN. Pin one interface with RP_SYSLOG_BIND.
+    sock.bind((host or '0.0.0.0', int(port)))  # nosec B104
     sock.setblocking(False)
     log.info('listening on udp/%s → %s', bind, SERVER_URL)
     srcmap = SourceMap(reader or StoreReader(DATA_DIR))

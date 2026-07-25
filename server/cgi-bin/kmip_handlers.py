@@ -487,9 +487,21 @@ def handle_kmip_status():
             'the sidecar has nothing to authenticate with — run the install '
             'snippet on this host.')
 
+    # The port the daemon ACTUALLY bound, not a configured wish. The listen
+    # address comes from RP_KMIP_BIND in the unit's env file — the daemon reads
+    # it once at startup and never consults this store — so reporting the
+    # configured value meant the page AND the appliance walkthrough could both
+    # quote a port nothing was listening on.
+    _bind = str(daemon.get('bind') or '')
+    try:
+        _real_port = int(_bind.rsplit(':', 1)[1]) if ':' in _bind else None
+    except (ValueError, IndexError):
+        _real_port = None
     A.respond(200, {
         'enabled': bool(store.get('enabled')),
-        'port': int(store.get('port') or 5696),
+        'port': _real_port or int(store.get('port') or 5696),
+        'port_is_live': _real_port is not None,
+        'bind': _bind or None,
         'secret_installed': bool(_secret),
         'secret_hint': _secret_hint,
         'master_key': _kmip_master_key() is not None,
@@ -601,7 +613,10 @@ def handle_kmip_install_snippet():
         'sudo systemctl enable --now remotepower-kmipd\n'
         '# Or simply: sudo ./install-server.sh --with-kmip\n')
     A.respond(200, {'snippet': snippet, 'secret_file': path,
-                    'already_installed': _kmip_secret_from_file() is not None})
+                    # File PRESENT, not file readable: the snippet writes it
+                    # 0600 root:root, so _kmip_secret_from_file() returns None
+                    # on a correctly-installed host and this always read false.
+                    'already_installed': _kmip_secret_file_exists()})
 
 
 def handle_kmip_clients():
@@ -1145,7 +1160,11 @@ def handle_kmip_daemon_event():
     name = None
     if kind == 'started':
         with A._LockedUpdate(A.KMIP_FILE) as store:
-            store.setdefault('daemon', {})['last_started'] = int(time.time())
+            d = store.setdefault('daemon', {})
+            d['last_started'] = int(time.time())
+            _bind = str(body.get('bind') or '')[:64]
+            if _bind:
+                d['bind'] = _bind
     if kind == 'connect' and cid:
         with A._LockedUpdate(A.KMIP_FILE) as store:
             c = (store.get('clients') or {}).get(cid)

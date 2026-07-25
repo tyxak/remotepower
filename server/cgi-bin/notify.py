@@ -673,7 +673,11 @@ def _webhook_message(event, payload):
         return (
             f'{name}: {payload.get("proto","tcp")}/{payload.get("port","?")} '
             f"is exposed to the world — bound to "
-            f'{payload.get("addr","0.0.0.0")}{extra}'
+            # nosec B104 — a DISPLAY default inside the alert TEXT, not a
+            # listener address: "…is exposed to the world — bound to 0.0.0.0".
+            # (This module is pure formatting; the purity gate in
+            # tests/test_notify_module.py enforces that.)
+            f'{payload.get("addr","0.0.0.0")}{extra}'  # nosec B104
         )
     elif event == "software_policy_violation":
         return f'{name}: software policy — {payload.get("detail", payload.get("rule","?"))}'

@@ -936,7 +936,9 @@ class TestSyslogWatcherAndCatalog(unittest.TestCase):
         self.assertEqual(row["target_kind"], "tag")
 
     def test_self_page_row_is_informational(self):
-        app = _js("app.js")
+        # Split-proof: the self-monitoring page moved to app-self.js at v6.4.1.
+        from clientjs import client_js
+        app = client_js()
         self.assertIn("const syslogRow", app)
         # the not-detected/not-in-use states must be 'muted', never warn/bad
         i = app.index("const syslogRow")

@@ -162,8 +162,11 @@ class TestScanFormGuidesTheOperator(unittest.TestCase):
 
     @property
     def _js(self):
-        return (Path(__file__).resolve().parent.parent / 'server' / 'html'
-                / 'static' / 'js' / 'app.js').read_text()
+        # Split-proof: the scan page moved to app-scans.js at v6.4.1. Read the
+        # concatenation of every static/js/*.js so a future move cannot break
+        # a content assertion again.
+        from clientjs import client_js
+        return client_js()
 
     def test_typing_a_device_name_without_picking_it_says_so(self):
         # The box LOOKS filled — typing clears the selection — so repeating the

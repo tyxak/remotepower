@@ -1164,31 +1164,14 @@ def _send_ticket_csat(to_email, ticket, base_url):
 
 
 def _csat_page(title, message):
-    """Emit a tiny self-contained HTML page for the public CSAT endpoint."""
-    import html as _h
-    doc = (
-        '<!doctype html><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>' + _h.escape(title) + '</title>'
-        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
-        'max-width:480px;margin:12vh auto;padding:24px;text-align:center;color:#16181d">'
-        '<div style="font-size:20px;font-weight:700;margin-bottom:10px">'
-        + _h.escape(title) + '</div>'
-        '<div style="font-size:15px;line-height:1.6;color:#41474f">'
-        + _h.escape(message) + '</div></div>'
-    ).encode('utf-8')
-    print("Status: 200 OK")
-    print("Content-Type: text/html; charset=utf-8")
-    print(f"Content-Length: {len(doc)}")
-    print("Cache-Control: no-store")
-    print("X-Content-Type-Options: nosniff")
-    print("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox;")
-    print("X-Frame-Options: DENY")
-    print()
-    sys.stdout.flush()
-    sys.stdout.buffer.write(doc)
-    sys.stdout.buffer.flush()
-    sys.exit(0)
+    """Emit the public CSAT result page.
+
+    Delegates to api._public_action_page: this was a byte-identical copy of it,
+    including the hardcoded CSP, X-Frame-Options and nosniff headers. Two copies
+    of a security-header block is precisely the drift risk this codebase has
+    already been bitten by (see the SSRF-guard copies in opnsense/routeros).
+    """
+    A._public_action_page(title, message)
 
 
 def handle_ticket_csat():

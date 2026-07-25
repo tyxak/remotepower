@@ -76,6 +76,11 @@ MAX_CONNS = 64            # concurrent connection cap
 AUTH_FAIL_LOG_EVERY_S = 60   # per-peer-IP auth-failure log throttle
 AUTH_FAIL_SEEN_MAX = 4096    # bound the throttle map (spoof-flood safety)
 LEASE_TIME_S = 3600          # advertised lease for ObtainLease
+# Real KMIP 1.x messages nest ~6 deep. The cap stops a crafted message from
+# spending host CPU on pathological nesting; it is far above anything legitimate.
+MAX_TTLV_DEPTH = 32
+MAX_RESPONSE = 4 << 20       # 4 MiB ceiling on a serialised response
+HANDSHAKE_TIMEOUT_S = 15     # per-connection TLS handshake budget
 
 
 def _secret():
@@ -240,6 +245,13 @@ def ttlv_encode(items):
         elif ty == TY_TEXT:
             body = str(val).encode('utf-8')
         elif ty == TY_BYTES:
+            # NEVER bytes(val) on an unchecked value. `bytes(int)` allocates
+            # that many zero bytes, so echoing a client-supplied field whose
+            # declared type we did not verify turned a 72-byte request into a
+            # 4 GiB allocation — a ~3.7-million-to-one amplification, enough to
+            # OOM the host this key server shares with the API and database.
+            if not isinstance(val, (bytes, bytearray)):
+                raise ValueError('TTLV byte string requires bytes')
             body = bytes(val)
         else:
             raise ValueError(f'unsupported TTLV type {ty}')
@@ -253,7 +265,7 @@ def ttlv_encode(items):
     return bytes(out)
 
 
-def ttlv_decode(buf, offset=0, end=None):
+def ttlv_decode(buf, offset=0, end=None, depth=0):
     """Decode TTLV bytes → list of (tag, type, value). Struct values nest."""
     items = []
     end = len(buf) if end is None else end
@@ -264,9 +276,16 @@ def ttlv_decode(buf, offset=0, end=None):
         offset += 8
         if offset + length > end:
             raise ValueError('TTLV item overruns buffer')
-        raw = buf[offset:offset + length]
+        # Don't slice for a struct — the body is re-parsed by the recursive
+        # call, so the copy is pure waste and it repeats at EVERY nesting
+        # level. A 1 MiB message nested 900 deep cost ~0.45s of CPU and ~940 MB
+        # of memcpy before this; sustained over the connection cap that is a
+        # host-CPU denial of service.
+        raw = b'' if ty == TY_STRUCT else buf[offset:offset + length]
         if ty == TY_STRUCT:
-            val = ttlv_decode(buf, offset, offset + length)
+            if depth >= MAX_TTLV_DEPTH:
+                raise ValueError('TTLV nesting too deep')
+            val = ttlv_decode(buf, offset, offset + length, depth + 1)
         elif ty in (TY_INT, TY_ENUM, TY_INTERVAL):
             val = struct.unpack('>I', raw[:4])[0]
         elif ty in (TY_LONG, TY_DATETIME):
@@ -656,7 +675,15 @@ def handle_message(raw, client, api):
     id_placeholder = None
     for item in batch:
         op = int(_find_val(item, T_OPERATION, 0) or 0)
+        # Echoed back verbatim in the response, so it must be the type we
+        # claim it is. A client that declares this tag as TY_INT hands us an
+        # int, and encoding it as a byte string then allocates that many bytes
+        # (see ttlv_encode). Drop anything that is not already a byte string —
+        # the field is an opaque correlator, so omitting a malformed one is
+        # harmless.
         batch_id = _find_val(item, T_UNIQUE_BATCH_ITEM_ID)
+        if not isinstance(batch_id, (bytes, bytearray)):
+            batch_id = None
         payload = _find_val(item, T_REQUEST_PAYLOAD) or []
         try:
             result, id_placeholder = _handle_op(op, payload, client, api,
@@ -1092,7 +1119,11 @@ def serve():
     sock.listen(16)
     log.info('KMIP listening on %s:%s (mTLS required) → %s',
              host, port, SERVER_URL)
-    api.event({'kind': 'started', 'detail': f'listening on {host}:{port}'})
+    # Report the ACTUAL bind. The control plane displays this rather than a
+    # configured value, so neither the page nor the appliance instructions can
+    # quote a port the daemon is not listening on.
+    api.event({'kind': 'started', 'bind': f'{host}:{port}',
+               'detail': f'listening on {host}:{port}'})
     # The heartbeat + config poll. Must run on its own thread: the accept loop
     # blocks, so a traffic-driven refresh leaves an idle daemon looking dead.
     threading.Thread(target=state_refresher, args=(state,),
@@ -1103,6 +1134,9 @@ def serve():
         try:
             plain, addr = sock.accept()
         except OSError:
+            # EMFILE leaves the connection queued and accept() fails again
+            # immediately — without a pause this becomes a 100% CPU spin.
+            time.sleep(0.05)
             continue
         ctx = state.context()
         if ctx is None or not state.enabled():
@@ -1113,31 +1147,53 @@ def serve():
             log.warning('connection cap reached — dropping %s', addr[0])
             plain.close()
             continue
+        # Hand the RAW socket to the worker and do the TLS handshake THERE.
+        # Wrapping it here blocked the accept loop for the full handshake
+        # timeout, so any peer that completed TCP and then sent nothing —
+        # no certificate, no CA, no protocol knowledge — denied the entire
+        # key server for 15s at a time, and in a loop denied it outright.
+        # For a KMIP server that means appliances cannot unlock at boot, so
+        # this was a pre-auth, unauthenticated, remote availability kill.
         try:
-            plain.settimeout(15)
-            conn = ctx.wrap_socket(plain, server_side=True)
-        except (ssl.SSLError, OSError, socket.timeout, TimeoutError) as e:
+            t = threading.Thread(
+                target=_serve_one, name='kmip-conn',
+                args=(plain, addr, ctx, state, api, sem, auth_fail_seen),
+                daemon=True)
+            t.start()
+        except Exception as e:                    # thread cap / OOM
             sem.release()
-            now = time.monotonic()
-            if now - auth_fail_seen.get(addr[0], 0) > AUTH_FAIL_LOG_EVERY_S:
-                if len(auth_fail_seen) >= AUTH_FAIL_SEEN_MAX:
-                    auth_fail_seen.clear()
-                auth_fail_seen[addr[0]] = now
-                _hint = tls_error_hint(e)
-                if _hint:
-                    log.info('TLS handshake failed from %s — %s (%s)',
-                             addr[0], _hint, e)
-                else:
-                    log.info('TLS handshake failed from %s: %s', addr[0], e)
-                api.event({'kind': 'auth_fail', 'peer': addr[0],
-                           'detail': (f'TLS handshake failed — {_hint}'
-                                      if _hint
-                                      else f'TLS handshake failed: {e}')})
             plain.close()
-            continue
-        t = threading.Thread(target=handle_connection,
-                             args=(conn, addr, state, api, sem), daemon=True)
-        t.start()
+            log.warning('could not start a handler thread for %s: %s', addr[0], e)
+
+
+def _serve_one(plain, addr, ctx, state, api, sem, auth_fail_seen):
+    """Handshake + serve one connection, off the accept loop."""
+    try:
+        plain.settimeout(HANDSHAKE_TIMEOUT_S)
+        conn = ctx.wrap_socket(plain, server_side=True)
+    except (ssl.SSLError, OSError, socket.timeout, TimeoutError) as e:
+        sem.release()
+        try:
+            plain.close()
+        except OSError:
+            pass
+        now = time.monotonic()
+        if now - auth_fail_seen.get(addr[0], 0) > AUTH_FAIL_LOG_EVERY_S:
+            if len(auth_fail_seen) >= AUTH_FAIL_SEEN_MAX:
+                auth_fail_seen.clear()
+            auth_fail_seen[addr[0]] = now
+            _hint = tls_error_hint(e)
+            if _hint:
+                log.info('TLS handshake failed from %s — %s (%s)',
+                         addr[0], _hint, e)
+            else:
+                log.info('TLS handshake failed from %s: %s', addr[0], e)
+            _report(api, {'kind': 'auth_fail', 'peer': addr[0],
+                          'detail': (f'TLS handshake failed — {_hint}'
+                                     if _hint
+                                     else f'TLS handshake failed: {e}')})
+        return
+    handle_connection(conn, addr, state, api, sem)
 
 
 def main():

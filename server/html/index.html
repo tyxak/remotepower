@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-7">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-8">
 
 </head>
 <body>
@@ -10802,7 +10802,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group">
     <label class="form-label" for="kmip-cfg-port">Listen port</label>
-    <input id="kmip-cfg-port" class="form-input" type="number" min="1" max="65535" placeholder="5696">
+    <input id="kmip-cfg-port" class="form-input" type="number" min="1" max="65535" placeholder="5696" readonly>
+    <div class="hint">Reported by the sidecar, not set here — it binds from <code>RP_KMIP_BIND</code> in <code>/etc/remotepower/kmipd.env</code> and reads that once at startup. To change it, edit that file and restart <code>remotepower-kmipd</code>.</div>
   </div>
   <div class="form-group">
     <label class="form-label" for="kmip-cfg-hosts">Server hostnames / IPs (for the certificate)</label>
@@ -10817,7 +10818,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-install-title" id="kmip-install-modal"><div class="modal modal-wide">
   <div class="modal-title" id="kmip-install-title">Install the KMIP sidecar</div>
-  <div class="modal-subtitle">The listener is a separate hardened service. This snippet writes the shared secret (shown once — a fresh one is generated per view), installs the daemon and starts it.</div>
+  <div class="modal-subtitle">The listener is a separate hardened service. This snippet writes the shared secret, installs the daemon and starts it. Re-opening this dialog shows the <strong>same</strong> secret — it is generated once and recorded here, so running the commands again is safe and does not invalidate a working install.</div>
   <pre id="kmip-install-snippet" class="code-block scroll-cap"></pre>
   <div id="kmip-install-note" class="hint"></div>
   <div class="modal-actions">
@@ -10950,43 +10951,47 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.1-7"></script>
+<script defer src="static/js/app.js?v=6.4.1-8"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-containers.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-network.js?v=6.4.1-7"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-containers.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-network.js?v=6.4.1-8"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.1-7"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.1-8"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-dns.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-drift.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-cve.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-backups.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-iac.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-virt.js?v=6.4.1-7"></script>
+<script defer src="static/js/app-ai.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-dns.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-drift.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-cve.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-backups.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-iac.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-virt.js?v=6.4.1-8"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-logs.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-remote.js?v=6.4.1-7"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.1-7"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-logs.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-remote.js?v=6.4.1-8"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.1-8"></script>
+<!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
+     calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
+     be keyed on navigating to `self`. The other extracted modules are lazy. -->
+<script defer src="static/js/app-self.js?v=6.4.1-8"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
      buttons): app-checks, app-dmarc, app-gpu, app-kb, app-power, wg-access,
-     app-provisioning, app-rollouts, app-tuning, app-billing, app-kmip. Keep
-     that map in lockstep with this comment; a module BOTH here and there
-     loads twice. -->
+     app-provisioning, app-rollouts, app-tuning, app-billing, app-kmip,
+     app-vpn, app-scans, app-storage, app-hostops. Keep that map in lockstep
+     with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.1-7"></script>
+<script defer src="static/js/sw-register.js?v=6.4.1-8"></script>
 </body>
 </html>

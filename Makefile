@@ -205,8 +205,14 @@ sdk:
 # CodeQL substitute (see `make codeql` for the faithful run). Regenerate the
 # baseline after an intentional, triaged change:
 #   make bandit-baseline
+# The sidecar daemons were missing here until v6.4.1, which meant the four
+# processes that ACCEPT NETWORK TRAFFIC from untrusted devices (syslog, flow,
+# KMIP) or hold a shared secret (push) were the only shipped Python NOT
+# scanned. Exactly backwards. They are single-file, stdlib-only, and cheap to
+# scan — keep them in scope.
 BANDIT_SRC := server/cgi-bin client/remotepower-agent.py \
-              client/remotepower-agent-win.py client/remotepower-agent-mac.py
+              client/remotepower-agent-win.py client/remotepower-agent-mac.py \
+              server/kmip server/syslog server/flow server/push
 bandit:
 	$(PY) -m bandit -ll -ii -b tools/bandit-baseline.json -r $(BANDIT_SRC)
 
@@ -233,7 +239,10 @@ check: test-both lint
 # CodeQL parity uses PARITY=1 (simulates prod DEFAULT setup) UNLESS the advanced
 # codeql.yml workflow is active on prod — then a plain `tools/codeql-local.sh`
 # predicts prod and you can set PARITY=0.
-pre-release: check dist ci-parity
+# bandit joins the gate at v6.4.1. It had been a standalone target wired into
+# NOTHING, so it rotted to red unnoticed — a gate nobody runs is not a gate,
+# and a permanently-red one trains you to ignore it.
+pre-release: check dist ci-parity bandit
 	@echo ""
 	@echo "==> CodeQL GATE: config-honoring scan (== prod's ADVANCED codeql.yml setup)"
 	@# This is the pass/fail gate: prod runs the advanced codeql.yml workflow

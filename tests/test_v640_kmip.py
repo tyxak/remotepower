@@ -356,11 +356,14 @@ class TestTlsErrorTranslation(unittest.TestCase):
 
     def test_hint_reaches_the_activity_log_not_just_the_journal(self):
         src = (_ROOT / 'server' / 'kmip' / 'remotepower-kmipd.py').read_text()
-        blk = src[src.index("except (ssl.SSLError, OSError"):]
-        blk = blk[:blk.index('plain.close()')]
+        # The handshake moved off the accept loop into _serve_one at v6.4.1
+        # (it was a pre-auth DoS), so anchor on that function.
+        blk = src[src.index('def _serve_one('):]
+        blk = blk[:blk.index('\ndef ')] if '\ndef ' in blk else blk
         self.assertIn('tls_error_hint', blk)
-        self.assertIn("api.event(", blk)
-        self.assertIn('_hint', blk.split('api.event(')[1],
+        self.assertIn('_report(api,', blk,
+                      'report through the non-fatal helper')
+        self.assertIn('_hint', blk.split('_report(api,')[1],
                       'the operator reads the UI, not journalctl')
 
 
@@ -1451,8 +1454,14 @@ class TestKmipBackupExclusion(unittest.TestCase):
         self.assertIn('kmip_master.key', api._BACKUP_EXCLUDE_NAMES)
 
     def test_master_key_is_excluded_from_the_tarball_walk(self):
+        # Assert the CONTENTS, not the literal — the set legitimately grows
+        # (restore-snapshots/ joined it at v6.4.1), and a pin on the exact
+        # source text turns a correct change into a red build.
         src = (_CGI / 'backups_handlers.py').read_text()
-        self.assertIn("excluded_names = {'backups', 'kmip_master.key'}", src)
+        line = [l for l in src.splitlines()
+                if l.strip().startswith('excluded_names = {')][0]
+        self.assertIn("'kmip_master.key'", line)
+        self.assertIn("'backups'", line)
 
     def test_encrypted_objects_still_ride_into_backups(self):
         """Only the KEY is withheld — the ciphertext is still backed up, or a
