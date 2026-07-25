@@ -849,6 +849,51 @@ def handle_connection(conn, addr, state, api, sem):
         conn.close()
 
 
+# OpenSSL's handshake errors name the protocol failure, not the operator's
+# mistake. On a real DSM setup these three appear constantly and each means
+# something completely different — one is the appliance rejecting US, one is us
+# rejecting IT, and one is not TLS at all. Translate them, or every setup
+# session is a guessing game.
+_TLS_HINTS = (
+    ('TLSV1_ALERT_UNKNOWN_CA',
+     'the appliance does not trust our CA — it rejected our server '
+     'certificate. Upload ca.crt (from the Add-client wizard) into the '
+     "appliance's trusted/CA store"),
+    ('CERTIFICATE_VERIFY_FAILED',
+     'the appliance presented a certificate this server did not issue — it is '
+     'sending its own default certificate instead of the client.crt from the '
+     'wizard, or client.crt was not installed'),
+    ('TLSV1_ALERT_UNKNOWN_PSK_IDENTITY',
+     'the appliance sent no client certificate — mutual TLS is mandatory; '
+     'install client.crt + client.key on it'),
+    ('PEER_DID_NOT_RETURN_A_CERTIFICATE',
+     'the appliance sent no client certificate — mutual TLS is mandatory; '
+     'install client.crt + client.key on it'),
+    ('WRONG_VERSION_NUMBER',
+     'the peer spoke plain TCP, not TLS — something connected to the port '
+     'without TLS (a port scan or health check), or the client is configured '
+     'for an unencrypted KMIP port'),
+    ('UNSUPPORTED_PROTOCOL',
+     'the appliance offered only TLS 1.0/1.1, which this server refuses — it '
+     'requires TLS 1.2 or newer'),
+    ('SSLV3_ALERT_CERTIFICATE_EXPIRED',
+     "the appliance's client certificate has expired — use Re-issue on its "
+     'row to mint a replacement (its stored keys are kept)'),
+    ('TLSV1_ALERT_DECRYPT_ERROR',
+     'the appliance rejected our certificate signature — usually a stale '
+     'ca.crt after the server certificate was re-issued'),
+)
+
+
+def tls_error_hint(err):
+    """Plain-language cause for an OpenSSL handshake failure, or None."""
+    text = str(err).upper()
+    for needle, hint in _TLS_HINTS:
+        if needle in text:
+            return hint
+    return None
+
+
 def state_refresher(state, stop=None, once=False):
     """Poll the control plane on a timer, forever.
 
@@ -929,9 +974,16 @@ def serve():
                 if len(auth_fail_seen) >= AUTH_FAIL_SEEN_MAX:
                     auth_fail_seen.clear()
                 auth_fail_seen[addr[0]] = now
-                log.info('TLS handshake failed from %s: %s', addr[0], e)
+                _hint = tls_error_hint(e)
+                if _hint:
+                    log.info('TLS handshake failed from %s — %s (%s)',
+                             addr[0], _hint, e)
+                else:
+                    log.info('TLS handshake failed from %s: %s', addr[0], e)
                 api.event({'kind': 'auth_fail', 'peer': addr[0],
-                           'detail': f'TLS handshake failed: {e}'})
+                           'detail': (f'TLS handshake failed — {_hint}'
+                                      if _hint
+                                      else f'TLS handshake failed: {e}')})
             plain.close()
             continue
         t = threading.Thread(target=handle_connection,

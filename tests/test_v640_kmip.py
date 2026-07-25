@@ -295,6 +295,48 @@ class _KmipHandlerCase(unittest.TestCase):
         return {'HTTP_X_KMIP_SECRET': 'unit-test-secret'}
 
 
+class TestTlsErrorTranslation(unittest.TestCase):
+    """OpenSSL names the protocol failure, not the operator's mistake. These
+    three all appeared within ten minutes of a real DSM setup session and each
+    means something completely different — one is the appliance rejecting US,
+    one is us rejecting IT, one is not TLS at all."""
+
+    REAL = {
+        # verbatim from a production journal
+        '[SSL: TLSV1_ALERT_UNKNOWN_CA] tlsv1 alert unknown ca (_ssl.c:1000)':
+            ('does not trust our CA', 'ca.crt'),
+        '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: '
+        'self-signed certificate in certificate chain':
+            ('did not issue', 'client.crt'),
+        '[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1000)':
+            ('plain TCP', 'without TLS'),
+    }
+
+    def test_each_real_error_gets_a_distinct_actionable_hint(self):
+        hints = {}
+        for err, (must, also) in self.REAL.items():
+            hint = kmipd.tls_error_hint(err)
+            self.assertIsNotNone(hint, err)
+            self.assertIn(must, hint)
+            self.assertIn(also, hint)
+            hints[err] = hint
+        self.assertEqual(len(set(hints.values())), len(self.REAL),
+                         'each failure must read differently — they have '
+                         'different fixes')
+
+    def test_unknown_error_returns_none_so_the_raw_text_still_shows(self):
+        self.assertIsNone(kmipd.tls_error_hint('[SSL: SOMETHING_NEW] nope'))
+
+    def test_hint_reaches_the_activity_log_not_just_the_journal(self):
+        src = (_ROOT / 'server' / 'kmip' / 'remotepower-kmipd.py').read_text()
+        blk = src[src.index("except (ssl.SSLError, OSError"):]
+        blk = blk[:blk.index('plain.close()')]
+        self.assertIn('tls_error_hint', blk)
+        self.assertIn("api.event(", blk)
+        self.assertIn('_hint', blk.split('api.event(')[1],
+                      'the operator reads the UI, not journalctl')
+
+
 class TestDaemonChecksInWhileIdle(unittest.TestCase):
     """Field bug: "Installed, but the sidecar has not checked in" about a
     daemon that was running fine.

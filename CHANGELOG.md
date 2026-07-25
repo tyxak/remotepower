@@ -120,6 +120,19 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### KMIP: handshake failures say what to fix
+OpenSSL names the protocol failure, not the operator's mistake. Three errors
+turned up within ten minutes of a real Synology setup session and each means
+something entirely different — one is the appliance rejecting **us**, one is us
+rejecting **it**, one is not TLS at all — but all three read as opaque
+`_ssl.c` noise. They are now translated in both the journal and the on-page
+activity log: `tlsv1 alert unknown ca` becomes "the appliance does not trust
+our CA — upload ca.crt into its trusted store", `certificate verify failed`
+becomes "the appliance presented a certificate this server did not issue — it
+is sending its own default cert instead of the wizard's client.crt", and
+`wrong version number` becomes "the peer spoke plain TCP, not TLS". An
+unrecognised error still shows its raw text.
+
 ### Optional sidecars are installable, and visible in the CLI
 - **`install-server.sh` gained `--with-kmip`, `--with-syslogd` and
   `--with-flowd`.** The syslog and flow receivers previously had no installer

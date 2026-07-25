@@ -151,6 +151,9 @@ anything.
 | Page says "has not checked in" | The daemon polls every 30s, so allow that long after a start. If it persists, check `journalctl -u remotepower-kmipd` for the 403 above or a loopback connection error |
 | Appliance reports a TLS/handshake error | Wrong `ca.crt`, or the client certificate was revoked — check the activity log for an `auth fail` row |
 | Client connects but finds no keys | Keys belong to the client that stored them; a re-issued certificate keeps its keys, a *new* client starts empty |
+| Journal: `tlsv1 alert unknown ca` | The appliance rejected **our** server certificate — it has not been given `ca.crt`. Upload it into the appliance's trusted-CA store |
+| Journal: `certificate verify failed: self-signed certificate in certificate chain` | The appliance presented a certificate **we** did not issue — it is sending its own default cert instead of the wizard's `client.crt`, or `client.crt` was never installed |
+| Journal: `wrong version number` | Something connected without TLS — a port scan or health check, or a client pointed at a plaintext KMIP port. Harmless unless it is your appliance |
 | Appliance boots without mounting encrypted volumes | The key server was unreachable at boot — that is the availability coupling described at the top |
 
 ## See also
