@@ -764,6 +764,71 @@ def handle_kmip_client_delete(cid):
     A.respond(200, {'ok': True, 'keys_destroyed': len(live)})
 
 
+_KMIP_RESET_CONFIRM = 'REMOVE KMIP'
+
+
+def handle_kmip_reset():
+    """POST /api/kmip/reset — wipe every trace of the KMIP server's state.
+
+    For starting over from scratch. Destroys the master key, the CA, all
+    client registrations and every stored key object, so anything still
+    relying on this server for its encryption keys becomes UNRECOVERABLE
+    unless a recovery bundle was exported first. Requires a typed
+    confirmation checked SERVER-SIDE — a UI-only confirm is not a control,
+    anything can POST here.
+
+    It cannot remove the sidecar itself (systemd is outside the app), so the
+    response carries the two root commands that finish the job.
+    """
+    actor = _kmip_require_admin()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A._read_valid(A.request_models.KmipResetRequest)
+    if str(body.get('confirm') or '').strip() != _KMIP_RESET_CONFIRM:
+        A.respond(400, {'error': f'type "{_KMIP_RESET_CONFIRM}" to confirm',
+                        'confirm_phrase': _KMIP_RESET_CONFIRM})
+    objs = (A.load(A.KMIP_OBJECTS_FILE) or {}).get('objects') or {}
+    clients = (A.load(A.KMIP_FILE) or {}).get('clients') or {}
+    n_keys, n_clients = len(objs), len(clients)
+
+    # Storage keys: emptied through the storage layer, so this works the same
+    # on the JSON, SQLite and Postgres backends (where they are DB rows and a
+    # file delete would do nothing).
+    for f in (A.KMIP_FILE, A.KMIP_OBJECTS_FILE, A.KMIP_LOG_FILE):
+        A.save(f, {})
+    # The master key is a REAL file — unlink it, and overwrite first so the
+    # bytes do not simply linger in a freed block.
+    try:
+        if A.KMIP_MASTER_KEY_FILE.exists():
+            _n = A.KMIP_MASTER_KEY_FILE.stat().st_size
+            with open(A.KMIP_MASTER_KEY_FILE, 'r+b') as _f:
+                _f.write(b'\x00' * _n)
+                _f.flush()
+                os.fsync(_f.fileno())
+            A.KMIP_MASTER_KEY_FILE.unlink()
+    except OSError as e:
+        A.log_json('error', 'kmip master key removal failed', error=str(e))
+    with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+        cfg.pop('kmip_daemon_secret', None)
+    A.audit_log(actor, 'kmip_reset',
+                detail=f'destroyed {n_keys} key(s), {n_clients} client(s)',
+                source_ip=A._get_client_ip())
+    A.respond(200, {
+        'ok': True, 'keys_destroyed': n_keys, 'clients_removed': n_clients,
+        'next': [
+            'sudo systemctl disable --now remotepower-kmipd',
+            'sudo rm -f /usr/local/bin/remotepower-kmipd '
+            '/etc/systemd/system/remotepower-kmipd.service '
+            '/etc/remotepower/kmipd.env',
+            'sudo systemctl daemon-reload',
+        ],
+        'note': ('Server state wiped. Run the commands above as root to remove '
+                 'the sidecar itself, then re-install from Security → KMIP to '
+                 'start clean. On the appliance, delete the KMIP certificate '
+                 'and its Remote Key Client entry.'),
+    })
+
+
 def handle_kmip_log_clear():
     """DELETE /api/kmip/log — empty the activity log.
 

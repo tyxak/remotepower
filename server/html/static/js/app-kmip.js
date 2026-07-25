@@ -610,6 +610,39 @@ async function kmipDoExport() {
   }
 }
 
+function kmipOpenReset() {
+  const c = (_kmipStatus && _kmipStatus.counts) || {};
+  const el = document.getElementById('kmip-reset-scope');
+  el.textContent = (c.objects || c.clients)
+    ? `This will destroy ${c.objects || 0} stored key(s) and remove `
+      + `${c.clients || 0} client(s).`
+    : 'No clients or keys are stored — nothing will be lost.';
+  el.classList.toggle('c-warning', !!(c.objects || c.clients));
+  document.getElementById('kmip-reset-confirm').value = '';
+  openModal('kmip-reset-modal');
+  setTimeout(() => document.getElementById('kmip-reset-confirm').focus(), 50);
+}
+
+async function kmipDoReset() {
+  const confirm = document.getElementById('kmip-reset-confirm').value.trim();
+  try {
+    const r = await api('POST', '/kmip/reset', { confirm });
+    if (!_kmipOk(r, 'Removing the KMIP server')) return;
+    closeModal('kmip-reset-modal');
+    // The sidecar lives outside the app, so finish-up is a root shell step.
+    // Show it rather than pretending the removal is complete.
+    document.getElementById('kmip-install-snippet').textContent =
+      (r.next || []).join('\n');
+    document.getElementById('kmip-install-note').textContent = r.note || '';
+    openModal('kmip-install-modal');
+    toast(`Removed — ${r.keys_destroyed || 0} key(s), `
+      + `${r.clients_removed || 0} client(s)`, 'success');
+    loadKmip();
+  } catch (e) {
+    toast(`Removal failed: ${String(e)}`, 'error');
+  }
+}
+
 function kmipOpenImport() {
   document.getElementById('kmip-import-file').value = '';
   document.getElementById('kmip-import-pass').value = '';

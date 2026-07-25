@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-4">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-5">
 
 </head>
 <body>
@@ -7472,6 +7472,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <button class="btn-icon" data-action="kmipOpenImport"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Restore bundle</button>
             </div>
             <div id="kmip-recovery-hint" class="hint mt-8"></div>
+            <div class="section-title mt-16">Start over</div>
+            <p class="hint">Destroys the master key, the CA, every client and every stored key on this server, so you can reinstall from scratch. Anything still relying on it for encryption keys becomes unrecoverable without a bundle exported beforehand.</p>
+            <button class="btn-icon" data-action="kmipOpenReset"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/></svg> Remove and start over</button>
           </div>
         </div>
 
@@ -10867,6 +10870,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-reset-title" id="kmip-reset-modal"><div class="modal">
+  <div class="modal-title" id="kmip-reset-title">Remove the KMIP server</div>
+  <div class="modal-subtitle">Destroys the master key, the private CA, every registered client and every stored key on this server. There is no undo — only a recovery bundle exported <strong>before</strong> this can bring them back.</div>
+  <div id="kmip-reset-scope" class="hint"></div>
+  <div class="form-group mt-12">
+    <label class="form-label" for="kmip-reset-confirm">Type <code>REMOVE KMIP</code> to confirm</label>
+    <input id="kmip-reset-confirm" class="form-input" autocomplete="off" placeholder="REMOVE KMIP">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="kmip-reset-modal">Cancel</button>
+    <button class="btn-shutdown" data-action="kmipDoReset">Remove everything</button>
+  </div>
+</div></div>
+
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kmip-export-title" id="kmip-export-modal"><div class="modal">
   <div class="modal-title" id="kmip-export-title">Export recovery bundle</div>
   <div class="modal-subtitle">One encrypted file holding the master key, the CA and every stored key — everything needed to rebuild this KMIP server. Store it offline, away from the appliances that unlock against it.</div>
@@ -10929,34 +10946,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.1-4"></script>
+<script defer src="static/js/app.js?v=6.4.1-5"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-containers.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-network.js?v=6.4.1-4"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-containers.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-network.js?v=6.4.1-5"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.1-4"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.1-5"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-dns.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-drift.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-cve.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-backups.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-iac.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-virt.js?v=6.4.1-4"></script>
+<script defer src="static/js/app-ai.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-dns.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-drift.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-cve.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-backups.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-iac.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-virt.js?v=6.4.1-5"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-logs.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-remote.js?v=6.4.1-4"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.1-4"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-logs.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-remote.js?v=6.4.1-5"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.1-5"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -10966,6 +10983,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.1-4"></script>
+<script defer src="static/js/sw-register.js?v=6.4.1-5"></script>
 </body>
 </html>

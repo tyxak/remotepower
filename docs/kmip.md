@@ -211,6 +211,40 @@ Losing both the server and the bundle means the encrypted data on every client
 is unrecoverable. There is no back door — that is what makes the design worth
 anything.
 
+## Removing it / starting over
+
+**Security → KMIP → Remove and start over** wipes the server side: the master
+key, the CA, every client registration and every stored key object. It requires
+you to type `REMOVE KMIP` (checked on the server, not just in the browser) and
+is written to the audit log. Anything still relying on this server for its
+encryption keys becomes unrecoverable unless you exported a recovery bundle
+first.
+
+That resets the application's state but cannot remove the sidecar service, so
+finish as root:
+
+```
+sudo systemctl disable --now remotepower-kmipd
+sudo rm -f /usr/local/bin/remotepower-kmipd \
+           /etc/systemd/system/remotepower-kmipd.service \
+           /etc/remotepower/kmipd.env
+sudo systemctl daemon-reload
+```
+
+On the appliance, delete the KMIP certificate and its Remote Key Client entry —
+otherwise it keeps trying to reach a server that no longer answers. On Synology
+that is Control Panel → Security → Certificate (delete the `KMIP` entry) and the
+KMIP tab.
+
+> **Before removing anything, move any encrypted volume's key back off the
+> remote vault.** A NAS whose key vault lives here will not mount its encrypted
+> storage once this server is gone. On DSM: Control Panel → Shared Folder →
+> Encryption → Key Manager.
+
+To reinstall, follow *Install the sidecar* above. Everything is regenerated from
+scratch — a new master key, a new CA, new client certificates — so any files
+previously copied to an appliance must be replaced with the new ones.
+
 ## Watching it
 
 - **Security → KMIP** — server state, sidecar check-in, clients, stored keys and

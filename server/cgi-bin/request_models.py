@@ -2450,6 +2450,14 @@ if _AVAILABLE:
         _v0 = field_validator('name', 'kind', 'address',
                               mode='before')(_coerce_str_loose)
 
+    class KmipResetRequest(BaseModel):
+        """handle_kmip_reset POST (v6.4.1). The phrase is checked in the
+        handler, not here — the model is an additive pre-check only."""
+        model_config = ConfigDict(extra='ignore')
+        confirm: str = ''
+
+        _v0 = field_validator('confirm', mode='before')(_coerce_str_loose)
+
     class KmipExportRequest(BaseModel):
         """handle_kmip_export POST (v6.4.0). Length is checked by the handler
         (min 12) so the model stays an additive superset."""
@@ -2725,6 +2733,7 @@ else:
     KmipClientCreateRequest = None
     KmipExportRequest = None
     KmipImportRequest = None
+    KmipResetRequest = None
 
 
 def validate(model_cls, body):

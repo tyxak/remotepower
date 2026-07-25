@@ -120,6 +120,19 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### KMIP: a supported way to remove it and start over
+**Security → KMIP → Remove and start over** wipes the master key, the CA, every
+client registration and every stored key, so a botched setup can be redone from
+scratch. It requires typing `REMOVE KMIP`, checked **server-side** (a UI-only
+confirm is not a control — anything can POST to the API), and is audited. The
+master key file is overwritten before being unlinked, and the stores are
+emptied through the storage layer so it works identically on JSON, SQLite and
+Postgres — a file delete would be a no-op on the DB backends. Because the
+sidecar lives outside the application, the response hands back the three root
+commands that finish the removal, and `docs/kmip.md` covers the appliance side
+plus the warning that must come first: move any encrypted volume's key off the
+remote vault before removing the server that holds it.
+
 ### KMIP: remove a client, clear the log, and DSM steps that match reality
 - **Delete a client.** Revoke keeps the registration; Delete removes it. It
   refuses while the client still holds live keys — those objects are scoped to

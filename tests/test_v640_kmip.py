@@ -915,6 +915,84 @@ class TestClientDeleteAndLogClear(_KmipHandlerCase):
         self.assertEqual(self.cap['s'], 405)
 
 
+class TestKmipReset(_KmipHandlerCase):
+    """Complete teardown so an operator can reinstall from scratch."""
+
+    def setUp(self):
+        super().setUp()
+        self.enable_kmip()
+        self.c1 = self.call(api.handle_kmip_client_create,
+                            body={'name': 'nas-01', 'kind': 'synology'})
+        self.call(api.handle_kmip_daemon_op, headers=self.daemon_hdr(),
+                  body={'client_id': self.c1['id'],
+                        'fingerprint': self.c1['fingerprint'],
+                        'op': 'create', 'params': {'length': 256}})
+
+    def test_requires_the_exact_typed_phrase(self):
+        for bad in ('', 'remove kmip', 'yes', 'REMOVE'):
+            self.call(api.handle_kmip_reset, body={'confirm': bad})
+            self.assertEqual(self.cap['s'], 400, repr(bad))
+        # ...and nothing was touched.
+        self.assertTrue(api.KMIP_MASTER_KEY_FILE.exists())
+        self.assertTrue((api.load(api.KMIP_FILE) or {}).get('clients'))
+
+    def test_reset_wipes_every_store_and_the_master_key(self):
+        out = self.call(api.handle_kmip_reset, body={'confirm': 'REMOVE KMIP'})
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['clients_removed'], 1)
+        self.assertEqual(out['keys_destroyed'], 1)
+        self.assertFalse(api.KMIP_MASTER_KEY_FILE.exists(),
+                         'the master key file must be gone, not merely emptied')
+        for f in (api.KMIP_FILE, api.KMIP_OBJECTS_FILE, api.KMIP_LOG_FILE):
+            self.assertEqual(api.load(f) or {}, {}, str(f))
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertNotIn('kmip_daemon_secret', api.load(api.CONFIG_FILE) or {})
+
+    def test_stores_are_emptied_through_the_storage_layer(self):
+        """Under SQLite/Postgres these are DB rows — a file unlink would do
+        nothing, so the reset must go through save(), not the filesystem."""
+        src = (_CGI / 'kmip_handlers.py').read_text()
+        fn = src[src.index('def handle_kmip_reset'):]
+        fn = fn[:fn.index('\ndef ')]
+        self.assertIn('A.save(f, {})', fn)
+        self.assertNotIn('KMIP_FILE.unlink', fn)
+
+    def test_master_key_is_overwritten_before_unlink(self):
+        src = (_CGI / 'kmip_handlers.py').read_text()
+        fn = src[src.index('def handle_kmip_reset'):]
+        fn = fn[:fn.index('\ndef ')]
+        self.assertIn('os.fsync', fn, 'overwrite the key bytes before unlinking')
+
+    def test_reset_returns_the_sidecar_removal_commands(self):
+        out = self.call(api.handle_kmip_reset, body={'confirm': 'REMOVE KMIP'})
+        joined = '\n'.join(out['next'])
+        self.assertIn('systemctl disable --now remotepower-kmipd', joined)
+        self.assertIn('/etc/remotepower/kmipd.env', joined)
+        self.assertIn('daemon-reload', joined)
+
+    def test_a_fresh_setup_works_after_a_reset(self):
+        """The point of the whole exercise."""
+        self.call(api.handle_kmip_reset, body={'confirm': 'REMOVE KMIP'})
+        out = self.enable_kmip()
+        self.assertTrue(out['enabled'])
+        self.assertTrue(out['ca'], 'a new CA must be generated')
+        self.assertTrue(out['master_key'])
+        again = self.call(api.handle_kmip_client_create,
+                          body={'name': 'nas-01', 'kind': 'synology'})
+        self.assertNotEqual(again['fingerprint'], self.c1['fingerprint'],
+                            'the new client must get a genuinely new cert')
+
+    def test_reset_is_audited(self):
+        seen = {}
+        real = api.audit_log
+        api.audit_log = lambda actor, action, *a, **k: seen.setdefault(action, 1)
+        try:
+            self.call(api.handle_kmip_reset, body={'confirm': 'REMOVE KMIP'})
+        finally:
+            api.audit_log = real
+        self.assertIn('kmip_reset', seen)
+
+
 class TestKmipDaemonAuth(_KmipHandlerCase):
     """The daemon endpoints are the only unauthenticated-by-session surface."""
 

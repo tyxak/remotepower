@@ -92,7 +92,12 @@ class TestNoPathExistsOnStorageKeys(unittest.TestCase):
     # Real files, not logical storage keys — reviewed:
     #   STORAGE_MARKER_FILE — read before the backend is even chosen.
     #   DEBUG_LOG_FILE — a .log stream on disk (only *.json paths are keys).
-    ALLOWLIST = {"STORAGE_MARKER_FILE", "DEBUG_LOG_FILE"}
+    #   KMIP_MASTER_KEY_FILE — deliberately a real 0600 file rather than a
+    #     storage key, so it can be excluded from backups (the archive then
+    #     holds only ciphertext). Written with os.open/read_text, never
+    #     through save()/load(), so backend_exists() would be the wrong check.
+    ALLOWLIST = {"STORAGE_MARKER_FILE", "DEBUG_LOG_FILE",
+                 "KMIP_MASTER_KEY_FILE"}
 
     def test_storage_keys_use_backend_exists(self):
         offenders = []
