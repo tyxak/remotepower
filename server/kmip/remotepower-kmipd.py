@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RemotePower — KMIP key-management sidecar (v6.4.0).
+"""RemotePower — KMIP key-management sidecar (v6.4.1).
 
 A minimal KMIP server (TTLV over mutually-authenticated TLS, port 5696) so
 appliances that speak the KMIP client protocol — Synology DSM encrypted
@@ -18,10 +18,13 @@ Architecture — a THIN PROTOCOL SHIM, deliberately stateless:
     daemon-secret pattern). The daemon holds no DATA_DIR access at all,
     which is why its systemd sandbox is even tighter than syslogd's.
   * TLS material + the registered-client fingerprint set are fetched from
-    `GET /api/kmip/daemon/state` and cached in memory (STATE_TTL_S), so a
-    brief API restart does not drop the TLS listener; operations needing
-    object access fail fast with a KMIP GeneralFailure and the client
-    retries.
+    `GET /api/kmip/daemon/state` by a BACKGROUND THREAD every STATE_TTL_S and
+    cached in memory. On a clock, not on traffic: the accept loop blocks, so a
+    lazily-refreshed daemon with no clients yet never calls home at all and
+    looks dead to the server. That poll doubles as the heartbeat, and it means
+    enable/disable and client revocations land within STATE_TTL_S. A brief API
+    restart does not drop the TLS listener; operations needing object access
+    fail fast with a KMIP GeneralFailure and the client retries.
 
 Client authentication is mandatory mTLS: the TLS handshake requires a
 certificate signed by the RemotePower KMIP CA, and the peer certificate's
@@ -475,7 +478,17 @@ class ServerState:
             try:
                 st = self.api.state()
             except Exception as e:
-                if self._state is None:
+                # A 403 means the secret does not match what the API has —
+                # the one failure an operator cannot guess from the outside,
+                # so say it plainly and every time rather than once.
+                if getattr(e, 'code', None) == 403:
+                    log.error('control plane REJECTED our secret (403). The '
+                              'value in %s does not match the one the server '
+                              'has. Re-run the install snippet from the KMIP '
+                              'page, then restart this service.',
+                              os.environ.get('RP_KMIP_SECRET_FILE',
+                                             '/etc/remotepower/kmipd.env'))
+                elif self._state is None:
                     log.warning('control plane unreachable (%s) — retrying', e)
                 else:
                     log.debug('state refresh failed (%s) — keeping cached', e)
@@ -836,6 +849,32 @@ def handle_connection(conn, addr, state, api, sem):
         conn.close()
 
 
+def state_refresher(state, stop=None, once=False):
+    """Poll the control plane on a timer, forever.
+
+    The accept loop below BLOCKS in `sock.accept()`, and the lazy refresh only
+    runs once a client connects — so with no KMIP clients yet (the normal state
+    right after install) the daemon never called the control plane at all, the
+    server never recorded a check-in, and the page reported "the sidecar has
+    not checked in" about a daemon that was running perfectly. The state fetch
+    IS the heartbeat, so it has to be driven by a clock, not by traffic.
+
+    It also means config changes (enable/disable, a new or revoked client)
+    land within STATE_TTL_S instead of at the next connection.
+    """
+    while True:
+        try:
+            state.refresh(force=True)
+        except Exception as e:                     # never let the thread die
+            log.debug('state refresh failed: %s', e)
+        if once:
+            return
+        if stop is not None and stop.wait(STATE_TTL_S):
+            return
+        if stop is None:
+            time.sleep(STATE_TTL_S)
+
+
 def serve():
     if not _secret():
         log.error('RP_KMIP_SECRET is not set — install /etc/remotepower/'
@@ -860,6 +899,10 @@ def serve():
     log.info('KMIP listening on %s:%s (mTLS required) → %s',
              host, port, SERVER_URL)
     api.event({'kind': 'started', 'detail': f'listening on {host}:{port}'})
+    # The heartbeat + config poll. Must run on its own thread: the accept loop
+    # blocks, so a traffic-driven refresh leaves an idle daemon looking dead.
+    threading.Thread(target=state_refresher, args=(state,),
+                     name='kmip-state', daemon=True).start()
     sem = threading.Semaphore(MAX_CONNS)
 
     while True:

@@ -295,6 +295,83 @@ class _KmipHandlerCase(unittest.TestCase):
         return {'HTTP_X_KMIP_SECRET': 'unit-test-secret'}
 
 
+class TestDaemonChecksInWhileIdle(unittest.TestCase):
+    """Field bug: "Installed, but the sidecar has not checked in" about a
+    daemon that was running fine.
+
+    The state fetch IS the heartbeat, but it only ran lazily when a client
+    connected — and the accept loop BLOCKS in sock.accept(). With no KMIP
+    clients yet (the normal state right after install) the daemon never called
+    the control plane at all. The poll has to be driven by a clock, not by
+    traffic.
+    """
+
+    class _CountingApi:
+        def __init__(self):
+            self.calls = 0
+
+        def state(self):
+            self.calls += 1
+            return {'enabled': False, 'rev': 0, 'port': 5696, 'clients': []}
+
+    def test_a_single_tick_calls_the_control_plane(self):
+        api_ = self._CountingApi()
+        st = kmipd.ServerState(api_)
+        self.assertEqual(api_.calls, 0)
+        kmipd.state_refresher(st, once=True)
+        self.assertEqual(api_.calls, 1, 'the heartbeat must not need traffic')
+
+    class _LetNTicks:
+        """Stop-event stand-in that allows exactly N loop passes.
+
+        Deterministic on purpose — an earlier version of this test slept and
+        counted real ticks, which passed alone and failed under parallel load.
+        A wall-clock assertion in a test suite is a flake generator, and a
+        flaky guardrail is worse than none: it trains you to ignore it.
+        """
+
+        def __init__(self, n):
+            self.left = n
+
+        def wait(self, timeout=None):
+            self.left -= 1
+            return self.left <= 0
+
+    def test_it_keeps_ticking_with_no_client_ever_connecting(self):
+        api_ = self._CountingApi()
+        kmipd.state_refresher(kmipd.ServerState(api_), stop=self._LetNTicks(3))
+        self.assertEqual(api_.calls, 3,
+                         'must poll once per tick while idle, not once ever')
+
+    def test_refresher_survives_a_control_plane_error(self):
+        """A thrown exception must not kill the heartbeat thread — that would
+        turn a transient API restart into a permanently 'dead' sidecar."""
+        class _Broken:
+            def __init__(self):
+                self.calls = 0
+
+            def state(self):
+                self.calls += 1
+                raise OSError('connection refused')
+        api_ = _Broken()
+        kmipd.state_refresher(kmipd.ServerState(api_), once=True)
+        self.assertEqual(api_.calls, 1)      # returned normally, no raise
+
+    def test_serve_starts_the_refresher_thread(self):
+        """Source pin: the wiring is what actually fixes the reported bug."""
+        src = (_ROOT / 'server' / 'kmip' / 'remotepower-kmipd.py').read_text()
+        serve = src[src.index('def serve('):]
+        self.assertIn('target=state_refresher', serve,
+                      'serve() must start the heartbeat thread')
+        self.assertIn('daemon=True', serve)
+
+    def test_rejected_secret_is_logged_loudly(self):
+        """A 403 is the one failure an operator cannot guess from outside."""
+        src = (_ROOT / 'server' / 'kmip' / 'remotepower-kmipd.py').read_text()
+        self.assertIn("getattr(e, 'code', None) == 403", src)
+        self.assertIn('REJECTED our secret', src)
+
+
 class TestDaemonSecretResolution(unittest.TestCase):
     """Field bug: the sidecar ran fine but the page said "Not installed".
 

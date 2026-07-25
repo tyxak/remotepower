@@ -57,6 +57,29 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### KMIP install fixes (found in first-run testing)
+- **The sidecar reported "Not installed" while running perfectly.** The install
+  snippet derived the env file's group from `/etc/remotepower/api.env`, which
+  is `root:root` — and says nothing about what the app can read, since only
+  systemd ever reads it. `kmipd.env` therefore landed unreadable by the app
+  user. The premise was wrong, not just the heuristic: systemd feeds
+  `EnvironmentFile` to the daemon **as root**, so the file stays `0600
+  root:root` and the API keeps its own copy in config (the same split the
+  webterm daemon uses). The secret resolves env → file → config, the file
+  wins when readable and is adopted into config, and the snippet now
+  generates it **once** and persists it — re-opening the dialog no longer
+  mints a new secret and silently invalidates a working install.
+- **"Installed, but the sidecar has not checked in" — about a running daemon.**
+  The state fetch is the heartbeat, but it only ran when a client connected,
+  and the accept loop blocks. With no KMIP clients yet (the normal state right
+  after install) the daemon never called the control plane at all. It now polls
+  on a background thread every 30s, so it checks in while idle and picks up
+  enable/disable and client revocations within that window instead of at the
+  next connection.
+- Both failures now explain themselves: the page says whether the file is
+  missing or present-but-unreadable, and a rejected secret is logged as a loud
+  `403` with the fix rather than swallowed at debug level.
+
 ### Optional sidecars are installable, and visible in the CLI
 - **`install-server.sh` gained `--with-kmip`, `--with-syslogd` and
   `--with-flowd`.** The syslog and flow receivers previously had no installer

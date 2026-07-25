@@ -729,6 +729,13 @@ if [[ "$WITH_KMIP" == "1" ]]; then
     if [[ ! -f /etc/remotepower/kmipd.env ]]; then
         _kmip_secret=$(python3 -c "import secrets;print(secrets.token_hex(32))")
         printf 'RP_KMIP_SECRET=%s\n' "$_kmip_secret" > /etc/remotepower/kmipd.env
+        # 0640 root:<web user> — NOT 0600, and deliberately different from the
+        # in-app install snippet. There the API generates the secret and already
+        # knows it, so the file can be root-only. HERE the installer invents it,
+        # so the app must be able to read it ONCE to adopt it into its config;
+        # after that the permissions stop mattering. Do not "harden" this to
+        # 0600 without also teaching the installer to seed the config (which it
+        # cannot do portably — under Postgres/SQLite the config is in the DB).
         chown "root:${NGINX_USER}" /etc/remotepower/kmipd.env 2>/dev/null || true
         chmod 640 /etc/remotepower/kmipd.env
         unset _kmip_secret

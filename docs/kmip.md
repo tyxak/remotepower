@@ -56,8 +56,10 @@ sudo ./install-server.sh --with-kmip
 
 or, on an existing server, open **Security → KMIP → Install sidecar** and run
 the commands it prints. They write the shared secret to
-`/etc/remotepower/kmipd.env` (mode 0640, root-owned, readable by the web user),
-install the daemon and start it.
+`/etc/remotepower/kmipd.env` (mode 0600, root-owned — systemd reads it as root
+to start the daemon, so it needs no wider access), install the daemon and start
+it. The server records the same secret internally, so the app never has to read
+that file.
 
 Then in the UI: **Security → KMIP → Server settings** → tick *KMIP server
 enabled*, set the hostname or IP your appliances will use, and save. That first
@@ -143,8 +145,10 @@ anything.
 
 | Symptom | Cause |
 |---|---|
-| Sidecar won't start, log says the secret is missing | `/etc/remotepower/kmipd.env` absent or unreadable — re-run the install snippet |
-| Page says "Enabled, but the sidecar has not checked in" | The daemon isn't running, or can't reach the API on loopback |
+| Sidecar won't start, log says the secret is missing | `/etc/remotepower/kmipd.env` absent — re-run the install snippet |
+| Page says the file exists but cannot be read | The env file is there but the app user can't read it and nothing is stored in the config. Re-run the install snippet; it records the secret server-side so file permissions stop mattering |
+| Journal shows `control plane REJECTED our secret (403)` | The value in `kmipd.env` differs from the one the server holds — re-run the install snippet, then restart the service |
+| Page says "has not checked in" | The daemon polls every 30s, so allow that long after a start. If it persists, check `journalctl -u remotepower-kmipd` for the 403 above or a loopback connection error |
 | Appliance reports a TLS/handshake error | Wrong `ca.crt`, or the client certificate was revoked — check the activity log for an `auth fail` row |
 | Client connects but finds no keys | Keys belong to the client that stored them; a re-issued certificate keeps its keys, a *new* client starts empty |
 | Appliance boots without mounting encrypted volumes | The key server was unreachable at boot — that is the availability coupling described at the top |
