@@ -717,6 +717,72 @@ def handle_kmip_client_revoke(cid):
     A.respond(200, {'ok': True})
 
 
+def handle_kmip_client_delete(cid):
+    """DELETE /api/kmip/clients/<cid> — remove the registration entirely.
+
+    Revoke keeps the row (and its history); delete removes it. Refuses while
+    the client still holds live key objects unless `purge` is set, because
+    those objects are scoped to this client id — with the client gone no
+    certificate can ever read them again, so a silent delete would strand
+    real key material. `purge=true` destroys them explicitly.
+    """
+    actor = _kmip_require_admin()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    purge = str(A._env('QUERY_STRING', '') or '').find('purge=1') >= 0
+    objs = (A.load(A.KMIP_OBJECTS_FILE) or {}).get('objects') or {}
+    live = [uid for uid, o in objs.items()
+            if o.get('client_id') == cid and o.get('state') != 'destroyed']
+    if live and not purge:
+        A.respond(409, {
+            'error': f'this client still holds {len(live)} key(s). Deleting it '
+                     'leaves them unreadable by anything — destroy them too, or '
+                     'revoke the client instead to keep them recoverable.',
+            'keys': len(live), 'needs_purge': True})
+    with A._LockedUpdate(A.KMIP_FILE) as store:
+        c = A._kmip_client_or_404(store, cid)
+        name = c.get('name')
+        del store['clients'][cid]
+        _kmip_bump_rev(store)
+    if live:
+        now = int(time.time())
+        with A._LockedUpdate(A.KMIP_OBJECTS_FILE) as ostore:
+            for uid in live:
+                o = (ostore.get('objects') or {}).get(uid)
+                if o:
+                    o.pop('material', None)
+                    o['state'] = 'destroyed'
+                    o['state_enum'] = _KMIP_STATES['destroyed']
+                    o['destroyed'] = now
+                    o['updated'] = now
+    A.audit_log(actor, 'kmip_client_delete',
+                detail=f'{name} {cid} keys_destroyed={len(live) if live else 0}',
+                source_ip=A._get_client_ip())
+    A._kmip_log('admin', op='client_delete', actor=actor, client_id=cid,
+                client=name, ok=True,
+                detail=(f'{len(live)} key(s) destroyed with it' if live else None))
+    A.respond(200, {'ok': True, 'keys_destroyed': len(live)})
+
+
+def handle_kmip_log_clear():
+    """DELETE /api/kmip/log — empty the activity log.
+
+    The log is a diagnostic trail, not the audit record: clearing it is itself
+    written to the audit log and leaves one marker row behind, so the history
+    can never appear to have simply started clean.
+    """
+    actor = _kmip_require_admin()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    n = len((A.load(A.KMIP_LOG_FILE) or {}).get('entries') or [])
+    A.save(A.KMIP_LOG_FILE, {'entries': []})
+    A.audit_log(actor, 'kmip_log_clear', detail=f'{n} entries',
+                source_ip=A._get_client_ip())
+    A._kmip_log('admin', op='log_clear', actor=actor, ok=True,
+                detail=f'{n} earlier entries cleared by {actor}')
+    A.respond(200, {'ok': True, 'cleared': n})
+
+
 def handle_kmip_client_reissue(cid):
     """POST /api/kmip/clients/<cid>/reissue — new cert + key, SAME client id,
     so the appliance keeps access to its objects (the cert-loss recovery

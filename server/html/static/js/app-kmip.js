@@ -149,6 +149,7 @@ function _renderKmipClients() {
     <td class="ta-right">
       <button class="btn-icon" data-action-btn="kmipReissueClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" title="Issue a replacement certificate — the appliance keeps its stored keys">Re-issue</button>
       ${r.revoked ? '' : `<button class="btn-icon" data-action-btn="kmipRevokeClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" title="Block this appliance from the KMIP server">Revoke</button>`}
+      <button class="btn-icon" data-action-btn="kmipDeleteClient" data-cid="${escAttr(r.id)}" data-name="${escAttr(r.name || '')}" data-keys="${r.objects || 0}" title="Remove this client registration entirely">Delete</button>
     </td>
   </tr>`).join('');
 }
@@ -386,31 +387,34 @@ function _kmipServerAddress() {
 }
 
 const _KMIP_SETUP_STEPS = {
+  // The exact DSM flow. Note ca.crt is used TWICE, and that DSM's import
+  // dialog calls its third field "Intermediate Certificate" — that is simply
+  // where the CA goes; it is not asking for an intermediate.
   synology: (a) => [
-    'Open DSM → Control Panel → Security → <strong>Certificate</strong> and confirm you can reach this server from the NAS.',
-    'Go to Control Panel → Security → <strong>KMIP</strong> and choose <strong>KMIP Client</strong>.',
-    `Set the server address to <strong>${a.host}</strong> and the port to <strong>${a.port}</strong>.`,
-    'Upload <strong>ca.crt</strong>, <strong>client.crt</strong> and <strong>client.key</strong> from step 2.',
-    'Apply, then move an encrypted shared folder’s key to the remote vault (Control Panel → Shared Folder → Encryption → <strong>Key Manager</strong>).',
-    'DSM requires the key server to be reachable at boot — never host it on the NAS it protects.',
+    'In DSM open <strong>Control Panel → Security → Certificate</strong>, click <strong>Add</strong> → <strong>Add a new certificate</strong>, type <code>KMIP</code> as the Description, then choose <strong>Import certificate</strong>.',
+    'Set <strong>Private Key</strong> = <code>client.key</code>, <strong>Certificate</strong> = <code>client.crt</code>, and <strong>Intermediate Certificate</strong> = <code>ca.crt</code>. DSM calls that last field "Intermediate" — the CA goes there regardless.',
+    'Click <strong>Settings</strong> and select the newly imported certificate for <strong>KMIP</strong>.',
+    `Switch to the <strong>KMIP</strong> tab, configure <strong>Remote Key Client</strong>: Hostname <strong>${escHtml(a.host)}</strong>, Port <strong>${escHtml(String(a.port))}</strong>, and pick <code>ca.crt</code> again for <strong>Certificate Authority</strong>.`,
+    'Then move a shared folder’s key to the remote vault: <strong>Control Panel → Shared Folder → Encryption → Key Manager</strong>.',
+    'Requires <strong>DSM 7.2-64570</strong> or newer. DSM needs this key server reachable at ITS boot — never host it on the NAS it protects.',
   ],
   truenas: (a) => [
     'Open TrueNAS → System Settings → Services and confirm outbound access to this server.',
     'Go to <strong>Datasets → Encryption</strong> (or System → SED) and choose a KMIP key server.',
-    `Set the server to <strong>${a.host}:${a.port}</strong>.`,
+    `Set the server to <strong>${escHtml(a.host)}:${escHtml(String(a.port))}</strong>.`,
     'Upload <strong>ca.crt</strong> as the certificate authority and <strong>client.crt</strong> + <strong>client.key</strong> as the client certificate.',
     'Enable “Manage SED passwords” / “Manage ZFS keys” as needed and apply.',
   ],
   vsphere: (a) => [
     'In vSphere Client, select the vCenter object → Configure → <strong>Key Providers</strong>.',
     'Add a <strong>Standard key provider</strong> and give it a name.',
-    `Add a KMS with address <strong>${a.host}</strong> and port <strong>${a.port}</strong>.`,
+    `Add a KMS with address <strong>${escHtml(a.host)}</strong> and port <strong>${escHtml(String(a.port))}</strong>.`,
     'Choose <strong>Make vCenter trust the KMS</strong> → upload <strong>ca.crt</strong>.',
     'Then <strong>Upload certificate and private key</strong> → <strong>client.crt</strong> and <strong>client.key</strong>.',
     'Confirm the connection status turns green before encrypting any VM.',
   ],
   generic: (a) => [
-    `Point the client at <strong>${a.host}:${a.port}</strong> (KMIP 1.0–1.4 over TLS).`,
+    `Point the client at <strong>${escHtml(a.host)}:${escHtml(String(a.port))}</strong> (KMIP 1.0–1.4 over TLS).`,
     'Trust <strong>ca.crt</strong>, and present <strong>client.crt</strong> + <strong>client.key</strong> — mutual TLS is mandatory.',
     'Supported operations: Discover Versions, Query, Create, Register, Get, Get Attributes, Locate, Activate, Revoke, Destroy.',
   ],
@@ -467,6 +471,54 @@ async function kmipRevokeClient(btn) {
     loadKmip();
   } catch (e) {
     toast(`Revoke failed: ${String(e)}`, 'error');
+  }
+}
+
+async function kmipDeleteClient(btn) {
+  const cid = btn.dataset.cid;
+  const name = btn.dataset.name || cid;
+  const keys = Number(btn.dataset.keys || 0);
+  const msg = keys
+    ? `${name} still holds ${keys} key(s). Deleting the client DESTROYS them — `
+      + 'any data the appliance encrypted with them becomes permanently '
+      + 'unrecoverable unless you hold a recovery bundle exported before now.\n\n'
+      + 'To cut the appliance off while keeping its keys, use Revoke instead.'
+    : `Remove ${name}? Its certificate stops working immediately. It holds no `
+      + 'keys, so nothing is lost.';
+  const ok = await uiConfirm({
+    title: keys ? 'Delete client and destroy its keys' : 'Delete client',
+    message: msg,
+    confirmText: keys ? 'Delete and destroy keys' : 'Delete', danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await api('DELETE',
+      `/kmip/clients/${encodeURIComponent(cid)}${keys ? '?purge=1' : ''}`);
+    if (!_kmipOk(r, 'Deleting the client')) return;
+    toast(r.keys_destroyed
+      ? `${name} deleted — ${r.keys_destroyed} key(s) destroyed`
+      : `${name} deleted`, 'success');
+    loadKmip();
+  } catch (e) {
+    toast(`Delete failed: ${String(e)}`, 'error');
+  }
+}
+
+async function kmipClearLog() {
+  const ok = await uiConfirm({
+    title: 'Clear activity log',
+    message: 'Removes the KMIP activity history. The clear itself is recorded '
+      + 'here and in the audit log, so the trail cannot appear to start clean.',
+    confirmText: 'Clear log', danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await api('DELETE', '/kmip/log');
+    if (!_kmipOk(r, 'Clearing the log')) return;
+    toast(`Cleared ${r.cleared || 0} event(s)`, 'success');
+    kmipLoadLog();
+  } catch (e) {
+    toast(`Clear failed: ${String(e)}`, 'error');
   }
 }
 

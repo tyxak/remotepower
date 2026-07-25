@@ -120,6 +120,31 @@ distinct defects:
   checkbox unticked, which is how it was spotted. Every KMIP call now goes
   through one guard that surfaces the server's error instead.
 
+### KMIP: remove a client, clear the log, and DSM steps that match reality
+- **Delete a client.** Revoke keeps the registration; Delete removes it. It
+  refuses while the client still holds live keys — those objects are scoped to
+  its id, so with the client gone nothing could ever read them again — and
+  offers to destroy them explicitly instead of stranding them silently.
+- **Clear the activity log.** The clear is itself recorded, in the audit log
+  and as the one surviving row, so the trail can never appear to have started
+  clean.
+- **Synology setup steps rewritten to the flow that actually works**, from the
+  community `kmip-server-dsm` README: import `client.key` / `client.crt` /
+  `ca.crt` under Control Panel → Security → Certificate, select it for KMIP
+  under Settings, then reference **`ca.crt` again** as the Certificate
+  Authority on the KMIP tab. DSM labels the CA field *Intermediate
+  Certificate* — that is where the CA goes, and seeing a root land there is
+  expected rather than a fault.
+- **Legacy TLS suites are available opt-in** (`RP_KMIP_LEGACY_CIPHERS=1`). The
+  reference DSM setup pins `TLS_RSA_WITH_AES_256_CBC_SHA256`, which modern
+  OpenSSL disables; the toggle is off by default because it costs forward
+  secrecy, and a cipher-mismatch handshake now names it.
+- `unable to get local issuer certificate` is distinguished from the
+  self-signed case — it means the appliance kept an old `client.crt` from a
+  previous CA, which needs the opposite fix.
+- `docs/kmip.md` gains a step-by-step DSM walkthrough and a section on how DSM
+  differs from plain KMIP.
+
 ### KMIP: certificates appliances actually accept
 Reported while importing into Synology DSM: *"there is no Subject Alternative
 Name"* and *"it says intermediate (not CA)"*. Both were real defects in the

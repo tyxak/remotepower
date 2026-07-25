@@ -64,6 +64,10 @@ logging.basicConfig(level=logging.INFO,
 SERVER_URL = (os.environ.get('RP_KMIP_SERVER_URL')
               or 'http://127.0.0.1:8090').rstrip('/')
 BIND = os.environ.get('RP_KMIP_BIND', '0.0.0.0:5696')
+# Opt-in legacy TLS suites for appliances that offer nothing modern. Off by
+# default: it disables forward secrecy and permits CBC, which is only worth it
+# when the alternative is an appliance that cannot connect at all.
+LEGACY_CIPHERS = (os.environ.get('RP_KMIP_LEGACY_CIPHERS') or '').strip() in ('1', 'true', 'yes')
 
 STATE_TTL_S = 30          # registered-client / TLS-material refresh cadence
 IDLE_TIMEOUT_S = 120      # per-connection socket timeout
@@ -515,6 +519,21 @@ class ServerState:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
             ctx.verify_mode = ssl.CERT_REQUIRED
+            if LEGACY_CIPHERS:
+                # Opt-in, OFF by default. Some appliances only offer legacy
+                # suites — the community DSM setup pins
+                # TLS_RSA_WITH_AES_256_CBC_SHA256, which modern OpenSSL
+                # disables (no forward secrecy, CBC). Enabling it lowers the
+                # security level for THIS listener only; it is a deliberate
+                # trade to make an otherwise-impossible appliance work, never
+                # the default.
+                try:
+                    ctx.set_ciphers('DEFAULT:@SECLEVEL=1:AES256-SHA256:AES256-SHA')
+                    log.warning('legacy cipher suites ENABLED '
+                                '(RP_KMIP_LEGACY_CIPHERS=1) — required by some '
+                                'appliances, but weaker than the default set')
+                except ssl.SSLError as e:
+                    log.error('could not enable legacy ciphers: %s', e)
             ctx.load_verify_locations(cadata=ca)
             kf = cf = None
             try:
@@ -859,10 +878,31 @@ _TLS_HINTS = (
      'the appliance does not trust our CA — it rejected our server '
      'certificate. Upload ca.crt (from the Add-client wizard) into the '
      "appliance's trusted/CA store"),
+    ('UNABLE TO GET LOCAL ISSUER CERTIFICATE',
+     'the appliance presented a certificate signed by a DIFFERENT CA — almost '
+     'always an old client.crt kept after the CA was re-issued. Download the '
+     'files again from the Add-client wizard (or Re-issue on its row) and '
+     'reinstall all three on the appliance'),
+    ('SELF-SIGNED CERTIFICATE',
+     'the appliance presented its own self-signed certificate, not the '
+     'client.crt issued here — it is sending its default certificate, or '
+     'client.crt was never selected for KMIP'),
+    ('SELF SIGNED CERTIFICATE',
+     'the appliance presented its own self-signed certificate, not the '
+     'client.crt issued here — it is sending its default certificate, or '
+     'client.crt was never selected for KMIP'),
     ('CERTIFICATE_VERIFY_FAILED',
-     'the appliance presented a certificate this server did not issue — it is '
-     'sending its own default certificate instead of the client.crt from the '
-     'wizard, or client.crt was not installed'),
+     'this server could not verify the certificate the appliance presented — '
+     'it was not issued by this KMIP CA. Re-download the files from the '
+     'Add-client wizard and reinstall them'),
+    ('NO_SHARED_CIPHER',
+     'no cipher suite in common. Older appliances offer only legacy suites '
+     '(Synology DSM negotiates TLS_RSA_WITH_AES_256_CBC_SHA256) — set '
+     'RP_KMIP_LEGACY_CIPHERS=1 in /etc/remotepower/kmipd.env and restart'),
+    ('SSLV3_ALERT_HANDSHAKE_FAILURE',
+     'the appliance rejected every cipher suite offered. Older appliances need '
+     'the legacy suites — set RP_KMIP_LEGACY_CIPHERS=1 in the sidecar env file '
+     'and restart'),
     ('TLSV1_ALERT_UNKNOWN_PSK_IDENTITY',
      'the appliance sent no client certificate — mutual TLS is mandatory; '
      'install client.crt + client.key on it'),

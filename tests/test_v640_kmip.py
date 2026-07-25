@@ -307,7 +307,7 @@ class TestTlsErrorTranslation(unittest.TestCase):
             ('does not trust our CA', 'ca.crt'),
         '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: '
         'self-signed certificate in certificate chain':
-            ('did not issue', 'client.crt'),
+            ('self-signed', 'client.crt'),
         '[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1000)':
             ('plain TCP', 'without TLS'),
     }
@@ -323,6 +323,32 @@ class TestTlsErrorTranslation(unittest.TestCase):
         self.assertEqual(len(set(hints.values())), len(self.REAL),
                          'each failure must read differently — they have '
                          'different fixes')
+
+    def test_the_two_verify_failures_read_differently(self):
+        """Both are CERTIFICATE_VERIFY_FAILED but need opposite fixes: a
+        stale cert from the previous CA vs the appliance sending its own."""
+        stale = kmipd.tls_error_hint(
+            '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: '
+            'unable to get local issuer certificate (_ssl.c:1000)')
+        own = kmipd.tls_error_hint(
+            '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: '
+            'self-signed certificate in certificate chain')
+        self.assertIn('DIFFERENT CA', stale)
+        self.assertIn('self-signed', own)
+        self.assertNotEqual(stale, own)
+
+    def test_cipher_mismatch_points_at_the_legacy_toggle(self):
+        for err in ('[SSL: NO_SHARED_CIPHER] no shared cipher',
+                    '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] handshake failure'):
+            hint = kmipd.tls_error_hint(err)
+            self.assertIn('RP_KMIP_LEGACY_CIPHERS', hint)
+
+    def test_legacy_ciphers_are_opt_in(self):
+        src = (_ROOT / 'server' / 'kmip' / 'remotepower-kmipd.py').read_text()
+        self.assertIn('LEGACY_CIPHERS', src)
+        self.assertIn("os.environ.get('RP_KMIP_LEGACY_CIPHERS')", src)
+        self.assertIn('if LEGACY_CIPHERS:', src,
+                      'the weaker suites must never be the default')
 
     def test_unknown_error_returns_none_so_the_raw_text_still_shows(self):
         self.assertIsNone(kmipd.tls_error_hint('[SSL: SOMETHING_NEW] nope'))
@@ -805,6 +831,88 @@ class TestKmipClients(_KmipHandlerCase):
         self.enable_kmip()
         self.call(api.handle_kmip_client_reissue, 'kc-nope')
         self.assertEqual(self.cap['s'], 404)
+
+
+class TestClientDeleteAndLogClear(_KmipHandlerCase):
+    """Operator asked for both: a way to remove a client outright, and a way to
+    empty the activity log."""
+
+    def setUp(self):
+        super().setUp()
+        self.enable_kmip()
+        self.c1 = self.call(api.handle_kmip_client_create,
+                            body={'name': 'tvinas01', 'kind': 'synology'})
+
+    def _qs(self, value=''):
+        self.env_extra['QUERY_STRING'] = value
+
+    def test_delete_removes_a_client_with_no_keys(self):
+        self._qs('')
+        out = self.call(api.handle_kmip_client_delete, self.c1['id'],
+                        method='DELETE')
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['keys_destroyed'], 0)
+        clients = self.call(api.handle_kmip_clients, method='GET')['clients']
+        self.assertEqual(clients, [])
+
+    def test_delete_refuses_while_it_holds_keys(self):
+        """Objects are scoped to the client id — with the client gone nothing
+        could ever read them again, so a silent delete would strand real key
+        material."""
+        self.call(api.handle_kmip_daemon_op, headers=self.daemon_hdr(),
+                  body={'client_id': self.c1['id'],
+                        'fingerprint': self.c1['fingerprint'],
+                        'op': 'create', 'params': {'length': 256}})
+        self._qs('')
+        out = self.call(api.handle_kmip_client_delete, self.c1['id'],
+                        method='DELETE')
+        self.assertEqual(self.cap['s'], 409)
+        self.assertTrue(out['needs_purge'])
+        self.assertEqual(out['keys'], 1)
+        # ...and it is still there.
+        self.assertEqual(len(self.call(api.handle_kmip_clients,
+                                       method='GET')['clients']), 1)
+
+    def test_purge_deletes_the_client_and_destroys_its_keys(self):
+        reg = self.call(api.handle_kmip_daemon_op, headers=self.daemon_hdr(),
+                        body={'client_id': self.c1['id'],
+                              'fingerprint': self.c1['fingerprint'],
+                              'op': 'create', 'params': {'length': 256}})
+        self._qs('purge=1')
+        out = self.call(api.handle_kmip_client_delete, self.c1['id'],
+                        method='DELETE')
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['keys_destroyed'], 1)
+        obj = (api.load(api.KMIP_OBJECTS_FILE)['objects'])[reg['uid']]
+        self.assertEqual(obj['state'], 'destroyed')
+        self.assertNotIn('material', obj, 'key material must be dropped')
+
+    def test_delete_is_audited_and_logged(self):
+        self._qs('')
+        self.call(api.handle_kmip_client_delete, self.c1['id'], method='DELETE')
+        entries = self.call(api.handle_kmip_log_list, method='GET')['entries']
+        self.assertTrue([e for e in entries if e.get('op') == 'client_delete'])
+
+    def test_delete_of_a_missing_client_404s(self):
+        self._qs('')
+        self.call(api.handle_kmip_client_delete, 'kc-ghost', method='DELETE')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_clear_log_empties_it_but_leaves_a_marker(self):
+        before = self.call(api.handle_kmip_log_list, method='GET')['entries']
+        self.assertTrue(before)
+        out = self.call(api.handle_kmip_log_clear, method='DELETE')
+        self.assertTrue(out['ok'])
+        self.assertGreaterEqual(out['cleared'], 1)
+        after = self.call(api.handle_kmip_log_list, method='GET')['entries']
+        self.assertEqual(len(after), 1,
+                         'the clear itself must remain — the trail cannot look '
+                         'like it simply started clean')
+        self.assertEqual(after[0]['op'], 'log_clear')
+
+    def test_clear_log_requires_delete(self):
+        self.call(api.handle_kmip_log_clear, method='GET')
+        self.assertEqual(self.cap['s'], 405)
 
 
 class TestKmipDaemonAuth(_KmipHandlerCase):

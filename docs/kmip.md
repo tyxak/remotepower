@@ -134,6 +134,62 @@ in-process with the `cryptography` library — no `openssl` binary required.
 - KMIP administration is restricted to **global administrators**; it is host
   infrastructure and is not tenant-scoped.
 
+## Synology DSM, step by step
+
+DSM needs the certificate installed in one place and referenced in another, and
+its import dialog's field names do not match what you would expect. Requires
+**DSM 7.2-64570** or newer.
+
+1. **Control Panel → Security → Certificate** → **Add** → *Add a new
+   certificate* → Description `KMIP` → *Import certificate*.
+2. Fill the three fields with the wizard's downloads:
+   - **Private Key** → `client.key`
+   - **Certificate** → `client.crt`
+   - **Intermediate Certificate** → `ca.crt`
+
+   DSM labels that third field *Intermediate Certificate*. The CA goes there
+   anyway — DSM is not asking for a real intermediate, and seeing your root
+   land in a field called "intermediate" is expected, not a mistake.
+3. Click **Settings** and select the newly imported certificate for **KMIP**.
+4. Switch to the **KMIP** tab and configure **Remote Key Client**: the hostname
+   and port of this server, and **`ca.crt` again** for *Certificate Authority*.
+   The same file is used twice — once as part of the identity in step 2, once
+   as the trust anchor here.
+5. Move a shared folder's key across: **Control Panel → Shared Folder →
+   Encryption → Key Manager**.
+
+If DSM reports errors, `sudo journalctl -u kmip.service -ef` on the NAS is the
+matching log to this server's activity page.
+
+## How Synology DSM differs from plain KMIP
+
+Worth knowing if you are comparing this against the KMIP specification or
+another server:
+
+- **DSM negotiates legacy TLS.** The community `kmip-server-dsm` setup pins
+  `TLS_RSA_WITH_AES_256_CBC_SHA256` — an RSA key-exchange, CBC-mode suite with
+  no forward secrecy, which modern OpenSSL disables by default. RemotePower
+  ships the modern suites; if an appliance cannot negotiate, set
+  `RP_KMIP_LEGACY_CIPHERS=1` in `/etc/remotepower/kmipd.env` and restart the
+  sidecar. It is opt-in because it weakens the listener, and the activity log
+  points you at it when a handshake fails on ciphers.
+- **Both certificates need both extended key usages.** KMIP mutual TLS blurs
+  the client/server roles, so the working DSM setup issues
+  `serverAuth, clientAuth` on the server *and* the client certificate. This
+  server does the same.
+- **The client certificate's SAN should be the appliance's own address.** DSM
+  setups encode `IP:<NAS address>`; the Add-client wizard asks for it.
+- **The CA must present as a root.** DSM refuses a CA that looks like an
+  intermediate — one carrying `pathlen:0` or lacking a self-referential
+  Authority Key Identifier. Ours is a proper self-signed root.
+- **Ownership is per client.** PyKMIP-based setups use an `ALLOW_OWNER` policy
+  so an object is only reachable by the identity that created it. RemotePower
+  enforces the same rule, keyed on the client certificate's SHA-256
+  fingerprint rather than its Common Name — stricter, since a fingerprint
+  cannot be spoofed by re-using a name.
+- **DSM stores a key vault, not individual keys.** From the server's side it is
+  ordinary Register/Get/Locate traffic; nothing DSM-specific is required.
+
 ## Recovery — do this before you depend on it
 
 **Security → KMIP → Export bundle** produces a single passphrase-encrypted file
@@ -179,6 +235,8 @@ anything.
 | Journal: `tlsv1 alert unknown ca` | The appliance rejected **our** server certificate — it has not been given `ca.crt`. Upload it into the appliance's trusted-CA store |
 | Journal: `certificate verify failed: self-signed certificate in certificate chain` | The appliance presented a certificate **we** did not issue — it is sending its own default cert instead of the wizard's `client.crt`, or `client.crt` was never installed |
 | Journal: `wrong version number` | Something connected without TLS — a port scan or health check, or a client pointed at a plaintext KMIP port. Harmless unless it is your appliance |
+| Journal: `unable to get local issuer certificate` | The appliance holds a `client.crt` signed by a **different** CA — usually an old one kept after the CA was re-issued. Download the files again and reinstall all three |
+| Journal: `no shared cipher` / `handshake failure` | The appliance offers only legacy suites. Set `RP_KMIP_LEGACY_CIPHERS=1` in `/etc/remotepower/kmipd.env` and restart the sidecar |
 | Appliance boots without mounting encrypted volumes | The key server was unreachable at boot — that is the availability coupling described at the top |
 
 ## See also
