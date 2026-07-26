@@ -18924,6 +18924,8 @@ const _SCORE_WEIGHT_DEFAULTS = [
     smart_failure: 12, kernel_outdated: 6, failed_units: 3, os_eol: 14,
     os_eol_soon: 4, overheating: 10, config_drift: 3, clock_skew: 4,
     gateway_down: 10, oom_recent: 6,
+    av_bad: 12, cve_kev: 12, image_cves: 4, backup_stale: 8, secrets_exposed: 10,
+    patch_sla_breach: 5,
   }],
   ['ap-lw-', 'reliability_weight_', {
     smart_failing: 40, realloc_growing: 25, pending_sectors: 20, wear_high: 15,

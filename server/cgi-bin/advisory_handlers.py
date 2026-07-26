@@ -195,6 +195,29 @@ def _advisory_tls_expiring():
     return out[:25]
 
 
+def _advisory_agent_tamper(devs):
+    """{device_id: 'mismatch'|'update_rejected'} — the agent-binary integrity
+    verdicts that previously reached nothing but a badge on the device row.
+
+    `mismatch` outranks `update_rejected`: a rejected update is the tripwire
+    working, a hash mismatch is the tripwire having already failed.
+    """
+    out = {}
+    for did, dev in devs.items():
+        if not isinstance(dev, dict):
+            continue
+        try:
+            st = A._agent_integrity_status(dev, A._canonical_agent_sha_for(dev),
+                                           A.SERVER_VERSION)
+        except Exception:
+            st = None
+        if st == 'mismatch':
+            out[did] = 'mismatch'
+        elif dev.get('agent_update_rejected'):
+            out[did] = 'update_rejected'
+    return out
+
+
 def _build_advisory(devs):
     """Assemble the advisory. Every store is read read-only and passed in — the
     pure logic lives in advisory.py."""
@@ -241,6 +264,9 @@ def _build_advisory(devs):
         secrets_by_dev=secrets,
         backups_by_dev=A._advisory_stale_backups(ids, devs),
         tls_expiring=A._advisory_tls_expiring(),
+        scap_by_dev={d: v for d, v in (A._load_ro(A.SCAP_FILE) or {}).items()
+                     if d in ids and isinstance(v, dict)},
+        agent_tamper_by_dev=A._advisory_agent_tamper(devs),
         now=int(time.time()))
 
 

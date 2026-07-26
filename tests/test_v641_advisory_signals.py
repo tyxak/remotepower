@@ -325,3 +325,87 @@ class TestRedactionStillHolds(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestScapReachesTheAdvisory(unittest.TestCase):
+    """OpenSCAP was a parallel scoring silo with its own page and no route into
+    "what should I fix" — each failed rule already carries a severity and an id,
+    which is more actionable than most findings in the advisory."""
+
+    def _f(self, scap):
+        devs = {'d1': {'name': 'web', 'sysinfo': {}}}
+        return {g['id']: g for g in
+                advisory.build(devs, scap_by_dev={'d1': scap})['findings']}
+
+    def test_failed_rules_produce_a_finding(self):
+        g = self._f({'available': True, 'profile': 'cis_level1', 'score': 71.2,
+                     'failed_rules': [{'id': 'xccdf_org_rule_sshd_root', 'severity': 'high'},
+                                      {'id': 'xccdf_org_rule_audit', 'severity': 'low'}]})
+        self.assertIn('os.scap', g)
+        self.assertEqual(g['os.scap']['severity'], 'high')
+        self.assertIn('cis_level1', g['os.scap']['title'])
+        self.assertIn('71.2', g['os.scap']['title'])
+
+    def test_only_low_severity_rules_are_medium(self):
+        g = self._f({'available': True, 'failed_rules': [
+            {'id': 'r', 'severity': 'low'}]})
+        self.assertEqual(g['os.scap']['severity'], 'medium')
+
+    def test_a_passing_scan_produces_nothing(self):
+        self.assertEqual(self._f({'available': True, 'failed_rules': []}), {})
+
+    def test_a_host_that_cannot_scan_produces_nothing(self):
+        # `available: false` means OpenSCAP isn't installed — not a finding.
+        self.assertEqual(
+            self._f({'available': False, 'reason': 'oscap not installed'}), {})
+
+    def test_high_severity_rules_lead_the_evidence(self):
+        g = self._f({'available': True, 'failed_rules': (
+            [{'id': f'rule_low{i}', 'severity': 'low'} for i in range(6)]
+            + [{'id': 'rule_important', 'severity': 'high'}])})
+        self.assertEqual(g['os.scap']['evidence'][0], 'important')
+
+
+class TestAgentTamperReachesTheAdvisory(unittest.TestCase):
+    """A hash mismatch previously reached nothing but a badge on the device row
+    — for the component that reports everything else about the host."""
+
+    def _f(self, verdict):
+        devs = {'d1': {'name': 'web', 'sysinfo': {}}}
+        return {g['id']: g for g in
+                advisory.build(devs, agent_tamper_by_dev={'d1': verdict})['findings']}
+
+    def test_hash_mismatch_is_critical(self):
+        g = self._f('mismatch')
+        self.assertEqual(g['int.agenthash']['severity'], 'critical')
+
+    def test_rejected_update_is_high_and_a_different_finding(self):
+        g = self._f('update_rejected')
+        self.assertNotIn('int.agenthash', g)
+        self.assertEqual(g['int.agentupdate']['severity'], 'high')
+
+    def test_verified_agent_produces_nothing(self):
+        self.assertEqual(self._f('verified'), {})
+        self.assertEqual(self._f(None), {})
+
+    def test_gatherer_prefers_mismatch_over_rejected(self):
+        # A host with both is compromised, not merely protected.
+        orig = api._agent_integrity_status
+        try:
+            api._agent_integrity_status = lambda dev, sha, ver: 'mismatch'
+            out = api._advisory_agent_tamper(
+                {'d1': {'name': 'x', 'agent_update_rejected': 'bad sig'}})
+        finally:
+            api._agent_integrity_status = orig
+        self.assertEqual(out, {'d1': 'mismatch'})
+
+    def test_gatherer_survives_a_broken_integrity_check(self):
+        orig = api._agent_integrity_status
+        try:
+            def _boom(*a, **k):
+                raise RuntimeError('no canonical binary on disk')
+            api._agent_integrity_status = _boom
+            out = api._advisory_agent_tamper({'d1': {'name': 'x'}})
+        finally:
+            api._agent_integrity_status = orig
+        self.assertEqual(out, {})

@@ -22,10 +22,15 @@ scans or contacts anything:
 | Layer | Sources |
 |---|---|
 | **Application** | Scanner findings (nuclei, nikto, wpscan) — a vulnerable CMS plugin, an exposed admin panel |
-| **Exposure** | World-reachable listening ports, host firewall posture, TLS expiry |
-| **OS** | Package CVEs, pending updates, pending reboot, end-of-life releases |
-| **Identity** | sshd configuration, brute-force pressure |
-| **Integrity** | Failing protect checks, Integrity Guard quarantine |
+| **Exposure** | World-reachable listening ports, host firewall posture, TLS certificate expiry (from the TLS monitor's own probes) |
+| **OS** | Package CVEs (ignore list applied, KEV-listed ones ranked first), pending updates and auto-patch posture, pending reboot, end-of-life releases, failing OpenSCAP benchmark rules |
+| **Identity** | sshd configuration, brute-force pressure, Windows tamper-protection / UAC / Secure Boot |
+| **Integrity** | Failing protect checks, Integrity Guard quarantine, agent-binary hash mismatch or a refused unsigned update |
+| **Data** | Credentials found in files by the secret scanner, stale or missing backups, FileVault and BitLocker |
+
+A CVE on CISA's **KEV** list is ranked above a higher-severity one that is not:
+KEV membership means exploitation has been *observed*, not predicted. CVEs you
+have accepted on the ignore list do not appear at all.
 
 The application layer is the one host telemetry cannot see on its own: a
 vulnerable plugin is not a package, does not appear in a distro CVE feed, and

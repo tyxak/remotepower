@@ -105,6 +105,49 @@ checked was whether anything produces it.
 The new tests assert the **ingest** contract rather than the consumer's — a
 real heartbeat for the whitelist, the real gatherers for the stores.
 
+### Risk and the Advisory now score the data that was already there
+
+`docs/risk.md` advertised CVEs "weighted by severity/**KEV**", "**container
+posture**" and "patch/**backup** freshness". `_device_risk` implemented none of
+those three. Rather than trim the doc down to the code, the code now does what
+the doc claimed — plus three more signals that were collected and scored
+nowhere. Six new factors, each with its own tunable weight on Settings → Alert
+parameters (0 disables), each capped so one bad host cannot dominate:
+
+- **`cve_kev`** — a CVE on CISA's Known Exploited Vulnerabilities list. This
+  outranks severity, because KEV membership means exploitation has been
+  *observed*, not predicted; a KEV-listed high is more urgent than a critical
+  nobody has weaponised. Note `kev` is a read-time decoration the CVE store
+  does not carry, so the scorer stamps it — onto a copy, since writing it back
+  would persist a derived field into the store. An **accepted-risk CVE stays
+  accepted**: the ignore list still wins over KEV.
+- **`av_bad`** — an active malware detection, or real-time protection switched
+  off (scored lower). A host with no AV record at all is not a finding; absent
+  data must not read as "infected".
+- **`image_cves`** — critical and high CVEs in *running* container images. Half
+  the per-finding weight of a host package, because the container boundary is
+  worth something, and capped so one unpatched base image cannot swamp the
+  score.
+- **`backup_stale`**, **`secrets_exposed`**, **`patch_sla_breach`** — a
+  monitored backup gone stale, unmuted credentials sitting in files on disk,
+  and pending updates past the patch SLA. The SLA breach set comes from the
+  same evaluator the Patch SLA page uses, so the two can never disagree.
+
+The **Security Advisory** gains the same treatment: OpenSCAP results were a
+parallel scoring silo with its own page and no route into "what should I fix",
+despite every failed rule already carrying a severity and a remediation id;
+they are now an OS-layer finding, high-severity rules first. And an **agent
+binary that does not match the published hash** — or one that refused an
+update it could not verify — previously reached nothing but a badge on the
+device row, which is a strange place to leave a tamper indicator for the
+component that reports everything else about the host.
+
+One finding was written and then removed rather than shipped: "ports opened
+since the baseline". The port baseline is refreshed on every heartbeat, so by
+the time the advisory reads it the new port is already in it — the source
+cannot support the finding, and shipping it would have added a sixth signal
+that can never fire to a release about finding exactly those.
+
 ### SNMP OID browser
 The SNMP poll reads a fixed set of OIDs: the ones RemotePower knows how to
 interpret. When a device exposes something outside that set — a vendor counter,

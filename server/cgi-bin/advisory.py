@@ -47,10 +47,38 @@ def _finding(fid, layer, severity, title, why, fix, *, device_id='', device='',
 
 
 # ── per-host builders ────────────────────────────────────────────────────────
-def _os_findings(dev_id, name, dev, cve_rec, eol_rec):
-    """Operating-system layer: patches, kernel, EOL, CVEs."""
+def _os_findings(dev_id, name, dev, cve_rec, eol_rec, scap_rec=None):
+    """Operating-system layer: patches, kernel, EOL, CVEs, benchmark."""
     out = []
     si = dev.get('sysinfo') or {}
+
+    # OpenSCAP results were a parallel scoring silo with its own page and no
+    # route into "what should I fix". Each failed rule already carries a
+    # severity and an id, which is more actionable than most findings here.
+    if isinstance(scap_rec, dict) and scap_rec.get('available'):
+        rules = [r for r in (scap_rec.get('failed_rules') or [])
+                 if isinstance(r, dict)]
+        high = [r for r in rules
+                if str(r.get('severity') or '').lower() in ('high', 'critical')]
+        if rules:
+            ev = [str((r.get('id') or '?')).rsplit('_', 1)[-1][:70]
+                  for r in (high + [r for r in rules if r not in high])[:6]]
+            score = scap_rec.get('score')
+            out.append(_finding(
+                'os.scap', 'os', 'high' if high else 'medium',
+                f'{len(rules)} benchmark rule(s) failing'
+                + (f' ({len(high)} high)' if high else '')
+                + (f' — {scap_rec.get("profile") or "profile"} scored {score}%'
+                   if isinstance(score, (int, float)) else ''),
+                'These are the hardening controls the benchmark you chose says '
+                'this host should meet and does not. Unlike a CVE, none of them '
+                'will be fixed by patching — they stay failing until someone '
+                'changes the configuration.',
+                'Open Security → SCAP and download the report; it names the '
+                'remediation for each rule. Fix the high-severity ones first, '
+                'and re-scan to confirm rather than assuming.',
+                device_id=dev_id, device=name, evidence=ev,
+                source='OpenSCAP', doc='docs/fleet-management.md'))
 
     # The caller applies the CVE ignore list before handing findings over, so
     # `ignored` is already stamped where it applies. (Until v6.4.1 it never was
@@ -330,10 +358,39 @@ def _identity_findings(dev_id, name, dev, bf_sources=None):
     return out
 
 
-def _integrity_findings(dev_id, name, dev, failed_checks):
+def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None):
     """Has anything on this host changed that should not have?"""
     out = []
     si = dev.get('sysinfo') or {}
+
+    # The agent binary itself. A hash mismatch against the canonical build, or
+    # an agent refusing an unsigned update, is a tamper indicator — and until
+    # v6.4.1 it reached nothing but a badge on the device row.
+    if agent_tamper == 'mismatch':
+        out.append(_finding(
+            'int.agenthash', 'integrity', 'critical',
+            'Agent binary does not match the published build',
+            'The agent reports the current version but a different hash. That '
+            'is tampering, a corrupted update, or a partial one — and the '
+            'agent is the thing telling you everything else about this host, '
+            'so nothing it reports can be trusted until this is resolved.',
+            'Re-run the agent install from the server to restore the '
+            'published binary, then confirm the hash matches. If it was not '
+            'a failed update, treat the host as compromised.',
+            device_id=dev_id, device=name, source='agent integrity',
+            doc='docs/security.md'))
+    elif agent_tamper == 'update_rejected':
+        out.append(_finding(
+            'int.agentupdate', 'integrity', 'high',
+            'Agent refused an update it could not verify',
+            'The agent rejected a self-update because the signature did not '
+            'check out. That is the tripwire working — but something served '
+            'this host an update it should not have.',
+            'Confirm the release signing key on the server matches the one '
+            'the agent trusts, and check whether the update came from where '
+            'you think it did.',
+            device_id=dev_id, device=name, source='agent integrity',
+            doc='docs/security.md'))
 
     guard = si.get('guard_quarantine')
     if isinstance(guard, list) and guard:
@@ -496,7 +553,8 @@ def _application_findings(dev_id, name, scans):
 def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           failed_checks_by_dev=None, exposure_mutes=None, muted_fn=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
-          tls_expiring=None, now=None):
+          tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
+          now=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -514,6 +572,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     bf_by_dev = bf_by_dev or {}
     secrets_by_dev = secrets_by_dev or {}
     backups_by_dev = backups_by_dev or {}
+    scap_by_dev = scap_by_dev or {}
+    agent_tamper_by_dev = agent_tamper_by_dev or {}
 
     findings = []
     for dev_id, dev in (devices or {}).items():
@@ -521,11 +581,12 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
             continue
         name = dev.get('name') or dev_id
         findings += _os_findings(dev_id, name, dev, cve_by_dev.get(dev_id),
-                                 eol_by_dev.get(dev_id))
+                                 eol_by_dev.get(dev_id), scap_by_dev.get(dev_id))
         findings += _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn)
         findings += _identity_findings(dev_id, name, dev, bf_by_dev.get(dev_id))
         findings += _integrity_findings(dev_id, name, dev,
-                                        failed_checks_by_dev.get(dev_id))
+                                        failed_checks_by_dev.get(dev_id),
+                                        agent_tamper_by_dev.get(dev_id))
         findings += _data_findings(dev_id, name, dev, secrets_by_dev.get(dev_id),
                                    backups_by_dev.get(dev_id))
         findings += _application_findings(dev_id, name, scans_by_dev.get(dev_id))

@@ -1044,6 +1044,7 @@ for _ad_name in (
         'handle_security_advisory', 'handle_security_advisory_brief',
         '_advisory_scope', '_build_advisory', '_failed_protect_checks',
         '_advisory_brute_force', '_advisory_stale_backups', '_advisory_tls_expiring',
+        '_advisory_agent_tamper',
 ):
     globals()[_ad_name] = getattr(advisory_handlers_mod, _ad_name)
 del _ad_name
@@ -44231,11 +44232,21 @@ _RISK_WEIGHTS = {
     # v4.10.0: more posture/health signals already collected (no new probing)
     'os_eol': 14, 'os_eol_soon': 4, 'overheating': 10, 'config_drift': 3,
     'clock_skew': 4, 'gateway_down': 10, 'oom_recent': 6,
+    # v6.4.1: five signals RemotePower already collected and scored nowhere.
+    # Three of them (container posture, backup freshness, and CVE weighting by
+    # KEV) were described in docs/risk.md as if they were already implemented.
+    'av_bad': 12,            # infection found, or no working AV at all
+    'cve_kev': 12,           # CVE on CISA's known-exploited list
+    'image_cves': 4,         # critical/high CVEs in a RUNNING container image
+    'backup_stale': 8,       # a monitored backup is stale or missing
+    'secrets_exposed': 10,   # unmuted credentials sitting in files on disk
+    'patch_sla_breach': 5,   # oldest pending update is past the patch SLA
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
               'mount_issue': 24, 'storage_degraded': 24, 'smart_failure': 24,
-              'failed_units': 15, 'config_drift': 12}
+              'failed_units': 15, 'config_drift': 12,
+              'image_cves': 16, 'secrets_exposed': 20, 'cve_kev': 36}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -44277,7 +44288,9 @@ def _risk_level(score):
 
 
 def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
-                 cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None):
+                 cve_ignore=None, exposure_mutes=None, pkg_entry=None, weights=None,
+                 av_rec=None, img_rec=None, backup_stale=None, secrets_rec=None,
+                 patch_sla_breach=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     # v6.2.2 batch 4: operator-configurable per-factor weights. Hoisted by the
@@ -44303,6 +44316,16 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
                      if not f.get('ignored')]
         except Exception:
             pass
+    # v6.4.1: KEV membership means exploitation has been OBSERVED, not
+    # forecast, so it outranks severity — a KEV-listed medium is more urgent
+    # than a critical nobody has weaponised. Scored on top of the severity
+    # factors rather than instead of them, and capped. `kev` is stamped by
+    # _enrich_cve_findings, which the caller runs; a fleet that has never
+    # fetched the feed simply scores nothing here.
+    kev_n = sum(1 for f in (finds or []) if isinstance(f, dict) and f.get('kev'))
+    if kev_n:
+        _add('cve_kev', min(_RISK_CAPS['cve_kev'], kev_n * w['cve_kev']),
+             f'{kev_n} CVE(s) on CISA KEV — actively exploited in the wild')
     crit = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'critical')
     high = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'high')
     if crit:
@@ -44433,6 +44456,56 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     _lo = si.get('last_oom_ts')
     if isinstance(_lo, (int, float)) and _lo > 0 and (now - _lo) < _oom_recent_window():
         _add('oom_recent', w['oom_recent'], 'OOM killer fired in last 24h')
+
+    # ── v6.4.1: signals already collected that scored nowhere ────────────────
+    # Endpoint AV. An active detection outranks everything below it; "no working
+    # AV at all" is scored too, because an unprotected host reads as clean.
+    if isinstance(av_rec, dict) and av_rec:
+        _inf = sum(int((av_rec.get(t) or {}).get('infected') or 0) for t in _AV_TOOLS)
+        if _inf:
+            _add('av_bad', w['av_bad'], f'{_inf} active malware detection(s)')
+        elif any(isinstance(av_rec.get(t), dict) and
+                 av_rec[t].get('realtime') is False for t in _AV_TOOLS):
+            _add('av_bad', max(1, w['av_bad'] // 2),
+                 'real-time malware protection is switched off')
+
+    # Container images. A CVE in a running image is as reachable as one in a
+    # host package — half the per-finding weight because the container boundary
+    # is worth something, and capped so one unpatched base image cannot
+    # dominate the score.
+    _imgs = (img_rec or {}).get('images') if isinstance(img_rec, dict) else None
+    if isinstance(_imgs, list):
+        _ic = sum(int(i.get('critical') or 0) for i in _imgs if isinstance(i, dict))
+        _ih = sum(int(i.get('high') or 0) for i in _imgs if isinstance(i, dict))
+        if _ic or _ih:
+            _add('image_cves',
+                 min(_RISK_CAPS['image_cves'],
+                     (_ic * w['image_cves']) + (_ih * max(1, w['image_cves'] // 2))),
+                 f'{_ic} critical / {_ih} high CVE(s) in running container images')
+
+    # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
+    if backup_stale:
+        _add('backup_stale', w['backup_stale'],
+             f'{len(backup_stale)} backup(s) stale or missing')
+
+    # Credentials sitting in files. Muted findings are operator-accepted.
+    _sf = [f for f in ((secrets_rec or {}).get('findings') or [])
+           if isinstance(f, dict) and not f.get('muted')]
+    if _sf:
+        _add('secrets_exposed',
+             min(_RISK_CAPS['secrets_exposed'], len(_sf) * w['secrets_exposed']),
+             f'{len(_sf)} credential(s) found in files on disk')
+
+    # Patch SLA. `pending_updates` counts updates; this scores how LONG the
+    # oldest has been waiting, which is what an SLA is actually about. The
+    # breach set comes from _eval_patch_sla — the same evaluator the Patch SLA
+    # page uses, so the two can never disagree about whether a host is in
+    # breach.
+    if patch_sla_breach:
+        _add('patch_sla_breach', w['patch_sla_breach'],
+             str(patch_sla_breach)[:120] if isinstance(patch_sla_breach, str)
+             else 'pending updates past the patch SLA')
+
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
             'score': score, 'level': _risk_level(score),
@@ -44879,21 +44952,69 @@ def _compute_fleet_risk():
     exposure_mutes = (load(CONFIG_FILE) or {}).get('exposure_mutes') or []
     # v4.10.0: structured os_id/version_id for the OS end-of-life factor.
     pkgs = (load(PACKAGES_FILE) or {}) if backend_exists(PACKAGES_FILE) else {}
+    # v6.4.1: stores that were already collected and scored nowhere. All are
+    # optional — a fleet with no container scanning or no secret scan simply
+    # contributes no points, rather than the factor being absent from the model.
+    # `kev` is a read-time decoration, not something the CVE store carries —
+    # without this the cve_kev factor could never fire, which is precisely the
+    # dead-signal class this release went hunting for.
+    try:
+        _kev_set, _epss_map = _kev_epss()
+    except Exception:
+        _kev_set, _epss_map = set(), {}
+    av = (load(AV_FILE) or {}) if backend_exists(AV_FILE) else {}
+    imgs = (load(IMAGE_CVE_FILE) or {}) if backend_exists(IMAGE_CVE_FILE) else {}
+    secrets = (load(SECRETS_FILE) or {}) if backend_exists(SECRETS_FILE) else {}
     now = int(time.time())
     try:
         ttl = get_online_ttl()
     except Exception:
         ttl = 180
     weights = _risk_weights()   # hoist the config read out of the per-device loop
+    # Backup state is keyed `<device>:<path>`; fold it into per-device counts
+    # once rather than re-scanning the store for every host.
+    stale_backups = {}
+    _bs_file = DATA_DIR / 'backup_state.json'
+    if backend_exists(_bs_file):
+        for _k, _e in (load(_bs_file) or {}).items():
+            if ':' in str(_k) and isinstance(_e, dict) and not _e.get('ok', True):
+                stale_backups.setdefault(str(_k).split(':', 1)[0], []).append(_k)
+    # Patch-SLA breaches come from the same evaluator the Patch SLA page uses,
+    # over a COPY of the aging store so scoring never writes it.
+    sla_detail = {}
+    try:
+        if _config_ro().get('patch_sla'):
+            _rows, _ = _eval_patch_sla(devices, _config_ro(),
+                                       dict(load(PATCH_AGE_FILE) or {}), now)
+            sla_detail = {r['device_id']: (r.get('detail') or 'past the patch SLA')
+                          for r in _rows if r.get('breached')}
+    except Exception:
+        sla_detail = {}
     out = []
     for dev_id, dev in devices.items():
         if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
             continue
+        _cve_rec = cve.get(dev_id) or {}
+        if _kev_set and isinstance(_cve_rec.get('findings'), list):
+            # Stamp onto a COPY — `cve` came from load(), and mutating it would
+            # leak decorations into whatever reads the store next.
+            _cve_rec = dict(_cve_rec)
+            _cve_rec['findings'] = [dict(f) if isinstance(f, dict) else f
+                                    for f in _cve_rec['findings']]
+            try:
+                _enrich_cve_findings(_cve_rec['findings'], _kev_set, _epss_map)
+            except Exception:
+                pass
         out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
-                                cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl,
+                                _cve_rec, sv.get(dev_id) or {}, now, ttl,
                                 hw.get(dev_id) or {},
                                 cve_ignore=cve_ignore, exposure_mutes=exposure_mutes,
-                                pkg_entry=pkgs.get(dev_id) or {}, weights=weights))
+                                pkg_entry=pkgs.get(dev_id) or {}, weights=weights,
+                                av_rec=av.get(dev_id) or {},
+                                img_rec=imgs.get(dev_id) or {},
+                                backup_stale=stale_backups.get(dev_id) or [],
+                                secrets_rec=secrets.get(dev_id) or {},
+                                patch_sla_breach=sla_detail.get(dev_id)))
     out.sort(key=lambda r: -r['score'])
     return out
 
