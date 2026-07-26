@@ -19583,6 +19583,44 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
+// v6.4.1: SNMP OID browser (device drawer → SNMP tab). Reads _drawerDeviceId
+// rather than taking the id through data-arg — the dispatcher coerces a
+// numeric-looking arg with Number(), and a hex device id like '1e5' becomes
+// Infinity on the way through.
+async function snmpWalk() {
+  const id = _drawerDeviceId;
+  const out = document.getElementById('snmp-walk-out');
+  const oidEl = document.getElementById('snmp-walk-oid');
+  if (!id || !out || !oidEl) return;
+  const oid = (oidEl.value || '').trim();
+  if (!/^\d+(\.\d+)+$/.test(oid)) {
+    out.innerHTML = '<div class="c-red">Enter a dotted-decimal OID, for example 1.3.6.1.2.1.1</div>';
+    return;
+  }
+  const max = parseInt(document.getElementById('snmp-walk-max')?.value, 10) || 256;
+  out.innerHTML = '<div class="c-muted">Walking…</div>';
+  const r = await api('POST', `/devices/${id}/snmp/walk`, { oid, max });
+  if (!r || r.error) {
+    out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Walk failed')}</div>`;
+    return;
+  }
+  if (!r.rows || !r.rows.length) {
+    out.innerHTML = `<div class="c-muted">No objects under <code>${escHtml(oid)}</code> — the device does not implement this subtree.</div>`;
+    return;
+  }
+  const head = `<div class="hint">${r.count} object(s) in ${r.elapsed_ms} ms`
+    + (r.truncated ? ` — stopped at the ${max}-row cap, narrow the OID to see the rest` : '')
+    + `</div>`;
+  out.innerHTML = head
+    + '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13">'
+    + '<thead><tr class="c-muted"><th scope="col">OID</th><th scope="col">Name</th><th scope="col">Value</th></tr></thead><tbody>'
+    + r.rows.map(row =>
+        `<tr><td><code class="fs-11">${escHtml(row.oid)}</code></td>`
+        + `<td class="fs-11 c-muted">${escHtml(row.name || '')}</td>`
+        + `<td>${escHtml(row.value)}</td></tr>`).join('')
+    + '</tbody></table></div>';
+}
+
 function switchDrawerTab(tab) {
   // CSP L1 fallout (v3.0.5): the drawer-tab-audit panel has the d-none
   // utility class for its initial-hide; setting style.display = '' to
@@ -21418,8 +21456,39 @@ async function _loadAuditSection(key) {
         if (data.ubnt && Object.keys(data.ubnt).length) counts.push('ubnt');
         if (data.synology && (data.synology.disks || []).length) counts.push(`synology ${data.synology.disks.length}d`);
         else if (data.synology) counts.push('synology');
+        // v6.4.1: OID browser. The deep poll above answers "what does
+        // RemotePower already know how to read"; this answers "what does this
+        // device actually expose", which is the question you have when a
+        // vendor counter is in none of our parsers. Results render into
+        // #snmp-walk-out on demand — no walk runs until the button is pressed.
+        h += `<h4 class="mt-12">Browse OID tree</h4>
+          <p class="hint">Walk a subtree of this device's MIB using its stored SNMP credentials. Start from a preset, or type any dotted-decimal OID. Large subtrees return a capped page.</p>
+          <div class="sb-controls">
+            <select id="snmp-walk-preset" class="form-input input-auto" aria-label="Common subtree"></select>
+            <input type="text" id="snmp-walk-oid" class="form-input ff-mono input-auto" value="1.3.6.1.2.1.1" placeholder="1.3.6.1.2.1.1" maxlength="256" aria-label="OID to walk">
+            <select id="snmp-walk-max" class="form-input input-auto" aria-label="Maximum rows">
+              <option value="256">256 rows</option>
+              <option value="512">512 rows</option>
+              <option value="1000">1000 rows</option>
+              <option value="2000">2000 rows</option>
+            </select>
+            <button class="btn-icon" data-action="snmpWalk">${_icon('search', 14)} Walk</button>
+          </div>
+          <div id="snmp-walk-out" class="mt-8"></div>`;
         badge.textContent = counts.join(' · ') || 'loaded';
         body.innerHTML = h || '<div class="c-muted">No SNMP data returned.</div>';
+        // Presets come from the server so the list has one definition.
+        const _pre = document.getElementById('snmp-walk-preset');
+        if (_pre) {
+          _pre.appendChild(new Option('Common subtrees…', ''));
+          for (const p of (data.presets || [])) {
+            _pre.appendChild(new Option(p.label, p.oid));
+          }
+          _pre.addEventListener('change', () => {
+            const t = document.getElementById('snmp-walk-oid');
+            if (t && _pre.value) t.value = _pre.value;
+          });
+        }
         break;
       }
 

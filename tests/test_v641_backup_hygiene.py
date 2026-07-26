@@ -56,6 +56,19 @@ class _BackupCase(unittest.TestCase):
         api.respond = _resp
         api.save(api.CONFIG_FILE, {})
         api._invalidate_load_cache(api.CONFIG_FILE)
+        # The backup directory is derived from RP_DATA_DIR, which every test
+        # module in a given xdist worker shares — so any other module that
+        # runs a backup leaves archives here. Asserting "no *.tar.gz exists"
+        # against a directory we never reset is the order-dependent
+        # false-failure class: green alone, red only under a particular
+        # cross-module order.
+        d = Path(api._default_backup_dir())
+        if d.is_dir():
+            for f in d.glob('remotepower_data_*'):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
 
     def tearDown(self):
         api._backup_passphrase = self._real_pp

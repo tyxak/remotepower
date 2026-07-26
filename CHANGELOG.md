@@ -57,6 +57,102 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Fleet visibility: four security signals that could never fire, and CPU temps that never rendered
+
+Every one of these looked correct in review and passed the existing tests,
+because the tests hand-build the data the consumer expects. What they never
+checked was whether anything produces it.
+
+- **Thermal Health showed disks and GPUs but never CPU or board sensors.** The
+  agent collects them and the ingest persists them correctly — one level deeper
+  than `smart` and `gpus`, under `hardware`. Three readers dereferenced the flat
+  key, so on every real agent-reported host they got an empty list: no
+  `coretemp/Package id 0` on the page, and the `overheating` risk and
+  reliability signals could only ever fire on a hot disk or GPU. The tell was
+  visible all along — the device drawer's Hardware tab reads the correct path
+  and *did* show the sensors for the same host. `crit_c` was separately dropped
+  by the ingest whitelist, which is why the Critical and Headroom columns were
+  permanently blank. The fixtures and the demo seeder both encoded the buggy
+  shape, which is exactly why the suite stayed green; they now use the shape a
+  real agent sends.
+- **The Security Advisory's entire identity layer was unreachable.** It keys off
+  `sysinfo.ssh_config` — a field no agent has ever collected and the heartbeat
+  sanitizer has never whitelisted. There is now an `sshd -T` collector (which
+  resolves Includes, Match blocks and defaults, so it reports what sshd will
+  actually do; it falls back to parsing the file, where an absent directive
+  means the compiled-in default rather than "off"), the whitelist entry, and
+  delta-sysinfo registration on both sides. Root login, password
+  authentication and — new — **empty passwords permitted**, which is critical.
+- **TLS expiry advice was reading a field that does not exist.** Repointed at
+  the TLS monitor's own probe results. Those are keyed by monitored target
+  rather than by device, so it is now a fleet-level finding, and an
+  already-expired certificate is separated from an expiring one.
+- **Brute-force pressure was read from the wrong store.** The data has always
+  existed, in its own store, in a different shape. Repointed — and the fix text
+  now *states* whether fail2ban is installed and jailing rather than telling the
+  operator to go and check something we already know.
+- **An accepted-risk CVE kept driving the advisory.** `ignored` is a read-time
+  decoration the scanner stamps on a copy; the advisory read the raw store, so
+  a CVE you had accepted vanished from Risk and stayed in the Advisory — the
+  two disagreeing about the same finding. Now applied, along with **KEV
+  enrichment**: a KEV-listed high outranks a critical nobody has weaponised,
+  because CISA lists those on evidence of exploitation, not forecast.
+- **The `data` layer had been declared with no builder behind it** since the
+  advisory shipped. It now carries secret-scanner findings, stale backups,
+  FileVault and BitLocker. Windows tamper-protection, UAC and Secure-Boot gaps
+  reach the identity layer.
+
+The new tests assert the **ingest** contract rather than the consumer's — a
+real heartbeat for the whitelist, the real gatherers for the stores.
+
+### SNMP OID browser
+The SNMP poll reads a fixed set of OIDs: the ones RemotePower knows how to
+interpret. When a device exposes something outside that set — a vendor counter,
+a PDU's per-outlet draw, a UPS runtime estimate — there was no way to see it.
+The device drawer's SNMP tab gains **Browse OID tree**: walk any subtree using
+the device's stored credentials, from a preset or a typed OID. Well-known OIDs
+resolve to names; vendor-private ones stay numeric, because naming those needs
+a MIB we do not ship and a guess would be worse than a blank. Admin-only,
+audited, capped per walk, and read-only — there is no SET path.
+`POST /api/devices/{id}/snmp/walk`
+
+### Dialogs, widths, and controls that were too small to hit
+- **A backdrop click no longer dismisses a dialog on desktop.** Losing a
+  half-filled form to a stray click beside it is a real cost. Escape still
+  closes, and every dialog now carries a **×** in its top-right corner —
+  injected by `openModal` rather than hand-added to ninety static overlays, so
+  a new dialog cannot ship without one. Touch and narrow viewports keep
+  backdrop dismissal, where the dialog can fill the screen and a corner button
+  is a smaller target.
+- **One width scale.** The CMDB, ticket and storage dialogs each carried their
+  own bespoke width while everything else sat at 680px, so two dialogs opened
+  from the same page were visibly different sizes. Three named tokens now, the
+  wide tier anchored on the CMDB dialog, and no per-modal overrides left.
+- **Cramped controls widened**: bare toolbar selects get the same 160px floor
+  the styled ones already had, the alert-parameter numeric inputs go from 100px
+  to 150px, and the small buttons and chips get more horizontal room.
+
+### Monitor history is no longer under an hour deep
+The per-monitor check history was capped at 50 entries — at the default
+60-second cadence, under an hour. That same window feeds the Live Monitor
+sparkline, the latency percentiles and the SLO availability figure, so all
+three described a period far shorter than the one an operator reasons about.
+The default is now 300 (about five hours) and **`monitor_history_max`** on
+Settings → Alert parameters tunes it up to 5000; the age-based retention sweep
+still applies on top. The trim reads the setting once per batch rather than
+once per monitor.
+
+### Drift: Snap's mount units are no longer a critical alert every few days
+Snap encodes the package revision in the unit filename, so every `snap refresh`
+removes `snap-snapd-26865.mount` and adds `snap-snapd-27591.mount`, plus two
+enable-symlinks. A `dir_baseline` watch on `/etc/systemd/system` reported that
+as a critical added/removed diff on any Ubuntu host, for a package manager
+doing its job — the kind of recurring false positive that teaches operators to
+ignore the check. The revisioned patterns are excluded; everything else in that
+directory, including anything merely *containing* "snap", is still compared
+byte-for-byte. The tests that matter here are the ones asserting real units are
+still watched.
+
 ### KMIP install fixes (found in first-run testing)
 - **The sidecar reported "Not installed" while running perfectly.** The install
   snippet derived the env file's group from `/etc/remotepower/api.env`, which

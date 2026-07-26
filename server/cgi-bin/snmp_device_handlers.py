@@ -280,4 +280,115 @@ def handle_device_snmp_deep(dev_id):
         out['errors']['synology'] = f'{type(e).__name__}: {e}'
 
     out['polled_at'] = int(time.time())
+    # The OID browser lives on this same tab and needs its preset list before
+    # the first walk — carried here so SNMP_WALK_PRESETS stays the one
+    # definition rather than being mirrored in the frontend.
+    out['presets'] = [{'oid': o, 'label': lbl} for o, lbl in SNMP_WALK_PRESETS]
     A.respond(200, out)
+
+
+# Where an operator actually starts when exploring an unknown device. Offered as
+# presets so the common cases need no OID typing at all.
+SNMP_WALK_PRESETS = (
+    ('1.3.6.1.2.1.1',    'System (sysDescr, uptime, contact, location)'),
+    ('1.3.6.1.2.1.2.2.1', 'Interface table (ifTable)'),
+    ('1.3.6.1.2.1.31.1.1.1', 'Interface names and aliases (ifXTable)'),
+    ('1.3.6.1.2.1.25.2.3.1', 'Storage table (hrStorageTable)'),
+    ('1.3.6.1.2.1.25.3.3.1', 'Processor load (hrProcessorTable)'),
+    ('1.3.6.1.2.1.4.20.1',   'IP address table'),
+    ('1.3.6.1.4.1',          'Enterprises (vendor subtree — large, expect a cap hit)'),
+)
+
+_WALK_MAX_ARCS = 64          # a legal OID is nowhere near this long
+_WALK_MAX_ARC  = 2 ** 32 - 1  # sub-identifiers are unsigned 32-bit
+
+
+def _validate_walk_oid(raw):
+    """Strict dotted-decimal OID, or None.
+
+    The value is BER-encoded into a packet we send, so it never reaches a
+    shell — but an unbounded arc count or a huge sub-identifier still lets a
+    caller inflate the request, and `int()` on junk would surface as a 500
+    rather than a 400. Validate rather than rely on the encoder raising.
+    """
+    s = str(raw or '').strip().lstrip('.')
+    if not s:
+        return None
+    parts = s.split('.')
+    if len(parts) < 2 or len(parts) > _WALK_MAX_ARCS:
+        return None
+    for p in parts:
+        if not p.isdigit() or len(p) > 10:
+            return None
+        if int(p) > _WALK_MAX_ARC:
+            return None
+    # First two arcs are constrained by BER's combined first byte.
+    if int(parts[0]) > 2 or (int(parts[0]) < 2 and int(parts[1]) > 39):
+        return None
+    return s
+
+
+def handle_device_snmp_walk(dev_id):
+    """POST /api/devices/<id>/snmp/walk {oid, max} — browse an OID subtree.
+
+    The exploration tool the deep-poll page was missing: the deep poll answers
+    "what does RemotePower already know how to read", this answers "what does
+    this device actually expose", which is the question you have when a vendor
+    counter is not in any of our parsers.
+
+    Admin-only and audited — it reads arbitrary OIDs from a device using the
+    stored community/v3 credentials, which is a broader read than the fixed
+    poll set. Bounded by max_results so a walk of `enterprises` on a big switch
+    returns a capped page rather than running until the request times out.
+    """
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    if not A._validate_id(dev_id):
+        A.respond(400, {'error': 'invalid device id'})
+    devs = A.load(A.DEVICES_FILE)
+    dev = devs.get(dev_id)
+    if not dev:
+        A.respond(404, {'error': 'device not found'})
+    target = A._device_snmp_target(dev)
+    if not target:
+        A.respond(400, {'error': 'SNMP not configured/enabled on this device'})
+    body = A.get_json_obj()
+    oid = _validate_walk_oid(body.get('oid') or '1.3.6.1.2.1.1')
+    if not oid:
+        A.respond(400, {'error': 'oid must be a dotted-decimal OID, e.g. 1.3.6.1.2.1.1'})
+    try:
+        limit = max(1, min(2000, int(body.get('max') or 256)))
+    except (TypeError, ValueError):
+        limit = 256
+    host, community, port = target
+    import snmp as snmp_mod
+    started = time.time()
+    try:
+        raw = snmp_mod.snmp_walk(host, community, oid, port=port,
+                                 timeout=2.5, max_results=limit)
+    except snmp_mod.SnmpError as e:
+        # The device answered with something we understood as a refusal — that
+        # is a useful answer, not a server fault.
+        A.respond(502, {'error': f'SNMP walk failed: {str(e)[:200]}'})
+        return
+    except Exception as e:
+        A.respond(502, {'error': f'{type(e).__name__}: {str(e)[:200]}'})
+        return
+    rows = []
+    for k, v in raw.items():
+        if isinstance(v, bytes):
+            v = v.decode('utf-8', 'replace')
+        rows.append({'oid': k, 'name': snmp_mod.oid_label(k),
+                     'value': A._sanitize_str(str(v), 512)})
+    rows.sort(key=lambda r: [int(x) for x in r['oid'].split('.') if x.isdigit()])
+    A.audit_log(actor, 'device_snmp_walk',
+                f'device={dev_id} oid={oid} rows={len(rows)}')
+    A.respond(200, {
+        'ok': True, 'host': host, 'port': port, 'oid': oid,
+        'rows': rows, 'count': len(rows),
+        # A full page means the cap was hit, so there is probably more below.
+        'truncated': len(rows) >= limit,
+        'elapsed_ms': int((time.time() - started) * 1000),
+        'presets': [{'oid': o, 'label': lbl} for o, lbl in SNMP_WALK_PRESETS],
+    })

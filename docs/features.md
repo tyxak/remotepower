@@ -546,7 +546,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Store-and-forward | Agent spools metric samples locally when the server is unreachable (bounded ring) and backfills the gap into the sparklines on reconnect; backfilled history never triggers retro-alerts *(v6.0.0)* |
 | Adjustable poll interval | Per-device cadence (10–3600s), applied on next heartbeat |
 | Mailbox monitor | Counts files in configured directories (Maildir unread); `mailbox_threshold` *(v2.4.3)* |
-| SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); `snmp_unreachable`/`snmp_recover`; **SNMPv2c or SNMPv3/USM** (noAuth/auth/authPriv — MD5/SHA-1/SHA-2 auth, AES-128 privacy) *(v3: v5.8.0)* |
+| SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); `snmp_unreachable`/`snmp_recover`; **SNMPv2c or SNMPv3/USM** (noAuth/auth/authPriv — MD5/SHA-1/SHA-2 auth, AES-128 privacy) *(v3: v5.8.0)*. An **OID browser** in the device drawer walks any subtree with the device's stored credentials — presets for the common MIBs, well-known OIDs resolved to names, admin-only and audited, capped per walk. `POST /api/devices/{id}/snmp/walk` *(v6.4.1)* |
 
 ## Platform, scale & storage backend
 

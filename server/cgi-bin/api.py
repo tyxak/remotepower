@@ -1259,6 +1259,7 @@ _ds_spec.loader.exec_module(snmp_device_handlers_mod)
 snmp_device_handlers_mod.bind(globals())
 for _ds_name in (
         'handle_device_snmp', 'handle_device_snmp_poll', 'handle_device_snmp_deep',
+        'handle_device_snmp_walk', '_validate_walk_oid', 'SNMP_WALK_PRESETS',
 ):
     globals()[_ds_name] = getattr(snmp_device_handlers_mod, _ds_name)
 del _ds_name
@@ -63509,7 +63510,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
-    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep',\n                                     '/decommissioned'))"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',\n                                     '/decommissioned'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
     ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
     ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
@@ -63566,6 +63567,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PATCH',), '/api/devices/', '/compose_enabled', 'handle_device_compose_enabled', "pi.startswith('/api/devices/') and pi.endswith('/compose_enabled') and m == 'PATCH'"),
     ('pat', ('POST',), '/api/devices/', '/snmp/poll', 'handle_device_snmp_poll', "pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/snmp/deep', 'handle_device_snmp_deep', "pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
     ('pat', ('POST',), '/api/devices/', '/routeros/action', 'handle_device_routeros_action', "pi.startswith('/api/devices/') and pi.endswith('/routeros/action') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/routeros/firewall', 'handle_device_routeros_firewall', "pi.startswith('/api/devices/') and pi.endswith('/routeros/firewall') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/routeros/qos', 'handle_device_routeros_qos', "pi.startswith('/api/devices/') and pi.endswith('/routeros/qos') and m == 'GET'"),
@@ -63929,7 +63931,7 @@ def _route_code_5(pi, m):
                                      # v1.11.10
                                      '/metric-thresholds',
                                      # v3.2.0 (B5)
-                                     '/snmp', '/snmp/poll', '/snmp/deep',
+                                     '/snmp', '/snmp/poll', '/snmp/deep', '/snmp/walk',
                                      '/decommissioned'))):
         handle_device_delete(pi[len('/api/devices/'):])
         return True
