@@ -138,10 +138,22 @@ class TestHandlerContract(unittest.TestCase):
         import clientjs
         self.assertNotIn('SNMP_WALK_FALLBACK_PRESETS', clientjs.client_js())
 
-    def test_deep_poll_carries_the_presets(self):
+    def test_presets_ride_on_the_snmp_config_response(self):
+        """NOT on the deep poll: that is exactly the call that fails on the
+        devices where hand-exploration matters most, and the browser renders
+        on those failure paths."""
+        cfg_fn = self.src[self.src.index('def handle_device_snmp('):
+                          self.src.index('def handle_device_snmp_poll(')]
+        self.assertIn('walk_presets', cfg_fn)
+        self.assertIn('SNMP_WALK_PRESETS', cfg_fn)
+
+    def test_deep_poll_does_not_also_carry_them(self):
+        # One carrier. (The previous version of this test sliced from the deep
+        # handler to _validate_walk_oid — a range that contains the constant's
+        # own definition, so it passed no matter what the handler did.)
         deep = self.src[self.src.index('def handle_device_snmp_deep('):
-                        self.src.index('def _validate_walk_oid(')]
-        self.assertIn('SNMP_WALK_PRESETS', deep)
+                        self.src.index('SNMP_WALK_PRESETS = (')]
+        self.assertNotIn('SNMP_WALK_PRESETS', deep)
 
 
 class TestFrontend(unittest.TestCase):
@@ -179,3 +191,42 @@ class TestFrontend(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestBrowserIsReachableWhenThePollFails(unittest.TestCase):
+    """The first shape of this shipped behind the SNMP tab's two early
+    returns, so a device whose deep poll errored — SNMP not fully reachable,
+    or a vendor the parsers do not cover — showed no browser at all. That is
+    precisely the device an operator wants to explore by hand."""
+
+    def setUp(self):
+        import clientjs
+        self.js = clientjs.client_js()
+        i = self.js.index("case 'snmp': {")
+        self.tab = self.js[i:self.js.index("case 'routeros'", i)]
+
+    def test_panel_is_a_helper_not_inline_at_the_end(self):
+        self.assertIn('function _snmpWalkPanelHtml(', self.js)
+        self.assertIn('function _wireSnmpWalkPresets(', self.js)
+
+    def test_every_exit_from_the_snmp_tab_renders_it(self):
+        # One call per `return` plus the success path. If a new early return is
+        # added without the panel, this count goes out of step.
+        returns = self.tab.count('return;')
+        panels = self.tab.count('_snmpWalkPanelHtml()')
+        self.assertEqual(panels, returns + 1,
+                         'an exit path from the SNMP tab renders no OID browser')
+
+    def test_presets_are_wired_on_each_of_those_paths(self):
+        self.assertEqual(self.tab.count('_wireSnmpWalkPresets('),
+                         self.tab.count('_snmpWalkPanelHtml()'))
+
+    def test_presets_come_from_the_config_call_not_the_deep_poll(self):
+        self.assertIn('_sd?.walk_presets', self.tab)
+        # the deep-poll result must not be the preset source any more
+        self.assertNotIn('data.presets', self.tab)
+
+    def test_missing_presets_still_leave_a_usable_input(self):
+        fn = self.js[self.js.index('function _wireSnmpWalkPresets('):]
+        fn = fn[:fn.index('\n}')]
+        self.assertIn('presets || []', fn)

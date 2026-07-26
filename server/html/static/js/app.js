@@ -19585,6 +19585,45 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
+// v6.4.1: the OID-browser panel. The deep poll answers "what does RemotePower
+// already know how to read"; this answers "what does this device actually
+// expose", which is the question you have when a vendor counter is in none of
+// our parsers — or when the poll came back empty and you need to find out why.
+// That second case is why the panel renders on the SNMP tab's FAILURE paths
+// too: hiding the exploration tool exactly when exploration is called for was
+// the first shape this shipped in.
+function _snmpWalkPanelHtml() {
+  return `<h4 class="mt-12">Browse OID tree</h4>
+    <p class="hint">Walk a subtree of this device's MIB using its stored SNMP credentials. Start from a preset, or type any dotted-decimal OID. Large subtrees return a capped page.</p>
+    <div class="sb-controls">
+      <select id="snmp-walk-preset" class="form-input input-auto" aria-label="Common subtree"></select>
+      <input type="text" id="snmp-walk-oid" class="form-input ff-mono input-auto" value="1.3.6.1.2.1.1" placeholder="1.3.6.1.2.1.1" maxlength="256" aria-label="OID to walk">
+      <select id="snmp-walk-max" class="form-input input-auto" aria-label="Maximum rows">
+        <option value="256">256 rows</option>
+        <option value="512">512 rows</option>
+        <option value="1000">1000 rows</option>
+        <option value="2000">2000 rows</option>
+      </select>
+      <button class="btn-icon" data-action="snmpWalk">${_icon('search', 14)} Walk</button>
+    </div>
+    <div id="snmp-walk-out" class="mt-8"></div>`;
+}
+
+// Presets come from the server so the list has one definition. They ride on
+// the /snmp config response, not the deep poll — the deep poll is the call
+// that fails on exactly the devices where the browser matters most. An empty
+// list is survivable: the OID field still accepts anything typed.
+function _wireSnmpWalkPresets(presets) {
+  const sel = document.getElementById('snmp-walk-preset');
+  if (!sel) return;
+  sel.appendChild(new Option('Common subtrees…', ''));
+  for (const p of (presets || [])) sel.appendChild(new Option(p.label, p.oid));
+  sel.addEventListener('change', () => {
+    const t = document.getElementById('snmp-walk-oid');
+    if (t && sel.value) t.value = sel.value;
+  });
+}
+
 // v6.4.1: SNMP OID browser (device drawer → SNMP tab). Reads _drawerDeviceId
 // rather than taking the id through data-arg — the dispatcher coerces a
 // numeric-looking arg with Number(), and a hex device id like '1e5' becomes
@@ -21248,8 +21287,10 @@ async function _loadAuditSection(key) {
         // Inbound traps (independent of polling) — fetch first so they show even
         // when the on-demand deep poll below fails / SNMP polling isn't configured.
         let trapsHtml = '';
+        let _walkPresets = [];
         try {
           const _sd = await api('GET', `/devices/${id}/snmp`);
+          if (Array.isArray(_sd?.walk_presets)) _walkPresets = _sd.walk_presets;
           const _traps = (_sd && _sd.traps) || [];
           if (_traps.length) {
             trapsHtml = `<h4 class="mt-0">Recent inbound traps (${_traps.length})</h4>`
@@ -21266,12 +21307,16 @@ async function _loadAuditSection(key) {
         try {
           data = await api('GET', `/devices/${id}/snmp/deep`);
         } catch (e) {
-          body.innerHTML = trapsHtml + `<div class="c-muted ${trapsHtml ? 'mt-12' : ''}">SNMP polling not configured or unreachable.</div>`;
+          body.innerHTML = trapsHtml + `<div class="c-muted ${trapsHtml ? 'mt-12' : ''}">SNMP polling not configured or unreachable.</div>`
+            + _snmpWalkPanelHtml();
+          _wireSnmpWalkPresets(_walkPresets);
           badge.textContent = trapsHtml ? 'traps' : 'n/a';
           return;
         }
         if (!data || data.error) {
-          body.innerHTML = trapsHtml + `<div class="c-red ${trapsHtml ? 'mt-12' : ''}">${escHtml((data && data.error) || 'request failed')}</div>`;
+          body.innerHTML = trapsHtml + `<div class="c-red ${trapsHtml ? 'mt-12' : ''}">${escHtml((data && data.error) || 'request failed')}</div>`
+            + _snmpWalkPanelHtml();
+          _wireSnmpWalkPresets(_walkPresets);
           badge.textContent = 'error';
           return;
         }
@@ -21470,39 +21515,14 @@ async function _loadAuditSection(key) {
         if (data.ubnt && Object.keys(data.ubnt).length) counts.push('ubnt');
         if (data.synology && (data.synology.disks || []).length) counts.push(`synology ${data.synology.disks.length}d`);
         else if (data.synology) counts.push('synology');
-        // v6.4.1: OID browser. The deep poll above answers "what does
-        // RemotePower already know how to read"; this answers "what does this
-        // device actually expose", which is the question you have when a
-        // vendor counter is in none of our parsers. Results render into
-        // #snmp-walk-out on demand — no walk runs until the button is pressed.
-        h += `<h4 class="mt-12">Browse OID tree</h4>
-          <p class="hint">Walk a subtree of this device's MIB using its stored SNMP credentials. Start from a preset, or type any dotted-decimal OID. Large subtrees return a capped page.</p>
-          <div class="sb-controls">
-            <select id="snmp-walk-preset" class="form-input input-auto" aria-label="Common subtree"></select>
-            <input type="text" id="snmp-walk-oid" class="form-input ff-mono input-auto" value="1.3.6.1.2.1.1" placeholder="1.3.6.1.2.1.1" maxlength="256" aria-label="OID to walk">
-            <select id="snmp-walk-max" class="form-input input-auto" aria-label="Maximum rows">
-              <option value="256">256 rows</option>
-              <option value="512">512 rows</option>
-              <option value="1000">1000 rows</option>
-              <option value="2000">2000 rows</option>
-            </select>
-            <button class="btn-icon" data-action="snmpWalk">${_icon('search', 14)} Walk</button>
-          </div>
-          <div id="snmp-walk-out" class="mt-8"></div>`;
+        // v6.4.1: OID browser — see _snmpWalkPanelHtml. Rendered on every
+        // path out of this tab, including the failure ones: a device whose
+        // deep poll returns nothing useful is precisely the one you want to
+        // explore by hand.
+        h += _snmpWalkPanelHtml();
         badge.textContent = counts.join(' · ') || 'loaded';
         body.innerHTML = h || '<div class="c-muted">No SNMP data returned.</div>';
-        // Presets come from the server so the list has one definition.
-        const _pre = document.getElementById('snmp-walk-preset');
-        if (_pre) {
-          _pre.appendChild(new Option('Common subtrees…', ''));
-          for (const p of (data.presets || [])) {
-            _pre.appendChild(new Option(p.label, p.oid));
-          }
-          _pre.addEventListener('change', () => {
-            const t = document.getElementById('snmp-walk-oid');
-            if (t && _pre.value) t.value = _pre.value;
-          });
-        }
+        _wireSnmpWalkPresets(_walkPresets);
         break;
       }
 

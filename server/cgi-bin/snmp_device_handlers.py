@@ -71,7 +71,14 @@ def handle_device_snmp(dev_id):
         }
         data = A.load(A.SNMP_DATA_FILE).get(dev_id) or {}
         traps = A.load(A.SNMP_TRAPS_FILE).get(dev_id) or []
-        A.respond(200, {'config': redacted_cfg, 'data': data, 'traps': traps[-50:][::-1]})
+        # v6.4.1: the OID browser's preset list rides here rather than on the
+        # deep poll. The deep poll is exactly the call that fails on the
+        # devices where hand-exploration matters most, and the browser is
+        # rendered on those failure paths too.
+        A.respond(200, {'config': redacted_cfg, 'data': data,
+                        'traps': traps[-50:][::-1],
+                        'walk_presets': [{'oid': o, 'label': lbl}
+                                         for o, lbl in SNMP_WALK_PRESETS]})
     elif m == 'PATCH':
         actor = A.require_admin_auth()
         body = A._read_valid(A.request_models.DeviceSnmpRequest)
@@ -280,10 +287,6 @@ def handle_device_snmp_deep(dev_id):
         out['errors']['synology'] = f'{type(e).__name__}: {e}'
 
     out['polled_at'] = int(time.time())
-    # The OID browser lives on this same tab and needs its preset list before
-    # the first walk — carried here so SNMP_WALK_PRESETS stays the one
-    # definition rather than being mirrored in the frontend.
-    out['presets'] = [{'oid': o, 'label': lbl} for o, lbl in SNMP_WALK_PRESETS]
     A.respond(200, out)
 
 

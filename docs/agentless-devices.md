@@ -97,7 +97,9 @@ without anything installed on the device.
   vendor extras (e.g. MikroTik board/CPU temperatures) surfaced on the
   device card. See the [SNMP walkthrough](cookbook.md#watch-an-agentless-device-with-snmp)
   for setup.
-- **OID browser (v6.4.1).** The poll above reads a fixed set of OIDs — the
+- **OID browser (v6.4.1).** Open the device drawer, go to the **Audit** tab,
+  and expand **System → SNMP**; the browser is at the bottom of that section,
+  under **Browse OID tree**. The poll above reads a fixed set of OIDs — the
   ones RemotePower knows how to interpret. When a device exposes something
   outside that set (a vendor counter, a PDU's per-outlet draw, a UPS's
   runtime estimate), open the device drawer's **SNMP** tab and use
@@ -107,6 +109,8 @@ without anything installed on the device.
   against the vendor's own MIB. Walks are admin-only, written to the audit
   log, and return a capped page — narrow the OID rather than raising the cap
   if you hit it. There is no write path: this reads, it does not SET.
+  The browser is shown even when the SNMP poll itself fails — a device you
+  cannot get a clean poll from is exactly the one worth exploring by hand.
 
 Unmonitored agentless devices are still probed and polled (so you keep
 rolling status and uptime history), but they stay silent — no webhooks.
