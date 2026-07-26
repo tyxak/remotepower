@@ -45,6 +45,7 @@ def bind(api_globals):
 import time
 
 import advisory
+import posture_signals
 
 
 def _advisory_scope(qs):
@@ -137,8 +138,12 @@ def _advisory_brute_force(ids):
 
 
 def _advisory_stale_backups(ids, devs):
-    """{device_id: ['label — 96h old (threshold 24h)', …]} from the backup
-    monitor's own state, keyed `<device>:<path>` like the digest reads it."""
+    """{device_id: ['label — 96h old (threshold 24h)', …]}, scoped to `ids`.
+
+    The fold itself is posture_signals' job — Risk reads the same store the
+    same way, and two implementations of "which backups are stale" is exactly
+    the divergence this module was carved out to prevent.
+    """
     bs_file = A.DATA_DIR / 'backup_state.json'
     if not A.backend_exists(bs_file):
         return {}
@@ -146,25 +151,9 @@ def _advisory_stale_backups(ids, devs):
         state = A._load_ro(bs_file) or {}
     except Exception:
         return {}
-    mons = {m['path']: m for m in (A._config_ro().get('backup_monitors') or [])
-            if isinstance(m, dict) and m.get('path')}
-    out = {}
-    for key, entry in state.items():
-        if ':' not in str(key) or not isinstance(entry, dict) or entry.get('ok', True):
-            continue
-        did, path = str(key).split(':', 1)
-        if did not in ids:
-            continue
-        mon = mons.get(path) or {}
-        age = entry.get('age_h')
-        max_h = mon.get('max_age_hours', 24)
-        try:
-            age_s = f'{float(age):.0f}h old' if age else 'missing'
-        except (TypeError, ValueError):
-            age_s = 'missing'
-        out.setdefault(did, []).append(
-            f"{mon.get('label') or path} — {age_s} (threshold {float(max_h):.0f}h)")
-    return out
+    all_stale = posture_signals.stale_backups_by_device(
+        state, A._config_ro().get('backup_monitors') or [])
+    return {d: v for d, v in all_stale.items() if d in ids}
 
 
 def _advisory_tls_expiring():
@@ -218,6 +207,34 @@ def _advisory_agent_tamper(devs):
     return out
 
 
+def _advisory_weak_ssh_keys(ids):
+    """{device_id: ['user — ssh-dss', …]} from the authorized-keys baseline.
+
+    "A key was ADDED" is an event and already an alert; the baseline is
+    rewritten on every heartbeat, so a delta read here would always be empty.
+    The key's ALGORITHM is a durable state, which is what makes this one
+    answerable from the store (the same reason the port-baseline delta is not).
+    """
+    try:
+        store = A._load_ro(A.SSH_KEY_BASELINE_FILE) or {}
+    except Exception:
+        return {}
+    weak = set(A._WEAK_SSH_TYPES)
+    out = {}
+    for did, users in store.items():
+        if did not in ids or not isinstance(users, dict):
+            continue
+        rows = []
+        for uname, keys in users.items():
+            for k in (keys or [])[:200]:
+                ktype = str(k).split(None, 1)[0].lower() if k else ''
+                if ktype in weak:
+                    rows.append(f'{uname} — {ktype}')
+        if rows:
+            out[did] = rows
+    return out
+
+
 def _build_advisory(devs):
     """Assemble the advisory. Every store is read read-only and passed in — the
     pure logic lives in advisory.py."""
@@ -228,16 +245,12 @@ def _build_advisory(devs):
     for d, v in (A._load_ro(A.CVE_FINDINGS_FILE) or {}).items():
         if d not in ids or not isinstance(v, dict):
             continue
-        finds = list(v.get('findings') or [])
-        # `ignored` and `kev` are both read-time decorations the store does not
-        # carry — apply them here or the advisory keeps recommending an
-        # accepted-risk CVE and cannot tell an exploited one from the rest.
-        try:
-            finds = A.cve_scanner.apply_ignore_list(finds, ignore, d)
-            A._enrich_cve_findings(finds, _kev, _epss)
-        except Exception:
-            pass
-        cve[d] = {'findings': finds}
+        # `ignored` and `kev` are read-time decorations the store does not
+        # carry — one shared reading, so Risk and the Advisory cannot disagree
+        # about which CVEs still count.
+        cve[d] = {'findings': posture_signals.decorated_cve_findings(
+            v, d, ignore_data=ignore, kev=_kev, epss=_epss,
+            scanner=A.cve_scanner, enrich=A._enrich_cve_findings)}
     pkgs = A._load_ro(A.PACKAGES_FILE) or {}
     eol = {}
     for d, dev in devs.items():
@@ -252,7 +265,7 @@ def _build_advisory(devs):
         tdid = s.get('target_device_id') or ''
         if tdid in ids:
             scans.setdefault(tdid, []).append(s)
-    secrets = {d: (v.get('findings') or [])
+    secrets = {d: posture_signals.live_secret_findings(v)
                for d, v in (A._load_ro(A.SECRETS_FILE) or {}).items()
                if d in ids and isinstance(v, dict)}
     return advisory.build(
@@ -267,6 +280,7 @@ def _build_advisory(devs):
         scap_by_dev={d: v for d, v in (A._load_ro(A.SCAP_FILE) or {}).items()
                      if d in ids and isinstance(v, dict)},
         agent_tamper_by_dev=A._advisory_agent_tamper(devs),
+        weak_keys_by_dev=A._advisory_weak_ssh_keys(ids),
         now=int(time.time()))
 
 

@@ -27,6 +27,7 @@ LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/billing.py \
             server/cgi-bin/notify.py \
             server/cgi-bin/checks.py \
+            server/cgi-bin/posture_signals.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_wsgi_entrypoint.py \
@@ -46,6 +47,7 @@ TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/billing.py \
                  server/cgi-bin/notify.py \
                  server/cgi-bin/checks.py \
+                 server/cgi-bin/posture_signals.py \
                  server/cgi-bin/logsig.py \
                  server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages

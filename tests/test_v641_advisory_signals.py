@@ -183,9 +183,24 @@ class TestCveIgnoreListIsApplied(unittest.TestCase):
         self.assertEqual([f for f in adv['findings'] if f['id'] == 'os.cve'], [])
 
     def test_handler_applies_the_ignore_list(self):
+        # Both decorations now come from the shared extractor — the point of
+        # posture_signals is that there is exactly one reading of this store.
         src = (ROOT / 'server' / 'cgi-bin' / 'advisory_handlers.py').read_text()
-        self.assertIn('apply_ignore_list', src)
+        self.assertIn('posture_signals.decorated_cve_findings', src)
         self.assertIn('_enrich_cve_findings', src)
+
+    def test_risk_and_the_advisory_read_the_cve_store_the_same_way(self):
+        # The divergence that motivated posture_signals: Risk honoured the
+        # ignore list and the Advisory did not, so an accepted CVE vanished
+        # from one and kept driving the other.
+        api_src = (ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        adv_src = (ROOT / 'server' / 'cgi-bin' / 'advisory_handlers.py').read_text()
+        for src, who in ((api_src, 'risk'), (adv_src, 'advisory')):
+            self.assertIn('posture_signals.decorated_cve_findings', src, who)
+        # …and neither may go back to calling the scanner directly.
+        risk_fn = api_src[api_src.index('def _compute_fleet_risk'):]
+        risk_fn = risk_fn[:risk_fn.index('\ndef ', 10)]
+        self.assertNotIn('apply_ignore_list', risk_fn)
 
 
 class TestKevOutranksSeverity(unittest.TestCase):
@@ -409,3 +424,131 @@ class TestAgentTamperReachesTheAdvisory(unittest.TestCase):
         finally:
             api._agent_integrity_status = orig
         self.assertEqual(out, {})
+
+
+class TestDriftNamesTheFiles(unittest.TestCase):
+    """Risk counts drifted files; the advisory names them, which is the
+    actionable half. Deliberately paths only — drift_contents.json holds the
+    captured file CONTENT, and a config file's contents are exactly the kind
+    of thing that carries a credential."""
+
+    def _f(self, drift_state):
+        devs = {'d1': {'name': 'web', 'sysinfo': {}, 'drift_state': drift_state}}
+        return {g['id']: g for g in advisory.build(devs)['findings']}
+
+    def test_drifted_files_are_named(self):
+        g = self._f({'/etc/nginx/nginx.conf': {'status': 'drifted'},
+                     '/etc/ssh/sshd_config': {'status': 'drifted'}})
+        self.assertIn('int.drift', g)
+        self.assertEqual(sorted(g['int.drift']['evidence']),
+                         ['/etc/nginx/nginx.conf', '/etc/ssh/sshd_config'])
+
+    def test_ignored_and_clean_files_do_not_count(self):
+        self.assertEqual(self._f({
+            '/a': {'status': 'clean'},
+            '/b': {'status': 'drifted', 'ignored': True}}), {})
+
+    def test_no_file_contents_reach_the_advisory(self):
+        # Check the CODE, not the prose — advisory.py's comment names the store
+        # precisely to explain why it is not read.
+        import ast
+        for rel in ('advisory.py', 'advisory_handlers.py'):
+            tree = ast.parse((ROOT / 'server' / 'cgi-bin' / rel).read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) \
+                        and ast.get_docstring(node) is not None:
+                    node.body = node.body[1:]
+            code = ast.unparse(tree)
+            self.assertNotIn('drift_contents', code, rel)
+            self.assertNotIn('DRIFT_CONTENTS', code, rel)
+
+    def test_evidence_is_the_path_and_nothing_else(self):
+        g = self._f({'/etc/ssh/sshd_config': {
+            'status': 'drifted',
+            'content': 'PermitRootLogin yes\nSuperSecret=hunter2'}})
+        self.assertEqual(g['int.drift']['evidence'], ['/etc/ssh/sshd_config'])
+
+
+class TestWeakSshKeys(unittest.TestCase):
+    """"A key was ADDED" is an event and already an alert; the baseline is
+    rewritten every heartbeat so a delta read here is always empty. The key's
+    ALGORITHM is a durable state, which is what makes this answerable."""
+
+    def test_finding_built_from_the_gathered_shape(self):
+        devs = {'d1': {'name': 'web', 'sysinfo': {}}}
+        adv = advisory.build(devs, weak_keys_by_dev={'d1': ['root — ssh-dss']})
+        g = [f for f in adv['findings'] if f['id'] == 'id.weakkey']
+        self.assertEqual(len(g), 1)
+        self.assertIn('root — ssh-dss', g[0]['evidence'])
+
+    def test_gatherer_flags_only_deprecated_algorithms(self):
+        api.save(api.SSH_KEY_BASELINE_FILE, {'d1': {
+            'root': ['ssh-dss AAAAB3Nz... old', 'ssh-ed25519 AAAAC3Nz... good'],
+            'deploy': ['ssh-rsa AAAAB3Nz... fine'],
+        }})
+        api._invalidate_load_cache(api.SSH_KEY_BASELINE_FILE)
+        out = api._advisory_weak_ssh_keys({'d1'})
+        self.assertEqual(out, {'d1': ['root — ssh-dss']})
+
+    def test_modern_only_host_produces_nothing(self):
+        api.save(api.SSH_KEY_BASELINE_FILE,
+                 {'d2': {'root': ['ssh-ed25519 AAAAC3Nz... good']}})
+        api._invalidate_load_cache(api.SSH_KEY_BASELINE_FILE)
+        self.assertEqual(api._advisory_weak_ssh_keys({'d2'}), {})
+
+    def test_other_devices_are_not_included(self):
+        api.save(api.SSH_KEY_BASELINE_FILE, {'other': {'root': ['ssh-dss X']}})
+        api._invalidate_load_cache(api.SSH_KEY_BASELINE_FILE)
+        self.assertEqual(api._advisory_weak_ssh_keys({'d1'}), {})
+
+    def test_junk_baseline_does_not_raise(self):
+        api.save(api.SSH_KEY_BASELINE_FILE,
+                 {'d1': 'junk', 'd2': {'root': [None, '', 'x']}})
+        api._invalidate_load_cache(api.SSH_KEY_BASELINE_FILE)
+        self.assertEqual(api._advisory_weak_ssh_keys({'d1', 'd2'}), {})
+
+
+class TestNoFindingWithoutASourceThatCanSupportIt(unittest.TestCase):
+    """Two candidate findings were written and then removed rather than
+    shipped, because the store they would read is refreshed on every heartbeat
+    — the "new since baseline" delta is therefore always empty at read time,
+    and the finding could never fire. Adding a signal that can never fire to
+    the release that went hunting for exactly those would be the wrong trade.
+
+    This pins the decision so it is not silently reversed."""
+
+    def setUp(self):
+        self.adv = (ROOT / 'server' / 'cgi-bin' / 'advisory.py').read_text()
+        self.h = (ROOT / 'server' / 'cgi-bin' / 'advisory_handlers.py').read_text()
+
+    def test_no_new_port_delta_finding(self):
+        for src in (self.adv, self.h):
+            self.assertNotIn('exp.newport', src)
+            self.assertNotIn('PORT_BASELINE_FILE', src)
+
+    def test_no_added_ssh_key_delta_finding(self):
+        # The ALGORITHM check is fine (durable state); a "key added" delta is
+        # not, and is already covered by the ssh_key_added alert.
+        self.assertNotIn('ssh_key_added', self.adv)
+        self.assertNotIn('ssh_key_added', self.h)
+
+
+class TestSshConfigIsVisibleOnTheHost(unittest.TestCase):
+    """The Advisory acts on sshd posture, so the device drawer has to show it —
+    otherwise the operator is told to fix something whose current value they
+    cannot see anywhere in the product."""
+
+    def test_drawer_renders_it(self):
+        import clientjs
+        js = clientjs.client_js()
+        self.assertIn("si.ssh_config", js)
+        self.assertIn("'SSH access'", js)
+
+    def test_rendered_from_the_same_keys_the_advisory_reads(self):
+        import clientjs
+        js = clientjs.client_js()
+        adv = (ROOT / 'server' / 'cgi-bin' / 'advisory.py').read_text()
+        for key in ('permit_root_login', 'password_authentication',
+                    'permit_empty_passwords'):
+            self.assertIn(key, js, key)
+            self.assertIn(key, adv, key)

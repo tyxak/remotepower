@@ -24,8 +24,8 @@ scans or contacts anything:
 | **Application** | Scanner findings (nuclei, nikto, wpscan) — a vulnerable CMS plugin, an exposed admin panel |
 | **Exposure** | World-reachable listening ports, host firewall posture, TLS certificate expiry (from the TLS monitor's own probes) |
 | **OS** | Package CVEs (ignore list applied, KEV-listed ones ranked first), pending updates and auto-patch posture, pending reboot, end-of-life releases, failing OpenSCAP benchmark rules |
-| **Identity** | sshd configuration, brute-force pressure, Windows tamper-protection / UAC / Secure Boot |
-| **Integrity** | Failing protect checks, Integrity Guard quarantine, agent-binary hash mismatch or a refused unsigned update |
+| **Identity** | sshd configuration, brute-force pressure, authorized SSH keys on deprecated algorithms, Windows tamper-protection / UAC / Secure Boot |
+| **Integrity** | Failing protect checks, Integrity Guard quarantine, tracked config files drifted from baseline, agent-binary hash mismatch or a refused unsigned update |
 | **Data** | Credentials found in files by the secret scanner, stale or missing backups, FileVault and BitLocker |
 
 A CVE on CISA's **KEV** list is ranked above a higher-severity one that is not:
@@ -36,6 +36,21 @@ The application layer is the one host telemetry cannot see on its own: a
 vulnerable plugin is not a package, does not appear in a distro CVE feed, and
 does not open a new port. That is why scan findings are folded in here rather
 than left on their own page.
+
+### What it deliberately does not include
+
+A finding has to be answerable from stored state. Two candidates were written
+and then removed: "ports opened since the baseline" and "SSH keys added since
+the baseline". Both baselines are refreshed on every heartbeat, so by the time
+the advisory reads one the change is already in it — the delta is always empty
+and the finding could never fire. Those are *events*, and they already alert as
+`new_port_detected` and `ssh_key_added`. What the advisory reads from the same
+stores is the durable part: how many services are world-reachable now, and
+which authorized keys use a deprecated algorithm.
+
+Config drift is reported as the list of **paths** that changed, never the
+captured diff. The contents of a config file are exactly the kind of thing that
+carries a credential, and the Drift page already shows them behind its own view.
 
 ## Scope
 

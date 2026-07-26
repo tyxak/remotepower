@@ -1044,7 +1044,7 @@ for _ad_name in (
         'handle_security_advisory', 'handle_security_advisory_brief',
         '_advisory_scope', '_build_advisory', '_failed_protect_checks',
         '_advisory_brute_force', '_advisory_stale_backups', '_advisory_tls_expiring',
-        '_advisory_agent_tamper',
+        '_advisory_agent_tamper', '_advisory_weak_ssh_keys',
 ):
     globals()[_ad_name] = getattr(advisory_handlers_mod, _ad_name)
 del _ad_name
@@ -1372,6 +1372,11 @@ import forecast
 import compliance
 import ai_insights
 import anomaly_stats
+# v6.4.1: the SHARED reading of posture stores. Risk and the Security Advisory
+# stay separate systems on purpose (different question, different model), but
+# they must read a store the same way — two implementations of "apply the CVE
+# ignore list" is what let an accepted CVE keep driving one of them.
+import posture_signals
 # v3.5.0: SBOM (CycloneDX / SPDX) generation from the package inventory.
 import sbom as sbom_mod
 # Pure input-sanitisation leaf helpers (extracted from this file). Imported back
@@ -44460,28 +44465,24 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
     # ── v6.4.1: signals already collected that scored nowhere ────────────────
     # Endpoint AV. An active detection outranks everything below it; "no working
     # AV at all" is scored too, because an unprotected host reads as clean.
-    if isinstance(av_rec, dict) and av_rec:
-        _inf = sum(int((av_rec.get(t) or {}).get('infected') or 0) for t in _AV_TOOLS)
-        if _inf:
-            _add('av_bad', w['av_bad'], f'{_inf} active malware detection(s)')
-        elif any(isinstance(av_rec.get(t), dict) and
-                 av_rec[t].get('realtime') is False for t in _AV_TOOLS):
-            _add('av_bad', max(1, w['av_bad'] // 2),
-                 'real-time malware protection is switched off')
+    _av = posture_signals.av_verdict(av_rec, _AV_TOOLS)
+    if _av['infected']:
+        _add('av_bad', w['av_bad'],
+             f"{_av['infected']} active malware detection(s)")
+    elif _av['realtime_off']:
+        _add('av_bad', max(1, w['av_bad'] // 2),
+             'real-time malware protection is switched off')
 
     # Container images. A CVE in a running image is as reachable as one in a
     # host package — half the per-finding weight because the container boundary
     # is worth something, and capped so one unpatched base image cannot
     # dominate the score.
-    _imgs = (img_rec or {}).get('images') if isinstance(img_rec, dict) else None
-    if isinstance(_imgs, list):
-        _ic = sum(int(i.get('critical') or 0) for i in _imgs if isinstance(i, dict))
-        _ih = sum(int(i.get('high') or 0) for i in _imgs if isinstance(i, dict))
-        if _ic or _ih:
-            _add('image_cves',
-                 min(_RISK_CAPS['image_cves'],
-                     (_ic * w['image_cves']) + (_ih * max(1, w['image_cves'] // 2))),
-                 f'{_ic} critical / {_ih} high CVE(s) in running container images')
+    _ic, _ih = posture_signals.image_cve_counts(img_rec)
+    if _ic or _ih:
+        _add('image_cves',
+             min(_RISK_CAPS['image_cves'],
+                 (_ic * w['image_cves']) + (_ih * max(1, w['image_cves'] // 2))),
+             f'{_ic} critical / {_ih} high CVE(s) in running container images')
 
     # Backup freshness. Keyed `<device>:<path>`, so filter to this host.
     if backup_stale:
@@ -44489,8 +44490,7 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
              f'{len(backup_stale)} backup(s) stale or missing')
 
     # Credentials sitting in files. Muted findings are operator-accepted.
-    _sf = [f for f in ((secrets_rec or {}).get('findings') or [])
-           if isinstance(f, dict) and not f.get('muted')]
+    _sf = posture_signals.live_secret_findings(secrets_rec)
     if _sf:
         _add('secrets_exposed',
              min(_RISK_CAPS['secrets_exposed'], len(_sf) * w['secrets_exposed']),
@@ -44973,12 +44973,10 @@ def _compute_fleet_risk():
     weights = _risk_weights()   # hoist the config read out of the per-device loop
     # Backup state is keyed `<device>:<path>`; fold it into per-device counts
     # once rather than re-scanning the store for every host.
-    stale_backups = {}
     _bs_file = DATA_DIR / 'backup_state.json'
-    if backend_exists(_bs_file):
-        for _k, _e in (load(_bs_file) or {}).items():
-            if ':' in str(_k) and isinstance(_e, dict) and not _e.get('ok', True):
-                stale_backups.setdefault(str(_k).split(':', 1)[0], []).append(_k)
+    stale_backups = posture_signals.stale_backups_by_device(
+        (load(_bs_file) or {}) if backend_exists(_bs_file) else {},
+        _config_ro().get('backup_monitors') or [])
     # Patch-SLA breaches come from the same evaluator the Patch SLA page uses,
     # over a COPY of the aging store so scoring never writes it.
     sla_detail = {}
@@ -44994,17 +44992,13 @@ def _compute_fleet_risk():
     for dev_id, dev in devices.items():
         if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
             continue
-        _cve_rec = cve.get(dev_id) or {}
-        if _kev_set and isinstance(_cve_rec.get('findings'), list):
-            # Stamp onto a COPY — `cve` came from load(), and mutating it would
-            # leak decorations into whatever reads the store next.
-            _cve_rec = dict(_cve_rec)
-            _cve_rec['findings'] = [dict(f) if isinstance(f, dict) else f
-                                    for f in _cve_rec['findings']]
-            try:
-                _enrich_cve_findings(_cve_rec['findings'], _kev_set, _epss_map)
-            except Exception:
-                pass
+        # One shared reading of the CVE store: ignore list + KEV, applied to a
+        # copy. _device_risk re-filters `ignored` itself, so pass the decorated
+        # (not pre-filtered) list — its own guard stays meaningful.
+        _cve_rec = {'findings': posture_signals.decorated_cve_findings(
+            cve.get(dev_id) or {}, dev_id, ignore_data=cve_ignore,
+            kev=_kev_set, epss=_epss_map,
+            scanner=cve_scanner, enrich=_enrich_cve_findings)}
         out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
                                 _cve_rec, sv.get(dev_id) or {}, now, ttl,
                                 hw.get(dev_id) or {},

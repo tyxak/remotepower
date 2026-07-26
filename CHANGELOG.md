@@ -148,6 +148,49 @@ the time the advisory reads it the new port is already in it — the source
 cannot support the finding, and shipping it would have added a sixth signal
 that can never fire to a release about finding exactly those.
 
+### One reading of each posture store
+
+Risk and the Security Advisory stay separate systems — different question,
+different model, and merging them would make both worse. But the layer *below*
+that, how a store is actually read, was duplicated, and it had already produced
+a real bug: Risk applied the CVE ignore list and the Advisory did not, so a CVE
+an operator had accepted vanished from one and kept driving the other.
+
+`server/cgi-bin/posture_signals.py` now holds that layer — which rows count,
+which read-time decorations apply, what shape comes out — for CVE findings
+(ignore list + KEV), stale backups, unmuted secret findings, AV verdicts and
+container-image CVE counts. Both consumers call it. The module holds the
+EXTRACTION and never the INTERPRETATION: points, severities and wording stay
+with whichever system is doing the interpreting, and a test fails if scoring
+vocabulary appears in it, because that would be the merge by the back door.
+
+Two more Advisory findings from stores that were sitting unused: **tracked
+config files drifted from baseline** (paths only — `drift_contents.json` holds
+the captured file content, which is exactly the kind of thing that carries a
+credential, and the Drift page already shows it behind its own view), and
+**authorized SSH keys on deprecated algorithms** (DSA / RSA1 — disabled
+outright in current OpenSSH, so a key that works today is one upgrade away from
+locking the account out).
+
+A third and fourth were written and then removed: "ports opened since the
+baseline" and "SSH keys added since the baseline". Both baselines are rewritten
+on every heartbeat, so the delta is always empty by the time the advisory reads
+it — those are events, they already alert, and shipping them here would have
+added findings that can never fire.
+
+### Test isolation: a stale `api` binding wrote to a deleted directory
+
+`test_wsgi_entrypoint` forces a fresh data dir before exec'ing `wsgi.py`, and a
+comment from v6.3.1 says so. The override was not enough: `wsgi.py` does
+`import api`, so when any earlier module in the same xdist worker had already
+imported api, `wsgi.api` was *that* instance — with its `DATA_DIR` frozen at its
+own import time, pointing at a temp dir that had since been removed. The
+symptom was a `FileNotFoundError` writing `config.json` into another module's
+deleted directory: order-dependent, and invisible when the file runs alone.
+Fixed by dropping api from `sys.modules` for the exec and restoring it after,
+with an assertion that the binding actually took — so the next time this slips
+it fails saying why, instead of writing somewhere unexpected.
+
 ### SNMP OID browser
 The SNMP poll reads a fixed set of OIDs: the ones RemotePower knows how to
 interpret. When a device exposes something outside that set — a vendor counter,

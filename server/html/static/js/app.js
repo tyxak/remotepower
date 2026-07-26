@@ -20505,6 +20505,18 @@ async function _loadAuditSection(key) {
                 ? `on (${si.autoupdate.mechanism || 'enabled'})`
                 : 'off — patched manually')
             : null],
+          // v6.4.1: resolved sshd posture. The Advisory acts on this, so the
+          // host page has to show it too — otherwise the operator is told to
+          // fix something they cannot see the current value of.
+          ['SSH access', si.ssh_config
+            ? [si.ssh_config.permit_root_login
+                 ? `root login: ${si.ssh_config.permit_root_login}` : null,
+               si.ssh_config.password_authentication
+                 ? `passwords: ${si.ssh_config.password_authentication}` : null,
+               si.ssh_config.permit_empty_passwords === 'yes'
+                 ? 'empty passwords: yes' : null,
+              ].filter(Boolean).join(' · ') || null
+            : null],
           ['ECC memory', si.ecc
             ? `${si.ecc.ce || 0} correctable · ${si.ecc.ue || 0} uncorrectable`
             : null],

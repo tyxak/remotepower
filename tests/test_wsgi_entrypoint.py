@@ -102,11 +102,29 @@ class TestWsgiEntrypoint(unittest.TestCase):
         # (leftover config/devices/OTLP state → an extra or missing traces post,
         # the wsgi-span flake). The conftest guard restores RP_DATA_DIR after the
         # module, so this override can't leak forward.
+        #
+        # v6.4.1: the override alone was NOT enough. wsgi.py does `import api`,
+        # so if any earlier module in this xdist worker already imported api,
+        # `wsgi.api` is THAT instance — and its DATA_DIR was frozen at its own
+        # import time, against a temp dir that may since have been removed. The
+        # symptom was a FileNotFoundError writing config.json into another
+        # module's deleted directory, order-dependent and invisible when this
+        # file runs alone. Drop api from sys.modules so wsgi imports a fresh one
+        # bound to the dir we just made, and restore the original afterwards so
+        # later modules in this worker are unaffected.
         os.environ["RP_DATA_DIR"] = tempfile.mkdtemp(prefix="rp-wsgi-span-test-")
         sys.path.insert(0, str(_CGI))
-        spec = importlib.util.spec_from_file_location("wsgi_span_test", _CGI / "wsgi.py")
-        wsgi = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wsgi)
+        _prev_api = sys.modules.pop("api", None)
+        try:
+            spec = importlib.util.spec_from_file_location("wsgi_span_test", _CGI / "wsgi.py")
+            wsgi = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(wsgi)
+        finally:
+            if _prev_api is not None:
+                sys.modules["api"] = _prev_api
+        self.assertEqual(str(wsgi.api.DATA_DIR), os.environ["RP_DATA_DIR"],
+                         "wsgi bound a stale api instance — the data-dir "
+                         "override did not take effect")
 
         posts = []
         wsgi.api._siem_post = lambda url, data, headers, cfg: posts.append((url, data, headers))

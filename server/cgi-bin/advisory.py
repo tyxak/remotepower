@@ -262,7 +262,8 @@ def _tls_findings(tls_expiring):
     return out
 
 
-def _identity_findings(dev_id, name, dev, bf_sources=None):
+def _identity_findings(dev_id, name, dev, bf_sources=None,
+                       weak_ssh_keys=None):
     """Who can get in, and how."""
     out = []
     si = dev.get('sysinfo') or {}
@@ -331,6 +332,24 @@ def _identity_findings(dev_id, name, dev, bf_sources=None):
             'on.' + f2b_note,
             device_id=dev_id, device=name, evidence=ev, source='auth log',
             doc='docs/security.md'))
+
+    # Authorized SSH keys using a deprecated algorithm. Unlike "a key was
+    # added" — which is an event, and already an alert — this is a durable
+    # state read off the same baseline, so the advisory can act on it.
+    if weak_ssh_keys:
+        out.append(_finding(
+            'id.weakkey', 'identity', 'medium',
+            f'{len(weak_ssh_keys)} authorized SSH key(s) use a deprecated algorithm',
+            'DSA and RSA1 keys are weak by modern standards and are disabled '
+            'outright in current OpenSSH. A key that still works today is one '
+            'upgrade away from locking that account out — and weaker than the '
+            'password authentication you probably turned off in its favour.',
+            'Replace them with ed25519 keys and remove the old entries from '
+            'authorized_keys. Check the account still authenticates before you '
+            'remove the last working key.',
+            device_id=dev_id, device=name,
+            evidence=[str(k)[:100] for k in weak_ssh_keys[:6]],
+            source='SSH key audit', doc='docs/security.md'))
 
     # Windows posture — the identity/endpoint controls that keep an operator
     # account from becoming an administrator one.
@@ -407,6 +426,28 @@ def _integrity_findings(dev_id, name, dev, failed_checks, agent_tamper=None):
             'the evidence.',
             device_id=dev_id, device=name, evidence=ev,
             source='Integrity Guard', doc='docs/integrity-guard.md'))
+
+    # Config drift. Risk counts drifted files; the advisory names them, which
+    # is the actionable half. Deliberately paths only — drift_contents.json
+    # holds the captured file CONTENT, and a config file's contents are exactly
+    # the kind of thing that carries a credential. The Drift page already shows
+    # the diff behind its own view; the advisory does not need to carry it.
+    drifted = [f for f, st in (dev.get('drift_state') or {}).items()
+               if isinstance(st, dict) and st.get('status') == 'drifted'
+               and not st.get('ignored')]
+    if drifted:
+        out.append(_finding(
+            'int.drift', 'integrity', 'medium',
+            f'{len(drifted)} tracked config file(s) changed from baseline',
+            'A file you told RemotePower to watch is no longer what it was. '
+            'Most of the time that is a change someone made and did not write '
+            'down — which is still worth knowing, because it is the difference '
+            'between a host you can rebuild and one you cannot.',
+            'Review the diff on the Drift page. If the change was intended, '
+            're-baseline it so the next real change is visible; if it was not, '
+            'find out who or what made it.',
+            device_id=dev_id, device=name, evidence=[str(f)[:120] for f in drifted[:6]],
+            source='config drift', doc='docs/drift.md'))
 
     for c in failed_checks or []:
         out.append(_finding(
@@ -554,7 +595,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
           failed_checks_by_dev=None, exposure_mutes=None, muted_fn=None,
           bf_by_dev=None, secrets_by_dev=None, backups_by_dev=None,
           tls_expiring=None, scap_by_dev=None, agent_tamper_by_dev=None,
-          now=None):
+          weak_keys_by_dev=None, now=None):
     """Assemble the advisory for a set of devices.
 
     Everything is passed in, so the caller controls scope (one host, a tag, the
@@ -574,6 +615,7 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
     backups_by_dev = backups_by_dev or {}
     scap_by_dev = scap_by_dev or {}
     agent_tamper_by_dev = agent_tamper_by_dev or {}
+    weak_keys_by_dev = weak_keys_by_dev or {}
 
     findings = []
     for dev_id, dev in (devices or {}).items():
@@ -583,7 +625,8 @@ def build(devices, *, cve_by_dev=None, eol_by_dev=None, scans_by_dev=None,
         findings += _os_findings(dev_id, name, dev, cve_by_dev.get(dev_id),
                                  eol_by_dev.get(dev_id), scap_by_dev.get(dev_id))
         findings += _exposure_findings(dev_id, name, dev, exposure_mutes, muted_fn)
-        findings += _identity_findings(dev_id, name, dev, bf_by_dev.get(dev_id))
+        findings += _identity_findings(dev_id, name, dev, bf_by_dev.get(dev_id),
+                                       weak_keys_by_dev.get(dev_id))
         findings += _integrity_findings(dev_id, name, dev,
                                         failed_checks_by_dev.get(dev_id),
                                         agent_tamper_by_dev.get(dev_id))
