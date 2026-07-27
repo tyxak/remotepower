@@ -76,8 +76,8 @@ ones — there is no special trusted path for AI output.
 
 | Property | Value |
 |----------|-------|
-| Interpreter | `/bin/bash` |
-| User | Agent user (typically **root**) |
+| Interpreter | `/bin/bash` (Linux, macOS) — see *Windows* below |
+| User | Agent user (typically **root** / **SYSTEM**) |
 | Timeout | **30 seconds** (hard) |
 | stdout + stderr | Merged, capped at **4 KB** |
 | Temp file | Written to a private temp file (chmod 700), deleted after execution |
@@ -87,6 +87,47 @@ ones — there is no special trusted path for AI output.
 The 4 KB output cap means only the first ~4000 characters of combined
 stdout/stderr reach the server. Long output is truncated — keep script
 output concise.
+
+**Observe-only hosts never run them.** A host with the operator-owned
+`audit-mode` marker refuses custom scripts along with every other command
+channel — this runs server-supplied script text as root, which is exactly what
+that mode exists to block.
+
+### Platform support *(v6.4.1)*
+
+Scripts are assigned by **device**, not by OS, and until v6.4.1 only the Linux
+agent read them — so a script assigned to a Windows or Mac host silently did
+nothing and its results page stayed empty forever. All three agents run them now.
+
+| Platform | Interpreter | Notes |
+|---|---|---|
+| Linux | `/bin/bash` | |
+| macOS | `/bin/bash` | Same body as Linux. Mind GNU vs BSD tool differences (`sed -i`, `date`, `stat`) — the script runs, but a GNU-only flag will fail on it |
+| Windows | PowerShell or `cmd` | The body **must declare itself** (below) |
+
+**Windows needs an interpreter marker.** A `/bin/bash` body cannot run on
+Windows, and guessing would push your shell script through PowerShell and report
+whatever came out. So the first line of the body says what it is:
+
+```
+#!ps
+Get-Service -Name wuauserv | Where-Object { $_.Status -ne 'Running' } | ForEach-Object { exit 1 }
+```
+
+```
+#!cmd
+@echo off
+sc query wuauserv | find "RUNNING" >nul || exit /b 1
+```
+
+Accepted markers: `#!ps` / `#!powershell`, and `#!cmd` / `#!bat` / `#!batch`.
+The marker line is stripped before execution. A body with **no** marker on a
+Windows host is reported as a **failed run** whose output tells you to add one —
+deliberately a visible red result rather than silence, so an unrunnable
+assignment can't look like a passing one.
+
+The same script can therefore target one OS family at a time. To cover a mixed
+fleet, create one script per platform and assign each to the right devices.
 
 ---
 

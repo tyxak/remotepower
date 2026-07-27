@@ -685,6 +685,76 @@ _watched_files = []             # config-drift watch list
 # no uninstall command path at all, so a cleanup helper would be a function
 # nothing ever calls. Removing a Mac agent is a manual operation today, and any
 # decoys it planted have to be removed by hand along with it.
+# ── v6.4.1: custom monitoring scripts (parity — this was Linux-only) ──────────
+#
+# The server assigns scripts by DEVICE ID with no OS awareness, so an operator
+# could assign one to a Mac, get a success toast, and have the Custom Scripts
+# results page stay empty forever. macOS ships /bin/bash, so this is the same
+# implementation as the Linux agent rather than an approximation.
+_custom_scripts = []
+_pending_script_results = {}
+CUSTOM_SCRIPT_EVERY = 5          # run on every 5th poll, like the Linux agent
+MAX_SCRIPT_OUTPUT = 4096
+
+
+def run_custom_scripts(scripts):
+    """Run assigned scripts, return {id: {ok, output, rc, ran_at, duration_ms}}.
+
+    Each body is written to a private 0700 temp file and run with a timeout;
+    stdout+stderr are merged and capped. Exit 0 is ok, anything else (including
+    timeout and exec failure) is not.
+
+    Security: the bodies come from the server, which the agent already trusts
+    via the device token on every heartbeat — the same boundary as the exec:
+    command channel. Audit mode still refuses them: this runs server-supplied
+    shell as root, which is exactly what observe-only mode exists to block.
+    """
+    import stat as _stat
+    results = {}
+    now = int(time.time())
+    if _audit_mode():
+        log.info('Audit mode (read-only): skipping custom scripts')
+        return {}
+    for s in scripts or []:
+        sid = str(s.get('id', ''))
+        body = str(s.get('body', ''))
+        try:
+            timeout = int(s.get('timeout', 30))
+        except (TypeError, ValueError):
+            timeout = 30
+        if not sid or not body:
+            continue
+        t_start = time.monotonic()
+        ok, output, rc, tmp_path = False, '', 1, None
+        try:
+            fd, tmp_path = tempfile.mkstemp(prefix='rp_cs_', suffix='.sh')
+            try:
+                os.write(fd, body.encode('utf-8', errors='replace'))
+            finally:
+                os.close(fd)
+            os.chmod(tmp_path, _stat.S_IRWXU)      # 0700 — owner only
+            proc = subprocess.run(['/bin/bash', tmp_path],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, timeout=timeout)
+            rc = proc.returncode
+            ok = (rc == 0)
+            output = proc.stdout.decode('utf-8', errors='replace')[:MAX_SCRIPT_OUTPUT]
+        except subprocess.TimeoutExpired:
+            rc, ok, output = -1, False, f'TIMEOUT after {timeout}s'
+        except Exception as e:
+            rc, ok, output = -1, False, f'EXEC ERROR: {e}'
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        results[sid] = {'ok': ok, 'output': output.strip(), 'rc': rc,
+                        'ran_at': now,
+                        'duration_ms': int((time.monotonic() - t_start) * 1000)}
+    return results
+
+
 _canary_planted = {}       # path -> {mtime, size, plant_ts, ours}
 _canary_reported = set()   # paths already reported this run
 _canary_cfg = []
@@ -1435,6 +1505,18 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['backup_status'] = collect_backup_status(_backup_monitors)
         except Exception:
             pass
+    # v6.4.1: custom monitoring scripts, on their own cadence (every 5th poll,
+    # like the Linux agent). Results are held until a beat carries them so a
+    # failed POST doesn't lose a run.
+    global _pending_script_results
+    if _custom_scripts and poll_count > 1 and poll_count % CUSTOM_SCRIPT_EVERY == 0:
+        try:
+            _pending_script_results.update(run_custom_scripts(_custom_scripts))
+        except Exception as _e:
+            log.debug('custom script run error: %s', _e)
+    if _pending_script_results:
+        payload['custom_script_results'] = dict(_pending_script_results)
+        _pending_script_results = {}
     # v6.4.1: canary-file access, edge-triggered. Reported on EVERY beat, not
     # the slower sysinfo cadence — a tripwire that waits ten minutes to fire is
     # not much of a tripwire.
@@ -1538,6 +1620,16 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _wf = resp.get('watched_files')
         if isinstance(_wf, list):
             _watched_files = [str(f) for f in _wf if str(f).strip()][:MAX_DRIFT_FILES]
+        # v6.4.1: custom monitoring scripts assigned to this device.
+        global _custom_scripts
+        _cs = resp.get('custom_scripts')
+        if isinstance(_cs, list):
+            # 20 is a runaway backstop, NOT a policy limit — the server already
+            # caps at MAX_CUSTOM_SCRIPTS_PER_DEVICE (10), so this only bites if
+            # something is badly wrong. Kept above the server's number so a
+            # future raise there can't make us silently drop assigned scripts.
+            _custom_scripts = [c for c in _cs
+                               if isinstance(c, dict) and c.get('id')][:20]
         # v6.4.1: canary/honeytoken decoys — plant any new ones on receipt.
         if 'canary_files' in resp:
             global _canary_cfg

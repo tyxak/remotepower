@@ -57,6 +57,39 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Custom monitoring scripts run on Windows and macOS
+
+The last of the Linux-only agent features that silently did nothing.
+`_get_custom_scripts_for_device` assigns by **device id with no OS awareness**
+and the heartbeat pushes `custom_scripts` to every agent — but only the Linux
+agent ever read the key. Assign a script to a Mac or a Windows box and you got a
+success toast, an assignment that looked applied, and a results page that stayed
+empty forever.
+
+The two platforms are deliberately handled differently, because pretending they
+are the same would be worse than the bug:
+
+- **macOS** ships `/bin/bash`, so it runs the body exactly as Linux does — same
+  0700 temp file, same timeout, same merged-and-capped output, same result
+  shape. (Mind GNU vs BSD tool differences; the script runs, but a GNU-only
+  flag will fail inside it.)
+- **Windows** cannot run a `/bin/bash` body at all. Guessing an interpreter
+  would push an operator's shell script through PowerShell and report whatever
+  wreckage came out, so the body declares itself with a first-line `#!ps` or
+  `#!cmd` marker (`#!powershell`/`#!bat`/`#!batch` also accepted; the marker is
+  stripped before execution).
+
+**A Windows body with no marker is reported as a failed run carrying an
+actionable message, not skipped.** That is the point of the change: an explicit
+red result on the Custom Scripts page tells the operator to add a marker, while
+a skipped id is invisible — which is the bug, not the fix.
+
+Both agents honour observe-only `audit-mode`, which the Linux agent has always
+done for this channel: custom scripts run server-supplied script text as
+root/SYSTEM, which is precisely what that mode exists to block. The agent-side
+cap is 20 — a runaway backstop deliberately kept *above* the server's limit of
+10, so a future raise there cannot make an agent silently drop assigned scripts.
+
 ### The macOS agent's log was unbounded
 
 Reported from the field: `/var/log/remotepower-agent.log` looked like it had no

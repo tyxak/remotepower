@@ -32,12 +32,21 @@ _AGENT = _ROOT / 'client' / 'remotepower-agent-mac.py'
 _INSTALLER = _ROOT / 'client' / 'install-macos.sh'
 
 
-def _fresh_agent():
-    logging.getLogger('remotepower').handlers.clear()
-    spec = importlib.util.spec_from_file_location('rp_mac_log', _AGENT)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def _fresh_agent(pristine_env=False):
+    """Re-import the agent. `pristine_env` removes RP_AGENT_LOG for the import,
+    which the DEFAULTS assertions need: another test module may legitimately set
+    it (and under `unittest discover` that lives in the same process), so a test
+    about the defaults has to control the variable rather than inherit it."""
+    saved = os.environ.pop('RP_AGENT_LOG', None) if pristine_env else None
+    try:
+        logging.getLogger('remotepower').handlers.clear()
+        spec = importlib.util.spec_from_file_location('rp_mac_log', _AGENT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        if saved is not None:
+            os.environ['RP_AGENT_LOG'] = saved
 
 
 class TestMacAgentLogRotation(unittest.TestCase):
@@ -84,7 +93,7 @@ class TestMacAgentLogRotation(unittest.TestCase):
             self.assertEqual(mode, 0o640, f'{f} is {oct(mode)}')
 
     def test_defaults_match_the_linux_agent(self):
-        fresh = _fresh_agent()
+        fresh = _fresh_agent(pristine_env=True)
         self.assertEqual(fresh.LOG_MAX_BYTES, 5 * 1024 * 1024)
         self.assertEqual(fresh.LOG_BACKUPS, 5)
         self.assertEqual(fresh.LOG_FILE, '/var/log/remotepower-agent.log')

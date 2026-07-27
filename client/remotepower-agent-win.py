@@ -44,6 +44,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -2086,6 +2087,106 @@ _backup_monitors = []            # server-pushed backup-freshness monitors
 # a decoy is unreliable on Windows and MUST NOT be presented as guaranteed.
 # What IS reliable — and is what actually matters for ransomware — is
 # modification and deletion, which are detected from mtime/size/absence.
+# ── v6.4.1: custom monitoring scripts (parity — this was Linux-only) ──────────
+#
+# The server assigns scripts by DEVICE ID with no OS awareness, so an operator
+# could assign one to a Windows host, get a success toast, and have the Custom
+# Scripts results page stay empty forever.
+#
+# Windows is NOT like macOS here: a script body written for /bin/bash cannot run,
+# and guessing an interpreter would run an operator's shell script through
+# PowerShell and report whatever wreckage came out. So the body must SAY what it
+# is, with a first-line marker:
+#
+#     #!ps    -> the rest is PowerShell
+#     #!cmd   -> the rest is a batch script
+#
+# A body with no marker is reported as a FAILED run with an actionable message,
+# not skipped silently. "Nothing happened and nothing said why" is the exact
+# failure this change exists to remove — an explicit red result on the Custom
+# Scripts page tells the operator what to do; an empty page does not.
+_custom_scripts = []
+_pending_script_results = {}
+CUSTOM_SCRIPT_EVERY = 5          # run on every 5th poll, like the Linux agent
+MAX_SCRIPT_OUTPUT = 4096
+_SCRIPT_NO_INTERPRETER = (
+    'no Windows interpreter: start the script body with "#!ps" for PowerShell '
+    'or "#!cmd" for a batch file. A /bin/bash script cannot run on Windows.')
+
+
+def _script_interpreter(body):
+    """(kind, remaining_body) from a first-line marker, or (None, body)."""
+    first, _, rest = body.partition('\n')
+    tag = first.strip().lower()
+    if tag in ('#!ps', '#!powershell'):
+        return 'ps', rest
+    if tag in ('#!cmd', '#!bat', '#!batch'):
+        return 'cmd', rest
+    return None, body
+
+
+def run_custom_scripts(scripts):
+    """Run assigned scripts, return {id: {ok, output, rc, ran_at, duration_ms}}.
+
+    Audit mode refuses them: this runs server-supplied script text as SYSTEM,
+    which is exactly what observe-only mode exists to block.
+    """
+    results = {}
+    now = int(time.time())
+    if _audit_mode():
+        log.info('Audit mode (read-only): skipping custom scripts')
+        return {}
+    for s in scripts or []:
+        sid = str(s.get('id', ''))
+        body = str(s.get('body', ''))
+        try:
+            timeout = int(s.get('timeout', 30))
+        except (TypeError, ValueError):
+            timeout = 30
+        if not sid or not body:
+            continue
+        kind, payload_body = _script_interpreter(body)
+        t_start = time.monotonic()
+        if kind is None:
+            results[sid] = {'ok': False, 'output': _SCRIPT_NO_INTERPRETER,
+                            'rc': -1, 'ran_at': now, 'duration_ms': 0}
+            continue
+        ok, output, rc, tmp_path = False, '', 1, None
+        try:
+            suffix = '.ps1' if kind == 'ps' else '.bat'
+            fd, tmp_path = tempfile.mkstemp(prefix='rp_cs_', suffix=suffix)
+            try:
+                os.write(fd, payload_body.encode('utf-8', errors='replace'))
+            finally:
+                os.close(fd)
+            if kind == 'ps':
+                argv = [_powershell_bin(), '-NoProfile', '-NonInteractive',
+                        '-ExecutionPolicy', 'Bypass', '-File', tmp_path]
+            else:
+                argv = [_system_bin('cmd'), '/c', tmp_path]
+            proc = subprocess.run(
+                argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=timeout,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            rc = proc.returncode
+            ok = (rc == 0)
+            output = proc.stdout.decode('utf-8', errors='replace')[:MAX_SCRIPT_OUTPUT]
+        except subprocess.TimeoutExpired:
+            rc, ok, output = -1, False, f'TIMEOUT after {timeout}s'
+        except Exception as e:
+            rc, ok, output = -1, False, f'EXEC ERROR: {e}'
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        results[sid] = {'ok': ok, 'output': output.strip(), 'rc': rc,
+                        'ran_at': now,
+                        'duration_ms': int((time.monotonic() - t_start) * 1000)}
+    return results
+
+
 _canary_planted = {}       # path -> {mtime, size, plant_ts, ours}
 _canary_reported = set()   # paths already reported this run
 _CANARY_DEFAULT = ('# AWS credentials — do not share\n'
@@ -2639,6 +2740,18 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['backup_status'] = collect_backup_status(_backup_monitors)
         except Exception:
             pass
+    # v6.4.1: custom monitoring scripts, on their own cadence (every 5th poll,
+    # like the Linux agent). Results are held until a beat carries them so a
+    # failed POST doesn't lose a run.
+    global _pending_script_results
+    if _custom_scripts and poll_count > 1 and poll_count % CUSTOM_SCRIPT_EVERY == 0:
+        try:
+            _pending_script_results.update(run_custom_scripts(_custom_scripts))
+        except Exception:
+            pass
+    if _pending_script_results:
+        payload['custom_script_results'] = dict(_pending_script_results)
+        _pending_script_results = {}
     # v6.4.1: canary-file access, edge-triggered. Reported on EVERY beat, not
     # the slower sysinfo cadence — a tripwire that waits ten minutes to fire is
     # not much of a tripwire.
@@ -2742,6 +2855,16 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _ac = resp.get('agent_checks')
         if isinstance(_ac, list):
             _watched_agent_checks = [c for c in _ac if isinstance(c, dict) and c.get('id')][:100]
+        # v6.4.1: custom monitoring scripts assigned to this device.
+        global _custom_scripts
+        _cs = resp.get('custom_scripts')
+        if isinstance(_cs, list):
+            # 20 is a runaway backstop, NOT a policy limit — the server already
+            # caps at MAX_CUSTOM_SCRIPTS_PER_DEVICE (10), so this only bites if
+            # something is badly wrong. Kept above the server's number so a
+            # future raise there can't make us silently drop assigned scripts.
+            _custom_scripts = [c for c in _cs
+                               if isinstance(c, dict) and c.get('id')][:20]
         # v6.4.1: canary/honeytoken decoys — plant any new ones on receipt.
         if 'canary_files' in resp:
             global _canary_cfg
