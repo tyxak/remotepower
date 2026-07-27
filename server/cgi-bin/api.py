@@ -1000,6 +1000,26 @@ for _ri_name in (
     globals()[_ri_name] = getattr(rack_ipam_handlers_mod, _ri_name)
 del _ri_name
 
+# Needs-Attention quieting: class-level suppression rules + per-item ignores.
+# Carved out in v6.4.1 to bring the inline-handler ratchet back DOWN — the
+# na-suppress trio was appended to api.py when it should have been a module.
+# The constants (IGNORED_ITEMS_FILE, NA_SUPPRESS_FILE, _NA_SUPPRESS_SCOPES)
+# stay in api.py and are read here via A.
+_at_spec = _tk_ilu.spec_from_file_location(
+    'attention_handlers', Path(__file__).parent / 'attention_handlers.py')
+attention_handlers_mod = _tk_ilu.module_from_spec(_at_spec)
+_at_spec.loader.exec_module(attention_handlers_mod)
+attention_handlers_mod.bind(globals())
+for _at_name in (
+        '_ignored_load', '_ignored_keys',
+        '_na_suppress_rules', '_na_item_suppressed',
+        'handle_na_suppress_list', 'handle_na_suppress_add',
+        'handle_na_suppress_remove',
+        'handle_ignored_list', 'handle_ignored_add', 'handle_ignored_remove',
+):
+    globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
+del _at_name
+
 # Integrity Guard — the quarantine vault: list what agents auto-quarantined and
 # queue one-shot restore/delete directives. DEVICES_FILE + the scope/tenant
 # helpers stay in api.py and are read here via A.
@@ -65584,48 +65604,6 @@ def _attention_item_key(item):
                         usedforsecurity=False).hexdigest()[:16]
 
 
-def _ignored_load():
-    data = load(IGNORED_ITEMS_FILE) or {}
-    # Normalise — every category is always a list
-    for k in ('needs_attention', 'stale_containers', 'devices'):
-        if not isinstance(data.get(k), list):
-            data[k] = []
-    # v3.2.3: drop expired snoozes. needs_attention entries may carry
-    # an `expires_at` epoch — when past, they vanish so the alert
-    # comes back into view. Pure read-time filter; we never write
-    # back here (a CGI request shouldn't take a file lock just to
-    # clean up; the next /api/ignored POST or its own GET path
-    # tolerates expired entries).
-    now = int(time.time())
-    data['needs_attention'] = [
-        e for e in data['needs_attention']
-        if not e.get('expires_at') or e['expires_at'] > now
-    ]
-    return data
-
-
-def _ignored_keys(category):
-    """Return the set of stable keys for a category, for O(1) lookup."""
-    data = _ignored_load()
-    if category == 'needs_attention':
-        return {entry.get('key') for entry in data['needs_attention'] if entry.get('key')}
-    if category == 'stale_containers':
-        return {f"{e.get('device_id','')}/{e.get('container','')}" for e in data['stale_containers']}
-    if category == 'devices':
-        return {e.get('id') for e in data['devices'] if e.get('id')}
-    return set()
-
-
-# ── v6.4.0: ignore lifecycle — stop the ignored-items list from piling up ──────
-# The pile-up had one root cause: a permanent × ignore was NEVER garbage-
-# collected. It lived forever even after its condition cleared, its device was
-# removed, or its point-in-time event aged out of the 24h fleet-events window.
-# On a big fleet that grows without bound and hides real recurrences. The
-# machinery below GCs a moot ignore (#1), prunes a removed device's ignores (#2)
-# and annotates each ignore with when it was last actually active (#5, surfaced
-# in the UI so stale ignores can be bulk-cleared). Class-level suppression (#4)
-# and the auto-heal recheck sweep (#3) live in their own blocks below.
-
 _NA_GC_GRACE = 3 * 86400          # keep a moot NA ignore this long before pruning
 _NA_LIVE_KEYS = (0, frozenset())  # (ts, keys) — raw NA keys stashed per compute
 
@@ -65797,209 +65775,6 @@ def _autoheal_recheck(now):
 # as ONE managed entry. Distinct from a per-(host,event) alert MUTE (which also
 # suppresses webhooks) — this only hides the NA card, like an ignore but broad.
 _NA_SUPPRESS_SCOPES = ('all', 'group', 'tag', 'device')
-
-
-def _na_suppress_rules():
-    """The list of active suppression rules ({id,kind,scope,value,note,by,ts})."""
-    data = _load_ro(NA_SUPPRESS_FILE) or {}
-    rules = data.get('rules') if isinstance(data, dict) else None
-    return [r for r in rules if isinstance(r, dict) and r.get('kind')] if isinstance(rules, list) else []
-
-
-def _na_item_suppressed(item, rules, devices, name_to_id):
-    """True if any class rule covers this NA item. Matches on kind (or '*' = any
-    kind) AND scope: all / device(id or name) / group / tag."""
-    kind = str(item.get('kind') or '')
-    did = item.get('device_id') or name_to_id.get(item.get('device'))
-    dev = (devices.get(did) or {}) if did else {}
-    grp = str(dev.get('group') or '')
-    tags = dev.get('tags') or []
-    for r in rules:
-        rk = str(r.get('kind') or '')
-        if rk not in ('*', 'any', kind):
-            continue
-        scope = str(r.get('scope') or 'all')
-        val = str(r.get('value') or '')
-        if scope == 'all':
-            return True
-        if scope == 'device' and val and (val == str(did or '') or val == str(item.get('device') or '')):
-            return True
-        if scope == 'group' and val and val == grp:
-            return True
-        if scope == 'tag' and val and val in tags:
-            return True
-    return False
-
-
-def handle_na_suppress_list():
-    """GET /api/na-suppress — the class-level NA suppression rules."""
-    require_auth()
-    respond(200, {'rules': _na_suppress_rules(), 'scopes': list(_NA_SUPPRESS_SCOPES)})
-
-
-def handle_na_suppress_add():
-    """POST /api/na-suppress {kind, scope, value, note} — add a suppression rule."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    kind = _sanitize_str(str(body.get('kind', '')), 40).strip() or '*'
-    scope = str(body.get('scope', 'all')).strip().lower()
-    if scope not in _NA_SUPPRESS_SCOPES:
-        respond(400, {'error': f'scope must be one of {", ".join(_NA_SUPPRESS_SCOPES)}'})
-    value = _sanitize_str(str(body.get('value', '')), 128).strip()
-    if scope != 'all' and not value:
-        respond(400, {'error': 'value required for this scope'})
-    rule = {'id': secrets.token_hex(6), 'kind': kind, 'scope': scope, 'value': value,
-            'note': _sanitize_str(str(body.get('note', '')), 200), 'by': actor,
-            'ts': int(time.time())}
-    with _LockedUpdate(NA_SUPPRESS_FILE) as data:
-        rules = data.setdefault('rules', [])
-        if not isinstance(rules, list):
-            rules = data['rules'] = []
-        if len(rules) >= 500:
-            respond(400, {'error': 'rule limit reached (500)'})
-        rules.append(rule)
-    audit_log(actor, 'na_suppress_add', f'kind={kind} scope={scope}:{value}')
-    respond(200, {'ok': True, 'rule': rule})
-
-
-def handle_na_suppress_remove():
-    """POST /api/na-suppress/remove {id} — delete a suppression rule."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    rid = _sanitize_str(str(get_json_obj().get('id', '')), 16).strip()
-    if not rid:
-        respond(400, {'error': 'id required'})
-    with _LockedUpdate(NA_SUPPRESS_FILE) as data:
-        rules = data.get('rules')
-        if isinstance(rules, list):
-            data['rules'] = [r for r in rules if (r or {}).get('id') != rid]
-    audit_log(actor, 'na_suppress_remove', f'id={rid}')
-    respond(200, {'ok': True})
-
-
-def handle_ignored_list():
-    """GET /api/ignored — full list across all categories."""
-    require_auth()
-    respond(200, _ignored_load())
-
-
-def handle_ignored_add():
-    """POST /api/ignored — body {category, key/device_id/container/id, label?}."""
-    require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'}); return
-    body = _read_valid(request_models.IgnoredAddRequest)
-    cat  = str(body.get('category', '')).strip()
-    if cat not in ('needs_attention', 'stale_containers', 'devices'):
-        respond(400, {'error': 'invalid category'}); return
-    now  = int(time.time())
-    with _LockedUpdate(IGNORED_ITEMS_FILE) as data:
-        for k in ('needs_attention', 'stale_containers', 'devices'):
-            if not isinstance(data.get(k), list):
-                data[k] = []
-        if cat == 'needs_attention':
-            key = _sanitize_str(str(body.get('key', '')), 32)
-            if not key:
-                respond(400, {'error': 'key required'}); return
-            # v3.2.3: optional `expires_at` (epoch seconds) for snoozes.
-            # When set, the entry auto-disappears from the ignore list
-            # after that time and the alert returns to Needs Attention.
-            # Clamp to ≤ 30 days so a misclick can't bury an alert
-            # forever — operators who really want permanent should use
-            # the existing × ignore (no expires_at field).
-            raw_exp = body.get('expires_at')
-            expires_at = None
-            if raw_exp is not None and raw_exp != '':
-                try:
-                    expires_at = int(raw_exp)
-                except (TypeError, ValueError):
-                    expires_at = None
-                if expires_at is not None:
-                    expires_at = min(expires_at, now + 30 * 86400)
-                    if expires_at <= now:
-                        expires_at = None
-            existing = next((e for e in data['needs_attention']
-                             if e.get('key') == key), None)
-            if existing:
-                # Re-snoozing extends or shortens; permanent ignore
-                # (no expires_at posted) clears the snooze.
-                if expires_at is None:
-                    existing.pop('expires_at', None)
-                else:
-                    existing['expires_at'] = expires_at
-                existing['ts'] = now
-            else:
-                entry = {
-                    'key':   key,
-                    'ts':    now,
-                    'last_seen': now,   # v6.4.0 #1: seed for the GC sweep
-                    'label': _sanitize_str(str(body.get('label', '')), 200),
-                }
-                # v6.4.0 #2: remember the device so the device-removal prune can
-                # target this ignore (the NA key itself is an opaque hash).
-                _did = _sanitize_str(str(body.get('device_id', '')), 64)
-                if _did:
-                    entry['device_id'] = _did
-                if expires_at:
-                    entry['expires_at'] = expires_at
-                data['needs_attention'].append(entry)
-        elif cat == 'stale_containers':
-            did = _sanitize_str(str(body.get('device_id', '')), 64)
-            ctr = _sanitize_str(str(body.get('container', '')), 200)
-            if not did:
-                respond(400, {'error': 'device_id required'}); return
-            # v3.0.1: empty container = ignore the device entirely on the
-            # Containers page (regardless of stale state). Non-empty container
-            # = ignore that specific container row only.
-            if not any(e.get('device_id') == did and e.get('container') == ctr
-                       for e in data['stale_containers']):
-                data['stale_containers'].append({
-                    'device_id': did, 'container': ctr, 'ts': now,
-                    'label': _sanitize_str(str(body.get('label', '')), 200),
-                })
-        elif cat == 'devices':
-            did = _sanitize_str(str(body.get('id', '')), 64)
-            if not did:
-                respond(400, {'error': 'id required'}); return
-            if not any(e.get('id') == did for e in data['devices']):
-                data['devices'].append({
-                    'id': did, 'ts': now,
-                    'label': _sanitize_str(str(body.get('label', '')), 200),
-                })
-    respond(200, {'ok': True})
-
-
-def handle_ignored_remove():
-    """POST /api/ignored/remove — body {category, key/device_id+container/id}."""
-    require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'}); return
-    body = _read_valid(request_models.IgnoredRemoveRequest)
-    cat  = str(body.get('category', '')).strip()
-    if cat not in ('needs_attention', 'stale_containers', 'devices'):
-        respond(400, {'error': 'invalid category'}); return
-    with _LockedUpdate(IGNORED_ITEMS_FILE) as data:
-        for k in ('needs_attention', 'stale_containers', 'devices'):
-            if not isinstance(data.get(k), list):
-                data[k] = []
-        if cat == 'needs_attention':
-            key = str(body.get('key', ''))
-            data['needs_attention'] = [e for e in data['needs_attention'] if e.get('key') != key]
-        elif cat == 'stale_containers':
-            did = str(body.get('device_id', ''))
-            ctr = str(body.get('container', ''))
-            data['stale_containers'] = [
-                e for e in data['stale_containers']
-                if not (e.get('device_id') == did and e.get('container') == ctr)
-            ]
-        elif cat == 'devices':
-            did = str(body.get('id', ''))
-            data['devices'] = [e for e in data['devices'] if e.get('id') != did]
-    respond(200, {'ok': True})
-
 
 
 def handle_force_agent_upgrade(dev_id):

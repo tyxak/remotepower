@@ -39,11 +39,17 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # (sibling of the inline ack/unack/resolve family; the undo stack's inverse
 # for a manual resolve).
 # 630→633 (v6.4.0): handle_na_suppress_{list,add,remove} — class-level
-# Needs-Attention suppression, tightly coupled to _compute_attention (the inline
-# core-spine attention engine) and the inline ignored-items handlers; a bound
-# module would just re-bind the whole attention internals. Part of the
-# ignored-items pile-up counter-measures.
-INLINE_HANDLER_CEILING = 633
+# Needs-Attention suppression, justified at the time as "tightly coupled to
+# _compute_attention … a bound module would just re-bind the whole attention
+# internals".
+# 633→627 (v6.4.1): that justification did not survive contact — carved into
+# attention_handlers.py along with the ignored-items trio it sits next to. The
+# coupling turned out to be exactly four helpers (_ignored_load/_ignored_keys/
+# _na_suppress_rules/_na_item_suppressed), which moved with them; only the three
+# CONSTANTS stay in api.py and are read via A., which is the normal pattern.
+# _compute_attention keeps calling the moved helpers unchanged because api.py
+# re-imports the names. Net −6, and the raise is paid back with interest.
+INLINE_HANDLER_CEILING = 627
 
 
 class TestApiHandlerRatchet(unittest.TestCase):
