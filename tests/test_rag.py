@@ -352,8 +352,22 @@ class TestEmbeddingCache(unittest.TestCase):
 
 _TMPDIR = tempfile.mkdtemp()
 _DOCSDIR = tempfile.mkdtemp()
+# RP_DATA_DIR is deliberately global for the whole run (every module needs a
+# throwaway data dir). RP_DOCS_DIR is NOT — it points api.py at this module's
+# fixture docs, and under `unittest discover` a module-scope assign is ambient
+# for every later module in the process. Nothing asserts its default today, so
+# this was latent rather than broken; restored anyway, because that is exactly
+# the shape that failed the gate twice in the v6.4.1 cycle and once in v6.3.0.
+_PRIOR_DOCS_DIR = os.environ.get("RP_DOCS_DIR")
 os.environ["RP_DATA_DIR"] = _TMPDIR
 os.environ["RP_DOCS_DIR"] = _DOCSDIR
+
+
+def tearDownModule():
+    if _PRIOR_DOCS_DIR is None:
+        os.environ.pop("RP_DOCS_DIR", None)
+    else:
+        os.environ["RP_DOCS_DIR"] = _PRIOR_DOCS_DIR
 os.environ.setdefault("REQUEST_METHOD", "GET")
 os.environ.setdefault("PATH_INFO", "/")
 os.environ.setdefault("CONTENT_LENGTH", "0")

@@ -2087,6 +2087,56 @@ _backup_monitors = []            # server-pushed backup-freshness monitors
 # a decoy is unreliable on Windows and MUST NOT be presented as guaranteed.
 # What IS reliable — and is what actually matters for ransomware — is
 # modification and deletion, which are detected from mtime/size/absence.
+# ── v6.4.1: live mode / high-res metric burst (parity — was Linux-only) ───────
+#
+# The device drawer's Live tab asks the server to set `live_until`, and the
+# agent posts 1-second samples until it expires. Only the Linux agent read the
+# flag, so opening the Live tab on a Windows host showed an empty chart forever
+# with no indication why — the server set the flag and nothing consumed it.
+#
+# Bounded by max_iters as well as the deadline so a stuck clock or a long
+# `live_until` cannot park the heartbeat loop indefinitely.
+LIVE_BURST_MAX_ITERS = 30
+
+
+def _burst_live_samples(server, creds, live_until, max_iters=LIVE_BURST_MAX_ITERS):
+    """Post 1 s high-res metric samples until `live_until`. Device-token auth;
+    any failure stops the burst quietly — a live chart is a convenience, and it
+    must never be able to break the heartbeat that carries everything else."""
+    dev_id = creds.get('device_id')
+    token = creds.get('token')
+    if not dev_id or not token:
+        return 0
+    try:
+        import psutil
+    except ImportError:
+        return 0          # no psutil on this host → no samples to send
+    url = f"{str(server).rstrip('/')}/api/devices/{dev_id}/live-sample"
+    sent = 0
+    for _ in range(max_iters):
+        if int(time.time()) >= int(live_until):
+            break
+        try:
+            vm = psutil.virtual_memory()
+            sw = psutil.swap_memory()
+            worst = 0.0
+            for part in psutil.disk_partitions(all=False):
+                try:
+                    worst = max(worst, psutil.disk_usage(part.mountpoint).percent)
+                except Exception:
+                    continue   # an empty removable drive raises; skip it
+            _post_json(url, {'token': token,
+                             'cpu': round(psutil.cpu_percent(interval=None), 1),
+                             'mem': round(vm.percent, 1),
+                             'disk': round(worst, 1),
+                             'swap': round(sw.percent, 1)}, timeout=5)
+            sent += 1
+        except Exception:
+            break
+        time.sleep(1)
+    return sent
+
+
 # ── v6.4.1: custom monitoring scripts (parity — this was Linux-only) ──────────
 #
 # The server assigns scripts by DEVICE ID with no OS awareness, so an operator
@@ -2881,6 +2931,14 @@ def heartbeat_once(creds, poll_count, pending_output=None):
                 _canary_reported.discard(_gone)
         # v6.4.1: delta-sysinfo bookkeeping — commit only on a confirmed store.
         _commit_sysinfo_delta(resp)
+        # v6.4.1: live mode — burst 1 s samples while the operator has the Live
+        # tab open. Runs LAST so it cannot delay anything above it.
+        _lu = resp.get('live_until')
+        if _lu:
+            try:
+                _burst_live_samples(creds.get('server_url', ''), creds, int(_lu))
+            except (TypeError, ValueError):
+                pass
     return resp, new_pending
 
 

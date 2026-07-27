@@ -57,13 +57,43 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
-### Translations: the dropdown surface
+### Live view works on Windows and macOS
 
-The `<option>` surface was **80% English-only** — the single worst-covered part
-of the UI, and one the i18n gate does not scan (it checks nav labels, page and
-section titles, and buttons). 135 entries in all six languages take the static
-`index.html` gap from **683 to 459 untranslated strings (30% → 20%)**, and
-options specifically from 397 to 175 — a 56% cut.
+Same shape as the rest of this batch. The drawer's **Live view** button asks the
+server to set `live_until`, and the agent then posts 1-second CPU/mem/disk/swap
+samples until it expires. Only the Linux agent read the flag — so on a Mac or a
+Windows host the server dutifully armed live mode, the button worked, and the
+chart stayed empty forever with nothing saying why.
+
+Both agents now run the burst, posting the same four metrics to the same
+`POST /api/devices/{id}/live-sample` endpoint with the same device-token auth.
+Needs `psutil` on the host; without it the burst is a no-op rather than an
+error. Any post failure stops the burst quietly — a live chart is a convenience
+and must never be able to break the heartbeat that carries everything else.
+
+The burst is bounded by an iteration count **as well as** the deadline, because
+`live_until` comes from the server: an unbounded loop would park the heartbeat
+for however long the deadline says. Writing the guardrail for that bound, the
+first version *hung* for 24 simulated hours when I removed the bound to check it
+— a hanging test blocks the gate instead of failing it, which is worse than no
+test. The mock now aborts past the expected count, so removing the bound fails
+in five seconds.
+
+### Translations: dropdowns, form labels and table headers
+
+Three passes over the surfaces the i18n gate does **not** scan (it checks nav
+labels, page and section titles, and buttons). 272 new entries in all six
+languages take static `index.html` from **683 untranslated strings to 310 —
+30% down to 13%**:
+
+| Surface | Before | After |
+|---|---|---|
+| `<option>` | 397 | 175 (−56%) |
+| `<label>` | 222 | 117 (−47%) |
+| `<th>` | 53 | 10 (−81%) |
+| `<button>` / `<summary>` | 10 | 8 |
+
+The `<option>` surface was 80% English-only and the worst-covered part of the UI.
 
 The batch is the generic, high-frequency vocabulary that recurs across many
 pages rather than a page-by-page sweep: scope pickers (*Whole fleet*, *A group*,
@@ -93,10 +123,32 @@ back to English would have left those three selects stuck in the previous
 language. They now carry `data-all-label` with the English text, so the observer
 translates the fresh node correctly in either direction.
 
-The remaining 459 are mostly `<label>` (222) and one-off `<option>` strings on
-individual pages, plus the entirely separate and much larger `app-*.js`
-`innerHTML` surface. This is a multi-pass job and this is one pass, not the end
-of it.
+Labels barely repeat — 212 distinct across 222 occurrences — so that pass took
+the short reusable ones (*Email*, *Owner*, *Kind*, *Match*, *Template*, the
+threshold and alert-type labels) and left the long page-specific settings
+strings with their embedded parentheticals. Table headers keep the acronyms that
+*are* the column name (SPF, DKIM, TTL, MFA, EDR, SLA, MTTR): those are the terms
+operators search for, and a translated SPF column would be unrecognisable.
+
+**The `app-*.js` surface is no longer unmeasured.** It had been described as
+"large and unquantified" for several releases; it is **2,836 user-visible
+strings, of which 1,924 were untranslated (67%)** — bigger than the whole static
+HTML surface and equally ungated. A fourth pass took the strings appearing 2+
+times across the page modules (generic toasts, empty states, common actions):
+**1,924 → 1,688 (59%)**. Those need nothing special from the engine — the
+MutationObserver already translates JS-injected text nodes like any other.
+
+Left in English there on purpose: config and env literals
+(`RP_BACKUP_PASSPHRASE`, `~/.acme.sh/account.conf`), column shorthands that are
+really units (`CPU%`, `Mem%`, `OID`, `CVE`), and breadcrumbs into **another
+product's** UI — "Control Panel → Security → Certificate →" is Synology DSM's
+own menu path, and translating our reference to it would make it *harder* to
+follow unless it happened to match DSM's own localisation.
+
+Where this leaves it: static 310, JS 1,688. Four passes in, and the honest
+remainder is still larger than what has been done. Every entry added carries all
+six languages (verified: 0 missing), and no CJK/Devanagari/Arabic value is a
+copy of its English key.
 
 ### Custom monitoring scripts run on Windows and macOS
 
