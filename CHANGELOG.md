@@ -57,6 +57,47 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Translations: the dropdown surface
+
+The `<option>` surface was **80% English-only** — the single worst-covered part
+of the UI, and one the i18n gate does not scan (it checks nav labels, page and
+section titles, and buttons). 135 entries in all six languages take the static
+`index.html` gap from **683 to 459 untranslated strings (30% → 20%)**, and
+options specifically from 397 to 175 — a 56% cut.
+
+The batch is the generic, high-frequency vocabulary that recurs across many
+pages rather than a page-by-page sweep: scope pickers (*Whole fleet*, *A group*,
+*A tag*, *A site*, *Every host with tag*), empty-choice placeholders (*— none —*,
+*(none)*, *— pick —*), cadences (*Daily*/*Weekly*/*Monthly*/*Never*/*Recurring
+(cron)*), the seven weekdays, time units and retention windows, severity and
+status filters (*Critical only*, *High and up*, *Not OK (warn + crit)*), device
+states, roles, and device types.
+
+**What was deliberately left in English**, because translating it would be wrong
+rather than merely incomplete: product and tool names (Splunk, Loki, nuclei,
+lynis, ufw, firewalld, PostgreSQL, Tasmota, Terraform, …), protocol and format
+tokens (`tcp`, `udp`, `iPXE`, `min_version`), sort tokens (`asc`/`desc`),
+environment names (`test`/`dev`/`staging`/`prod`) that operators match against
+API values, and the bare word *not*, which is too context-dependent to translate
+in isolation.
+
+Two things were verified rather than assumed. First, that translating these is
+**safe**: the engine rewrites an option's text node while the submitted value
+lives in the separate `value=""` attribute, so a filter cannot change meaning —
+checked against the fleet-query builder, whose `any`/`yes` options carry
+`value=""`/`value="1"`. Second, that no JavaScript reads option *text* to make
+decisions. One place did: `_netmapFillScope` rebuilds the network-map scope
+selects and re-emitted the rendered first-option label, which with translated
+labels would have made the translation the new node's "original" — so switching
+back to English would have left those three selects stuck in the previous
+language. They now carry `data-all-label` with the English text, so the observer
+translates the fresh node correctly in either direction.
+
+The remaining 459 are mostly `<label>` (222) and one-off `<option>` strings on
+individual pages, plus the entirely separate and much larger `app-*.js`
+`innerHTML` surface. This is a multi-pass job and this is one pass, not the end
+of it.
+
 ### Custom monitoring scripts run on Windows and macOS
 
 The last of the Linux-only agent features that silently did nothing.

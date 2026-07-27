@@ -7078,9 +7078,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="netmapResetPositions" title="Clear all manual positions and revert to auto-layout">Reset positions</button>
           <span class="netmap-scope-wrap row-8-center">
             <label class="meta-sm" for="netmap-scope-site">Scope:</label>
-            <select id="netmap-scope-site" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by site"><option value="">All sites</option></select>
-            <select id="netmap-scope-group" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by group"><option value="">All groups</option></select>
-            <select id="netmap-scope-tag" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by tag"><option value="">All tags</option></select>
+            <select id="netmap-scope-site" data-all-label="All sites" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by site"><option value="">All sites</option></select>
+            <select id="netmap-scope-group" data-all-label="All groups" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by group"><option value="">All groups</option></select>
+            <select id="netmap-scope-tag" data-all-label="All tags" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by tag"><option value="">All tags</option></select>
           </span>
           <span id="netmap-stats" class="isl-174"></span>
         </div>

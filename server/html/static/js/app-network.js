@@ -256,10 +256,18 @@ function _netmapScopeQuery() {
 function _netmapFillScope(sel, values, active) {
   const el = document.getElementById(sel);
   if (!el) return;
-  const allLabel = el.options[0] ? el.options[0].textContent : 'All';
-  // allLabel is the static first-option text from index.html (author-controlled),
-  // but escape it anyway — defense-in-depth and it clears the CodeQL textContent→
-  // innerHTML flow (js/xss-through-dom #51).
+  // v6.4.1: read the ENGLISH label from data-all-label, not from the rendered
+  // text. Those labels are translated now, and re-emitting the rendered text
+  // would make the translation the new node's "original" — so switching the
+  // language back to English would leave this one select stuck in the previous
+  // language. Emitting English lets the i18n MutationObserver translate the
+  // fresh node normally, in either direction. textContent stays as the fallback
+  // for any select that has not been given the attribute.
+  const allLabel = el.dataset.allLabel
+    || (el.options[0] ? el.options[0].textContent : 'All');
+  // allLabel is author-controlled (a data attribute or the static first-option
+  // text from index.html), but escape it anyway — defense-in-depth, and it
+  // clears the CodeQL textContent→innerHTML flow (js/xss-through-dom #51).
   el.innerHTML = `<option value="">${escHtml(allLabel)}</option>` +
     (values || []).map(v => `<option value="${escAttr(v)}"${v === active ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
   el.value = active || '';
