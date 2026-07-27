@@ -57,6 +57,47 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### macOS agent: custom checks and file-integrity watching actually run now
+
+Same shape as the dead signals below — configured, accepted, shown as applied,
+and doing nothing. The macOS agent read 13 of the heartbeat's response keys; the
+Linux agent reads 48. Two of the gaps were features an operator could turn on
+from the UI and get a success toast for:
+
+- **`agent_checks`** — every file/job/log custom check assigned to a Mac
+  reported `unknown` forever, because the agent never read the pushed list. It
+  now evaluates them each beat and reports results under
+  `sysinfo.custom_check_results`, like the Linux and Windows agents. Portable
+  types (`file_present`, `file_absent`, `job_fresh`, `log_errors`) work as-is;
+  the Linux-only integrity/egress guard types report `unknown` with a "not
+  applicable on macOS" note rather than a misleading OK or a false alert.
+- **`watched_files`** — a Mac produced no config-drift report at all while the
+  watch list showed as applied. It now hashes the watched set on the sysinfo
+  cadence, same contract as the other two agents.
+- **New check type `launchd_service`** — the macOS analogue of `systemd_unit` /
+  `windows_service`, evaluated with `launchctl list`. Loaded-but-idle reports
+  *warning*, not critical, because that is normal for an on-demand job. Ten new
+  macOS rows in the check catalog. Documented in `docs/checks.md`.
+- The operator's `log_errors` regex is matched **in Python** against `log show`
+  output and never interpolated into the command, and a launchd label is
+  charset-validated before it reaches argv — the same posture as the Windows
+  agent's Event Log path.
+
+Found next door while wiring the above: the **"also watch this on the Services
+page" checkbox did nothing for a Windows service check**. `ccTypeChanged` shows
+it for `windows_service` and the server has accepted the flag since v6.2.0, but
+the client only ever sent it for `systemd_unit` — a ticked, enabled checkbox
+with no effect. It sends it for both now. (It stays hidden for
+`launchd_service`, because the macOS agent doesn't read `services_watched` and
+offering the option would only add a new dead switch.)
+
+Also in this pass: the check-type dropdown is translated in all six languages
+(the whole `<option>` surface was English-only), and `make test-fast` no longer
+exits non-zero on every run — it hand-listed two e2e files to skip and three
+more had been added since, so the fast suite always failed on a Chromium launch
+error. It globs `tests/*e2e*.py` now.
+
+
 ### Fleet visibility: four security signals that could never fire, and CPU temps that never rendered
 
 Every one of these looked correct in review and passed the existing tests,

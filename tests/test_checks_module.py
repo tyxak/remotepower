@@ -52,6 +52,7 @@ class TestPurity(unittest.TestCase):
                          ('file_present', 'file_absent', 'log_errors',
                           'job_fresh', 'systemd_unit',
                           'windows_service',    # v6.2.0: Windows parity
+                          'launchd_service',    # v6.4.1: macOS parity
                           'file_hash', 'dir_baseline', 'egress_flagged',
                           'file_contains', 'egress_baseline',
                           'auth_new_source'))

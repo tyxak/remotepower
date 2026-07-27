@@ -129,6 +129,31 @@
     "Resolve / dig": { "fr": "Résoudre / dig", "de": "Auflösen / dig", "zh": "解析 / dig", "hi": "रिज़ॉल्व / dig", "es": "Resolver / dig", "ar": "حلّ الاسم / dig" },
     "Resolver health monitor": { "fr": "Moniteur de santé du résolveur", "de": "Resolver-Zustandsüberwachung", "zh": "解析器健康监控", "hi": "रिज़ॉल्वर हेल्थ मॉनिटर", "es": "Monitor de salud del resolutor", "ar": "مراقبة صحة محلِّل DNS" },
     "Resolution timeline (MTTR)": { "fr": "Chronologie de résolution (MTTR)", "de": "Lösungszeitachse (MTTR)", "zh": "解决时间线 (MTTR)", "hi": "समाधान टाइमलाइन (MTTR)", "es": "Cronología de resolución (MTTR)", "ar": "الجدول الزمني للحل (MTTR)" },
+    // ── Check-catalog type options + param labels (v6.4.1) ──
+    // The whole <option> surface was English-only; this is the check-type
+    // cluster, added as one coherent group rather than leaving the new macOS
+    // launchd option as the single odd one out.
+    "Evaluated on the server": { "fr": "Évalué sur le serveur", "de": "Auf dem Server ausgewertet", "zh": "在服务器端评估", "hi": "सर्वर पर मूल्यांकित", "es": "Evaluado en el servidor", "ar": "يُقيَّم على الخادم" },
+    "Evaluated on the host (agent)": { "fr": "Évalué sur l'hôte (agent)", "de": "Auf dem Host ausgewertet (Agent)", "zh": "在主机端评估（代理）", "hi": "होस्ट पर मूल्यांकित (एजेंट)", "es": "Evaluado en el host (agente)", "ar": "يُقيَّم على المضيف (الوكيل)" },
+    "Process running": { "fr": "Processus en cours d'exécution", "de": "Prozess läuft", "zh": "进程正在运行", "hi": "प्रक्रिया चल रही है", "es": "Proceso en ejecución", "ar": "العملية قيد التشغيل" },
+    "Port open": { "fr": "Port ouvert", "de": "Port offen", "zh": "端口开放", "hi": "पोर्ट खुला", "es": "Puerto abierto", "ar": "المنفذ مفتوح" },
+    "Port closed": { "fr": "Port fermé", "de": "Port geschlossen", "zh": "端口关闭", "hi": "पोर्ट बंद", "es": "Puerto cerrado", "ar": "المنفذ مغلق" },
+    "Systemd unit active (Linux)": { "fr": "Unité systemd active (Linux)", "de": "systemd-Unit aktiv (Linux)", "zh": "systemd 单元处于活动状态 (Linux)", "hi": "systemd यूनिट सक्रिय (Linux)", "es": "Unidad systemd activa (Linux)", "ar": "وحدة systemd نشطة (Linux)" },
+    "Windows service running": { "fr": "Service Windows en cours d'exécution", "de": "Windows-Dienst läuft", "zh": "Windows 服务正在运行", "hi": "Windows सेवा चल रही है", "es": "Servicio de Windows en ejecución", "ar": "خدمة Windows قيد التشغيل" },
+    "launchd job running (macOS)": { "fr": "Tâche launchd en cours d'exécution (macOS)", "de": "launchd-Job läuft (macOS)", "zh": "launchd 任务正在运行 (macOS)", "hi": "launchd जॉब चल रहा है (macOS)", "es": "Trabajo launchd en ejecución (macOS)", "ar": "مهمة launchd قيد التشغيل (macOS)" },
+    "File present": { "fr": "Fichier présent", "de": "Datei vorhanden", "zh": "文件存在", "hi": "फ़ाइल मौजूद है", "es": "Archivo presente", "ar": "الملف موجود" },
+    "File absent": { "fr": "Fichier absent", "de": "Datei nicht vorhanden", "zh": "文件不存在", "hi": "फ़ाइल अनुपस्थित", "es": "Archivo ausente", "ar": "الملف غير موجود" },
+    "Job freshness (file age)": { "fr": "Fraîcheur de la tâche (âge du fichier)", "de": "Job-Aktualität (Dateialter)", "zh": "任务新鲜度（文件时间）", "hi": "जॉब ताज़गी (फ़ाइल आयु)", "es": "Actualidad del trabajo (antigüedad del archivo)", "ar": "حداثة المهمة (عمر الملف)" },
+    "Log error rate": { "fr": "Taux d'erreurs dans les journaux", "de": "Fehlerrate im Log", "zh": "日志错误率", "hi": "लॉग त्रुटि दर", "es": "Tasa de errores en el registro", "ar": "معدل الأخطاء في السجل" },
+    "File integrity (SHA-256)": { "fr": "Intégrité du fichier (SHA-256)", "de": "Dateiintegrität (SHA-256)", "zh": "文件完整性 (SHA-256)", "hi": "फ़ाइल अखंडता (SHA-256)", "es": "Integridad del archivo (SHA-256)", "ar": "سلامة الملف (SHA-256)" },
+    "Directory integrity (new/changed files)": { "fr": "Intégrité du répertoire (fichiers nouveaux/modifiés)", "de": "Verzeichnisintegrität (neue/geänderte Dateien)", "zh": "目录完整性（新增/变更文件）", "hi": "डायरेक्टरी अखंडता (नई/बदली फ़ाइलें)", "es": "Integridad del directorio (archivos nuevos/modificados)", "ar": "سلامة الدليل (ملفات جديدة/معدَّلة)" },
+    "Outbound to flagged IPs/CIDRs": { "fr": "Sortant vers des IP/CIDR signalés", "de": "Ausgehend zu markierten IPs/CIDRs", "zh": "出站至已标记的 IP/CIDR", "hi": "चिह्नित IP/CIDR की ओर आउटबाउंड", "es": "Salida hacia IP/CIDR marcados", "ar": "صادر إلى عناوين IP/CIDR مُعلَّمة" },
+    "File content match (regex)": { "fr": "Correspondance du contenu de fichier (regex)", "de": "Dateiinhalt-Treffer (Regex)", "zh": "文件内容匹配（正则）", "hi": "फ़ाइल सामग्री मिलान (regex)", "es": "Coincidencia de contenido de archivo (regex)", "ar": "تطابق محتوى الملف (تعبير نمطي)" },
+    "New outbound destination": { "fr": "Nouvelle destination sortante", "de": "Neues ausgehendes Ziel", "zh": "新的出站目标", "hi": "नया आउटबाउंड गंतव्य", "es": "Nuevo destino saliente", "ar": "وجهة صادرة جديدة" },
+    "SSH login from a new network": { "fr": "Connexion SSH depuis un nouveau réseau", "de": "SSH-Anmeldung aus einem neuen Netzwerk", "zh": "来自新网络的 SSH 登录", "hi": "नए नेटवर्क से SSH लॉगिन", "es": "Inicio de sesión SSH desde una red nueva", "ar": "تسجيل دخول SSH من شبكة جديدة" },
+    "launchd label": { "fr": "Étiquette launchd", "de": "launchd-Label", "zh": "launchd 标签", "hi": "launchd लेबल", "es": "Etiqueta launchd", "ar": "مُعرِّف launchd" },
+    "Service name": { "fr": "Nom du service", "de": "Dienstname", "zh": "服务名称", "hi": "सेवा का नाम", "es": "Nombre del servicio", "ar": "اسم الخدمة" },
+    "Unit name": { "fr": "Nom de l'unité", "de": "Unit-Name", "zh": "单元名称", "hi": "यूनिट का नाम", "es": "Nombre de la unidad", "ar": "اسم الوحدة" },
     // ── Reputation/DMARC page section headings (v4.8.0) ──
     "IP reputation (DNS blocklists)": { "fr": "Réputation IP (listes de blocage DNS)", "de": "IP-Reputation (DNS-Sperrlisten)", "zh": "IP 信誉（DNS 黑名单）", "hi": "IP प्रतिष्ठा (DNS ब्लॉकलिस्ट)", "es": "Reputación de IP (listas de bloqueo DNS)", "ar": "سمعة عنوان IP (قوائم حظر DNS)" },
     "DMARC / SPF / DKIM posture": { "fr": "Posture DMARC / SPF / DKIM", "de": "DMARC-/SPF-/DKIM-Status", "zh": "DMARC / SPF / DKIM 态势", "hi": "DMARC / SPF / DKIM स्थिति", "es": "Estado DMARC / SPF / DKIM", "ar": "وضع DMARC / SPF / DKIM" },

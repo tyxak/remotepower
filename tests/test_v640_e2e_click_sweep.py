@@ -23,11 +23,13 @@ import re
 import unittest
 from pathlib import Path
 
-try:
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from e2e_harness import browser_available, SKIP_REASON   # noqa: E402
+
+if browser_available():                                  # noqa: E402
     from playwright.sync_api import sync_playwright
-    _HAVE_PLAYWRIGHT = True
-except ImportError:
-    _HAVE_PLAYWRIGHT = False
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -47,8 +49,7 @@ def _sidebar_pages():
     return pages
 
 
-@unittest.skipUnless(_HAVE_PLAYWRIGHT, "playwright not installed (pip install "
-                     "playwright && python -m playwright install chromium)")
+@unittest.skipUnless(browser_available(), SKIP_REASON)
 class TestEveryButtonClicksClean(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

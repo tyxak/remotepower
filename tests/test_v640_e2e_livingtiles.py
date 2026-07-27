@@ -17,15 +17,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-try:
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from e2e_harness import browser_available, SKIP_REASON   # noqa: E402
+
+if browser_available():                                  # noqa: E402
     from playwright.sync_api import sync_playwright
-    import gunicorn  # noqa: F401
-    _HAVE = True
-except Exception:
-    _HAVE = False
 
 
-@unittest.skipUnless(_HAVE, 'playwright + gunicorn required (see module docstring)')
+@unittest.skipUnless(browser_available(), SKIP_REASON)
 class TestLivingTilesRender(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

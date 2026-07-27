@@ -88,6 +88,26 @@ Three agent-side types back the Protect set and can be used in any check:
 Full behaviour, the quarantine vault and the safety rails are documented in
 [Integrity Guard](integrity-guard.md).
 
+## Service checks per platform
+
+"Is this service running" has a different mechanism on each OS, so there is one
+check type per platform. They behave identically otherwise — same alerting, same
+silencing, same catalog:
+
+| Type | Platform | `param` | Evaluated with |
+|---|---|---|---|
+| `systemd_unit` | Linux | unit name (`nginx.service`) | `systemctl is-active` |
+| `windows_service` | Windows | short service name (`wuauserv`) | `Get-Service` |
+| `launchd_service` | macOS | launchd label (`com.openssh.sshd`) | `launchctl list` |
+
+On macOS a job that is **loaded but not running** reports **warning**, not
+critical — that is the normal state for an on-demand launchd job, and treating it
+as a failure would alert on healthy hosts.
+
+A check type assigned to a host that cannot evaluate it reports `unknown` with a
+"not applicable" note, rather than a misleading OK or a false alert. The
+integrity and egress guard types above are Linux-only today.
+
 ## When a check starts alerting
 
 The first definitive observation of a check is **seeded silently**, so applying

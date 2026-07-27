@@ -166,7 +166,7 @@ const _CC_PARAM_LABELS = {
   process: 'Process name', port_open: 'Port', port_closed: 'Port',
   file_present: 'File path', file_absent: 'File path', job_fresh: 'File path',
   log_errors: 'Pattern (regex)', systemd_unit: 'Unit name',
-  windows_service: 'Service name',
+  windows_service: 'Service name', launchd_service: 'launchd label',
   file_hash: 'File path', dir_baseline: 'Directory (path or path::glob)',
   egress_flagged: 'Flagged IPs / CIDRs',
   file_contains: 'Directory (path or path::glob)',
@@ -178,6 +178,7 @@ const _CC_PARAM_PH = {
   file_present: '/etc/myapp.conf', file_absent: '/etc/nologin',
   job_fresh: '/var/backups/last-run.stamp', log_errors: 'error|fail|panic',
   systemd_unit: 'nginx.service', windows_service: 'wuauserv',
+  launchd_service: 'com.apple.sshd',
   file_hash: '/etc/passwd', dir_baseline: '/var/www::*.php',
   egress_flagged: '203.0.113.0/24, 198.51.100.7',
   file_contains: '/var/www::*.php',
@@ -322,6 +323,18 @@ const CHECK_CATALOG = [
   { c: 'Windows — apps', l: 'PostgreSQL (Windows)', t: 'windows_service', p: 'postgresql-x64-16', n: 'PostgreSQL running' },
   { c: 'Windows — apps', l: 'Apache (Windows)', t: 'windows_service', p: 'Apache2.4', n: 'Apache running' },
   { c: 'Windows — apps', l: 'nginx (Windows)', t: 'process', p: 'nginx', n: 'nginx running' },
+  // macOS — launchd labels are the reverse-DNS job name (`launchctl list`),
+  // not the process name. Loaded-but-idle reports warning, not critical.
+  { c: 'macOS — core', l: 'Remote Login (sshd)', t: 'launchd_service', p: 'com.openssh.sshd', n: 'sshd running' },
+  { c: 'macOS — core', l: 'Software Update daemon', t: 'launchd_service', p: 'com.apple.softwareupdated', n: 'Software Update daemon running' },
+  { c: 'macOS — core', l: 'Time sync (timed)', t: 'launchd_service', p: 'com.apple.timed', n: 'Time sync running' },
+  { c: 'macOS — core', l: 'Spotlight index (mds)', t: 'launchd_service', p: 'com.apple.metadata.mds', n: 'Spotlight indexing running' },
+  { c: 'macOS — core', l: 'Application Firewall', t: 'launchd_service', p: 'com.apple.alf', n: 'Application Firewall running' },
+  { c: 'macOS — core', l: 'No pending-reboot flag', t: 'file_absent', p: '/var/db/.AppleUpgrade', n: 'No macOS upgrade pending' },
+  { c: 'macOS — apps', l: 'Docker Desktop', t: 'process', p: 'com.docker.backend', n: 'Docker Desktop running' },
+  { c: 'macOS — apps', l: 'Homebrew services (postgres)', t: 'launchd_service', p: 'homebrew.mxcl.postgresql', n: 'PostgreSQL (brew) running' },
+  { c: 'macOS — apps', l: 'Homebrew services (nginx)', t: 'launchd_service', p: 'homebrew.mxcl.nginx', n: 'nginx (brew) running' },
+  { c: 'macOS — apps', l: 'Time Machine backup freshness', t: 'job_fresh', p: '/Library/Preferences/com.apple.TimeMachine.plist', n: 'Time Machine ran recently' },
 ];
 // v5.6.0: searchable catalog picker. A custom dropdown (not a native <select>,
 // which can't be fully styled across browsers — its option text rendered blue on
@@ -887,8 +900,14 @@ async function saveCustomCheck() {
     body.unit = document.getElementById('cc-unit')?.value.trim() || '';
   } else if (body.type === 'job_fresh') {
     body.max_age_hours = numOf('cc-maxage');
-  } else if (body.type === 'systemd_unit' && body.target_kind === 'host') {
-    // wire to the Services page: also watch this unit on the targeted host
+  } else if ((body.type === 'systemd_unit' || body.type === 'windows_service')
+             && body.target_kind === 'host') {
+    // Wire to the Services page: also watch this unit/service on the targeted
+    // host. v6.4.1: windows_service was missing here while ccTypeChanged SHOWS
+    // the checkbox for it and the server has always accepted it — so ticking it
+    // on a Windows check silently did nothing. (launchd_service is deliberately
+    // NOT here: the mac agent doesn't read `services_watched`, so offering the
+    // option would just add a new dead switch.)
     body.watch_service = !!document.getElementById('cc-watch-svc')?.checked;
   } else if (body.type === 'file_contains') {
     body.pattern = document.getElementById('cc-pattern')?.value.trim() || '';

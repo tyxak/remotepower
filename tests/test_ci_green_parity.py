@@ -176,5 +176,72 @@ class TestTestModulesImportableOnCi(unittest.TestCase):
         self.assertEqual(problems, [], '\n'.join(problems))
 
 
+class TestE2eSuiteCannotRedTheGate(unittest.TestCase):
+    """An e2e file must SKIP when the environment can't run it, and must be
+    excluded from `make test-fast`. Both broke at once before v6.4.1:
+
+      * every e2e file guarded on `import playwright` alone, which is a
+        different question from "is a browser installed" — `pip install
+        playwright` gives you the module, `playwright install chromium` gives
+        you the binary. On a box with the first and not the second, setUpClass
+        ERRORED instead of skipping and the whole serial gate exited non-zero.
+      * `test-fast` hand-listed two e2e files to ignore and three more had been
+        added since, so the fast suite was red on every single run — which
+        quietly trains you to ignore exactly the signal CLAUDE.md says to trust.
+    """
+
+    E2E = sorted(p for p in (ROOT / 'tests').glob('*e2e*.py')
+                 if p.name != 'e2e_harness.py')
+
+    def test_there_are_e2e_files_to_check(self):
+        self.assertTrue(self.E2E, 'glob found no e2e test files — did they move?')
+
+    def test_every_e2e_file_guards_on_the_shared_probe(self):
+        bad = []
+        for p in self.E2E:
+            src = p.read_text()
+            if 'browser_available()' not in src:
+                bad.append(f'{p.name}: no browser_available() guard')
+                continue
+            for m in re.finditer(r'@unittest\.skipUnless\(\s*([^,]+),', src):
+                if m.group(1).strip() != 'browser_available()':
+                    bad.append(f'{p.name}: skipUnless({m.group(1).strip()}) — '
+                               f'use browser_available(), an import check does '
+                               f'not prove a browser exists')
+        self.assertEqual(bad, [], '\n'.join(bad))
+
+    def test_every_e2e_class_is_actually_guarded(self):
+        # A new unguarded class in an otherwise-guarded file is the regression
+        # this catches: the file imports the probe, one class forgets it.
+        bad = []
+        for p in self.E2E:
+            tree = ast.parse(p.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                if not any(isinstance(b, ast.Attribute) and b.attr == 'TestCase'
+                           for b in node.bases):
+                    continue
+                decorated = any(
+                    isinstance(d, ast.Call)
+                    and getattr(d.func, 'attr', '') == 'skipUnless'
+                    for d in node.decorator_list)
+                if not decorated:
+                    bad.append(f'{p.name}::{node.name} has no skipUnless guard')
+        self.assertEqual(bad, [], '\n'.join(bad))
+
+    def test_make_test_fast_excludes_every_e2e_file(self):
+        _require_sources(self)
+        mk = MAKEFILE.read_text()
+        m = re.search(r'^test-fast:\n((?:\t.*\n|.*\\\n)+)', mk, re.M)
+        self.assertIsNotNone(m, 'test-fast target not found in the Makefile')
+        recipe = m.group(1)
+        # Globbed, not hand-listed — a literal per-file list goes stale silently.
+        self.assertIn('E2E_TESTS', recipe,
+                      'test-fast must exclude $(E2E_TESTS) (the tests/*e2e*.py '
+                      'glob), not a hand-maintained list that goes stale')
+        self.assertRegex(mk, r'E2E_TESTS\s*:?=\s*\$\(wildcard tests/\*e2e\*\.py\)')
+
+
 if __name__ == '__main__':
     unittest.main()

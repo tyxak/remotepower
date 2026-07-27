@@ -630,6 +630,10 @@ AGENT_CHECK_TYPES = (
     # v6.2.0: the Windows analogue of systemd_unit — is a named
     # Windows service Running? Evaluated on-host via Get-Service.
     "windows_service",
+    # v6.4.1: the macOS analogue — is a named launchd job loaded and running?
+    # Evaluated on-host via `launchctl list <label>`. Loaded-but-not-running is
+    # a warning, not critical, because that is normal for an on-demand job.
+    "launchd_service",
     # ── on-host integrity & network tripwires ───────────────────────────────
     # All three take only `param` (no extra pushed fields) and reuse the
     # generic custom_check_failed/recovered alert flow. Evaluated on-host,

@@ -577,6 +577,145 @@ _secrets_cfg = {'on': False, 'paths': None, 'force': False}
 # nothing happened. Now honoured here too.
 _force_sysinfo = False          # force_package_scan → refresh sysinfo (incl. brew) next beat
 _backup_monitors = []           # server-pushed backup-freshness monitors
+# v6.4.1: the last two Linux/Windows-only signals the mac agent dropped. Custom
+# agent-side checks reported "unknown" forever on every Mac, and watched files
+# produced no drift report at all — in both cases the server accepted the config
+# and the UI showed the check/watch as configured, so the gap was invisible.
+_watched_agent_checks = []      # pushed by the server each heartbeat
+_watched_files = []             # config-drift watch list
+
+MAX_DRIFT_FILES = 200
+# launchd labels are reverse-DNS. Validated before it reaches argv so a label can
+# never be anything but a single token (defence in depth — there is no shell).
+_LAUNCHD_LABEL_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+
+
+def compute_drift_report(paths):
+    """sha256 each watched file → {path: {hash, size, mtime, exists}}. Identical
+    contract to the Linux and Windows agents; pure file I/O, so it is genuinely
+    OS-agnostic."""
+    out = {}
+    for p in (paths or [])[:MAX_DRIFT_FILES]:
+        try:
+            st = os.stat(p)
+        except OSError:
+            out[p] = {'hash': None, 'size': None, 'mtime': None, 'exists': False}
+            continue
+        try:
+            h = hashlib.sha256()
+            with open(p, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    h.update(chunk)
+            out[p] = {'hash': 'sha256:' + h.hexdigest(),
+                      'size': st.st_size, 'mtime': int(st.st_mtime), 'exists': True}
+        except OSError:
+            out[p] = {'hash': None, 'size': st.st_size,
+                      'mtime': int(st.st_mtime), 'exists': False}
+    return out
+
+
+def _launchd_status(label):
+    """`launchctl list <label>` → (status, output). Read-only, no shell."""
+    if not _LAUNCHD_LABEL_RE.match(label or ''):
+        return 'unknown', 'invalid label'
+    try:
+        r = subprocess.run(['launchctl', 'list', label],
+                           capture_output=True, text=True, timeout=20)
+    except Exception:
+        return 'unknown', 'query failed'
+    if r.returncode != 0:
+        return 'critical', 'not loaded'
+    out = r.stdout or ''
+    m = re.search(r'"PID"\s*=\s*(\d+)', out)
+    if m:
+        return 'ok', f'running (pid {m.group(1)})'
+    ex = re.search(r'"LastExitStatus"\s*=\s*(-?\d+)', out)
+    if ex and ex.group(1) != '0':
+        return 'critical', f'loaded, last exit {ex.group(1)}'
+    # Loaded with no PID is normal for an on-demand job, so this is a warning
+    # rather than critical — the operator asked "is it running", and it is not.
+    return 'warning', 'loaded, not running'
+
+
+# Fixed predicate — error and fault level only. The operator's regex is applied
+# in PYTHON below, never interpolated into the predicate, so there is nothing to
+# inject through the pattern (same posture as the Windows agent's Event Log path).
+_LOG_ERRORS_PREDICATE = 'eventType == "logEvent" AND messageType >= 16'
+_LOG_ERRORS_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _eval_one_agent_check_mac(c):
+    ctype = c.get('type')
+    param = str(c.get('param', ''))
+    if ctype in ('file_present', 'file_absent'):
+        try:
+            exists = os.path.exists(param)
+        except Exception:
+            return 'unknown', 'stat failed'
+        if ctype == 'file_present':
+            return ('ok', 'present') if exists else ('critical', 'missing')
+        return ('critical', 'present (should be absent)') if exists else ('ok', 'absent')
+    if ctype == 'job_fresh':
+        try:
+            max_age = int(c.get('max_age_hours', 24)) * 3600
+        except (TypeError, ValueError):
+            max_age = 24 * 3600
+        try:
+            age = time.time() - os.stat(param).st_mtime
+        except FileNotFoundError:
+            return 'critical', 'file missing'
+        except Exception:
+            return 'unknown', 'stat failed'
+        hrs = age / 3600.0
+        return ('ok', f'updated {hrs:.1f}h ago') if age <= max_age \
+            else ('critical', f'stale: {hrs:.1f}h old (max {max_age // 3600}h)')
+    if ctype == 'launchd_service':
+        if not param.strip():
+            return 'unknown', 'no service'
+        return _launchd_status(param.strip())
+    if ctype == 'log_errors':
+        if not param:
+            return 'unknown', 'no pattern'
+        try:
+            window = int(c.get('window_min', 15))
+            warn = int(c.get('warn', 1))
+            crit = int(c.get('crit', 10))
+        except (TypeError, ValueError):
+            window, warn, crit = 15, 1, 10
+        window = max(1, min(1440, window))
+        try:
+            rx = re.compile(param)
+        except re.error:
+            return 'unknown', 'bad pattern'
+        try:
+            r = subprocess.run(['log', 'show', '--last', f'{window}m',
+                                '--style', 'compact',
+                                '--predicate', _LOG_ERRORS_PREDICATE],
+                               capture_output=True, text=True, timeout=60)
+        except Exception:
+            return 'unknown', 'query failed'
+        n = sum(1 for ln in (r.stdout or '')[:_LOG_ERRORS_MAX_BYTES].splitlines()
+                if ln.strip() and rx.search(ln))
+        status = 'critical' if n >= crit else 'warning' if n >= warn else 'ok'
+        return status, f'{n} match(es) in {window}min'
+    # systemd_unit, windows_service and the Linux-only integrity/egress guard
+    # types have no macOS implementation — say so rather than reporting a
+    # misleading ok/critical.
+    return 'unknown', 'not applicable on macOS'
+
+
+def eval_agent_checks(checks):
+    """Evaluate every server-pushed agent-side check → {id: {status, output}}."""
+    out = {}
+    for c in checks or []:
+        if not isinstance(c, dict) or not c.get('id'):
+            continue
+        try:
+            status, output = _eval_one_agent_check_mac(c)
+        except Exception:
+            status, output = 'unknown', 'error'
+        out[c['id']] = {'status': status, 'output': str(output)[:200]}
+    return out
 
 
 def collect_backup_status(backup_monitors):
@@ -1023,6 +1162,26 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     if poll_count <= 1 or poll_count % 12 == 0 or _force_sysinfo:
         payload['sysinfo'] = collect_sysinfo()
         _force_sysinfo = False   # v6.4.0: one-shot force_package_scan consumed
+    # v6.4.1: agent-side custom checks. Evaluated every beat (they are the
+    # health signal, so the sysinfo cadence would be too slow) and reported
+    # under sysinfo, which is where the server's Checks engine reads them —
+    # so a beat that carries results must carry a sysinfo dict to put them in.
+    if _watched_agent_checks:
+        try:
+            results = eval_agent_checks(_watched_agent_checks)
+            if results:
+                payload.setdefault('sysinfo', {})['custom_check_results'] = results
+        except Exception:
+            pass
+    # v6.4.1: config-drift report on the sysinfo cadence (hashing is the
+    # expensive part, and a watched file changing between beats still shows up).
+    if _watched_files and (poll_count <= 1 or poll_count % 12 == 0):
+        try:
+            drift = compute_drift_report(_watched_files)
+            if drift:
+                payload['drift'] = drift
+        except Exception:
+            pass
     # v6.4.0: backup-freshness reporting when the server pushed monitors.
     if _backup_monitors:
         try:
@@ -1105,12 +1264,20 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         if resp.get('force_log_sweep'):
             _log_sweep_cfg['force'] = True
         # v6.4.0: cross-platform flag parity (were silently dropped).
-        global _force_sysinfo, _backup_monitors
+        global _force_sysinfo, _backup_monitors, _watched_agent_checks, _watched_files
         if resp.get('force_package_scan'):
             _force_sysinfo = True   # refresh sysinfo (incl. brew outdated) next beat
         _bm = resp.get('backup_monitors')
         if isinstance(_bm, list):
             _backup_monitors = _bm
+        # v6.4.1: agent-side checks + the config-drift watch list.
+        _ac = resp.get('agent_checks')
+        if isinstance(_ac, list):
+            _watched_agent_checks = [c for c in _ac
+                                     if isinstance(c, dict) and c.get('id')][:100]
+        _wf = resp.get('watched_files')
+        if isinstance(_wf, list):
+            _watched_files = [str(f) for f in _wf if str(f).strip()][:MAX_DRIFT_FILES]
         if resp.get('force_agent_upgrade'):
             # Same self-update path as the `update` command; report the result
             # back on the next beat so the operator sees it took.

@@ -110,8 +110,17 @@ test:
 # fast while iterating, then confirm green with `make test` / `make check` before
 # pushing. `--dist loadfile` keeps each file's tests on one worker (fewer false
 # failures than the default). Needs: pip install --break-system-packages pytest pytest-xdist
+# e2e files need a booted stack + a launchable Chromium, so they are excluded
+# here (they still run in `make test` / `make check`). GLOBBED, not hand-listed:
+# the old hardcoded pair went stale the moment v6.3.0/v6.4.0 added three more
+# e2e files, so `make test-fast` exited non-zero on EVERY run (Chromium launch
+# errors) — which quietly trains you to ignore a red fast suite, exactly the
+# signal CLAUDE.md says to trust. A new tests/*e2e*.py is now excluded for free.
+E2E_TESTS := $(wildcard tests/*e2e*.py)
 test-fast:
-	$(PY) -m pytest tests -q -p no:cacheprovider -n auto --dist loadfile --ignore=tests/test_v430_e2e.py --ignore=tests/test_a11y_axe.py
+	$(PY) -m pytest tests -q -p no:cacheprovider -n auto --dist loadfile \
+	  $(addprefix --ignore=,$(filter-out tests/e2e_harness.py,$(E2E_TESTS))) \
+	  --ignore=tests/test_a11y_axe.py
 
 # v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)

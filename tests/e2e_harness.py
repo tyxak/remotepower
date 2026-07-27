@@ -26,6 +26,44 @@ _CGI = _ROOT / 'server' / 'cgi-bin'
 _HTML = _ROOT / 'server' / 'html'
 
 
+_BROWSER_OK = None
+
+
+def browser_available():
+    """True only if the e2e suite can actually RUN — playwright importable AND a
+    chromium binary on disk AND gunicorn present.
+
+    The per-file guards used to test only `import playwright`, which is a
+    different question: `pip install playwright` gives you the module, while the
+    browser needs a separate `playwright install chromium`. On a box in that
+    state every e2e class ERRORED at `chromium.launch()` instead of skipping, so
+    the whole suite — `make test`, `make test-fast`, `make check` — exited
+    non-zero for an environmental reason. Cached; the probe starts the driver.
+    """
+    global _BROWSER_OK
+    if _BROWSER_OK is None:
+        _BROWSER_OK = False
+        try:
+            from playwright.sync_api import sync_playwright
+            import gunicorn  # noqa: F401
+            # Actually launch and close. Checking `chromium.executable_path`
+            # instead looks cheaper but tests the WRONG binary — that property
+            # points at chromium-<rev>/chrome-linux64/chrome while a default
+            # `launch()` runs chromium_headless_shell-<rev>, so the two can
+            # disagree in both directions. A real launch is ground truth for
+            # the exact call every e2e setUpClass makes, and it costs ~1s once.
+            with sync_playwright() as p:
+                p.chromium.launch().close()
+            _BROWSER_OK = True
+        except Exception:
+            _BROWSER_OK = False
+    return _BROWSER_OK
+
+
+SKIP_REASON = ('needs playwright + a chromium binary + gunicorn — '
+               'pip install playwright gunicorn && playwright install chromium')
+
+
 def _free_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('127.0.0.1', 0))
