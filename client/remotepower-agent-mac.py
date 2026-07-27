@@ -673,6 +673,11 @@ _backup_monitors = []           # server-pushed backup-freshness monitors
 # and the UI showed the check/watch as configured, so the gap was invisible.
 _watched_agent_checks = []      # pushed by the server each heartbeat
 _watched_files = []             # config-drift watch list
+# v6.4.1: watched services (launchd labels). Linux and Windows both honour
+# services_watched; the mac agent dropped the key, so the Services page stayed
+# empty for every Mac while the server accepted the config — the same
+# success-toast-then-silence shape as the v6.4.0 flag-parity batch above.
+_watched_services = []          # server-pushed launchd labels for the Services page
 
 # ── v6.4.1: canary / honeytoken files (parity — this was Linux-only) ──────────
 #
@@ -1002,6 +1007,51 @@ def _launchd_status(label):
     # Loaded with no PID is normal for an on-demand job, so this is a warning
     # rather than critical — the operator asked "is it running", and it is not.
     return 'warning', 'loaded, not running'
+
+
+def get_services(watched_units):
+    """Report launchd job state for each watched label. Returns
+    [{unit, active, sub, since}, ...] — the shape process_service_report
+    ingests (the same `services` payload key as the Linux/Windows agents, so
+    the Services page and failed-service alerting work for Macs).
+
+    ONE argument-less `launchctl list` call covers every label (columns:
+    PID, last exit status, label) — no per-label subprocess, and since no
+    label is ever passed on a command line there is nothing to quote.
+    `since` is 0: launchd doesn't expose a state-change timestamp here.
+    """
+    if not watched_units:
+        return []
+    units = [str(u) for u in watched_units[:50] if str(u).strip()]
+    if not units:
+        return []
+    try:
+        r = subprocess.run(['launchctl', 'list'],
+                           capture_output=True, text=True, timeout=20)
+        jobs = {}
+        for line in (r.stdout or '').splitlines():
+            parts = line.split('\t') if '\t' in line else line.split()
+            if len(parts) < 3 or parts[2] in ('Label',):
+                continue
+            jobs[parts[2].strip()] = (parts[0].strip(), parts[1].strip())
+    except Exception:
+        return [{'unit': u, 'active': 'unknown', 'sub': '', 'since': 0}
+                for u in units]
+    out = []
+    for u in units:
+        pid, status = jobs.get(u, (None, None))
+        if pid is None:
+            # Not loaded in this launchd domain at all.
+            active, sub = 'inactive', 'not loaded'
+        elif pid != '-':
+            active, sub = 'active', f'running pid {pid}'
+        elif status not in ('0', '-', ''):
+            active, sub = 'failed', f'last exit {status}'
+        else:
+            # Loaded, no PID, clean last exit: an on-demand job, not running.
+            active, sub = 'inactive', 'loaded, not running'
+        out.append({'unit': u, 'active': active, 'sub': sub, 'since': 0})
+    return out
 
 
 # Fixed predicate — error and fault level only. The operator's regex is applied
@@ -1684,6 +1734,16 @@ def build_heartbeat(creds, poll_count, pending_output=None):
                 payload['drift'] = drift
         except Exception:
             pass
+    # v6.4.1: watched-service states, on the same slower cadence as sysinfo
+    # (matches the Windows agent; a service dying between beats still shows up
+    # on the next sampled beat, and the server's flap detection is delta-based).
+    if _watched_services and (poll_count <= 1 or poll_count % 12 == 0):
+        try:
+            svcs = get_services(_watched_services)
+            if svcs:
+                payload['services'] = svcs
+        except Exception:
+            pass
     # v6.4.0: backup-freshness reporting when the server pushed monitors.
     if _backup_monitors:
         try:
@@ -1816,6 +1876,11 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _wf = resp.get('watched_files')
         if isinstance(_wf, list):
             _watched_files = [str(f) for f in _wf if str(f).strip()][:MAX_DRIFT_FILES]
+        # v6.4.1: watched services (launchd labels) — parity with Linux/Windows.
+        global _watched_services
+        _sw = resp.get('services_watched')
+        if isinstance(_sw, list):
+            _watched_services = [str(s) for s in _sw if str(s).strip()][:50]
         # v6.4.1: PII inventory scan config (mirrors the secrets-scan trio).
         _pii_cfg['on'] = bool(resp.get('pii_scan_enabled'))
         _psp = resp.get('pii_scan_paths')

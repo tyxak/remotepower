@@ -413,9 +413,11 @@ function ccTypeChanged() {
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
   document.getElementById('cc-protect-grp')?.classList.toggle('hidden', t !== 'dir_baseline');
   document.getElementById('cc-pattern-grp')?.classList.toggle('hidden', t !== 'file_contains');
-  // systemd_unit / windows_service: offer to also watch it on the Services page.
+  // systemd_unit / windows_service / launchd_service: offer to also watch it
+  // on the Services page.
   document.getElementById('cc-svc-grp')?.classList.toggle(
-    'hidden', t !== 'systemd_unit' && t !== 'windows_service');
+    'hidden', t !== 'systemd_unit' && t !== 'windows_service'
+              && t !== 'launchd_service');
 }
 let _ccCache = [];
 let _ccEditId = null;
@@ -900,14 +902,15 @@ async function saveCustomCheck() {
     body.unit = document.getElementById('cc-unit')?.value.trim() || '';
   } else if (body.type === 'job_fresh') {
     body.max_age_hours = numOf('cc-maxage');
-  } else if ((body.type === 'systemd_unit' || body.type === 'windows_service')
+  } else if ((body.type === 'systemd_unit' || body.type === 'windows_service'
+              || body.type === 'launchd_service')
              && body.target_kind === 'host') {
     // Wire to the Services page: also watch this unit/service on the targeted
     // host. v6.4.1: windows_service was missing here while ccTypeChanged SHOWS
     // the checkbox for it and the server has always accepted it — so ticking it
-    // on a Windows check silently did nothing. (launchd_service is deliberately
-    // NOT here: the mac agent doesn't read `services_watched`, so offering the
-    // option would just add a new dead switch.)
+    // on a Windows check silently did nothing. launchd_service joined once the
+    // mac agent gained `services_watched` (it was excluded while that key was
+    // a dead switch on Macs).
     body.watch_service = !!document.getElementById('cc-watch-svc')?.checked;
   } else if (body.type === 'file_contains') {
     body.pattern = document.getElementById('cc-pattern')?.value.trim() || '';

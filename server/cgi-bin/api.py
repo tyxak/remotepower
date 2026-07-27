@@ -42761,8 +42761,9 @@ def handle_custom_checks_save():
     # CONFIG_FILE lock so the device lock never nests (SQLite shares one conn).
     # v6.2.0: windows_service behaves identically (the watch-list is OS-agnostic;
     # the Windows agent reports service state under the same services_watched key).
+    # v6.4.1: launchd_service too, now the mac agent honours services_watched.
     watched_ok = False
-    if ctype in ('systemd_unit', 'windows_service') and tk == 'host' and body.get('watch_service') and tv:
+    if ctype in ('systemd_unit', 'windows_service', 'launchd_service') and tk == 'host' and body.get('watch_service') and tv:
         try:
             with _LockedUpdate(DEVICES_FILE) as devices:
                 d = devices.get(tv)
