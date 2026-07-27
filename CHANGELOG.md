@@ -167,9 +167,15 @@ operators search for, and a translated SPF column would be unrecognisable.
 **The `app-*.js` surface is no longer unmeasured.** It had been described as
 "large and unquantified" for several releases; it is **2,836 user-visible
 strings, of which 1,924 were untranslated (67%)** — bigger than the whole static
-HTML surface and equally ungated. A fourth pass took the strings appearing 2+
-times across the page modules (generic toasts, empty states, common actions):
-**1,924 → 1,688 (59%)**. Those need nothing special from the engine — the
+HTML surface and equally ungated. Two passes over it (the strings appearing 2+
+times, then the empty-state and load-failure clusters) took it to **1,578
+(55%)**.
+
+Those clusters are formulaic — "No X." and "Failed to load X." — and look like
+something a noun glossary could generate. They are hand-written anyway: French,
+Spanish and Arabic gender agreement (*Aucun hôte* vs *Aucune règle*) and
+Hindi/Chinese word order make substitution produce confidently wrong grammar,
+and a wrong translation is worse than the English fallback. Those need nothing special from the engine — the
 MutationObserver already translates JS-injected text nodes like any other.
 
 Left in English there on purpose: config and env literals
@@ -179,7 +185,7 @@ product's** UI — "Control Panel → Security → Certificate →" is Synology 
 own menu path, and translating our reference to it would make it *harder* to
 follow unless it happened to match DSM's own localisation.
 
-Where this leaves it: static 310, JS 1,688. Four passes in, and the honest
+Where this leaves it: static 310, JS 1,578. Five passes in, and the honest
 remainder is still larger than what has been done. Every entry added carries all
 six languages (verified: 0 missing), and no CJK/Devanagari/Arabic value is a
 copy of its English key.
