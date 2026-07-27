@@ -57,6 +57,36 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Windows and macOS agents send delta heartbeats too
+
+Delta sysinfo shipped in v6.2.2 on the Linux agent only. The server has been
+advertising `delta_ok` to every agent and has always known how to merge — so
+since v6.2.2 every Windows and macOS host has re-sent its full package list,
+listening-port table and interface list on every sysinfo beat, for nothing.
+
+Both agents now omit those three fields when the content is unchanged. Measured
+on a representative Windows Server host (40 pending updates, 60 listening ports,
+4 NICs), a steady-state sysinfo beat drops from **7,376 to 219 bytes — 97%
+smaller**; across 500 Windows hosts that is ~422 MiB/day of heartbeat traffic
+down to ~12 MiB. That is the best case by construction — a beat where inventory
+actually changed still sends the changed field in full — but steady state is the
+common case, which is the whole point of the optimisation.
+
+Only the three fields they actually produce are listed: the Linux set also has
+`ssh_hostkeys`/`usb`/`autoupdate`/`ssh_config`, which no Windows or macOS
+heartbeat carries, and a guardrail asserts every listed field is in the server's
+whitelist — an unwhitelisted omission is silently dropped, which would lose the
+field rather than save bandwidth.
+
+The property that matters more than the saving is preserved exactly as the Linux
+agent has it: **a field is never omitted on the strength of a send the server did
+not confirm.** Hashes are recorded as pending and only promoted once the server
+acknowledges a non-busy store, a `delta_resend` drops the hash for the named
+field, and a server that stops advertising the capability (downgrade,
+restore-from-backup) gets full payloads again from the very next beat. Get that
+wrong and the server permanently holds stale data the agent has stopped sending
+— silent, and invisible until someone reads a stale package count.
+
 ### Canary files now work on Windows and macOS
 
 The honeytoken tripwire — plant a decoy that looks like credentials, alert if

@@ -603,6 +603,77 @@ _CANARY_DEFAULT = ('# AWS credentials — do not share\n'
                    'aws_secret_access_key = wJalrXUtnFEMI/EXAMPLEKEY\n')
 
 
+# ── v6.4.1: delta sysinfo (parity — this was Linux-only since v6.2.2) ─────────
+#
+# Heavy, slow-moving sysinfo fields are OMITTED when their content is unchanged
+# since the last send the server CONFIRMED. The server merges its stored copy
+# back in at ingest, so downstream consumers still see a complete sysinfo, and
+# names anything it could not merge in the response's `delta_resend`.
+#
+# Only the three fields this agent actually produces are listed — the Linux set
+# also has ssh_hostkeys/usb/autoupdate/ssh_config, which no macOS heartbeat
+# carries. Listing a field the agent never sends would be harmless but is a lie
+# about what this agent does.
+#
+# Nothing is omitted until the server advertises `delta_ok`, so a new agent
+# against an old server keeps sending full payloads, and a server that STOPS
+# advertising it (downgrade, restore-from-backup) gets full payloads again from
+# the very next beat.
+_DELTA_SYSINFO_FIELDS = ('packages', 'listening_ports', 'network')
+_delta_ok = False        # server advertised the capability
+_delta_hashes = {}       # field -> hash of the last value the server confirmed
+_delta_pending = {}      # field -> hash sent full THIS beat, not yet confirmed
+
+
+def _stable_hash(value):
+    """Content hash for delta comparison. Agent-local only — the server never
+    recomputes it, so the scheme is free to change."""
+    blob = json.dumps(value, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def _apply_sysinfo_delta(payload):
+    """Drop unchanged heavy fields from payload['sysinfo'] and record what was
+    omitted. Records this beat's full-sent hashes as PENDING — they are only
+    promoted to confirmed by _commit_sysinfo_delta once the server has
+    acknowledged a non-busy store, so a dropped or 202'd beat can never leave
+    the server holding data we then stop sending."""
+    _delta_pending.clear()
+    si = payload.get('sysinfo')
+    if not _delta_ok or not isinstance(si, dict):
+        return payload
+    omitted = {}
+    for f in _DELTA_SYSINFO_FIELDS:
+        if f not in si:
+            continue
+        try:
+            h = _stable_hash(si[f])
+        except Exception:
+            continue
+        if _delta_hashes.get(f) == h:
+            del si[f]
+            omitted[f] = h
+        else:
+            _delta_pending[f] = h
+    if omitted:
+        payload['sysinfo_omitted'] = omitted
+    return payload
+
+
+def _commit_sysinfo_delta(resp):
+    """Learn the capability from every response, commit pending hashes only on a
+    non-busy store, and forget anything the server asks to be re-sent."""
+    global _delta_ok
+    if not isinstance(resp, dict):
+        return
+    if resp.get('busy') is not True:
+        _delta_hashes.update(_delta_pending)
+    _delta_pending.clear()
+    _delta_ok = bool(resp.get('delta_ok'))
+    for f in (resp.get('delta_resend') or []):
+        _delta_hashes.pop(f, None)
+
+
 def _canary_path_ok(p):
     """Absolute POSIX / drive-letter / UNC path, no traversal. Mirrors the
     server-side check so a path the server stored is one we will act on."""
@@ -1302,7 +1373,10 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')
-    return payload
+    # v6.4.1: last — omit unchanged heavy sysinfo fields. Must run after every
+    # sysinfo mutation above, or a field added later in this function would be
+    # hashed before it was complete.
+    return _apply_sysinfo_delta(payload)
 
 
 def enroll(server, pin=None, token=None, name=None):
@@ -1388,6 +1462,8 @@ def heartbeat_once(creds, poll_count, pending_output=None):
                        for c in _canary_cfg}
             for _gone in [p for p in list(_canary_reported) if p not in _wanted]:
                 _canary_reported.discard(_gone)
+        # v6.4.1: delta-sysinfo bookkeeping — commit only on a confirmed store.
+        _commit_sysinfo_delta(resp)
         if resp.get('force_agent_upgrade'):
             # Same self-update path as the `update` command; report the result
             # back on the next beat so the operator sees it took.
