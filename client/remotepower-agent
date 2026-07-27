@@ -9966,6 +9966,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     du_scan_paths = None
     force_du_scan = False
     last_du_scan_ts = _load_du_scan_ts()
+    # v6.4.1: 202-busy retry_after hint — set per busy response, consumed once.
+    _busy_retry_s = None
     # v6.2.0: PII / sensitive-data scan — opt-in, slow (~24h), server-pushed paths,
     # same persisted-timestamp cadence (never poll_count % N).
     pii_scan_on = False
@@ -10708,6 +10710,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 # Skip command-processing and follow-up block; the next
                 # heartbeat will re-send everything that mattered.
                 cmd = None
+                # v6.4.1: honour the retry_after hint — lock contention is
+                # momentary, so a short retry beats waiting out a full poll
+                # interval. Floor of 5 s so it can never become a hammer.
+                try:
+                    _busy_retry_s = max(5, min(interval, int(resp.get('retry_after') or interval)))
+                except (TypeError, ValueError):
+                    _busy_retry_s = None
             elif 'host_scan_result' in payload and _HOST_SCAN_OUTBOX:
                 # Server stored this heartbeat's writes — the scan result is
                 # safely delivered, drop it from the retry queue.
@@ -11084,7 +11093,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # time.sleep(interval) when the event never fires (the channel isn't
         # installed/enabled, or simply didn't have anything to say this
         # cycle) -- no behavior change for the unmodified case.
-        if _push_wake_event.wait(timeout=interval):
+        # v6.4.1: a busy-202 response carries a retry_after hint (seconds) —
+        # sleep that instead of the whole interval, once, then clear it.
+        _iter_timeout = interval
+        if _busy_retry_s:
+            _iter_timeout = _busy_retry_s
+            _busy_retry_s = None
+        if _push_wake_event.wait(timeout=_iter_timeout):
             _push_wake_event.clear()
             log.debug('woken early by a push nudge')
 

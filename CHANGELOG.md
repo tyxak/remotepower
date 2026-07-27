@@ -57,6 +57,45 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Watched services on Macs, file-path log rules everywhere, and a dead-ingest fix
+
+The cross-agent parity audit closed the next batch of
+configured-but-silent-on-this-platform gaps — and driving the ported shape
+through the real server ingest turned up a bug that had been silently eating
+a **Linux** feature all along.
+
+- **Watched services on macOS** (`services_watched`): the Services page works
+  for Macs. One argument-less `launchctl list` per sysinfo cadence; running /
+  crashed (`last exit N`) / loaded-idle / not-loaded map onto the same
+  active / failed / inactive vocabulary as systemd and Windows services, so
+  failed-service alerting and flap detection apply unchanged. The custom-check
+  "also watch on the Services page" option now covers `launchd_service` too.
+- **File-path log rules on Windows and macOS** (`log_watch` with a `path`):
+  both agents tail watched files with the Linux state machine — rotation and
+  truncation detection, first-sight bookmark so a new rule never dumps
+  history, 200-line/256 KB caps — behind a platform-appropriate
+  credential deny list (SAM/DPAPI/`.ssh` on Windows; `master.passwd`/
+  `sudoers`/dslocal/`.ssh` on macOS; symlinks resolved first). Tail state
+  commits only after a successful submit, so an outage replays instead of
+  dropping lines. Windows `C:\…` paths are now accepted by the rule form.
+- **FIXED — `file:` log units were dropped at ingest on every platform.**
+  `/api/logs` sanitized every unit name with the strict systemd regex, which
+  rejects `:` and `/` — so the synthetic `file:<path>` units the LINUX agent
+  has submitted since v3.0.1 were silently discarded and file-path rules
+  never matched anywhere. Found by driving the ported agents through the
+  real handler; no test had ever exercised the server half.
+- **Disk-usage scan on macOS** (`du_scan_*`): the fleet-wide toggle claimed
+  every device while Macs never reported. BSD `du` flags, same bounds
+  (one level, filesystem-local, hard time budgets) — "what to delete" in the
+  drawer works for a filling-up MacBook like it does for a Linux NAS.
+- **The 202-busy `retry_after` hint is honoured** by all three agents (it had
+  no reader since v2.1.0): a momentary lock contention now retries in seconds
+  instead of waiting out a full poll interval, floored at 5 s.
+- The Windows/macOS agent docstrings now carry an explicit, auditable list of
+  the heartbeat keys that stay Linux-only (they previously claimed OpenSCAP
+  was the only divergence).
+
+
 ### The PII inventory scan runs on Windows and macOS
 
 `pii_scan_enabled` / `pii_scan_paths` / `force_pii_scan` were Linux-only, so a

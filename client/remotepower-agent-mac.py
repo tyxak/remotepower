@@ -8,6 +8,15 @@ commands, and participates in the opt-in secrets scan — without a separate
 server-side code path. Stdlib only; `psutil` is used when present for richer
 metrics and gracefully skipped otherwise.
 
+Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
+this agent deliberately does NOT read): OpenSCAP (`force_scap_scan`);
+`host_scan` (lynis); `image_scan_*` (trivy); `mailbox_paths` (mail spools);
+`host_config_desired` (users/sudoers/motd apply); `push_enabled` (push relay);
+`mdns_enabled`; `force_iac_collect`; `guard_actions` (Integrity Guard check
+types are Linux-only); `harvest_dns_creds` / `force_acme_rescan` (acme.sh).
+Everything else the server sends is honoured here — when closing one of these,
+also update this list and the Windows agent's.
+
 Usage:
     remotepower-agent-mac --enroll --server https://rp.example --pin 123456
     remotepower-agent-mac --run        # heartbeat loop (run under launchd)
@@ -1512,6 +1521,88 @@ PII_SCAN_INTERVAL_S = 24 * 3600
 _PII_TS_FILE = 'pii_scan_last'
 _pii_cfg = {'on': False, 'paths': None, 'force': False}
 
+# ── v6.4.1: disk-usage scan (du top-consumers — was Linux-only) ──────────────
+#
+# The fleet-wide du_scan toggle claimed every device but Macs silently never
+# reported. Same design as the Linux agent: shell out to `du` (BSD flags here —
+# `-d 1` for depth, `-k` for KiB since BSD du has no --block-size), one level
+# deep, never crossing filesystems, hard time budgets. The drawer's "what to
+# delete" view works for a filling-up MacBook exactly like a Linux NAS.
+DU_SCAN_INTERVAL_S = 12 * 3600
+_DU_TS_FILE = 'du_scan_last'
+_DU_TOP_N = 15
+_DU_DEFAULT_PATHS = ['/Users', '/Applications', '/Library',
+                     '/private/var', '/opt', '/usr/local']
+_du_cfg = {'on': False, 'paths': None, 'force': False}
+
+
+def _load_du_scan_ts():
+    try:
+        with open(os.path.join(_data_dir(), _DU_TS_FILE), 'r', encoding='utf-8') as f:
+            return float((f.read() or '').strip())
+    except Exception:
+        return 0.0
+
+
+def _save_du_scan_ts(ts):
+    try:
+        with open(os.path.join(_data_dir(), _DU_TS_FILE), 'w', encoding='utf-8') as f:
+            f.write(str(int(ts)))
+    except Exception:
+        pass
+
+
+def _parse_du_kib(out, root):
+    """Parse `du -x -k -d 1` output → children biggest-first, bytes.
+    Pure — unit-testable. BSD du prints KiB; ×1024 restores the byte contract
+    the server's _ingest_disk_usage expects. The root's own total (last line)
+    is dropped — it's the sum, not a child."""
+    rows = []
+    for line in (out or '').splitlines():
+        parts = line.split('\t', 1)
+        if len(parts) != 2:
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+        try:
+            size = int(parts[0].strip()) * 1024
+        except ValueError:
+            continue
+        path = parts[1].strip()
+        if not path or path.rstrip('/') == root.rstrip('/'):
+            continue
+        rows.append({'path': path, 'bytes': size})
+    rows.sort(key=lambda r: r['bytes'], reverse=True)
+    return rows[:_DU_TOP_N]
+
+
+def collect_disk_usage(paths=None, time_budget=45.0):
+    """Top space consumers per configured path. Bounded: one level deep,
+    filesystem-local, per-path timeout + overall wall-clock budget.
+    Feature-invisible when `du` is absent (returns {})."""
+    if not shutil.which('du'):
+        return {}
+    out = {}
+    started = time.time()
+    for p in (paths or _DU_DEFAULT_PATHS):
+        if time.time() - started > time_budget:
+            break
+        if not os.path.isdir(p):
+            continue
+        remaining = max(5.0, time_budget - (time.time() - started))
+        try:
+            r = subprocess.run(['du', '-x', '-k', '-d', '1', p],
+                               capture_output=True, text=True,
+                               timeout=min(30.0, remaining))
+        except Exception:
+            continue            # timeout / permission / vanished — skip this path
+        # du exits non-zero on any unreadable subdir but still prints the rest;
+        # a partial answer is normal and useful — parse stdout regardless.
+        entries = _parse_du_kib(r.stdout, p)
+        if entries:
+            out[p] = entries
+    return out
+
 
 def _luhn_ok(digits: str) -> bool:
     """Luhn checksum. Without it EVERY 16-digit number — an order id, a
@@ -1890,6 +1981,19 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['backup_status'] = collect_backup_status(_backup_monitors)
         except Exception:
             pass
+    # v6.4.1: du top-consumers, opt-in, ~12h or on demand (parity with Linux).
+    if _du_cfg['on'] and (_du_cfg['force']
+                          or time.time() - _load_du_scan_ts() >= DU_SCAN_INTERVAL_S):
+        try:
+            _du = collect_disk_usage(_du_cfg.get('paths'))
+            if _du:
+                payload['disk_usage'] = _du
+            # Stamp on every real attempt (not only success), like the pii
+            # scan — a host with nothing to report must not rescan every beat.
+            _save_du_scan_ts(time.time())
+        except Exception as _e:
+            log.debug('du scan error: %s', _e)
+        _du_cfg['force'] = False
     # v6.4.1: custom monitoring scripts, on their own cadence (every 5th poll,
     # like the Linux agent). Results are held until a beat carries them so a
     # failed POST doesn't lose a run.
@@ -2034,6 +2138,12 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _pii_cfg['paths'] = _psp if isinstance(_psp, list) and _psp else None
         if resp.get('force_pii_scan'):
             _pii_cfg['force'] = True   # one-shot "Scan now" from the server
+        # v6.4.1: du-scan config trio (parity with Linux).
+        _du_cfg['on'] = bool(resp.get('du_scan_enabled'))
+        _dsp = resp.get('du_scan_paths')
+        _du_cfg['paths'] = _dsp if isinstance(_dsp, list) and _dsp else None
+        if resp.get('force_du_scan'):
+            _du_cfg['force'] = True    # one-shot "Scan now" from the server
         # v6.4.1: custom monitoring scripts assigned to this device.
         global _custom_scripts
         _cs = resp.get('custom_scripts')
@@ -2102,6 +2212,7 @@ def run():
         if poll_count % 60 == 0 and _trim_boot_log():
             log.info('truncated oversized %s', BOOT_LOG_FILE)
         sent = pending
+        _resp = None
         try:
             _resp, pending = heartbeat_once(creds, poll_count, pending)
             # v6.3.0: a successful self-update swapped the file on disk; once
@@ -2114,7 +2225,16 @@ def run():
                          [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
         except Exception as e:
             log.warning('heartbeat error: %s', e)
-        time.sleep(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))
+        delay = max(10, int(load_creds().get('poll_interval', DEFAULT_POLL)))
+        # v6.4.1: honour the 202-busy retry_after hint — lock contention is
+        # momentary, so a short retry beats waiting out a full poll interval.
+        # Floor of 5 s so a tiny hint can never turn the loop into a hammer.
+        if isinstance(_resp, dict) and _resp.get('busy') is True:
+            try:
+                delay = max(5, min(delay, int(_resp.get('retry_after') or delay)))
+            except (TypeError, ValueError):
+                pass
+        time.sleep(delay)
 
 
 def main(argv=None):

@@ -21,9 +21,18 @@ As of the v6.2.0 second wave it also reports SMART disk health, hardware invento
 posture set for the Checks catalog (BitLocker / firewall / Defender / WU service),
 and evaluates agent-side custom checks incl. a `windows_service` type.
 
-Still Linux-only, and honestly so: OpenSCAP (`oscap` is a Linux tool with Linux
-SCAP content — the server-side CIS baseline is the cross-platform path). Kept as a
-separate file from the Linux agent so it can't destabilise it; converging over time.
+Still Linux-only, and honestly so (v6.4.1 audit — the heartbeat-response keys
+this agent deliberately does NOT read): OpenSCAP (`oscap` is a Linux tool with
+Linux SCAP content — the server-side CIS baseline is the cross-platform path);
+`host_scan` (lynis); `image_scan_*` (trivy container-image CVEs); `du_scan_*`
+(no `du` on Windows; macOS has it since v6.4.1); `mailbox_paths` (Unix mail
+spools); `host_config_desired` (users/sudoers/motd apply); `push_enabled` (the
+push relay channel); `mdns_enabled`; `force_iac_collect`; `guard_actions`
+(Integrity Guard check types are Linux-only); `harvest_dns_creds` /
+`force_acme_rescan` (acme.sh). Everything else the server sends is honoured
+here — when closing one of these, also update this list and the macOS agent's.
+Kept as a separate file from the Linux agent so it can't destabilise it;
+converging over time.
 
 Stdlib only (urllib/json/socket/subprocess/platform/hashlib/winreg/logging).
 `psutil` is used for richer metrics + the process list when present, but the
@@ -3489,11 +3498,21 @@ def run(should_stop=None, wait=None):
             log.error('not enrolled - run with --enroll first')
             return 1
         poll_count += 1
+        _resp = None
         try:
             _resp, pending = heartbeat_once(creds, poll_count, pending)
         except Exception as e:
             log.warning(f'heartbeat error: {e}')
-        wait(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))
+        delay = max(10, int(load_creds().get('poll_interval', DEFAULT_POLL)))
+        # v6.4.1: honour the 202-busy retry_after hint — lock contention is
+        # momentary, so a short retry beats waiting out a full poll interval.
+        # Floor of 5 s so a tiny hint can never turn the loop into a hammer.
+        if isinstance(_resp, dict) and _resp.get('busy') is True:
+            try:
+                delay = max(5, min(delay, int(_resp.get('retry_after') or delay)))
+            except (TypeError, ValueError):
+                pass
+        wait(delay)
 
 
 def main(argv=None):
