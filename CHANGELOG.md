@@ -57,6 +57,45 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### The macOS agent's log was unbounded
+
+Reported from the field: `/var/log/remotepower-agent.log` looked like it had no
+rotation. On Linux and Windows it does — both agents carry a
+`RotatingFileHandler` (5 MB × 5 and 1 MB × 3) and deliberately self-rotate so no
+logrotate or cron file is required; a Linux file sitting at 1.5 MB has simply
+not reached the threshold yet.
+
+**The macOS agent had no logging configuration at all.** It wrote to stderr and
+`install-macos.sh` pointed launchd's `StandardOutPath`/`StandardErrorPath`
+straight at that path. launchd never rotates, so the file grew without limit on
+every Mac in the fleet, forever.
+
+It now has the same rotating handler as Linux — 5 MB × 5 — and the six bare
+`sys.stderr.write` calls became real log records so they land inside the cap
+rather than outside it. macOS ships `newsyslog` rather than logrotate, but
+relying on it here would not have worked: newsyslog renames the file while
+launchd still holds a descriptor to the old inode, so output would have silently
+kept going to the rotated-away file. Self-rotating in-process is what the other
+two agents do and what actually works.
+
+For the same reason launchd's redirect now goes to a **separate**
+`/var/log/remotepower-agent-boot.log` instead of sharing an inode with the
+rotating handler. It only ever catches an interpreter-level traceback that
+escapes Python logging, so it is normally empty — and the agent truncates it
+past 1 MB anyway, because "normally empty" is how unbounded logs happen. It
+truncates rather than renames, so launchd's open descriptor stays valid.
+
+The log is created `0640` rather than world-readable, and **stays** `0640`
+across rollovers — the stdlib handler recreates each file at the process umask,
+so a one-off `chmod` would have been undone by the first rotation and drifted
+back to `0644` unnoticed. It carries device ids, the server URL and the output
+of commands run on the host.
+
+*Not changed:* the Linux agent's log is still `0644`. Tightening it would
+silently break any non-root log shipper that can read it today, which is a
+worse outcome than the mild disclosure — worth knowing, not worth changing
+without a decision.
+
 ### Windows and macOS agents send delta heartbeats too
 
 Delta sysinfo shipped in v6.2.2 on the Linux agent only. The server has been

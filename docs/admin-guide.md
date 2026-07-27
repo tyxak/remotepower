@@ -110,6 +110,29 @@ A healthy agent logs a startup line with its version and the server
 URL, then `Config updated:` lines as the server pushes it watch
 lists.
 
+### Agent logs and rotation
+
+Every agent **rotates its own log** — there is no logrotate or newsyslog file
+to install, and none is needed:
+
+| Platform | Log file | Rotation |
+|---|---|---|
+| Linux | `/var/log/remotepower-agent.log` | 5 MB × 5 backups (~25 MB) |
+| Windows | `%ProgramData%\RemotePower\agent.log` | 1 MB × 3 backups (~4 MB) |
+| macOS | `/var/log/remotepower-agent.log` | 5 MB × 5 backups (~25 MB) *(v6.4.1 — unbounded before that)* |
+
+On Linux the agent also logs to the journal (`journalctl -u
+remotepower-agent.service`), so the file is a convenience copy, not the only
+record. A file sitting well under its cap has simply not reached the rotation
+threshold yet — that is normal, not a missing rotation.
+
+On macOS, launchd's own crash output goes to a **separate**
+`/var/log/remotepower-agent-boot.log`, deliberately not the rotating file: the
+rotating handler renames on rollover while launchd keeps an open descriptor to
+the old file, so sharing one path would send launchd's output somewhere nothing
+reads. That boot file normally stays empty — it only catches a traceback that
+escapes Python logging — and the agent truncates it if it ever passes 1 MB.
+
 For fleet enrolment (cloud-init, Ansible) use a long-lived enrolment
 token instead of a one-time PIN — see [install.md](install.md).
 

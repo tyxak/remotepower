@@ -16,6 +16,7 @@ Usage:
 import argparse
 import hashlib
 import json
+import logging
 import os
 import platform
 import re
@@ -33,6 +34,95 @@ VERSION = '6.4.1'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
+
+# ── v6.4.1: bounded logging (this agent had NONE) ─────────────────────────────
+#
+# The macOS agent wrote to stderr and install-macos.sh pointed launchd's
+# StandardOutPath/StandardErrorPath straight at /var/log/remotepower-agent.log.
+# launchd does not rotate, and unlike the Linux and Windows agents this one had
+# no RotatingFileHandler — so that file grew without limit, forever, on every
+# Mac in the fleet. macOS ships `newsyslog` rather than logrotate, but relying on
+# it is fragile here: newsyslog renames the file while launchd still holds an fd
+# to the old inode, so output would silently keep going to the rotated-away
+# file. Self-rotating in-process is what the other two agents do and what works.
+#
+# 5 MB x 5 backups (~25 MB), matching the Linux agent exactly.
+# RP_AGENT_LOG redirects both files — for a container with a read-only /var/log,
+# and so importing this module (tests do) can never create a real system log.
+LOG_FILE = os.environ.get('RP_AGENT_LOG') or '/var/log/remotepower-agent.log'
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUPS = 5
+# launchd's own redirect goes to a SEPARATE file so it cannot fight the rotating
+# handler for the same inode. It only ever receives output that escapes Python
+# logging — an interpreter-level traceback at startup — so it is normally empty;
+# `_trim_boot_log()` keeps it bounded anyway, because "normally empty" is how
+# unbounded logs happen.
+BOOT_LOG_FILE = (LOG_FILE[:-4] if LOG_FILE.endswith('.log') else LOG_FILE) + '-boot.log'
+BOOT_LOG_MAX_BYTES = 1024 * 1024
+
+
+from logging.handlers import RotatingFileHandler as _RFH
+
+
+class _OwnerReadableRotatingHandler(_RFH):
+    """RotatingFileHandler that keeps the log 0640 across rollovers.
+
+    The stdlib handler creates every new file at the process umask — 0644 here —
+    so a one-off chmod after construction is silently undone by the first
+    rotation, and the log drifts back to world-readable without anyone noticing.
+    Setting the mode in _open() covers the initial file AND each rollover.
+    Worth doing because the log carries device ids, the server URL, and the
+    output of commands the operator ran on the host.
+    """
+
+    def _open(self):
+        stream = super()._open()
+        try:
+            os.chmod(self.baseFilename, 0o640)
+        except OSError:
+            pass
+        return stream
+
+
+def _make_logger():
+    """Rotating file log when we can write /var/log (launchd runs us as root),
+    plus stderr. Never fatal: a log handler must not stop the agent running."""
+    lg = logging.getLogger('remotepower')
+    if lg.handlers:
+        return lg
+    lg.setLevel(logging.INFO)
+    fmt = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    try:
+        fh = _OwnerReadableRotatingHandler(LOG_FILE, maxBytes=LOG_MAX_BYTES,
+                                           backupCount=LOG_BACKUPS)
+        fh.setFormatter(fmt)
+        lg.addHandler(fh)
+    except Exception:
+        pass                      # not root, read-only /var/log, etc.
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setFormatter(fmt)
+    lg.addHandler(sh)
+    return lg
+
+
+def _trim_boot_log():
+    """Truncate launchd's crash-output file if it has grown past the cap.
+
+    TRUNCATE rather than rename: launchd holds an open O_APPEND fd to this file
+    for the life of the process, so a rename would leave it writing to an inode
+    nothing can see. ftruncate keeps that fd valid and writes resume at the new
+    end. Best-effort — never fatal."""
+    try:
+        if os.path.getsize(BOOT_LOG_FILE) <= BOOT_LOG_MAX_BYTES:
+            return False
+        with open(BOOT_LOG_FILE, 'r+') as f:
+            f.truncate(0)
+        return True
+    except OSError:
+        return False
+
+
+log = _make_logger()
 
 # Prime the non-blocking CPU sampler once at import so the first heartbeat's
 # cpu_percent(interval=None) measures against a real baseline instead of
@@ -209,7 +299,7 @@ def save_creds(creds):
             os.close(fd)
         os.replace(tmp, p)
     except Exception as e:
-        sys.stderr.write(f'[remotepower] could not save credentials: {e}\n')
+        log.warning('could not save credentials: %s', e)
 
 
 def get_os_info():
@@ -714,7 +804,7 @@ def _plant_canaries(canary_cfg):
             _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
                                   'plant_ts': int(time.time()), 'ours': True}
         except OSError as e:
-            sys.stderr.write(f'[remotepower] canary plant {p}: {e}\n')
+            log.debug('canary plant %s: %s', p, e)
 
 
 def _check_canaries(canary_cfg):
@@ -1455,7 +1545,7 @@ def heartbeat_once(creds, poll_count, pending_output=None):
             try:
                 _plant_canaries(_canary_cfg)
             except Exception as _e:
-                sys.stderr.write(f'[remotepower] canary plant error: {_e}\n')
+                log.debug('canary plant error: %s', _e)
             # Forget the reported flag for paths no longer configured, so a
             # re-added decoy can alert again instead of staying silent forever.
             _wanted = {str(c.get('path') if isinstance(c, dict) else c)
@@ -1478,12 +1568,19 @@ def heartbeat_once(creds, poll_count, pending_output=None):
 def run():
     poll_count = 0
     pending = None
+    # v6.4.1: launchd's crash-output file is bounded too. Checked at startup and
+    # hourly — a getsize() on a normally-empty file is free, and the alternative
+    # is the unbounded growth this whole change exists to stop.
+    if _trim_boot_log():
+        log.info('truncated oversized %s', BOOT_LOG_FILE)
     while True:
         creds = load_creds()
         if not creds.get('device_id'):
-            sys.stderr.write('[remotepower] not enrolled — run with --enroll first\n')
+            log.error('not enrolled — run with --enroll first')
             return 1
         poll_count += 1
+        if poll_count % 60 == 0 and _trim_boot_log():
+            log.info('truncated oversized %s', BOOT_LOG_FILE)
         sent = pending
         try:
             _resp, pending = heartbeat_once(creds, poll_count, pending)
@@ -1492,11 +1589,11 @@ def run():
             # re-exec into the new file. Works under launchd KeepAlive and a
             # manual --run alike — execv replaces this process in place.
             if _RESTART_AFTER_REPORT[0] and sent and sent.get('cmd') == 'update':
-                sys.stderr.write('[remotepower] update installed — re-exec into the new agent\n')
+                log.info('update installed — re-exec into the new agent')
                 os.execv(sys.executable,
                          [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
         except Exception as e:
-            sys.stderr.write(f'[remotepower] heartbeat error: {e}\n')
+            log.warning('heartbeat error: %s', e)
         time.sleep(max(10, int(load_creds().get('poll_interval', DEFAULT_POLL))))
 
 

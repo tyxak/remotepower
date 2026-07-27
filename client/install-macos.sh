@@ -93,8 +93,15 @@ cat > "$PLIST" <<EOF
 $PLIST_ENV
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardErrorPath</key><string>/var/log/remotepower-agent.log</string>
-  <key>StandardOutPath</key><string>/var/log/remotepower-agent.log</string>
+  <!-- v6.4.1: launchd writes to a SEPARATE file. The agent itself owns
+       /var/log/remotepower-agent.log through a RotatingFileHandler (5 MB x 5),
+       and two writers on one inode would fight: the handler renames on rotate
+       while launchd keeps an fd to the old inode, so its output would vanish
+       into a file nothing reads. This one only ever catches an interpreter-level
+       traceback that escapes Python logging, and the agent truncates it if it
+       ever grows past 1 MB. -->
+  <key>StandardErrorPath</key><string>/var/log/remotepower-agent-boot.log</string>
+  <key>StandardOutPath</key><string>/var/log/remotepower-agent-boot.log</string>
 </dict>
 </plist>
 EOF
@@ -108,8 +115,11 @@ sleep 2
 if launchctl list | grep -q com.remotepower.agent; then
   success "RemotePower agent is running (launchd). It appears in the dashboard within ~60s."
 else
-  warn "Daemon may not have started — check /var/log/remotepower-agent.log"
+  # If it never started, the agent's OWN log may not exist yet — the traceback
+  # that explains why lands in launchd's boot log instead.
+  warn "Daemon may not have started — check /var/log/remotepower-agent-boot.log"
+  warn "(once running, its log is /var/log/remotepower-agent.log)"
 fi
-echo "  Logs:      tail -f /var/log/remotepower-agent.log"
+echo "  Logs:      tail -f /var/log/remotepower-agent.log   (rotates at 5 MB, 5 kept)"
 echo "  Stop:      sudo launchctl unload $PLIST"
 echo "  Re-enroll: sudo python3 /usr/local/bin/remotepower-agent-mac --enroll --server <url> --pin <pin>"
