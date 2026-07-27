@@ -1227,6 +1227,142 @@ def get_event_log_journal():
     return all_lines[:200]
 
 
+# ── v6.4.1: log_watch file-path rules (were Linux-only) ──────────────────────
+#
+# A log-watch rule with a `path` tells the agent to tail that file and submit
+# new lines to /api/logs under the synthetic unit 'file:<path>' — the same
+# wire shape as the Linux agent, so the server's per-device + global pattern
+# matching and rolling buffer apply unchanged. Until now this agent dropped
+# `log_watch` entirely: a file-path rule on a Windows host (an app writing
+# C:\ProgramData\myapp\app.log, say) saved fine and never fired. Unit-name
+# rules stay with the Event Log channel above (the "[4625]" style).
+FILE_LOG_MAX_LINES = 200          # per poll, per file (matches Linux)
+FILE_LOG_MAX_BYTES = 256 * 1024   # safety: don't read more than 256 KB per poll
+FILE_LOG_SUBMIT_EVERY = 5         # every 5th poll, like the Linux agent
+_FILE_LOG_STATE_FILE = 'file_log_state.json'
+_log_watch_paths = []             # server-pushed log_watch rules with a `path`
+_file_log_state = {}              # path → {inode, pos}; persisted across restarts
+
+# Deny list, same rationale as the Linux agent's: NOT a hard security boundary
+# (a server admin can already run commands), just a sanity barrier against the
+# obvious silently-exfiltrate-credentials configurations. realpath() first so
+# a symlink/junction can't dodge it; compared case-insensitively, as NTFS is.
+_FILE_LOG_DENY_SUBSTR = (
+    '\\.ssh\\',                              # private keys
+    '\\system32\\config\\',                  # registry hives incl. SAM/SECURITY
+    '\\microsoft\\protect\\',                # DPAPI master keys
+    '\\microsoft\\credentials\\',            # credential vault blobs
+)
+_FILE_LOG_DENY_SUFFIX = ('ntds.dit',)
+
+
+def _file_log_path_allowed(path_str):
+    try:
+        real = os.path.realpath(path_str).lower()
+    except (OSError, ValueError):
+        return False
+    if any(s in real for s in _FILE_LOG_DENY_SUBSTR):
+        return False
+    return not real.endswith(_FILE_LOG_DENY_SUFFIX)
+
+
+def collect_file_log(path_str, state):
+    """Read new lines from a watched file → list of message strings.
+
+    Mirrors the Linux agent's tail state machine: `state[path]` is
+    {inode, pos}; rotation (inode changed — st_ino is the NTFS file index)
+    and truncation (pos > size) reset to 0; on first sight we bookmark the
+    current end so a freshly-configured rule doesn't dump the history."""
+    if not _file_log_path_allowed(path_str):
+        log.warning('file_log: refusing to read denied path %r', path_str)
+        return []
+    lines = []
+    try:
+        if not os.path.isfile(path_str):
+            return []
+        st = os.stat(path_str)
+        inode, size = st.st_ino, st.st_size
+        prev = state.get(path_str) or {}
+        prev_inode, prev_pos = prev.get('inode'), int(prev.get('pos', 0))
+        if prev_inode is not None and prev_inode != inode:
+            prev_pos = 0                       # rotated: new file, read from 0
+        if prev_pos > size:
+            prev_pos = 0                       # truncated
+        if prev_inode is None:
+            state[path_str] = {'inode': inode, 'pos': size}
+            return []
+        if prev_pos >= size:
+            state[path_str] = {'inode': inode, 'pos': prev_pos}
+            return []
+        with open(path_str, 'r', errors='replace') as f:
+            f.seek(prev_pos)
+            new_text = f.read(FILE_LOG_MAX_BYTES)
+            new_pos = f.tell()
+        for line in new_text.splitlines()[-FILE_LOG_MAX_LINES:]:
+            line = line.strip()
+            if line:
+                lines.append(line[:1024])
+        state[path_str] = {'inode': inode, 'pos': new_pos}
+    except PermissionError:
+        log.debug('file_log: permission denied for %s', path_str)
+    except Exception as e:
+        log.debug('file_log: collection failed for %s: %s', path_str, e)
+    return lines
+
+
+def _file_log_state_path():
+    return os.path.join(_data_dir(), _FILE_LOG_STATE_FILE)
+
+
+def _load_file_log_state():
+    try:
+        with open(_file_log_state_path(), 'r', encoding='utf-8') as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_file_log_state(state):
+    try:
+        tmp = _file_log_state_path() + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(state, f)
+        os.replace(tmp, _file_log_state_path())
+    except Exception:
+        pass
+
+
+def _submit_file_logs(creds, poll_count):
+    """Tail every watched path and POST new lines to /api/logs. State is saved
+    only after a successful POST; on failure the in-memory state is reloaded
+    from disk so the same region is re-read next time (the server dedupes
+    replayed lines by content signature, so a retry can't double-alert)."""
+    global _file_log_state
+    if not _log_watch_paths:
+        return
+    if poll_count > 1 and poll_count % FILE_LOG_SUBMIT_EVERY != 0:
+        return
+    if not _file_log_state:
+        _file_log_state = _load_file_log_state()
+    units = {}
+    for p in _log_watch_paths:
+        entries = collect_file_log(p, _file_log_state)
+        if entries:
+            units[f'file:{p}'] = entries
+    if not units:
+        _save_file_log_state(_file_log_state)   # first-sight bookmarks still count
+        return
+    try:
+        _post_json(creds.get('server_url', '') + '/api/logs',
+                   {'device_id': creds.get('device_id', ''),
+                    'token': creds.get('token', ''), 'units': units})
+        _save_file_log_state(_file_log_state)
+    except Exception as e:
+        log.debug('file_log: submission failed: %s', e)
+        _file_log_state = _load_file_log_state()
+
+
 # v6.3.1: hail-mary log sweep — Windows has no /var/log, so the sweep is a
 # point-in-time pull of the last 24 h of Error/Warning events per channel
 # (independent of the cursor machinery above — this is a snapshot, not an
@@ -3053,6 +3189,13 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _sw = resp.get('services_watched')
         if isinstance(_sw, list):
             _watched_services = [str(s) for s in _sw if str(s).strip()][:50]
+        # v6.4.1: log_watch file-path rules — tail the named files. Unit-name
+        # rules stay with the Event Log channel (the "[4625]" style).
+        global _log_watch_paths
+        _lw = resp.get('log_watch')
+        if isinstance(_lw, list):
+            _log_watch_paths = [str(r.get('path')) for r in _lw
+                                if isinstance(r, dict) and r.get('path')][:20]
         # v6.2.0: watched files for drift (parity with the Linux agent).
         _wf = resp.get('watched_files')
         if isinstance(_wf, list):
@@ -3095,6 +3238,12 @@ def heartbeat_once(creds, poll_count, pending_output=None):
                 _burst_live_samples(creds.get('server_url', ''), creds, int(_lu))
             except (TypeError, ValueError):
                 pass
+    # v6.4.1: log_watch file-path tails ride their own POST on the Linux
+    # cadence (every 5th poll). Best-effort: a failure never breaks the beat.
+    try:
+        _submit_file_logs(creds, poll_count)
+    except Exception as _e:
+        log.debug('file_log submit error: %s', _e)
     return resp, new_pending
 
 

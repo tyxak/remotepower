@@ -59999,6 +59999,30 @@ def _sanitize_unit_name(name):
     return s
 
 
+def _sanitize_log_unit(name):
+    """Unit names accepted by the LOG buffer: systemd-style names via
+    _sanitize_unit_name, PLUS the synthetic 'file:<path>' units that the
+    agents' log_watch file tails submit (v3.0.1 on Linux; v6.4.1 on
+    Windows/macOS).
+
+    v6.4.1 BUGFIX: handle_log_submit ran every unit through the strict
+    systemd regex, which rejects ':' and '/' — so every 'file:' unit was
+    silently dropped AT INGEST while the agent kept tailing and submitting.
+    File-path log rules were dead end-to-end on every platform, and no test
+    caught it because they all drove the agent side only. The path shape
+    mirrors what the rule-save side accepts: absolute POSIX or Windows path,
+    no traversal, no globs, no control characters."""
+    if isinstance(name, str) and name.startswith('file:'):
+        p = name[5:].strip()
+        if (0 < len(p) <= 512 and '..' not in p
+                and (p.startswith('/') or re.match(r'^[A-Za-z]:\\', p))
+                and not any(c in p for c in '*?[]<>')
+                and not any(ord(c) < 0x20 for c in p)):
+            return f'file:{p}'
+        return None
+    return _sanitize_unit_name(name)
+
+
 def _sanitize_service_entry(entry):
     if not isinstance(entry, dict):
         return None
@@ -61163,8 +61187,10 @@ def handle_services_config(dev_id):
             if path_raw:
                 # Restrict to absolute filesystem paths; reject globs and
                 # parent-traversal so a misconfigured rule can't grab anything
-                # outside the intended directory.
-                if (not path_raw.startswith('/')
+                # outside the intended directory. v6.4.1: Windows absolute
+                # paths (C:\...) are legal too, now the Windows agent tails.
+                if ((not (path_raw.startswith('/')
+                          or re.match(r'^[A-Za-z]:\\', path_raw)))
                         or '..' in path_raw
                         or len(path_raw) > 512
                         or any(c in path_raw for c in '*?[]<>\n\r\t')):
@@ -61306,7 +61332,10 @@ def handle_log_submit():
     _ignore_res = _compiled_patterns_cached(_ignore_pats, re.IGNORECASE)
 
     for unit_raw, lines in units_in.items():
-        unit = _sanitize_unit_name(unit_raw)
+        # v6.4.1: _sanitize_log_unit, NOT _sanitize_unit_name — the strict
+        # systemd regex silently dropped every 'file:<path>' unit here, which
+        # killed file-path log rules end-to-end on all platforms.
+        unit = _sanitize_log_unit(unit_raw)
         if not isinstance(unit, str) or unit is None:
             continue
         if not isinstance(lines, list):

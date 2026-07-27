@@ -403,7 +403,8 @@ async function saveLogRule() {
   const severity   = document.getElementById('log-rule-severity')?.value || 'WARN';
   if (sourceType === 'unit' && !unit) { toast('Unit is required', 'error', {transient: true}); return; }
   if (sourceType === 'path' && !path) { toast('File path is required', 'error', {transient: true}); return; }
-  if (sourceType === 'path' && !path.startsWith('/')) { toast('File path must be absolute (start with /)', 'error'); return; }
+  // v6.4.1: Windows agents tail files too, so C:\-style absolute paths are legal.
+  if (sourceType === 'path' && !path.startsWith('/') && !/^[A-Za-z]:\\/.test(path)) { toast('File path must be absolute (/… or C:\\…)', 'error'); return; }
   if (!pattern) { toast('Pattern is required', 'error', {transient: true}); return; }
   const excludePattern = document.getElementById('log-rule-exclude').value.trim();
   const displayTemplate = document.getElementById('log-rule-template').value.trim();
