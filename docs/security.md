@@ -33,19 +33,28 @@ whitelisted, capability-negotiated) and the reused HTTPS transport (same
 certificate/mTLS verification, redirects still refused), and a live header and
 auth-boundary check of production. One agent hardening — a billion-laughs guard on
 the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships**. The latest pass is
+High, or Medium finding ships**. That pass built on
 [security-review-6.3.0.md](security-review-6.3.0.md) for **v6.3.0** — SAST clean
 across the stack, a live black-box check of the production edge, and an
 adversarial audit that closed a set of pre-existing cross-tenant isolation gaps
 (certificate control, alert-data reads, credential metadata) and a stored-XSS
-vector via unescaped SNMP data. It builds on
-[security-review-6.2.3.md](security-review-6.2.3.md) for **v6.2.3** (an exhaustive
-six-dimension audit that verified the release's shared-helper refactors are
-behaviour-preserving and closed a set of pre-existing multi-tenant isolation gaps)
-and **v6.4.0** (see
+vector via unescaped SNMP data — and on **v6.4.0** (see
 [security-review-6.4.0.md](security-review-6.4.0.md), three parallel adversarial
 reviewers over the agentic-triage, flow-receiver and dependency-verification
-code, with the binary flow parser found notably well-hardened). The v4.10.0
+code, with the binary flow parser found notably well-hardened). The current pass
+is [security-review-6.4.1.md](security-review-6.4.1.md) for **v6.4.1**, weighted
+toward the new **KMIP key server** — the highest-consequence surface the release
+adds, since it holds encryption keys for other people's storage. Every trust
+boundary was traced by hand rather than reviewed function-by-function: the
+TLS-terminating sidecar holds no key material and no store access, mTLS is
+enforced both at the handshake and again on every operation, per-client key
+scoping is applied on all nine object operations rather than merely documented,
+key material is AES-256-GCM at rest under a master key excluded from backups,
+and the listener is bounded against resource exhaustion (message size, TTLV
+nesting depth, connections, timeouts). The review also states the two accepted
+trade-offs in the open — opt-in legacy ciphers for appliances that offer nothing
+else, and the availability coupling that makes it a mistake to unlock a
+machine's storage against a KMIP server that machine hosts. The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
 construction: every edit is **server-validated against a strict character

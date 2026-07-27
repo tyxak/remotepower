@@ -58,7 +58,18 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
-- **[security-review-6.4.0.md](security-review-6.4.0.md)** — Latest review: the
+- **[security-review-6.4.1.md](security-review-6.4.1.md)** — the
+ v6.4.1 "Cust0dyMatters" pass, weighted toward the new **KMIP key server** as the
+ highest-consequence surface the release adds: every trust boundary traced by
+ hand from the network edge to the key material. Confirms the sidecar holds no
+ key material, mTLS is enforced at both the handshake and every operation,
+ per-client key scoping is applied on all nine object operations (not merely
+ documented), and the listener is bounded against resource exhaustion. Also
+ re-verifies `X-Forwarded-For` parsing against allowlist spoofing, and records
+ the two accepted trade-offs (opt-in legacy ciphers, the availability coupling
+ of unlocking storage against a server that storage hosts); no
+ Critical/High/Medium ships.
+- **[security-review-6.4.0.md](security-review-6.4.0.md)** — the
  v6.4.0 "Sh1eldMatters" pass — SAST clean (F821 agent + all handler modules,
  gitleaks clean, Bandit by-design only) plus three parallel adversarial reviewers
  over the new agentic-triage, NetFlow/IPFIX flow receiver, dependency-verification,
@@ -74,15 +85,7 @@ holds long-form docs that don't fit there.
  control, alert-data reads, credential metadata) and a stored-XSS vector via
  unescaped SNMP data — each no-op on a single-tenant install and regression-
  tested; no Critical/High/Medium ships.
-- **[security-review-6.2.3.md](security-review-6.2.3.md)** — the
- v6.2.3 "Un1fyMatters" pass — full SAST stack (CodeQL 0 results, Bandit 0 new,
- gitleaks clean, Semgrep triaged) plus an exhaustive six-dimension adversarial
- audit prompted by the release's shared-helper refactors. Confirmed the config-
- secret, HTML-escaping and request-validation refactors are behaviour-preserving
- (a 20k-config property test on the secret redactors), and fixed a set of
- pre-existing multi-tenant isolation gaps (cross-tenant device targeting and
- fleet-aggregate read leaks) plus a drift between the off-box export surfaces'
- secret-redaction lists; no Critical/High/Medium ships.
+
 ## Release notes
 
 The full release history — every version, newest first — lives in

@@ -57,6 +57,36 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Security review
+
+`docs/security-review-6.4.1.md` — a review weighted toward the **KMIP key
+server**, on the grounds that a new network listener holding encryption keys for
+other people's storage is the highest-consequence thing this release adds. Every
+trust boundary was traced by hand from the network edge to the key material
+rather than reviewed function-by-function, because the security property here is
+the *split* between the processes, not any single function.
+
+What it confirms: the TLS-terminating sidecar holds no key material, no master
+key and no store access; mTLS is enforced at the handshake *and* re-checked with
+revocation on every operation; per-client key scoping is applied on all eight
+object operations rather than merely documented in a comment; key material is
+AES-256-GCM at rest under a master key deliberately excluded from backups
+(PBKDF2-SHA256 at 600k iterations for the recovery bundle); and the listener is
+bounded against resource exhaustion — message size, TTLV nesting depth,
+connection count, handshake and idle timeouts.
+
+It also re-verifies `X-Forwarded-For` parsing against IP-allowlist spoofing (the
+rightmost entry is taken, and every shipped nginx config appends — so a client
+cannot prepend its way past the allowlist), and states the two accepted
+trade-offs in the open: opt-in legacy ciphers for appliances that offer nothing
+better, and the availability coupling that makes it a mistake to unlock a
+machine's storage against a KMIP server that machine hosts.
+
+SAST clean — bandit 0 High (4 new by-design `B110`/`B112` triaged and baselined),
+gitleaks clean across 1,571 commits, `ruff --select F821` 0 on all three agents
+and every handler module, CodeQL config-honoring. **No Critical, High or Medium
+issue ships.** Per the keep-3 policy this replaces `security-review-6.2.3.md`.
+
 ### macOS agent: custom checks and file-integrity watching actually run now
 
 Same shape as the dead signals below — configured, accepted, shown as applied,
