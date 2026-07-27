@@ -57,6 +57,40 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### The PII inventory scan runs on Windows and macOS
+
+`pii_scan_enabled` / `pii_scan_paths` / `force_pii_scan` were Linux-only, so a
+**Windows file server — the place regulated data most often actually lives** —
+could be opted into the scan from Settings and report nothing, forever.
+
+The detection rules port unchanged (pure regex plus a Luhn checksum, so an order
+id is not mistaken for a card); only the default roots differ, and on each
+platform they point at where an organisation's *data* lives rather than its
+config: user profiles, web roots and data drives, never `/etc`, `/private/etc`
+or `C:\Windows`. A report that opens with 400 hits from config files is one
+nobody reads twice. The privacy contract is identical — kind, count and line
+numbers only, never the matched value, not even hashed.
+
+**A bug I introduced while porting, and what actually caught it.** The collector
+emitted `card` where the server's `_PII_KINDS` whitelist expects `credit_card`.
+`_ingest_pii_findings` drops an unknown kind **silently** — no error, no log
+line — so every credit-card finding would have vanished at ingest while the
+agent, the payload and a source review all looked correct. It surfaced only
+because the end-to-end check compared what the agent produced against what the
+server had actually **stored**, rather than against the payload. The guardrail
+now pins that comparison, plus a cross-agent assertion that all three agents
+agree on the kind names, since a divergence there is the same silent loss.
+
+Both agents use a **persisted wall-clock due-time** rather than a `poll_count`
+modulo — the modulo resets on every agent restart, so a restart-churny host
+would never scan, which is the v6.1.2 image-scan bug.
+
+*Not ported:* `guard_actions`. The Integrity Guard **check** types
+(`dir_baseline`, `file_hash`, `egress_flagged`) are still Linux-only, so
+quarantine actions on Windows or macOS would have nothing to act on — shipping
+the action channel alone would create exactly the dead feature this whole batch
+has been removing.
+
 ### Live view works on Windows and macOS
 
 Same shape as the rest of this batch. The drawer's **Live view** button asks the

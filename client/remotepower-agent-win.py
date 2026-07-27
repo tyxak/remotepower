@@ -2087,6 +2087,145 @@ _backup_monitors = []            # server-pushed backup-freshness monitors
 # a decoy is unreliable on Windows and MUST NOT be presented as guaranteed.
 # What IS reliable — and is what actually matters for ransomware — is
 # modification and deletion, which are detected from mtime/size/absence.
+# ── v6.4.1: PII inventory scan (parity — this was Linux-only) ─────────────────
+#
+# Reports WHICH FILES contain regulated data, by kind and count. It never
+# returns a matched value, not even redacted — the whole point is to find where
+# PII lives without creating a second copy of it in the monitoring system. The
+# server rebuilds each stored entry from four known-safe fields for the same
+# reason, so a tampered agent cannot smuggle a value through.
+#
+# Ported unchanged from the Linux agent except the default paths, which are the
+# Windows equivalents — user profiles, the IIS web root, and shared data. Program
+# Files and Windows are deliberately excluded: they are vendor files full of
+# sample addresses, and a report that opens with 400 hits from them is a report
+# nobody reads twice. Look where an organisation's DATA lives.
+_PII_SKIP_DIRS = _SECRETS_SKIP_DIRS | {'.terraform', 'dist', 'build',
+                                       'AppData', 'Windows', 'Program Files'}
+
+# D:\ is included because it is conventionally the data drive on a Windows
+# server — exactly where regulated data lives. A path that does not exist is
+# skipped, and the walk is bounded by file count and wall-clock either way.
+_PII_DEFAULT_PATHS = ['C:\\Users', 'C:\\inetpub', 'C:\\Data', 'D:\\']
+_PII_CARD_RX = re.compile(r'\b(?:\d[ -]?){12,18}\d\b')
+_PII_RULES = [
+    ('email', re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')),
+    ('ssn', re.compile(r'\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b')),
+    ('iban', re.compile(r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b')),
+    ('phone', re.compile(r'(?<![\w.])\+\d{1,3}[ -]?\d{3}[ -]?\d{3,4}[ -]?\d{3,4}(?![\w.])')),
+]
+PII_SCAN_INTERVAL_S = 24 * 3600
+_PII_TS_FILE = 'pii_scan_last'
+_pii_cfg = {'on': False, 'paths': None, 'force': False}
+
+
+def _luhn_ok(digits: str) -> bool:
+    """Luhn checksum. Without it EVERY 16-digit number — an order id, a
+    timestamp, a serial — reads as a credit card, and the operator learns to
+    ignore the whole report. The check is what makes the signal usable."""
+    total, alt = 0, False
+    for ch in reversed(digits):
+        if not ch.isdigit():
+            return False
+        d = ord(ch) - 48
+        if alt:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+        alt = not alt
+    return total % 10 == 0 and len(digits) >= 13
+
+
+def collect_pii_findings(paths=None, max_findings=300, max_file_bytes=2097152,
+                         max_files=8000, time_budget=20.0):
+    """Walk `paths` and report FILES containing PII, by kind and count.
+
+    Never returns a matched value. Bounded on findings, files visited and
+    wall-clock — checked at every loop level, like the secrets scan, so a
+    pathological tree cannot wedge the heartbeat."""
+    paths = paths or _PII_DEFAULT_PATHS
+    findings = []
+    start = time.monotonic()
+    visited = 0
+
+    def _spent():
+        return (len(findings) >= max_findings or visited >= max_files
+                or time.monotonic() - start > time_budget)
+
+    for base in paths:
+        if not isinstance(base, str) or not os.path.exists(base) or _spent():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            if _spent():
+                break
+            dirnames[:] = [d for d in dirnames if d not in _PII_SKIP_DIRS]
+            for fn in filenames:
+                if _spent():
+                    break
+                fpath = os.path.join(dirpath, fn)
+                try:
+                    if os.path.islink(fpath) or not os.path.isfile(fpath):
+                        continue
+                    sz = os.stat(fpath).st_size
+                    if sz == 0 or sz > max_file_bytes:
+                        continue
+                    visited += 1
+                    with open(fpath, 'rb') as f:
+                        chunk = f.read(max_file_bytes)
+                    if b'\x00' in chunk[:4096]:
+                        continue
+                    text = chunk.decode('utf-8', 'replace')
+                except Exception:
+                    continue
+                counts, lines = {}, {}
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if len(line) > 4000:
+                        continue
+                    for kind, rx in _PII_RULES:
+                        n = len(rx.findall(line))
+                        if n:
+                            counts[kind] = counts.get(kind, 0) + n
+                            lines.setdefault(kind, [])
+                            if len(lines[kind]) < 5:
+                                lines[kind].append(lineno)
+                    for cand in _PII_CARD_RX.findall(line):
+                        digits = re.sub(r'[ -]', '', cand)
+                        if _luhn_ok(digits):
+                            # 'credit_card', NOT 'card' — the server's
+                            # _PII_KINDS whitelist drops an unknown kind
+                            # silently, so a typo here loses every card finding
+                            # with no error anywhere. (It did, until this line.)
+                            counts['credit_card'] = counts.get('credit_card', 0) + 1
+                            lines.setdefault('credit_card', [])
+                            if len(lines['credit_card']) < 5:
+                                lines['credit_card'].append(lineno)
+                for kind, n in counts.items():
+                    findings.append({
+                        'path': fpath[:300], 'kind': kind, 'count': n,
+                        'lines': lines.get(kind, []),
+                        # NO 'preview', NO 'fingerprint'. On purpose.
+                    })
+                    if len(findings) >= max_findings:
+                        break
+    return findings
+
+
+def _load_pii_scan_ts():
+    try:
+        with open(os.path.join(_data_dir(), _PII_TS_FILE), 'r', encoding='utf-8') as f:
+            return float((f.read() or '').strip())
+    except Exception:
+        return 0.0
+
+
+def _save_pii_scan_ts(ts):
+    try:
+        with open(os.path.join(_data_dir(), _PII_TS_FILE), 'w', encoding='utf-8') as f:
+            f.write(str(ts))
+    except OSError:
+        pass
+
 # ── v6.4.1: live mode / high-res metric burst (parity — was Linux-only) ───────
 #
 # The device drawer's Live tab asks the server to set `live_until`, and the
@@ -2761,6 +2900,17 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             _save_secrets_scan_ts(time.time())
         except Exception:
             pass
+    # v6.4.1: PII inventory, on a persisted wall-clock due-time (never a
+    # poll_count modulo — that resets on every restart, so a restart-churny host
+    # would never scan; the v6.1.2 image-scan bug).
+    _pii_due = (time.time() - _load_pii_scan_ts()) >= PII_SCAN_INTERVAL_S
+    if _pii_cfg.get('on') and (_pii_cfg.get('force') or _pii_due):
+        _pii_cfg['force'] = False
+        try:
+            payload['pii_findings'] = collect_pii_findings(_pii_cfg.get('paths'))
+            _save_pii_scan_ts(time.time())
+        except Exception:
+            pass
     # v6.3.1: one-shot hail-mary log sweep (operator "Diagnose from logs").
     if _log_sweep_cfg.get('force'):
         _log_sweep_cfg['force'] = False
@@ -2876,6 +3026,12 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
         if resp.get('force_secrets_scan'):
             _secrets_cfg['force'] = True   # one-shot "Scan now" from the server
+        # v6.4.1: PII inventory scan config (mirrors the secrets-scan trio).
+        _pii_cfg['on'] = bool(resp.get('pii_scan_enabled'))
+        _psp = resp.get('pii_scan_paths')
+        _pii_cfg['paths'] = _psp if isinstance(_psp, list) and _psp else None
+        if resp.get('force_pii_scan'):
+            _pii_cfg['force'] = True       # one-shot "Scan now" from the server
         # v6.3.1: one-shot hail-mary log sweep, acted on next heartbeat.
         if resp.get('force_log_sweep'):
             _log_sweep_cfg['force'] = True
