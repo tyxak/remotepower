@@ -584,6 +584,92 @@ _backup_monitors = []           # server-pushed backup-freshness monitors
 _watched_agent_checks = []      # pushed by the server each heartbeat
 _watched_files = []             # config-drift watch list
 
+# ── v6.4.1: canary / honeytoken files (parity — this was Linux-only) ──────────
+#
+# Plant a decoy at each configured path (never over an existing file), then
+# report access once. Unlike Windows, APFS/HFS+ do maintain last-access times,
+# so a pure READ of a decoy is genuinely detectable here as well as a
+# modification or deletion.
+#
+# NOTE: there is no `_remove_canaries()` here on purpose. The macOS agent has
+# no uninstall command path at all, so a cleanup helper would be a function
+# nothing ever calls. Removing a Mac agent is a manual operation today, and any
+# decoys it planted have to be removed by hand along with it.
+_canary_planted = {}       # path -> {mtime, size, plant_ts, ours}
+_canary_reported = set()   # paths already reported this run
+_canary_cfg = []
+_CANARY_DEFAULT = ('# AWS credentials — do not share\n'
+                   '[default]\naws_access_key_id = AKIA' + 'IOSFODNN7EXAMPLE\n'
+                   'aws_secret_access_key = wJalrXUtnFEMI/EXAMPLEKEY\n')
+
+
+def _canary_path_ok(p):
+    """Absolute POSIX / drive-letter / UNC path, no traversal. Mirrors the
+    server-side check so a path the server stored is one we will act on."""
+    if not p or len(p) > 512 or '\x00' in p:
+        return False
+    if not (p.startswith('/') or p.startswith('\\\\')
+            or re.match(r'^[A-Za-z]:[\\/]', p)):
+        return False
+    return not any(seg == '..' for seg in re.split(r'[\\/]+', p))
+
+
+def _plant_canaries(canary_cfg):
+    """Create any not-yet-planted decoy. Never overwrites an existing file —
+    a pre-existing path is baselined and left alone."""
+    for c in (canary_cfg or [])[:50]:
+        p = c.get('path') if isinstance(c, dict) else c
+        if not p or not _canary_path_ok(str(p)):
+            continue
+        p = str(p)
+        if p in _canary_planted:
+            continue
+        try:
+            if os.path.exists(p):
+                st = os.stat(p)
+                _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
+                                      'plant_ts': int(time.time()), 'ours': False}
+                continue
+            content = (c.get('content') if isinstance(c, dict) else '') or _CANARY_DEFAULT
+            d = os.path.dirname(p)
+            if d and not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, content.encode())
+            finally:
+                os.close(fd)
+            st = os.stat(p)
+            _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
+                                  'plant_ts': int(time.time()), 'ours': True}
+        except OSError as e:
+            sys.stderr.write(f'[remotepower] canary plant {p}: {e}\n')
+
+
+def _check_canaries(canary_cfg):
+    """[{path, reason, ts}] for decoys touched since plant, each reported once."""
+    events = []
+    wanted = {str(c.get('path') if isinstance(c, dict) else c)
+              for c in (canary_cfg or [])}
+    for p, base in list(_canary_planted.items()):
+        if p not in wanted or p in _canary_reported:
+            continue
+        reason = None
+        try:
+            st = os.stat(p)
+            if int(st.st_mtime) != base['mtime'] or st.st_size != base['size']:
+                reason = 'modified'
+            elif int(st.st_atime) > base['plant_ts'] + 2:
+                reason = 'read'
+        except FileNotFoundError:
+            reason = 'deleted'
+        except OSError:
+            reason = None
+        if reason:
+            _canary_reported.add(p)
+            events.append({'path': p, 'reason': reason, 'ts': int(time.time())})
+    return events
+
 MAX_DRIFT_FILES = 200
 # launchd labels are reverse-DNS. Validated before it reaches argv so a label can
 # never be anything but a single token (defence in depth — there is no shell).
@@ -1188,6 +1274,16 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['backup_status'] = collect_backup_status(_backup_monitors)
         except Exception:
             pass
+    # v6.4.1: canary-file access, edge-triggered. Reported on EVERY beat, not
+    # the slower sysinfo cadence — a tripwire that waits ten minutes to fire is
+    # not much of a tripwire.
+    if _canary_cfg:
+        try:
+            _cev = _check_canaries(_canary_cfg)
+            if _cev:
+                payload['canary_events'] = _cev
+        except Exception:
+            pass
     _sec_due = (time.time() - _load_secrets_scan_ts()) >= SECRETS_SCAN_INTERVAL_S
     if _secrets_cfg.get('on') and (_sec_due or _secrets_cfg.get('force')):
         try:
@@ -1278,6 +1374,20 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _wf = resp.get('watched_files')
         if isinstance(_wf, list):
             _watched_files = [str(f) for f in _wf if str(f).strip()][:MAX_DRIFT_FILES]
+        # v6.4.1: canary/honeytoken decoys — plant any new ones on receipt.
+        if 'canary_files' in resp:
+            global _canary_cfg
+            _canary_cfg = resp.get('canary_files') or []
+            try:
+                _plant_canaries(_canary_cfg)
+            except Exception as _e:
+                sys.stderr.write(f'[remotepower] canary plant error: {_e}\n')
+            # Forget the reported flag for paths no longer configured, so a
+            # re-added decoy can alert again instead of staying silent forever.
+            _wanted = {str(c.get('path') if isinstance(c, dict) else c)
+                       for c in _canary_cfg}
+            for _gone in [p for p in list(_canary_reported) if p not in _wanted]:
+                _canary_reported.discard(_gone)
         if resp.get('force_agent_upgrade'):
             # Same self-update path as the `update` command; report the result
             # back on the next beat so the operator sees it took.

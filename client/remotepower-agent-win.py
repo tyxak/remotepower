@@ -1706,6 +1706,13 @@ def handle_command(cmd):
 def _uninstall():
     """Best-effort: remove the service AND the scheduled task (a host may have
     either mechanism), then the creds. Idempotent."""
+    # v6.4.1: remove decoy canary files we planted before tearing down — an
+    # uninstall must not leave fake AWS credentials lying around the disk.
+    # Only ones WE created; a pre-existing file we merely baselined is left.
+    try:
+        _remove_canaries()
+    except Exception:
+        pass
     _uninstall_service()   # sc stop + delete (no-op if not installed)
     try:
         subprocess.run([_system_bin('schtasks'), '/delete', '/tn', 'RemotePowerAgent', '/f'],
@@ -2066,6 +2073,109 @@ _watched_agent_checks = []      # pushed by the server each heartbeat
 # dropped here — operator got a success toast and nothing happened).
 _force_sysinfo = False           # force_package_scan → refresh sysinfo next beat
 _backup_monitors = []            # server-pushed backup-freshness monitors
+
+# ── v6.4.1: canary / honeytoken files (parity — this was Linux-only) ──────────
+#
+# Plant a decoy at each configured path (never over an existing file), then
+# report access once. Ransomware is overwhelmingly a WINDOWS problem, so having
+# the tripwire only on Linux was the wrong way round.
+#
+# HONEST LIMITATION, and the reason 'read' is treated as best-effort here:
+# NTFS last-access-time updates are disabled by default on modern Windows
+# (`NtfsDisableLastAccessUpdate`, System Managed). So detecting a pure READ of
+# a decoy is unreliable on Windows and MUST NOT be presented as guaranteed.
+# What IS reliable — and is what actually matters for ransomware — is
+# modification and deletion, which are detected from mtime/size/absence.
+_canary_planted = {}       # path -> {mtime, size, plant_ts, ours}
+_canary_reported = set()   # paths already reported this run
+_CANARY_DEFAULT = ('# AWS credentials — do not share\n'
+                   '[default]\naws_access_key_id = AKIA' + 'IOSFODNN7EXAMPLE\n'
+                   'aws_secret_access_key = wJalrXUtnFEMI/EXAMPLEKEY\n')
+
+
+def _canary_path_ok(p):
+    """Absolute POSIX / drive-letter / UNC path, no traversal. Mirrors the
+    server-side check so a path the server stored is one we will act on."""
+    if not p or len(p) > 512 or '\x00' in p:
+        return False
+    if not (p.startswith('/') or p.startswith('\\\\')
+            or re.match(r'^[A-Za-z]:[\\/]', p)):
+        return False
+    return not any(seg == '..' for seg in re.split(r'[\\/]+', p))
+
+
+def _plant_canaries(canary_cfg):
+    """Create any not-yet-planted decoy. Never overwrites an existing file —
+    a pre-existing path is baselined and left alone."""
+    for c in (canary_cfg or [])[:50]:
+        p = c.get('path') if isinstance(c, dict) else c
+        if not p or not _canary_path_ok(str(p)):
+            continue
+        p = str(p)
+        if p in _canary_planted:
+            continue
+        try:
+            if os.path.exists(p):
+                st = os.stat(p)
+                _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
+                                      'plant_ts': int(time.time()), 'ours': False}
+                continue
+            content = (c.get('content') if isinstance(c, dict) else '') or _CANARY_DEFAULT
+            d = os.path.dirname(p)
+            if d and not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, content.encode())
+            finally:
+                os.close(fd)
+            st = os.stat(p)
+            _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
+                                  'plant_ts': int(time.time()), 'ours': True}
+        except OSError as e:
+            log.debug('canary plant %s: %s', p, e)
+
+
+def _check_canaries(canary_cfg):
+    """[{path, reason, ts}] for decoys touched since plant, each reported once."""
+    events = []
+    wanted = {str(c.get('path') if isinstance(c, dict) else c)
+              for c in (canary_cfg or [])}
+    for p, base in list(_canary_planted.items()):
+        if p not in wanted or p in _canary_reported:
+            continue
+        reason = None
+        try:
+            st = os.stat(p)
+            if int(st.st_mtime) != base['mtime'] or st.st_size != base['size']:
+                reason = 'modified'
+            elif int(st.st_atime) > base['plant_ts'] + 2:
+                # Only fires where last-access updates are enabled; see above.
+                reason = 'read'
+        except FileNotFoundError:
+            reason = 'deleted'
+        except OSError:
+            reason = None
+        if reason:
+            _canary_reported.add(p)
+            events.append({'path': p, 'reason': reason, 'ts': int(time.time())})
+    return events
+
+
+def _remove_canaries():
+    """Uninstall hook: remove only decoys WE created, never a pre-existing file
+    we merely baselined."""
+    for p, base in list(_canary_planted.items()):
+        if base.get('ours'):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+    _canary_planted.clear()
+    _canary_reported.clear()
+
+
+_canary_cfg = []
 
 
 def collect_backup_status(backup_monitors):
@@ -2459,6 +2569,16 @@ def build_heartbeat(creds, poll_count, pending_output=None):
             payload['backup_status'] = collect_backup_status(_backup_monitors)
         except Exception:
             pass
+    # v6.4.1: canary-file access, edge-triggered. Reported on EVERY beat, not
+    # the slower sysinfo cadence — a tripwire that waits ten minutes to fire is
+    # not much of a tripwire.
+    if _canary_cfg:
+        try:
+            _cev = _check_canaries(_canary_cfg)
+            if _cev:
+                payload['canary_events'] = _cev
+        except Exception:
+            pass
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')
@@ -2549,6 +2669,20 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         _ac = resp.get('agent_checks')
         if isinstance(_ac, list):
             _watched_agent_checks = [c for c in _ac if isinstance(c, dict) and c.get('id')][:100]
+        # v6.4.1: canary/honeytoken decoys — plant any new ones on receipt.
+        if 'canary_files' in resp:
+            global _canary_cfg
+            _canary_cfg = resp.get('canary_files') or []
+            try:
+                _plant_canaries(_canary_cfg)
+            except Exception as _e:
+                log.debug('canary plant error: %s', _e)
+            # Forget the reported flag for paths no longer configured, so a
+            # re-added decoy can alert again instead of staying silent forever.
+            _wanted = {str(c.get('path') if isinstance(c, dict) else c)
+                       for c in _canary_cfg}
+            for _gone in [p for p in list(_canary_reported) if p not in _wanted]:
+                _canary_reported.discard(_gone)
     return resp, new_pending
 
 

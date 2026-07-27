@@ -57,6 +57,42 @@ at. Now there is one, and it is monitored by the same system that runs it.
   running*.
 
 
+### Canary files now work on Windows and macOS
+
+The honeytoken tripwire — plant a decoy that looks like credentials, alert if
+anything touches it — existed only on the Linux agent. Ransomware is
+overwhelmingly a Windows problem, so that was the wrong way round.
+
+Two things were broken, and the second would have made fixing the first
+pointless:
+
+- Neither the Windows nor the macOS agent read `canary_files` at all.
+- **The server refused to store a Windows path.** `handle_config_save` required
+  `path.startswith('/')`, so every `C:\...` entry was silently dropped and the
+  operator got a `200` back with an empty list. There would have been nothing
+  to plant.
+
+Both agents now plant and watch decoys with the same contract as Linux: never
+written over an existing file (a pre-existing path is baselined and left alone),
+`0600`, edge-triggered so one tampered decoy alerts once rather than on every
+beat, and checked on **every** heartbeat rather than the slower sysinfo cadence
+— a tripwire that waits ten minutes to fire is not much of a tripwire. Path
+validation is shared with the server and rejects traversal under *either*
+separator, since `C:\a\..\b` and `C:/a/../b` are both traversal.
+
+**Stated plainly rather than glossed:** NTFS last-access-time updates are
+disabled by default on modern Windows, so detecting a pure **read** of a decoy
+is best-effort there. What is reliable on every platform is **modification and
+deletion** — which is exactly what ransomware does. macOS has no such caveat;
+APFS maintains access times.
+
+The Windows uninstall now removes the decoys it planted (never a pre-existing
+file it only baselined) — an uninstall should not leave fake AWS credentials
+lying around the disk. The macOS agent has no uninstall command path at all, so
+there is nothing to hook; a Mac agent removed by hand leaves its decoys behind,
+and a guardrail test fails the moment an uninstall path is added without
+cleanup.
+
 ### Security review
 
 `docs/security-review-6.4.1.md` — a review weighted toward the **KMIP key

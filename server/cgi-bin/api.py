@@ -1383,7 +1383,7 @@ import sbom as sbom_mod
 # by name so existing call sites are unchanged; sanitize.py has no api deps.
 from sanitize import (
     _sanitize_str, _sanitize_hostname, _sanitize_ip, _sanitize_mac,
-    _sanitize_version,
+    _sanitize_version, _canary_path_ok,
     MAX_HOSTNAME_LEN, MAX_VERSION_LEN, MAX_IP_LEN, MAX_MAC_LEN,
     _IP_RE, _MAC_RE, _VER_RE,
 )
@@ -26413,6 +26413,12 @@ def handle_config_save():
         cfg['custom_metric_thresholds'] = out
     # W3-38: canary/honeytoken files the agent plants + watches. Each entry
     # {path, content?}; path must be absolute. Empty list = off.
+    # v6.4.1: Windows and macOS agents plant canaries too, so a POSIX-only
+    # path check silently DROPPED every Windows entry at save time — the
+    # operator got a 200 and an empty list. `_canary_path_ok` accepts POSIX,
+    # drive-letter and UNC absolute paths, and rejects traversal under either
+    # separator. Ransomware is overwhelmingly a Windows problem, so refusing
+    # to store a Windows decoy path was the wrong way round.
     if 'canary_files' in body:
         raw = body.get('canary_files')
         if not isinstance(raw, list):
@@ -26422,7 +26428,7 @@ def handle_config_save():
             if not isinstance(c, dict):
                 continue
             p = _sanitize_str(str(c.get('path', '')), 512).strip()
-            if not p.startswith('/') or '..' in p.split('/'):
+            if not _canary_path_ok(p):
                 continue
             out.append({'path': p,
                         'content': _sanitize_str(str(c.get('content', '')), 4000)})

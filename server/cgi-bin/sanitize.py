@@ -67,3 +67,34 @@ def _sanitize_version(v):
     if _VER_RE.match(v):
         return v
     return ''
+
+
+# v6.4.1: canary/honeytoken decoy paths. The agent creates a file at this path
+# as root/SYSTEM, so the path is operator input that reaches a privileged
+# filesystem write — it must be absolute (no cwd-relative surprise) and free of
+# traversal. Cross-platform because the Windows and macOS agents plant canaries
+# too; the previous POSIX-only check silently dropped every Windows entry at
+# save time, which was backwards given ransomware is mostly a Windows problem.
+_WIN_DRIVE_ABS_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _canary_path_ok(p):
+    """True if `p` is an absolute POSIX, drive-letter or UNC path with no
+    traversal component. Rejects NUL and, on the Windows forms, the reserved
+    characters that make a path ambiguous."""
+    if not p or len(p) > 512 or '\x00' in p:
+        return False
+    posix = p.startswith('/')
+    unc = p.startswith('\\\\')
+    drive = bool(_WIN_DRIVE_ABS_RE.match(p))
+    if not (posix or unc or drive):
+        return False
+    # Split on BOTH separators: 'C:\a\..\b' and 'C:/a/../b' are both traversal,
+    # and a POSIX path containing a backslash is a literal filename, not a
+    # separator — checking both ways is strictly safer than picking one.
+    parts = re.split(r'[\\/]+', p)
+    if any(seg == '..' for seg in parts):
+        return False
+    if (unc or drive) and any(ch in p[2:] for ch in '<>"|?*'):
+        return False
+    return True

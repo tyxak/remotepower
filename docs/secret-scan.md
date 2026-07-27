@@ -9,7 +9,8 @@ Two related tripwires, both agent-side and both **off by default**:
   for credentials that shouldn't be lying around in files (private keys, API
   tokens, passwords) and report *redacted* findings;
 - **canary files** — agents plant decoy credential files and raise a critical
-  alert the moment anything reads, modifies or deletes one.
+  alert the moment anything modifies, deletes or (where the filesystem records
+  access times) reads one. Linux, Windows and macOS.
 
 ## What is reported — and what never leaves the host
 
@@ -118,9 +119,19 @@ Behaviour worth knowing:
   an agent restart re-baselines the file and re-arms detection.
 - Detecting pure *reads* depends on the filesystem updating atime: the Linux
   default `relatime` catches the first read; on a `noatime` mount only
-  modification and deletion are detected.
-- Canaries are implemented in the **Linux agent only** — Windows and macOS
-  agents ignore the `canary_files` key.
+  modification and deletion are detected. **On Windows this is the usual
+  case, not the exception** — NTFS last-access updates are disabled by
+  default (`NtfsDisableLastAccessUpdate`), so treat read-detection there as
+  best-effort. Modification and deletion — what ransomware actually does —
+  are detected on every platform. macOS (APFS/HFS+) maintains access times,
+  so reads are detected there.
+- Canaries run on **Linux, Windows and macOS** *(v6.4.1; Linux-only before
+  that)*. Paths may be POSIX (`/root/.aws/credentials.bak`), drive-letter
+  (`C:\Users\Public\payroll.xlsx`) or UNC (`\\server\share\decoy.docx`);
+  traversal is rejected under either separator.
+- **Uninstall cleanup covers Linux and Windows** — the agent removes only
+  decoys it created. The macOS agent has no uninstall command, so a Mac agent
+  removed by hand leaves its decoys on disk; delete them yourself.
 
 ## API
 
