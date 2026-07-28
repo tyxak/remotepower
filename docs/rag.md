@@ -44,8 +44,21 @@ embeddings. v3.4.0 ships both 2 and 3.
 | **Scripts & runbooks** | Saved custom scripts and remediation runbooks (secret-scrubbed before indexing) | `KEY=secret`/token values redacted |
 | **Provisioning & rollouts** | Infrastructure blueprints and staged-rollout state (rings, health gates) | operator-authored |
 | **Contacts, incidents & maintenance** | On-call/vendor contacts, incident timelines, and scheduled maintenance windows | free-text secret-scrubbed |
-| **Metrics** | Custom Prometheus-textfile metrics and their recent trend per host | numeric, name-validated |
+| **Metrics** | Custom Prometheus-textfile metrics and their recent trend per host | numeric, name-validated; **the one source off by default** |
 | **WG Access (VPN)** | WireGuard-based remote-access clients/tunnels and their connection state | no key material |
+| **Config drift** | Per device: which tracked config files are currently drifted (ignored ones excluded), plus a "which hosts have drift?" rollup | file **paths** and status, never the captured diff |
+| **Container-image CVEs** | Per device: per-image critical/high counts from the image scanner, so "prioritise my CVEs" sees the container layer and not just host packages | counts + image names |
+| **OpenSCAP results** | Per-host baseline scan score, profile, pass/fail counts and the failing rule ids | grounds the compliance/hardening advisors |
+| **Security findings** | On-disk secret findings (rule + path + count), the PII inventory (kind counts + paths) and AV/EDR tool state | **value-free by construction** — never a preview, fingerprint or matched value |
+| **Hardware inventory** | Per device: SMART disk health, GPU telemetry, UPS/power, kernel/livepatch reboot-needed, board temperature and privileged-account posture | models, states and counts — no secrets |
+| **Incident memory** | Resolved-incident outcomes — what actually fixed similar incidents on *this* fleet | event names + resolution summaries, already value-free |
+| **Automation rules** | Existing automation rules: name, trigger and action **type**, enabled state — so the rule-suggestion advisor stops proposing what you already have | never action bodies (a webhook URL or command can embed a credential) |
+| **Applied remediations** | The auto-remediation ledger: what the guarded executor tried and whether it cleared the alert | rule + device + status, no action bodies |
+| **Config-revision history** | Server-config change history — when, and by whom | **metadata only**, never the config values |
+| **Privileged-command trail** | Per device: the recent sudo/root command trail, for access review and RCA | commands already redacted at ingest |
+| **Controller self-observability** | RemotePower's own maintenance-sweep health — "did feature X stop running?" | sweep names, timings, last error |
+| **Billing & time** | Invoice / quote / time-entry counts and totals by status, plus overdue | summary level only |
+| **Physical & IPAM inventory** | Sites, racks, subnets and warranty state — "which rack is host X in", capacity and out-of-warranty planning | operator-authored metadata |
 
 Each chunk carries a stable id (e.g. `live/web01#cves`) that doubles as its
 citation key, plus a freshness timestamp.
@@ -55,7 +68,7 @@ citation key, plus a freshness timestamp.
 | Setting | Default | Meaning |
 |---|---|---|
 | Enable the knowledge index | on | Master switch for indexing + retrieval |
-| Sources | docs, live, cmdb on; history off | Which sources to index |
+| Sources | all on except **metrics** | Which of the 34 sources to index — each is an individual checkbox. Only the long-retention metrics series is off by default (it is noisy and the largest); everything else is cheap and no-PII |
 | Use embeddings | off | Semantic rerank; pre-checked for local providers |
 | Embedding model | provider default | e.g. `text-embedding-3-small`, `nomic-embed-text` |
 | Max chunks per question | 8 | Upper bound on injected chunks |

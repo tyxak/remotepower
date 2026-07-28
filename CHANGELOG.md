@@ -956,6 +956,31 @@ http/https checks":
   is carried through verbatim and reported in `monitor_warnings`, which the UI
   raises as a toast so it can't rot unseen.
 
+### Settings: one section that had become four things, and a quieter `/api/health`
+- **The "Listening-port & firewall audit" section was a grab-bag** (reported).
+  Certificate-file expiry alerts, GeoIP database paths, impossible-travel and
+  warranty auto-lookup had each been appended to it over time, which had the
+  side effect of physically separating **Muted services** from the audit toggle
+  it belongs to. It is now four coherent sections — the audit and its mutes,
+  Certificate file expiry, Login geolocation, and Warranty auto-lookup — each
+  with a doc pointer. All ten controls kept, each present exactly once; the
+  three new section titles are translated in all six languages.
+- **`GET /api/health` no longer returns the exact server version.** It is an
+  unauthenticated liveness endpoint, and nothing consumed the version — every
+  probe in the tree (the Docker `HEALTHCHECK`, compose, nginx) only checks for
+  a `200` — while an unauthenticated caller could read the precise patch level
+  and fingerprint instances against version-specific advisories at scale. It
+  now returns liveness only; authenticated callers read the version on the
+  Server-status page. `/api/public-info` **deliberately keeps** its
+  `server_version`: the peer-instance connector reads it from a peer's no-auth
+  endpoint, so removing it there would break federation — that endpoint is the
+  one intentional pre-auth version disclosure, not an accident.
+- **The demo seeder covers the v6.4.x headline pages.** KMIP (config, PKI,
+  clients, key inventory, activity log), the NetFlow rollup and incident memory
+  were unseeded, so the pages the last two releases lead with rendered empty in
+  a demo instance. Shapes were read out of the consuming handlers; the seed
+  carries no key material or secrets.
+
 
 ## v6.4.0 — "Sh1eldMatters" — 2026-07-24
 

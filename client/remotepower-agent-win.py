@@ -1644,7 +1644,141 @@ def collect_sysinfo():
         info['psutil'] = False  # honest signal that metrics are limited
     except Exception:
         pass
+    # v6.4.1 (parity): the last three Linux-only sysinfo fields. Each backs a
+    # feature that was therefore dead on Windows — the uptime leaderboard
+    # (uptime_seconds), laptop offline-grace (chassis) and battery-health
+    # alerting + hardware RAG (battery). Same field names and record shapes as
+    # the Linux agent, so safe_si and every consumer light up unchanged.
+    try:
+        info['uptime_seconds'] = get_uptime_seconds()
+    except Exception:
+        pass
+    try:
+        _ch = get_chassis()
+        if _ch:
+            info['chassis'] = _ch
+    except Exception:
+        pass
+    try:
+        _bat = get_battery()
+        if _bat:
+            info['battery'] = _bat
+    except Exception:
+        pass
     return info
+
+
+def get_uptime_seconds():
+    """v6.4.1 (parity): sortable uptime in seconds — the field the fleet uptime
+    leaderboard filters on. The Windows agent sent only the formatted `uptime`
+    string, so every Windows host was silently absent from that view."""
+    try:
+        import psutil
+        return max(0, int(time.time()) - int(psutil.boot_time()))
+    except Exception:
+        pass
+    # No psutil: LastBootUpTime via CIM.
+    ps = ("(Get-CimInstance Win32_OperatingSystem).LastBootUpTime."
+          "ToUniversalTime().ToString('o')")
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive',
+                            '-Command', ps], capture_output=True, text=True,
+                           timeout=20,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        import datetime as _dt
+        boot = _dt.datetime.fromisoformat((r.stdout or '').strip().replace('Z', '+00:00'))
+        return max(0, int(time.time() - boot.timestamp()))
+    except Exception:
+        return 0
+
+
+# Win32_SystemEnclosure ChassisTypes uses the same SMBIOS codes the Linux
+# agent reads from DMI, so the vocabulary below matches get_chassis() there.
+_WIN_CHASSIS = {
+    3: 'desktop', 4: 'desktop', 6: 'desktop', 7: 'desktop',
+    8: 'portable', 9: 'laptop', 10: 'notebook', 13: 'all-in-one',
+    14: 'notebook', 17: 'server', 23: 'server', 25: 'server',
+    30: 'tablet', 31: 'convertible', 32: 'detachable', 34: 'server',
+    35: 'mini-pc',
+}
+
+
+def get_chassis():
+    """v6.4.1 (parity): chassis class ('laptop'/'desktop'/'server'/…). The
+    server's offline sweep gives laptop-class hosts a longer leash
+    (`laptop_offline_grace_hours`) so a closed lid doesn't page like a dead
+    server — which never applied to Windows laptops because this was
+    Linux-only. Empty string on VMs / unknown codes, exactly like Linux."""
+    ps = "(Get-CimInstance Win32_SystemEnclosure).ChassisTypes -join ','"
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive',
+                            '-Command', ps], capture_output=True, text=True,
+                           timeout=20,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        return ''
+    for tok in (r.stdout or '').strip().split(','):
+        try:
+            name = _WIN_CHASSIS.get(int(tok.strip()))
+        except ValueError:
+            continue
+        if name:
+            return name
+    return ''
+
+
+def get_battery():
+    """v6.4.1 (parity): battery health in the Linux agent's record shape —
+    [{name, percent, status, cycles, health_pct}] — so `safe_si`, the
+    `battery_health_low` edge alert, the drawer card and the hardware RAG
+    source work unchanged. Returns [] on desktops/servers (no battery).
+
+    Win32_Battery gives charge + status; design-vs-full capacity for the wear
+    percentage lives in the root\\WMI BatteryStaticData/BatteryFullChargedCapacity
+    classes, which are absent on desktops and on some VMs — hence the guarded
+    second query rather than one big statement."""
+    ps = ("$b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | "
+          "Select-Object -First 1; if (-not $b) { return }; "
+          "$full = (Get-CimInstance -Namespace root\\WMI -Class "
+          "BatteryFullChargedCapacity -ErrorAction SilentlyContinue | "
+          "Select-Object -First 1).FullChargedCapacity; "
+          "$dsg = (Get-CimInstance -Namespace root\\WMI -Class BatteryStaticData "
+          "-ErrorAction SilentlyContinue | Select-Object -First 1).DesignedCapacity; "
+          "[pscustomobject]@{name=$b.Name; percent=$b.EstimatedChargeRemaining; "
+          "status=$b.BatteryStatus; full=$full; design=$dsg} | ConvertTo-Json -Compress")
+    try:
+        r = subprocess.run([_powershell_bin(), '-NoProfile', '-NonInteractive',
+                            '-Command', ps], capture_output=True, text=True,
+                           timeout=30,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        obj = json.loads((r.stdout or '').strip() or 'null')
+    except Exception:
+        return []
+    if not isinstance(obj, dict):
+        return []
+    ent: dict = {'name': str(obj.get('name') or 'Battery')[:16]}
+    try:
+        pct = int(obj.get('percent'))   # TypeError when the field is absent
+        ent['percent'] = max(0, min(100, pct))
+    except (TypeError, ValueError):
+        pass
+    # Win32_Battery.BatteryStatus: 1 discharging, 2 on AC, 3-5 charged states,
+    # 6-8 charging. Map to the same words the Linux sysfs `status` yields.
+    _st = {1: 'Discharging', 2: 'Full', 3: 'Full', 4: 'Low', 5: 'Critical',
+           6: 'Charging', 7: 'Charging', 8: 'Charging'}
+    try:
+        s = _st.get(int(obj.get('status')))
+        if s:
+            ent['status'] = s
+    except (TypeError, ValueError):
+        pass
+    try:
+        full, design = int(obj.get('full')), int(obj.get('design'))
+        if design > 0:
+            ent['health_pct'] = min(100, round(full * 100 / design))
+    except (TypeError, ValueError):
+        pass
+    return [ent] if len(ent) > 1 else []
 
 
 # v3.14.0 #37: net_io_counters are cumulative; diff against the previous poll

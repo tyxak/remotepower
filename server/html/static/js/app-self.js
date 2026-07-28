@@ -252,6 +252,25 @@ async function loadSelfStatus() {
     : (fl.sources
       ? _rtRow('Flow receiver', 'Not detected locally', `${fl.sources} exporter(s) enrolled · ${_flAgo} — may run on another host`, 'muted')
       : _rtRow('Flow receiver', 'Not in use', 'optional agentless NetFlow/IPFIX — see flow.md', 'muted'));
+  // v6.4.1: KMIP key server — informational, same contract as syslog/flow. It
+  // was the one sidecar with no row here, despite being the one whose outage
+  // stops encrypted volumes mounting. Shows PKI expiry too: an expired client
+  // certificate silently ends that appliance's key access.
+  const km = sub.kmip || {};
+  let kmipRow = '';
+  if (km.unit || km.clients != null) {
+    const _pki = (km.pki_expires_days == null)
+      ? ''
+      : (km.pki_expires_days <= 30
+        ? ` · certificate expires in ${km.pki_expires_days} day${km.pki_expires_days === 1 ? '' : 's'}`
+        : '');
+    const _kdet = `${km.clients || 0} client(s) · ${km.keys || 0} key(s)${_pki}`;
+    kmipRow = km.unit === 'active'
+      ? _rtRow('KMIP key server', 'Running', _kdet,
+               (km.pki_expires_days != null && km.pki_expires_days <= 30) ? 'warn' : 'ok')
+      : _rtRow('KMIP key server', 'Enabled — not detected locally',
+               `${_kdet} — appliances cannot fetch keys while it is down`, 'bad');
+  }
   const subsystemsCard = `
     <div class="dash-card">
       <div class="section-title">Distributed subsystems</div>
@@ -261,6 +280,7 @@ async function loadSelfStatus() {
         ${pushRow}
         ${syslogRow}
         ${flowRow}
+        ${kmipRow}
       </table>
       <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand; the syslog receiver takes agentless appliance logs. See <a href="docs/scaling.md" class="c-accent">scaling.md</a>, <a href="docs/push.md" class="c-accent">push.md</a> and <a href="docs/syslog.md" class="c-accent">syslog.md</a>.</div>
     </div>`;

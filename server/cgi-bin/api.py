@@ -29390,6 +29390,50 @@ def _subsystems_status(now):
                        'unit': funit}
     except Exception:
         pass
+    # v6.4.1: the KMIP key server got a catalog check row (rp_kmipd_running)
+    # but not the INFORMATIONAL half its sibling sidecars have here — so the
+    # subsystem an appliance depends on to unlock storage was the one sidecar
+    # you could not see on this page. Same contract as syslog/flow: reported
+    # only when the feature is enabled, never a health input on its own.
+    try:
+        _k = load(KMIP_FILE) or {}
+        if _k.get('enabled'):
+            _clients = _k.get('clients') or {}
+            _daemon = _k.get('daemon') or {}
+            _objs = (load(KMIP_OBJECTS_FILE) or {}).get('objects') or {}
+            _kunit = 'unavailable'
+            if shutil.which('systemctl'):
+                try:
+                    _kr = subprocess.run(
+                        ['systemctl', 'is-active', 'remotepower-kmipd'],
+                        capture_output=True, text=True, timeout=2)
+                    _kunit = (_kr.stdout or '').strip() or 'unknown'
+                except Exception:
+                    _kunit = 'unavailable'
+            # Soonest PKI expiry across the CA and every live client cert. An
+            # expired client certificate means that appliance silently stops
+            # being able to fetch its keys — and encrypted volumes do not mount
+            # after the next reboot — so the number belongs where an operator
+            # actually looks. (Alerting on it needs its own event pair; this
+            # row is the visibility half, matching the syslog/flow contract.)
+            _exp = [int(c.get('not_after') or 0) for c in _clients.values()
+                    if isinstance(c, dict) and not c.get('revoked')
+                    and int(c.get('not_after') or 0) > 0]
+            _ca_na = int((_k.get('ca') or {}).get('not_after') or 0)
+            if _ca_na > 0:
+                _exp.append(_ca_na)
+            _soonest = min(_exp) if _exp else 0
+            out['kmip'] = {
+                'clients': sum(1 for c in _clients.values()
+                               if isinstance(c, dict) and not c.get('revoked')),
+                'keys': len(_objs),
+                'last_state_fetch': int(_daemon.get('last_state_fetch') or 0) or None,
+                'unit': _kunit,
+                'pki_expires_days': (max(0, int((_soonest - int(time.time())) / 86400))
+                                     if _soonest else None),
+            }
+    except Exception:
+        pass
     return out
 
 

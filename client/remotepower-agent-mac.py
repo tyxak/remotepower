@@ -620,6 +620,28 @@ def collect_sysinfo():
             info['mac_posture'] = _mp
     except Exception:
         pass
+    # v6.4.1 (parity): the last three Linux-only sysinfo fields. Each is
+    # consumed by a feature that was therefore dead on Macs — the uptime
+    # leaderboard (uptime_seconds), laptop offline-grace (chassis) and
+    # battery-health alerting + hardware RAG (battery). Same field names and
+    # record shapes as the Linux agent, so safe_si and every consumer light up
+    # with no server change.
+    try:
+        info['uptime_seconds'] = get_uptime_seconds()
+    except Exception:
+        pass
+    try:
+        _ch = get_chassis()
+        if _ch:
+            info['chassis'] = _ch
+    except Exception:
+        pass
+    try:
+        _bat = get_battery()
+        if _bat:
+            info['battery'] = _bat
+    except Exception:
+        pass
     return info
 
 
@@ -629,6 +651,86 @@ def _mac_uptime():
     if m:
         return _fmt_uptime(int(time.time()) - int(m.group(1)))
     return ''
+
+
+def _mac_boot_epoch():
+    """Boot time as a unix epoch, or 0. Shared by uptime_seconds and last_boot."""
+    m = re.search(r'sec = (\d+)', _sysctl('kern.boottime'))
+    return int(m.group(1)) if m else 0
+
+
+def get_uptime_seconds():
+    """v6.4.1 (parity): sortable uptime in seconds — the field the fleet's
+    uptime leaderboard filters on (`typeof d.sysinfo.uptime_seconds ===
+    'number'`). The mac agent only ever sent the *formatted* `uptime` string,
+    so every Mac was silently missing from that view."""
+    boot = _mac_boot_epoch()
+    return max(0, int(time.time()) - boot) if boot else 0
+
+
+def get_chassis():
+    """v6.4.1 (parity): chassis class, same vocabulary as the Linux agent's DMI
+    read ('laptop'/'desktop'/'server'/…). The server's offline sweep gives
+    laptop-class hosts a longer leash (`laptop_offline_grace_hours`) so a
+    closed lid doesn't page like a dead server — which never applied to Macs,
+    the most laptop-shaped hosts in most fleets, because this was Linux-only.
+
+    `hw.model` is the identifier ('MacBookPro18,3', 'Macmini9,1', 'MacPro7,1'),
+    so the class comes from the model family. A battery is the tiebreaker for
+    anything unrecognised: no Apple desktop has one."""
+    model = (_sysctl('hw.model') or '').strip()
+    low = model.lower()
+    if low.startswith('macbook'):
+        return 'laptop'
+    if low.startswith(('macmini', 'imac', 'macstudio', 'macpro')):
+        return 'desktop' if low.startswith(('macmini', 'imac')) else 'server'
+    # Unknown/virtual model: infer from the presence of a battery.
+    return 'laptop' if get_battery() else ''
+
+
+def get_battery():
+    """v6.4.1 (parity): battery health, same record shape the Linux agent emits
+    from /sys/class/power_supply so `safe_si`, the `battery_health_low` edge
+    alert, the drawer card and the hardware RAG source all light up unchanged:
+    [{name, percent, status, cycles, health_pct}]. Returns [] on desktops.
+
+    Source is `ioreg -rc AppleSmartBattery` (no sudo, no extra dependency).
+    macOS reports MaxCapacity/DesignCapacity, from which health_pct is derived
+    exactly like the Linux energy_full/energy_full_design ratio."""
+    try:
+        r = subprocess.run(['ioreg', '-rc', 'AppleSmartBattery'],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return []
+    out = r.stdout or ''
+    if not out.strip():
+        return []                      # no battery — a desktop Mac
+
+    def _num(key):
+        m = re.search(rf'"{key}"\s*=\s*(-?\d+)', out)
+        return int(m.group(1)) if m else None
+
+    ent: dict = {'name': 'InternalBattery'}
+    pct = _num('CurrentCapacity')
+    maxc, design = _num('MaxCapacity'), _num('DesignCapacity')
+    # On Apple Silicon CurrentCapacity is already a percentage; on older Intel
+    # models it is raw mAh and must be scaled against MaxCapacity.
+    if pct is not None:
+        if maxc and maxc > 100 and pct > 100:
+            pct = round(pct * 100 / maxc)
+        ent['percent'] = max(0, min(100, int(pct)))
+    ext = re.search(r'"ExternalConnected"\s*=\s*(Yes|No)', out)
+    charging = re.search(r'"IsCharging"\s*=\s*(Yes|No)', out)
+    if charging and charging.group(1) == 'Yes':
+        ent['status'] = 'Charging'
+    elif ext:
+        ent['status'] = 'Full' if ext.group(1) == 'Yes' else 'Discharging'
+    cyc = _num('CycleCount')
+    if cyc is not None:
+        ent['cycles'] = cyc
+    if maxc and design and design > 0:
+        ent['health_pct'] = min(100, round(maxc * 100 / design))
+    return [ent] if len(ent) > 1 else []
 
 
 _prev_net_io = {}
