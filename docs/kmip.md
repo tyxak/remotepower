@@ -10,6 +10,8 @@ appliances speak to an external key manager.
 RemotePower ships one. It is **off by default** and runs as a separate,
 sandboxed sidecar service, so nothing listens until you ask for it.
 
+<img src="screenshots/KMIP.png" alt="Security → KMIP — server state, clients, keys and activity" width="760">
+
 > **Read this before you enable it.** Once an appliance stores its keys here, it
 > needs this server reachable **at its own boot time** to mount encrypted
 > storage. Never run the KMIP server on a machine that depends on it to unlock —
