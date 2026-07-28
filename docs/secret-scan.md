@@ -49,9 +49,8 @@ agent's per-OS defaults):
 
 The server pushes the flag and paths to every agent in the heartbeat
 response; nothing is installed or changed host-side. The scan runs on a
-**~6-hour cadence** — on Linux and macOS as a persisted wall-clock interval
-(it survives agent restarts), on Windows shortly after agent start and every
-~360 polls.
+**~6-hour cadence**, tracked as a persisted wall-clock interval on all three
+platforms (it survives agent restarts).
 
 It is bounded hard so it can never hog a host: at most 200 findings, 5,000
 files visited, 1 MiB read per file, ~12 s wall clock per run; binaries,
@@ -62,10 +61,9 @@ skipped.
 
 `POST /api/secrets-scan/scan` with `{"device_id": "..."}` for one host or
 `{}` for every agent host (requires the `exec` write permission, and the scan
-must be enabled). It sets a one-shot `force_secrets_scan` flag the agent
-honours on its next heartbeat. Linux and macOS agents honour it; the Windows
-agent runs only on its own cadence. There is currently no UI button for this
-— it's API-only.
+must be enabled). It sets a one-shot `force_secrets_scan` flag that all three
+agents (Linux, Windows, macOS) honour on their next heartbeat. The Exposure
+page's **Scan now** button triggers the same endpoint.
 
 ## Findings, alerts and mutes
 

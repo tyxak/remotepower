@@ -11795,14 +11795,23 @@ def handle_health():
         the server is up before it tries to log a report.
 
     Returns 200 with a small JSON body. The body is intentionally minimal
-    so probes can be cheap and so we don't surface any deployment detail
-    to unauthenticated clients beyond the version we already publish
-    via /api/public-info.
+    so probes can be cheap.
+
+    v6.4.1 (hardening): the exact version is NO LONGER returned here.
+    Nothing consumed it — every probe in the tree (Dockerfile HEALTHCHECK,
+    docker-compose, the WSGI convert script, nginx) only checks for a 200 —
+    while an unauthenticated caller could read the precise patch level and
+    fingerprint the instance against version-specific advisories at scale.
+    Liveness is this endpoint's whole job; authenticated callers read the
+    version on the Server-status page.
+
+    `/api/public-info` deliberately KEEPS its `server_version`: the
+    peer-instance connector (integrations.py, the `remotepower` connector)
+    reads it from a peer's no-auth endpoint to report that peer's version,
+    so removing it there would break federation. That endpoint is the one
+    intentional pre-auth version disclosure, not an accident.
     """
-    respond(200, {
-        'status':  'ok',
-        'version': SERVER_VERSION,
-    })
+    respond(200, {'status': 'ok'})
 
 
 def handle_security_diag():

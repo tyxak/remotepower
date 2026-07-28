@@ -71,10 +71,17 @@ class TestVersionBumps(unittest.TestCase):
 # ── /api/health endpoint ────────────────────────────────────────────────────
 
 class TestHealthEndpoint(unittest.TestCase):
-    """The new unauthenticated liveness endpoint. Must respond 200 with
-    a small JSON body containing only the version, expose no auth or
-    fleet detail, and live in _PWCHG_ALLOWED_PATHS so password-change
-    middleware doesn't 403 it."""
+    """The unauthenticated liveness endpoint. Must respond 200 with a
+    minimal JSON body, expose no auth, version or fleet detail, and live
+    in _PWCHG_ALLOWED_PATHS so password-change middleware doesn't 403 it.
+
+    v6.4.1: the body no longer carries the server version. It had no
+    consumer (every probe in the tree only checks for a 200) while letting
+    an unauthenticated caller fingerprint the exact patch level. The
+    version assertion below is now inverted, and the check is FUNCTIONAL —
+    it drives the real handler instead of grepping its source, so a body
+    that merely mentions the constant in a comment can't pass it.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -84,18 +91,46 @@ class TestHealthEndpoint(unittest.TestCase):
         self.assertRegex(self.api_py, r'(?m)^def handle_health\(\):',
             'handle_health() must be defined in api.py')
 
-    def test_handler_returns_200_and_version_only(self):
-        # The handler body must reference SERVER_VERSION and the literal
-        # 200 status; no auth call, no fleet load.
+    def test_handler_returns_200_liveness_only_no_version(self):
+        import importlib.util
+        import os
+        import tempfile
+        os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
+        spec = importlib.util.spec_from_file_location(
+            'api_v306_health', REPO_ROOT / 'server' / 'cgi-bin' / 'api.py')
+        api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api)
+
+        captured = {}
+
+        def fake_respond(status, body=None):
+            captured['status'] = status
+            captured['body'] = body
+            raise SystemExit(0)
+
+        orig = api.respond
+        api.respond = fake_respond
+        try:
+            api.handle_health()
+        except SystemExit:
+            pass
+        finally:
+            api.respond = orig
+
+        self.assertEqual(captured.get('status'), 200)
+        body = captured.get('body') or {}
+        self.assertEqual(body.get('status'), 'ok')
+        self.assertNotIn('version', body,
+            'liveness must not disclose the server version to '
+            'unauthenticated callers (fingerprinting surface)')
+        # Nothing else may leak either — keep the body minimal.
+        self.assertEqual(set(body), {'status'}, f'unexpected keys: {set(body)}')
+
+    def test_handler_is_unauthenticated(self):
         m = re.search(
-            r'(?ms)^def handle_health\(\):.+?(?=^def |\Z)',
-            self.api_py)
+            r'(?ms)^def handle_health\(\):.+?(?=^def |\Z)', self.api_py)
         self.assertIsNotNone(m, 'handle_health body not found')
-        body = m.group(0)
-        self.assertIn('respond(200,', body)
-        self.assertIn('SERVER_VERSION', body)
-        # No-auth: must NOT call require_auth / require_admin_auth.
-        self.assertNotRegex(body, r'\brequire_(?:admin_)?auth\(',
+        self.assertNotRegex(m.group(0), r'\brequire_(?:admin_)?auth\(',
             'handle_health must remain unauthenticated')
 
     def test_route_registered(self):

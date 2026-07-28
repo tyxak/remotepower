@@ -1,6 +1,6 @@
 # Mitigation runners
 
-Diagnostic + AI suggestion + confirmed fix for active alerts. Click the 🩺 button on any Needs Attention card to investigate.
+Diagnostic + AI suggestion + confirmed fix for active alerts. Click the **Investigate** button on a Needs Attention card (or **Fix** on an alert row) to open the guided remediation flow.
 
 ## Three-tab flow
 
@@ -9,6 +9,11 @@ Diagnostic + AI suggestion + confirmed fix for active alerts. Click the 🩺 but
 3. **Apply Fix** — choose pre-approved playbook fix, AI-suggested fix, or your own command. Safety classifier runs before execution.
 
 ## Supported alert kinds
+
+Playbooks exist for 21 alert kinds: `patches`, `disk`, `drift`, `service_down`,
+`failed_units`, `reboot`, `brute_force`, `memory`, `swap`, `cpu`, `cve`,
+`container`, `av_posture`, `agent_version`, `os_eol`, `hardware`, `backup`,
+`ssh_key`, `new_port`, `agent_integrity`, and `log_alert`. A few examples:
 
 | Kind | Diagnostic | Pre-approved fix |
 |---|---|---|
@@ -56,13 +61,12 @@ The client mirrors the server's classifier as a UI preview, but the **server is 
 
 ## AI customisation
 
-Five prompt keys in **Settings → AI Assistant** — one per category:
-
-- `mitigate_cpu` — CPU pressure triage
-- `mitigate_memory` — Memory pressure
-- `mitigate_disk` — Disk pressure cleanup
-- `mitigate_service` — Service / runtime issue
-- `mitigate_patches` — Pending updates assessment
+Per-category prompt keys in **Settings → AI Assistant** — one per playbook
+category (`mitigate_cpu`, `mitigate_memory`, `mitigate_disk`,
+`mitigate_service`, `mitigate_patches`, `mitigate_failed_units`,
+`mitigate_cve`, `mitigate_container`, `mitigate_av`, `mitigate_agent_version`,
+`mitigate_os_eol`, `mitigate_hardware`, `mitigate_backup`, `mitigate_ssh_key`,
+`mitigate_new_port`, `mitigate_agent_integrity`, `mitigate_log`).
 
 Each ships with a conservative default prompt that instructs the model to propose exactly one shell command, marked between `BEGIN_FIX` / `END_FIX`, and to never propose destructive operations without flagging them. Edit per-key as needed for your model (e.g. terser for small local models, more cautious for less-tuned ones).
 

@@ -412,7 +412,7 @@ the *split* between the processes, not any single function.
 
 What it confirms: the TLS-terminating sidecar holds no key material, no master
 key and no store access; mTLS is enforced at the handshake *and* re-checked with
-revocation on every operation; per-client key scoping is applied on all eight
+revocation on every operation; per-client key scoping is applied on all nine
 object operations rather than merely documented in a comment; key material is
 AES-256-GCM at rest under a master key deliberately excluded from backups
 (PBKDF2-SHA256 at 600k iterations for the recovery bundle); and the listener is
@@ -932,16 +932,6 @@ unrecognised error still shows its raw text.
   misleading zero. `remotepower-kmipd` is now a first-class component row, and
   the stale TUI mock in `docs/cli.md` was refreshed.
 
-The security-and-protection release. Integrity-guard/baseline checks that
-actually stop when you disable them, a full public-facing security review and
-pentest pass (no Critical/High/Medium accepted), and agentic diagnosis used
-defensively — sweep the logs, follow the evidence, write a verdict, all under
-hard budgets, secret redaction and a visible evidence trail. Plus a data-
-binding sweep so everything the agent collects lands where it belongs (UI,
-RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
-performance wave.
-
-
 ### Monitors: a 400 you can act on, and one bad monitor no longer blocks the rest
 Two defects surfaced by a field report — "adding a monitor fails, only for
 http/https checks":
@@ -968,6 +958,15 @@ http/https checks":
 
 
 ## v6.4.0 — "Sh1eldMatters" — 2026-07-24
+
+The security-and-protection release. Integrity-guard/baseline checks that
+actually stop when you disable them, a full public-facing security review and
+pentest pass (no Critical/High/Medium accepted), and agentic diagnosis used
+defensively — sweep the logs, follow the evidence, write a verdict, all under
+hard budgets, secret redaction and a visible evidence trail. Plus a data-
+binding sweep so everything the agent collects lands where it belongs (UI,
+RAG, alerts, AI), a typography/box-overflow/spacing polish pass, and a
+performance wave.
 
 ### Bulletproofing: five new cross-reference gates + an error sweep
 New structural test gates, each turning a "JS/config fails silently" class

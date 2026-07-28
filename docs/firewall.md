@@ -30,6 +30,14 @@ In the per-host rule view you can **add** or **delete** rules:
   `add rule inet filter input tcp dport 22 accept`), or delete a listed rule
   (iptables by spec, nftables by handle).
 
+Before anything is queued, the confirm dialog shows the **exact command** that
+will run on the host. Where the backend has a native check mode (**ufw**
+`--dry-run`, **nftables** `nft -c`), you can optionally run an **on-host
+dry-run** first (v6.4.1): the check command is sent through the run-and-wait
+exec path and the host's own verdict — pass/fail and its output — is folded
+into the confirm dialog before you commit. iptables and firewalld have no
+native dry-run, so their preview shows the command only.
+
 Every edit is **queued as a host command** — it applies on the host's next
 check-in, is recorded in the audit log, and is skipped on a quarantined host.
 

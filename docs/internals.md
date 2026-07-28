@@ -3,7 +3,7 @@
 Most of the docs here tell you *what* RemotePower does and *how to use it*. This
 one is for the curious — and for anyone hacking on the code. It's the engineering
 tour: the shape of the codebase, the decisions behind it, and the load-bearing
-patterns that hold ~102,000 lines of server Python together — a hand-rolled
+patterns that hold ~113,000 lines of server Python together — a hand-rolled
 request dispatcher and handler layer, with Flask/gunicorn as the thin WSGI shell.
 
 If you just want to run the thing, start with [install.md](install.md) and
@@ -26,8 +26,8 @@ do the job. The guiding rules:
   JavaScript. There is no webpack, no bundler, no transpiler, no `node_modules`.
   You can `curl` the page, read it, and understand it. Edit a file, reload, done.
 - **One big module, many small ones.** The API is one large file
-  (`server/cgi-bin/api.py`, ~64k lines) that owns routing, auth, and the request
-  lifecycle, surrounded by ~56 focused sibling modules that each do one thing
+  (`server/cgi-bin/api.py`, ~67k lines) that owns routing, auth, and the request
+  lifecycle, surrounded by ~80 focused sibling modules that each do one thing
   (DNS, SNMP, TLS monitoring, hypervisor drivers, the RAG index, …).
 - **Everything degrades.** Optional dependencies are guarded behind
   `try: import …`. No `bcrypt`? Fall back to PBKDF2. No `pydantic`? Request
@@ -38,20 +38,20 @@ The payoff is that the whole thing is *legible*. A single engineer can hold the
 request path in their head, and a new contributor can trace a feature from the URL
 to the byte on disk without learning a framework first.
 
-By the numbers (v6.1.2):
+By the numbers (v6.4.1):
 
 | Thing | Count |
 |---|---|
-| Server Python (`server/cgi-bin/`) | ~102,000 lines |
-| The main API module (`api.py`) | ~64,000 lines |
-| Focused sibling modules | 56 |
-| HTTP routes (exact + templated) | ~419 exact, ~329 pattern |
-| Request handlers (`handle_*`) | ~674 |
-| Typed request-body models | 243 |
-| Homelab integration connectors | 40 |
-| Background maintenance sweeps | ~43 |
-| Frontend JS files (no bundler) | 38 |
-| Test methods across 301 files | ~6,600 |
+| Server Python (`server/cgi-bin/`) | ~113,000 lines |
+| The main API module (`api.py`) | ~67,000 lines |
+| Focused sibling modules | ~80 |
+| HTTP routes (exact + templated) | ~463 exact, ~385 pattern |
+| Request handlers (`handle_*`) | ~825 |
+| Typed request-body models | ~253 |
+| Homelab integration connectors | 44 |
+| Background maintenance sweeps | ~64 |
+| Frontend JS files (no bundler) | 44 |
+| Test methods across 436 files | ~8,900 |
 
 ---
 
@@ -65,7 +65,7 @@ layer. What happens next is the interesting part.
 The Flask route does almost nothing: it copies the WSGI environ into a
 thread-local request context (`_RCTX`) and calls `api.main()` — the same
 `main()` that has existed since the project's CGI days. The whole dispatch table,
-the auth and CSRF enforcement, the read-only-role gate, the ~43 maintenance
+the auth and CSRF enforcement, the read-only-role gate, the ~64 maintenance
 sweeps: all unchanged. Only the shell around them changed.
 
 That's not an accident. Before v6.1.0 the server ran as CGI behind fcgiwrap (one
@@ -175,7 +175,7 @@ backends and 500s on the third is the bug we design against.
 
 ## The maintenance sweeps
 
-RemotePower has ~43 periodic jobs: poll integrations, check disk headroom, expire
+RemotePower has ~64 periodic jobs: poll integrations, check disk headroom, expire
 confirmations, sample SMART/GPU history, run scheduled backups, re-scan for CVEs,
 and so on. There is no cron inside the app and no external job runner. Each sweep
 is a `run_<x>_if_due()` function with a cheap "is it time yet?" gate backed by a
@@ -245,8 +245,8 @@ the UI.
 
 ## The frontend: a framework you can read
 
-The dashboard is one `index.html` (~9,600 lines), one main `app.js` (~25,000
-lines), and ~37 supporting JS modules — all vanilla, all served as-is. No
+The dashboard is one `index.html` (~11,000 lines), one main `app.js` (~26,600
+lines), and ~43 supporting JS modules — all vanilla, all served as-is. No
 framework, no build, no bundler. State lives in a few module-scoped objects;
 rendering is `innerHTML` with escaped values plus targeted DOM updates.
 
@@ -319,7 +319,7 @@ codebase scans clean under CodeQL, Bandit and Gitleaks on every release.
 
 ## Testing and release engineering
 
-The test suite is ~6,600 methods across 301 files, and the real gate runs the
+The test suite is ~8,900 methods across 436 files, and the real gate runs the
 *entire* suite twice — once on the JSON backend, once on SQLite — because the
 cross-backend bugs are the ones that reach production. (Production CI adds a third
 dimension: it runs on the Python version the servers ship with, which has caught

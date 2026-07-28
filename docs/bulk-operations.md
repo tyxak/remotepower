@@ -26,13 +26,13 @@ The preview line shows exactly which devices will receive the command, so there'
 
 ## Safety
 
-**Reboot and shutdown** require typing the literal string `RUN` in a follow-up prompt. The other actions just need a one-click confirm.
+**Reboot and shutdown** require typing the literal string `RUN` in a follow-up prompt. The other actions just need a one-click confirm. The Devices-page batch bar's confirmation dialog lists the selected device **names** (not just a count), so you can catch a mis-selection before anything is queued.
 
-Bulk commands aren't queued instantly atomic — they're appended to each device's command queue in a single loop, but if the page crashes mid-loop some devices might miss the command. Sample one device's `command_executed` event in Recent Activity to confirm the round trip completed.
+Reboot, shutdown and upgrade go out as a single API call and are queued atomically under one lock server-side. The per-device fan-out actions (force package scan, force ACME rescan) are queued one request at a time — if the page closes mid-way, the remaining devices are skipped. Sample one device's `command_executed` event in Recent Activity to confirm the round trip completed.
 
 ## Audit trail
 
-Every queued command is logged to `audit_log.json` with `actor`, `action`, and a `device=<id>` detail line. Filter the audit log by `action=batch_command` (legacy name from the existing batch path) to find every bulk run.
+Every queued command is recorded in the command history (the Recent Commands view) with the actor, device and command, and fires a `command_queued` event into the activity feed — so a bulk run leaves one row per target device.
 
 ## When to prefer this over a script
 
@@ -46,4 +46,4 @@ The bulk modal is for ad-hoc operations across the UI's mental model — "patch 
 
 - Sequential fan-out for per-device endpoints (force_pkg_scan, force_acme_rescan) — N agent heartbeats means N round-trips before everything is queued. Future improvement: bulk endpoint for these.
 - No "wait for completion" — the modal closes once commands are queued. Watch Recent Activity or the device drawer for execution results.
-- No undo. Once shutdown/reboot/upgrade is queued, the operator must contact the agent some other way to cancel (e.g. SSH in and stop the agent before the next heartbeat picks up the command).
+- No undo once a command has been *delivered* — but while it's still waiting, **Admin → Command Queue** shows every pending command per device and lets you cancel one or clear a device's whole queue (`DELETE /api/devices/<id>/command-queue`).

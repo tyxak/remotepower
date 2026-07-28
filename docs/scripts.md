@@ -199,7 +199,7 @@ doing its job, the operator can override at dispatch time with
 
 ### Scripts page
 
-Sidebar → **Admin** → **Scripts**. Lists every saved script with a
+Sidebar → **Automation** → **Scripts**. Lists every saved script with a
 filter box, name, description, size, last-updated, and a ` DANGER`
 badge if any dangerous patterns were detected on last lint.
 
@@ -236,7 +236,7 @@ One row per target device showing:
 - Name
 - Status pill (`pending`, `rc=0`, `rc=1`, or a reason if skipped:
  `not_found`, `agentless`)
-- For completed devices: the script output (capped at 8 KB) and the
+- For completed devices: the script output (capped at 32 KB) and the
  finished-at timestamp
 
 Polling stops automatically once every queued device has returned
@@ -263,7 +263,7 @@ default 300s. See [agent-commands.md](agent-commands.md).
  the agent's `exec:` channel, which runs it through `subprocess.run(…,
  shell=True)` on the agent. That's the same execution surface the
  one-liner exec uses.
-- **64 KB body cap** — well below `MAX_CMD_OUT_BYTES` so script content
+- **64 KB body cap** — keeps a queued script bounded so script content
  can't blow up the command queue.
 - **Control characters stripped** from the body on save (everything
  below ASCII 0x20 except `\t` and `\n`). Defends against agents that

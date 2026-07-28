@@ -224,6 +224,11 @@ sdk:
 BANDIT_SRC := server/cgi-bin client/remotepower-agent.py \
               client/remotepower-agent-win.py client/remotepower-agent-mac.py \
               server/kmip server/syslog server/flow server/push
+# NOTE: tools/bandit-baseline.json is NOT a duplicate of .bandit-baseline.json.
+# This one is the MEDIUM+severity/confidence gate (-ll -ii, small file); the root
+# .bandit-baseline.json is the FULL unfiltered triage baseline used by the
+# CLAUDE.md hand-run. Both must pass; consolidating them would lose the
+# distinction. Verified 2026-07-28: both clean, 0 new findings.
 bandit:
 	$(PY) -m bandit -ll -ii -b tools/bandit-baseline.json -r $(BANDIT_SRC)
 

@@ -145,7 +145,8 @@ taking before it manages anything important.
 
 ### 4.1 Change the admin password
 
-Settings → Security. Passwords are stored with salted PBKDF2. The
+Settings → Security. Passwords are stored with bcrypt (or salted
+PBKDF2 where bcrypt is unavailable). The
 default-password banner clears once the seeded password is replaced.
 
 ### 4.2 Enable two-factor authentication

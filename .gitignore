@@ -82,3 +82,7 @@ C:*
 .gate-confirm.log
 .serialgate.log
 .leakhunt.log
+
+# coverage.py database — a local artifact, was tracked by accident (v6.4.1)
+.coverage
+.coverage.*

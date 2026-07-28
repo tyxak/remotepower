@@ -151,16 +151,18 @@ synthetic devices/alerts/CVEs. Login `demo` / `demo`, reset every few hours.
   monitors (HTTP/DNS/ICMP/TCP) with attachable SLA/SLO objects (availability
   targets + error budgets), an Alerts inbox with ack/auto-resolve/mute, and
   one filterable page to tune every alert threshold, grade and score weight.
-- **See every signal** — SMART/hardware health, GPU, power/UPS, disk-fill
-  forecasting, a per-host timeline, log search; agentless syslog,
-  NetFlow/IPFIX/sFlow and SNMP receivers cover the switches, firewalls and
-  printers that can't run an agent.
-- **Manage remotely** — shell + Custom Scripts, a file manager and
-  cron/systemd-timer control with zero inbound ports; plus a browser SSH
-  terminal and VNC riding your existing SSH, and Proxmox/VMware/OpenShift
-  guest lifecycle via the hypervisor's own API.
+- **See every signal** — SMART/hardware health, CPU/board temperatures, GPU,
+  power/UPS, disk-fill forecasting, a per-host timeline, log search; agentless
+  syslog, NetFlow/IPFIX/sFlow and SNMP receivers (plus an OID browser to walk
+  any SNMP subtree) cover the switches, firewalls and printers that can't run
+  an agent.
+- **Manage remotely** — shell + Custom Scripts on Linux, Windows and macOS, a
+  file manager and cron/systemd-timer control with zero inbound ports; plus a
+  browser SSH terminal and VNC riding your existing SSH, and
+  Proxmox/VMware/OpenShift guest lifecycle via the hypervisor's own API.
 - **Lock it down** — passkeys/WebAuthn, SAML/OIDC/LDAP, TOTP, per-role MFA,
-  a tamper-evident audit log, strict CSP.
+  a tamper-evident audit log, strict CSP — and a built-in KMIP key server so
+  NAS/hypervisor encryption keys live off the appliance they unlock.
 - **Scan for CVEs** — OSV.dev-backed, CISA KEV + EPSS prioritized, SBOM
   export (CycloneDX/SPDX).
 - **Pentest what you own** — authorized nuclei/nikto/nmap/ZAP/wapiti/lynis

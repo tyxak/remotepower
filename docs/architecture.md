@@ -64,6 +64,12 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
       table keyed on a per-request GUC, applied live; DB-enforced defense-in-depth
       beneath the app-layer scope. Both default off, flipped from Settings.
 
+Other optional sidecars (installed on demand):
+  • remotepower-syslogd — agentless UDP syslog receiver (docs/syslog.md)
+  • remotepower-flowd   — agentless NetFlow/IPFIX receiver (docs/flow.md)
+  • remotepower-kmipd   — KMIP key server for NAS/hypervisor encryption (docs/kmip.md)
+  • remotepower-push    — experimental agent push channel (docs/push.md)
+
 Optional sibling daemon (only if you install the web terminal):
   systemd: remotepower-webterm.service
   └─ asyncio Python (websockets + asyncssh)
@@ -83,7 +89,8 @@ Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
                  └─ sends cpu/mem/disk metrics (if psutil installed)
 
 Windows client (Windows 10/11, Server 2019+)
-  └─ Scheduled Task: RemotePowerAgent (runs `--run` at startup, as SYSTEM)
+  └─ Windows service: RemotePowerAgent (real service via pywin32, SCM auto-restart;
+     falls back to a SYSTEM Scheduled Task when pywin32 is unavailable)
        └─ Python script (remotepower-agent-win.py)
             └─ Same heartbeat protocol as Linux agent
                  ├─ shutdown/reboot via shutdown.exe /s /r
@@ -110,7 +117,7 @@ remotepower/
 ├── .dockerignore
 ├── install-server.sh
 ├── install-client.sh              # Linux client installer
-├── install-windows.ps1            # Windows client installer
+├── install-client.ps1             # Windows client installer (also client/install-windows.ps1)
 ├── deploy-server.sh
 ├── docker/
 │   ├── nginx-docker.conf          # Nginx config for Docker

@@ -33,7 +33,8 @@ rp help                this help
 > auto-escalate with `sudo` themselves.
 
 A **component** is a stack unit named without the `remotepower-` prefix —
-`wsgi` (the gunicorn app server), `scheduler`, `scanner`, `push`, `webterm`. With
+`wsgi` (the gunicorn app server), `scheduler`, `scanner`, `push`, `webterm`,
+plus the optional ingest/key sidecars `syslogd`, `flowd` and `kmipd`. With
 no component, the lifecycle verbs act on the whole stack (started in dependency
 order, stopped in reverse). `nginx` and `postgresql` are shown as host services
 but are **not** touched by `rp stop`/`start` — they're shared with the rest of the
@@ -69,7 +70,7 @@ it's drawn with box characters and ANSI colour, so it works over plain SSH.
 
 ```text
 ╭─ RemotePower  ·  tviweb01 ───────────────────────────────────────────────╮
-│  version 6.4.0    backend postgres    uptime 3d 4h    load 0.42           │
+│  version 6.4.1    backend postgres    uptime 3d 4h    load 0.42           │
 ├───────────────────────────────────────────────────────────────────────────┤
 │  COMPONENT             STATUS        BOOT       PORT                       │
 │ ▸ ● wsgi               running       enabled    :8090 ✓                    │
@@ -134,7 +135,7 @@ Example:
 
 ```text
 $ rp doctor
-rp doctor — RemotePower 6.4.0, backend=postgres
+rp doctor — RemotePower 6.4.1, backend=postgres
 
   OK   code present (/var/www/remotepower)
   OK   data dir /var/lib/remotepower (mode 700)

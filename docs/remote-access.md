@@ -30,8 +30,8 @@ files on a host.
   **allowlist of root paths** (`file_manager.roots`, or a safe default set) — the
   browser can never escape those roots. Writes are size-capped.
 - Operations map to `GET/POST /api/devices/{id}/files` (`list`, `read`, `write`,
-  `mkdir`, `delete`). Paths and contents are base64-wrapped end to end, so a
-  filename can never inject a shell command.
+  `mkdir`, `delete`, `upload`). Paths and contents are base64-wrapped end to
+  end, so a filename can never inject a shell command.
 - **Reads are allowed under quarantine / audit-mode; writes are blocked** — the
   incident-response posture (look, don't touch).
 

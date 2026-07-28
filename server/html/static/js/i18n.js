@@ -3910,6 +3910,11 @@
     'Warnings:': { fr: 'Avertissements :', de: 'Warnungen:', zh: '警告：', hi: 'चेतावनियाँ:', es: 'Avisos:', ar: 'التحذيرات:' },
     'Watched services': { fr: 'Services surveillés', de: 'Überwachte Dienste', zh: '受监视服务', hi: 'निगरानी में सेवाएँ', es: 'Servicios vigilados', ar: 'الخدمات المراقبة' },
     'What changed (last 7 days)': { fr: 'Ce qui a changé (7 derniers jours)', de: 'Was sich geändert hat (letzte 7 Tage)', zh: '变更内容（近 7 天）', hi: 'क्या बदला (पिछले 7 दिन)', es: 'Qué cambió (últimos 7 días)', ar: 'ما الذي تغير (آخر 7 أيام)' },
+    // v6.4.1: three Settings sections split out of the listening-port audit
+    // (they had been appended there over time and were unrelated to it).
+    'Certificate file expiry': { fr: 'Expiration des fichiers de certificat', de: 'Ablauf von Zertifikatsdateien', zh: '证书文件到期', hi: 'प्रमाणपत्र फ़ाइल समाप्ति', es: 'Caducidad de archivos de certificado', ar: 'انتهاء ملفات الشهادات' },
+    'Login geolocation': { fr: 'Géolocalisation des connexions', de: 'Anmelde-Geolokalisierung', zh: '登录地理位置', hi: 'लॉगिन भू-स्थान', es: 'Geolocalización de inicios de sesión', ar: 'الموقع الجغرافي لتسجيلات الدخول' },
+    'Warranty auto-lookup': { fr: 'Recherche automatique de garantie', de: 'Automatische Garantieabfrage', zh: '保修自动查询', hi: 'वारंटी स्वतः-खोज', es: 'Búsqueda automática de garantía', ar: 'البحث التلقائي عن الضمان' },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

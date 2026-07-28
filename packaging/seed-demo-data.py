@@ -4820,6 +4820,180 @@ def build_portal_ticket_queue() -> dict:
     ]}
 
 
+# ── v6.4.1 coverage fill ────────────────────────────────────────────────────
+# The v6.4.x headline surfaces landed unseeded, so the demo showed them as
+# empty "not configured" pages. Every shape below was read out of the handler
+# that consumes it (cited per builder) rather than guessed.
+
+def build_kmip() -> dict:
+    """KMIP key server config + PKI + registered appliance clients → kmip.json.
+    Shape verified against handle_kmip_status / handle_kmip_clients
+    (kmip_handlers.py:455/620): {enabled, daemon:{bind,last_state_fetch},
+    ca:{...}, server_cert:{...}, clients:{cid:{name,kind,fingerprint,created,
+    created_by,revoked,not_after,address,last_seen,last_peer}}}.
+    No private key material is seeded — the demo shows the inventory, never a
+    key. Fingerprints are stable fakes, not real certificate digests."""
+    t = now()
+    return {
+        'enabled': True,
+        'rev': 7,
+        'daemon': {'bind': '0.0.0.0:5696', 'last_state_fetch': t - 45,
+                   'version': '6.4.1'},
+        'ca': {'subject': 'RemotePower KMIP CA', 'created': t - 86400 * 21,
+               'not_after': t + 86400 * 3630},
+        'server_cert': {'hosts': ['kmip.acme-hosting.example', '10.20.0.10'],
+                        'created': t - 86400 * 21, 'not_after': t + 86400 * 720},
+        'clients': {
+            _stable_id('kmip', 'nas'): {
+                'name': 'tnas — encrypted datasets', 'kind': 'truenas',
+                'fingerprint': _stable_hex('kmipfp', 'nas', nbytes=20),
+                'created': t - 86400 * 20, 'created_by': 'admin',
+                'revoked': False, 'not_after': t + 86400 * 700,
+                'address': '10.20.0.31', 'last_seen': t - 300,
+                'last_peer': '10.20.0.31'},
+            _stable_id('kmip', 'dsm'): {
+                'name': 'syn01 — shared folder keys', 'kind': 'synology',
+                'fingerprint': _stable_hex('kmipfp', 'dsm', nbytes=20),
+                'created': t - 86400 * 14, 'created_by': 'admin',
+                'revoked': False, 'not_after': t + 86400 * 706,
+                'address': '10.20.0.32', 'last_seen': t - 1800,
+                'last_peer': '10.20.0.32'},
+            _stable_id('kmip', 'esx'): {
+                'name': 'esx01 — VM encryption (retired host)',
+                'kind': 'vsphere',
+                'fingerprint': _stable_hex('kmipfp', 'esx', nbytes=20),
+                'created': t - 86400 * 40, 'created_by': 'admin',
+                'revoked': True, 'revoked_at': t - 86400 * 3,
+                'not_after': t + 86400 * 680, 'address': '10.20.0.20'},
+        },
+    }
+
+
+def build_kmip_objects() -> dict:
+    """Managed key inventory → kmip_objects.json. Shape verified against
+    handle_kmip_keys (kmip_handlers.py:913): {objects: {uid: {name, kind,
+    state, client_id, created, algo, length}}}. `material` is deliberately
+    ABSENT — real records hold it AES-256-GCM-encrypted and the demo has no
+    business carrying key bytes at all."""
+    t = now()
+    nas, dsm = _stable_id('kmip', 'nas'), _stable_id('kmip', 'dsm')
+    return {'objects': {
+        _stable_hex('kmipobj', 1, nbytes=8): {
+            'name': 'tank/secure', 'kind': 'symmetric', 'state': 'active',
+            'client_id': nas, 'created': t - 86400 * 20,
+            'algo': 'AES', 'length': 256},
+        _stable_hex('kmipobj', 2, nbytes=8): {
+            'name': 'tank/backups', 'kind': 'symmetric', 'state': 'active',
+            'client_id': nas, 'created': t - 86400 * 18,
+            'algo': 'AES', 'length': 256},
+        _stable_hex('kmipobj', 3, nbytes=8): {
+            'name': 'volume1 (DSM)', 'kind': 'symmetric', 'state': 'active',
+            'client_id': dsm, 'created': t - 86400 * 14,
+            'algo': 'AES', 'length': 256},
+        _stable_hex('kmipobj', 4, nbytes=8): {
+            'name': 'vmfs-esx01-old', 'kind': 'symmetric',
+            'state': 'deactivated', 'client_id': _stable_id('kmip', 'esx'),
+            'created': t - 86400 * 40, 'algo': 'AES', 'length': 256},
+    }}
+
+
+def build_kmip_log() -> dict:
+    """KMIP activity log → kmip_log.json. Shape verified against _kmip_log
+    (kmip_handlers.py:365): {entries: [{ts, kind, ...fields}]}. Kinds seen in
+    the code: 'admin' (op/actor/client), 'op' (KMIP operation), 'conn'."""
+    t = now()
+    nas, dsm = _stable_id('kmip', 'nas'), _stable_id('kmip', 'dsm')
+    return {'entries': [
+        {'ts': t - 86400 * 21, 'kind': 'admin', 'op': 'enable',
+         'actor': 'admin', 'ok': True},
+        {'ts': t - 86400 * 20, 'kind': 'admin', 'op': 'client_create',
+         'actor': 'admin', 'client_id': nas,
+         'client': 'tnas — encrypted datasets', 'ok': True},
+        {'ts': t - 86400 * 20, 'kind': 'op', 'op': 'Create',
+         'client_id': nas, 'client': 'tnas — encrypted datasets', 'ok': True},
+        {'ts': t - 86400 * 14, 'kind': 'admin', 'op': 'client_create',
+         'actor': 'admin', 'client_id': dsm,
+         'client': 'syn01 — shared folder keys', 'ok': True},
+        {'ts': t - 86400 * 3, 'kind': 'admin', 'op': 'client_revoke',
+         'actor': 'admin', 'client_id': _stable_id('kmip', 'esx'),
+         'client': 'esx01 — VM encryption (retired host)', 'ok': True},
+        {'ts': t - 3600 * 6, 'kind': 'conn', 'peer': '10.20.0.31',
+         'client_id': nas, 'ok': False,
+         'detail': 'TLS handshake failed: client certificate expired'},
+        {'ts': t - 1800, 'kind': 'op', 'op': 'Get', 'client_id': dsm,
+         'client': 'syn01 — shared folder keys', 'ok': True},
+        {'ts': t - 300, 'kind': 'op', 'op': 'Get', 'client_id': nas,
+         'client': 'tnas — encrypted datasets', 'ok': True},
+    ]}
+
+
+def build_flow() -> dict:
+    """Agentless NetFlow/IPFIX rollup per exporter → flow.json. Shape verified
+    against _ingest_flow (flow_handlers.py:66): {dev_id: {latest: {ts,
+    total_bytes, total_packets, flows, talkers:[{ip,bytes,pkts}],
+    conversations:[{src,dst,dport,proto,bytes,pkts}], protos:{}}}}.
+    The router is the exporter; conversations mirror the demo's real service
+    topology so the dependency-verification card has something to verify."""
+    t = now()
+    return {'rtr01': {'latest': {
+        'ts': t - 120,
+        'total_bytes': 41_884_233_100, 'total_packets': 38_221_904,
+        'flows': 18_442,
+        'talkers': [
+            {'ip': '10.20.0.11', 'bytes': 12_884_233_100, 'pkts': 9_221_904},
+            {'ip': '10.20.0.31', 'bytes': 9_112_004_882, 'pkts': 7_004_113},
+            {'ip': '10.20.0.12', 'bytes': 6_774_991_003, 'pkts': 5_882_441},
+            {'ip': '10.20.0.21', 'bytes': 3_004_112_887, 'pkts': 2_774_003},
+        ],
+        'conversations': [
+            {'src': '10.20.0.11', 'dst': '10.20.0.12', 'dport': 5432,
+             'proto': 6, 'bytes': 4_882_113_004, 'pkts': 3_774_112},
+            {'src': '10.20.0.11', 'dst': '10.20.0.31', 'dport': 2049,
+             'proto': 6, 'bytes': 3_112_884_002, 'pkts': 2_884_003},
+            {'src': '10.20.0.21', 'dst': '10.20.0.11', 'dport': 443,
+             'proto': 6, 'bytes': 1_774_003_118, 'pkts': 1_442_887},
+            {'src': '10.20.0.12', 'dst': '10.20.0.31', 'dport': 445,
+             'proto': 6, 'bytes': 884_112_003, 'pkts': 774_112},
+        ],
+        'protos': {'tcp': 36_112_884, 'udp': 2_004_882, 'icmp': 104_138},
+    }}}
+
+
+def build_incident_memory() -> dict:
+    """Cross-fleet incident outcome memory → incident_memory.json. Feeds the
+    triage `prior_incidents` evidence tool: resolved+triaged alerts harvested
+    into durable, tenant-tagged records so a repeat alert can cite what fixed
+    it last time."""
+    t = now()
+    return {'incidents': [
+        {'id': _stable_hex('incmem', 1, nbytes=6), 'event': 'disk_full',
+         'device_id': 'nc01', 'device_name': 'nc01',
+         'kind': 'resource', 'severity': 'high',
+         'opened': t - 86400 * 26, 'resolved': t - 86400 * 26 + 5400,
+         'summary': 'Nextcloud preview cache filled /srv after a bulk photo '
+                    'import.',
+         'resolution': 'Pruned appdata previews and capped preview generation; '
+                       'reclaimed 61 GB.',
+         'helpful': True, 'tenant': None},
+        {'id': _stable_hex('incmem', 2, nbytes=6), 'event': 'failed_unit',
+         'device_id': 'gt01', 'device_name': 'gt01',
+         'kind': 'service', 'severity': 'high',
+         'opened': t - 86400 * 12, 'resolved': t - 86400 * 12 + 900,
+         'summary': 'gitea.service failed to start after a package upgrade.',
+         'resolution': 'The upgrade moved the config; pointed the unit at the '
+                       'new path and re-enabled it.',
+         'helpful': True, 'tenant': None},
+        {'id': _stable_hex('incmem', 3, nbytes=6), 'event': 'cert_expiring',
+         'device_id': 'ng01', 'device_name': 'ng01',
+         'kind': 'tls', 'severity': 'medium',
+         'opened': t - 86400 * 40, 'resolved': t - 86400 * 40 + 1800,
+         'summary': 'ACME renewal stopped after the DNS provider token was '
+                    'rotated.',
+         'resolution': 'Refreshed the DNS API credential and forced a renew.',
+         'helpful': True, 'tenant': None},
+    ]}
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -4955,6 +5129,12 @@ BUILDERS = {
     'disk_usage.json':             build_disk_usage,
     'wan_state.json':              build_wan_state,
     'portal_ticket_queue.json':    build_portal_ticket_queue,
+    # ── v6.4.1 coverage fill ──────────────────────────────────────────────
+    'kmip.json':                   build_kmip,
+    'kmip_objects.json':           build_kmip_objects,
+    'kmip_log.json':               build_kmip_log,
+    'flow.json':                   build_flow,
+    'incident_memory.json':        build_incident_memory,
 }
 
 

@@ -96,7 +96,11 @@ The three most recent per-release notes are kept here:
 - **[v6.4.1.md](v6.4.1.md)** — "Cust0dyMatters": a built-in KMIP key server so
  Synology / TrueNAS / vSphere keep their encryption keys off the appliance that
  holds the encrypted data (opt-in sidecar, mutual TLS, encrypted recovery
- bundle); installer flags for the optional receivers; and two monitor fixes —
+ bundle); a cross-agent parity program (custom scripts, live view, PII scan,
+ canary files, delta heartbeats, watched services and file-path log rules on
+ Windows/macOS); a dead-signal sweep (CPU temps on Thermal Health, the Security
+ Advisory's revived inputs, six new risk factors); an SNMP OID browser; device
+ rename; installer flags for the optional receivers; and two monitor fixes —
  an actionable rejection message and a stale monitor no longer blocking saves.
 - **[v6.4.0.md](v6.4.0.md)** — "Sh1eldMatters": agentic diagnosis — a hail-mary
  log sweep ("Diagnose from logs": a bounded, secret-redacted snapshot of the
@@ -175,7 +179,7 @@ Older release notes (v6.2.3 and earlier) live in
 - **[kmip.md](kmip.md)** — The built-in KMIP key server: keep Synology DSM /
  TrueNAS / vSphere encryption keys off the appliance that holds the encrypted
  data. Sidecar install, the client wizard, the security model and the encrypted
- recovery bundle *(v6.4.0)*.
+ recovery bundle *(v6.4.1)*.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
 - **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),
