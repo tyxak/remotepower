@@ -32,6 +32,11 @@ class TestModuleDefaults(unittest.TestCase):
     def setUp(self):
         api.save(api.CONFIG_FILE, {})
         api._LOAD_CACHE.clear()
+        # Restore a clean config after each test — the tickets tests below
+        # leave module kill switches in the SHARED per-worker config otherwise
+        # (the same class-4 leak documented on TestModuleGateBlocksTheApi).
+        self.addCleanup(lambda: (api.save(api.CONFIG_FILE, {}),
+                                 api._LOAD_CACHE.clear()))
 
     def test_untouched_install_keeps_todays_behaviour(self):
         state = api._modules_state()
@@ -91,6 +96,13 @@ class TestModuleGateBlocksTheApi(unittest.TestCase):
 
     def setUp(self):
         api._LOAD_CACHE.clear()
+        # v6.4.1 (false-green class 4): these tests SAVE {'alerts_enabled':
+        # False} into the SHARED per-worker config and never restored it, so
+        # any later module in the same xdist worker that asserts an alert
+        # fires (test_v631_flow_deps was the one that flaked) found the whole
+        # alerts module silently off. Restore a clean config after each test.
+        self.addCleanup(lambda: (api.save(api.CONFIG_FILE, {}),
+                                 api._LOAD_CACHE.clear()))
 
     def _gate(self, path):
         """Return the status the module gate would raise, or None if it passes."""
@@ -136,6 +148,9 @@ class TestModuleGateBlocksTheApi(unittest.TestCase):
 class TestAlertsOffStopsInboxRowsOnly(unittest.TestCase):
     def setUp(self):
         api._LOAD_CACHE.clear()
+        # Same class-4 leak guard: never leave alerts_enabled=False behind.
+        self.addCleanup(lambda: (api.save(api.CONFIG_FILE, {}),
+                                 api._LOAD_CACHE.clear()))
 
     def test_record_alert_is_a_noop_when_the_module_is_off(self):
         api.save(api.CONFIG_FILE, {"alerts_enabled": False})

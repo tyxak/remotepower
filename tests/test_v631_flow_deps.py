@@ -82,7 +82,15 @@ class TestDependencyHealth(unittest.TestCase):
         cfg = api.load(api.CONFIG_FILE) or {}
         cfg["dependency_link_alerts"] = True
         cfg["dependency_silence_min"] = 1
+        # v6.4.1 (false-green class 4): under xdist another module in this
+        # worker can leave the alerts MODULE switched off (test_v612_modules
+        # saved {'alerts_enabled': False}) or a mute behind in the shared
+        # stores — either silently suppresses the alert this class asserts
+        # on. Reset every gate the firing path consults.
+        cfg.pop("alerts_enabled", None)
         api.save(api.CONFIG_FILE, cfg)
+        api.save(api.ALERT_MUTES_FILE, {"mutes": []})
+        api._LOAD_CACHE.clear()
 
     def _flow(self, ts, convs):
         api.save(api.FLOW_FILE, {"rtr": {"latest": {"ts": ts, "conversations": convs}}})
