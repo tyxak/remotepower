@@ -8044,7 +8044,12 @@ async function batchTags() {
   if (data?.ok) { toast(`Updated tags on ${data.updated} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else toast(data?.error || 'Failed', 'error');
 }
-async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!await uiConfirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
+async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run';
+  // v6.4.1 (roadmap D11): name the hosts, not just the count — "Reboot 3
+  // device(s)?" hides exactly the mistake a confirmation exists to catch.
+  const _bNames = [...selectedDevices].map(id => devices.find(d => d.id === id)?.name || id);
+  const _bList = _bNames.slice(0, 8).join(', ') + (_bNames.length > 8 ? ` … and ${_bNames.length - 8} more` : '');
+  if (!await uiConfirm({ title: `${verb} ${selectedDevices.size} device(s)?`, message: _bList, confirmText: verb, danger: command === 'shutdown' || command === 'reboot' })) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
   // Blast-radius guardrail (reboot/shutdown): the server refuses an over-cap
   // batch; re-confirm to override.
   if (data?.blast_blocked) {

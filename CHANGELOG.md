@@ -94,6 +94,13 @@ a **Linux** feature all along.
 - The Windows/macOS agent docstrings now carry an explicit, auditable list of
   the heartbeat keys that stay Linux-only (they previously claimed OpenSCAP
   was the only divergence).
+- **Batch action confirmations name the hosts.** "Reboot 3 device(s)?" hid
+  exactly the mistake a confirmation exists to catch — the dialog now lists
+  the device names (first 8, then "… and N more") with a danger-styled
+  button for reboot/shutdown.
+- The GeoIP Settings label now says where to get a free offline `.mmdb`
+  (MaxMind GeoLite2 with an account, or db-ip.com Lite under CC BY 4.0) and
+  that the file is read locally with no egress.
 - **Firewall changes can be dry-run ON THE HOST before queueing.** The rule
   editor already previewed the exact command; for backends with a native
   check (`ufw --dry-run` prints the resulting ruleset, `nft -c` validates

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-24">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-25">
 
 </head>
 <body>
@@ -2318,7 +2318,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cert-expiry-alerts-enabled"> Alert on expiring local certificate files (on by default — one coalesced alert per host, only your own service certs, never the CA trust store)</label></div>
             <!-- W6-41: GeoIP (offline MMDB) -->
-            <div class="settings-row"><label class="form-label" for="cfg-geoip-db-path">GeoLite2 Country DB path <span class="meta-sm">(optional — enriches login sources with country; leave blank to disable)</span></label><input type="text" id="cfg-geoip-db-path" class="form-input ff-mono" placeholder="/var/lib/GeoLite2-Country.mmdb" maxlength="512"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-geoip-db-path">GeoLite2 Country DB path <span class="meta-sm">(optional — enriches login sources with country; leave blank to disable. Get a free .mmdb from MaxMind GeoLite2 (account required) or db-ip.com Lite (CC BY 4.0); the file is read locally, nothing egresses)</span></label><input type="text" id="cfg-geoip-db-path" class="form-input ff-mono" placeholder="/var/lib/GeoLite2-Country.mmdb" maxlength="512"></div>
             <div class="settings-row"><label class="form-label" for="cfg-geoip-asn-db-path">GeoLite2 ASN DB path <span class="meta-sm">(optional — adds ASN/org)</span></label><input type="text" id="cfg-geoip-asn-db-path" class="form-input ff-mono" placeholder="/var/lib/GeoLite2-ASN.mmdb" maxlength="512"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-geo-anomaly-enabled"> Flag impossible-travel logins (one account, two countries within a window → <code>login_geo_anomaly</code>)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-geo-anomaly-hours">Impossible-travel window (hours)</label><input type="number" id="cfg-geo-anomaly-hours" class="form-input" min="1" max="72" value="2"></div>
@@ -10986,38 +10986,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.1-24"></script>
+<script defer src="static/js/app.js?v=6.4.1-25"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-containers.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-network.js?v=6.4.1-24"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-containers.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-network.js?v=6.4.1-25"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.1-24"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.1-25"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-dns.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-drift.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-cve.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-backups.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-iac.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-virt.js?v=6.4.1-24"></script>
+<script defer src="static/js/app-ai.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-dns.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-drift.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-cve.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-backups.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-iac.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-virt.js?v=6.4.1-25"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-logs.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-remote.js?v=6.4.1-24"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.1-24"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-logs.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-remote.js?v=6.4.1-25"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.1-25"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.1-24"></script>
+<script defer src="static/js/app-self.js?v=6.4.1-25"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11027,6 +11027,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.1-24"></script>
+<script defer src="static/js/sw-register.js?v=6.4.1-25"></script>
 </body>
 </html>
