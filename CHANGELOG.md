@@ -94,6 +94,11 @@ a **Linux** feature all along.
 - The Windows/macOS agent docstrings now carry an explicit, auditable list of
   the heartbeat keys that stay Linux-only (they previously claimed OpenSCAP
   was the only divergence).
+- **Devices can be renamed.** The display name was set once at enroll (from
+  the hostname) with no way to change it afterwards. The device drawer's
+  Settings tab now has a Name field — display-only, the reported hostname
+  stays untouched, heartbeats never revert it, and a blank field never
+  erases the name.
 - **FIXED — self-update rollout rings verified on delivery, not survival.**
   A ring device counted as verified the moment the `update` command left the
   queue — so with auto-promote on, a canary that died on the new agent binary

@@ -19998,6 +19998,11 @@ function _renderDrawerSettings() {
 
   document.getElementById('drawer-settings-form').innerHTML = `
     <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Name</span>
+      <input class="form-input isl-619" id="ds-name" value="${escAttr(d.name||'')}" maxlength="64" placeholder="${escAttr(d.hostname||'display name')}">
+      <span class="hint">Display name only — the reported hostname (${escHtml(d.hostname||'unknown')}) is unaffected.</span>
+    </div>
+    <div class="drawer-setting-row">
       <span class="drawer-setting-label">Group</span>
       <input class="form-input isl-619" id="ds-group" value="${escAttr(d.group||'')}">
     </div>
@@ -20265,6 +20270,9 @@ async function _drawerSaveSettings() {
   const _alertDelay = parseInt(document.getElementById('ds-alert-delay')?.value || '0', 10);
   const body = {
     group, tags, icon, monitored,
+    // v6.4.1 (D9): display-name rename. Blank is ignored server-side, so an
+    // untouched empty field can never erase the name.
+    name: (document.getElementById('ds-name')?.value || '').trim(),
     poll_interval: Math.max(30, poll),
     offline_alert_delay_min: Math.max(0, Math.min(1440, isNaN(_alertDelay) ? 0 : _alertDelay)),
     watched_services: services,
@@ -20296,6 +20304,12 @@ async function _drawerSaveSettings() {
   const r = await api('POST', `/devices/${id}`, body);
   if (r?.ok) toast('Settings saved', 'success');
   else { toast(r?.error || 'Failed to save', 'error'); return; }
+  // v6.4.1 (D9): reflect a rename immediately in the open drawer header —
+  // the device list refresh picks it up on the next poll.
+  if (body.name) {
+    const nmEl = document.getElementById('drawer-device-name');
+    if (nmEl) nmEl.textContent = body.name;
+  }
 
   // v3.2.0 (B5): persist SNMP config too if the form has those inputs.
   // Separate endpoint because SNMP config is on the agentless device

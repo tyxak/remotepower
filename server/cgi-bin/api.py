@@ -12714,6 +12714,16 @@ def handle_device_save_bulk(dev_id):
                     for t in raw_tags[:MAX_TAG_COUNT]]
             updates['tags'] = [t for t in tags if t]
 
+        # v6.4.1 (roadmap D9): rename. The display name was set once at enroll
+        # (from the hostname) and there was NO handler to change it afterwards.
+        # Display-only: `hostname` stays the agent-reported truth and heartbeats
+        # never overwrite `name` on an existing record, so a rename sticks.
+        # Blank/whitespace is ignored rather than erasing the name.
+        if 'name' in body:
+            nm = _sanitize_str(str(body.get('name') or ''), MAX_NAME_LEN).strip()
+            if nm:
+                updates['name'] = nm
+
         # icon — short ascii label
         if 'icon' in body:
             updates['icon'] = _sanitize_str(body.get('icon') or '', MAX_NAME_LEN)
