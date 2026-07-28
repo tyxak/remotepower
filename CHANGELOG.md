@@ -94,6 +94,14 @@ a **Linux** feature all along.
 - The Windows/macOS agent docstrings now carry an explicit, auditable list of
   the heartbeat keys that stay Linux-only (they previously claimed OpenSCAP
   was the only divergence).
+- **FIXED — self-update rollout rings verified on delivery, not survival.**
+  A ring device counted as verified the moment the `update` command left the
+  queue — so with auto-promote on, a canary that died on the new agent binary
+  still "verified" and the broken update went fleet-wide, the exact failure a
+  canary ring exists to stop. A self-update ring now verifies only when the
+  device heartbeats again **on the server's current agent version**; a
+  consumed command with no such heartbeat past a 10-minute grace counts as
+  stalled, and a silent canary halts the rollout at the window.
 
 
 ### The PII inventory scan runs on Windows and macOS

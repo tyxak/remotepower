@@ -11,6 +11,10 @@ caught on a few hosts before it reaches everything.
 - A ring is released, then **verified** before the next ring starts:
   - **Upgrades** use post-deploy verification (the agent confirms the new
     version is healthy after updating).
+  - **Agent self-update** verifies that each device heartbeats again *on the
+    new agent version* — an agent that took the update command but never came
+    back counts as stalled, and a canary ring that goes silent halts the
+    rollout instead of promoting.
   - **Scripts** check the exit status across the ring.
 - Progression can be **automatic** (advance when a ring passes) or **on your
   approval** (hold between rings for a manual go/no-go).

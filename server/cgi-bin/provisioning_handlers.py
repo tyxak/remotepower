@@ -248,10 +248,18 @@ def _rollout_resolve_ring(selector, devices):
     return uniq
 
 
+# v6.4.1: how long after dispatch a self-update ring device gets to come back
+# on the new version before it counts as stalled — poll interval + download +
+# swap + re-exec headroom.
+_SELF_UPDATE_GRACE_S = 600
+
+
 def _rollout_ring_progress(roll, rstate, devices, cmds):
     """(ok, failed, total) for a dispatched ring. For upgrades, ok == verified
-    'ok' and failed == 'stalled' (real post-deploy verification). For scripts we
-    can only confirm delivery, so ok == command consumed from the queue."""
+    'ok' and failed == 'stalled' (real post-deploy verification). For
+    self-update, ok == the device heartbeated after dispatch ON the server's
+    current agent version. For scripts we can only confirm delivery, so
+    ok == command consumed from the queue."""
     ids = rstate.get('dispatched_ids') or []
     total = len(ids)
     now = int(time.time())
@@ -262,6 +270,27 @@ def _rollout_ring_progress(roll, rstate, devices, cmds):
             if st == 'ok':
                 ok += 1
             elif st == 'stalled':
+                failed += 1
+    elif roll.get('action') == 'self-update':
+        # v6.4.1: delivery-only verification was FALSE SUCCESS here — the queue
+        # draining proves the agent PICKED UP the command, not that it survived
+        # the binary swap. With auto-promote on, a canary that died on the new
+        # agent still counted as verified and the broken update went
+        # fleet-wide — the exact failure a canary ring exists to stop.
+        # Verified = a heartbeat AFTER dispatch reporting the server's current
+        # agent version (the update took and the agent came back). A consumed
+        # command past the grace window with no such heartbeat counts as
+        # stalled; the 0-verified window halt and health gate apply on top.
+        q = rstate.get('queued')
+        t0 = int(rstate.get('dispatched_at') or now)
+        for dev_id in ids:
+            dev = devices.get(dev_id) or {}
+            if q and q in (cmds.get(dev_id) or []):
+                continue                    # not yet delivered to the agent
+            seen = int(dev.get('last_seen') or 0)
+            if seen > t0 and dev.get('version') == A.SERVER_VERSION:
+                ok += 1
+            elif now - t0 > _SELF_UPDATE_GRACE_S:
                 failed += 1
     else:
         q = rstate.get('queued')
