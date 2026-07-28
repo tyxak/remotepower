@@ -1006,10 +1006,17 @@ Two more data-binding findings from the same sweep, both real:
   and includes the soonest PKI expiry across the CA and every live client
   certificate, because an expired client certificate silently ends that
   appliance's key access.
-- *Known gap, stated rather than buried:* KMIP PKI expiry is now **visible but
-  does not alert**. Those certificates are server-side, so they cannot ride the
-  agent's cert-file expiry sweep; alerting on them needs its own event pair and
-  is not in this release.
+- **KMIP PKI expiry also alerts.** The agent's cert-file sweep covers
+  certificates on a host; the KMIP CA and the per-client certificates this
+  server issues have no agent to report them, so they were the one expiry
+  nothing watched — and the consequence is sharper than a normal lapse, since
+  a client certificate going stale means that appliance's encrypted volumes
+  fail to mount at its next reboot, with no signal until someone reboots a NAS.
+  New `kmip_cert_expiring` / `kmip_cert_renewed` pair (severity high, reusing
+  the `cert_files` channel kind), fired by a six-hourly sweep that is silent
+  when KMIP is off, edge-triggered on the set of expiring subjects and
+  auto-resolving when it empties. Revoked clients are ignored — they cannot
+  fetch keys anyway.
 
 
 ## v6.4.0 — "Sh1eldMatters" — 2026-07-24

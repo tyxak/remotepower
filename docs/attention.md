@@ -42,6 +42,22 @@ These produce a Needs Attention item when the underlying condition is currently 
 | `failed_units` | systemd `failed` units reported in the device's sysinfo | warning |
 | `monitor_down` | last monitor probe `ok: false` | critical |
 | `custom_script_fail` | custom script reports non-zero rc in latest result | warning |
+| `custom_check` | a custom check's latest result is warning/critical | warning / critical |
+| `mount` | a watched mount is missing or **stalled** (not responding) | warning / critical |
+| `hardware` | SMART failure and other hardware findings on the device record | warning / critical |
+| `reliability` | the reliability scorer rates the host likely to fail | warning / critical |
+| `av_posture` | ClamAV infected files, or AV/real-time protection off | warning / critical |
+| `agent_integrity` | running agent binary hash ≠ the published build | critical |
+| `ssh_key` | a new authorized SSH key appeared for a user | critical |
+| `new_port` | a new listening port appeared since the baseline | warning |
+| `log_alert` | a log-watch rule matched (severity comes from the rule) | rule-defined |
+| `container` | container data stale — the host stopped reporting containers | warning |
+| `acme` | an ACME certificate is not `ok`; `failed`/`expired` escalate | warning / critical |
+| `os_eol` | the host's OS is approaching or past end-of-life | info / warning |
+| `proxmox_backup` | a Proxmox guest has no backup, or its newest is too old | warning |
+| `after_hours` | events fired outside configured business hours (fleet-level) | warning |
+| `cred_rotation` | a vault credential is older than its rotation policy | info |
+| `apikey_rotation_due` | an API key is older than its `rotate_after_days` | info |
 
 ## Adding new kinds
 
@@ -50,11 +66,21 @@ To make a new state-derived condition show in NA:
 1. Append to `_compute_attention()` in `server/cgi-bin/api.py` with `severity`, `kind`, `device` (device name string), `summary`, and optionally `target` for parameterised mitigation.
 2. If the kind should also support the 🩺 Investigate button, add a playbook entry to `_MITIGATE_PLAYBOOKS` and a default AI prompt in `ai_provider.py`.
 3. Add a regression test that seeds the relevant state file and asserts the item appears.
+4. **Add a `_NA_MUTE_EVENTS` row** mapping `(kind, severity)` → the webhook
+   event(s) that produce it. NA kinds and webhook events are different
+   namespaces, and severity is load-bearing (muting a warning must not hide a
+   critical of the same kind). A kind with no row is **unmuteable** — muting the
+   corresponding alert will never clear its Needs-Attention card, and because
+   the health score is derived purely from NA items, it will never lift the
+   host's score either. This is the step that silently ships a defect if
+   skipped.
 
 The decorator step at the end of `_compute_attention` automatically:
 - Adds `device_id` (looked up from device-name reverse map)
 - Adds `mitigation_kind` and `mitigation_target` if the kind is in `_MITIGATE_PLAYBOOKS`
-- Filters items through the global Ignored list
+- Filters items through the global Ignored list, through `_na_item_muted()`
+  (the mute translation above), and through the class-level suppression rules
+  in `attention_handlers.py`
 
 ## v3.0.1 audit additions
 

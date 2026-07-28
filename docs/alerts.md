@@ -30,6 +30,11 @@ looking.
 - **Filters** — state dropdown + free-text filter by device, event or title.
 - **Open a ticket** — with the [ticket system](ticket-system.md), an alert
   row can spawn a linked ticket; opening one auto-acknowledges the alert.
+- **Triage** *(v6.4.0)* — runs a bounded agentic investigation on the alert:
+  the model gathers evidence through read-only, device-scoped tools and stores
+  a root-cause verdict with its evidence trail on the row. Optionally automatic
+  for new alerts (off by default, with a severity floor and a daily cap). See
+  [ai.md](ai.md).
 
 ## Getting fewer of them
 
@@ -38,6 +43,17 @@ page (per host + alert type), suppressed during
 [maintenance windows](maintenance.md), or routed per event kind under
 Settings → Notifications. The **Resolution timeline (MTTR)** card at the
 bottom tracks how quickly alerts get resolved.
+
+## Turning the inbox off
+
+Alerts are an optional module (**Settings → Advanced → Modules**). Switched off,
+the whole `/api/alerts` surface 404s and the nav entry hides — alerts stop being
+**recorded**.
+
+What keeps working is the part people usually assume goes with it: webhooks and
+email are separate delivery channels, and the Recent Activity / fleet-event
+history is a separate store, so both carry on. That makes notification-only a
+supported setup — your phone still pings, there is just no inbox to triage.
 
 ## Ignored items — and keeping them from piling up *(v6.4.0)*
 

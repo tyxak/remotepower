@@ -1278,6 +1278,18 @@
   }
   .btn-icon:hover { background: var(--hair-2); color: var(--text); }
   .btn-icon svg { width: 14px; height: 14px; }
+  /* v6.4.1: .btn-icon is `display:flex`, i.e. BLOCK-level, so two of them as
+     bare siblings in a table cell stacked vertically instead of sitting in a
+     row — the literal spaces between them are inert between flex boxes. Most
+     visible in the alert inbox, where an action cell can hold seven buttons.
+     Table cells are the only place they appear unwrapped (elsewhere a flex
+     container like .user-actions already lays them out). */
+  td > .btn-icon { display: inline-flex; vertical-align: middle; }
+  td > .btn-icon + .btn-icon { margin-left: 6px; }
+  /* v6.4.1: at <=720px `.modal-actions button { flex: 1 }` stretches every
+     button; .btn-icon has no justify-content, so its label jammed hard-left
+     while its <button>-default siblings stayed centred. */
+  .modal-actions > .btn-icon { justify-content: center; }
   /* v6.0.1 (item 10): compact button size for dense rows / table action cells. */
   .btn-sm { padding: 5px 16px; font-size: 12px; min-height: 0; }
   .btn-xs { padding: 3px 13px; font-size: 11px; min-height: 0; }
@@ -3933,11 +3945,10 @@ button, a, [role="button"],
 .drawer-section {
   padding: 14px 16px 0;
 }
-.drawer-section-title {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted);
-  margin-bottom: 10px;
-}
+/* v6.4.1: .drawer-section-title (11px uppercase eyebrow) is GONE — it was the
+   last live survivor of the retired industrial skin, on the device drawer of
+   all places. Its two uses are now plain .section-title, the page rule. Do not
+   reintroduce uppercase eyebrow headers. */
 
 /* Actions grid */
 .drawer-actions-grid {
@@ -4589,7 +4600,10 @@ body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block
 .dash-edit-moves { display: flex; gap: 4px; flex-shrink: 0; }
 .row-8 { display: flex; gap: 8px; }
 .row-8-mb8 { display: flex; gap: 8px; margin-bottom: 8px; }
-.row-8-center { display: flex; gap: 8px; align-items: center; }
+/* v6.4.1: no flex-wrap meant a variable-length chip row (Timeline kind
+   filters, event-kind pickers) ran off the viewport with no way to reach
+   the overflow — its sibling .toolbar has always wrapped. */
+.row-8-center { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .flex-between { justify-content: space-between; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
 .toolbar-mb24 { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }

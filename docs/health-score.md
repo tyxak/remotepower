@@ -16,12 +16,19 @@ Attention item it has, weighted by severity:
 | warning  | 8 |
 | info     | 2 |
 
+These are the defaults — each is tunable under **Settings → Alert parameters**
+(`health_weight_critical` / `_warning` / `_info`); set one to 0 to ignore that
+severity entirely.
+
 The score floors at 0. The fleet score is the mean of the per-device scores.
 Unmonitored devices (`monitored: false`) are excluded — scoring a silenced host
 a perfect 100 would inflate the fleet average. **Decommissioned** assets (v5.0.0)
 force `monitored: false`, so they're excluded the same way.
 
-Grades: **good** ≥ 90, **fair** ≥ 70, **poor** ≥ 40, **critical** below 40.
+Grades default to **good** ≥ 90, **fair** ≥ 70, **poor** ≥ 40 and **critical**
+below 40, and are tunable under Settings → Alert parameters (clamped to stay
+descending, so an inverted config can't break the ladder). The same cutoffs are
+delivered to the dashboard, so the score ring and heat map always match yours.
 
 ## What lowers a score
 
@@ -30,7 +37,9 @@ Anything that appears in Needs Attention, including:
 - a device **offline** (critical),
 - **critical / high CVEs** (the item also notes how many are *fixable* — i.e.
   carry a known fixed version a package upgrade would clear),
-- **pending package updates** — `info` below 20 pending, `warning` at 20 or more.
+- **pending package updates** — `info` below the pending-update warning
+  threshold (default 20, `patch_na_warn_count` under Settings → Alert
+  parameters), `warning` at or above it.
   (Pending updates are read from the agent's `sysinfo.packages.upgradable`
   count; a host with updates waiting does drop below 100.)
 - failed systemd units, config **drift**, expiring **TLS** certs, SMART / kernel

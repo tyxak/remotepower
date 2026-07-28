@@ -56,8 +56,10 @@ This split is important for the security story:
 ### 1. Generate an API token
 
 In the dashboard: **Settings → API keys → Generate new key**.
-Give it a name like `mcp-laptop`, role `viewer` (more than enough
-for the read-only tools), and copy the resulting `rpk_...` value.
+Give it a name like `mcp-laptop`. Choose role `viewer` for a strictly
+read-only key, or role `mcp` if you also want the four guarded write
+tools — **the role is the switch**, and it is fixed at creation. Copy
+the resulting token value.
 It's shown once and not recoverable; if you lose it, generate a
 new one.
 
@@ -88,7 +90,7 @@ Windows (create the file if it doesn't exist):
  "args": ["/Users/you/remotepower-mcp.py"],
  "env": {
  "REMOTEPOWER_URL": "https://remotepower.example.com",
- "REMOTEPOWER_TOKEN": "rpk_xxxxxxxxxxxxxxxxxxxx"
+ "REMOTEPOWER_TOKEN": "your-api-token-here"
  }
  }
  }
@@ -116,8 +118,8 @@ it ) and return a list of your devices.
 
 **18 tools — 14 read, 4 guarded write.** Each takes a small JSON arguments
 object; the AI host generates these from your natural-language question. The
-read tools are always available; the four write tools only work when an admin
-has added them to the per-token allow-list (see *Guarded write tools* below).
+read tools are always available; the four write tools work only for a key
+created with role `mcp` (see *Guarded write tools* below).
 
 | Tool | What it returns |
 |---|---|
@@ -143,7 +145,7 @@ has added them to the per-token allow-list (see *Guarded write tools* below).
 > aggregation the model would otherwise have to do by hand. Requires the RAG
 > index to be enabled (Settings → AI → Knowledge index).
 
-The four **write tools** are off unless explicitly allow-listed for the token:
+The four **write tools** are reachable only by a key whose role is `mcp`:
 
 | Write tool | What it does |
 |---|---|
@@ -152,8 +154,8 @@ The four **write tools** are off unless explicitly allow-listed for the token:
 | `force_package_scan` | Ask an agent to push its installed-package list now |
 | `force_acme_rescan` | Re-check a host's ACME / TLS / DNS expiry now |
 
-Every write call is gated by the per-token allow-list and the token's role
-scope, and is recorded in the audit log alongside the AI host name.
+Every write call is gated by the token's role and device scope, and is
+recorded in the audit log alongside the AI host name.
 
 ### Device-name resolution
 
@@ -176,9 +178,16 @@ The four write tools (`reboot_device`, `run_saved_script`,
 `force_package_scan`, `force_acme_rescan`) ship with exactly the guard rails an
 LLM acting on a fleet needs:
 
-- **A server-side allow-list.** A token can call a write tool only if an admin
- has added it to that token's allow-list — the host's own "Allow this tool to
- run? [y/n]" consent prompt is **not** the control; the server is.
+- **A server-side allow-list, compiled in.** The set of callable write actions
+ is a fixed list in the server (`MCP_ACTION_ALLOWLIST`) — not something a
+ request can widen. Anything outside it is refused with the allowed set echoed
+ back. The AI host's own "Allow this tool to run? [y/n]" consent prompt is
+ **not** the control; the server is.
+- **Role-gated, and admins are excluded too.** Only a key created with role
+ `mcp` reaches these endpoints. An *admin* key is deliberately rejected here as
+ well — admins have their own direct endpoints — so anything in the audit log
+ that came through this path is unambiguously AI-initiated rather than a human
+ clicking a button.
 - **Pre-saved actions only.** `run_saved_script` runs a script from the library
  by id — there is deliberately **no `run_command`** and **no `edit_device`**, so
  the model can never assemble an arbitrary shell command.
@@ -188,15 +197,15 @@ LLM acting on a fleet needs:
 
 So the worst outcome of a confused model is bounded: it can reboot a host or run
 a vetted library script you already trust — never run an arbitrary command or
-shut a box down off-script. If you want a purely read-only assistant, simply
-leave the write tools off the token's allow-list (the default).
+shut a box down off-script. If you want a purely read-only assistant, create the
+key with role `viewer`; all four write tools then refuse it permanently.
 
 ## Security model
 
 | Concern | Mitigation |
 |---|---|
-| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role + write allow-list; generate per laptop and revoke any time. |
-| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the allow-listed, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Leave write tools off the allow-list for a read-only token. |
+| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role and device scope; generate one per laptop and revoke any time. |
+| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the four compiled-in, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Use a `viewer`-role key for a read-only assistant. |
 | Self-signed TLS | Set `REMOTEPOWER_VERIFY_SSL=0` in the MCP env if you must, but prefer to install your CA's root cert in the laptop's trust store. |
 | Data sensitivity | Same as the AI privacy redaction toggles in Settings → AI assistant: when in doubt, run a local model (Ollama) as the AI host. |
 
@@ -232,7 +241,7 @@ Try running it manually to verify it starts:
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
  | REMOTEPOWER_URL=https://remotepower.example.com \
- REMOTEPOWER_TOKEN=rpk_test \
+ REMOTEPOWER_TOKEN=your-api-token \
  python3 ~/remotepower-mcp.py
 ```
 

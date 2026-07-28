@@ -3915,6 +3915,9 @@
     'Certificate file expiry': { fr: 'Expiration des fichiers de certificat', de: 'Ablauf von Zertifikatsdateien', zh: '证书文件到期', hi: 'प्रमाणपत्र फ़ाइल समाप्ति', es: 'Caducidad de archivos de certificado', ar: 'انتهاء ملفات الشهادات' },
     'Login geolocation': { fr: 'Géolocalisation des connexions', de: 'Anmelde-Geolokalisierung', zh: '登录地理位置', hi: 'लॉगिन भू-स्थान', es: 'Geolocalización de inicios de sesión', ar: 'الموقع الجغرافي لتسجيلات الدخول' },
     'Warranty auto-lookup': { fr: 'Recherche automatique de garantie', de: 'Automatische Garantieabfrage', zh: '保修自动查询', hi: 'वारंटी स्वतः-खोज', es: 'Búsqueda automática de garantía', ar: 'البحث التلقائي عن الضمان' },
+    // v6.4.1: device-drawer headers, promoted off the retired uppercase eyebrow.
+    'Quick actions': { fr: 'Actions rapides', de: 'Schnellaktionen', zh: '快捷操作', hi: 'त्वरित कार्रवाइयाँ', es: 'Acciones rápidas', ar: 'إجراءات سريعة' },
+    'Device settings': { fr: "Paramètres de l'appareil", de: 'Geräteeinstellungen', zh: '设备设置', hi: 'डिवाइस सेटिंग्स', es: 'Ajustes del dispositivo', ar: 'إعدادات الجهاز' },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

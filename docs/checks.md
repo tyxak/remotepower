@@ -10,7 +10,10 @@ sortable, filterable table.
 
 - **Filter** by state, host, or check name; sort any column.
 - **Toggle a check off** on a host to silence it there — the mute is stored
-  server-side (`exposure`-style mutes) and honoured by alerting.
+  server-side (`exposure`-style mutes) and honoured by alerting. Disabling
+  stops the check *everywhere*, not just on the page: it is dropped from the
+  check set pushed to the agent, so the agent stops evaluating it (and, for
+  guard checks, stops quarantining), and any open alert it raised is resolved.
 - *Hide muted* and *hide unmonitored* default ON.
 - **Remediate** *(v6.3.0)* — every failing (non-OK) row has a wrench button
   that generates a host-scoped remediation runbook through the AI advisor:
@@ -51,7 +54,8 @@ per host exactly like any custom check, and it stays live as hosts join the
 scope. The catalog is grouped into **Core liveness** (agent, time sync, cron),
 **Security posture** (firewall, auditd, unattended-upgrades, SSH reachable,
 telnet closed), **Filesystem / OS** (no OOM-kill, no pending reboot, logins not
-disabled) and **Role-tagged** (Docker/nginx/PostgreSQL, applied to their tag).
+disabled) and **Role-tagged** (Docker/nginx/PostgreSQL, plus RemotePower's own syslog
+receiver and KMIP key server on the `rp-server` tag — each applied to its tag).
 Applying is idempotent — a check already present for that scope is skipped.
 Defaults suit a Debian/Ubuntu fleet and are editable from the Check catalog
 afterwards (e.g. `crond.service` on RHEL, `firewalld`/`nftables`). Besides the
@@ -75,15 +79,23 @@ here — only the *definition* lives on separate pages.
 
 ## Integrity & egress check types
 
-Three agent-side types back the Protect set and can be used in any check:
+Six agent-side types back the Protect set and can be used in any check:
 
 - **`file_hash`** — SHA-256 of one file; baselines on first run, alerts on
   change.
 - **`dir_baseline`** — a subtree's file list (`path` or `path::glob`); alerts on
   anything added, changed or removed, and can optionally **auto-quarantine** new
   files into an on-host vault.
+- **`file_contains`** — a regex content match across a subtree (`path` or
+  `path::glob` plus `pattern`), so a file whose *contents* turn malicious is
+  caught, not just one appearing.
 - **`egress_flagged`** — alerts on an active outbound connection to an address
   in your flagged IP/CIDR list.
+- **`egress_baseline`** — learns the external destinations the host normally
+  reaches (grouped by /24 or /64) and alerts once on each genuinely new one;
+  `param` takes an optional CIDR ignore-list.
+- **`auth_new_source`** — learns which source networks successfully authenticate
+  over SSH, and alerts the first time a new one does.
 
 Full behaviour, the quarantine vault and the safety rails are documented in
 [Integrity Guard](integrity-guard.md).

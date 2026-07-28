@@ -175,6 +175,18 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
 | `POST` | `/api/webhook/replay` | admin | Replay past fleet events to a destination |
 | `GET` | `/api/version` | | Current vs latest release + update-available |
 
+### Ingest, key custody & liveness (v6.3.1–v6.4.1)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/health` | - | Unauthenticated liveness probe. Returns `{"status":"ok"}` and **deliberately no version** *(v6.4.1)* — for orchestrators and load balancers |
+| `GET` | `/api/security/advisory` | | "What to fix first" — the prioritized cross-layer list; `?scope=` for fleet / group / tag / host. See [security-advisory.md](security-advisory.md) |
+| `POST` | `/api/security/advisory/brief` | | Server-side-redacted brief for the optional AI ordering pass (titles/severities/counts only — never evidence) |
+| `POST` | `/api/devices/:id/snmp/walk` | admin | SNMP **OID browser** — walk any subtree with the device's stored credentials; audited, capped per walk *(v6.4.1)*. See [monitors.md](monitors.md) |
+| `POST` | `/api/devices/:id` | | Save device settings from the drawer, including the display **name** *(rename, v6.4.1)* |
+| `GET` | `/api/devices/:id/flows` | | NetFlow/IPFIX top talkers, conversations and protocol breakdown. See [flow.md](flow.md) |
+| `POST` | `/api/flow/in/:token` | token | Flow ingest from the `remotepower-flowd` receiver |
+| `GET`/`POST` | `/api/kmip/*` | admin | The KMIP key server — status, config, clients (issue / revoke / re-issue / delete), key inventory, activity log, export / import / reset. See [kmip.md](kmip.md) *(v6.4.1)* |
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

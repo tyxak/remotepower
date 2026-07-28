@@ -18,9 +18,10 @@ nicer experience.
    automatically attached to every "Try it out" request — there's no
    Authorize step.
 
-That's it. The endpoints are grouped into seven tags down the page:
-**Auth**, **Devices**, **Commands**, **CMDB**, **Vault**,
-**Credentials**, **Reporting**. Click any operation to expand it,
+That's it. The endpoints are grouped into tags down the page —
+**Auth**, **Devices**, **Commands**, **Checks**, **CVE**, **CMDB**,
+**Vault**, **Credentials**, **Virtualization**, **Reporting** and
+**Other**. Click any operation to expand it,
 fill in path / query parameters, and **Try it out** fires it against
 your live server.
 
@@ -32,7 +33,7 @@ The spec covers the endpoints a human would reasonably call. It
 deliberately **omits** the agent-only endpoints:
 
 - `/api/heartbeat` (agents post sysinfo and pull queued commands)
-- `/api/enroll` (one-shot enrollment with a server-issued ticket)
+- `/api/enroll/pin` and `/api/enroll/register` (enrollment with a server-issued ticket)
 
 These speak a contract the agent has to honour exactly, and exposing
 them in Swagger UI invites people to push test traffic through them
@@ -44,13 +45,18 @@ the source — it's better than what a hand-written spec would give you.
 ## Where the spec lives
 
 - **Module**: `server/cgi-bin/openapi_spec.py` — the spec is a single
-  Python function `build_spec(server_version)` that returns a dict.
-  Hand-written. Yes, really.
+  function `build_spec(server_version, routes)` that returns a dict:
+  hand-written detail for the rich subsystems, auto-generated stubs for
+  everything else in the route table.
 - **Endpoint**: `GET /api/openapi.json` — auth-gated. The Swagger UI
   page fetches it with your session token.
-- **Page**: `server/html/swagger.html` — standalone HTML that loads
-  Swagger UI from a pinned CDN version (5.17.14) and feeds it the
-  spec.
+- **Page**: `server/html/swagger.html` — a standalone page that loads a
+  **self-hosted, SRI-pinned** Swagger UI bundle from
+  `/static/vendor/swagger-ui/`, plus `/static/css/swagger.css` and
+  `/static/js/swagger-init.js`. Nothing is fetched from a CDN, so it
+  works unchanged on air-gapped servers and under the strict
+  `script-src 'self'` CSP. If the spec fetch fails, the page falls back
+  to a plain-text pointer at `/api/openapi.json`.
 
 The spec is regenerated on every `GET /api/openapi.json` request,
 which sounds wasteful but takes about half a millisecond.
@@ -77,30 +83,12 @@ interceptor. This means:
 - **Logging out from the dashboard kicks Swagger UI too.** The token
   goes stale, the next request fails with 401. Refresh the Swagger
   page after re-login.
-- **The vault key is a separate concern.** If you're testing
-  credential endpoints, you need to unlock the vault on the main
-  dashboard first, then come back. The Swagger UI page reads
-  `_cmdbVaultKey` is held in the dashboard tab's JS, not in
-  localStorage, so the Swagger tab can't see it; you'll need to
-  enter the hex key manually using Authorize → VaultKey.
-
----
-
-## Air-gapped servers
-
-Swagger UI itself loads from `cdnjs.cloudflare.com`. On servers with
-no outbound internet:
-
-- The page detects the load failure and falls back to a plain-text
-  message: "the raw spec is at /api/openapi.json".
-- Bundling Swagger UI inline would add ~700 KB to every page load on
-  the main dashboard. The deferred-load model keeps the dashboard
-  fast at the cost of this offline degradation.
-- If you really need offline Swagger UI, drop
-  `swagger-ui-bundle.min.js` and `swagger-ui.min.css` into
-  `server/html/` and edit `swagger.html` to point at relative paths
-  rather than the CDN. The HTML is small (~3 KB); the patch is one
-  search-and-replace.
+- **The vault key is a separate concern.** It is never shared with
+  this page — it lives only in the dashboard tab's JS, not in
+  localStorage, so the Swagger tab cannot see it. To exercise
+  credential endpoints, unlock the vault on the dashboard, then enter
+  the hex key here manually via **Authorize → VaultKey**
+  (`X-RP-Vault-Key`).
 
 ---
 

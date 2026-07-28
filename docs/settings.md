@@ -75,9 +75,12 @@ platform, plus third-party **connector plugins** dropped into `connectors.d/` on
 the server (filesystem-only, root-owned; reload without a restart). Every
 outbound call uses the SSRF-safe path (connect-time peer-IP recheck, no redirects,
 metadata/loopback blocked). Cloud import (AWS/Hetzner/DigitalOcean), metrics push
-(Prometheus), GitOps, and the public status page live here too. Instance URLs and
-secrets are admin-gated and withheld on read. See
-[integrations.md](integrations.md).
+(Prometheus), GitOps, and the public status page live here too. This pane also
+holds **API tokens**, **relay satellites**, the SSO/identity integrations
+(**OIDC**, **SAML 2.0**, **SCIM** provisioning, **LDAP/LDAPS**), **SIEM event
+streaming**, **OpenTelemetry (OTLP)** export and browser push notifications.
+Instance URLs and secrets are admin-gated and withheld on read. See
+[integrations.md](integrations.md) and [sso.md](sso.md).
 
 ### Virtualization
 Proxmox plus VMware vSphere/vCenter, VMware Cloud Director and OpenShift
@@ -96,12 +99,15 @@ secret-shaped names are filtered out of the corpus before embedding. See
 ## System
 
 ### Security
-The trust-boundary controls: **tokens** and API keys, **relay satellites**,
-SSO/identity (**OIDC**, **SAML 2.0**, **SCIM** provisioning, **LDAP/LDAPS**),
-**SIEM event streaming** and **OpenTelemetry (OTLP)** export, browser push,
-**IP allowlist**, session/step-up policy, mutual-TLS agent auth, and the
-break-glass credential rules. See [security.md](security.md) and
-[admin-guide.md](admin-guide.md).
+The trust-boundary controls: **IP allowlist**, **change approval**
+(maker-checker), account guardrails and password policy, session length and
+step-up policy, **agent mutual TLS**, agentless SSH, **multi-tenancy** and its
+isolation-coverage report, the **audit log** and audit-log forwarding,
+compliance exports, maintenance mode, CSP reporting, TLS certificates and
+**HSTS**, and the security-scan opt-ins (secrets-on-disk, regulated-data/PII,
+container image scanning, canary files, JIT credential checkout).
+SSO and identity providers live under **Connections → Integrations**, not here.
+See [security.md](security.md) and [admin-guide.md](admin-guide.md).
 
 ### Tickets
 The built-in ticketing/ITSM module: SLA policy per type, auto-routing, portal

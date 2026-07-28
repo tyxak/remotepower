@@ -497,7 +497,10 @@ async function runSelfTest() {
   box.innerHTML = `<div class="dash-card"><div class="section-title">${data.ok
     ? '<span class="c-green">● All checks passed</span>'
     : '<span class="c-red">● Some checks failed</span>'}</div>`
-    + `<table class="fs-13">${rows}</table></div>`;
+    // v6.4.1: was a bare <table> with no cap — one row per server
+    // self-test check, and that list grows every release.
+    + `<div class="scrollable-table-wrap audit-scroll">`
+    + `<table class="fs-13">${rows}</table></div></div>`;
 }
 
 function downloadDiagnostics() {

@@ -54,10 +54,12 @@ never a health input on its own (a receiver you don't run is not a fault):
 
 The KMIP expiry number is there because an expired client certificate silently
 ends that appliance's key access, and encrypted volumes then fail to mount
-after its next reboot. Note the current limit: that expiry is **visible here
-but does not raise an alert** — these certificates are server-side, so they
-can't ride the agent's cert-file expiry sweep. Until that changes, this row is
-the place you find out.
+after its next reboot. It also **alerts** — `kmip_cert_expiring` (and its
+`kmip_cert_renewed` recovery) fires from a six-hourly sweep, routed through the
+existing certificate-files channel. These certificates are server-side, with no
+agent to report them, so they needed their own sweep rather than riding the
+agent's cert-file check. Revoked clients are ignored: they cannot fetch keys
+anyway.
 
 ## Where the data lives
 
@@ -82,11 +84,11 @@ All reads. No writes happen from this endpoint.
 - `backup.last_run` should be within ~30 hours (allow slack for the 24h schedule + drift)
 - `data_dir.fs_free_bytes` shouldn't fall below a sensible threshold
 
-If your monitoring system can't auth, generate a status token in Settings → Advanced → Status endpoint (a separate read-only token, not your session).
+`/api/self/status` needs a normal session or API key — the **Settings → Advanced status token does not work here**; it authenticates a different, fleet-summary payload. If your monitoring system can't hold a session, point it at `GET /api/status?token=…` instead (a read-only fleet summary, not this self-status payload).
 
 ## Backup scheduling
 
-The daily backup runs via the heartbeat hook — every incoming heartbeat checks the `self_backup_state.last_run` timestamp and runs the backup if >24h has elapsed. A sentinel file (`.backup_in_progress`) prevents two simultaneous heartbeats from both triggering. Stale-lock recovery: if the sentinel is >1h old it's assumed crashed and gets cleared.
+The daily backup runs from the server's maintenance cadence: the `self_backup_state.last_run` timestamp is checked on each tick and the backup runs if >24 h has elapsed. When the out-of-band `remotepower-scheduler` owns the cadence — the single-node default — that tick is the scheduler's; otherwise it is checked on each incoming request. (Before v6.1.2 this hung off the heartbeat handler and ran unconditionally on every beat.) A sentinel file (`.backup_in_progress`) prevents two concurrent runs; if it is >1 h old it's assumed crashed and gets cleared.
 
 The "Run backup now" button on the page triggers `POST /api/self/backup-now` manually. Same code path as the scheduled run; bypasses the 24h gate.
 

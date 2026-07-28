@@ -13,12 +13,15 @@ ticket auto-ack and escalation are unchanged).
 Muting silences **one exact alert from one host** — the specific `(device,
 event)` pair, e.g. *rkhunter warnings on tviapp01*. While a mute is in effect:
 
-- no inbox row, no webhook, no needs-attention card for that pair;
+- no inbox row, no webhook, and — for the Needs-Attention kinds that map to
+  this event — no needs-attention card either;
 - any currently-open matching alerts are resolved;
 - **history keeps recording** (`fleet_events`), so the source stays visible on
   the Tuning page and you can always lift the mute.
 
-Mutes are **permanent** until removed, and muting is admin-only and audited.
+A mute lasts until you lift it, or you can give it a duration (15 minutes to a
+year) and it lapses on its own — a forgotten permanent mute is a way to stop
+monitoring something without noticing. Muting is admin-only and audited.
 
 ## Tuning (Monitoring → Tuning)
 
@@ -36,6 +39,6 @@ Silencing from here creates the same `(host, event)` mute as the X button.
 | Method & path | Purpose |
 | --- | --- |
 | `GET /api/alert-mutes` | List active mutes |
-| `POST /api/alert-mutes` | Mute `{device_id, event}` or `{alert_id}` (admin) |
+| `POST /api/alert-mutes` | Mute `{device_id, event}` or `{alert_id}`; optional `{hours}` for a timed mute (admin) |
 | `DELETE /api/alert-mutes/{id}` | Lift a mute (admin) |
 | `GET /api/alert-tuning?days=N` | Noisiest pairs + sources over the window |

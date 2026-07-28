@@ -16100,8 +16100,12 @@ function _renderHomeWidgets(home) {
     const g = d.group || '(ungrouped)'; offGroups[g] = (offGroups[g] || 0) + 1;
   });
   const offg = Object.entries(offGroups).sort((a, b) => b[1] - a[1]);
+  // v6.4.1: this was the ONE widget in this function without a slice — a
+  // site-wide outage rendered a row per group and grew the card without
+  // bound. Matches the siblings' cap + "+N more" idiom.
   _setWidget('home-w-offlinegroups-body', offg.length
-    ? _miniRows(offg.map(([g, n]) => ({ l: escHtml(g), r: String(n), cls: 'c-red' })))
+    ? _miniRows(offg.slice(0, 8).map(([g, n]) => ({ l: escHtml(g), r: String(n), cls: 'c-red' })))
+      + (offg.length > 8 ? `<div class="hint mt-4">+${offg.length - 8} more group(s)</div>` : '')
     : '<div class="hint">No offline hosts.</div>');
 
   // ── v4.1.0 catalog expansion wave 3 (posture / hardware, server-backed) ────
