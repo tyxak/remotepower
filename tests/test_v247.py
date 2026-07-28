@@ -44,6 +44,16 @@ class _ApiCase(unittest.TestCase):
         api.CVE_FINDINGS_FILE = self._tmp / 'cve.json'
         api.save(api.CONFIG_FILE, {})
         api.save(api.CVE_FINDINGS_FILE, {})
+        # v6.4.1 (false-green class 4): the stores above are repointed into a
+        # private temp dir, but _attention_cache_file() still lives in the
+        # SHARED per-worker data dir — a digest cached by another module less
+        # than _ATTENTION_CACHE_TTL ago gets served instead of one computed
+        # from the devices this test just seeded (the test_v302 fixup; this
+        # flaked exactly once under xdist random ordering).
+        try:
+            api.save(api._attention_cache_file(), {})
+        except Exception:
+            pass
 
     def _capture(self, fn, *a):
         cap = {}
