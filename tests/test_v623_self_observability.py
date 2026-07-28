@@ -1,4 +1,4 @@
-"""v6.2.3 self-observability: the ~33 maintenance sweeps run inside a swallow-all
+"""v6.2.3 self-observability: the ~65 maintenance sweeps run inside a swallow-all
 wrapper, so a sweep that silently stops or starts failing used to be invisible.
 _self_obs_mark records each sweep's last-ok / last-error (+ a small error ring),
 surfaced via GET /api/self/observability so 'why did X stop firing?' is answerable.

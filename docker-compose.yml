@@ -20,7 +20,7 @@
 # This is the single-node "enterprise" default: Postgres + the persistent
 # gunicorn WSGI tier + the out-of-band scheduler + a co-located scanner
 # satellite, all in this one compose stack. Comment out env vars / services
-# below to opt back down to the lightweight single-file/CGI/no-scanner setup.
+# below to opt back down to the lightweight JSON/no-scanner setup.
 services:
   remotepower:
     build: .   # builds this checkout; swap for `image: ghcr.io/tyxak/remotepower:latest` once a release is published
@@ -72,8 +72,8 @@ services:
   # environment below and restart it (that env var otherwise PINS the
   # backend and blocks the next step with a 409) -- ONLY THEN run the real
   # migration from Settings -> Advanced -> Storage backend in the UI while
-  # Postgres is still up and reachable. tools/migrate_storage.py does NOT
-  # support Postgres (json<->sqlite only) -- it is not a path back from this.
+  # Postgres is still up and reachable. tools/migrate_storage.py CAN move
+  # data back out (--to json / --to sqlite, and --to postgres in) since v6.3.0.
   postgres:
     image: postgres:16-alpine
     container_name: remotepower-db

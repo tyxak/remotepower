@@ -24817,7 +24817,17 @@ def handle_config_save():
             if 'min_priority' in entry:
                 try:
                     mp = int(entry['min_priority'])
-                    if 0 <= mp <= 2:
+                    # v6.4.1 (BUGFIX): this clamped to 0-2, but webhook
+                    # priorities run 1-5 (_webhook_priority: 3 default, 4 high,
+                    # 5 urgent) and EVENT_REGISTRY only ever assigns 4 or 5. A
+                    # stored value could therefore never exceed any event's
+                    # priority, so the per-destination filter passed
+                    # EVERYTHING and its four UI choices behaved identically.
+                    # The per-user "Minimum urgency" control next to it always
+                    # used the right scale; this now matches it. Existing
+                    # saved 0-2 values keep behaving exactly as before (they
+                    # still pass everything) — no silent change for anyone.
+                    if 0 <= mp <= 5:
                         clean_entry['min_priority'] = mp
                 except (TypeError, ValueError):
                     pass
@@ -64549,7 +64559,7 @@ def _dispatch(pi, m):
 
 
 # ── v6.2.3: self-observability ───────────────────────────────────────────────
-# The ~33 maintenance sweeps run inside a swallow-all wrapper (main()'s _safe and
+# The ~65 maintenance sweeps run inside a swallow-all wrapper (main()'s _safe and
 # the out-of-band scheduler) — so a sweep that silently stops firing, or starts
 # failing, was invisible until someone noticed a stale feature. Record each
 # sweep's last successful run and last error (plus a small ring of recent

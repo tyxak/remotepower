@@ -780,7 +780,7 @@ function _bcRenderCatalog() {
   // A row with no kind (older server) is operational, so an out-of-date
   // backend still fills the Checks picker rather than showing nothing.
   const onlyApplied = document.getElementById('bc-only-applied')?.checked;
-  // v6.4.0: text filter across name/param/desc — with ~76 templates, finding
+  // v6.4.0: text filter across name/param/desc — with ~79 templates, finding
   // the one to apply (or the one to remove) shouldn't mean scrolling.
   const q = ((document.getElementById('bc-text-filter') || {}).value || '').trim().toLowerCase();
   _bcCatalog.filter(t => (t.kind || 'ops') === _bcKind)

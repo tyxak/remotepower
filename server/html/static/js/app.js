@@ -26377,9 +26377,9 @@ function renderWebhookDests() {
               Min severity:
               <select data-field="min_priority" class="form-input isl-747">
                 <option value="" ${d.min_priority == null ? 'selected' : ''}>any</option>
-                <option value="0" ${d.min_priority === 0 ? 'selected' : ''}>info+</option>
-                <option value="1" ${d.min_priority === 1 ? 'selected' : ''}>warning+</option>
-                <option value="2" ${d.min_priority === 2 ? 'selected' : ''}>critical only</option>
+                <option value="3" ${d.min_priority === 3 ? 'selected' : ''}>normal and up</option>
+                <option value="4" ${d.min_priority === 4 ? 'selected' : ''}>high and up</option>
+                <option value="5" ${d.min_priority === 5 ? 'selected' : ''}>urgent only</option>
               </select>
             </label>
             <label class="isl-746">

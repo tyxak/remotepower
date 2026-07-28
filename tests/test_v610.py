@@ -406,7 +406,7 @@ class TestInstallDemoPostgresOption(unittest.TestCase):
 
 class TestInstallDemoOutOfBandScheduler(unittest.TestCase):
     """packaging/install-demo.sh: the demo must get its own out-of-band
-    scheduler, not run the ~33 maintenance sweeps on its request path. Found
+    scheduler, not run the ~65 maintenance sweeps on its request path. Found
     live: a Postgres-backed demo without this was noticeably slow -- the
     scheduler unit's own comment measures ~0.68s -> ~0.027s per request (25x)
     for moving the cadence off the request path on a networked backend."""
