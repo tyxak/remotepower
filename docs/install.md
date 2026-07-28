@@ -201,10 +201,16 @@ This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):
 
 ```bash
-docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :6.3.0
-docker run -d --name remotepower -p 8085:8080 -v remotepower-data:/var/lib/remotepower \
+docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :6.4.0
+docker run -d --name remotepower -p 443:8443 -p 80:8080 \
+  -e RP_TLS_SELFSIGNED=1 -e RP_TLS_HOST=your.host.example \
+  -v remotepower-data:/var/lib/remotepower \
   ghcr.io/tyxak/remotepower:latest
 ```
+
+The container serves **self-signed HTTPS on 8443** and plain HTTP on 8080
+(health, `/ca.crt`, and a redirect to HTTPS). Set `RP_TLS_HOST` to the address
+agents and browsers actually use, or the certificate won't match.
 
 **Or build from source** with compose:
 
@@ -213,9 +219,9 @@ git clone https://github.com/tyxak/remotepower && cd remotepower
 docker compose up -d
 ```
 
-(To run the published image via compose instead of building, uncomment the `image:` line in `docker-compose.yml` and drop `build:`.)
+(To run the published image via compose instead of building, replace `build: .` with `image: ghcr.io/tyxak/remotepower:latest` in `docker-compose.yml`.)
 
-Dashboard at `http://localhost:8085` (host port default; container listens on 8080). Override with `RP_HOST_PORT=8080 docker compose up -d`. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front for production — or set `RP_TLS_SELFSIGNED=1` to serve HTTPS directly (see [tls-selfsigned.md](tls-selfsigned.md)).
+Dashboard at **`https://localhost/`**. Compose publishes host `443` → container `8443` (self-signed HTTPS, on by default) and host `80` → `8080`; remap either with `RP_HTTPS_PORT=8443 RP_HTTP_PORT=8080 docker compose up -d`, and set `RP_TLS_HOST` to the address you actually reach it on (see [tls-selfsigned.md](tls-selfsigned.md)). Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front instead if you'd rather it hold the certificate.
 
 ---
 

@@ -134,8 +134,8 @@ WordPress admin, for example) never touch the host in an observable way, so they
 are not covered — catching those needs the web application's auth log routed
 through the syslog receiver, which is a separate ingest path.
 
-> **Platform:** these six are Linux-first. On Windows they report `unknown`
-> ("not applicable"), which is harmless — no false alerts.
+> **Platform:** these six are Linux-first. On Windows **and macOS** they report
+> `unknown` ("not applicable"), which is harmless — no false alerts.
 
 ---
 
@@ -212,7 +212,7 @@ Params suit Debian/Ubuntu and are **editable after applying** (e.g.
 de-duplicated on (type, param, scope), so re-applying adds nothing.
 
 The catalog is **text-filterable** (name / path / description) so you find a
-template among the ~78 without scrolling, and each row's **"Applied to …"**
+template among the ~63 without scrolling, and each row's **"Applied to …"**
 annotation shows exactly where it landed — with a **remove** action per scope
 (and per host in the expandable list), so you can un-apply a check from a tag,
 group or single host straight from the card. Removing is a deferred-commit with

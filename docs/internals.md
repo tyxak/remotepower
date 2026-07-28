@@ -45,13 +45,13 @@ By the numbers (v6.4.1):
 | Server Python (`server/cgi-bin/`) | ~113,000 lines |
 | The main API module (`api.py`) | ~67,000 lines |
 | Focused sibling modules | ~80 |
-| HTTP routes (exact + templated) | ~463 exact, ~385 pattern |
+| HTTP routes (exact + templated) | ~474 exact, ~385 pattern |
 | Request handlers (`handle_*`) | ~825 |
 | Typed request-body models | ~253 |
 | Homelab integration connectors | 44 |
 | Background maintenance sweeps | ~64 |
 | Frontend JS files (no bundler) | 44 |
-| Test methods across 436 files | ~8,900 |
+| Test methods across 445 files | ~8,900 |
 
 ---
 
@@ -319,7 +319,7 @@ codebase scans clean under CodeQL, Bandit and Gitleaks on every release.
 
 ## Testing and release engineering
 
-The test suite is ~8,900 methods across 436 files, and the real gate runs the
+The test suite is ~8,900 methods across 445 files, and the real gate runs the
 *entire* suite twice — once on the JSON backend, once on SQLite — because the
 cross-backend bugs are the ones that reach production. (Production CI adds a third
 dimension: it runs on the Python version the servers ship with, which has caught

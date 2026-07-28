@@ -1,7 +1,7 @@
 # API reference
 
 > **This page is a curated tour of the most-used endpoints, not the full surface.**
-> RemotePower exposes **576 paths**. The complete, always-current reference is
+> RemotePower exposes **637 paths**. The complete, always-current reference is
 > generated from the live route table — browse it interactively at
 > **`/swagger.html`**, or fetch the OpenAPI 3.1 document at
 > **`/api/openapi.json`**. Anything shipped is in there; this page is hand-written
@@ -16,7 +16,7 @@ Every route is also reachable under the permanent `/api/v1/...` alias.
   offending field, before the handler runs.
 - **A disabled module 404s its whole API prefix.** Switching a module off under
   Settings → Advanced → Optional modules (Alerts, Tickets, Billing, Knowledge base,
-  Compliance, Pentest) makes every route under its prefix return **404** at the
+  Compliance, Pentest, AI executor) makes every route under its prefix return **404** at the
   dispatcher — e.g. all of `/api/tickets/*` with Tickets off. The module is
   genuinely off, not merely hidden from the sidebar.
 - **Tenant isolation.** Where tenancy is enforced, a device id belonging to another

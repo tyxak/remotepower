@@ -46,7 +46,7 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
   Switch under Settings → Advanced → Storage backend. See docs/scaling.md.
 
   Out-of-band maintenance scheduler (default since v6.1.0, v5.5.0+):
-    • remotepower-scheduler.service runs the ~33 maintenance sweeps from one
+    • remotepower-scheduler.service runs the ~64 maintenance sweeps from one
       leader-elected process (file-lock + pg_advisory_lock on Postgres) instead
       of piggy-backing on request traffic. --no-scheduler opts back down to the
       request-path cadence. See docs/scaling.md.
@@ -64,11 +64,16 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
       table keyed on a per-request GUC, applied live; DB-enforced defense-in-depth
       beneath the app-layer scope. Both default off, flipped from Settings.
 
-Other optional sidecars (installed on demand):
-  • remotepower-syslogd — agentless UDP syslog receiver (docs/syslog.md)
-  • remotepower-flowd   — agentless NetFlow/IPFIX receiver (docs/flow.md)
-  • remotepower-kmipd   — KMIP key server for NAS/hypervisor encryption (docs/kmip.md)
-  • remotepower-push    — experimental agent push channel (docs/push.md)
+Agent push channel (installed by default; --no-push opts out):
+  • remotepower-push    — wake-nudge daemon. Installed and enabled by the
+    default install, but idle until push_enabled is switched on in Settings,
+    so the channel itself is opt-in. See docs/push.md.
+
+Other optional sidecars (installed on demand, all off by default):
+  • remotepower-syslogd — agentless UDP syslog receiver   (--with-syslogd, docs/syslog.md)
+  • remotepower-flowd   — agentless NetFlow/IPFIX receiver (--with-flowd,   docs/flow.md)
+  • remotepower-kmipd   — KMIP key server for NAS/hypervisor encryption
+                          (--with-kmip, docs/kmip.md)
 
 Optional sibling daemon (only if you install the web terminal):
   systemd: remotepower-webterm.service

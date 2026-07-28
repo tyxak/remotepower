@@ -9,9 +9,10 @@ Serving & runtime panel, or plain `top`/`free`) and adjust from there.
 ## Server
 
 The default single-node install (`install-server.sh` / `docker compose up`,
-no flags) runs five things on one box: nginx, the gunicorn/Flask app server,
-PostgreSQL, an out-of-band maintenance scheduler, and a co-located scanner
-satellite (nmap/nikto/nuclei/lynis, etc.).
+no flags) runs six things on one box: nginx, the gunicorn/Flask app server,
+PostgreSQL, an out-of-band maintenance scheduler, a co-located scanner
+satellite (nmap/nikto/nuclei/lynis, etc.), and the agent push (wake-nudge)
+daemon — which stays idle until you switch the channel on under Settings.
 
 | Tier | vCPU | RAM | Disk | Backend | Fits |
 |---|---|---|---|---|---|
@@ -56,9 +57,12 @@ tuning-step mapping once you're past a few hundred devices.
   Data retention) bound it directly. 30–90 days of metric history is
   typical; shrink the window on tight disk.
 
-Optional extras (webterm daemon, the experimental agent push-channel
-daemon — see [push.md](push.md)) each add one more lightweight async
-process if you install them; neither is part of the default stack.
+The optional sidecars — the webterm daemon, the syslog receiver
+([syslog.md](syslog.md)), the NetFlow/IPFIX receiver ([flow.md](flow.md)) and
+the KMIP key server ([kmip.md](kmip.md)) — each add one more lightweight
+process if you install them; none is part of the default stack. The agent
+push daemon ([push.md](push.md)) *is* installed by default (`--no-push` opts
+out) but idles until `push_enabled` is switched on.
 
 ## Agent
 

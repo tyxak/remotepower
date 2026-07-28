@@ -6,7 +6,7 @@ service, elevation of privilege) rather than by feature, see
 [threat-model.md](threat-model.md).
 
 - Use HTTPS for anything internet-facing
-- Session tokens are configurable (default 7-day remember-me / 8-hour standard); API keys default to never-expire — set a per-key expiry, or rotate manually if compromised
+- Session tokens are configurable (default 30-day remember-me / 24-hour standard); API keys default to never-expire — set a per-key expiry, or rotate manually if compromised
 - Enrollment PINs are single-use, expire after 10 minutes
 - Device tokens are 256-bit random secrets
 - Passwords hashed with **bcrypt** (cost 12), with a **PBKDF2-HMAC-SHA256** (600 000 iterations, OWASP 2023 minimum) fallback where bcrypt is unavailable; legacy hashes auto-upgraded on next login
@@ -25,7 +25,7 @@ service, elevation of privilege) rather than by feature, see
 could be exploited is fixed before release, on both the server and the agent.
 
 Each release is reviewed for security at the code level and scanned with an
-external toolchain in addition to the CI guardrails. The most recent review,
+external toolchain in addition to the CI guardrails. An earlier pass,
 **v6.2.2**, ran the full SAST stack (Bandit, gitleaks, agent undefined-name
 analysis — all clean) plus a Semgrep pass with every finding triaged in the open,
 a trust-boundary review of the new delta-heartbeat protocol (per-device,
@@ -90,14 +90,13 @@ v5.0.0 strengthens the trust boundary around the agents and the secrets store:
   the sign-in form (for example "Authorized use only. Activity is monitored."),
   surfaced before authentication.
 
-Recent releases were independently penetration-tested with
+Every release through **v6.4.1** is penetration-tested with
 [wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),
 [nuclei](https://github.com/projectdiscovery/nuclei), [bandit](https://github.com/PyCQA/bandit),
 [semgrep](https://semgrep.dev/), [gitleaks](https://github.com/gitleaks/gitleaks)
-and [OWASP ZAP](https://www.zaproxy.org/), each passing clean: **v4.7.0** (homelab
-integrations + containerized agent), **v4.8.0** (onboarding + DMARC monitor),
-**v4.9.0** (DNS dashboard + resolver health), **v4.10.0** (firewall/fail2ban) and
-**v5.0.0** (control-plane hardening + scale).
+and [OWASP ZAP](https://www.zaproxy.org/), each passing clean. The write-ups for
+the releases still in the retention window are the `security-review-*.md` files
+listed above.
 Every outbound feature — integrations, DNS providers, AI providers, web-push and
 the monitors — reuses the same connect-time SSRF guard (loopback / link-local /
 cloud-metadata refused, peer IP re-validated, no redirects), with credentials
@@ -107,7 +106,7 @@ security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
 state-changing requests, and the SSRF-safe fetch path were all verified live. A
 durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-6.4.0.md) files.
+[`security-review-*.md`](security-review-6.4.1.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -127,13 +126,16 @@ durable, release-over-release summary lives in the
 
 ---
 
-All data in `/var/lib/remotepower/` (owned by `www-data`, mode `700`):
+Under the flat-JSON backend, state lives in `/var/lib/remotepower/` (owned by
+the app-server user — `www-data` / `nginx` / `http`, depending on distro — mode
+`700`). Under the default PostgreSQL backend (and under SQLite) the same logical
+keys are database rows rather than files. The most security-relevant of them:
 
 | File | Contents |
 |------|----------|
 | `users.json` | Admin accounts + bcrypt hashes + roles |
 | `devices.json` | Enrolled devices, MAC, group, notes, cached sysinfo + journal |
-| `tokens.json` | Active browser sessions (7-day TTL), keyed by SHA-256 of the token |
+| `tokens.json` | Active browser sessions (24 h standard / 30 d remember-me TTL), keyed by SHA-256 of the token |
 | `apikeys.json` | Named API keys — stored as a SHA-256 `key_hash` (the raw key is shown once at creation and never persisted) |
 | `pins.json` | Pending enrollment PINs |
 | `commands.json` | Pending command queue per device |
@@ -172,7 +174,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.4.0.md](security-review-6.4.0.md).
+summarised in the latest, [security-review-6.4.1.md](security-review-6.4.1.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -312,7 +314,7 @@ defences in place (kept current):
   `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying
   geolocation/camera/microphone, `frame-ancestors 'none'` in CSP.
 - Methods restricted to `GET POST DELETE PATCH` at the location block.
-- Request body capped at 64 KB.
+- Request body capped at 2 MB.
 - Static `.json` and `.tmp` files denied (defence against accidental data-dir exposure).
 - The `/cgi-bin/` path is denied as a static location (defence in depth — the
   Python backend lives there but is only ever imported by gunicorn, never
@@ -349,7 +351,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-6.4.0.md](security-review-6.4.0.md)).
+  [security-review-6.4.1.md](security-review-6.4.1.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
   semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
@@ -362,8 +364,10 @@ only informational results and tool false positives (e.g. a metadata-SSRF
 probe against a path that simply returns a 404, and benign timestamp/internal-IP
 disclosures inherent to a fleet dashboard). The few static-analysis nits it did
 surface (e.g. non-cryptographic fingerprint hashes) were annotated or fixed.
-**v4.8.0** was independently tested with wapiti, nikto, nuclei, bandit and OWASP
-ZAP and passed clean.
+Every release since has been tested the same way — wapiti, nikto, nuclei,
+bandit, semgrep, gitleaks and OWASP ZAP — most recently **v6.4.1**, which
+weighted the pass toward the new KMIP key server as the highest-consequence
+surface it adds.
 
 If you find a security issue, please report it **privately** via GitHub's
 [**"Report a vulnerability"**](https://github.com/tyxak/remotepower/security/advisories/new)

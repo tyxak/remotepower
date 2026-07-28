@@ -51,6 +51,10 @@ need it. Start at the top; most installs only need the first two rows.
 | **PgBouncer pooler** | `packaging/pgbouncer-setup.sh` | very high request rates |
 | **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | default-on via `install-server.sh` — a pre-warmed gunicorn app server (the only server since v6.1.0) — see [wsgi.md](wsgi.md) |
 | **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | default-on via `install-server.sh` — runs the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) |
+| **Agent push daemon** | `server/conf/remotepower-push.service` | default-on via `install-server.sh` (`--no-push` opts out) — idle until you enable the channel in Settings — see [push.md](push.md) |
+| **Syslog receiver** | `install-server.sh --with-syslogd` | agentless syslog from switches/firewalls/appliances — see [syslog.md](syslog.md) |
+| **Flow receiver** | `install-server.sh --with-flowd` | agentless NetFlow/IPFIX/sFlow — see [flow.md](flow.md) |
+| **KMIP key server** | `install-server.sh --with-kmip` | hold Synology / TrueNAS / vSphere encryption keys off the appliance — see [kmip.md](kmip.md) |
 | **Load balancer** | `packaging/loadbalancer-haproxy.cfg.example` | multi-node |
 | **Web SSH terminal** | `packaging/install-webterm.sh` | optional browser SSH |
 | **Read-only demo** | `packaging/install-demo.sh` | a public sandbox vhost |

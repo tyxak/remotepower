@@ -41,6 +41,24 @@ detection → routing → delivery chain is intact for every alertable event typ
 destination, recover events that can never close their alert). It fires
 nothing; see [detection-selftest.md](detection-selftest.md).
 
+**Optional sidecars** — informational rows for the ingest and key-custody
+daemons, each reported **only when that sidecar is enabled** and deliberately
+never a health input on its own (a receiver you don't run is not a fault):
+
+| Row | What it tells you |
+|---|---|
+| **Agent push** | Whether the channel is on, its port, and whether the daemon actually answers on loopback — see [push.md](push.md) |
+| **Syslog** | Mapped sources, last ingest time, and the `remotepower-syslogd` unit state — see [syslog.md](syslog.md) |
+| **Flow** | Reporting exporters, last ingest time, and the `remotepower-flowd` unit state — see [flow.md](flow.md) |
+| **KMIP** | Live clients, stored keys, last sidecar check-in, the `remotepower-kmipd` unit state, and the **soonest PKI expiry** across the CA and every live client certificate — see [kmip.md](kmip.md) |
+
+The KMIP expiry number is there because an expired client certificate silently
+ends that appliance's key access, and encrypted volumes then fail to mount
+after its next reboot. Note the current limit: that expiry is **visible here
+but does not raise an alert** — these certificates are server-side, so they
+can't ride the agent's cert-file expiry sweep. Until that changes, this row is
+the place you find out.
+
 ## Where the data lives
 
 | Section | Source |

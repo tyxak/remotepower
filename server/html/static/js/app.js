@@ -16987,6 +16987,7 @@ function _renderHomeActivity(fleetEvents) {
     'gateway_latency_high', 'gateway_latency_normal',   // v6.4.0
     'battery_health_low', 'battery_health_ok',           // v6.4.0
     'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
+    'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
     // v6.2.0: a USB device was connected to a host (physical access)
@@ -17261,6 +17262,10 @@ function _homeActivityAttrs(event, p) {
     case 'battery_health_low': case 'battery_health_ok':
     // v6.2.2: NIC errors/drops → the affected host's drawer
     case 'nic_errors': case 'nic_errors_cleared':
+    // v6.4.1: KMIP PKI expiry is FLEET-level (no device_id) — route to the
+    // KMIP page, where the certificate can actually be re-issued.
+    case 'kmip_cert_expiring': case 'kmip_cert_renewed':
+      return 'data-action-btn="_showPageBtn" data-page="kmip"';
     case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':

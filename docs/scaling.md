@@ -75,7 +75,7 @@ process handling your request:
 | **Storage backend** | `PostgreSQL` / `SQLite` / `JSON files` — the active `RP_STORAGE_BACKEND`. |
 | **Request tier** | `WSGI · gunicorn` (the only server) — how requests are executed. |
 | **Out-of-band scheduler** | `Running` (with a live heartbeat age), `Configured — no heartbeat` (flag set but the process is dead — fix it), or `Off`. |
-| **Per-request maintenance** | Whether the ~33 sweeps run *inside each request* or are *offloaded to the scheduler*. |
+| **Per-request maintenance** | Whether the ~64 sweeps run *inside each request* or are *offloaded to the scheduler*. |
 
 A green check means the lever below is engaged. This is the fastest way to
 confirm a change actually took effect after you edit `api.env` and restart.
@@ -173,9 +173,9 @@ bursts. See [wsgi.md](wsgi.md) for the full worker-model writeup.
 
 ### The out-of-band maintenance scheduler (v5.5.0, default on)
 
-RemotePower runs ~33 `run_*_if_due` maintenance sweeps. Left in-process they'd
+RemotePower runs ~64 `run_*_if_due` maintenance sweeps. Left in-process they'd
 **piggy-back on request traffic** — convenient on a single node, but it means
-(a) no traffic ⇒ no maintenance, (b) every request makes ~33 "is it due?" DB
+(a) no traffic ⇒ no maintenance, (b) every request makes ~64 "is it due?" DB
 round-trips, and (c) N horizontal nodes all race the same sweep. The default
 `remotepower-scheduler.service` runs the cadence from one dedicated process:
 

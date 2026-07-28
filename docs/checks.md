@@ -65,7 +65,7 @@ side:
 
 - **Monitoring → Checks → Baseline checks** — the operational set above: is the
   host alive, patched, and running what it should.
-- **Security → Protect → Baseline protect checks** — ~57 hardening and
+- **Security → Protect → Baseline protect checks** — ~63 hardening and
   tamper-detection templates: ports that must not listen, critical-file
   integrity, persistence paths, log signals. See
   [Integrity Guard](integrity-guard.md).

@@ -18,7 +18,7 @@ RPO ≈ 0** (synchronous replication) or **RPO ≤ seconds** (asynchronous).
 | Every logical store (devices, alerts, config, tickets, …) | PostgreSQL | Streaming replication — this is the whole ballgame |
 | App workers (gunicorn) | Stateless | Run on both nodes; only the active one receives traffic |
 | Maintenance sweeps | The out-of-band scheduler | **Singleton** — must run on the active node ONLY (two schedulers double-fire webhooks and races) |
-| Sidecars (webterm, scanner, push, syslogd) | Per-node daemons | Installed on both; enabled with the active role |
+| Sidecars (webterm, scanner, push, syslogd, flowd, kmipd) | Per-node daemons | Installed on both; enabled with the active role |
 | Agent enrolment tokens / TLS | In Postgres + nginx certs | Certs deployed to both nodes; agents follow the floating IP/DNS name |
 | Signing keys (`signing-gpg/`), backups passphrase, `api.env` | Files under `DATA_DIR` / `/etc/remotepower` | **Not in Postgres** — sync once at setup and after key changes (they change rarely; a root-only rsync or config management) |
 
@@ -76,7 +76,12 @@ Rehearse this until it's boring — it is the whole point of the setup:
    manual failover = adjust priority or stop keepalived on A).
 4. **Start the singleton services** on B: `systemctl start
    remotepower-scheduler remotepower-webterm remotepower-scanner
-   remotepower-push remotepower-syslogd` (whichever are in use).
+   remotepower-push remotepower-syslogd remotepower-flowd
+   remotepower-kmipd` (whichever are in use). Don't skip
+   `remotepower-kmipd` if you run it: an appliance that stores its
+   encryption keys here cannot unlock until the key server answers again,
+   so it belongs in the failover step and not in a follow-up ticket (see
+   [kmip.md](kmip.md)).
 5. **Verify**: Server-status page → storage backend reachable, scheduler
    heartbeat fresh, Distributed-subsystems rows green; a test device shows a
    fresh heartbeat; `GET /api/self/status` clean.

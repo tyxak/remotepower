@@ -2088,6 +2088,18 @@ EVENT_REGISTRY = {
     'cert_file_renewed': dict(
         label='Local certificate no longer expiring (recovered)', kind='cert_files',
         resolves=('cert_file_expiring',)),
+    # v6.4.1: the KMIP server's OWN PKI. Distinct from cert_file_expiring —
+    # those are agent-reported files on a host; these are the CA and per-client
+    # certificates this server issued. The consequence is sharper, which is why
+    # it is `high`: when a client certificate expires the appliance silently
+    # stops being able to fetch its keys, and its encrypted volumes do not
+    # mount after the next reboot. Fleet-level (no device_id).
+    'kmip_cert_expiring': dict(
+        label='A KMIP certificate is expiring soon', kind='cert_files',
+        title='KMIP Certificate Expiring', severity='high', tags='warning,lock'),
+    'kmip_cert_renewed': dict(
+        label='KMIP certificates no longer expiring (recovered)', kind='cert_files',
+        resolves=('kmip_cert_expiring',)),
     'rogue_uid0': dict(
         label='An unexpected UID 0 (root-equivalent) account appeared', kind='accounts',
         title='Unexpected Root-Equivalent Account', severity='high',
@@ -32168,6 +32180,63 @@ def _warranty_lookup_serial(serial, cfg):
         except Exception:
             return ''
     return ''     # Dell (TechDirect OAuth) — wired when creds are provided
+
+
+KMIP_CERT_CHECK_INTERVAL = 6 * 3600     # cheap; the numbers move once a day
+
+
+def run_kmip_cert_check_if_due():
+    """v6.4.1: warn before the KMIP server's own PKI expires.
+
+    The agent cert-file sweep covers certificates ON a host; these are the CA
+    and per-client certificates THIS server issued, so they have no agent to
+    report them and were the one expiry nothing watched. That matters more
+    than a normal cert: when a client certificate lapses the appliance stops
+    being able to fetch its keys, and its encrypted volumes fail to mount on
+    the next reboot — with no signal until someone reboots a NAS.
+
+    Edge-triggered on the set of expiring subjects (same contract as
+    cert_file_expiring): fires once when the set grows, auto-resolves via
+    kmip_cert_renewed when it empties. Cheap and silent when KMIP is off.
+    """
+    cfg = _config_ro()
+    if not (load_ro_kmip := (_load_ro(KMIP_FILE) or {})).get('enabled'):
+        return
+    now = int(time.time())
+    state = _load_ro(KMIP_FILE) or {}
+    last = int((state.get('_cert_check') or {}).get('last_run') or 0)
+    if now - last < KMIP_CERT_CHECK_INTERVAL:
+        return
+    days = int(cfg.get('cert_file_expiring_days', 21) or 21)
+    soon = now + days * 86400
+    expiring = []
+    ca = load_ro_kmip.get('ca') or {}
+    if 0 < int(ca.get('not_after') or 0) <= soon:
+        expiring.append(('CA', int(ca['not_after'])))
+    for cid, c in (load_ro_kmip.get('clients') or {}).items():
+        if not isinstance(c, dict) or c.get('revoked'):
+            continue
+        na = int(c.get('not_after') or 0)
+        if 0 < na <= soon:
+            expiring.append((str(c.get('name') or cid)[:64], na))
+    expiring.sort(key=lambda e: e[1])
+    subjects = [e[0] for e in expiring]
+
+    pending = None
+    with _LockedUpdate(KMIP_FILE) as store:
+        prev = list((store.get('_cert_check') or {}).get('alerted') or [])
+        if expiring and any(s not in prev for s in subjects):
+            first = expiring[0]
+            pending = ('kmip_cert_expiring', {
+                'subject': first[0],
+                'days': max(0, int((first[1] - now) / 86400)),
+                'count': len(expiring)})
+        elif prev and not subjects:
+            pending = ('kmip_cert_renewed', {})
+        store['_cert_check'] = {'last_run': now, 'alerted': subjects}
+    # fire_webhook takes its own lock — never inside the block above.
+    if pending:
+        fire_webhook(pending[0], pending[1])
 
 
 def run_warranty_lookup_if_due():
@@ -64666,6 +64735,7 @@ def main():
     _safe(run_cloud_sync_if_due, 'run_cloud_sync_if_due')
     # W6-4: warranty auto-lookup → CMDB expiry (opt-in; cached per serial).
     _safe(run_warranty_lookup_if_due, 'run_warranty_lookup_if_due')
+    _safe(run_kmip_cert_check_if_due, 'run_kmip_cert_check_if_due')
     _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies

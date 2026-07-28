@@ -320,6 +320,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'db_integrity_failed', 'mount_issue',
             'disk_predict_fail', 'ups_on_battery', 'ups_critical', 'ups_on_line',  # v6.1.1 (#76)
             'cert_file_expiring', 'rogue_uid0',
+            'kmip_cert_expiring',                    # v6.4.1 KMIP PKI expiry
             'priv_group_added',                      # v6.2.0 sudo/wheel/Administrators grant
             'usb_device_added',                      # v6.2.0 USB physical-access tripwire
             'process_alert', 'process_recovered',   # v3.14.0 #36
@@ -366,6 +367,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'kernel_current',                        # ← kernel_outdated
             'smart_recovered',                       # ← smart_failure
             'cert_file_renewed',                     # ← cert_file_expiring
+            'kmip_cert_renewed',                     # ← kmip_cert_expiring
             'rogue_uid0_cleared',                    # ← rogue_uid0
             'av_clean',                              # ← av_infected (+ av_warning)
             'av_realtime_on',                        # ← av_realtime_off (v6.2.0)

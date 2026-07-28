@@ -90,6 +90,7 @@ CADENCE = (
     'run_autoheal_recheck_if_due',       # v6.4.0 #3 auto-resolve gap recheck
     'run_cloud_sync_if_due',             # W6-44 scheduled cloud inventory re-sync
     'run_warranty_lookup_if_due',        # W6-4 warranty auto-lookup → CMDB
+    'run_kmip_cert_check_if_due',        # v6.4.1 KMIP PKI expiry warning
     '_maybe_gitops_sync',
     'process_schedule',
     'process_backup_jobs',

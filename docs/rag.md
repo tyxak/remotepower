@@ -26,6 +26,10 @@ embeddings. v3.4.0 ships both 2 and 3.
 
 ## What gets indexed
 
+**34 sources**, each an individual checkbox under Settings → AI → Knowledge
+index. All are on by default except **Metrics**. The credentials vault is
+never indexed by any of them.
+
 | Source | Contents | Notes |
 |---|---|---|
 | **Docs & runbooks** | Product Markdown docs + per-device AI runbooks | docs deployed to `/var/lib/remotepower/docs/` |

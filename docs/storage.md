@@ -26,6 +26,33 @@ Destructive actions (scrub, balance, clear, snapshot delete) require confirmatio
 Per physical disk the agent also runs `smartctl` (SMART health, temperature, key
 attributes); a drive reporting failure/pre-fail raises **`smart_failure`**.
 
+## Guided provisioning — creating storage, not just maintaining it
+
+The maintenance actions above only operate on pools and volumes that already
+exist. Guided provisioning is the counterpart: grab N blank disks and build the
+array. Five recipes — `mdadm_create` (RAID 0/1/5/6/10), `lvm_pvcreate`,
+`lvm_vgcreate`, `lvm_lvcreate` and `mkfs` (ext4 / xfs / btrfs).
+
+`POST /api/devices/{id}/storage-provision` with `{recipe, params, confirm}`.
+
+It is deliberately narrower than a general partition-table editor, and the
+limits are the point:
+
+- **Whole-disk block devices only** — `/dev/sdX`, `/dev/vdX`, `/dev/nvmeXnY`.
+  No partitions, no arbitrary paths, at most 24 members. Partition-level work
+  still belongs to the ordinary shell/exec channel.
+- **Type-to-confirm, checked on the server.** Every recipe requires you to type
+  the exact identifier of the thing being created or overwritten, and the
+  server compares it — this is not a UI-only guard that an API caller can skip.
+- **`dry_run: true` returns the exact command with zero side effects** — not
+  queued, not even audited — so you can always see precisely what would run
+  before confirming.
+- **Every recipe routes through the audited command queue with approval
+  forced**, the same hook guided CIS remediation uses. If change-approval is
+  enabled at all, provisioning is subject to four-eyes.
+
+Requires the **`command`** permission for the target device.
+
 ## Related hardware pages
 
 The rest of the physical-health surface has its own focused page and guide — each

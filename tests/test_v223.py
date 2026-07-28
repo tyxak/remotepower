@@ -15,6 +15,16 @@ the JS allowlist needs the same addition; otherwise that event will
 silently disappear from the dashboard.
 """
 
+# v6.4.1: a module that exec_modules api.py MUST pin RP_DATA_DIR at module
+# scope FIRST — import-time ensure_default_user() writes to DATA_DIR, so without
+# this the test targets the REAL /var/lib/remotepower and, on a box where that is
+# writable, would overwrite a live install's admin user. This file only passed
+# because `unittest discover` happened to import a module that set the var first;
+# standalone it raised PermissionError.
+import os as _rp_os, tempfile as _rp_tempfile
+_rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
+
+
 import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))

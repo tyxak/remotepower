@@ -13,7 +13,7 @@ nicer experience.
 ## Quick start
 
 1. Log into the dashboard normally.
-2. Click **API Docs** in the sidebar.
+2. Click **API Reference** in the sidebar.
 3. The Swagger UI page opens in a new tab. Your session token is
    automatically attached to every "Try it out" request — there's no
    Authorize step.

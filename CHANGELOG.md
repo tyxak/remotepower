@@ -981,6 +981,36 @@ http/https checks":
   a demo instance. Shapes were read out of the consuming handlers; the seed
   carries no key material or secrets.
 
+### Laptop signals on Windows and macOS, and KMIP on the Server-status page
+Two more data-binding findings from the same sweep, both real:
+- **`chassis`, `battery` and `uptime_seconds` were Linux-agent-only**, so three
+  features were dead on exactly the hosts they were built for. Chassis-aware
+  **offline grace** treats a laptop that has closed its lid differently from a
+  server that has stopped answering — but with no chassis field, a closed
+  Windows or Mac lid paged like a dead server. **Battery-health alerting** and
+  its hardware RAG line had nothing to read on the portable machines that are
+  the entire point of the feature. And the fleet **uptime leaderboard** filters
+  on `typeof uptime_seconds === 'number'`, so every non-Linux host was silently
+  absent from it. Both agents now collect all three under the Linux agent's
+  exact field names and record shapes — `ioreg`/`sysctl` on macOS,
+  CIM/`Win32_Battery` + `SystemEnclosure` on Windows, with `psutil`-free
+  fallbacks — so the sanitizer and every consumer light up with no server-side
+  change. Each degrades to an empty value off-platform rather than raising,
+  since these run inside `try/except` where an exception would be swallowed and
+  the field would simply never appear.
+- **The KMIP key server now has an informational Server-status row.** It had a
+  Checks-catalog row but not the Server-status half its sibling sidecars have —
+  so the one subsystem whose outage stops encrypted volumes mounting was the
+  one you could not see there. It follows the same contract as the syslog and
+  flow receivers (reported only when enabled, never a health input on its own),
+  and includes the soonest PKI expiry across the CA and every live client
+  certificate, because an expired client certificate silently ends that
+  appliance's key access.
+- *Known gap, stated rather than buried:* KMIP PKI expiry is now **visible but
+  does not alert**. Those certificates are server-side, so they cannot ride the
+  agent's cert-file expiry sweep; alerting on them needs its own event pair and
+  is not in this release.
+
 
 ## v6.4.0 — "Sh1eldMatters" — 2026-07-24
 
