@@ -127,7 +127,8 @@ async function firewallRuleAdd(devId, backend) {
     // Dry-run first: validate server-side + show the exact host command.
     const pv = await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec, preview: true });
     if (!pv || pv.error) { toast('Failed: ' + (pv?.error || 'invalid spec'), 'error'); return; }
-    const go = await uiConfirm({ title: 'Confirm firewall rule', message: `This will run on the host:\n\n${pv.command}\n\nApplies on the next agent check-in.`, confirmText: 'Queue rule' });
+    const dryNote = await _fwHostDryRun(devId, pv);
+    const go = await uiConfirm({ title: 'Confirm firewall rule', message: `This will run on the host:\n\n${pv.command}\n\nApplies on the next agent check-in.${dryNote}`, confirmText: 'Queue rule' });
     if (!go) return;
     const ar = await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec });
     if (!ar || ar.error) { toast('Failed: ' + (ar?.error || 'apply failed'), 'error'); return; }
@@ -140,13 +141,44 @@ async function firewallRuleDelete(devId, backend, ref, btn) {
   try {
     const pv = await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref), preview: true });
     if (!pv || pv.error) { toast('Failed: ' + (pv?.error || 'invalid rule'), 'error'); return; }
-    const ok = await uiConfirm({ title: 'Delete firewall rule', message: `This will run on the host:\n\n${pv.command}\n\nIt is removed on the next agent check-in.`, confirmText: 'Delete', danger: true });
+    const dryNote = await _fwHostDryRun(devId, pv);
+    const ok = await uiConfirm({ title: 'Delete firewall rule', message: `This will run on the host:\n\n${pv.command}\n\nIt is removed on the next agent check-in.${dryNote}`, confirmText: 'Delete', danger: true });
     if (!ok) return;
     const dr = await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref) });
     if (!dr || dr.error) { toast('Failed: ' + (dr?.error || 'delete failed'), 'error'); return; }
     toast('Delete queued', 'success');
     _fwMarkPending(btn); _fwQueuedNote('firewall-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
+// v6.4.1 (roadmap B17): optional ON-HOST dry-run before queueing. When the
+// preview carries a native check command (ufw --dry-run / nft -c), offer to
+// run it through the run-and-wait exec path and fold the host's own verdict
+// into the confirm dialog. Returns '' when unsupported, declined, or the
+// caller lacks the exec-wait permission — the command preview stands alone.
+async function _fwHostDryRun(devId, pv) {
+  if (!pv || !pv.dryrun_command) return '';
+  const test = await uiConfirm({
+    title: 'Dry-run on the host first?',
+    message: `The firewall backend can evaluate this change without applying it:\n\n${pv.dryrun_command}\n\nRun it now and see the host's verdict before queueing? (waits for the agent, up to ~60 s)`,
+    confirmText: 'Dry-run first',
+  });
+  if (!test) return '';
+  toast('Dry-run sent — waiting for the agent…', 'info', {transient: true});
+  let dr;
+  try {
+    dr = await api('POST', '/exec/wait', { device_id: devId, cmd: pv.dryrun_command, timeout: 60 });
+  } catch (e) {
+    return `\n\nHost dry-run failed: ${String(e)}`;
+  }
+  if (!dr || dr.error) return `\n\nHost dry-run failed: ${dr?.error || 'unknown error'}`;
+  if (dr.approval_required) return '\n\nHost dry-run parked for change approval — verdict pending on the Confirmations page.';
+  if (dr.timeout || dr.shutdown) return '\n\nHost dry-run: no response within the wait window — verdict unknown.';
+  const out = dr.output || {};
+  const text = String((out && out.output != null) ? out.output : '').trim();
+  const rc = (out && typeof out.rc === 'number') ? out.rc : null;
+  const verdict = rc === 0 ? 'passed' : (rc != null ? `exit ${rc}` : 'done');
+  return `\n\nHost dry-run (${verdict}):\n${text.slice(0, 1200) || '(no output — the change parses cleanly)'}`;
 }
 
 function firewallDetailClose() {

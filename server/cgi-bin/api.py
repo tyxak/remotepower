@@ -15509,7 +15509,24 @@ def handle_device_firewall_rule(dev_id):
     # Dry-run: validate + build the exact command but don't queue it, so the
     # operator can review what will run on the host before committing.
     if body.get('preview'):
-        respond(200, {'ok': True, 'preview': True, 'command': cmd})
+        # v6.4.1 (roadmap B17): where the backend has a NATIVE dry-run, hand
+        # the client the check command too — the UI offers to run it through
+        # the run-and-wait exec path and show the host's own verdict before
+        # queueing (ufw prints the resulting ruleset; `nft -c` validates
+        # against the live ruleset without committing). iptables and firewalld
+        # have no equivalent, so their preview stays command-only. The spec/ref
+        # here already passed the same strict validation as the real command.
+        dry = None
+        if backend == 'ufw':
+            dry = (f'ufw --dry-run {body.get("spec", "").strip()}' if op == 'add'
+                   else f'ufw --dry-run --force delete {body.get("ref", "").strip()}')
+        elif backend == 'nftables':
+            dry = (f'nft -c {body.get("spec", "").strip()}' if op == 'add'
+                   else f'nft -c delete rule {body.get("ref", "").strip()}')
+        out = {'ok': True, 'preview': True, 'command': cmd}
+        if dry:
+            out['dryrun_command'] = dry
+        respond(200, out)
     audit_log(actor, 'host_firewall_rule',
               detail=(f'device={dev_id} backend={backend} {op} '
                       f'{body.get("spec") or body.get("ref")}')[:200])

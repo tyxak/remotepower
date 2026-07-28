@@ -94,6 +94,13 @@ a **Linux** feature all along.
 - The Windows/macOS agent docstrings now carry an explicit, auditable list of
   the heartbeat keys that stay Linux-only (they previously claimed OpenSCAP
   was the only divergence).
+- **Firewall changes can be dry-run ON THE HOST before queueing.** The rule
+  editor already previewed the exact command; for backends with a native
+  check (`ufw --dry-run` prints the resulting ruleset, `nft -c` validates
+  against the live ruleset without committing) it now also offers to run
+  that check through the run-and-wait exec path and folds the host's own
+  verdict into the confirm dialog. iptables/firewalld have no native
+  equivalent and keep the command-only preview.
 - **Devices can be renamed.** The display name was set once at enroll (from
   the hostname) with no way to change it afterwards. The device drawer's
   Settings tab now has a Name field — display-only, the reported hostname
