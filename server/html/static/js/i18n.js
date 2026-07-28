@@ -3092,8 +3092,6 @@
     'Pulumi (TypeScript)': { fr: 'Pulumi (TypeScript)', de: 'Pulumi (TypeScript)', zh: 'Pulumi（TypeScript）', hi: 'Pulumi (TypeScript)', es: 'Pulumi (TypeScript)', ar: 'Pulumi (TypeScript)' },
     'Cloud-init (YAML)': { fr: 'Cloud-init (YAML)', de: 'Cloud-init (YAML)', zh: 'Cloud-init（YAML）', hi: 'Cloud-init (YAML)', es: 'Cloud-init (YAML)', ar: 'Cloud-init (YAML)' },
     'auto (from severity)': { fr: 'auto (selon la sévérité)', de: 'auto (aus dem Schweregrad)', zh: '自动（按严重度）', hi: 'स्वतः (गंभीरता से)', es: 'auto (según severidad)', ar: 'تلقائي (حسب الخطورة)' },
-    'asc': { fr: 'croissant', de: 'aufsteigend', zh: '升序', hi: 'आरोही', es: 'ascendente', ar: 'تصاعدي' },
-    'desc': { fr: 'décroissant', de: 'absteigend', zh: '降序', hi: 'अवरोही', es: 'descendente', ar: 'تنازلي' },
     'Hostname (regex)': { fr: "Nom d'hôte (regex)", de: 'Hostname (Regex)', zh: '主机名（正则）', hi: 'होस्टनाम (regex)', es: 'Nombre de host (regex)', ar: 'اسم المضيف (تعبير نمطي)' },
     'Source IP (CIDR)': { fr: 'IP source (CIDR)', de: 'Quell-IP (CIDR)', zh: '源 IP（CIDR）', hi: 'स्रोत IP (CIDR)', es: 'IP de origen (CIDR)', ar: 'عنوان IP المصدر (CIDR)' },
     'any version': { fr: 'toute version', de: 'beliebige Version', zh: '任意版本', hi: 'कोई भी संस्करण', es: 'cualquier versión', ar: 'أي إصدار' },

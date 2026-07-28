@@ -152,19 +152,26 @@ first version *hung* for 24 simulated hours when I removed the bound to check it
 test. The mock now aborts past the expected count, so removing the bound fails
 in five seconds.
 
-### Translations: dropdowns, form labels and table headers
+### Translations: dropdowns, form labels, doc cards and table headers
 
-Three passes over the surfaces the i18n gate does **not** scan (it checks nav
-labels, page and section titles, and buttons). 272 new entries in all six
-languages take static `index.html` from **683 untranslated strings to 310 —
-30% down to 13%**:
+Eight passes over the surfaces the i18n gate does **not** scan (it checks nav
+labels, page and section titles, and buttons). ~800 new entries in all six
+languages take static `index.html` from **683 untranslated strings to ~215 —
+30% down to under 10%** — and what remains is largely proper nouns and
+identifiers where the English fallback is the correct rendering:
 
 | Surface | Before | After |
 |---|---|---|
-| `<option>` | 397 | 175 (−56%) |
-| `<label>` | 222 | 117 (−47%) |
-| `<th>` | 53 | 10 (−81%) |
-| `<button>` / `<summary>` | 10 | 8 |
+| `<option>` | 397 | 54 (−86%; remainder is product names / protocol tokens) |
+| `<label>` | 222 → 861 counted wider | 116 |
+| `<summary>` (doc cards) | 93 | 28 (page/feature cards done; versioned history cards remain) |
+| `<th>` | 53 | 8 (−85%) |
+| `<button>` | 10 | 7 |
+
+Later passes also started on the JS-rendered surface (app-*.js innerHTML):
+table headers, empty states, billing/quotes, RouterOS/OPNsense appliance
+controls, ACME/DNS timelines — ~175 entries; roughly 460 unique JS strings
+remain for future passes.
 
 The `<option>` surface was 80% English-only and the worst-covered part of the UI.
 
