@@ -193,6 +193,56 @@ accepted the flag since v6.2.0, but the client only ever sent it for
 issue; recorded because a monitoring control that appears active and is not is
 the same failure shape as the macOS gap above.
 
+### Second review pass — findings
+
+A later pass over the whole project, including live probing of an instance the
+maintainer owns, added the following. Again nothing Critical, High or Medium.
+
+**LOW — the liveness endpoint published the exact version to anyone.**
+`GET /api/health` needs no authentication by design: container healthchecks,
+load balancers and orchestrators poll it. It also returned the precise version
+string. Nothing consumed that — every probe in the tree (the Dockerfile
+healthcheck, `docker-compose`, the WSGI conversion script, the shipped nginx
+configs) only checks for a `200` — but it let an unauthenticated caller
+fingerprint an instance's exact patch level and match it against
+version-specific advisories at scale, without touching anything else. The
+endpoint is now liveness-only.
+
+`GET /api/public-info` deliberately keeps its version field. That is not an
+oversight: a RemotePower instance federating with a peer reads the peer's
+version from that no-auth endpoint to report it, so removing it would break
+federation. It is the one intentional pre-authentication version disclosure,
+and it is a deliberate trade — visible to anyone who can reach the login page,
+in exchange for peers being able to report each other's state.
+
+**LOW (availability, not exploitable) — the KMIP server's own certificates had
+no expiry warning.** The agent-reported certificate sweep covers certificates
+*on a host*; the CA and per-client certificates the KMIP server itself issues
+have no agent to report them, so nothing watched them. The consequence is
+sharper than an ordinary certificate: when a client certificate lapses, that
+appliance silently loses the ability to fetch its keys, and its encrypted
+volumes fail to mount at the next reboot — with no signal until someone reboots
+a NAS and finds it will not come up. A dedicated warning now fires ahead of
+expiry, and the Server-status page shows the soonest expiry alongside the rest
+of the subsystem's state.
+
+**Not a vulnerability, but a control that lied.** The per-destination webhook
+"minimum severity" filter never filtered. Saved values were clamped to a range
+below every event's actual priority, so the comparison could never suppress
+anything and all four UI choices behaved identically. An operator could
+reasonably have believed a noisy destination was restricted to critical events
+when it was receiving everything. Fixed at both ends; anyone with an existing
+saved value keeps exactly the behaviour they have today, so no one's alerting
+changes without them asking for it.
+
+**Latent hazard in the test suite, not in the product.** Two test modules
+loaded the server module without pinning their data directory, so run on their
+own they targeted the real `/var/lib/remotepower` instead of a temporary one.
+On a machine where that path is writable, running those tests could have
+overwritten a live installation's administrator account. They only ever passed
+because the default test runner happened to load a correctly-guarded module
+first. Both are now pinned.
+
 ## Verification
 
 - Full suite green on **both** storage backends — 8,747 tests, JSON and SQLite.
@@ -207,5 +257,32 @@ the same failure shape as the macOS gap above.
   reverted, confirmed failing, restored. A test that passes both before and
   after a fix proves nothing, and this project has shipped that mistake before.
 
+### Second pass — verification
+
+- **CodeQL: 0 results** across Python and JavaScript, run through the same
+  configuration the published build uses, so the local result predicts the
+  published scan rather than merely resembling it.
+- **bandit: 0 new findings** against the committed baseline, **0 High**.
+- **gitleaks: no leaks**, across the full history as well as the working tree.
+- **`ruff --select F821`: 0** on all three agents and every handler module.
+- **Live checks against an instance the maintainer owns** (read-only, no
+  authenticated probing in this pass): the security headers are as intended —
+  a content security policy with no `unsafe-inline`, HSTS with preload,
+  `frame-ancestors 'none'`, cross-origin opener and resource policies, and a
+  restrictive permissions policy. The pre-authentication surface is three
+  endpoints: liveness, the login page's public info, and the agent installer.
+- Full suite **8,917 tests** passing.
+
 No Critical / High / Medium issue ships; nothing exploitable. The local SAST
 suite (bandit, gitleaks, `ruff --select F821`, CodeQL) reports clean.
+
+### A note on what "reviewed" means here
+
+This document lists what was examined and what was found, including the things
+that were only ever cosmetic or operational. That is deliberate. A security
+review that reports nothing is either a very small change or an incurious
+review, and the low-severity entries above — a version string, an expiry
+nobody watched, a filter that quietly did nothing — are the kind of finding
+that gets omitted from most public write-ups. They are here because the useful
+question for a reader is not "did they find anything scary" but "would they
+have told me if they had".

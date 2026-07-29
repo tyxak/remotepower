@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-34">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-35">
 
 </head>
 <body>
@@ -4460,8 +4460,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v6.4.1 cust0dymatters custody key custody kmip key server key management encryption keys synology dsm truenas vsphere vmware kms nas volume encryption shared folder sed zfs dataset vtpm mutual tls mtls client certificate certificate authority ca revoke reissue recovery bundle rpkmip master key ttlv oasis 5696 remotepower-kmipd sidecar with-kmip with-syslogd with-flowd ingest keys rp tui monitor target invalid ssrf loopback resolver pi-hole adguard 0.0.0.0 allow internal monitors stale monitor satellite deleted monitor warnings snmp walk oid browse mib subtree getnext oid browser sysdescr iftable hrstorage macos launchd launchd_service launchctl agent_checks watched_files mac agent parity custom check unknown not applicable drift file integrity mac checks e2e playwright chromium test-fast enterprises vendor mib thermal cpu temperature coretemp k10temp sensors missing board sensor crit headroom overheating ssh_config sshd permitrootlogin passwordauthentication permitemptypasswords identity layer security advisory brute force fail2ban tls expiry kev cve ignore accepted risk data layer secrets backup filevault bitlocker modal close button backdrop click escape dialog width standard monitor history 50 checks sparkline latency percentile slo window monitor_history_max snap mount unit drift dir_baseline noise risk score factors kev cisa known exploited av malware container image cves backup stale secrets exposed patch sla breach openscap scap benchmark agent integrity tamper hash mismatch config drift baseline paths weak ssh key ssh-dss rsa1 deprecated algorithm posture signals shared extraction">
-            <summary><strong>What's new — v6.4.1 &ldquo;Cust0dyMatters&rdquo;</strong> — key custody. A built-in <strong>KMIP key server</strong> so a Synology NAS, TrueNAS box or vSphere cluster stops keeping its encryption keys on the same hardware that holds the encrypted data — off by default, a separate sandboxed sidecar, mutual TLS only, with an encrypted <strong>recovery bundle</strong> because key custody without a way back is a liability. Plus installer flags for the optional receivers, an <strong>INGEST &amp; KEYS</strong> view in the CLI, two monitor fixes from the field, and a <strong>dead-signal sweep</strong>: CPU and board temperatures that were collected and stored but never rendered on Thermal Health, and four Security Advisory inputs — sshd posture, TLS expiry, brute-force pressure and the CVE ignore list — that were written against data nothing produced. Also an <strong>SNMP OID browser</strong>, dialogs that stop closing on a stray click, one dialog width scale, and monitor history five hours deep instead of fifty minutes.</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v6.4.1 cust0dymatters custody key custody kmip key server key management encryption keys synology dsm truenas vsphere vmware kms nas volume encryption shared folder sed zfs dataset vtpm mutual tls mtls client certificate certificate authority ca revoke reissue recovery bundle rpkmip master key ttlv oasis 5696 remotepower-kmipd sidecar with-kmip with-syslogd with-flowd ingest keys rp tui monitor target invalid ssrf loopback resolver pi-hole adguard 0.0.0.0 allow internal monitors stale monitor satellite deleted monitor warnings snmp walk oid browse mib subtree getnext oid browser sysdescr iftable hrstorage macos launchd launchd_service launchctl agent_checks watched_files mac agent parity custom check unknown not applicable drift file integrity mac checks e2e playwright chromium test-fast enterprises vendor mib thermal cpu temperature coretemp k10temp sensors missing board sensor crit headroom overheating ssh_config sshd permitrootlogin passwordauthentication permitemptypasswords identity layer security advisory brute force fail2ban tls expiry kev cve ignore accepted risk data layer secrets backup filevault bitlocker modal close button backdrop click escape dialog width standard monitor history 50 checks sparkline latency percentile slo window monitor_history_max snap mount unit drift dir_baseline noise risk score factors kev cisa known exploited av malware container image cves backup stale secrets exposed patch sla breach openscap scap benchmark agent integrity tamper hash mismatch config drift baseline paths weak ssh key ssh-dss rsa1 deprecated algorithm posture signals shared extraction parity windows macos laptop battery chassis uptime services_watched log_watch file path du_scan disk usage min_priority webhook minimum severity filter kmip certificate expiry server status rename device firewall dry run typography body size icon size button row empty state health endpoint version fingerprint">
+            <summary><strong>What's new — v6.4.1 &ldquo;Cust0dyMatters&rdquo;</strong> — key custody. A built-in <strong>KMIP key server</strong> so a Synology NAS, TrueNAS box or vSphere cluster stops keeping its encryption keys on the same hardware that holds the encrypted data — off by default, a separate sandboxed sidecar, mutual TLS only, with an encrypted <strong>recovery bundle</strong> because key custody without a way back is a liability. Plus installer flags for the optional receivers, an <strong>INGEST &amp; KEYS</strong> view in the CLI, two monitor fixes from the field, and a <strong>dead-signal sweep</strong>: CPU and board temperatures that were collected and stored but never rendered on Thermal Health, and four Security Advisory inputs — sshd posture, TLS expiry, brute-force pressure and the CVE ignore list — that were written against data nothing produced. Also an <strong>SNMP OID browser</strong>, dialogs that stop closing on a stray click, one dialog width scale, and monitor history five hours deep instead of fifty minutes. Windows and macOS reached <strong>full signal parity</strong> with Linux — watched services, file-path log rules, disk-usage scans and laptop battery/chassis all report now, so a closed lid stops paging like a dead server — and a file-path log rule finally matches on <em>every</em> platform, including Linux, where the units were being dropped at ingest. Plus a <strong>notification filter that never filtered</strong>, KMIP on Server status with a warning before its own certificates expire, device rename, firewall dry-run on the host, and an interface tidy-up: one body size, one icon size, and table action buttons that sit in a row instead of stacking.</summary>
             <div class="doc-body">
               <p><strong>KMIP key server.</strong> A built-in <strong>KMIP</strong> key server (<code>remotepower-kmipd</code>, tcp/5696, opt-in) so Synology DSM, TrueNAS and VMware vSphere store their encryption keys here instead of on the appliance holding the encrypted data. Mandatory mutual TLS with a private CA; a three-step wizard picks the appliance type, issues the certificate, hands you the three files and waits for the client&rsquo;s first connection. Keys are AES-256-GCM at rest and scoped to the owning client; every connection, auth failure, key operation and admin action lands in an on-page activity log. A passphrase-encrypted <strong>recovery bundle</strong> holds the master key, CA and every key — and the master key is deliberately excluded from scheduled backups, so a stolen archive is ciphertext only. <strong>An appliance that unlocks against this server needs it reachable at boot — never run it on a machine that depends on it to unlock.</strong> Also: <code>--with-kmip</code>, <code>--with-syslogd</code> and <code>--with-flowd</code> installer flags (all off by default), and an <strong>INGEST &amp; KEYS</strong> block in <code>rp status</code> / <code>rp tui</code> showing what the receivers actually ingested.</p>
               <p><strong>Monitors: an error you can act on.</strong> A rejected monitor target used to say only <code>Invalid monitor target: &lt;url&gt;</code>, which cannot tell a typo'd URL from a perfectly good one that <em>this server's resolver</em> answers with a blocked address — and since only http/https and tcp resolve the hostname, the failure looked type-specific and made no sense. The message now names the resolved IP, the rule that rejected it, and the setting that permits it (&ldquo;resolves to 127.0.0.1 on this server &hellip; enable Settings → Allow monitoring of internal / loopback targets&rdquo;). A filtering resolver answering <code>0.0.0.0</code> is called out by name. An unresolvable host is still allowed — &ldquo;cannot classify&rdquo; must not become &ldquo;reject&rdquo;.</p>
@@ -11002,38 +11002,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.1-34"></script>
+<script defer src="static/js/app.js?v=6.4.1-35"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-containers.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-network.js?v=6.4.1-34"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-containers.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-network.js?v=6.4.1-35"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.1-34"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.1-35"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-dns.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-drift.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-cve.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-backups.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-iac.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-virt.js?v=6.4.1-34"></script>
+<script defer src="static/js/app-ai.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-dns.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-drift.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-cve.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-backups.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-iac.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-virt.js?v=6.4.1-35"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-logs.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-remote.js?v=6.4.1-34"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.1-34"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-logs.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-remote.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.1-35"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.1-34"></script>
+<script defer src="static/js/app-self.js?v=6.4.1-35"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11043,6 +11043,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.1-34"></script>
+<script defer src="static/js/sw-register.js?v=6.4.1-35"></script>
 </body>
 </html>

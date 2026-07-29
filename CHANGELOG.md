@@ -12,6 +12,67 @@ with an encrypted recovery bundle because key custody without a way back is a
 liability. Plus two monitor fixes from the field: an error you can actually act
 on, and one stale monitor no longer blocking every other monitor edit.
 
+### Interface tidying: one body size, one icon size, buttons that sit in a row
+
+A sweep over every page for the three things that make an interface feel
+untidy even when nothing is broken.
+
+- **Table action buttons stacked vertically.** The icon-button style is a
+  block-level flex box and nothing ever made it inline, so two of them side by
+  side in a table cell sat on separate lines — most visible in the alert inbox,
+  where one row's actions can run to seven buttons. They sit in a row now,
+  everywhere.
+- **One body size.** Body copy had drifted to three sizes because the utility
+  class for the body size was still named after an anchor retired two releases
+  ago, so nobody reaching for "body text" ever found it. It has a proper name
+  now, and the places that had drifted — the Security Advisory's own
+  explanation and remediation text, every AI answer — are back on the anchor.
+- **One icon size.** Icon-only buttons were pinned at 14px but primary and
+  secondary buttons were not, so their glyphs drifted between 13, 14 and 15px
+  and looked mismatched side by side in the same row. Pinned.
+- **Controls in a row line up.** Settings rows and modal button rows were
+  missing from the sizing rules, so a button, an input and an icon button in
+  one row could bottom-align at three different heights. In narrow windows a
+  stretched icon button's label jammed against the left edge while its
+  neighbours stayed centred.
+- **Empty states** were defined three times over, so two of the three paddings
+  were dead code and an empty state rendered at a different size inside a table
+  than inside a card.
+- The last **uppercase letter-spaced header** from the retired interface style
+  is gone from the device drawer.
+- Three panels that could grow without limit now scroll: the "offline by group"
+  dashboard tile (a site-wide outage rendered one row per group), the server
+  self-test results, and a chip row that ran off the edge of the window with no
+  way to reach the overflow.
+
+### Fixed — a notification filter that never filtered
+
+The per-destination **minimum severity** control on a webhook destination did
+nothing. Saved values were restricted to a range below every event's actual
+priority, so the comparison could never suppress anything and all four choices
+behaved identically — while an operator could reasonably believe a noisy
+destination had been narrowed to critical events only. It filters now. Anyone
+with an existing setting keeps exactly the behaviour they have today, so no
+alerting changes without you asking for it.
+
+### Laptops report like laptops on Windows and macOS
+
+Three signals were collected only by the Linux agent, which left three features
+dead on precisely the hosts they were designed for: a closed lid on a Windows or
+Mac laptop was treated like a dead server instead of getting the laptop grace
+period, battery health never reached the alert or the device drawer, and no
+non-Linux host ever appeared in the uptime leaderboard. All three now come from
+every agent.
+
+### KMIP: visible on Server status, and it warns before its certificates expire
+
+The key server was the one sidecar with no row on the Server status page —
+despite being the one whose outage stops encrypted volumes mounting. It has one
+now, alongside the syslog and flow receivers. It also warns ahead of its own
+certificate expiry: an expired client certificate silently ends that
+appliance's access to its keys, and the volumes fail to mount at the next
+reboot, which is the worst possible moment to find out.
+
 ### KMIP key server — keep NAS and hypervisor encryption keys off the appliance
 An opt-in **KMIP key server** so storage appliances stop keeping their
 encryption keys on the same hardware that holds the encrypted data. Synology
