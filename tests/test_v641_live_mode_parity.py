@@ -29,6 +29,19 @@ sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
 
 import api  # noqa: E402
 
+# v6.4.1: live mode is a psutil feature BY DESIGN — both ported agents return 0
+# samples without it ("no psutil on this host → no samples to send"), which is
+# correct graceful degradation, not a bug. This file drives the real sampler, so
+# it needs psutil to have anything to assert on. Prod CI installs only the
+# ci.yml dependency list, which does NOT include psutil, so without this guard
+# every test here errors with an empty `posted` list on the release push — the
+# exact class `make ci-parity` exists to catch, found by it.
+try:
+    import psutil as _psutil  # noqa: F401
+    _HAVE_PSUTIL = True
+except ImportError:
+    _HAVE_PSUTIL = False
+
 
 def tearDownModule():
     # Restore: a module-level env var leaks into every later module under
@@ -153,14 +166,17 @@ class _LiveContract:
             self.ag._post_json = orig
 
 
+@unittest.skipUnless(_HAVE_PSUTIL, "live mode samples require psutil")
 class TestMacLiveMode(_LiveContract, unittest.TestCase):
     AGENT_REL = 'client/remotepower-agent-mac.py'
 
 
+@unittest.skipUnless(_HAVE_PSUTIL, "live mode samples require psutil")
 class TestWindowsLiveMode(_LiveContract, unittest.TestCase):
     AGENT_REL = 'client/remotepower-agent-win.py'
 
 
+@unittest.skipUnless(_HAVE_PSUTIL, "live mode samples require psutil")
 class TestServerAcceptsTheAgentSample(unittest.TestCase):
     """The payload must survive the real ingest, not just look right."""
 
