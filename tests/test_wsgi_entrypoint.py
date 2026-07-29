@@ -122,9 +122,11 @@ class TestWsgiEntrypoint(unittest.TestCase):
         finally:
             if _prev_api is not None:
                 sys.modules["api"] = _prev_api
-        self.assertEqual(str(wsgi.api.DATA_DIR), os.environ["RP_DATA_DIR"],
-                         "wsgi bound a stale api instance — the data-dir "
-                         "override did not take effect")
+        self.assertEqual(
+            str(wsgi.api.DATA_DIR),
+            os.environ["RP_DATA_DIR"],
+            "wsgi bound a stale api instance — the data-dir override did not take effect",
+        )
 
         posts = []
         wsgi.api._siem_post = lambda url, data, headers, cfg: posts.append((url, data, headers))
