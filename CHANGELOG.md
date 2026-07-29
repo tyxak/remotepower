@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v6.4.1 — "Cust0dyMatters" — unreleased (test)
+## v6.4.1 — "Cust0dyMatters" — 2026-07-29
 
 Key custody. RemotePower can now hold the encryption keys for the storage that
 depends on it — a built-in **KMIP key server** so a Synology NAS, TrueNAS box
