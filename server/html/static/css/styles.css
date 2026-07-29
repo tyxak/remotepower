@@ -1258,7 +1258,12 @@
   .btn-secondary:hover { background: var(--hair-2); }
   /* v3.9.0: inline Lucide glyphs in non-flex buttons sit on the baseline;
      nudge them onto the optical centre of the label. */
-  .btn-primary svg, .btn-secondary svg { vertical-align: -2px; }
+  /* v6.4.1: .btn-icon svg has always been pinned to 14px, but .btn-primary /
+     .btn-secondary had no width rule — so the markup attribute won and the
+     glyphs drifted (13px on 12 buttons, 15px on one, 14px on the rest),
+     visibly mismatched where they sit side by side in one row. Pinning it
+     here fixes every existing site and stops the markup drifting again. */
+  .btn-primary svg, .btn-secondary svg { width: 14px; height: 14px; vertical-align: -2px; }
   /* v3.14.0 fix: put a gap between an icon and its label so they aren't glued
      together. Only when the svg has a text sibling — icon-only buttons (the svg
      is the only child) keep no trailing space. Covers btn-icon too. */
@@ -1745,10 +1750,15 @@
     z-index: 9999;
   }
 
+  /* v6.4.1: this was one of THREE depth-0 `.empty-state` rules; the last one
+     in the file won, so this padding and the compact one below were both
+     dead. Consolidated here — the only declaration — with the body anchor
+     pinned so an empty state reads the same inside a <td> as in a <div>. */
   .empty-state {
     text-align: center;
-    padding: 80px 24px;
+    padding: 40px 24px;
     color: var(--muted);
+    font-size: 13.5px;
     grid-column: 1 / -1;
   }
   .empty-icon {
@@ -3251,11 +3261,6 @@ body.density-compact .dash-card > .section-header:first-child {
 }
 
 /* Compact empty-state styling with a primary action */
-.empty-state {
-  padding: 40px 24px;
-  text-align: center;
-  color: var(--muted);
-}
 .empty-state-icon {
   font-size: 28px;
   margin-bottom: 12px;
@@ -4572,7 +4577,8 @@ body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block
 .fs-12 { font-size: 12px; }
 .fs-13 { font-size: 13px; }
 .bh-day { min-width: 96px; }
-.fs-14 { font-size: 13.5px; }   /* legacy name; the 14px anchor was retired → 13.5px body */
+.fs-body { font-size: 13.5px; }  /* THE body anchor — reach for this one */
+.fs-14 { font-size: 13.5px; }   /* deprecated alias of .fs-body; the 14px anchor was retired → 13.5px */
 .meta-sm { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hint-mb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .meta-sm-nm { font-size: 11px; color: var(--muted); }
@@ -4584,7 +4590,6 @@ body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block
 .decl-detail .decl-chg { color: var(--warn, #e0a800); font-weight: 600; }
 /* v6: was an uppercase eyebrow — now the canonical .section-title look. */
 .section-label { font-size: 13px; font-weight: 620; color: var(--text); }
-.empty-state { color: var(--muted); text-align: center; padding: 40px; }
 .empty-state-sm { color: var(--muted); text-align: center; padding: 24px; }
 .ta-center { text-align: center; }
 .ta-right { text-align: right; }
@@ -5320,7 +5325,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-507 { color: var(--muted); padding: 20px }
 .isl-508 { max-width: 720px; width: 92vw; max-height: 88vh; display: flex; flex-direction: column }
 .isl-509 { padding: 8px 16px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border) }
-.isl-510 { flex: 1; overflow: auto; padding: 14px 16px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-family: var(--font) }
+.isl-510 { flex: 1; overflow: auto; padding: 14px 16px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; font-family: var(--font) }  /* v6.4.1: body anchor — AI answers are prose */
 .isl-511 { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap }
 .isl-512 { display: flex; align-items: center; gap: 10px; color: var(--muted) }
 .isl-513 { color: var(--red); white-space: pre-wrap }
@@ -6362,7 +6367,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    the SAME height. Scoped to the known toolbar / inline-row containers (never
    form fields in modals), and given enough specificity via :is() that it wins
    regardless of source order. 34px matches a comfortable button height. */
-:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap)
+/* v6.4.1: .settings-row and .modal-actions were missing from both lists, so
+   a settings row with direct-child controls bottom-aligned a ~32px
+   .btn-primary, a ~33px input and a ~34px .btn-icon at three different
+   heights. Direct-child scoped, and textareas are deliberately not in the
+   target list, so multi-line fields are untouched. */
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap, .settings-row, .modal-actions)
   > :is(.btn, .btn-icon, .btn-secondary, .btn-primary, .enroll-btn, input.form-input, select.form-input) {
   height: 34px;
   min-height: 34px;
@@ -6371,7 +6381,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   box-sizing: border-box;
 }
 /* non-flex buttons in those rows: centre icon + label within the fixed height */
-:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap)
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap, .settings-row, .modal-actions)
   > :is(.btn, .btn-secondary, .btn-primary) {
   display: inline-flex;
   align-items: center;
@@ -7549,8 +7559,10 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
 }
 .adv-title { font-size: 13px; font-weight: 620; flex: 1 1 240px; }
 .adv-hosts { margin-left: auto; }
-.adv-why { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-.adv-fix { font-size: 13px; margin-bottom: 6px; }
+/* v6.4.1: both are BODY copy (the 'why it matters' sentence and the
+   remediation instruction) — they inherit the 13.5px anchor now. */
+.adv-why { color: var(--muted); margin-bottom: 6px; }
+.adv-fix { margin-bottom: 6px; }
 .adv-ev ul { margin: 2px 0 6px; padding-left: 18px; }
 .adv-foot { font-size: 12px; }
 
