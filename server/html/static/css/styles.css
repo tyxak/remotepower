@@ -4589,7 +4589,10 @@ body.sidebar-collapsed.has-active-alert .sidebar .nav-fav-empty { display: block
 .decl-detail .decl-rm { color: var(--danger, #e74c3c); font-weight: 600; }
 .decl-detail .decl-chg { color: var(--warn, #e0a800); font-weight: 600; }
 /* v6: was an uppercase eyebrow — now the canonical .section-title look. */
-.section-label { font-size: 13px; font-weight: 620; color: var(--text); }
+/* v6.4.1: .section-label is retired — it duplicated .section-title's
+   typography exactly while matching no header-band selector, so every
+   card using it silently lost the band. Its card headers are now
+   .section-title; its four field labels are .stat-label. */
 .empty-state-sm { color: var(--muted); text-align: center; padding: 24px; }
 .ta-center { text-align: center; }
 .ta-right { text-align: right; }
@@ -5304,7 +5307,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-486 { display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px }
 .isl-487 { color: var(--muted); text-align: center; padding: 60px }
 .isl-488 { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
-.isl-489 { margin: 0; font-size: 13px; font-weight: 620; color: var(--text) }
+.isl-489 { margin: 0 }   /* v6.4.1: typography now comes from .section-title */
 .isl-490 { font-size: 11px; color: var(--muted); opacity: 0.7 }
 .isl-491 { flex: 1; height: 1px; background: var(--border) }
 .isl-492 { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px }
@@ -7557,7 +7560,7 @@ body.kiosk .kiosk-exit:focus-within { opacity: 1; }
   color: var(--muted);
   min-width: 1.5em;
 }
-.adv-title { font-size: 13px; font-weight: 620; flex: 1 1 240px; }
+.adv-title { flex: 1 1 240px; }   /* v6.4.1: sizing comes from .section-title */
 .adv-hosts { margin-left: auto; }
 /* v6.4.1: both are BODY copy (the 'why it matters' sentence and the
    remediation instruction) — they inherit the 13.5px anchor now. */

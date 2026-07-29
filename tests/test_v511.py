@@ -2,6 +2,15 @@
 the next bump (see tests/test_v501.py / test_v510.py for the loosened pattern).
 The v5.1.1 feature/gap tests live in tests/test_v511_features.py.
 """
+
+# v6.4.1: pin RP_DATA_DIR at module scope BEFORE api.py is exec'd — its
+# import-time ensure_default_user() writes to DATA_DIR, so without this the
+# module targets the REAL /var/lib/remotepower and, on a box where that is
+# writable, would overwrite a live install's admin user. These files only
+# passed because `unittest discover` happened to import a guarded module
+# first; run on their own they raised PermissionError (or worse, succeeded).
+import os as _rp_os, tempfile as _rp_tempfile
+_rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
 import importlib.util
 import re
 import sys

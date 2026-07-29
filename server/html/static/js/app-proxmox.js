@@ -43,13 +43,13 @@ function _renderProxmoxGuest(g, kind) {
   const ep = kind === 'qemu' ? 'qemu' : 'lxc';
   const actions = `
     <div class="isl-458">
-      ${!running ? `<button class="btn-icon badge-sm" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="start" data-arg4="${escAttr(g.name)}">Start</button>` : ''}
+      ${!running ? `<button class="btn-icon btn-xs" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="start" data-arg4="${escAttr(g.name)}">Start</button>` : ''}
       ${running  ? `<button class="btn-icon isl-573" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="shutdown" data-arg4="${escAttr(g.name)}">Shutdown</button>` : ''}
-      <button class="btn-icon badge-sm" data-action="openSnapshots" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}">Snapshots</button>
-      ${window._proxmoxLifecycle && running ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="reboot" data-arg4="${escAttr(g.name)}">Reboot</button>` : ''}
-      ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="migrate" data-arg4="${escAttr(g.name)}">Migrate</button>` : ''}
-      ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="clone" data-arg4="${escAttr(g.name)}">Clone</button>` : ''}
-      ${ep === 'lxc' ? `<button class="btn-icon badge-sm btn-danger-soft" data-action="lxcDeleteOpen" data-arg="${g.vmid}" data-arg2="${escAttr(g.name)}" title="Delete this container">Delete</button>` : ''}
+      <button class="btn-icon btn-xs" data-action="openSnapshots" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}">Snapshots</button>
+      ${window._proxmoxLifecycle && running ? `<button class="btn-icon btn-xs" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="reboot" data-arg4="${escAttr(g.name)}">Reboot</button>` : ''}
+      ${window._proxmoxLifecycle ? `<button class="btn-icon btn-xs" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="migrate" data-arg4="${escAttr(g.name)}">Migrate</button>` : ''}
+      ${window._proxmoxLifecycle ? `<button class="btn-icon btn-xs" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="clone" data-arg4="${escAttr(g.name)}">Clone</button>` : ''}
+      ${ep === 'lxc' ? `<button class="btn-icon btn-xs btn-danger-soft" data-action="lxcDeleteOpen" data-arg="${g.vmid}" data-arg2="${escAttr(g.name)}" title="Delete this container">Delete</button>` : ''}
     </div>`;
   return `<div class="isl-460">
     <div class="isl-461">

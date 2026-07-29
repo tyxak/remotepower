@@ -116,7 +116,7 @@ function _renderVirtVm(v) {
                 reset: 'Reset', suspend: 'Suspend', restart: 'Restart' };
   const danger = { stop: true, reset: true };
   const btn = act => pa.includes(act)
-    ? `<button class="btn-icon badge-sm${danger[act] ? ' btn-danger-soft' : ''}"` +
+    ? `<button class="btn-icon btn-xs${danger[act] ? ' btn-danger-soft' : ''}"` +
       ` data-action="virtPower" data-arg="${escAttr(id)}" data-arg2="${escAttr(v.id)}"` +
       ` data-arg3="${escAttr(act)}" data-arg4="${escAttr(v.name || v.id)}">${LBL[act] || act}</button>`
     : '';
@@ -129,7 +129,7 @@ function _renderVirtVm(v) {
     ${running ? btn('suspend') : ''}
     ${running ? btn('stop') : ''}
     ${running ? btn('reset') : ''}
-    <button class="btn-icon badge-sm" data-action="openVirtSnapshots" data-arg="${escAttr(id)}"` +
+    <button class="btn-icon btn-xs" data-action="openVirtSnapshots" data-arg="${escAttr(id)}"` +
       ` data-arg2="${escAttr(v.id)}" data-arg3="${escAttr(v.name || v.id)}">Snapshots</button>
   </div>`;
   const res = [];

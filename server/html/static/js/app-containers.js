@@ -231,19 +231,19 @@ function _registerComposeStacksTable() {
       const last = s.last_action_ts
         ? `${escHtml(s.last_action || '')} · ${new Date(s.last_action_ts * 1000).toLocaleString()}`
         : '—';
-      const view = `<button class="btn-icon badge-xs" data-action="viewComposeStack" data-arg="${escAttr(s.id)}">View</button>`;
-      const del = `<button class="btn-icon badge-xs c-danger-outline" data-action="deleteComposeStack" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button>`;
+      const view = `<button class="btn-icon btn-xs" data-action="viewComposeStack" data-arg="${escAttr(s.id)}">View</button>`;
+      const del = `<button class="btn-icon btn-xs c-danger-outline" data-action="deleteComposeStack" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button>`;
       let actions;
       if (s.compose_enabled) {
         actions =
-          `<button class="btn-icon badge-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="up" title="docker compose up -d">Up</button>` +
-          `<button class="btn-icon badge-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="down" title="docker compose down">Down</button>` +
-          `<button class="btn-icon badge-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="redeploy" title="docker compose pull + up -d">Redeploy</button>` +
+          `<button class="btn-icon btn-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="up" title="docker compose up -d">Up</button>` +
+          `<button class="btn-icon btn-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="down" title="docker compose down">Down</button>` +
+          `<button class="btn-icon btn-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="redeploy" title="docker compose pull + up -d">Redeploy</button>` +
           view + del;
       } else {
         actions =
           `<span class="hint">deploys off</span> ` +
-          `<button class="btn-icon badge-xs" data-action="enableComposeOnDevice" data-arg="${escAttr(s.device_id)}" data-arg2="${escAttr(s.device_name)}" title="Allow compose deploys on this device">Enable</button>` +
+          `<button class="btn-icon btn-xs" data-action="enableComposeOnDevice" data-arg="${escAttr(s.device_id)}" data-arg2="${escAttr(s.device_name)}" title="Allow compose deploys on this device">Enable</button>` +
           view + del;
       }
       return `<tr>
@@ -544,11 +544,11 @@ async function containersOpen(deviceId, name) {
     const isRunning = statusLower.includes('running') || statusLower.includes('up ');
     const actions = actionable ? `
       <div class="isl-458">
-        ${!isRunning ? `<button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="start" data-arg5="${escAttr(c.name||'')}">Start</button>` : ''}
+        ${!isRunning ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="start" data-arg5="${escAttr(c.name||'')}">Start</button>` : ''}
         ${isRunning  ? `<button class="btn-icon isl-459" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="stop" data-arg5="${escAttr(c.name||'')}">Stop</button>` : ''}
-        <button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="restart" data-arg5="${escAttr(c.name||'')}">Restart</button>
-        ${isRunning ? `<button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="update" data-arg5="${escAttr(c.name||'')}" title="Pull the latest image and recreate this standalone container (compose-managed containers update via their stack)">Update</button>` : ''}
-        <button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="logs" data-arg5="${escAttr(c.name||'')}">Logs</button>
+        <button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="restart" data-arg5="${escAttr(c.name||'')}">Restart</button>
+        ${isRunning ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="update" data-arg5="${escAttr(c.name||'')}" title="Pull the latest image and recreate this standalone container (compose-managed containers update via their stack)">Update</button>` : ''}
+        <button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="logs" data-arg5="${escAttr(c.name||'')}">Logs</button>
       </div>` : '';
     return `<div class="isl-460">
       <div class="isl-461">

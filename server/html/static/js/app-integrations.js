@@ -62,8 +62,8 @@ function _renderRouterosCard(body, badge, data) {
       const state = i.disabled ? '<span class="c-muted">disabled</span>'
                   : (i.running ? '<span class="c-green">up</span>' : '<span class="c-amber">down</span>');
       const btn = i.disabled
-        ? `<button class="btn-icon badge-xs" data-action="routerosAction" data-arg="enable_interface" data-arg2="${escAttr(i.id)}">Enable</button>`
-        : `<button class="btn-icon badge-xs" data-action="routerosAction" data-arg="disable_interface" data-arg2="${escAttr(i.id)}">Disable</button>`;
+        ? `<button class="btn-icon btn-xs" data-action="routerosAction" data-arg="enable_interface" data-arg2="${escAttr(i.id)}">Enable</button>`
+        : `<button class="btn-icon btn-xs" data-action="routerosAction" data-arg="disable_interface" data-arg2="${escAttr(i.id)}">Disable</button>`;
       h += `<tr><td><strong>${escHtml(i.name || '?')}</strong></td><td class="hint">${escHtml(i.type || '')}</td><td>${state}</td><td class="ta-right">${fmtB(i.rx_byte)}</td><td class="ta-right">${fmtB(i.tx_byte)}</td><td class="nowrap">${btn}</td></tr>`;
     }
     h += '</tbody></table></div>';
@@ -581,9 +581,9 @@ function _ruleRow(r, table, ns) {
   ns = ns || 'routeros';   // 'routeros' | 'opnsense' — picks the handler pair
   const dimmed = r.disabled ? ' c-muted' : '';
   const toggle = r.disabled
-    ? `<button class="btn-icon badge-xs" data-action="${ns}RuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable" data-arg3="${table}">Enable</button>`
-    : `<button class="btn-icon badge-xs" data-action="${ns}RuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable" data-arg3="${table}">Disable</button>`;
-  const del = `<button class="btn-icon badge-xs c-red" data-action="${ns}RuleDelete" data-arg="${escAttr(r.id)}" data-arg2="${table}" title="Delete this rule">${_icon('trash', 13)}</button>`;
+    ? `<button class="btn-icon btn-xs" data-action="${ns}RuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable" data-arg3="${table}">Enable</button>`
+    : `<button class="btn-icon btn-xs" data-action="${ns}RuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable" data-arg3="${table}">Disable</button>`;
+  const del = `<button class="btn-icon btn-xs c-red" data-action="${ns}RuleDelete" data-arg="${escAttr(r.id)}" data-arg2="${table}" title="Delete this rule">${_icon('trash', 13)}</button>`;
   const actCls = r.action === 'drop' || r.action === 'reject' ? 'c-red' : (r.action === 'accept' || r.action === 'masquerade' ? 'c-green' : '');
   const natCell = table === 'nat'
     ? `<td class="mono-12">${escHtml([r.to_addresses, r.to_ports].filter(Boolean).join(':'))}</td>`

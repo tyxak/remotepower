@@ -24486,7 +24486,7 @@ async function loadIgnoredItems() {
     const entries = data[sec.key] || [];
     // v6.4.0 (#4/#5): bulk "Restore all" so a big-fleet pile clears in one click.
     const bulk = entries.length > 1
-      ? `<button class="btn-secondary badge-sm" data-action="restoreAllIgnored" data-arg="${sec.key}">Restore all (${entries.length})</button>` : '';
+      ? `<button class="btn-secondary btn-xs" data-action="restoreAllIgnored" data-arg="${sec.key}">Restore all (${entries.length})</button>` : '';
     html += `<div class="mb-16">
       <div class="row-8-center"><h4 class="isl-668">${sec.label} <span class="isl-74">(${entries.length})</span></h4>${bulk}</div>`;
     if (!entries.length) {
@@ -24501,7 +24501,7 @@ async function loadIgnoredItems() {
           ? ` · last active ${_ago(e.last_seen)}` : '';
         return `<div class="isl-669">
           <div class="isl-618">${escHtml(e.label || id)}<div class="meta-sm-nm">${escHtml(when)}${escHtml(active)}</div></div>
-          <button class="btn-secondary badge-sm" data-action-btn="_restoreIgnoredFromStore" data-store-key="${_storeEvtData([sec.key, e])}">Restore</button>
+          <button class="btn-secondary btn-xs" data-action-btn="_restoreIgnoredFromStore" data-store-key="${_storeEvtData([sec.key, e])}">Restore</button>
         </div>`;
       }).join('');
     }
@@ -24534,7 +24534,7 @@ async function loadIgnoredItems() {
       return `<div class="isl-669">
         <div class="isl-618"><code>${escHtml(c.vuln_id)}</code>
           <div class="meta-sm-nm">${escHtml(meta)}</div></div>
-        <button class="btn-secondary badge-sm" data-action="unignoreCVE" data-arg="${escAttr(c.vuln_id)}">Remove</button>
+        <button class="btn-secondary btn-xs" data-action="unignoreCVE" data-arg="${escAttr(c.vuln_id)}">Remove</button>
       </div>`;
     }).join('');
   }
@@ -24564,7 +24564,7 @@ async function loadIgnoredItems() {
       return `<div class="isl-669">
         <div class="isl-618"><span class="mono-12">${escHtml(String(what).slice(0, 160))}</span>
           <div class="meta-sm-nm">${escHtml(meta)}</div></div>
-        <button class="btn-secondary badge-sm" data-action="unclearLogAckIgnored" data-arg="${escAttr(a.key)}">Restore</button>
+        <button class="btn-secondary btn-xs" data-action="unclearLogAckIgnored" data-arg="${escAttr(a.key)}">Restore</button>
       </div>`;
     }).join('');
   }
@@ -24582,7 +24582,7 @@ async function loadIgnoredItems() {
       <input type="text" id="nasup-kind" class="form-input input-auto" placeholder="kind (e.g. drift, cve_found) or blank = any" maxlength="40">
       <select id="nasup-scope" class="form-input input-auto">${(supp.scopes || []).map(s => `<option value="${escAttr(s)}">${escHtml(s)}</option>`).join('')}</select>
       <input type="text" id="nasup-value" class="form-input input-auto" placeholder="group / tag / device (blank for all)" maxlength="128">
-      <button class="btn-primary badge-sm" data-action="naSuppressAdd">Add rule</button>
+      <button class="btn-primary btn-xs" data-action="naSuppressAdd">Add rule</button>
     </div>`;
   if (!rules.length) {
     html += '<div class="isl-616">— none —</div>';
@@ -24593,7 +24593,7 @@ async function loadIgnoredItems() {
       return `<div class="isl-669">
         <div class="isl-618"><code>${escHtml(r.kind || '*')}</code> → ${scope}
           <div class="meta-sm-nm">${meta}</div></div>
-        <button class="btn-secondary badge-sm" data-action="naSuppressRemove" data-arg="${escAttr(r.id)}">Remove</button>
+        <button class="btn-secondary btn-xs" data-action="naSuppressRemove" data-arg="${escAttr(r.id)}">Remove</button>
       </div>`;
     }).join('');
   }

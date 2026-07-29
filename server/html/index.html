@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-35">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.1-36">
 
 </head>
 <body>
@@ -4716,7 +4716,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                THIS page for". -->
 
           <div class="isl-103">
-            <div class="section-label">Page reference</div>
+            <div class="section-title">Page reference</div>
           </div>
 
           <details class="doc-card" data-keywords="devices home main fleet card density minimal compact list">
@@ -5533,20 +5533,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="ai-page-status" class="dash-card isl-107">
           <div class="isl-108">
             <div>
-              <div class="section-label">Provider</div>
+              <div class="stat-label">Provider</div>
               <div id="ai-page-stat-provider" class="isl-109">—</div>
               <div id="ai-page-stat-baseurl" class="isl-110">—</div>
             </div>
             <div>
-              <div class="section-label">Status</div>
+              <div class="stat-label">Status</div>
               <div id="ai-page-stat-status" class="isl-111">—</div>
             </div>
             <div>
-              <div class="section-label">Version</div>
+              <div class="stat-label">Version</div>
               <div id="ai-page-stat-version" class="isl-111">—</div>
             </div>
             <div class="isl-39">
-              <div class="section-label">Loaded models</div>
+              <div class="stat-label">Loaded models</div>
               <div id="ai-page-stat-loaded" class="isl-112 scroll-cap-sm">—</div>
             </div>
             <div>
@@ -5654,7 +5654,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
              values are never sent, stored, or hashed — see _ingest_pii_findings. -->
         <div class="settings-section mt-16 d-none" id="pii-card">
           <div class="row-8-center mb-8">
-            <div class="section-label">Regulated data (PII)</div>
+            <div class="section-title">Regulated data (PII)</div>
             <span id="pii-summary" class="ro-badge"></span>
             <button class="btn-secondary" data-action="piiScanNow"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Scan now</button>
           </div>
@@ -5665,7 +5665,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v3.4.2: CIS-style configuration baseline -->
         <div class="settings-section mt-16" id="cis-baseline-card">
           <div class="row-8-center mb-8">
-            <div class="section-label">Configuration baseline (CIS-style)</div>
+            <div class="section-title">Configuration baseline (CIS-style)</div>
             <span id="cis-score" class="ro-badge"></span>
             <button class="btn-secondary" data-action="loadComplianceBaseline"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
@@ -5677,7 +5677,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v3.4.2: OpenSCAP deep compliance scan -->
         <div class="settings-section mt-16" id="scap-card">
           <div class="row-8-center mb-8">
-            <div class="section-label">OpenSCAP scan (auditor-grade)</div>
+            <div class="section-title">OpenSCAP scan (auditor-grade)</div>
             <span id="scap-avg" class="ro-badge"></span>
             <button class="btn-secondary" data-action="loadScap"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
@@ -5699,7 +5699,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v3.4.2: fleet anomaly scan relocated here (Security). -->
         <div class="settings-section ai-tool-card mt-16">
           <div class="ai-tool-head">
-            <div class="section-label">Fleet anomaly scan</div>
+            <div class="section-title">Fleet anomaly scan</div>
             <button class="btn-secondary" data-action="aiAnomalyScan" id="ai-anomaly-btn">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
               Scan now
@@ -11002,38 +11002,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.1-35"></script>
+<script defer src="static/js/app.js?v=6.4.1-36"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-containers.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-network.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-containers.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-network.js?v=6.4.1-36"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.1-36"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-dns.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-drift.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-cve.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-backups.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-iac.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-virt.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-ai.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-dns.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-drift.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-cve.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-backups.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-iac.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-virt.js?v=6.4.1-36"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-logs.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-remote.js?v=6.4.1-35"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-logs.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-remote.js?v=6.4.1-36"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.1-36"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.1-35"></script>
+<script defer src="static/js/app-self.js?v=6.4.1-36"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11043,6 +11043,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.1-35"></script>
+<script defer src="static/js/sw-register.js?v=6.4.1-36"></script>
 </body>
 </html>

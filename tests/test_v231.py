@@ -9,6 +9,15 @@ Tests for v2.3.1 — Proxmox token secret hardening.
     2.3.1 a backup ZIP carried live credentials.
 """
 
+# v6.4.1: pin RP_DATA_DIR at module scope BEFORE api.py is exec'd — its
+# import-time ensure_default_user() writes to DATA_DIR, so without this the
+# module targets the REAL /var/lib/remotepower and, on a box where that is
+# writable, would overwrite a live install's admin user. These files only
+# passed because `unittest discover` happened to import a guarded module
+# first; run on their own they raised PermissionError (or worse, succeeded).
+import os as _rp_os, tempfile as _rp_tempfile
+_rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
+
 import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))

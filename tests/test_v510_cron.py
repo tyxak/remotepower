@@ -4,6 +4,15 @@ Crontab content is arbitrary shell, so the security guarantee is that it rides
 base64 to the agent and is installed via a temp file (`crontab -u <user> <file>`,
 argv — never a shell), while the user / timer-unit tokens are regex-pinned.
 """
+
+# v6.4.1: pin RP_DATA_DIR at module scope BEFORE api.py is exec'd — its
+# import-time ensure_default_user() writes to DATA_DIR, so without this the
+# module targets the REAL /var/lib/remotepower and, on a box where that is
+# writable, would overwrite a live install's admin user. These files only
+# passed because `unittest discover` happened to import a guarded module
+# first; run on their own they raised PermissionError (or worse, succeeded).
+import os as _rp_os, tempfile as _rp_tempfile
+_rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
 import base64
 import importlib.util
 import json

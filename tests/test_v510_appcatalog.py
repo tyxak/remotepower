@@ -4,6 +4,15 @@ The catalog is a curated static registry whose templates feed the existing,
 audited compose-stack deploy path. These tests pin the registry's integrity and
 the API wiring; the deploy itself reuses proven compose_deploy plumbing.
 """
+
+# v6.4.1: pin RP_DATA_DIR at module scope BEFORE api.py is exec'd — its
+# import-time ensure_default_user() writes to DATA_DIR, so without this the
+# module targets the REAL /var/lib/remotepower and, on a box where that is
+# writable, would overwrite a live install's admin user. These files only
+# passed because `unittest discover` happened to import a guarded module
+# first; run on their own they raised PermissionError (or worse, succeeded).
+import os as _rp_os, tempfile as _rp_tempfile
+_rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
 import importlib.util
 import unittest
 from pathlib import Path

@@ -1032,7 +1032,7 @@ function _advRenderFindings(r) {
         <span class="adv-rank">${i + 1}</span>
         <span class="sev-pill sev-${escAttr(g.severity)}">${escHtml(g.severity)}</span>
         <span class="patch-badge fs-11">${escHtml(g.layer)}</span>
-        <span class="adv-title">${escHtml(g.title)}</span>
+        <span class="section-title adv-title">${escHtml(g.title)}</span>
         <span class="adv-hosts hint">${g.device_count || 0} host${g.device_count === 1 ? '' : 's'}</span>
       </div>
       <div class="adv-why">${escHtml(g.why)}</div>

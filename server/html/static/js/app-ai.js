@@ -1626,8 +1626,8 @@ async function loadAiPrompts() {
           ${hasParams ? '<span class="isl-662">● tuned</span>' : ''}
         </div>
         <div class="row-6">
-          <button class="btn-secondary badge-sm" data-action-btn="_saveAiPromptBtn" data-key="${escAttr(p.key)}" >Save prompt</button>
-          <button class="btn-secondary badge-sm" data-action-btn="_resetAiPromptBtn" data-key="${escAttr(p.key)}" >Default</button>
+          <button class="btn-secondary btn-xs" data-action-btn="_saveAiPromptBtn" data-key="${escAttr(p.key)}" >Save prompt</button>
+          <button class="btn-secondary btn-xs" data-action-btn="_resetAiPromptBtn" data-key="${escAttr(p.key)}" >Default</button>
         </div>
       </div>
       <textarea class="form-input prompt-textarea isl-663"
@@ -1655,8 +1655,8 @@ async function loadAiPrompts() {
           </div>
         </div>
         <div class="isl-667">
-          <button class="btn-secondary badge-sm" data-action-btn="_saveAiParamsBtn" data-key="${escAttr(p.key)}" >Save tuning</button>
-          <button class="btn-secondary badge-sm" data-action-btn="_resetAiParamsBtn" data-key="${escAttr(p.key)}" >Reset tuning</button>
+          <button class="btn-secondary btn-xs" data-action-btn="_saveAiParamsBtn" data-key="${escAttr(p.key)}" >Save tuning</button>
+          <button class="btn-secondary btn-xs" data-action-btn="_resetAiParamsBtn" data-key="${escAttr(p.key)}" >Reset tuning</button>
         </div>
       </details>
     </div>`;

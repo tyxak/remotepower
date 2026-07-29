@@ -720,8 +720,8 @@ function _acmeRenderTable() {
         <td>${escHtml(r.device_name)}</td>
         <td colspan="6" class="hint">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
         <td><div class="row-4-center">
-          <button class="btn-icon badge-sm" title="Issue a new cert" data-action="acmeOpenIssue" data-arg="${escAttr(r.device_id)}" >+ Issue</button>
-          <button class="btn-icon badge-sm" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >Rescan</button>
+          <button class="btn-icon btn-xs" title="Issue a new cert" data-action="acmeOpenIssue" data-arg="${escAttr(r.device_id)}" >+ Issue</button>
+          <button class="btn-icon btn-xs" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >Rescan</button>
         </div></td>
       </tr>`;
     }
@@ -751,9 +751,9 @@ function _acmeRenderTable() {
       <td class="fs-12">${renewStr}</td>
       <td><span class="acme-pill ${pillCls}">${pillText}</span></td>
       <td data-stop-prop="1" class="nowrap">
-        <button class="btn-icon badge-xs" title="Force renew now"
+        <button class="btn-icon btn-xs" title="Force renew now"
                 data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >${_icon('refresh',14)}</button>
-        <button class="btn-icon badge-xs c-danger-outline" title="Revoke and remove"
+        <button class="btn-icon btn-xs c-danger-outline" title="Revoke and remove"
                 data-action="acmeRevoke" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >${_icon('trash',14)}</button>
       </td>
     </tr>`;

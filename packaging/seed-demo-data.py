@@ -173,6 +173,13 @@ FAKE_DEVICES = [
     {'id': 'vw01',  'name': 'vaultwarden.lab',   'os': 'Alpine 3.20',         'ip': '10.0.2.70', 'mac': '52:54:00:11:02:70', 'group': 'services','tags': ['secrets'],                  'agentless': False, 'connected_to': ['sw02']},
     {'id': 'pr01',  'name': 'prometheus.lab',    'os': 'Debian 12',           'ip': '10.0.2.80', 'mac': '52:54:00:11:02:80', 'group': 'monitoring','tags': ['metrics', 'grafana'],     'agentless': False, 'connected_to': ['sw02']},
     {'id': 'bk01',  'name': 'backup.lab',        'os': 'Debian 12',           'ip': '10.0.2.90', 'mac': '52:54:00:11:02:90', 'group': 'storage', 'tags': ['backup', 'restic'],         'agentless': False, 'connected_to': ['sw02']},
+    # v6.4.1: the demo had ZERO Windows and ZERO macOS hosts, so every
+    # cross-platform surface built over the last three releases — win_posture,
+    # mac_posture, the laptop signals (chassis/battery/uptime_seconds), launchd
+    # services — rendered empty in the demo even though the code shipped. One
+    # of each, and both are laptops so the chassis/battery path is exercised.
+    {'id': 'wks01', 'name': 'design-win11',      'os': 'Windows 11 Pro 24H2', 'ip': '10.0.3.10', 'mac': '52:54:00:11:03:10', 'group': 'workstations', 'tags': ['laptop', 'windows'], 'agentless': False, 'connected_to': ['sw02']},
+    {'id': 'mbp01', 'name': 'mette-macbook',     'os': 'macOS 15.2',          'ip': '10.0.3.20', 'mac': '52:54:00:11:03:20', 'group': 'workstations', 'tags': ['laptop', 'macos'],   'agentless': False, 'connected_to': ['ap02']},
 ]
 
 
@@ -303,6 +310,37 @@ def _demo_enrich_sysinfo(dev, rng, si):
     ports with world/lan/local scope, per-host storage/RAID health, and the
     firewall posture + drift fingerprint."""
     tags = dev.get('tags') or []
+    # ── v6.4.1: platform-specific posture + laptop signals ──
+    # The demo had no Windows or macOS host at all, so win_posture,
+    # mac_posture and the laptop signals rendered empty everywhere despite
+    # shipping. Field names and record shapes match what the agents send, so
+    # these exercise the real ingest/render path rather than a lookalike.
+    _os = (dev.get('os') or '').lower()
+    if 'windows' in _os:
+        si['win_posture'] = {
+            'tamper_protection': True, 'secure_boot': True,
+            'uac_enabled': True, 'pending_reboot': True,
+            'defender_realtime': True, 'firewall_enabled': True,
+            'bitlocker': 'on',
+        }
+    elif 'macos' in _os:
+        si['mac_posture'] = {
+            'filevault': True, 'firewall': True, 'gatekeeper': True,
+            'sip': True, 'auto_security_update': False,
+        }
+    if 'laptop' in tags:
+        # chassis drives the longer offline grace; battery drives the
+        # health alert, the drawer card and the hardware RAG line.
+        si['chassis'] = 'laptop'
+        _health = rng.choice([94, 88, 79, 72])
+        si['battery'] = [{
+            'name': 'InternalBattery',
+            'percent': rng.randint(38, 99),
+            'status': rng.choice(['Discharging', 'Charging', 'Full']),
+            'cycles': rng.randint(120, 780),
+            'health_pct': _health,
+        }]
+    si.setdefault('uptime_seconds', rng.randint(3600, 86400 * 40))
     # ── access watch: recent logins + distinct source IPs ──
     _users = rng.sample(['jmo', 'root', 'deploy', 'ansible', 'admin'],
                         k=rng.randint(1, 3))

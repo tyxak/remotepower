@@ -3918,6 +3918,12 @@
     // v6.4.1: device-drawer headers, promoted off the retired uppercase eyebrow.
     'Quick actions': { fr: 'Actions rapides', de: 'Schnellaktionen', zh: '快捷操作', hi: 'त्वरित कार्रवाइयाँ', es: 'Acciones rápidas', ar: 'إجراءات سريعة' },
     'Device settings': { fr: "Paramètres de l'appareil", de: 'Geräteeinstellungen', zh: '设备设置', hi: 'डिवाइस सेटिंग्स', es: 'Ajustes del dispositivo', ar: 'إعدادات الجهاز' },
+    // v6.4.1: card headers promoted off the retired .section-label idiom.
+    'Page reference': { fr: 'Référence de la page', de: 'Seitenreferenz', zh: '页面参考', hi: 'पृष्ठ संदर्भ', es: 'Referencia de la página', ar: 'مرجع الصفحة' },
+    'Regulated data (PII)': { fr: 'Données réglementées (PII)', de: 'Regulierte Daten (PII)', zh: '受监管数据（PII）', hi: 'विनियमित डेटा (PII)', es: 'Datos regulados (PII)', ar: 'بيانات خاضعة للتنظيم (PII)' },
+    'Configuration baseline (CIS-style)': { fr: 'Référence de configuration (style CIS)', de: 'Konfigurations-Baseline (CIS-Stil)', zh: '配置基线（CIS 风格）', hi: 'कॉन्फ़िगरेशन बेसलाइन (CIS-शैली)', es: 'Línea base de configuración (estilo CIS)', ar: 'خط أساس التهيئة (بأسلوب CIS)' },
+    'OpenSCAP scan (auditor-grade)': { fr: 'Analyse OpenSCAP (qualité audit)', de: 'OpenSCAP-Scan (Audit-Qualität)', zh: 'OpenSCAP 扫描（审计级）', hi: 'OpenSCAP स्कैन (ऑडिटर-स्तर)', es: 'Escaneo OpenSCAP (nivel auditoría)', ar: 'فحص OpenSCAP (بمستوى التدقيق)' },
+    'Fleet anomaly scan': { fr: "Analyse d'anomalies de la flotte", de: 'Flotten-Anomaliescan', zh: '设备群异常扫描', hi: 'फ्लीट विसंगति स्कैन', es: 'Escaneo de anomalías de la flota', ar: 'فحص شذوذ الأسطول' },
   };
 
   // v4.2: page-subtitle translations keyed by normalized English innerHTML

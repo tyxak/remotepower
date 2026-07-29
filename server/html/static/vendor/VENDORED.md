@@ -9,7 +9,7 @@ properly on the next update.
 | Directory | Library | Version | Upstream | Used by |
 |---|---|---|---|---|
 | `novnc/` | noVNC | 1.5.0 (see `novnc/VENDORED.md`) | https://github.com/novnc/noVNC | VNC console (device drawer) |
-| `swagger-ui/` | Swagger UI | 5.17.14 (`VERSION` string in `swagger-ui-bundle.min.js`) | https://github.com/swagger-api/swagger-ui | API Reference page |
+| `swagger-ui/` | Swagger UI | 5.32.6 (`VERSION` string in `swagger-ui-bundle.min.js`) | https://github.com/swagger-api/swagger-ui | API Reference page |
 | `qrcode-generator/` | qrcode-generator | unversioned bundle | https://github.com/kazuhikoarase/qrcode-generator | 2FA enrollment QR |
 | `xterm/` | xterm.js | 5.5.0 (`@xterm/xterm@5.5.0`) | https://github.com/xtermjs/xterm.js | Web terminal |
 | `xterm-addon-fit/` | xterm fit addon | 0.10.0 (`@0.10.0`) | https://github.com/xtermjs/xterm.js | Web terminal resize |

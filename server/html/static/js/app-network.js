@@ -1233,7 +1233,7 @@ function renderLinks() {
     const cards = items.map(l => _renderLinkCard(l)).join('');
     return `<div>
       <div class="isl-488">
-        <h3 class="isl-489">${escHtml(cat)}</h3>
+        <h3 class="section-title">${escHtml(cat)}</h3>
         <span class="isl-490">${items.length}</span>
         <div class="isl-491"></div>
       </div>
@@ -1263,7 +1263,7 @@ function _renderLinkCard(l) {
   // avoid accidentally opening the link while editing.
   const editButtons = _linksEditMode
     ? `<div class="isl-495">
-         <button class="btn-icon badge-xs" data-stop-prop="1" data-action="linkEditOpen" data-arg="${escAttr(l.id)}" >Edit</button>
+         <button class="btn-icon btn-xs" data-stop-prop="1" data-action="linkEditOpen" data-arg="${escAttr(l.id)}" >Edit</button>
          <button class="btn-icon isl-459" data-stop-prop="1" data-action="linkDelete" data-arg="${escAttr(l.id)}" data-arg2="${escAttr(l.title)}" >Delete</button>
        </div>`
     : '';
