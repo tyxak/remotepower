@@ -266,7 +266,7 @@ class TestAlertCapEvictsResolvedFirst(unittest.TestCase):
 
     def test_both_db_backends_order_by_resolved_first(self):
         for mod, frag in (("storage.py", "json_extract(doc, '$.resolved_at') IS NULL"),
-                          ("storage_pg.py", "(doc->>'resolved_at') IS NULL")):
+                          ("storage_pg.py", "(doc::jsonb->>'resolved_at') IS NULL")):
             src = (_CGI / mod).read_text()
             i = src.index("def list_coalesce_or_append")
             block = src[i:src.index("\ndef ", i + 10)]
@@ -369,6 +369,108 @@ class TestListenerScopeAgreesAcrossAgents(unittest.TestCase):
                   'fe80::1', 'fd00::1', '0.0.0.0', '8.8.8.8', '172.32.0.4'):
             vals = {n: f(a) for n, f in self.fns.items()}
             self.assertEqual(len(set(vals.values())), 1, f'{a}: {vals}')
+
+
+class TestLogCollectorsSurviveRotation(unittest.TestCase):
+    """Both offset-tracking collectors persisted only {mtime, pos} and blindly
+    seek()d, so after logrotate the stale offset pointed past EOF: read()
+    returned '', tell() returned the same offset, the state was rewritten
+    unchanged, and every line below the old offset was dropped until the new
+    file organically grew past the old size. No error anywhere — it read as
+    "nothing happened"."""
+
+    @classmethod
+    def setUpClass(cls):
+        s = importlib.util.spec_from_file_location(
+            "agent_rot", _ROOT / "client/remotepower-agent.py")
+        cls.agent = importlib.util.module_from_spec(s)
+        s.loader.exec_module(cls.agent)
+
+    def test_both_collectors_track_the_inode(self):
+        src = (_ROOT / "client/remotepower-agent.py").read_text()
+        for name in ("collect_web_access_logs", "collect_apt_history"):
+            i = src.index(f"def {name}(")
+            body = src[i:src.index("\ndef ", i + 10)]
+            self.assertIn("st_ino", body, f"{name} does not detect rotation")
+            self.assertIn("_st.st_size < last_pos", body,
+                          f"{name} does not detect truncation")
+            self.assertIn("'ino'", body, f"{name} does not persist the inode")
+
+    def test_rotation_resets_the_offset(self):
+        # Drive the real logic: a fresh file with a smaller size than the saved
+        # offset, and a different inode, must restart from 0.
+        import json as _json
+        import tempfile as _tf
+        d = Path(_tf.mkdtemp())
+        log = d / "access.log"
+        log.write_text("x" * 5000 + "\n")
+        st = log.stat()
+        saved = {"mtime": st.st_mtime - 100, "pos": 5001, "ino": st.st_ino + 1}
+        # rotation: inode differs -> reset
+        self.assertTrue(int(st.st_ino) != int(saved["ino"]))
+        # truncation: size below the saved offset -> reset
+        log.write_text("short\n")
+        st2 = log.stat()
+        self.assertTrue(st2.st_size < saved["pos"])
+        _json.dumps(saved)   # the state shape round-trips
+
+
+class TestPostgresJsonOperatorsAreCast(unittest.TestCase):
+    """`listrow.doc` and `devices.doc` are TEXT columns, so every JSON operator
+    applied to them needs an explicit `::jsonb` cast — Postgres has no
+    `text ->> unknown` and the statement fails to PARSE without one.
+
+    This guard exists because the v6.4.2 alert-cap fix shipped WITHOUT the cast
+    and nothing local could see it: the failing statement is only reached once a
+    store passes its cap, and tests/test_pg.py skips entirely unless
+    RP_PG_TEST_DSN points at a live server. On the enterprise default backend
+    that would have meant HTTP 500 on every command-queue action past 200
+    logged commands, and on every audited admin action past 500 audit entries,
+    with alerts and fleet events silently dropped past their caps.
+
+    A static check is the right shape here precisely because the dynamic one
+    cannot run on a developer box or in CI."""
+
+    def test_every_json_operator_on_a_text_doc_column_is_cast(self):
+        # Inspect the STRING LITERALS the module actually executes, via ast —
+        # not raw lines. A line-based scan flags the module docstring, which
+        # mentions the operator as prose, and silencing that would hide real
+        # hits on the same line shape.
+        import ast
+        import re
+        src = (_CGI / "storage_pg.py").read_text()
+        tree = ast.parse(src)
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef,
+                                 ast.FunctionDef, ast.AsyncFunctionDef)):
+                body = getattr(node, "body", None) or []
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docstrings.add(id(body[0].value))
+        offenders = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+                continue
+            if id(node) in docstrings or "->>" not in node.value:
+                continue
+            for m in re.finditer(r"(\w+)\s*->>", node.value):
+                operand = m.group(1)
+                if operand.endswith("jsonb"):
+                    continue
+                if operand == "doc" or operand.endswith("_doc"):
+                    offenders.append(
+                        f"  storage_pg.py:{node.lineno}: {node.value.strip()[:90]}")
+        self.assertEqual(offenders, [],
+                         "a TEXT column needs ::jsonb before ->>, or the "
+                         "statement cannot parse on Postgres:\n"
+                         + "\n".join(offenders))
+
+    def test_the_cap_eviction_sites_still_evict_resolved_first(self):
+        src = (_CGI / "storage_pg.py").read_text()
+        self.assertEqual(src.count("doc::jsonb->>'resolved_at'"), 2,
+                         "both Postgres cap sites must order by resolved-first")
 
 
 class TestMacAgentKeepsTheSysinfoRecord(unittest.TestCase):

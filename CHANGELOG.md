@@ -139,6 +139,31 @@ The site was fine in every case; the connector was not.
 
 ### Fixed: a wide feature sweep
 
+Fourth batch:
+
+- **REGRESSION FIX (introduced earlier in this same release).** The Postgres
+  half of the alert-cap fix wrote `doc->>'resolved_at'` against a TEXT column.
+  PostgreSQL has no `text ->> unknown` operator, so the statement could not
+  parse — and it is only reached once a store passes its cap, which makes it
+  invisible on a fresh install. On the enterprise default backend that would
+  have meant HTTP 500 on every command-queue action past 200 logged commands
+  and on every audited admin action past 500 audit entries, with new alerts and
+  fleet events silently dropped past their caps. Both sites now cast `::jsonb`,
+  like every other JSON access in that module. The Postgres cap test previously
+  seeded rows with no `resolved_at`, so every row sorted equal and the
+  expression was never evaluated even with a live server; it now seeds a mixed
+  set through both code paths, and a static guard that runs everywhere fails on
+  any uncast JSON operator against a TEXT column.
+- **Log collectors went blind after every rotation.** The web-access and
+  apt-history collectors persisted only a position and seeked to it, so once
+  logrotate replaced the file — or truncated it under copytruncate — the stale
+  offset pointed past the end: nothing was read, the position was rewritten
+  unchanged, and every line below it was dropped until the new file grew past
+  the old size, which on a quiet host is days. Access-log rules (auth failures,
+  5xx spikes, scanner probes) simply stopped firing after each nightly rotate,
+  with no error anywhere. Both now detect a changed inode or a shrunk file and
+  restart, which is what the general file-log collector has always done.
+
 Third batch:
 
 - **Scheduled work that could never fire.** There were THREE cron evaluators

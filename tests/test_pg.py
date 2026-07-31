@@ -111,6 +111,46 @@ class TestStoragePgBackend(unittest.TestCase):
         self.assertEqual([x['id'] for x in got['alerts']], ['a2', 'a3'])
         self.assertEqual([x['id'] for x in ov], ['a1'])
 
+    def test_cap_eviction_prefers_resolved_rows(self):
+        """v6.4.2: the cap must evict RESOLVED alerts before open ones, and the
+        ORDER BY that does it must actually PARSE on a real server.
+
+        `listrow.doc` is a TEXT column, so the JSON operator needs an explicit
+        `::jsonb` cast — Postgres has no `text ->> unknown`. The first version
+        of this fix omitted it, which fails at parse time and only on the
+        eviction path (n > cap), so it was invisible on a fresh install, to
+        `make test`, and to `make test-sqlite`. The previous cap test seeded
+        rows with NO `resolved_at`, so every row sorted equal and the
+        expression was never evaluated against a server at all. This seeds a
+        MIXED set past the cap so the operator is exercised for real."""
+        a = self._p('alerts.json')
+        self.S.save(a, {'alerts': []})
+        for i in range(3):
+            self.S.list_append(a, {'id': f'resolved{i}', 'resolved_at': 1000 + i})
+        for i in range(3):
+            self.S.list_append(a, {'id': f'open{i}', 'resolved_at': None})
+        # One over the cap: the victim must be a RESOLVED row, not the oldest.
+        ov = self.S.list_append(a, {'id': 'new', 'resolved_at': None}, cap=6)
+        kept = [x['id'] for x in self.S.load(a)['alerts']]
+        self.assertEqual([x['id'] for x in ov], ['resolved0'])
+        for i in range(3):
+            self.assertIn(f'open{i}', kept, 'an OPEN alert was evicted')
+        self.assertIn('new', kept)
+
+    def test_cap_eviction_parses_via_the_coalesce_path_too(self):
+        """The same ORDER BY lives in list_coalesce_or_append; exercise it so a
+        missing cast there cannot hide behind the append path's coverage."""
+        a = self._p('alerts2.json')
+        self.S.save(a, {'alerts': []})
+        for i in range(4):
+            self.S.list_coalesce_or_append(
+                a, lambda d: None, lambda m, i=i: {'id': f'r{i}', 'resolved_at': 1}, cap=10)
+        entry, coalesced, ov = self.S.list_coalesce_or_append(
+            a, lambda d: None, lambda m: {'id': 'z', 'resolved_at': None}, cap=3)
+        self.assertFalse(coalesced)
+        kept = [x['id'] for x in self.S.load(a)['alerts']]
+        self.assertIn('z', kept, 'the open row must survive the cap')
+
     def test_locked_update(self):
         c = self._p('config.json')
         self.S.save(c, {'v': 1})

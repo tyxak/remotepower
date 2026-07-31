@@ -1250,6 +1250,12 @@ def list_append_chained(path, build_entry, cap=None):
             n = c.execute('SELECT COUNT(*) AS ct FROM listrow WHERE file=%s',
                          (name,)).fetchone()['ct']
             if n > cap:
+                # NOTE: `doc` is a TEXT column, so the JSON operator needs an
+                # explicit ::jsonb cast — Postgres has no `text ->> unknown`
+                # and the statement fails to PARSE without it. Every other
+                # JSON access in this module casts the same way. It shipped
+                # uncast once (v6.4.2) and could not be caught locally,
+                # because tests/test_pg.py skips without a live server.
                 # v6.4.2: evict RESOLVED rows first. A bare `ORDER BY id`
                 # deleted the OLDEST rows whatever their state, so on a fleet
                 # that accumulates past the cap the still-OPEN alerts went and
@@ -1262,7 +1268,7 @@ def list_append_chained(path, build_entry, cap=None):
                 # every row then sorts equal and the order is `id`, as before.
                 old = c.execute(
                     'SELECT id, doc FROM listrow WHERE file=%s '
-                    "ORDER BY ((doc->>'resolved_at') IS NULL), id "
+                    "ORDER BY ((doc::jsonb->>'resolved_at') IS NULL), id "
                     'LIMIT %s',
                     (name, n - cap)).fetchall()
                 overflow = [json.loads(r['doc']) for r in old]
@@ -1324,13 +1330,19 @@ def list_coalesce_or_append(path, coalesce, build, cap=None):
             n = c.execute('SELECT COUNT(*) AS ct FROM listrow WHERE file=%s',
                           (name,)).fetchone()['ct']
             if n > cap:
+                # NOTE: `doc` is a TEXT column, so the JSON operator needs an
+                # explicit ::jsonb cast — Postgres has no `text ->> unknown`
+                # and the statement fails to PARSE without it. Every other
+                # JSON access in this module casts the same way. It shipped
+                # uncast once (v6.4.2) and could not be caught locally,
+                # because tests/test_pg.py skips without a live server.
                 # v6.4.2: evict RESOLVED rows first — see the note in
                 # storage.list_coalesce_or_append. Inert for list files with no
                 # `resolved_at`, where every row sorts equal and the order is
                 # `id`, exactly as before.
                 old = c.execute(
                     'SELECT id, doc FROM listrow WHERE file=%s '
-                    "ORDER BY ((doc->>'resolved_at') IS NULL), id "
+                    "ORDER BY ((doc::jsonb->>'resolved_at') IS NULL), id "
                     'LIMIT %s',
                     (name, n - cap)).fetchall()
                 overflow = [json.loads(r['doc']) for r in old]

@@ -4004,15 +4004,24 @@ def collect_apt_history(state_file):
     try:
         if not apt_log.exists():
             return []
-        mtime    = apt_log.stat().st_mtime
+        _st = apt_log.stat()
+        mtime    = _st.st_mtime
         last_mtime = last_pos = 0
+        saved_ino = 0
         if state_file.exists():
             try:
                 st = json.loads(state_file.read_text())
                 last_mtime = float(st.get('mtime', 0))
                 last_pos   = int(st.get('pos', 0))
+                saved_ino  = int(st.get('ino', 0) or 0)
             except Exception:
                 pass
+        # v6.4.2: rotation/truncation reset — same bug and same fix as
+        # collect_web_access_logs above. apt rotates history.log too, and an
+        # upgrade applied right after a rotation never reached the server.
+        if int(_st.st_ino) != saved_ino or _st.st_size < last_pos:
+            last_pos = 0
+            last_mtime = 0
         if mtime <= last_mtime:
             return []
         with apt_log.open('r', errors='replace') as f:
@@ -4028,7 +4037,8 @@ def collect_apt_history(state_file):
                     'unit': 'apt.history', 'level': 'info',
                 })
         try:
-            state_file.write_text(json.dumps({'mtime': mtime, 'pos': new_pos}))
+            state_file.write_text(json.dumps({'mtime': mtime, 'pos': new_pos,
+                                              'ino': int(_st.st_ino)}))
         except Exception:
             pass
     except Exception as e:
@@ -4476,12 +4486,30 @@ def collect_web_access_logs(state_dir):
             continue
         state_file = state_dir / f'{unit_name.replace(".", "_")}_state.json'
         try:
-            mtime    = log_path.stat().st_mtime
+            _st = log_path.stat()
+            mtime    = _st.st_mtime
             last_mtime = last_pos = 0
+            saved_ino = 0
             if state_file.exists():
                 st = json.loads(state_file.read_text())
                 last_mtime = float(st.get('mtime', 0))
                 last_pos   = int(st.get('pos', 0))
+                saved_ino  = int(st.get('ino', 0) or 0)
+            # v6.4.2: detect ROTATION and TRUNCATION. This persisted only
+            # {mtime, pos} and then blindly seek(last_pos), so once logrotate
+            # replaced the file (new inode, size 0) — or truncated it in place
+            # under copytruncate — the stale offset pointed past EOF: read()
+            # returned '', tell() returned that same offset, and the state was
+            # rewritten unchanged. Every line written below the old offset was
+            # dropped, and the collector stayed blind until the new file
+            # organically grew past the old size — days on a quiet host. So
+            # access-log log_watch rules (auth failures, 5xx spikes, scanner
+            # probes) stopped firing after every nightly rotate, with no error
+            # anywhere: it read as "nothing happened". collect_file_log() has
+            # handled this correctly since v5.0.0; this is the same check.
+            if int(_st.st_ino) != saved_ino or _st.st_size < last_pos:
+                last_pos = 0
+                last_mtime = 0
             if mtime <= last_mtime:
                 continue
             with log_path.open('r', errors='replace') as f:
@@ -4492,7 +4520,8 @@ def collect_web_access_logs(state_dir):
             if lines:
                 results[unit_name] = [l.strip() for l in lines if l.strip()]
             try:
-                state_file.write_text(json.dumps({'mtime': mtime, 'pos': new_pos}))
+                state_file.write_text(json.dumps({'mtime': mtime, 'pos': new_pos,
+                                                  'ino': int(_st.st_ino)}))
             except Exception:
                 pass
         except Exception as e:
