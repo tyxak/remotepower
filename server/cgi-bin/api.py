@@ -3239,8 +3239,14 @@ def _purge_old_data(cfg=None):
         if _is_audit:
             # v5.8.0: audit retention defaults to 90d when unset (preserves the
             # pre-v5.8.0 inline behaviour now that age-pruning lives here).
+            # v6.4.2: `or 90` cannot tell "unset" from an explicit 0, and 0
+            # is what the Settings hint offers as "disable age-based eviction".
+            # So an operator who asked for no age eviction still lost every
+            # audit entry older than 90 days — the exact opposite, and silent.
+            # The `if _ad > 0 else None` below always intended 0 to disable.
+            _raw = cfg.get(ckey)
             try:
-                _ad = int(cfg.get(ckey) or 90)
+                _ad = 90 if _raw in (None, '') else int(_raw)
             except (TypeError, ValueError):
                 _ad = 90
             cutoff = (int(time.time()) - _ad * 86400) if _ad > 0 else None
@@ -3338,7 +3344,17 @@ def _retention_sweep_if_due():
     if now - int(st.get('last', 0) or 0) < 86400:
         return
     cfg = load(CONFIG_FILE) or {}
-    if any(int(cfg.get(k) or 0) > 0 for k in _RETENTION_KEYS if k != 'audit_log_retention_days'):
+    # v6.4.2: audit retention used to be excluded from this "is anything
+    # configured?" test, so an install whose ONLY retention setting was
+    # audit_log_retention_days never armed the daily sweep and never pruned.
+    # It stays excluded from the >0 test (it has a 90-day DEFAULT, which must
+    # not arm the sweep on a stock install) but now arms when EXPLICITLY set —
+    # including to 0, which is harmless: _purge_old_data skips a 0 cutoff.
+    _armed = any(int(cfg.get(k) or 0) > 0
+                 for k in _RETENTION_KEYS if k != 'audit_log_retention_days')
+    if not _armed:
+        _armed = str(cfg.get('audit_log_retention_days', '')).strip() != ''
+    if _armed:
         _purge_old_data(cfg)
     st['last'] = now
     save(RETENTION_STATE_FILE, st)
@@ -8229,7 +8245,15 @@ def _alert_severity(event, payload):
         # an agent-reported 'warning' (e.g. log_errors, slightly stale job) → medium.
         return 'medium' if (p.get('status') == 'warning') else 'high'
     if event in ('log_alert', 'metric_warning'):
-        lvl = (p.get('level') or '').lower()
+        # v6.4.2: read `severity` as well as `level`. The log-alert engine fires
+        # with `severity` ('CRIT'/'WARN'), never `level` — so `lvl` was always ''
+        # and EVERY log rule, including a CRIT one, was filed as medium. Three
+        # things followed: the inbox row disagreed with the Needs-Attention card
+        # (_compute_attention reads the raw 'CRIT' and says critical), webhook
+        # min-priority filters dropped it, and _maybe_webpush pushes only
+        # high/critical — so a CRIT log rule never paged and never broke through
+        # quiet hours, which is the entire reason someone marks a rule CRIT.
+        lvl = (p.get('level') or p.get('severity') or '').lower()
         if lvl in ('critical', 'crit'):
             return 'critical'
         if lvl in ('high', 'error', 'err'):
@@ -8643,6 +8667,16 @@ _ALERT_IDENTITY_FIELDS = (
     # pool/process/iface above.
     'disk',
     'rule',
+    # v6.4.2: tls_expiry / ct_new_certificate / cert_file_expiring identify a
+    # CERTIFICATE, and their targets are not devices — so the identity was
+    # `(event, '', port)` and EVERY certificate expiring on :443 coalesced into
+    # one row. Renewing the first host then auto-resolved that row (tls_renewed
+    # matches on host+port against the stored payload, which held the first
+    # host), leaving the rest to expire with nothing in the inbox at all.
+    # The sub_match branch for the recovery already existed; this is the other
+    # half the v6.4.0 rule requires and it was missed because the events carry
+    # no device_id, which is what usually supplies the discrimination.
+    'host',
 )
 
 
@@ -13399,6 +13433,18 @@ def handle_smart_group(name):
     respond(200, {'name': name, 'evaluated_ts': g.get('evaluated_ts'),
                   'members': [{'id': did, 'name': (devices.get(did) or {}).get('name', did)}
                               for did in members]})
+
+
+# v6.4.2: a mount path we are willing to store. POSIX absolute, a Windows drive
+# root ("C:\\", "D:/") or a UNC share ("\\\\srv\\share") — the three shapes the
+# three agents actually report. The point is to reject relative or garbage
+# paths, not to reject Windows, which the POSIX-only startswith('/') did.
+_MOUNT_WIN_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _mount_path_ok(p):
+    return bool(p) and (p.startswith('/') or p.startswith('\\\\')
+                        or _MOUNT_WIN_RE.match(p) is not None)
 
 
 def _normalize_mac(raw):
@@ -18494,7 +18540,14 @@ def handle_heartbeat():
                     if not isinstance(m, dict):
                         continue
                     p = _sanitize_str(m.get('path', ''), 256)
-                    if not p or not p.startswith('/'):
+                    # v6.4.2: accept a Windows drive/UNC root too. The POSIX-only
+                    # test dropped EVERY mount a Windows agent reported ("C:\\",
+                    # "D:\\", "\\\\srv\\share"), so a Windows host stored an empty
+                    # mounts list — the Storage view, every per-mount disk check
+                    # and the disk-fill forecast were permanently blank, which
+                    # reads as "nothing wrong" rather than "no data". The check
+                    # exists to reject relative/garbage paths, and it still does.
+                    if not p or not _mount_path_ok(p):
                         continue
                     is_net = bool(m.get('network'))
                     stalled = bool(m.get('stalled'))
@@ -19050,6 +19103,20 @@ def handle_heartbeat():
                         safe_si[_f] = _copy.deepcopy(_prev_full[_f])
                     else:
                         _delta_resend.append(_f)
+            # v6.4.2: a PARTIAL sysinfo merges over the stored record instead of
+            # replacing it. An agent that reports a fast-cadence signal (macOS
+            # sends custom-check results every beat, while full sysinfo rides a
+            # 12-beat cadence) otherwise had to choose between delivering the
+            # signal and keeping the record — and silently chose to wipe it,
+            # emptying the drawer, the Checks page, the metrics history and the
+            # disk-fill forecast between cadence beats. Merging is safe: both
+            # sides are already sanitised, and the flag can only preserve values
+            # this device previously sent, never introduce new ones. The next
+            # cadence beat is a full replace, so nothing goes stale forever.
+            if body.get('sysinfo_partial') and isinstance(dev.get('sysinfo'), dict):
+                _merged = dict(dev['sysinfo'])
+                _merged.update(safe_si)
+                safe_si = _merged
             dev['sysinfo'] = safe_si
             # Cache the sanitised sysinfo for the post-lock consumers (port
             # audit, v3.4.0 daily metrics sampler). Without this, the
@@ -41468,7 +41535,14 @@ def _ingest_hardware(dev_id, dev_name, body, now):
         # into critical is what _ups_shutdown_dependents keys off of.
         _ups_cfg = _config_ro()
         batt_thr = int(_ups_cfg.get('ups_critical_battery_pct', 20) or 20)
-        runtime_thr = int(_ups_cfg.get('ups_critical_runtime_s', 180) or 180)
+        # v6.4.2: `or 180` cannot tell "unset" from an explicit 0, and the
+        # Settings label offers 0 as "off" — so switching the runtime trigger
+        # off silently re-armed it at the 180s default and kept paging.
+        _rt_raw = _ups_cfg.get('ups_critical_runtime_s')
+        try:
+            runtime_thr = 180 if _rt_raw in (None, '') else int(_rt_raw)
+        except (TypeError, ValueError):
+            runtime_thr = 180
 
         def _crit(u):
             if not _ob(u):
@@ -43747,6 +43821,15 @@ def _compute_attention():
         for tid, t in tls_targets.items():
             r = tls_results.get(tid) or {}
             if not r:
+                continue
+            # v6.4.2: a FAILED probe carries no expires_at, and
+            # days_until_expiry returns 0 for that — indistinguishable from
+            # "expires today", so an unreachable host raised a CRITICAL
+            # "Certificate EXPIRED" about a certificate nobody had looked at.
+            # Unreachability is its own signal (the target's status is `error`);
+            # it is not evidence about the certificate. Same fix as the alert
+            # path in tls_ct_handlers._tls_expiry_crossings.
+            if r.get('status') == 'error' or not r.get('expires_at'):
                 continue
             days = _tls_mod.days_until_expiry(r)
             host = t.get('host', tid)

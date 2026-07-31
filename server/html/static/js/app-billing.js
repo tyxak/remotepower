@@ -260,9 +260,19 @@ async function renderTicketHours(tid) {
   const list = rows.length ? rows.map(e => {
     const b = e.billable ? '<span class="patch-badge warn fs-11">billable</span>' : '<span class="patch-badge ok fs-11">internal</span>';
     const lock = e.locked ? ` <span class="meta-sm-nm" title="On an issued invoice — locked">${_bIcon('lock', 12)}</span>` : '';
+    // v6.4.2: escHtml, NOT escAttr, for a value that is READ BACK and parsed.
+    // escAttr emits JS-string escapes (`'` -> the four characters \x27), and the
+    // browser does not decode those when the attribute is read from dataset —
+    // so any entry whose note contained an apostrophe reached editTimeEntry as
+    // invalid JSON, hit its catch arm, and opened the Edit dialog populated with
+    // DEFAULTS (hours 1, today's date, not billable, empty note) while still in
+    // edit mode. Pressing Save then overwrote the real entry with those. escHtml
+    // emits real HTML entities, which the browser decodes on the way back.
+    // (encodeURIComponent has already removed everything that could break out of
+    // the attribute; this is belt-and-braces that happens to round-trip.)
     const ej = encodeURIComponent(JSON.stringify(e));
     const actions = e.locked ? '' :
-      `<button class="btn-icon cell-sm" data-action="editTimeEntry" data-arg="${escAttr(e.id)}" data-arg2="${escAttr(ej)}" title="Edit">${_bIcon('edit', 13)}</button>
+      `<button class="btn-icon cell-sm" data-action="editTimeEntry" data-arg="${escAttr(e.id)}" data-arg2="${escHtml(ej)}" title="Edit">${_bIcon('edit', 13)}</button>
        <button class="btn-icon cell-sm c-danger-outline" data-action="deleteTimeEntry" data-arg="${escAttr(e.id)}" data-arg2="${escAttr(tid)}" title="Delete">${_bIcon('trash', 13)}</button>`;
     return `<div class="row-6 tk-hours-row"><span class="fw-600">${_bHours(e.hours)}h</span> ${b}
       <span class="meta-sm-nm">${escHtml(e.user || '')} · ${escHtml(e.date || '')}${e.note ? ' · ' + escHtml(e.note) : ''}</span>${lock}

@@ -137,6 +137,55 @@ The site was fine in every case; the connector was not.
   connector returns the 5 most recent it finds while scanning a bounded window
   of the login channel. Reworded to what it does.
 
+### Fixed: a wide feature sweep
+
+Nine parallel hunts across the feature surface, each required to supply a
+runnable reproduction; all 36 findings reproduced when re-run independently.
+Ten are fixed here — the rest are recorded with their reproductions.
+
+- **Every expiring certificate on one port was a single alert.** `tls_expiry`
+  targets are not devices, so an alert's identity was `(event, '', port)` and
+  every certificate expiring on :443 coalesced into ONE inbox row. Renewing the
+  first host then auto-resolved that row and the rest expired with nothing in
+  the inbox at all. `host` is an identity field now.
+- **A macOS host with a custom check assigned lost its record 11 beats in 12.**
+  Check results are reported every beat by design, but the server replaces
+  `sysinfo` wholesale — so the one-key dict wiped uptime, platform, kernel,
+  mounts, listening ports and every percentage between cadence beats. The
+  host's Checks page collapsed from 14 rows to 2, so a filling disk or an
+  exposed port reported nothing wrong ~92% of the time. A partial beat is
+  flagged and merged now, keeping both properties.
+- **An unreachable host reported CRITICAL "Certificate EXPIRED".** A failed
+  probe carries no expiry and the day count returned 0 for that, which is
+  indistinguishable from "expires today". Fixed in both the alert path and
+  needs-attention; unreachability is already its own signal.
+- **Every mount on a Windows host was dropped at ingest** — the sanitiser
+  required a leading `/`, so the storage view, every per-mount disk check and
+  the disk-fill forecast were permanently empty, which reads as healthy.
+- **Every CRIT log rule was filed as medium.** The log engine fires with
+  `severity`, the severity resolver read `level` — so a CRIT rule disagreed
+  with its own needs-attention card, was dropped by min-priority filters, and
+  never reached web push or broke through quiet hours.
+- **Agentless hosts reported a load average of 0.0 for any load below 1.00.**
+  The remote probe parsed `uptime` with `awk -F,`, which splits on the decimal
+  separator in most of Europe. It reads `/proc/loadavg` under a pinned C locale
+  now, so the agentless CPU check can actually leave "ok".
+- **Three settings offered "0 = off" and ignored it.** The UPS critical-runtime
+  trigger and audit-log retention both used `int(cfg.get(k) or <default>)`,
+  which cannot tell an explicit 0 from unset — switching them off silently
+  restored the default. Audit retention also never armed the daily sweep unless
+  some *other* retention key happened to be set.
+- **A hostname was silently rewritten, not rejected.** `db_primary` was enrolled
+  as `dbprimary`; underscores are forbidden by RFC-1123 and ubiquitous in
+  practice. Every join on the hostname then failed against the machine's real
+  name — including the EDR coverage cross-reference, which reported a protected
+  host as uncovered. A false "unprotected" is what teaches an operator to stop
+  reading that list.
+- **Editing a time entry whose note contained an apostrophe destroyed it.** The
+  entry was round-tripped through an attribute using JS-string escaping, so it
+  came back as invalid JSON, the dialog opened populated with defaults, and
+  saving overwrote the real entry with them.
+
 ### Fixed
 
 - **Cross-tenant leak on Monitoring → Tuning.** The noisy-events timeline on that

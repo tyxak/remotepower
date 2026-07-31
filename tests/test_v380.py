@@ -177,14 +177,24 @@ class TestV380Bind(unittest.TestCase):
         self.assertIn("['Boot reason', data?.last_boot_reason", APP)
 
     def test_failed_units_and_logged_in_persisted(self):
-        # The sanitiser must now copy failed_units + logged_in into safe_si,
-        # else the Fleet Query filter / cis-failed check / drawer stay dead.
-        # v6.2.2: window widened 1200 → 2400 — the delta-sysinfo merge block now
-        # sits between these writes and the assignment (the FLEET_EVENTS
-        # source-window class from CLAUDE.md).
-        seg = API[API.index("dev['sysinfo'] = safe_si") - 2400:API.index("dev['sysinfo'] = safe_si")]
-        self.assertIn("safe_si['failed_units']", seg)
-        self.assertIn("safe_si['logged_in']", seg)
+        # The sanitiser must copy failed_units + logged_in into safe_si, else
+        # the Fleet Query filter / cis-failed check / drawer stay dead.
+        #
+        # v6.4.2: migrated OFF the fixed-size source window. It had already been
+        # widened once (1200 → 2400) when the delta-sysinfo merge landed between
+        # these writes and the assignment, and the partial-sysinfo merge pushed
+        # it out again — widening a third time only defers the next false
+        # failure. The invariant here is ORDER, not distance: each write must
+        # happen before the record is assigned. That is what this asserts now,
+        # and no future insertion between them can break it. (CLAUDE.md: use
+        # srcpin, never a fixed [i:i+N] window.)
+        import srcpin
+        body = srcpin.py_function(API, 'handle_heartbeat')
+        assign = body.index("dev['sysinfo'] = safe_si")
+        for key in ("safe_si['failed_units']", "safe_si['logged_in']"):
+            self.assertIn(key, body, f'{key} is no longer written by the sanitiser')
+            self.assertLess(body.index(key), assign,
+                            f"{key} must be written before dev['sysinfo'] is assigned")
 
     def test_failed_units_and_logged_in_rendered(self):
         self.assertIn("['Logged in', (si.logged_in", APP)

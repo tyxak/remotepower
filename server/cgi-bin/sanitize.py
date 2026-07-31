@@ -36,10 +36,25 @@ def _sanitize_str(value, max_len, allow_empty=True):
 
 
 def _sanitize_hostname(h):
-    """RFC-1123 hostname: letters, digits, hyphens, dots. Max 253 chars."""
+    """A hostname safe to store and render. Max 253 chars.
+
+    v6.4.2: UNDERSCORES ARE KEPT. RFC-1123 forbids them, but Windows/AD boxes,
+    docker-compose service names and homelab hosts use them constantly, and this
+    function does not reject what it dislikes — it silently REWRITES it. A host
+    calling itself `db_primary` was enrolled as `dbprimary`, and every later join
+    on the hostname then failed against the machine's real name. The one that
+    matters is the EDR coverage cross-reference (`_edr_covered_map`), which
+    compares our stored hostname against the name the EDR itself reports: the
+    host came back `covered: false` while it was in fact protected. A false
+    "unprotected" is what trains an operator to stop reading that list.
+
+    The strip stays for genuinely unsafe characters — whitespace, quotes, path
+    separators, control characters — because this value is stored, logged and
+    rendered. Non-ASCII is still dropped: an IDN hostname belongs on the wire as
+    punycode, and accepting raw UTF-8 here would make two spellings of the same
+    host look like two hosts."""
     h = _sanitize_str(h, MAX_HOSTNAME_LEN)
-    # Strip anything that isn't hostname-safe
-    h = re.sub(r'[^a-zA-Z0-9.\-]', '', h)
+    h = re.sub(r'[^a-zA-Z0-9._\-]', '', h)
     return h[:MAX_HOSTNAME_LEN] or 'unknown'
 
 

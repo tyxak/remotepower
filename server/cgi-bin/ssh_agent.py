@@ -27,15 +27,27 @@ import tempfile
 # One remote snippet that prints a JSON sysinfo blob — portable across Linux and
 # macOS/BSD (falls back gracefully when a tool is missing).
 SYSINFO_SCRIPT = r'''
+export LC_ALL=C LANG=C
 os=$(uname -sr 2>/dev/null)
 host=$(hostname 2>/dev/null)
 up=$(uptime 2>/dev/null | sed 's/.*up //' | sed 's/,.*load.*//')
 mem=$( (free 2>/dev/null | awk '/Mem:/{printf "%.0f", $3/$2*100}') || echo "")
 disk=$(df -P / 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $5}')
-load=$(uptime 2>/dev/null | sed 's/.*load average[s]*: //' | awk -F, '{print $1}' | tr -d ' ')
+load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null)
+if [ -z "$load" ]; then
+  load=$(uptime 2>/dev/null | sed 's/.*load average[s]*: //' | awk -F, '{print $1}' | tr -d ' ')
+fi
 printf '{"os":"%s","hostname":"%s","uptime":"%s","mem_percent":"%s","disk_percent":"%s","loadavg_1m":"%s"}\n' \
   "$os" "$host" "$up" "$mem" "$disk" "$load"
 '''.strip()
+# v6.4.2: the load average was parsed with `awk -F,` off `uptime`, which splits
+# on the COMMA — and in every locale that uses a comma as the decimal separator
+# (de/fr/da/es/… — most of Europe) `uptime` prints "load average: 0,87, 0,54",
+# so $1 was "0" and the fractional part was thrown away. Every load below 1.00
+# arrived as 0.0, and the agentless CPU-load check could never leave "ok".
+# Two belts: force the C locale so the separator is a dot, and prefer
+# /proc/loadavg, which is locale-independent by construction. The uptime path
+# stays as the fallback for macOS/BSD, where /proc does not exist.
 
 
 def build_ssh_argv(host, user, port, key_path, command, connect_timeout=10):

@@ -2051,11 +2051,24 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     # health signal, so the sysinfo cadence would be too slow) and reported
     # under sysinfo, which is where the server's Checks engine reads them —
     # so a beat that carries results must carry a sysinfo dict to put them in.
+    #
+    # v6.4.2: that dict is a PARTIAL update, and it must say so. The server's
+    # ingest replaces dev['sysinfo'] wholesale, so an unflagged one-key dict
+    # wiped the stored record — uptime, platform, kernel, mounts,
+    # listening_ports, network, every cpu/mem/disk percentage — on 11 of every
+    # 12 beats for any Mac with a check assigned. The host's Checks page
+    # collapsed from 14 rows to 2, so a filling disk or a world-exposed port
+    # reported nothing wrong ~92% of the time. `sysinfo_partial` tells the
+    # server to merge over the previous record instead of replacing it, which
+    # keeps BOTH properties: results every beat, and a complete record.
     if _watched_agent_checks:
         try:
             results = eval_agent_checks(_watched_agent_checks)
             if results:
+                _full = 'sysinfo' in payload
                 payload.setdefault('sysinfo', {})['custom_check_results'] = results
+                if not _full:
+                    payload['sysinfo_partial'] = True
         except Exception:
             pass
     # v6.4.1: config-drift report on the sysinfo cadence (hashing is the

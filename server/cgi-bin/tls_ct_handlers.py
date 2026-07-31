@@ -268,6 +268,15 @@ def _tls_expiry_crossings(target, prev, cur):
     _gc = A._config_ro()
     warn = int(target.get('warn_days', _gc.get('tls_warn_days', A.TLS_DEFAULT_WARN_DAYS)))
     crit = int(target.get('crit_days', _gc.get('tls_crit_days', A.TLS_DEFAULT_CRIT_DAYS)))
+    # v6.4.2: a probe that FAILED carries no expiry, and days_until_expiry
+    # returns 0 for "no expires_at" — which is indistinguishable from "expires
+    # today". So a host that was merely unreachable (DNS blip, firewall, service
+    # restart) fired a CRITICAL "Certificate EXPIRED" and raised a critical
+    # Needs-Attention item about a certificate that is very probably fine. An
+    # unreachable target is a REACHABILITY fact and the monitor already reports
+    # it as `status: error`; it is not evidence about the certificate.
+    if not cur or cur.get('status') == 'error' or not cur.get('expires_at'):
+        return []
     days      = tls_monitor.days_until_expiry(cur)
     prev_days = tls_monitor.days_until_expiry(prev) if prev else 9999
     host = target.get('host', '?')

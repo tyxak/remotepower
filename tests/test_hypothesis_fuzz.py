@@ -128,9 +128,18 @@ class TestSanitizersNeverCrash(unittest.TestCase):
 
     @given(_scalar)
     def test_sanitize_hostname_is_rfc1123_ish(self, v):
+        # v6.4.2: the charset gained '_'. RFC-1123 forbids it, but this function
+        # does not reject what it dislikes — it silently REWRITES it, and a host
+        # calling itself `db_primary` was stored as `dbprimary`, which broke
+        # every join on the hostname (the EDR coverage cross-reference then
+        # reported a protected host as uncovered). An underscore is inert
+        # everywhere this value goes, so widening the set by exactly one
+        # character is safe; the guarantee this property exists for — no
+        # quote/angle/slash/space/control characters reach storage or the DOM —
+        # is unchanged.
         out = sanitize._sanitize_hostname(v)
         self.assertIsInstance(out, str)
-        self.assertRegex(out, r'^[a-zA-Z0-9.\-]*$')
+        self.assertRegex(out, r'^[a-zA-Z0-9._\-]*$')
 
     @given(_scalar)
     def test_sanitize_ip_valid_or_empty(self, v):
