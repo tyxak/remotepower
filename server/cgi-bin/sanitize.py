@@ -6,6 +6,7 @@ regexes they need. Behaviour is byte-for-byte what lived inline in api.py;
 `_sanitize_monitor_target` deliberately stays in api.py because it reads config
 (load(CONFIG_FILE)) and so isn't a pure leaf.
 """
+import ipaddress
 import re
 
 # Input size limits used by the sanitisers below.
@@ -43,12 +44,37 @@ def _sanitize_hostname(h):
 
 
 def _sanitize_ip(ip):
+    """A validated IP address, or '' — never a partially-trusted string.
+
+    v6.4.2: validated with `ipaddress` FIRST, falling back to the old regex.
+    That regex's IPv6 branch matched only the fully-expanded eight-group form,
+    so every address anyone actually writes — `2001:db8::1`, `::1`, an
+    IPv4-mapped `::ffff:192.0.2.1` — was silently blanked. Nothing logged it;
+    the address simply vanished. It reached the audit log's `source_ip`, device
+    create/update, the interface and gateway inventory, and the WordPress login
+    list, so on an IPv6 network those fields were quietly empty.
+
+    The regex is kept as a FALLBACK rather than replaced, deliberately: it
+    accepts a few things `ipaddress` rejects (leading-zero octets like
+    `192.168.001.1`, which Python treats as ambiguous), and blanking a device
+    IP that has worked for years would be a worse bug than the one being fixed.
+    So this only ever accepts MORE than before.
+
+    The value is returned as written, not normalised — callers store and
+    compare it, and rewriting `2001:0db8::1` under them is not this function's
+    decision to make."""
     if not ip:
         return ''
-    ip = str(ip).strip()[:MAX_IP_LEN]
-    if _IP_RE.match(ip):
-        return ip
-    return ''
+    s = str(ip).strip()[:MAX_IP_LEN]
+    # A zone/scope id ("fe80::1%eth0") is interface-local metadata rather than
+    # part of the address — drop the suffix, keep the address.
+    addr = s.split('%', 1)[0]
+    try:
+        ipaddress.ip_address(addr)
+        return addr
+    except ValueError:
+        pass
+    return s if _IP_RE.match(s) else ''
 
 
 def _sanitize_mac(mac):

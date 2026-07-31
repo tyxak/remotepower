@@ -64,6 +64,79 @@ toast instead of any logs.
   same container-id validation as the Linux agent. **Update** (pull and recreate)
   is deliberately not implemented there and refuses with a message saying so.
 
+### Fixed: the WordPress integration reporting "invalid JSON" on healthy sites
+
+A bug hunt on the WordPress connector, prompted by JSON errors from the field.
+The site was fine in every case; the connector was not.
+
+- **The REST index was too big to read, so we cut it in half and blamed the
+  site.** The connector fetched the unfiltered `/wp-json/` index, which
+  enumerates every registered route with its full schema — routinely several
+  megabytes on a site running WooCommerce, Yoast or Elementor. The transport
+  reads a bounded 2 MB, so the body arrived truncated mid-object and the
+  operator was told their JSON was invalid. It now asks for the four keys it
+  actually reads (`_fields`), which turns a multi-megabyte fetch into a few
+  hundred bytes.
+- **Truncation is now reported as truncation.** The transport reads one byte
+  past its budget so it can tell "this is the whole response" from "there was
+  more". Any connector hitting the cap now says so — this affects large
+  Kubernetes and OpenShift responses too, which had the same silent failure.
+- **`invalid JSON` was the answer to every question.** That one string covered
+  an HTML login page, a WAF interstitial, an empty body, a truncated read and
+  genuinely broken JSON — none of which it named. Each now reports its own
+  cause and what to do about it.
+- **A PHP notice no longer breaks monitoring.** A theme or plugin emitting a
+  warning prepends it to every REST response. The JSON after it is valid and the
+  site is healthy, so RemotePower reads past a short prefix (and a BOM) instead
+  of turning somebody else's cosmetic warning into "your monitoring is broken".
+- **Plain permalinks work.** With permalinks set to *Plain* there is no
+  `/wp-json/` path at all — the REST root is only reachable as `?rest_route=/`.
+  That was a permanent, unexplained 404 for those installs; both forms are tried
+  now.
+- **A non-dict JSON body crashed the parser.** `x = get_json(...) or {}` does
+  not coerce a truthy non-dict, so a bare JSON list or string reached `.get()`
+  and the operator was shown `AttributeError: 'list' object has no attribute
+  'get'`. (The same idiom appears at 18 other connector call sites; they are
+  unchanged here because several legitimately expect a list, and a blanket
+  sweep is how that gets broken.)
+- **A `null` body was reported healthy.** It produced a green "site up" tile for
+  something that was never confirmed to be WordPress at all.
+- **"Credentials rejected" was blamed for everything.** A 404, an HTML login
+  page and a genuinely wrong password all said "check the Application
+  password". They are now told apart — including the common case where a
+  CGI/FastCGI host strips the `Authorization` header before PHP sees it, where
+  the password is perfectly correct and that advice sends the operator to the
+  wrong place.
+- **Application password spaces are stripped.** WordPress displays the password
+  in space-separated groups and ignores the spaces itself; pasting it verbatim
+  was reported as a wrong password.
+- **Every login timestamp was zero.** `date_gmt` was parsed only in MySQL's
+  space-separated form, but WP core's REST layer serialises ISO-8601 with a
+  `T` — so the table showed `—` for every row and `logins_24h` was permanently
+  0, which is indistinguishable from a quiet site. Both forms parse now.
+- The credentials-rejected path returns `recent_logins` like the success path
+  does, so a consumer reading that key cannot trip over the asymmetry.
+- **Every IPv6 address was silently blanked, everywhere.** The shared IP
+  sanitiser's pattern matched only the fully-expanded eight-group form, so
+  `2001:db8::1`, `::1` and an IPv4-mapped `::ffff:192.0.2.1` all became empty
+  strings with nothing logged. Found via the WordPress login table — where the
+  row read `admin | — | Denmark (DK)`, an IP-less login with a country, which
+  looks like corruption — but the same helper guards the audit log's source IP,
+  device create/update, the interface inventory and the gateway, so an IPv6
+  network's addresses quietly vanished from all of them. Validation now goes
+  through `ipaddress`, with the old pattern kept as a fallback so nothing that
+  was accepted before is rejected now.
+- **`logins_24h` could never exceed 5.** The scan stopped as soon as it had five
+  rows to display, so on a site with real traffic the metric was a constant. It
+  counts across the whole scanned window now, while the table still shows five.
+- **The Integrations page kept showing WordPress logins after the feature was
+  switched off.** The `show_homelab` early return replaced the tile grid but
+  never touched the sibling panels, so the login table — remote usernames and
+  source IPs — stayed on screen for the life of the tab.
+- Documentation and the in-app card said "the last 5 successful logins"; the
+  connector returns the 5 most recent it finds while scanning a bounded window
+  of the login channel. Reworded to what it does.
+
 ### Fixed
 
 - **Cross-tenant leak on Monitoring → Tuning.** The noisy-events timeline on that

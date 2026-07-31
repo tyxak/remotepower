@@ -23030,18 +23030,32 @@ class _SSRFIntegrationClient(integrations_mod.HTTPClient):
         req = urllib.request.Request(url, data=body, method=method)
         for k, v in (headers or {}).items():
             req.add_header(k, v)
+        _cap = integrations_mod.MAX_RESPONSE_BYTES
         try:
             with self._opener.open(req, timeout=self._timeout) as resp:
-                text = resp.read(2 * 1024 * 1024).decode('utf-8', 'replace')
-                return integrations_mod.Resp(resp.status, text, dict(resp.headers))
+                # v6.4.2: read ONE byte past the cap so we can tell "this is the
+                # whole response" from "there was more and we cut it". Reading
+                # exactly the cap and saying nothing is how a healthy endpoint
+                # with a large response (the WordPress REST index is routinely
+                # multi-megabyte) became a permanent "invalid JSON" — the body
+                # was fine until we truncated it mid-object.
+                raw = resp.read(_cap + 1)
+                truncated = len(raw) > _cap
+                text = raw[:_cap].decode('utf-8', 'replace')
+                return integrations_mod.Resp(resp.status, text, dict(resp.headers),
+                                             truncated=truncated)
         except urllib.error.HTTPError as e:
             # HTTP errors (401/403/409/…) are normal control flow for some
             # connectors (Transmission's 409 handshake), so return them.
             try:
-                text = e.read(512 * 1024).decode('utf-8', 'replace')
+                _ecap = 512 * 1024
+                _raw = e.read(_ecap + 1)
+                _trunc = len(_raw) > _ecap
+                text = _raw[:_ecap].decode('utf-8', 'replace')
             except Exception:
-                text = ''
-            return integrations_mod.Resp(e.code, text, dict(e.headers or {}))
+                text, _trunc = '', False
+            return integrations_mod.Resp(e.code, text, dict(e.headers or {}),
+                                         truncated=_trunc)
         except integrations_mod.IntegrationError:
             raise
         except Exception as e:

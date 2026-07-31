@@ -38,23 +38,108 @@ class IntegrationError(Exception):
     """Any failure reaching/parsing a target — caught by the poller → 'critical'."""
 
 
-class Resp:
-    __slots__ = ("status", "text", "headers")
+# v6.4.2: the transport's per-response read budget, declared HERE so the cap and
+# the message that explains hitting it cannot drift apart (api.py's
+# _SSRFIntegrationClient reads it). 2 MB is generous for an API response and
+# still bounds a hostile or misconfigured endpoint.
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
-    def __init__(self, status, text, headers=None):
+
+class Resp:
+    __slots__ = ("status", "text", "headers", "truncated")
+
+    def __init__(self, status, text, headers=None, truncated=False):
         self.status = int(status)
         self.text = text or ""
         self.headers = headers or {}
+        # v6.4.2: the transport read a bounded number of bytes and there was
+        # more. Without this the operator gets "invalid JSON" for a response
+        # that was perfectly valid until we cut it in half.
+        self.truncated = bool(truncated)
 
     @property
     def ok(self):
         return 200 <= self.status < 300
 
+    def _content_type(self):
+        for k, v in (self.headers or {}).items():
+            if str(k).lower() == "content-type":
+                return str(v).lower()
+        return ""
+
+    def _why_not_json(self):
+        """The most specific true statement we can make about a body that would
+        not parse.
+
+        v6.4.2: this used to be the single string "invalid JSON (HTTP 200)" for
+        every cause, which is the one thing the operator cannot act on — it
+        describes our parser's opinion rather than what the server sent. Each
+        branch below is a distinct real-world cause with a distinct fix."""
+        if self.truncated:
+            return (
+                f"response too large to parse (over {MAX_RESPONSE_BYTES // (1024 * 1024)} MB) "
+                "— ask the endpoint for fewer fields"
+            )
+        body = self.text.strip()
+        if not body:
+            return f"HTTP {self.status} with an empty body"
+        ctype = self._content_type()
+        head = body[:200].lower()
+        if head.startswith(("<!doctype", "<html", "<?xml")) or "text/html" in ctype:
+            return (
+                f"HTTP {self.status} returned HTML, not JSON — check the URL points at "
+                "the app root, and that a login page or WAF is not intercepting it"
+            )
+        # A JSON document with junk in front of it: PHP notices, a BOM, or debug
+        # output from a plugin. The document itself is usually fine.
+        if _find_json_start(body) > 0:
+            return (
+                f"HTTP {self.status} sent output before its JSON (a PHP notice or "
+                "debug output?) and the remainder did not parse either"
+            )
+        return f"invalid JSON (HTTP {self.status})"
+
     def json(self):
         try:
             return json.loads(self.text)
         except Exception:
-            raise IntegrationError(f"invalid JSON (HTTP {self.status})")
+            pass
+        # v6.4.2: salvage a JSON document that has junk in front of it. A
+        # WordPress install whose theme or plugin emits a PHP notice prepends it
+        # to every REST response; the JSON after it is valid and the site is
+        # healthy. Refusing to parse it turns somebody else's cosmetic warning
+        # into "your monitoring is broken". Bounded: only a short prefix, and
+        # only when the remainder parses cleanly on its own.
+        start = _find_json_start(self.text)
+        if 0 < start <= _MAX_JSON_PREFIX_JUNK:
+            try:
+                return json.loads(self.text[start:])
+            except Exception:
+                pass
+        raise IntegrationError(self._why_not_json())
+
+
+# How much leading junk we will step over to find the real document. Generous
+# enough for a stack of PHP notices, small enough that we are not scanning an
+# HTML page hunting for a stray brace.
+_MAX_JSON_PREFIX_JUNK = 4096
+
+
+def _find_json_start(text):
+    """Index of the first plausible JSON document start, or 0/-1.
+
+    Returns 0 when the body already starts with one (nothing to skip) and -1
+    when there is no `{`/`[` at all."""
+    if not text:
+        return -1
+    stripped = text.lstrip("﻿ \t\r\n")
+    lead = len(text) - len(stripped)
+    if stripped[:1] in ("{", "["):
+        return lead if lead else 0
+    for i, ch in enumerate(text):
+        if ch in "{[":
+            return i
+    return -1
 
 
 class HTTPClient:
@@ -1683,15 +1768,44 @@ def _homebridge(inst, c):
 
 
 def _wp_ts(s):
-    """Parse a Simple History GMT timestamp ('YYYY-MM-DD HH:MM:SS') → epoch.
-    0 when unparseable — the UI renders that as '—' rather than 1970."""
+    """Parse a Simple History GMT timestamp → epoch. 0 when unparseable (the UI
+    renders that as '—' rather than 1970).
+
+    v6.4.2: accept ISO-8601 as well as the MySQL-style 'YYYY-MM-DD HH:MM:SS'.
+    WP core's REST layer serialises dates as '2026-07-23T09:15:00' and Simple
+    History's own format has varied across majors — parsing only the space form
+    meant every login silently timestamped 0, so the table showed '—' for all of
+    them AND `logins_24h` was permanently 0. A metric that is always zero looks
+    exactly like a quiet site."""
     import calendar
     import time as _time
 
-    try:
-        return int(calendar.timegm(_time.strptime(str(s).strip(), "%Y-%m-%d %H:%M:%S")))
-    except (TypeError, ValueError):
+    raw = str(s or "").strip()
+    if not raw:
         return 0
+    # Drop a trailing timezone marker — these are documented GMT either way, and
+    # strptime cannot take '%z' consistently across the forms seen in the wild.
+    if raw.endswith("Z"):
+        raw = raw[:-1]
+    raw = raw.replace("T", " ", 1)
+    if "." in raw:  # fractional seconds
+        raw = raw.split(".", 1)[0]
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return int(calendar.timegm(_time.strptime(raw, fmt)))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+# How many logins we keep. Bounds what a remote (possibly compromised) site can
+# push into our state store; api.py's read-whitelist trims to 5 again for display.
+_WP_LOGIN_CAP = 5
+# How many log entries we scan per poll. The channel carries failed logins,
+# logouts and password resets as well as successful ones, so a small page can
+# contain no logins at all on a busy site — 25 was enough to show five rows and
+# not enough to count a day.
+_WP_EVENT_PAGE = 100
 
 
 def _wp_login_event(e):
@@ -1727,6 +1841,47 @@ def _wp_login_event(e):
     return {"user": user, "ip": ip[:64], "ts": _wp_ts(e.get("date_gmt") or e.get("date"))}
 
 
+def _wp_rest_root(c):
+    """The site's REST index as a dict — the one fetch every WordPress poll makes.
+
+    Two things stop this being a plain GET, and both produced "invalid JSON" on
+    sites that were perfectly healthy:
+
+    - **`_fields` is not an optimisation, it is the fix.** The unfiltered index
+      enumerates every registered route with its full schema; on a site with
+      WooCommerce/Yoast/Elementor it runs to megabytes, past the transport's
+      read budget. The body then arrived cut off mid-object and the operator was
+      told their JSON was invalid. We read four keys, so we ask for four keys.
+    - **Plain permalinks have no `/wp-json/` path at all** — the REST root is
+      only reachable as `?rest_route=/`. That is a default on some installs, so
+      "404" was a permanent and unexplained failure for those operators.
+    """
+    fields = {"_fields": "name,description,url,home,namespaces"}
+    r = c.get("/wp-json/", params=fields)
+    if r.status == 404:
+        alt = c.get("/", params={"rest_route": "/", **fields})
+        if alt.ok:
+            r = alt
+    if not r.ok:
+        hint = ""
+        if r.status in (401, 403):
+            hint = (
+                " — the REST API is refusing anonymous requests "
+                "(a security plugin or host rule?)"
+            )
+        elif r.status == 404:
+            hint = (
+                " — no REST API at /wp-json/ or ?rest_route=/; check the URL "
+                "is the site root and that the REST API is not disabled"
+            )
+        raise IntegrationError(f"HTTP {r.status} from the WordPress REST API{hint}")
+    root = r.json()
+    # `or {}` does NOT coerce a truthy non-dict: a bare JSON list or string
+    # sailed through it and AttributeError'd on the next line, surfacing to the
+    # operator as "AttributeError: 'list' object has no attribute 'get'".
+    return root if isinstance(root, dict) else {}
+
+
 @_register(
     "wordpress",
     "WordPress",
@@ -1744,48 +1899,117 @@ def _wp_login_event(e):
     "unavailable.",
 )
 def _wordpress(inst, c):
-    root = c.get_json("/wp-json/") or {}
+    root = _wp_rest_root(c)
     site = str(root.get("name") or "").strip()
+    # A 200 that is JSON but carries none of the index's keys is not a WordPress
+    # REST root — reporting it OK ("site up") would be a green tile for
+    # something we never actually reached. Tested by PRESENCE, not truthiness:
+    # a site with an empty title is perfectly legitimate and must stay green.
+    if not any(k in root for k in ("name", "namespaces", "url", "home", "description")):
+        return {
+            "status": WARN,
+            "detail": "reachable, but the response is not a WordPress REST index "
+            "— check the URL points at the site root",
+            "metrics": {},
+        }
     h = {}
     user, pw = inst.get("username") or "", inst.get("secret") or ""
     authed = False
     if user and pw:
-        h["Authorization"] = "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
+        # An Application password is generated with spaces for readability
+        # ("abcd EFGH ijkl ..."); WordPress strips them before comparing, and an
+        # operator who pastes it verbatim would otherwise be told, correctly but
+        # uselessly, that their correct password was rejected.
+        h["Authorization"] = (
+            "Basic " + base64.b64encode(f"{user}:{pw.replace(' ', '')}".encode()).decode()
+        )
+        why = ""
         try:
-            me = c.get_json("/wp-json/wp/v2/users/me", headers=h)
-            authed = bool(isinstance(me, dict) and me.get("id"))
-        except IntegrationError:
-            authed = False
+            me_r = c.get("/wp-json/wp/v2/users/me", headers=h)
+            if me_r.status in (401, 403):
+                # Distinguish the two causes, because the fix is different and
+                # "check the Application password" is actively wrong for the
+                # second one. Many CGI/FastCGI hosts drop the Authorization
+                # header before PHP ever sees it, so the credentials are never
+                # presented at all — WordPress then reports "not logged in".
+                code = ""
+                try:
+                    b = me_r.json()
+                    code = str(b.get("code") or "") if isinstance(b, dict) else ""
+                except IntegrationError:
+                    code = ""
+                why = (
+                    " — credentials rejected (check the Application password, and "
+                    "that the site is served over HTTPS)"
+                    if code
+                    in (
+                        "incorrect_password",
+                        "invalid_username",
+                        "rest_application_password_disabled",
+                    )
+                    else " — the site did not accept the login (WordPress said "
+                    f"{code or 'nothing specific'}). Some hosts strip the "
+                    "Authorization header before PHP sees it; check that "
+                    "Application Passwords are enabled and reaching the site"
+                )
+            elif me_r.ok:
+                me = me_r.json()
+                authed = bool(isinstance(me, dict) and me.get("id"))
+                if not authed:
+                    why = " — signed in but the site returned no user identity"
+            else:
+                why = f" — HTTP {me_r.status} from the users endpoint"
+        except IntegrationError as e:
+            why = f" — {e}"
         if not authed:
             return {
                 "status": WARN,
-                "detail": f"{site or 'site up'} — credentials rejected "
-                "(check the Application password)",
+                "detail": f"{site or 'site up'}{why}",
                 "metrics": {},
+                # Symmetric with the success return: a consumer that reads
+                # recent_logins must see an empty list, not a missing key.
+                "recent_logins": [],
             }
     logins = []
     logins_available = False
+    logins_24h = 0
+    page_full = False
     if authed:
         try:
             ev = c.get_json(
                 "/wp-json/simple-history/v1/events",
                 headers=h,
-                params={"per_page": 25, "loggers": "SimpleUserLogger"},
+                params={"per_page": _WP_EVENT_PAGE, "loggers": "SimpleUserLogger"},
             )
+            # Simple History has returned both a bare list and {data: [...]}
+            # across its majors; tolerate either, and anything else means the
+            # plugin is not there rather than that we should crash.
             rows = ev.get("data") if isinstance(ev, dict) else ev
             if isinstance(rows, list):
                 logins_available = True
-                for e in rows:
-                    le = _wp_login_event(e)
-                    if le:
+                import time as _t0
+
+                _day_ago = int(_t0.time()) - 86400
+                for row in rows:
+                    le = _wp_login_event(row)
+                    if not le:
+                        continue
+                    # Count EVERY login in the window, but only keep the newest
+                    # few for display. The old loop broke out of the scan once
+                    # it had five to show, so `logins_24h` was structurally
+                    # incapable of exceeding 5 — on a site with real traffic the
+                    # metric was a constant, and a constant is not a metric.
+                    if le["ts"] >= _day_ago:
+                        logins_24h += 1
+                    if len(logins) < _WP_LOGIN_CAP:
                         logins.append(le)
-                    if len(logins) >= 5:
-                        break
+                # The SimpleUserLogger channel carries failed logins, logouts and
+                # password resets too, so a page of it can contain few or no
+                # successful logins. Say when the window was full rather than
+                # implying the count is complete.
+                page_full = len(rows) >= _WP_EVENT_PAGE
         except IntegrationError:
             logins_available = False
-    import time as _time
-
-    day_ago = int(_time.time()) - 86400
     detail = site or "site up"
     if logins_available:
         detail += f" — {len(logins)} recent login(s)"
@@ -1794,10 +2018,12 @@ def _wordpress(inst, c):
     return {
         "status": OK,
         "detail": detail,
-        "metrics": (
-            {"logins_24h": sum(1 for x in logins if x["ts"] >= day_ago)} if logins_available else {}
-        ),
+        "metrics": ({"logins_24h": logins_24h} if logins_available else {}),
         "recent_logins": logins,
+        # Honest about the scan window: the count is "logins seen in the last
+        # <page> log entries", which equals the true 24h count only when we
+        # reached the end of that window.
+        "logins_window_full": bool(page_full),
     }
 
 

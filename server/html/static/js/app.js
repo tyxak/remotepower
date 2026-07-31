@@ -12230,6 +12230,11 @@ async function loadIntegrationsPage() {
     if (data && data.show_homelab === false) {
       wrap.innerHTML = '<div class="empty-state">Homelab software integrations are hidden on this instance (Settings → Integrations → Show Homelab software).</div>';
       if (sum) sum.textContent = '';
+      // v6.4.2: the sibling panels live OUTSIDE `wrap`, so returning here left
+      // them on screen — the page announced that integrations were hidden while
+      // still showing the WordPress login table (remote usernames and source
+      // IPs) and the DNS block lists underneath it, for the life of the tab.
+      _clearIntegrationSidePanels();
       return;
     }
     const insts = (data && data.integrations) || [];
@@ -12270,6 +12275,16 @@ async function loadIntegrationsPage() {
 // 4,000 times" is a decision, "23%" is trivia. Both connectors already had to call
 // the stats endpoint for the headline number; the top-N lists come from the same
 // response (AdGuard) or one extra cheap call (Pi-hole).
+// v6.4.2: the two integration side panels are siblings of the tile grid, so any
+// early return in loadIntegrationsPage has to clear them explicitly or they keep
+// showing the last poll's data — including remote usernames and source IPs.
+function _clearIntegrationSidePanels() {
+  for (const id of ['dns-block-panels', 'wp-login-panels']) {
+    const el = document.getElementById(id);
+    if (el) { el.innerHTML = ''; el.classList.add('d-none'); }
+  }
+}
+
 function _renderDnsBlockPanels(items, dnsCtl) {
   const wrap = document.getElementById('dns-block-panels');
   if (!wrap) return;

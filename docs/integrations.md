@@ -99,6 +99,24 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 - **OctoPrint** reports a disconnected printer as a *warning* (OctoPrint itself
   is still up), and only unreachability as critical. **ESPHome** warns when a
   node's deployed firmware is behind the dashboard's current version.
+- **WordPress** needs the URL to be the **site root** (`https://blog.example`,
+  not `/wp-admin` and not the REST path). Without credentials it reports REST
+  reachability and the site title; add a username and an **Application
+  password** (Users → Profile → Application Passwords, WordPress 5.6+) and it
+  also lists the last logins from the free **Simple History** plugin. Paste the
+  password exactly as WordPress shows it — the spaces are stripped for you.
+  Things that make it report a problem, and what each means:
+
+  | What you see | What it means |
+  |---|---|
+  | `HTTP 404 … no REST API at /wp-json/ or ?rest_route=/` | The URL is not a WordPress site root, or the REST API is disabled by a plugin. Both forms are tried, so permalinks set to *Plain* are fine. |
+  | `returned HTML, not JSON` | Something answered instead of WordPress — a login wall, a "checking your browser" interstitial, or a parked domain. |
+  | `refusing anonymous requests` | A security plugin or host rule blocks the REST API for logged-out callers. |
+  | `the site did not accept the login … Authorization header` | The credentials never reached PHP. Many CGI/FastCGI hosts drop the `Authorization` header; the fix is a host/`.htaccess` rule, not a new password. |
+  | `credentials rejected` | WordPress genuinely rejected them. Application Passwords also require HTTPS. |
+  | `sent output before its JSON` | A theme or plugin is emitting a PHP notice. RemotePower reads past it, so this only appears when the rest failed to parse too. |
+  | `login history unavailable` | The site is healthy; Simple History just isn't installed. |
+
 - **GitHub Issues** watches repositories for **newly opened issues** rather than
   service health. URL is the API root (`https://api.github.com`, or your GitHub
   Enterprise `/api/v3` root); list repos as `owner/repo, owner/repo` (up to 10);
