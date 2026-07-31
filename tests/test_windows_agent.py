@@ -235,7 +235,19 @@ class TestParityCollectors(unittest.TestCase):
         self.assertEqual(agent._port_scope('8.8.8.8'), 'world')
         self.assertEqual(agent._port_scope('127.0.0.1'), 'local')
         self.assertEqual(agent._port_scope('::1'), 'local')
-        self.assertEqual(agent._port_scope(''), 'local')
+        # v6.4.2: an address we cannot classify is now 'world', matching the
+        # Linux agent's documented fail-loud ("an exposure we can't classify is
+        # treated as the riskier case"). The previous 'local' was not a reasoned
+        # choice — it fell out of `if not ip or ip in (...)` being written as one
+        # condition — and it points the wrong way for a security signal: it
+        # silently calls an unknown bind safe. The caller CAN pass '' (it does
+        # `getattr(laddr, 'ip', '') or ''`), so the direction matters.
+        self.assertEqual(agent._port_scope(''), 'world')
+        # v6.4.2 parity: 127.0.0.0/8 aliases and the IPv4-mapped forms a
+        # dual-stack socket reports through psutil are loopback, not world.
+        self.assertEqual(agent._port_scope('127.0.0.2'), 'local')
+        self.assertEqual(agent._port_scope('::ffff:127.0.0.1'), 'local')
+        self.assertEqual(agent._port_scope('::ffff:192.168.1.5'), 'lan')
         self.assertEqual(agent._port_scope('192.168.1.10'), 'lan')
         self.assertEqual(agent._port_scope('10.0.0.5'), 'lan')
         self.assertEqual(agent._port_scope('172.16.5.5'), 'lan')

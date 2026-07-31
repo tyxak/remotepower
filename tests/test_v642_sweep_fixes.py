@@ -273,6 +273,104 @@ class TestAlertCapEvictsResolvedFirst(unittest.TestCase):
             self.assertIn(frag, block, f"{mod} still evicts oldest-overall")
 
 
+class TestCronScheduleActuallyFires(unittest.TestCase):
+    """There were TWO cron matchers with different capabilities, and both
+    ACCEPTED what they could not evaluate — so a schedule saved through a
+    validator that allows ranges simply never fired. A maintenance window of
+    `0 22 * * 1-5` suppressed nothing, and with gate_exec on it held every exec
+    and upgrade for its devices forever, waiting for a window that never opened."""
+
+    def _fires_in(self, cron, year=2026, hour=3):
+        import datetime
+        n, d = 0, __import__('datetime').datetime(year, 1, 1, hour, 0)
+        while d.year == year:
+            if api._cron_matches(cron, d.timestamp()):
+                n += 1
+            d += datetime.timedelta(days=1)
+        return n
+
+    def test_sunday_is_both_0_and_7(self):
+        # Every crontab accepts 7 for Sunday; the value is normalised to 0..6,
+        # so `int('7') == 0` was False and the schedule matched nothing at all.
+        self.assertEqual(self._fires_in('0 3 * * 0'), 52)
+        self.assertEqual(self._fires_in('0 3 * * 7'), 52)
+
+    def test_ranges_fire(self):
+        self.assertEqual(self._fires_in('0 3 * * 1-5'), 261)   # weekdays 2026
+        self.assertEqual(self._fires_in('0 3 * * 6-7'), 104)   # Sat + Sun
+
+    def test_a_step_anchors_at_the_field_minimum(self):
+        # `*/3` on months meant "month % 3 == 0" -> Mar/Jun/Sep/Dec. A quarterly
+        # schedule is Jan/Apr/Jul/Oct.
+        import datetime
+        months = [m for m in range(1, 13)
+                  if api._cron_matches('0 3 1 */3 *',
+                                       datetime.datetime(2026, m, 1, 3, 0).timestamp())]
+        self.assertEqual(months, [1, 4, 7, 10])
+
+    def test_both_matchers_are_the_same_one(self):
+        for spec, val, lo, hi, want in (
+                ('1-5', 3, 0, 6, True), ('1-5', 6, 0, 6, False),
+                ('*/15', 30, 0, 59, True), ('*/15', 31, 0, 59, False),
+                ('5/15', 35, 0, 59, True), ('1,15', 15, 1, 31, True),
+                ('10-20/5', 20, 0, 59, True), ('10-20/5', 18, 0, 59, False)):
+            self.assertEqual(api._cron_field_match(spec, val, lo, hi), want,
+                             f'{spec} vs {val}')
+
+    def test_a_maintenance_window_with_a_range_is_active(self):
+        import datetime
+        # Wednesday 22:30 — inside `0 22 * * 1-5` + 60 minutes.
+        wed = datetime.datetime(2026, 8, 5, 22, 30)
+        self.assertEqual(wed.isoweekday(), 3)
+        win = {'cron': '0 22 * * 1-5', 'duration': 3600}
+        self.assertTrue(api._window_active(win, wed.timestamp()),
+                        'the range form must suppress exactly like the list form')
+
+
+class TestListenerScopeAgreesAcrossAgents(unittest.TestCase):
+    """The Windows and macOS scope classifiers were string-prefix copies whose
+    loopback test was an exact three-value tuple with a `world` catch-all — so a
+    service bound to 127.0.0.2, or reported as `::ffff:127.0.0.1` by a
+    dual-stack socket (which is what psutil hands back), raised a HIGH
+    port_exposed_world alert. The server does not recompute the scope."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fns = {}
+        for name, path, fn in (
+                ('linux', 'client/remotepower-agent.py', '_sock_scope'),
+                ('win', 'client/remotepower-agent-win.py', '_port_scope'),
+                ('mac', 'client/remotepower-agent-mac.py', '_port_scope')):
+            s = importlib.util.spec_from_file_location('scope_' + name, _ROOT / path)
+            m = importlib.util.module_from_spec(s)
+            s.loader.exec_module(m)
+            cls.fns[name] = getattr(m, fn)
+
+    def test_loopback_aliases_and_mapped_addresses_are_local(self):
+        for a in ('127.0.0.1', '127.0.0.2', '127.0.1.1', '::1',
+                  '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1'):
+            for name, fn in self.fns.items():
+                self.assertEqual(fn(a), 'local', f'{name} classified {a}')
+
+    def test_mapped_rfc1918_is_lan_not_world(self):
+        for a in ('::ffff:192.168.1.5', '192.168.1.5', '10.0.0.9', '172.20.0.4'):
+            for name, fn in self.fns.items():
+                self.assertEqual(fn(a), 'lan', f'{name} classified {a}')
+
+    def test_genuinely_exposed_stays_world(self):
+        # Including the unparseable case: an exposure we cannot classify must
+        # fail loud, not quietly become 'local'.
+        for a in ('0.0.0.0', '::', '8.8.8.8', '172.32.0.4', 'garbage', ''):
+            for name, fn in self.fns.items():
+                self.assertEqual(fn(a), 'world', f'{name} classified {a!r}')
+
+    def test_all_three_agents_agree(self):
+        for a in ('127.0.0.2', '::ffff:127.0.0.1', '::ffff:192.168.1.5',
+                  'fe80::1', 'fd00::1', '0.0.0.0', '8.8.8.8', '172.32.0.4'):
+            vals = {n: f(a) for n, f in self.fns.items()}
+            self.assertEqual(len(set(vals.values())), 1, f'{a}: {vals}')
+
+
 class TestMacAgentKeepsTheSysinfoRecord(unittest.TestCase):
     """The macOS agent attached custom-check results to a beat with no sysinfo.
     The server REPLACES dev['sysinfo'] wholesale, so that one-key dict wiped the

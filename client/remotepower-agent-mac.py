@@ -383,21 +383,52 @@ def _fmt_uptime(secs):
 
 def _port_scope(ip):
     """Classify a bind address into world / lan / local — matches the server's
-    exposure buckets so macOS listeners render like Linux/Windows ones. Pure."""
-    if not ip or ip in ('127.0.0.1', '::1', 'localhost'):
-        return 'local'
-    if ip in ('0.0.0.0', '::'):
-        return 'world'
-    if ip.startswith(('10.', '192.168.', '169.254.', 'fe80:', 'fc', 'fd')):
-        return 'lan'
-    if ip.startswith('172.'):
-        try:
-            if 16 <= int(ip.split('.')[1]) <= 31:
-                return 'lan'
-        except (ValueError, IndexError):
-            pass
-    return 'world'
+    exposure buckets so listeners render like Linux/Windows ones. Pure.
 
+    v6.4.2: was a string-prefix copy whose loopback test was the exact tuple
+    ('127.0.0.1', '::1', 'localhost') with a `return 'world'` catch-all, so it
+    reported as WORLD-EXPOSED:
+      * 127.0.0.2, 127.0.1.1 and every other 127.0.0.0/8 alias;
+      * `::ffff:127.0.0.1` and `::ffff:<RFC1918>` — the exact form a dual-stack
+        AF_INET6 socket bound to an IPv4 address reports through psutil, which
+        is what this agent uses to enumerate listeners;
+      * `0:0:0:0:0:0:0:1`, the uncompressed IPv6 loopback.
+    The server does not recompute the scope, so each of those raised a HIGH
+    `port_exposed_world` alert for a service bound to localhost. Now the same
+    `ipaddress` logic the Linux agent has always used, with the old prefix walk
+    kept only as the ImportError fallback. 'world' stays the default for an
+    address we cannot parse — an exposure we cannot classify is the riskier
+    case and should fail loud."""
+    a = (ip or '').strip().strip('[]')
+    if not a or a in ('0.0.0.0', '::', '*'):
+        return 'world'
+    if a == 'localhost':
+        return 'local'
+    try:
+        import ipaddress
+        addr = ipaddress.ip_address(a)
+        # A dual-stack socket reports an IPv4 bind as ::ffff:a.b.c.d; classify
+        # the address it actually represents, not the mapping.
+        mapped = getattr(addr, 'ipv4_mapped', None)
+        if mapped is not None:
+            addr = mapped
+        if addr.is_loopback:
+            return 'local'
+        if addr.is_private or addr.is_link_local:
+            return 'lan'
+        return 'world'
+    except (ValueError, ImportError):
+        if a.startswith('127.') or a == '::1':
+            return 'local'
+        if a.startswith(('10.', '192.168.', '169.254.', 'fe80:', 'fc', 'fd')):
+            return 'lan'
+        if a.startswith('172.'):
+            try:
+                if 16 <= int(a.split('.')[1]) <= 31:
+                    return 'lan'
+            except (ValueError, IndexError):
+                pass
+        return 'world'
 
 def collect_listening_ports():
     """LISTEN sockets via psutil. Returns the same shape the Linux/Windows agents

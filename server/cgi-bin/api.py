@@ -31602,15 +31602,17 @@ def _cron_matches(cron, ts):
     if len(parts) != 5: return False
     minute, hour, dom, month, dow = parts
     dt = datetime.datetime.fromtimestamp(ts)
-    def _match(field, val):
-        if field == '*': return True
-        if field.startswith('*/'):
-            try: return val % int(field[2:]) == 0
-            except (ValueError, ZeroDivisionError): return False
-        try: return int(field) == val
-        except ValueError: return False
-    return (_match(minute, dt.minute) and _match(hour, dt.hour) and
-            _match(dom, dt.day) and _match(month, dt.month) and _match(dow, dt.isoweekday() % 7))
+    # v6.4.2: one shared field matcher (see _cron_field_match) instead of a
+    # second, weaker inline one. Each field gets its real bounds so a `*/N`
+    # step anchors at the field minimum rather than 0.
+    _dow_val = dt.isoweekday() % 7        # 0 = Sunday
+    return (_cron_field_match(minute, dt.minute, 0, 59) and
+            _cron_field_match(hour, dt.hour, 0, 23) and
+            _cron_field_match(dom, dt.day, 1, 31) and
+            _cron_field_match(month, dt.month, 1, 12) and
+            # Sunday is BOTH 0 and 7 in every crontab; accept either spelling.
+            (_cron_field_match(dow, _dow_val, 0, 6)
+             or (_dow_val == 0 and _cron_field_match(dow, 7, 0, 7))))
 
 
 # ── Scheduled-command whitelist (ONE source of truth) ──────────────────────
@@ -60108,42 +60110,75 @@ def handle_gitops_sync():
 # ─── v1.8.0: Maintenance windows ───────────────────────────────────────────────
 
 def _cron_match(expr, ts):
-    """
-    Very small cron evaluator — 5 fields, no ranges like 1-5, no `@reboot`.
-    Supports *, */N, a,b,c, single integers. Matches the minute containing `ts`.
-    """
-    parts = (expr or '').split()
-    if len(parts) != 5:
+    """Does this 5-field cron expression match the minute containing `ts`?
+
+    v6.4.2: delegates to `_cron_matches` — this was a THIRD cron evaluator whose
+    own docstring admitted "no ranges like 1-5" while the maintenance-window
+    validator happily accepted them, so a window of `0 22 * * 1-5` suppressed
+    nothing and (with gate_exec on) held every exec and upgrade for its devices
+    forever, waiting for a window that could never open. It also passed the
+    default 0..59 bounds for every field, which mis-anchors a `*/N` step on
+    months and days. Three evaluators with three different ideas of what a
+    schedule means is how that kept happening; there is one now."""
+    return _cron_matches(expr, ts)
+
+
+def _cron_field_match(spec, value, lo=0, hi=59):
+    """One cron field against one value. Handles `*`, `a`, `a,b`, `a-b`, `*/N`,
+    `a-b/N` and `a/N`.
+
+    v6.4.2: there were TWO cron matchers with DIFFERENT capabilities — this one
+    understood comma lists but not ranges, and `_cron_matches` understood
+    neither. Both accepted what they could not evaluate, so a schedule saved
+    through a validator that allows ranges simply never fired:
+
+      * a maintenance window of `0 22 * * 1-5` (weeknights — the form the AI
+        assistant emits) suppressed nothing, and with gate_exec on it held every
+        exec and upgrade for its devices forever, because the window it was
+        waiting for never opened;
+      * `*/N` anchored the step at 0 rather than the field minimum, so a
+        quarterly `0 3 1 */3 *` ran in Mar/Jun/Sep/Dec instead of
+        Jan/Apr/Jul/Oct;
+      * `dow=7` (Sunday, which every crontab accepts) matched nothing at all,
+        because the value is normalised to 0..6 and `int('7') == 0` is False.
+
+    One implementation now, used by both, so the two cannot drift again."""
+    spec = str(spec or '').strip()
+    if not spec:
         return False
-    tm = time.localtime(ts)
-    # cron weekday: 0=Sun..6=Sat; Python tm_wday: 0=Mon..6=Sun. Convert.
-    cron_wday = (tm.tm_wday + 1) % 7
-    values = (tm.tm_min, tm.tm_hour, tm.tm_mday, tm.tm_mon, cron_wday)
-    for spec, v in zip(parts, values):
-        if not _cron_field_match(spec, v):
-            return False
-    return True
-
-
-def _cron_field_match(spec, value):
-    spec = spec.strip()
-    if spec == '*':
-        return True
-    if spec.startswith('*/'):
-        try:
-            step = int(spec[2:])
-            return step > 0 and value % step == 0
-        except ValueError:
-            return False
     for part in spec.split(','):
         part = part.strip()
         if not part:
             continue
-        try:
-            if int(part) == value:
-                return True
-        except ValueError:
+        step = 1
+        if '/' in part:
+            part, _, raw_step = part.partition('/')
+            try:
+                step = int(raw_step)
+            except ValueError:
+                continue
+            if step <= 0:
+                continue
+            part = part.strip()
+        if part in ('*', ''):
+            start, end = lo, hi
+        elif '-' in part:
+            a, _, b = part.partition('-')
+            try:
+                start, end = int(a), int(b)
+            except ValueError:
+                continue
+        else:
+            try:
+                start = end = int(part)
+            except ValueError:
+                continue
+            if step != 1:
+                end = hi          # "5/15" means 5, 20, 35 … up to the maximum
+        if start > end or value < start or value > end:
             continue
+        if (value - start) % step == 0:
+            return True
     return False
 
 

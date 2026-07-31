@@ -139,6 +139,28 @@ The site was fine in every case; the connector was not.
 
 ### Fixed: a wide feature sweep
 
+Third batch:
+
+- **Scheduled work that could never fire.** There were THREE cron evaluators
+  with three different sets of capabilities, and all three ACCEPTED what they
+  could not evaluate — so a schedule the validator allowed simply never ran. A
+  maintenance window of `0 22 * * 1-5` (weeknights) suppressed nothing, and with
+  command gating on it held every exec and upgrade for its devices forever,
+  waiting for a window that could not open. `dow=7` — Sunday, which every
+  crontab accepts — matched nothing at all. A quarterly `*/3` ran in
+  Mar/Jun/Sep/Dec instead of Jan/Apr/Jul/Oct, because the step anchored at 0
+  rather than at the field's minimum. There is one evaluator now, handling
+  lists, ranges, steps, steps on ranges, and Sunday as both 0 and 7.
+- **Loopback services reported as world-exposed on Windows and macOS.** Both
+  classifiers were string-prefix copies whose loopback test was an exact
+  three-value tuple with a catch-all of "world", so `127.0.0.2`, the
+  uncompressed `0:0:0:0:0:0:0:1`, and — the common one — `::ffff:127.0.0.1`,
+  which is how a dual-stack socket reports an IPv4 bind through psutil, each
+  raised a HIGH "port exposed to the world" alert for a service bound to
+  localhost. The server does not recompute the scope, so the alert stood. All
+  three agents now use the same address parsing, and an address that cannot be
+  classified stays "world" — an exposure we cannot read should fail loud.
+
 Second batch:
 
 - **A CVSS v4.0 advisory scored `unknown`.** NVD and OSV have published v4
