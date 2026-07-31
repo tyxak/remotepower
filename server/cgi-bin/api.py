@@ -27,7 +27,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '6.4.1'
+SERVER_VERSION = '6.4.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -135,7 +135,11 @@ _SYNTHETIC_WEBHOOK_EVENTS = ('notification_digest', 'scheduled_report')
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
 # asset (inbox + webhook + needs-attention). fleet_events keeps recording so the
 # Monitoring → Tuning page can still surface and lift noisy sources.
-ALERT_MUTES_FILE = DATA_DIR / 'alert_mutes.json'   # {mutes:[{id,device_id,device_name,event,...}]}
+# v6.4.2: the SAME store also holds per-(host, container) mutes — an entry with a
+# `container` and no `event` silences EVERY alert about that one container. One
+# store means one cache, one tenant gate, one Tuning list and one NA-cache
+# fingerprint; a second store would have needed all four again.
+ALERT_MUTES_FILE = DATA_DIR / 'alert_mutes.json'   # {mutes:[{id,device_id,device_name,event|container,...}]}
 MAX_ALERT_MUTES = 5000
 
 # v3.2.0 (B2): inbound webhook tokens for receiving alerts from external
@@ -9639,7 +9643,8 @@ def _alert_mutes_load():
     return data
 
 
-_ALERT_MUTE_SET_CACHE = {'mtime': None, 'set': frozenset(), 'checked': 0}
+_ALERT_MUTE_SET_CACHE = {'mtime': None, 'set': frozenset(), 'cset': frozenset(),
+                         'checked': 0}
 
 
 def _alert_mute_set():
@@ -9649,7 +9654,12 @@ def _alert_mute_set():
     the hot fire_webhook path consults it via _record_alert AND again at the
     delivery gate, so without the cache every fleet event re-read
     alert_mutes.json twice. The cache invalidates the instant a mute is
-    added/removed (the store's write-time changes)."""
+    added/removed (the store's write-time changes).
+
+    v6.4.2: the same pass also builds the per-(device_id, container) set read by
+    :func:`_container_mute_set` — one store read, one cache check, two sets. The
+    two are disjoint by construction: a mute row carries EITHER an `event` or a
+    `container`, never both (see handle_alert_mutes)."""
     try:
         mt = backend_mtime(ALERT_MUTES_FILE)
     except Exception:
@@ -9664,14 +9674,32 @@ def _alert_mute_set():
     if (mt is not None and c['mtime'] == mt
             and now - c.get('checked', 0) < 60):
         return c['set']
-    s = frozenset((m.get('device_id'), m.get('event'))
-                  for m in _alert_mutes_load()['mutes']
-                  if isinstance(m, dict) and m.get('device_id') and m.get('event')
-                  and not _mute_expired(m, now))
+    evs, ctrs = set(), set()
+    for m in _alert_mutes_load()['mutes']:
+        if not isinstance(m, dict) or not m.get('device_id'):
+            continue
+        if _mute_expired(m, now):
+            continue
+        if m.get('container'):
+            ctrs.add((m['device_id'], str(m['container'])))
+        elif m.get('event'):
+            evs.add((m['device_id'], m['event']))
     c['mtime'] = mt
     c['checked'] = now
-    c['set'] = s
-    return s
+    c['set'] = frozenset(evs)
+    c['cset'] = frozenset(ctrs)
+    return c['set']
+
+
+def _container_mute_set():
+    """v6.4.2: set of (device_id, container) pairs whose EVERY alert is muted.
+
+    "Mute everything for this container" — the operator's answer to one noisy
+    workload (a restart-looping sidecar, a stack they are mid-rebuild on) without
+    silencing the whole host. Built in the same pass as the event mute set above,
+    so consulting it costs one cache lookup."""
+    _alert_mute_set()      # refreshes BOTH halves under a single cache check
+    return _ALERT_MUTE_SET_CACHE['cset']
 
 
 def _mute_expired(m, now=None):
@@ -9688,11 +9716,24 @@ def _mute_expired(m, now=None):
 
 def _alert_muted(event, payload):
     """True if an operator has muted this exact (host, event). Only per-device
-    events can be muted (the X button silences 'this event from this asset')."""
-    dev_id = (payload or {}).get('device_id') if isinstance(payload, dict) else None
+    events can be muted (the X button silences 'this event from this asset').
+
+    v6.4.2: ALSO true when the payload names a container the operator has muted
+    on that host. Putting it here rather than at each container-event firing site
+    means every event that carries a `container` key is covered — today
+    container_stopped/_recovered/_restarting/_restarting_cleared, tomorrow
+    whatever else names one — and it inherits the exact semantics of the existing
+    mute: fleet_events and the SIEM stream still record, _auto_resolve_alerts
+    still runs (so a pre-mute open alert can still close), and only the paging
+    channels (inbox, webhook, e-mail, web push, needs-attention) go quiet."""
+    p = payload if isinstance(payload, dict) else {}
+    dev_id = p.get('device_id')
     if not dev_id:
         return False
-    return (dev_id, event) in _alert_mute_set()
+    if (dev_id, event) in _alert_mute_set():
+        return True
+    ctr = p.get('container')
+    return bool(ctr) and (dev_id, str(ctr)) in _container_mute_set()
 
 
 def _record_alert(event, payload):
@@ -31890,6 +31931,15 @@ def handle_device_containers(dev_id: str) -> None:
     # Shallow-copy each item so we never mutate the loaded/cached store.
     img_cache = (load(IMAGE_UPDATES_FILE) or {}).get('images') or {}
     img_ignores = load(IMAGE_IGNORE_FILE) or {}
+    # v6.4.2: per-container mutes for THIS device, name -> mute id. The id is what
+    # the drawer's Un-mute button DELETEs, so it has to travel with the row —
+    # /api/alert-mutes deletes by id and there is no delete-by-(device,container).
+    # One pass over the store (not one per container) keeps this O(mutes).
+    _cm_now = int(time.time())
+    cmute_ids = {str(m['container']): m.get('id')
+                 for m in _alert_mutes_load()['mutes']
+                 if isinstance(m, dict) and m.get('container')
+                 and m.get('device_id') == dev_id and not _mute_expired(m, _cm_now)}
     stamped = []
     for c in items:
         if not isinstance(c, dict):
@@ -31901,6 +31951,10 @@ def handle_device_containers(dev_id: str) -> None:
         reg_dig = ((img_cache.get(ref) or {}).get('registry_digest') or '').strip()
         ignored = bool(img_ignores.get(ref)) and _image_ignored(ref, reg_dig, img_ignores)
         c['update_available'] = bool(image) and not ignored and _image_stale(c.get('repo_digest'), reg_dig)
+        _mid = cmute_ids.get(str(c.get('name') or ''))
+        c['muted'] = bool(_mid)
+        if _mid:
+            c['mute_id'] = _mid
         stamped.append(c)
     items = stamped
     # v1.11.4: surface staleness so the UI can flag old data without each
@@ -34283,6 +34337,13 @@ def handle_containers_overview() -> None:
     # v6.4.0 PERF: hoist the config read out of the per-device loop (it returned
     # the same value every iteration, deepcopy-free but still a dict walk).
     _restart_min = int(_config_ro().get('container_restarting_min', 5))
+    # v6.4.2: per-container mutes. The counts here stay HONEST — this is the
+    # inventory view, and the unmonitored-data-visibility principle says an
+    # inventory shows everything and flags what is suppressed. So a muted
+    # container still counts as stopped/restarting; the row just also says how
+    # many of its containers are silenced (needs-attention and fleet health are
+    # where the mute actually subtracts).
+    _cmutes = _container_mute_set()
     out = []
     for dev_id, entry in store.items():
         if dev_id not in devices:
@@ -34304,6 +34365,9 @@ def handle_containers_overview() -> None:
             'reported_at': ts,
             'is_stale':    is_stale,
             'summary':     containers_mod.summarise(items, _restart_min),
+            'muted':       sum(1 for c in items
+                               if isinstance(c, dict)
+                               and (dev_id, str(c.get('name') or '')) in _cmutes),
         }
         # v6.1.2: `docker system df` footprint (images / containers / volumes /
         # build cache + what's reclaimable). Absent on hosts that haven't
@@ -34668,9 +34732,35 @@ def handle_device_compose_action(dev_id):
 # ('container' approval kind) + reported-id check as the other verbs.
 CONTAINER_ACTION_ALLOWED = ('start', 'stop', 'restart', 'pause', 'unpause',
                             'logs', 'update')
+# Docker/podman container IDs and names, and Kubernetes pod names, all fit this:
+# an alphanumeric lead followed by alphanumerics, underscore, dot or dash. Used
+# both to bound what can reach the agent's argv (handle_device_container_action)
+# and to bound what can be written as a per-container mute key.
+_CONTAINER_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$')
+# v6.4.2: `logs` takes an optional tail size, appended as a 5th `:`-segment
+# (`container:<rt>:logs:<id>:<n>`). Container names can't contain a colon, so
+# the extra segment is unambiguous. Bounded here AND agent-side; the ceiling is
+# what one heartbeat can carry back inside the agent's 32 KB output cap.
+CONTAINER_LOG_TAIL_MAX     = 2000
+CONTAINER_LOG_TAIL_DEFAULT = 200
+# The agent release that learned to parse that 5th segment. An OLDER agent would
+# fail the whole command on the unparseable id, so the server drops the segment
+# and TELLS the caller (`tail_applied: 0`) rather than silently serving 50 lines
+# when the operator asked for 1000.
+_CONTAINER_TAIL_MIN_AGENT = (6, 4, 2)
 
 
 def handle_device_container_action(dev_id):
+    """POST /api/devices/{id}/containers/action — one container verb.
+
+    Body: {runtime, action, container_id}. v6.4.2 adds two optional fields that
+    only apply to `action: 'logs'`:
+
+      tail  int   how many trailing lines to ask the runtime for (10..2000).
+      wait  bool  block for the agent's next heartbeat and return the actual log
+                  text, instead of returning "queued" and leaving the operator
+                  staring at a toast with nothing behind it.
+    """
     actor = require_perm('containers', [dev_id])   # v3.12.0 RBAC: was admin-only
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -34689,7 +34779,7 @@ def handle_device_container_action(dev_id):
     # re-validates. Blocks anyone shoving a path-traversal or argv
     # injection through the dashboard before the command ever reaches
     # the wire.
-    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$', container_id):
+    if not _CONTAINER_NAME_RE.match(container_id):
         respond(400, {'error': 'invalid container_id'})
 
     devices = load(DEVICES_FILE)
@@ -34698,6 +34788,21 @@ def handle_device_container_action(dev_id):
         respond(404, {'error': 'Device not found'})
     if dev.get('agentless'):
         respond(400, {'error': 'cannot run container actions on agentless device'})
+    # v6.4.2: refuse here what the target cannot do, instead of queueing it and
+    # returning a success the operator will believe. `update` recreates a
+    # container from its inspect output and only the Linux/podman agent
+    # implements it — the Windows agent answers "not supported" into a command
+    # history nobody reads, and the macOS agent has no container handler at all.
+    _osf = _device_os_family(dev)
+    if _osf != 'linux':
+        if _osf == 'darwin':
+            respond(400, {'error': 'the macOS agent does not run container '
+                                   'actions — manage this container on the host'})
+        if action == 'update':
+            respond(400, {'error': 'container update (pull + recreate) is not '
+                                   'supported on the Windows agent — pull and '
+                                   'recreate it on the host, or manage the '
+                                   'container with a compose stack'})
 
     # Verify the container ID matches one this device reported in its
     # last heartbeat. Same security boundary as compose: even an admin
@@ -34723,11 +34828,44 @@ def handle_device_container_action(dev_id):
                       'list (refresh the listing if you just started it)'})
 
     cmd_payload = f'container:{runtime}:{action}:{container_id}'
+    # v6.4.2: an explicit tail size for `logs`. Requested vs APPLIED are reported
+    # separately — an agent too old to parse the 5th segment gets the plain
+    # 4-segment command and its own 50-line default, and the response says so
+    # rather than letting the viewer claim it is showing 1000 lines.
+    tail_want = tail_applied = 0
+    if action == 'logs':
+        try:
+            tail_want = int(body.get('tail') or 0)
+        except (TypeError, ValueError):
+            tail_want = 0
+        if tail_want:
+            tail_want = max(10, min(tail_want, CONTAINER_LOG_TAIL_MAX))
+            if _ver_tuple(dev.get('version')) >= _CONTAINER_TAIL_MIN_AGENT:
+                tail_applied = tail_want
+                cmd_payload += f':{tail_applied}'
     # v3.14.0: 4-eyes — park container actions for a second admin when enabled.
     if _needs_approval('container'):
         cid = _park_for_approval(dev_id, cmd_payload, actor, 'container')
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
                       'detail': 'Parked — a second admin must approve it.'})
+    # v6.4.2: run-and-wait for `logs`. The other verbs stay fire-and-forget —
+    # blocking a request on a `stop` buys nothing (the container list refreshes
+    # on the next report anyway), whereas logs are useless until they arrive.
+    wait = action == 'logs' and bool(body.get('wait'))
+    if wait:
+        try:
+            timeout = max(10, min(int(body.get('timeout') or 90), 120))
+        except (TypeError, ValueError):
+            timeout = 90
+        lp = load(LONGPOLL_FILE)
+        # `match` = the exact command we queued. Without it the first output the
+        # device sends back resolves this slot whatever it was for, so a `logs`
+        # request behind a queued `restart` would render the restart's output as
+        # the container's logs.
+        lp[dev_id] = {'cmd': cmd_payload, 'ready': False, 'output': None,
+                      'ts': int(time.time()), 'match': cmd_payload}
+        save(LONGPOLL_FILE, lp)
+
     cmds = load(CMDS_FILE)
     cmds.setdefault(dev_id, [])
     if cmd_payload not in cmds[dev_id]:
@@ -34742,7 +34880,21 @@ def handle_device_container_action(dev_id):
         'device_id': dev_id, 'name': dev.get('name', dev_id),
         'command':   cmd_payload, 'actor': actor,
     })
-    respond(200, {'ok': True, 'queued': cmd_payload})
+    if wait:
+        status, output = _longpoll_wait(dev_id, timeout)
+        if status == 'ok':
+            respond(200, {'ok': True, 'queued': cmd_payload, 'output': output,
+                          'tail': tail_applied, 'tail_requested': tail_want})
+        if status == 'shutdown':
+            respond(503, {'ok': False, 'shutdown': True, 'queued': cmd_payload,
+                          'message': 'Server is restarting — the request is queued '
+                                     'and runs on the next heartbeat.'})
+        respond(200, {'ok': True, 'queued': cmd_payload, 'timeout': True,
+                      'tail': tail_applied, 'tail_requested': tail_want,
+                      'message': 'The agent had not reported back within the wait '
+                                 'window. It runs on the next heartbeat.'})
+    respond(200, {'ok': True, 'queued': cmd_payload,
+                  'tail': tail_applied, 'tail_requested': tail_want})
 
 
 
@@ -43456,6 +43608,12 @@ def _compute_attention():
         ig_devs  = _ignored_keys('devices')
         c_now    = int(time.time())
         c_ttl    = get_container_stale_ttl() if 'get_container_stale_ttl' in globals() else 600
+        # v6.4.2: per-container mutes have to be applied HERE too, not only at the
+        # firing path. Fleet health is derived purely from NA items, so a muted
+        # container that still counted toward "3 containers stopped" would keep
+        # depressing the host's and the fleet's score with no operator recourse —
+        # exactly the v6.1.2 lesson about applying mutes at the digest.
+        c_mutes  = _container_mute_set()
         for dev_id, entry in cstore.items():
             if dev_id not in monitored:
                 continue
@@ -43465,6 +43623,10 @@ def _compute_attention():
                 continue
             ts = entry.get('ts', 0)
             its = entry.get('items', [])
+            if c_mutes and its:
+                its = [c for c in its
+                       if not (isinstance(c, dict)
+                               and (dev_id, str(c.get('name') or '')) in c_mutes)]
             summary = containers_mod.summarise(its) if its else {}
             stopped    = (summary or {}).get('stopped', 0)
             restarting = (summary or {}).get('restarting', 0)
@@ -49117,11 +49279,26 @@ def _longpoll_wait(dev_id, timeout):
 
 
 def _resolve_longpoll(dev_id, cmd_output):
+    """Hand the agent's just-arrived command output to whoever is blocked in
+    _longpoll_wait for this device.
+
+    v6.4.2: a slot may carry an OPT-IN `match` — the exact command string it is
+    waiting for. The agent runs ONE queued command per heartbeat, so when
+    anything else is queued ahead the first output back is somebody else's; a
+    slot that took it would hand the caller the wrong container's logs, which is
+    worse than no logs at all. Unmatched output is left alone (it still lands in
+    cmd_output normally) and the slot keeps waiting. Slots with no `match` —
+    every pre-existing caller — behave exactly as before."""
     lp = load(LONGPOLL_FILE)
-    if dev_id in lp:
-        lp[dev_id]['output'] = cmd_output
-        lp[dev_id]['ready']  = True
-        save(LONGPOLL_FILE, lp)
+    slot = lp.get(dev_id)
+    if not isinstance(slot, dict):
+        return
+    want = slot.get('match')
+    if want and str((cmd_output or {}).get('cmd') or '') != str(want):
+        return
+    slot['output'] = cmd_output
+    slot['ready']  = True
+    save(LONGPOLL_FILE, lp)
 
 
 def handle_longpoll_exec():
@@ -53393,7 +53570,9 @@ def handle_alert_unresolve(alert_id):
 def handle_alert_mutes():
     """GET /api/alert-mutes — list mutes (auth). POST — add one (admin).
     POST body: {device_id, event[, device_name]} OR {alert_id} (the X button on
-    an alert row derives device+event from the alert)."""
+    an alert row derives device+event from the alert) OR, v6.4.2,
+    {device_id, container} — silence EVERY alert about one container on one host
+    (the Containers drawer's per-container Mute button)."""
     if method() == 'GET':
         require_auth()
         # v6.1.2: an EXPIRED timed mute is no longer in force, so don't list it —
@@ -53424,7 +53603,22 @@ def handle_alert_mutes():
     event = _sanitize_str(body.get('event', ''), 64).strip()
     device_name = _sanitize_str(body.get('device_name', ''), 128).strip()
     alert_id = _sanitize_str(body.get('alert_id', ''), 64).strip()
-    if alert_id and not (device_id and event):
+    # v6.4.2: a CONTAINER mute is "everything about this container on this host",
+    # so it is deliberately event-less — the two dimensions are mutually
+    # exclusive, which is what lets _alert_mute_set build two disjoint sets from
+    # one store. A caller that sends both gets the container mute (the broader
+    # of the two) rather than a half-applied hybrid nobody could reason about.
+    # NOT _sanitize_str's silent truncation: a name cut at 128 chars would be
+    # stored as a mute that can never match the full name the agent reports, so
+    # the operator would see "muted" and keep being paged. Reject instead.
+    container = str(body.get('container', '') or '').strip()
+    if container:
+        event = ''
+        if not _CONTAINER_NAME_RE.match(container):
+            respond(400, {'error': 'container must be a container/pod name — '
+                                   'letters, digits, dot, dash or underscore, '
+                                   'up to 128 characters'})
+    elif alert_id and not (device_id and event):
         a = next((x for x in (load(ALERTS_FILE) or {}).get('alerts', [])
                   if x.get('id') == alert_id), None)
         if not a:
@@ -53432,8 +53626,9 @@ def handle_alert_mutes():
         device_id = device_id or (a.get('device_id') or '')
         event = event or (a.get('event') or '')
         device_name = device_name or (a.get('device_name') or '')
-    if not device_id or not event:
-        respond(400, {'error': 'device_id and event are required (or a resolvable alert_id)'})
+    if not device_id or not (event or container):
+        respond(400, {'error': 'device_id and event (or container) are required '
+                               '(or a resolvable alert_id)'})
     # v6.1.1: a tenant-scoped admin may only mute alerts for its own devices —
     # otherwise it could silence another tenant's signal. 404 (not 403) so a
     # cross-tenant device_id / alert_id isn't confirmed to exist.
@@ -53445,52 +53640,81 @@ def handle_alert_mutes():
     _mscope = _caller_scope()
     if _mscope is not None and not _device_in_scope(_mscope, _mdev):
         respond(404, {'error': 'device not found'})
-    data = _alert_mutes_load()
-    existing = next((m for m in data['mutes']
-                     if m.get('device_id') == device_id and m.get('event') == event), None)
-    if existing:
-        mute_id = existing['id']     # idempotent — already muted
-    else:
-        if len(data['mutes']) >= MAX_ALERT_MUTES:
+    # v6.1.2: optional TIMED mute — `hours` (0.25–8760) sets an expiry, after
+    # which the mute lapses on its own. Mutes were permanent-only, so "silence
+    # this while I rebuild the NAS this weekend" meant remembering to come back
+    # and un-silence it — and a forgotten mute is a signal you have silently
+    # stopped monitoring. Omit `hours` for the old behaviour. Validated BEFORE
+    # the lock below so a 400 never has to unwind one.
+    expires_at = None
+    if body.get('hours') not in (None, ''):
+        try:
+            hrs = float(body['hours'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'hours must be a number'})
+        if not (0.25 <= hrs <= 8760):
+            respond(400, {'error': 'hours must be between 0.25 and 8760'})
+        expires_at = int(time.time() + hrs * 3600)
+    # v6.4.2: the add is a read-modify-write, and it was running unlocked — two
+    # mutes created close together (which is exactly what muting several
+    # containers from the drawer looks like) could each read the store before
+    # the other wrote, and one would be silently lost. The automation-rule
+    # `mute_alert` action already took the lock; this path now matches it.
+    # respond() inside the block raises, which skips the save and releases the
+    # lock, so the 400 below is safe here.
+    added = None
+    with _LockedUpdate(ALERT_MUTES_FILE) as data:
+        mutes = data.setdefault('mutes', [])
+        if not isinstance(mutes, list):
+            mutes = data['mutes'] = []
+        existing = next((m for m in mutes
+                         if isinstance(m, dict) and m.get('device_id') == device_id
+                         and (str(m.get('container') or '') == container
+                              if container else
+                              (not m.get('container') and m.get('event') == event))), None)
+        if existing:
+            mute_id = existing['id']     # idempotent — already muted
+        elif len(mutes) >= MAX_ALERT_MUTES:
             respond(400, {'error': 'alert-mute limit reached'})
-        # v6.1.2: optional TIMED mute — `hours` (0.25–8760) sets an expiry, after
-        # which the mute lapses on its own. Mutes were permanent-only, so
-        # "silence this while I rebuild the NAS this weekend" meant remembering
-        # to come back and un-silence it — and a forgotten mute is a signal you
-        # have silently stopped monitoring. Omit `hours` for the old behaviour.
-        expires_at = None
-        if body.get('hours') not in (None, ''):
-            try:
-                hrs = float(body['hours'])
-            except (TypeError, ValueError):
-                respond(400, {'error': 'hours must be a number'})
-            if not (0.25 <= hrs <= 8760):
-                respond(400, {'error': 'hours must be between 0.25 and 8760'})
-            expires_at = int(time.time() + hrs * 3600)
-        mute = {'id': secrets.token_urlsafe(8), 'device_id': device_id,
-                'device_name': device_name, 'event': event,
-                'created': int(time.time()), 'created_by': actor}
-        if expires_at:
-            mute['expires_at'] = expires_at
-        data['mutes'].append(mute)
-        save(ALERT_MUTES_FILE, data)
-        mute_id = mute['id']
+        else:
+            mute = {'id': secrets.token_urlsafe(8), 'device_id': device_id,
+                    'device_name': device_name, 'event': event,
+                    'created': int(time.time()), 'created_by': actor}
+            if container:
+                mute['container'] = container
+            if expires_at:
+                mute['expires_at'] = expires_at
+            mutes.append(mute)
+            mute_id = mute['id']
+            added = mute
+    if added:
         audit_log(actor, 'alert_mute_add',
-                  detail=f'device={device_id} event={event}'
+                  detail=f'device={device_id} '
+                         + (f'container={container}' if container else f'event={event}')
                          + (f' expires={expires_at}' if expires_at else ' permanent'))
     # Clear the noise now: resolve any currently-open alerts matching the mute.
+    # v6.4.2: a container mute matches on the alert's stored payload.container
+    # (whitelisted in _record_alert since v3.x), across EVERY event — otherwise
+    # the mute would silence future firings while leaving the row that prompted
+    # it sitting open in the inbox forever, since the matching recover event is
+    # now muted too.
     resolved = 0
     with _LockedUpdate(ALERTS_FILE) as store:
         now = int(time.time())
         for a in store.get('alerts', []):
-            if (a.get('device_id') == device_id and a.get('event') == event
-                    and not a.get('resolved_at')):
-                a['resolved_by'] = 'muted'
-                a['resolved_at'] = now
-                if not a.get('acknowledged_at'):
-                    a['acknowledged_by'] = actor
-                    a['acknowledged_at'] = now
-                resolved += 1
+            if a.get('device_id') != device_id or a.get('resolved_at'):
+                continue
+            if container:
+                if str((a.get('payload') or {}).get('container') or '') != container:
+                    continue
+            elif a.get('event') != event:
+                continue
+            a['resolved_by'] = 'muted'
+            a['resolved_at'] = now
+            if not a.get('acknowledged_at'):
+                a['acknowledged_by'] = actor
+                a['acknowledged_at'] = now
+            resolved += 1
     respond(200, {'ok': True, 'id': mute_id, 'resolved': resolved})
 
 
@@ -53566,8 +53790,16 @@ def handle_alert_tuning():
         p['device_name'] = _dname(p['device_id'], p.pop('_fallback'))
     sources = sorted(({'event': ev, 'count': c} for ev, c in src_counts.items()),
                      key=lambda x: x['count'], reverse=True)
+    # v6.4.2 security fix: the mute list was returned UNFILTERED while the
+    # timeline above was scope/tenant-filtered (the v6.3.0 fix stopped one line
+    # short) — so a tenant-scoped admin or a scoped viewer still read every other
+    # tenant's muted (host, event) pairs plus their resolved hostnames. Same
+    # visible-set gate as the events.
     mutes = []
     for m in _alert_mutes_load()['mutes']:
+        _mid = m.get('device_id') or ''
+        if _mid and _mid in _devs_raw and _mid not in _visible_ids:
+            continue
         mm = dict(m)
         mm['device_name'] = _dname(m.get('device_id', ''), m.get('device_name', ''))
         mutes.append(mm)

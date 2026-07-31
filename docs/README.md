@@ -93,6 +93,12 @@ The full release history — every version, newest first — lives in
 
 The three most recent per-release notes are kept here:
 
+- **[v6.4.2.md](v6.4.2.md)** — "Qu1etMatters": per-container alert mutes
+ (silence one noisy container without silencing its host — inbox, webhooks,
+ push and health score go quiet while fleet-event history and the SIEM stream
+ keep recording), a real container log window (waits for the agent with a live
+ elapsed count, 100–2000 lines, filter, copy, download, auto-refresh) and
+ Windows container actions, which had been drawing buttons that could never run.
 - **[v6.4.1.md](v6.4.1.md)** — "Cust0dyMatters": a built-in KMIP key server so
  Synology / TrueNAS / vSphere keep their encryption keys off the appliance that
  holds the encrypted data (opt-in sidecar, mutual TLS, encrypted recovery
@@ -107,12 +113,7 @@ The three most recent per-release notes are kept here:
  host's recently-modified /var/log tails with an AI root-cause read) and
  agentic alert triage (the model investigates one alert through read-only
  evidence tools and stores a verdict + evidence trail on the alert).
-- **[v6.3.0.md](v6.3.0.md)** — "Fl0wMatters": the first wave of a UX program —
- undo toasts instead of confirm dialogs for low-risk deletes (deferred commit),
- optimistic alert ack/resolve with a real un-ack Undo, "N of M shown" + Clear
- chips on filtered tables, Retry buttons on failed loads, an unsaved-changes
- guard on Settings, and bulk resolve/assign on Tickets.
-Older release notes (v6.2.3 and earlier) live in
+Older release notes (v6.3.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

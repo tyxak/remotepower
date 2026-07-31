@@ -215,14 +215,120 @@ headroom over the agent's 5-minute report cadence.
 
 ---
 
+## Muting one container (v6.4.2)
+
+A host running twenty containers used to have exactly one alerting
+granularity: the whole host. If one container restarts by design —
+a sidecar that exits when its work is done, a stack you are
+mid-rebuild on — muting `container_restarting` for that host lost
+the signal for the other nineteen.
+
+Open **Fleet → Containers → View** and press **Mute** on the
+container. That silences *every* alert naming that container on
+that host — `container_stopped`, `container_restarting` and their
+recovery events — while its neighbours keep alerting unchanged.
+
+A mute is a decision about **paging**, not about recording:
+
+| | muted container |
+|---|---|
+| Alerts inbox | no new rows; open ones resolve when you mute |
+| Webhooks / e-mail / browser push | silent |
+| Needs attention + health score | stops counting |
+| Fleet event history | **still recorded** |
+| SIEM forwarding | **still forwarded** |
+| Containers page counts | **still counted**, with an `N muted` note |
+
+The last three are deliberate. **Monitoring → Tuning** still shows
+you how often the muted signal fires, which is what you need to
+decide whether the mute should become a fix — and the Containers
+page is an inventory, so it shows everything and flags what is
+suppressed rather than hiding it.
+
+Container mutes live in the same store as per-alert mutes, so they
+appear in the Tuning mute list labelled with the container name and
+lift from either place. Muting and unmuting are undoable from the
+topbar arrows.
+
+```bash
+# mute
+curl -X POST https://your-server/api/alert-mutes \
+     -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+     -d '{"device_id": "dev-abc", "container": "decluttarr"}'
+# lift it (the id comes back from the POST, and rides on each
+# container row from GET /api/devices/<id>/containers as mute_id)
+curl -X DELETE https://your-server/api/alert-mutes/<mute_id> \
+     -H "X-Token: $TOKEN"
+```
+
+Add `"hours": 24` to let the mute lapse on its own — a mute you
+forget about is monitoring you have silently stopped doing.
+
+For a fleet-wide rule instead of a per-host one, the config key
+`container_alert_excludes` takes a list of name substrings and
+suppresses matching containers on every host.
+
+Two limits worth knowing. A mute is keyed on `(device, container
+name)` and is **namespace-blind**, so two Kubernetes pods with the
+same name in different namespaces on one node share one mute — the
+alert-state diff keys on namespace, the mute does not. And the mute
+covers alerts *about that container*; a fleet-wide image-update alert
+is keyed on the image, not the container, so it is unaffected (use
+**Ignore** on the Image Updates page for that).
+
+---
+
+## Viewing container logs (v6.4.2)
+
+**Logs** on a container opens a window that asks the agent to run
+`docker logs` (or `podman logs`) on the host and waits for the
+answer. Agents check in about once a minute, so the window shows a
+progress bar and a live elapsed count while it waits rather than
+leaving you unable to tell "still going" from "broken".
+
+- **100 to 2000 lines**, picked in the window.
+- **Filter** lines as you type; errors and warnings are coloured.
+- **Copy**, **Download** and the AI **Explain logs** button always
+  act on the whole log, never the filtered view.
+- **Auto** re-fetches every 30 seconds while the window is open.
+- The agent caps a single command's output at 32 KB. A log over that
+  keeps the NEWEST lines (that is what a tail means) and carries a
+  marker line saying older ones were dropped — a silently-cut log
+  looks complete, which is the one thing it must not do.
+
+If the agent has not checked in within the wait window, the request
+stays queued and the window keeps watching for the result, giving up
+after about five minutes with an explanation. The wait is matched to
+the **exact** command queued, so a logs request sitting behind a
+queued restart can never render the restart's output as your logs.
+
+A host whose agent predates 6.4.2 cannot be asked for a specific
+tail size; it returns its own 50-line default and the window says so
+rather than claiming it fetched what you asked for.
+
+**Platform support.**
+
+| | reports containers | start/stop/restart/logs | update (pull + recreate) |
+|---|---|---|---|
+| Linux (docker, podman) | yes | yes | yes |
+| Windows (docker) | yes *(v6.2.0)* | yes *(v6.4.2)* | no — refused with a message |
+| macOS | no | no | no |
+
+The macOS agent does not report containers and does not run container
+actions; the server refuses the request rather than queueing one that
+can never run. Manage containers on a Mac from the host.
+
+---
+
 ## What's not captured
 
 - **No live state.** The list is overwritten on every heartbeat;
   there's no history of "container X went down at 14:32." If you
   need that, look at the host's Docker logs or Kubernetes events.
-- **No exec, logs, restart, stop, or start.** Out of scope by
-  design. Use the SSH link on the device, then `docker logs <name>`
-  or whatever your usual tool is.
+- **No exec, and no live log stream.** Start / stop / restart /
+  pause / update and an on-demand log *snapshot* are supported (see
+  below); an interactive shell and a `docker logs -f` style follow
+  are not. Use the SSH link on the device for those.
 - **No image scanning.** RemotePower's CVE scanner runs against
   installed packages, not container images. For container CVE
   scanning, Trivy and Grype both work well as complements.

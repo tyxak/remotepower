@@ -1425,7 +1425,16 @@ if _AVAILABLE:
         action: str = ''
         container_id: str = ''
         runtime: str = ''
+        # v6.4.2: `logs` run-and-wait. Unbounded here on purpose — the handler
+        # clamps tail to 10..CONTAINER_LOG_TAIL_MAX and timeout to 10..120, so a
+        # bound here could only reject a body the handler already tolerates.
+        tail: int = 0
+        timeout: int = 90
+        wait: bool = False
         _v0 = field_validator('action', 'container_id', 'runtime', mode='before')(_coerce_str_loose)
+        _v1 = field_validator('tail', mode='before')(_coerce_int_or(0))
+        _v2 = field_validator('timeout', mode='before')(_coerce_int_or(90))
+        _v3 = field_validator('wait', mode='before')(_coerce_bool_loose)
 
     class DmarcImapSaveRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
@@ -1907,11 +1916,16 @@ if _AVAILABLE:
     class AlertMutesRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         alert_id: str = ''
+        # v6.4.2: a per-container mute ("silence everything about this one
+        # container"). Charset/length are enforced by the handler against
+        # _CONTAINER_NAME_RE, so no constraint here — the model stays an
+        # additive superset that can only ever reject a clearly-malformed body.
+        container: str = ''
         device_id: str = ''
         device_name: str = ''
         event: str = ''
         hours: str = ''
-        _v0 = field_validator('alert_id', 'device_id', 'device_name', 'event', 'hours', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('alert_id', 'container', 'device_id', 'device_name', 'event', 'hours', mode='before')(_coerce_str_loose)
 
     class AlertsBulkResolveRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

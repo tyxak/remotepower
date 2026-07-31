@@ -39,7 +39,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.4.1'
+VERSION = '6.4.2'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300

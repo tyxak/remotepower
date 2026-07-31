@@ -9,6 +9,21 @@ let _containersOverview = [];
 // the "Clear data" button to know which device's containers.json entry to
 // wipe.
 let _containersOpenDeviceId = null;
+// v6.4.2: and its display name, so muting/unmuting a container can redraw the
+// open drawer without the caller having to carry the name around again.
+let _containersOpenName = '';
+
+// True only while the Containers drawer is actually on screen. The id above is
+// never cleared on close, so an undo fired minutes later from another page
+// would otherwise re-open the drawer over whatever the operator was looking at.
+function _containersDrawerOpen() {
+  return !!_containersOpenDeviceId
+    && !!document.getElementById('containers-detail-modal')?.classList.contains('active');
+}
+
+async function _containersRedrawIfOpen() {
+  if (_containersDrawerOpen()) await containersOpen(_containersOpenDeviceId, _containersOpenName);
+}
 
 async function enterContainers() {
   await loadContainersOverview();
@@ -413,6 +428,14 @@ function _registerContainersOverviewTable() {
       const restartingCell = s.restarting > 0
         ? `<span class="c-red">${s.restarting}</span>`
         : `<span class="c-muted">0</span>`;
+      // v6.4.2: this is the INVENTORY view, so the counts above stay honest and
+      // still include muted containers — the row just says how many are
+      // silenced, so a quiet "2 stopped" isn't mistaken for something nobody
+      // decided about. Needs-attention and fleet health are where a mute
+      // actually subtracts.
+      const mutedTag = (r.muted > 0)
+        ? `<div class="fs-11 c-muted" title="Alerts about these containers are silenced">${r.muted} muted</div>`
+        : '';
       // v6.1.2: `docker system df`. The 40 GB build-cache surprise is a homelab
       // rite of passage — the box fills up and nothing says WHY, because "disk
       // 94%" doesn't distinguish your data from layers of images whose
@@ -437,7 +460,7 @@ function _registerContainersOverviewTable() {
       return `<tr class="isl-451">
         <td class="fw-500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
         <td class="hint">${escHtml(r.os || '—')}</td>
-        <td class="fw-500">${s.total}</td>
+        <td class="fw-500">${s.total}${mutedTag}</td>
         <td class="c-green">${s.running}</td>
         <td class="c-muted">${s.stopped}</td>
         <td>${restartingCell}</td>
@@ -462,6 +485,7 @@ function renderContainersOverview() {
 
 async function containersOpen(deviceId, name) {
   _containersOpenDeviceId = deviceId;
+  _containersOpenName = name;
   document.getElementById('containers-detail-title').textContent = `Containers — ${name}`;
   const body = document.getElementById('containers-detail-body');
   body.innerHTML = _skeletonBlock(5);
@@ -542,17 +566,26 @@ async function containersOpen(deviceId, name) {
     const runtime = (c.runtime || 'docker').toLowerCase();
     const actionable = (runtime === 'docker' || runtime === 'podman') && cid;
     const isRunning = statusLower.includes('running') || statusLower.includes('up ');
-    const actions = actionable ? `
+    // v6.4.2: mute EVERYTHING about this one container. Deliberately outside the
+    // `actionable` gate — muting is a server-side decision about alerts and needs
+    // no agent, so it works for kubectl pods too. data-action-btn (not data-arg)
+    // because the dispatcher Number()-coerces data-arg, and a container called
+    // "12345" or a mute id that happens to parse would arrive as a number.
+    const muteBtn = c.muted
+      ? `<button class="btn-icon btn-xs" data-action-btn="unmuteContainer" data-dev="${escAttr(deviceId)}" data-ctr="${escAttr(c.name || '')}" data-mute="${escAttr(c.mute_id || '')}" title="Resume alerting on this container">${_icon('bell', 12)} Unmute</button>`
+      : `<button class="btn-icon btn-xs c-muted" data-action-btn="muteContainer" data-dev="${escAttr(deviceId)}" data-ctr="${escAttr(c.name || '')}" title="Silence every alert about this container — stopped, restart loops, recovery. Other containers on this host keep alerting.">${_icon('bellOff', 12)} Mute</button>`;
+    const actions = `
       <div class="isl-458">
-        ${!isRunning ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="start" data-arg5="${escAttr(c.name||'')}">Start</button>` : ''}
-        ${isRunning  ? `<button class="btn-icon isl-459" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="stop" data-arg5="${escAttr(c.name||'')}">Stop</button>` : ''}
-        <button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="restart" data-arg5="${escAttr(c.name||'')}">Restart</button>
-        ${isRunning ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="update" data-arg5="${escAttr(c.name||'')}" title="Pull the latest image and recreate this standalone container (compose-managed containers update via their stack)">Update</button>` : ''}
-        <button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="logs" data-arg5="${escAttr(c.name||'')}">Logs</button>
-      </div>` : '';
+        ${actionable && !isRunning ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="start" data-arg5="${escAttr(c.name||'')}">Start</button>` : ''}
+        ${actionable && isRunning  ? `<button class="btn-icon isl-459" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="stop" data-arg5="${escAttr(c.name||'')}">Stop</button>` : ''}
+        ${actionable ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="restart" data-arg5="${escAttr(c.name||'')}">Restart</button>` : ''}
+        ${actionable && isRunning ? `<button class="btn-icon btn-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="update" data-arg5="${escAttr(c.name||'')}" title="Pull the latest image and recreate this standalone container (compose-managed containers update via their stack)">Update</button>` : ''}
+        ${actionable ? `<button class="btn-icon btn-xs" data-action-btn="openContainerLogs" data-dev="${escAttr(deviceId)}" data-ctr="${escAttr(cid)}" data-rt="${escAttr(runtime)}" data-img="${escAttr(c.image || '')}" title="Fetch this container's recent logs and show them here">${_icon('terminal', 12)} Logs</button>` : ''}
+        ${muteBtn}
+      </div>`;
     return `<div class="isl-460">
       <div class="isl-461">
-        <div class="isl-462">${ns}${escHtml(c.name)}${healthBadge}</div>
+        <div class="isl-462">${ns}${escHtml(c.name)}${healthBadge}${c.muted ? ' <span class="patch-badge" title="Every alert about this container is silenced">muted</span>' : ''}</div>
         <div class="isl-463">
           <span class="isl-376" data-color="${statusColor}">${escHtml(c.status || '?')}</span>
           ${restart}
@@ -738,6 +771,60 @@ function _renderDockerDf(df, deviceId) {
         <thead><tr><th>Volume</th><th class="ta-right">Size</th><th class="ta-center" title="How many containers use it">Used by</th></tr></thead>
         <tbody>${volRows}</tbody></table></div>` : ''}
   </div>`;
+}
+
+// ── v6.4.2: per-container mute + the log viewer entry point ─────────────────
+//
+// Both take the element (data-action-btn) rather than positional data-args: the
+// dispatcher Number()-coerces every data-arg, and a container named "12345" or a
+// mute id that parses as a number would silently arrive as the wrong type.
+
+// (openContainerLogs — the shared log-viewer entry point — lives in app.js next
+// to fetchContainerLogs, because the device drawer uses it too and app.js is
+// always loaded.)
+
+// Silence every alert about one container on one host. Undoable rather than
+// are-you-sure: it applies immediately and the topbar arrow / Ctrl-Z lifts it.
+async function muteContainer(btn) {
+  const dev = btn.dataset.dev, container = btn.dataset.ctr;
+  if (!dev || !container) return;
+  const body = { device_id: dev, container };
+  const r = await api('POST', '/alert-mutes', body);
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed to mute', 'error'); return; }
+  await _containersRedrawIfOpen();
+  loadContainersOverview();
+  let muteId = r.id;
+  const doUndo = async () => {
+    const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(muteId));
+    if (u?.ok) await _containersRedrawIfOpen();
+  };
+  const doRedo = async () => {
+    const u = await api('POST', '/alert-mutes', body);
+    if (u?.ok) { muteId = u.id; await _containersRedrawIfOpen(); }
+  };
+  pushUndoableAction(`Mute container ${container}`, doUndo, doRedo,
+    'Muted' + (r.resolved ? ` · ${r.resolved} open alert(s) cleared` : ''));
+}
+
+async function unmuteContainer(btn) {
+  const dev = btn.dataset.dev, container = btn.dataset.ctr, id = btn.dataset.mute;
+  if (!id) { toast('This mute has already lapsed — reload the list', 'error', {transient: true}); return; }
+  const r = await api('DELETE', '/alert-mutes/' + encodeURIComponent(id));
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  await _containersRedrawIfOpen();
+  loadContainersOverview();
+  const reBody = { device_id: dev, container };
+  let curId = null;
+  const doUndo = async () => {
+    const u = await api('POST', '/alert-mutes', reBody);
+    if (u?.ok) { curId = u.id; await _containersRedrawIfOpen(); }
+  };
+  const doRedo = async () => {
+    if (curId == null) return;
+    const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(curId));
+    if (u?.ok) await _containersRedrawIfOpen();
+  };
+  pushUndoableAction(`Unmute container ${container}`, doUndo, doRedo, 'Alerts resumed');
 }
 
 // v2.1.1: per-container action — start/stop/restart/logs. Goes through

@@ -33,7 +33,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '6.4.1'
+VERSION      = '6.4.2'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -9052,22 +9052,60 @@ CONTAINER_ALLOWED_ACTIONS = {'start', 'stop', 'restart', 'pause', 'unpause',
 CONTAINER_ACTION_TIMEOUT_S = 60
 CONTAINER_PULL_TIMEOUT_S   = 300   # image pull can be slow on a big image / link
 CONTAINER_OUT_CAP          = 32 * 1024
+CONTAINER_LOG_TAIL_DEFAULT = 50      # what `logs` used before a tail was askable
+CONTAINER_LOG_TAIL_MAX     = 2000    # ceiling; CONTAINER_OUT_CAP still truncates
 # Docker / podman IDs are alphanumeric (lowercase hex usually); container
 # names allow [a-zA-Z0-9_.-]. Reject anything else to keep argv safe.
 _CONTAINER_ID_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$')
+_CONTAINER_TRUNC_NOTE = '… older lines dropped — the agent caps one command at 32 KB …'
+
+
+def _cap_container_output(action, raw):
+    """Bound a container command's output to CONTAINER_OUT_CAP.
+
+    v6.4.2: `logs` is a TAIL request, so when it overflows the cap the lines
+    worth keeping are the NEWEST — cutting from the front, as every other verb
+    does, handed back the OLDEST 32 KB while the UI scrolled to the bottom as if
+    the last line were the latest one. Every other verb prints a short
+    confirmation whose head is what matters, so they keep the old behaviour.
+    The dropped-lines notice is prepended to the OUTPUT rather than sent as a
+    separate field, because the output is the one thing that reaches the
+    operator down both the run-and-wait and the command-history paths."""
+    raw = (raw or '').strip()
+    if len(raw) <= CONTAINER_OUT_CAP:
+        return raw
+    if action != 'logs':
+        return raw[:CONTAINER_OUT_CAP]
+    tail = raw[-CONTAINER_OUT_CAP:]
+    # The cut almost certainly landed mid-line; drop that partial line rather
+    # than present a fragment as a log entry.
+    if '\n' in tail:
+        tail = tail.split('\n', 1)[1]
+    return _CONTAINER_TRUNC_NOTE + '\n' + tail
 
 
 def _run_container_action(cmd):
-    """Parse and execute container:<runtime>:<action>:<id> on this host.
+    """Parse and execute container:<runtime>:<action>:<id>[:<tail>] on this host.
 
     Runtime is docker | podman (we report both in the heartbeat). Action is
     one of CONTAINER_ALLOWED_ACTIONS. ID is validated against a tight
     regex so it can safely be passed to argv.
+
+    v6.4.2: `logs` accepts an optional 5th segment — the number of trailing
+    lines. A container id can never contain a colon (see _CONTAINER_ID_RE), so
+    the extra segment is unambiguous; anything non-numeric there is rejected
+    rather than guessed at.
     """
-    parts = cmd.split(':', 3)
-    if len(parts) != 4:
+    parts = cmd.split(':', 4)
+    if len(parts) not in (4, 5):
         return {'cmd': cmd, 'output': 'malformed container command', 'rc': -1}
-    _, runtime, action, container_id = parts
+    runtime, action, container_id = parts[1], parts[2], parts[3]
+    tail = CONTAINER_LOG_TAIL_DEFAULT
+    if len(parts) == 5:
+        raw_tail = parts[4].strip()
+        if not raw_tail.isdigit():
+            return {'cmd': cmd, 'output': 'invalid tail size', 'rc': -1}
+        tail = max(1, min(int(raw_tail), CONTAINER_LOG_TAIL_MAX))
     runtime = runtime.strip().lower()
     action = action.strip().lower()
     container_id = container_id.strip()
@@ -9089,7 +9127,7 @@ def _run_container_action(cmd):
         return _run_container_update(cmd, runtime, container_id)
 
     if action == 'logs':
-        argv = [runtime, 'logs', '--tail=50', container_id]
+        argv = [runtime, 'logs', f'--tail={tail}', container_id]
     else:
         argv = [runtime, action, container_id]
 
@@ -9097,7 +9135,7 @@ def _run_container_action(cmd):
     try:
         result = subprocess.run(argv, capture_output=True, text=True,
                                 timeout=CONTAINER_ACTION_TIMEOUT_S)
-        output = (result.stdout + result.stderr).strip()[:CONTAINER_OUT_CAP]
+        output = _cap_container_output(action, result.stdout + result.stderr)
         log.info(f"container {action} rc={result.returncode} output_len={len(output)}")
         return {'cmd': cmd, 'output': output, 'rc': result.returncode}
     except subprocess.TimeoutExpired:

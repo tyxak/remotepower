@@ -13518,56 +13518,320 @@ let _aiModalEl = null;
 // system-prompt string, so no server prompt keys needed). Each builds a focused
 // context from already-loaded data and asks a single, scoped question. ──────────
 
-// v3.14.0: on-demand container logs. The agent runs `<rt> logs --tail` when it
-// next drains the command queue (~one heartbeat); we then poll the device's
-// command-output for the matching result and show it.
-let _ctrLogsPoll = null;
-async function fetchContainerLogs(devId, name, runtime) {
-  if (_ctrLogsPoll) { clearInterval(_ctrLogsPoll); _ctrLogsPoll = null; }
+// ── v6.4.2: the container log viewer ────────────────────────────────────────
+//
+// v3.14.0 shipped this as "queue a command, then poll /output every 10s and
+// swap the text in when something turns up". Two things were wrong with it, and
+// both are the same thing: the operator could not tell the difference between
+// "still waiting" and "broken". There was no progress, no elapsed time, no way
+// to ask for more than the agent's 50-line default, and — worse — the poll
+// matched the FIRST output whose cmd merely CONTAINED `:logs:<name>`, so a
+// container whose name is a prefix of another's could show the wrong logs.
+//
+// Now: the request runs-and-waits server-side (the agent's next heartbeat
+// resolves it, exact-command matched), the modal shows an indeterminate bar and
+// a live elapsed count while that happens, and the /output poll survives only as
+// the fallback for when the wait window expires before the agent checks in.
+let _ctrLogs = {
+  devId: '', name: '', runtime: 'docker', image: '',
+  raw: '', rc: null, fetchedAt: 0, truncated: false,
+  seq: 0, busy: false, pollTimer: null, tickTimer: null, autoTimer: null,
+};
+
+function _ctrLogsEl(id) { return document.getElementById('container-logs-' + id); }
+function _ctrLogsOpen() {
+  return !!document.getElementById('container-logs-modal')?.classList.contains('active');
+}
+
+// Stop every timer this viewer owns. Called before each fetch and whenever the
+// modal turns out to be closed — nothing here may outlive the window (the
+// "Logs tail keeps fetching after you leave the page" class).
+function _ctrLogsStopTimers(keepAuto) {
+  for (const k of ['pollTimer', 'tickTimer']) {
+    if (_ctrLogs[k]) { clearInterval(_ctrLogs[k]); _ctrLogs[k] = null; }
+  }
+  if (!keepAuto && _ctrLogs.autoTimer) {
+    clearInterval(_ctrLogs.autoTimer); _ctrLogs.autoTimer = null;
+  }
+}
+
+function _ctrLogsProgress(text) {
+  const box = _ctrLogsEl('progress');
+  const txt = _ctrLogsEl('progress-text');
+  if (!box) return;
+  if (text === null) { box.classList.add('d-none'); return; }
+  box.classList.remove('d-none');
+  if (txt) txt.textContent = text;
+}
+
+// One place decides what the meta line says, so it can never disagree with what
+// is actually on screen.
+function _ctrLogsMeta(extra) {
+  const el = _ctrLogsEl('meta');
+  if (!el) return;
+  const bits = [];
+  if (_ctrLogs.fetchedAt) bits.push(`fetched ${new Date(_ctrLogs.fetchedAt).toLocaleTimeString()}`);
+  const lines = _ctrLogs.raw ? _ctrLogs.raw.split('\n').length : 0;
+  if (lines) bits.push(`${lines} line${lines === 1 ? '' : 's'}`);
+  if (_ctrLogs.rc != null && _ctrLogs.rc !== 0) bits.push(`exit ${_ctrLogs.rc}`);
+  if (extra) bits.push(extra);
+  el.textContent = bits.join(' · ');
+  el.classList.toggle('d-none', !bits.length);
+}
+
+// Render `raw` through the filter box. textContent per line + a severity class —
+// never a style attribute (CSP) and never raw HTML (a container prints whatever
+// it likes, including markup).
+function _ctrLogsRender() {
   const body = document.getElementById('container-logs-body');
+  if (!body) return;
+  const q = (_ctrLogsEl('filter')?.value || '').toLowerCase().trim();
+  const all = _ctrLogs.raw ? _ctrLogs.raw.split('\n') : [];
+  const lines = q ? all.filter(l => l.toLowerCase().includes(q)) : all;
+  body.textContent = '';
+  if (!lines.length) {
+    body.textContent = q
+      ? `No lines match “${q}”.`
+      : '(the container produced no output)';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const line of lines) {
+    const div = document.createElement('div');
+    const cls = /\b(FATAL|CRITICAL|panic|ERROR|ERR)\b|\berror:/i.test(line) ? 'c-red'
+              : /\bWARN(ING)?\b/i.test(line) ? 'c-amber' : '';
+    if (cls) div.className = cls;
+    // A blank line renders as a zero-height div and silently disappears —
+    // which matters, because blank lines are how most runtimes separate a
+    // stack trace from what came before it.
+    div.textContent = line || ' ';
+    frag.appendChild(div);
+  }
+  body.appendChild(frag);
+  body.scrollTop = body.scrollHeight;
+}
+
+function _ctrLogsShow(output, rc) {
+  // THE "we have a result" transition — so it owns stopping the wait timers.
+  // Doing it only in the callers left the 1s tick alive on the success path,
+  // and one second later it repainted "Waiting for the agent — 21s" (and
+  // un-hid the bar) directly over logs that had already arrived.
+  _ctrLogsStopTimers(true);
+  _ctrLogs.busy = false;
+  _ctrLogs.raw = String(output == null ? '' : output);
+  _ctrLogs.rc = rc;
+  _ctrLogs.fetchedAt = Date.now();
+  _ctrLogsProgress(null);
+  _ctrLogsMeta('');
+  _ctrLogsRender();
+  const ai = _ctrLogsEl('ai');
+  if (ai) {
+    ai.innerHTML = _ctrLogs.raw.trim()
+      ? `<button class="btn-secondary btn-xs" data-action="aiExplainContainerLogsBtn" title="AI: explain these container logs">${_icon('sparkles', 14)} Explain logs</button>`
+      : '';
+  }
+}
+
+function _ctrLogsError(msg) {
+  // keepAuto: a transient failure is not a reason to silently cancel the
+  // auto-refresh the operator ticked — that would leave the checkbox saying one
+  // thing while nothing refreshed. It retries on the next 30s tick.
+  _ctrLogsStopTimers(true);
+  _ctrLogs.busy = false;
+  _ctrLogsProgress(null);
+  const body = document.getElementById('container-logs-body');
+  if (body) body.textContent = msg;
+  _ctrLogsMeta('');
+}
+
+// v3.14.0 entry point, kept: the device drawer and the Containers page both
+// call this. `image` is optional and only feeds the AI "Explain logs" context.
+async function fetchContainerLogs(devId, name, runtime, image) {
+  _ctrLogsStopTimers();
+  // Killing the timers above orphans any in-flight fallback poll, and that poll
+  // was the only thing that would ever clear `busy`. Without this reset,
+  // opening logs for a second container while the first was still waiting left
+  // busy stuck true forever and _ctrLogsFetch below returned immediately — an
+  // empty window with the right title and no request behind it.
+  _ctrLogs.busy = false;
+  _ctrLogs.seq++;                 // orphan any response still in flight
+  _ctrLogs.devId = String(devId);
+  _ctrLogs.name = String(name);
+  _ctrLogs.runtime = String(runtime || 'docker');
+  _ctrLogs.image = String(image || '');
+  _ctrLogs.raw = ''; _ctrLogs.rc = null; _ctrLogs.fetchedAt = 0;
+  // v5.8.0: context for the AI "Explain logs" button.
+  window._ctrLogsCtx = { name: _ctrLogs.name, runtime: _ctrLogs.runtime, image: _ctrLogs.image };
   const title = document.getElementById('container-logs-title');
-  if (title) title.textContent = `Logs — ${name}`;
-  if (body) body.textContent = 'Requesting logs from the host…';
-  // v5.8.0: stash context for the AI "Explain logs" button; hide it until logs land.
-  window._ctrLogsCtx = { name, runtime: runtime || 'docker' };
-  const _logsAi = document.getElementById('container-logs-ai');
-  if (_logsAi) _logsAi.innerHTML = '';
+  if (title) title.textContent = `Logs — ${_ctrLogs.name}`;
+  const sub = _ctrLogsEl('sub');
+  if (sub) sub.textContent = `${_ctrLogs.runtime} logs on demand — the agent runs them on the host and reports back.`;
+  const filter = _ctrLogsEl('filter');
+  if (filter) filter.value = '';
+  const auto = _ctrLogsEl('auto');
+  if (auto) auto.checked = false;
+  const ai = _ctrLogsEl('ai');
+  if (ai) ai.innerHTML = '';
   openModal('container-logs-modal');
-  const r = await api('POST', `/devices/${devId}/containers/action`,
-                      { action: 'logs', container_id: name, runtime: runtime || 'docker' });
-  if (!r || r.error) { if (body) body.textContent = (r && r.error) || 'Failed to queue logs request.'; return; }
-  // Poll the device's command output for the logs result (~up to 2 min).
-  const want = `:logs:${name}`;
+  await _ctrLogsFetch();
+}
+
+// The dispatch target for every Logs button (device drawer + Containers page).
+// data-action-btn so the container name arrives as the raw string it is — the
+// data-arg path Number()-coerces, and "0x10" is a legal container name.
+function openContainerLogs(btn) {
+  return fetchContainerLogs(btn.dataset.dev, btn.dataset.ctr,
+                            btn.dataset.rt || 'docker', btn.dataset.img || '');
+}
+
+function _ctrLogsTail() {
+  const n = parseInt(_ctrLogsEl('tail')?.value || '200', 10);
+  return (n > 0 && n <= 2000) ? n : 200;
+}
+
+async function _ctrLogsFetch() {
+  if (!_ctrLogs.devId || _ctrLogs.busy) return;
+  _ctrLogs.busy = true;
+  const seq = ++_ctrLogs.seq;     // any older in-flight fetch is now stale
+  _ctrLogsStopTimers(true);       // keep the auto-refresh interval running
+  const started = Date.now();
+  const body = document.getElementById('container-logs-body');
+  if (body && !_ctrLogs.raw) body.textContent = '';
+  _ctrLogsProgress('Asking the agent for this container’s logs…');
+  _ctrLogs.tickTimer = setInterval(() => {
+    if (!_ctrLogsOpen()) { _ctrLogsStopTimers(); return; }
+    const s = Math.round((Date.now() - started) / 1000);
+    _ctrLogsProgress(`Waiting for the agent — ${s}s. Agents check in about once a minute.`);
+  }, 1000);
+  let r = null;
+  try {
+    r = await api('POST', `/devices/${encodeURIComponent(_ctrLogs.devId)}/containers/action`,
+                  { action: 'logs', container_id: _ctrLogs.name, runtime: _ctrLogs.runtime,
+                    tail: _ctrLogsTail(), wait: true, timeout: 90 });
+  } catch (e) {
+    r = null;
+  }
+  if (seq !== _ctrLogs.seq) { _ctrLogs.busy = false; return; }   // superseded
+  if (!r || r.error) {
+    _ctrLogs.busy = false;
+    _ctrLogsError((r && r.error) || 'Could not reach the server to request logs.');
+    return;
+  }
+  if (r.approval_required) {
+    _ctrLogs.busy = false;
+    _ctrLogsError('Parked for approval — container actions need a second admin on this '
+                  + 'install. The logs appear here once another admin approves it.');
+    return;
+  }
+  if (r.output) {
+    _ctrLogs.busy = false;
+    const o = r.output;
+    _ctrLogsShow(o.output != null ? o.output : (o.stdout || ''), o.rc);
+    // The server drops the tail size for an agent too old to parse it — say so
+    // instead of letting the picker claim it fetched 1000 lines.
+    if (r.tail_requested && !r.tail) {
+      _ctrLogsMeta(`this agent is too old for a custom tail size — showing its default 50 lines`);
+    }
+    return;
+  }
+  // The wait window closed before the agent checked in. Fall back to watching
+  // the device's command output — the command IS queued and will run.
+  _ctrLogsStopTimers(true);
+  _ctrLogsFallbackPoll(seq, r.queued || '', started);
+}
+
+// Fallback: the run-and-wait timed out, so watch /output for the exact command
+// we queued. Exact equality, not "contains" — `:logs:web` is a substring of
+// `:logs:web2`, and showing one container's logs under another's name is the
+// worst possible failure for this window.
+//
+// The command string is DETERMINISTIC (`container:docker:logs:web:200`), so a
+// previous successful fetch of the same container at the same tail size is
+// still sitting in the device's 100-entry output history and matches exactly.
+// Taking it would present minutes-old logs stamped "fetched <now>" — precisely
+// the reassuring lie this window exists to remove, and worst on the host that
+// has just died. So we first record the newest EXISTING match's timestamp and
+// then only accept something strictly newer. The comparison is server-clock to
+// server-clock; comparing the browser's clock to the agent's would break on any
+// host whose time is off.
+function _ctrLogsFallbackPoll(seq, queuedCmd, started) {
   let tries = 0;
-  _ctrLogsPoll = setInterval(async () => {
+  let baselineTs = null;      // null until the first poll establishes it
+  const _match = out => ((out && out.outputs) || []).slice().reverse()
+    .find(o => String(o.cmd || '') === queuedCmd) || null;
+  _ctrLogs.pollTimer = setInterval(async () => {
     tries++;
-    if (tries > 24 || !document.getElementById('container-logs-modal')?.classList.contains('active')) {
-      clearInterval(_ctrLogsPoll); _ctrLogsPoll = null;
-      if (tries > 24 && body && body.textContent.startsWith('Requesting')) {
-        body.textContent = 'No logs returned yet — the host may be offline or slow to report. Try again shortly.';
-      }
+    if (seq !== _ctrLogs.seq || !_ctrLogsOpen()) { _ctrLogsStopTimers(); _ctrLogs.busy = false; return; }
+    const s = Math.round((Date.now() - started) / 1000);
+    if (tries > 20) {                                  // ~90s + 20×10s ≈ 5 min
+      _ctrLogsError('No logs came back after 5 minutes. The host is probably offline or '
+                    + 'its agent is not running — the request stays queued and will run '
+                    + 'when the agent next checks in. Press Refresh to look again.');
       return;
     }
-    const out = await api('GET', `/devices/${devId}/output`).catch(() => null);
-    const hit = ((out && out.outputs) || []).slice().reverse()
-      .find(o => String(o.cmd || '').includes(want));
-    if (hit) {
-      clearInterval(_ctrLogsPoll); _ctrLogsPoll = null;
-      if (body) body.textContent = hit.output || '(no output)';
-      const ai = document.getElementById('container-logs-ai');
-      if (ai && hit.output && hit.output.trim())
-        ai.innerHTML = `<button class="btn-secondary btn-xs" data-action="aiExplainContainerLogsBtn" title="AI: explain these container logs">${_icon('sparkles', 14)} Explain logs</button>`;
-    } else if (body) {
-      body.textContent = `Requesting logs from the host… (waiting for the agent, ${tries}0s)`;
+    _ctrLogsProgress(`Still waiting — ${s}s. The agent has not checked in yet; the request is queued.`);
+    const out = await api('GET', `/devices/${encodeURIComponent(_ctrLogs.devId)}/output`)
+      .catch(() => null);
+    if (seq !== _ctrLogs.seq || !out) return;
+    const hit = _match(out);
+    if (baselineTs === null) {
+      baselineTs = hit ? (Number(hit.ts) || 0) : 0;
+      return;                 // this tick only establishes what was already there
     }
+    if (hit && (Number(hit.ts) || 0) > baselineTs) _ctrLogsShow(hit.output, hit.rc);
   }, 10000);
 }
-// v5.8.0: AI "Explain logs" button handler — reads the fetched logs from the DOM
-// (they can be large) + the stashed container name.
+
+// Refresh button AND the tail-size <select> — both want exactly "fetch again".
+// An explicit press must CANCEL whatever is in flight rather than no-op on the
+// busy flag: a Refresh that silently does nothing while a fallback poll grinds
+// away is exactly the dead-button feeling this whole window exists to remove.
+function containerLogsRefetch() {
+  if (!_ctrLogs.devId) return;
+  _ctrLogsStopTimers(true);
+  _ctrLogs.seq++;
+  _ctrLogs.busy = false;
+  return _ctrLogsFetch();
+}
+
+function containerLogsFilter() { _ctrLogsRender(); }
+
+function containerLogsToggleAuto() {
+  const on = !!_ctrLogsEl('auto')?.checked;
+  if (_ctrLogs.autoTimer) { clearInterval(_ctrLogs.autoTimer); _ctrLogs.autoTimer = null; }
+  if (!on) return;
+  _ctrLogs.autoTimer = setInterval(() => {
+    if (!_ctrLogsOpen()) { _ctrLogsStopTimers(); return; }
+    if (!_ctrLogs.busy) _ctrLogsFetch();
+  }, 30000);
+}
+
+function containerLogsCopy() {
+  if (!navigator.clipboard) { toast('Clipboard unavailable', 'error'); return; }
+  navigator.clipboard.writeText(_ctrLogs.raw || '').then(
+    () => toast('Copied to clipboard', 'success'),
+    () => toast('Could not copy', 'error'));
+}
+
+function containerLogsDownload() {
+  if (!_ctrLogs.raw) { toast('Nothing to download yet', 'error', {transient: true}); return; }
+  const blob = new Blob([_ctrLogs.raw], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${_ctrLogs.name || 'container'}-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.log`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// v5.8.0: AI "Explain logs" button handler — reads the fetched logs from the
+// viewer state (the DOM copy is filtered, and explaining a filtered subset
+// while the button says "these logs" would be a quiet lie).
 function aiExplainContainerLogsBtn() {
   const ctx = window._ctrLogsCtx || {};
-  const logs = document.getElementById('container-logs-body')?.textContent || '';
-  aiExplainContainerLogs(ctx.name || '', ctx.image || '', logs);
+  aiExplainContainerLogs(ctx.name || '', ctx.image || '', _ctrLogs.raw || '');
 }
 // v3.13.0: generic Enter-to-action for inputs marked data-enter="<globalFn>".
 document.addEventListener('keydown', e => {
@@ -21263,8 +21527,11 @@ async function _loadAuditSection(key) {
               const unhealthy = !up || /unhealthy|restart/.test((c.health||'') + ' ' + stat);
               const ctrAi = unhealthy ? ` <button class="btn-icon cell-sm" data-action="aiDiagnoseContainer" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName)}" data-arg3="${escAttr(c.name||c.Names||'?')}" title="AI: diagnose this container">${_icon('sparkles',12)}</button>` : '';
               // v3.14.0: on-demand container log fetch (queues `container:…:logs:…`).
+              // v6.4.2: data-action-btn, not data-arg — the dispatcher Number()s
+              // every data-arg, so a container named "0x10" was being requested
+              // as "16". The name is read raw off the dataset here.
               const cName = c.name || c.Names || '';
-              const ctrLogs = cName ? ` <button class="btn-icon cell-sm" data-action="fetchContainerLogs" data-arg="${escAttr(id)}" data-arg2="${escAttr(cName)}" data-arg3="${escAttr(c.runtime||'docker')}" title="Fetch this container's recent logs">${_icon('terminal',12)}</button>` : '';
+              const ctrLogs = cName ? ` <button class="btn-icon cell-sm" data-action-btn="openContainerLogs" data-dev="${escAttr(id)}" data-ctr="${escAttr(cName)}" data-rt="${escAttr(c.runtime||'docker')}" data-img="${escAttr(img||'')}" title="Fetch this container's recent logs">${_icon('terminal',12)}</button>` : '';
               return `<tr class="border-top">
                 <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}${ctrAi}${ctrLogs}</td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>

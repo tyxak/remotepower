@@ -971,6 +971,13 @@
     'Clear this log line': { fr: 'Effacer cette ligne de journal', de: 'Diese Logzeile löschen', zh: '清除此日志行', hi: 'यह लॉग पंक्ति साफ़ करें', es: 'Descartar esta línea de registro', ar: 'إلغاء سطر السجل هذا' },
     'Verify':      { fr: 'Vérifier', de: 'Verifizieren', zh: '验证', hi: 'सत्यापित करें', es: 'Verificar', ar: 'التحقق' },
     'Refresh':     { fr: 'Actualiser', de: 'Aktualisieren', zh: '刷新', hi: 'ताज़ा करें', es: 'Actualizar', ar: 'تحديث' },
+    // v6.4.2: container log viewer toolbar + per-container mute.
+    'Copy':        { fr: 'Copier', de: 'Kopieren', zh: '复制', hi: 'कॉपी करें', es: 'Copiar', ar: 'نسخ' },
+    'Download':    { fr: 'Télécharger', de: 'Herunterladen', zh: '下载', hi: 'डाउनलोड करें', es: 'Descargar', ar: 'تنزيل' },
+    'Mute':        { fr: 'Mettre en sourdine', de: 'Stummschalten', zh: '静音', hi: 'म्यूट करें', es: 'Silenciar', ar: 'كتم' },
+    'Unmute':      { fr: 'Réactiver', de: 'Stummschaltung aufheben', zh: '取消静音', hi: 'अनम्यूट करें', es: 'Reactivar', ar: 'إلغاء الكتم' },
+    'Container logs': { fr: 'Journaux du conteneur', de: 'Container-Protokolle', zh: '容器日志', hi: 'कंटेनर लॉग', es: 'Registros del contenedor', ar: 'سجلات الحاوية' },
+    'Auto':        { fr: 'Auto', de: 'Auto', zh: '自动', hi: 'स्वतः', es: 'Auto', ar: 'تلقائي' },
     'AI review':   { fr: 'Revue IA', de: 'KI-Überprüfung', zh: 'AI 审查', hi: 'AI समीक्षा', es: 'Revisión IA', ar: 'مراجعة الذكاء الاصطناعي' },
     'AI triage':   { fr: 'Tri IA', de: 'KI-Triage', zh: 'AI 分诊', hi: 'AI ट्राइएज', es: 'Triaje IA', ar: 'فرز الذكاء الاصطناعي' },
     'AI prioritise': { fr: 'Priorisation IA', de: 'KI-Priorisierung', zh: 'AI 优先级排序', hi: 'AI प्राथमिकता', es: 'Priorizar con IA', ar: 'ترتيب أولويات الذكاء الاصطناعي' },

@@ -2,6 +2,79 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v6.4.2 — "Qu1etMatters" — unreleased (test)
+
+Two things about containers that were quietly unfinished: you could not silence
+one container without silencing its host, and the **Logs** button showed you a
+toast instead of any logs.
+
+### Mute everything about one container
+
+- **Per-container alert mute.** Every container in Fleet → Containers → View now
+  has a **Mute** button that silences every alert naming that container on that
+  host — stopped, disappeared, restart loop, and the matching recovery events —
+  while the other containers on the same host keep alerting. Previously the only
+  granularity was the whole host (mute `container_restarting` and you lose it for
+  all twenty containers) or the fleet-wide `container_alert_excludes` substring
+  list, which is not reachable from the interface.
+- **A mute is a paging decision, not an erasure.** No inbox rows, no webhook,
+  e-mail or push, and the container stops counting toward needs-attention and the
+  health score — but fleet-event history still records it and the SIEM stream
+  still receives it, so Monitoring → Tuning can still show you what you are
+  silencing. The Containers page keeps counting muted containers in its
+  stopped/restarting totals and adds an `N muted` note beside them: it is an
+  inventory view, so it shows everything and flags what is suppressed.
+- **Muting clears the noise it was created for.** Open alerts for that container
+  are resolved at the moment you mute, so the row that prompted the mute does not
+  sit open forever with its recovery event now silenced.
+- Container mutes share the existing alert-mute store, so they appear in the
+  **Monitoring → Tuning** mute list labelled with the container name and lift from
+  either place. Muting and unmuting are undoable from the topbar arrows.
+
+### A container log window that says what is happening
+
+- **The Logs button opens a real window.** It waits for the agent instead of
+  returning immediately, showing a progress bar and a live elapsed count while it
+  does — so "still going" and "broken" no longer look identical. If the agent has
+  not checked in within the wait window it keeps watching the device's command
+  output and says so in seconds, and after five minutes it explains what is
+  probably wrong rather than leaving an empty box.
+- **100 to 2000 lines** instead of a fixed 50, an as-you-type line filter, error
+  and warning colouring, **Copy**, **Download** and **Explain logs** (which always
+  act on the whole log, never the filtered view), and optional 30-second
+  auto-refresh. When the agent's 32 KB per-command output cap bites it keeps the
+  **newest** lines — a tail is a tail — and marks where older ones were dropped.
+- The same window opens from the device drawer's container table — one container
+  log view in the product rather than two.
+- **The wait is matched to the exact command queued**, so a logs request sitting
+  behind a queued restart can never render the restart's output as the container's
+  logs, and a container whose name is a prefix of another's (`web` / `web2`) can
+  never show the wrong one.
+- An agent older than 6.4.2 cannot parse a tail size, so the server drops it
+  rather than failing the whole command, and the window says the agent is showing
+  its own default instead of claiming it fetched what you asked for.
+
+### Windows container actions
+
+- **The Windows agent can run container actions.** It has reported containers
+  since v6.2.0, so the Containers page has been drawing Start / Stop / Restart /
+  Logs buttons for Windows hosts ever since — and every one returned
+  `unsupported command`, because the agent had no handler. Start, stop, restart,
+  pause, unpause and logs now run through `docker` on Windows, argv-only with the
+  same container-id validation as the Linux agent. **Update** (pull and recreate)
+  is deliberately not implemented there and refuses with a message saying so.
+
+### Fixed
+
+- **Cross-tenant leak on Monitoring → Tuning.** The noisy-events timeline on that
+  page is scope- and tenant-filtered; the mute list one line below it was not, so
+  a tenant-scoped administrator could read every other tenant's muted alerts and
+  the hostnames attached to them. Found while adding container mutes. Nothing was
+  reachable without authentication.
+- **The device drawer's container Logs button** passed the container name through
+  the dispatcher's numeric coercion, so a container called `0x10` was requested as
+  `16`. It passes the raw name now.
+
 ## v6.4.1 — "Cust0dyMatters" — 2026-07-29
 
 Key custody. RemotePower can now hold the encryption keys for the storage that

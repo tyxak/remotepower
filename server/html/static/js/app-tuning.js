@@ -62,9 +62,16 @@ function _renderTuningMutes(rows) {
     const left = h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : (h >= 1 ? `${h}h ${mins}m` : `${mins}m`);
     return `<span class="patch-badge fs-11" title="Lapses on its own at ${escAttr(new Date(m.expires_at * 1000).toLocaleString())}">${escHtml(left)} left</span>`;
   };
+  // v6.4.2: a mute row is EITHER an event mute or a per-container mute (the
+  // Containers drawer's Mute button). Without this branch a container mute
+  // rendered as an empty badge — present in the list, unreadable, and the only
+  // place to lift it.
+  const _what = m => m.container
+    ? `<span class="patch-badge" title="Every alert about this container is silenced">container · ${escHtml(m.container)}</span>`
+    : `<span class="patch-badge">${escHtml(m.event)}</span>`;
   el.innerHTML = rows.map(m => `<div class="row-6 ts-entry">
     <span class="fw-600">${escHtml(m.device_name || m.device_id)}</span>
-    <span class="patch-badge">${escHtml(m.event)}</span>
+    ${_what(m)}
     ${_until(m)}
     <span class="ml-auto"><button class="btn-icon cell-sm c-danger-outline" data-action="unmuteAlert" data-arg="${escAttr(m.id)}" title="Lift this mute — alerts resume">${_icon('bellOff', 12)} Un-silence</button></span>
   </div>`).join('');
@@ -98,7 +105,9 @@ async function unmuteAlert(id) {
   if (r && r.ok) {
     loadTuning();
     if (m) {
-      const reBody = { device_id: m.device_id, event: m.event, device_name: m.device_name || '' };
+      const reBody = m.container
+        ? { device_id: m.device_id, container: m.container, device_name: m.device_name || '' }
+        : { device_id: m.device_id, event: m.event, device_name: m.device_name || '' };
       if (m.expires_at) {
         const hrs = (m.expires_at - Date.now() / 1000) / 3600;
         if (hrs >= 0.25) reBody.hours = Math.min(8760, Math.round(hrs * 4) / 4);
@@ -106,7 +115,8 @@ async function unmuteAlert(id) {
       let curId = null;
       const doUndo = async () => { const u = await api('POST', '/alert-mutes', reBody); if (u?.ok) { curId = u.id; loadTuning(); } };
       const doRedo = async () => { if (curId != null) { const u = await api('DELETE', '/alert-mutes/' + encodeURIComponent(curId)); if (u?.ok) loadTuning(); } };
-      pushUndoableAction(`Unmute ${m.device_name || m.device_id} · ${m.event}`, doUndo, doRedo, 'Mute lifted');
+      pushUndoableAction(`Unmute ${m.device_name || m.device_id} · ${m.container || m.event}`,
+                         doUndo, doRedo, 'Mute lifted');
     } else {
       toast('Mute lifted', 'info');
     }

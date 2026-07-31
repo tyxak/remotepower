@@ -68,26 +68,41 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex((_ROOT / "README.md").read_text(), r"version-\d+\.\d+\.\d+-blue")
         self.assertIn(f"v{V}", (_ROOT / "CHANGELOG.md").read_text())
 
-    def test_version_doc_exists(self):
-        self.assertTrue((_ROOT / f"docs/v{V}.md").exists())
+    def test_version_doc_rotated_out_of_the_keep_three_set(self):
+        """v6.4.2 rotated v6.3.0 out of the keep-3 version-doc set. The doc is
+        gone by policy; what must survive is that nothing still links to it and
+        the CHANGELOG still carries the release."""
+        self.assertFalse((_ROOT / f"docs/v{V}.md").exists(),
+                         "v6.3.0 should have been dropped at the v6.4.2 bump")
+        for rel in ("README.md", "docs/README.md", "server/html/index.html",
+                    "docs/features.md"):
+            q = _ROOT / rel
+            if q.exists():
+                self.assertNotIn(f"v{V}.md", q.read_text(),
+                                 f"{rel} still links the deleted doc")
 
     def test_doc_set_keeps_three_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))
         self.assertEqual(len(vdocs), 3, f"expected exactly 3 version docs, got {vdocs}")
 
-    def test_whats_new_card_present(self):
-        self.assertIn(f"What's new — v{V}", _html())
+    def test_whats_new_card_rotated_out(self):
+        """The in-app cards cap at the last 3 releases; v6.3.0 aged out at the
+        v6.4.2 bump. History lives in CHANGELOG.md (asserted below)."""
+        self.assertNotIn(f"What's new — v{V}", _html())
 
     def test_whats_new_cards_capped_at_three(self):
         self.assertEqual(_html().count("What's new — v"), 3)
 
-    def test_whats_new_card_is_doc_searchable(self):
-        """The data-keywords attribute embeds the codename as a lowercase search
-        term — the surface a visible-text rename always misses."""
+    def test_older_releases_card_still_lists_this_codename(self):
+        """Once a release's own card ages out, its codename must survive in the
+        "Older releases" card's data-keywords — otherwise a docs search for it
+        stops matching anything at all."""
         html = _html()
-        i = html.index(f"What's new — v{V}")
-        card = html[max(0, i - 2200):i]
-        self.assertIn(CODENAME.lower(), card)
+        # Anchor on the CARD, not the phrase — "Older releases → CHANGELOG.md"
+        # is the closing hint of every per-release card too.
+        i = html.index("<summary><strong>Older releases</strong>")
+        card = html[max(0, i - 3000):i]
+        self.assertIn(CODENAME.lower(), card.lower())
 
     def test_changelog_header(self):
         # v6.3.1: the section is no longer the newest — assert it exists, not

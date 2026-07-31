@@ -470,8 +470,8 @@ def build_devices() -> dict:
             # Most of the fleet runs the current agent; a minority lag one/two
             # minors so the "upgrade available" affordance has something to show.
             'version':     (None if dev['agentless']
-                            else rng.choice(['6.4.0', '6.4.0', '6.4.0',
-                                             '6.3.0', '6.2.3'])),
+                            else rng.choice(['6.4.2', '6.4.2', '6.4.2',
+                                             '6.4.0', '6.3.0'])),
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),
@@ -773,20 +773,37 @@ def build_containers() -> dict:
         }
         items = catalogue.get(dev['name'], [])
         for (cname, image, status, restarts) in items:
+            # v6.4.2: this MUST match what containers.normalize_container
+            # produces, because that is what every reader consumes. It used to
+            # emit `restarts`/`started` inside a `{'containers': …,
+            # 'last_updated': …}` envelope — neither of which any reader looks
+            # at, so the demo's Containers page, drawer table and footprint
+            # panel were all empty. (Never trust a fixture as shape evidence.)
+            repo, _, tag = image.partition(':')
             containers.append({
-                'name':     cname,
-                'image':    image,
-                'status':   status,
-                'restarts': restarts,
-                'started':  now() - rng.randint(86400, 86400 * 30),
-                'ports':    [],
-                'runtime':  'docker',
+                'name':          cname,
+                'image':         repo,
+                'tag':           tag or 'latest',
+                'status':        ('Up %d hours' % rng.randint(2, 400)
+                                  if status == 'running' else 'Exited (0) 2 hours ago'),
+                'restart_count': restarts,
+                'started_at':    now() - rng.randint(86400, 86400 * 30),
+                'ports':         [],
+                'runtime':       'docker',
+                'health':        rng.choice(['healthy', 'healthy', '']),
+                'cpu_percent':   round(rng.uniform(0.0, 12.0), 1),
+                'mem_percent':   round(rng.uniform(1.0, 40.0), 1),
+                'mem_usage':     '%dMiB' % rng.randint(24, 900),
+                # Half the demo fleet is uncapped, which is the point the
+                # "unlimited" flag on the card is trying to make.
+                'mem_limit_bytes': rng.choice([0, 256 * 1024 ** 2, 1024 ** 3]),
+                'cpu_limit_cores': 0,
             })
 
         if containers:
             out[dev['id']] = {
-                'containers':   containers,
-                'last_updated': now() - rng.randint(30, 200),
+                'ts':    now() - rng.randint(30, 200),
+                'items': containers,
             }
     return out
 
@@ -1504,8 +1521,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '6.4.0',
-        'agent_version':     '6.4.0',
+        'server_version':    '6.4.2',
+        'agent_version':     '6.4.2',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -4169,6 +4186,13 @@ def build_alert_mutes() -> dict:
     return {'mutes': [
         _mute(1, 'jf01', 'container_stopped', 6),      # known-noisy transcoder restarts
         _mute(2, 'ap02', 'device_offline', 3, 'bob'),  # AP on a switched-off timer
+        # v6.4.2: a per-CONTAINER mute — one noisy workload silenced without
+        # silencing its host. Renders as a muted row in the Containers drawer
+        # and as "container · <name>" in the Tuning mute list.
+        {'id': _stable_id('mute', 3), 'device_id': 'nc01',
+         'device_name': names.get('nc01', ''), 'event': '',
+         'container': 'nextcloud-cache',
+         'created': now() - 86400 * 2, 'created_by': 'alice'},
     ]}
 
 

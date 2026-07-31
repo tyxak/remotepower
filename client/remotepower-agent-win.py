@@ -58,7 +58,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '6.4.1'
+VERSION = '6.4.2'
 DEFAULT_POLL = 60
 
 
@@ -1951,6 +1951,9 @@ def handle_command(cmd):
         return _run_process_kill_win(cmd)
     if cmd.startswith('files:'):
         return _handle_file_op_win(cmd)
+    # v6.4.2: per-container start/stop/restart/pause/logs (docker on Windows).
+    if cmd.startswith('container:'):
+        return _run_container_action_win(cmd)
     # v6.4.0: conditional reboot for patch policies — the "Reboot after upgrade
     # if required" checkbox used to queue a bare `reboot` (unconditional). This
     # verb consults the same pending-reboot registry signals the heartbeat
@@ -3088,6 +3091,89 @@ def get_containers():
         if len(out) >= 100:
             break
     return out
+
+
+# ── v6.4.2: per-container actions (parity with the Linux/podman agent) ────────
+# The Windows agent has REPORTED containers since v6.2.0, so the Containers page
+# has been drawing Start/Stop/Restart/Logs buttons for Windows hosts the whole
+# time — and every one of them came back "unsupported command". A queued action
+# that can never run is the success-toast-then-silence class; the fix is to
+# actually run it, since `docker` on Windows takes the same argv.
+CONTAINER_ALLOWED_ACTIONS = {'start', 'stop', 'restart', 'pause', 'unpause', 'logs'}
+CONTAINER_ACTION_TIMEOUT_S = 60
+CONTAINER_OUT_CAP          = 32 * 1024
+CONTAINER_LOG_TAIL_DEFAULT = 50
+CONTAINER_LOG_TAIL_MAX     = 2000
+# Same charset as the server's guard and the Linux agent's — an id that reaches
+# argv, never a shell.
+_CONTAINER_ID_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$')
+_CONTAINER_TRUNC_NOTE = '… older lines dropped — the agent caps one command at 32 KB …'
+
+
+def _cap_container_output_win(action, raw):
+    """Parity with the Linux agent's _cap_container_output: `logs` is a TAIL
+    request, so an over-cap capture keeps the NEWEST bytes, not the oldest."""
+    raw = (raw or '').strip()
+    if len(raw) <= CONTAINER_OUT_CAP:
+        return raw
+    if action != 'logs':
+        return raw[:CONTAINER_OUT_CAP]
+    tail = raw[-CONTAINER_OUT_CAP:]
+    if '\n' in tail:
+        tail = tail.split('\n', 1)[1]
+    return _CONTAINER_TRUNC_NOTE + '\n' + tail
+
+
+def _run_container_action_win(cmd):
+    """container:<runtime>:<action>:<id>[:<tail>] — argv-only, no shell.
+
+    `update` is deliberately NOT implemented here: the Linux agent's version
+    inspects the container and recreates it with the same config, and a
+    half-working recreate on Windows would be worse than an honest refusal.
+    """
+    parts = cmd.split(':', 4)
+    if len(parts) not in (4, 5):
+        return {'cmd': cmd, 'output': 'malformed container command', 'rc': 2}
+    runtime = parts[1].strip().lower()
+    action = parts[2].strip().lower()
+    container_id = parts[3].strip()
+    tail = CONTAINER_LOG_TAIL_DEFAULT
+    if len(parts) == 5:
+        raw_tail = parts[4].strip()
+        if not raw_tail.isdigit():
+            return {'cmd': cmd, 'output': 'invalid tail size', 'rc': 2}
+        tail = max(1, min(int(raw_tail), CONTAINER_LOG_TAIL_MAX))
+    if runtime != 'docker':
+        return {'cmd': cmd,
+                'output': f'{runtime} is not available on Windows — only docker is',
+                'rc': 2}
+    if action == 'update':
+        return {'cmd': cmd,
+                'output': 'container update (pull + recreate) is not supported on '
+                          'the Windows agent — pull and recreate it on the host, '
+                          'or manage the container with a compose stack',
+                'rc': 2}
+    if action not in CONTAINER_ALLOWED_ACTIONS:
+        return {'cmd': cmd, 'output': f'action {action!r} not allowed', 'rc': 2}
+    if not _CONTAINER_ID_RE.match(container_id):
+        return {'cmd': cmd, 'output': 'invalid container id', 'rc': 2}
+    docker = _winshell_which('docker')
+    if not docker:
+        return {'cmd': cmd, 'output': 'docker not installed', 'rc': 2}
+    if action == 'logs':
+        argv = [docker, 'logs', f'--tail={tail}', container_id]
+    else:
+        argv = [docker, action, container_id]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True,
+                           timeout=CONTAINER_ACTION_TIMEOUT_S,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        out = _cap_container_output_win(action, (r.stdout or '') + (r.stderr or ''))
+        return {'cmd': cmd, 'output': out or '(no output)', 'rc': r.returncode}
+    except subprocess.TimeoutExpired:
+        return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': 124}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'docker {action} failed: {e}', 'rc': 1}
 
 
 def _winshell_which(name):
