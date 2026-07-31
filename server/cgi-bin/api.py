@@ -4388,6 +4388,21 @@ class _JsonLockedUpdate:
     def __enter__(self):
         self._lock_fd, _wait = _acquire_lock(self.path, self.non_blocking)
         try:
+            # v6.4.2 (CRITICAL): read FRESH inside the critical section. load()
+            # is memoised per request, so without this the "locked" read handed
+            # back a snapshot taken BEFORE the lock was acquired — and __exit__
+            # writes that whole stale dict back. The class docstring's promise
+            # that the data is loaded while the lock is held was simply false
+            # whenever the cache was warm, which for DEVICES_FILE is nearly
+            # every request (main()'s cadence sweeps read it first).
+            #
+            # The consequence is the exact bug issue #8 moved ~24 handlers onto
+            # this lock to prevent: a concurrent enrolment is absent from the
+            # stale snapshot, and on the SQL backends _save_devices reconciles
+            # the whole set — so the locked write DELETES the freshly-enrolled
+            # device row and its token. Both DB backends already read inside
+            # their transaction; this makes the JSON backend agree.
+            _invalidate_load_cache(self.path)
             self._data = load(self.path)
         except Exception:
             # Release the lock if load itself fails; otherwise __exit__
@@ -39326,6 +39341,18 @@ def handle_ai_rag_search():
     require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v6.4.2 (SECURITY): the RAG corpus is fleet-wide and NOT per-scope tagged —
+    # device summaries with operator notes, listening ports, CMDB metadata, the
+    # sudo trail, secret-scan findings. handle_ai_chat has always known this and
+    # skips retrieval entirely for a scoped caller, saying so in its own comment.
+    # This endpoint runs `idx.search()` over the SAME index behind a bare
+    # require_auth(), so a group-scoped operator could read excerpts about hosts
+    # they cannot otherwise see. Same gate as the chat path, and the same
+    # reasoning: until the corpus carries scope tags there is nothing to filter
+    # on, so the honest answer is to refuse rather than to leak.
+    if _caller_scope() is not None or _tenant_gate() is not None:
+        respond(403, {'error': 'RAG search is limited to full-access roles — the '
+                               'knowledge index is not scoped per role or tenant.'})
     cfg = _ai_cfg()
     if not (cfg.get('rag') or {}).get('enabled'):
         respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
@@ -50733,12 +50760,27 @@ def handle_patch_report_device(dev_id):
 
 
 def _filter_devices_for_export():
-    """Filter devices by query params: group, device_id."""
+    """The caller's VISIBLE devices, then narrowed by the group/device_id query
+    params.
+
+    v6.4.2 (SECURITY): this did a bare `load(DEVICES_FILE)` and applied only the
+    query filters, so neither the caller's RBAC role scope nor the tenant filter
+    reached it — and all three handlers that use it are plain `require_auth()`:
+    GET /api/patch-report/csv, /api/patch-report/xml and /api/sbom. An operator
+    scoped to one group could download the whole fleet's patch state or SBOM.
+    The JSON sibling of the very same report (`handle_patch_report`) has always
+    filtered correctly, which is what made the gap invisible: the data was
+    correct in the UI and wrong only in the export.
+
+    `_scope_filter_devices` folds in BOTH role scope and `_tenant_filter_devices`
+    (and no-ops for an unscoped admin on a single-org install), so this is the
+    one place to apply it — every current and future export through this helper
+    is covered."""
     from urllib.parse import parse_qs
     qs = parse_qs(_env('QUERY_STRING', ''))
     group_filter = qs.get('group', [''])[0].strip()
     device_filter = qs.get('device_id', [''])[0].strip()
-    devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     filtered = {}
     for dev_id, dev in devices.items():
         if group_filter and dev.get('group', '') != group_filter:

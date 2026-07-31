@@ -139,6 +139,29 @@ The site was fine in every case; the connector was not.
 
 ### Fixed: a wide feature sweep
 
+Fifth batch — a second sweep, over surface the first did not cover:
+
+- **The write lock handed back stale data.** `_LockedUpdate` acquired the file
+  lock and then read through a per-request memoiser, so it returned a snapshot
+  taken BEFORE the lock existed and wrote that snapshot back on exit — the
+  guarantee it exists to provide, and the one ~24 handlers were moved onto it
+  for. A device enrolled by a concurrent process was absent from the stale copy
+  and was deleted by the locked write, taking its token with it; the same root
+  cause dropped sessions created during a login. Both database backends already
+  read inside their transaction; the file backend now agrees.
+- **Patch-report CSV, patch-report XML and the fleet SBOM ignored role scope and
+  tenancy.** All three share a helper that read the whole device store and
+  applied only the URL's own filters, so an operator restricted to one group
+  could download the entire fleet's patch state or software inventory. The JSON
+  version of the very same report has always filtered correctly, which is why
+  this was invisible: right on screen, wrong in the export.
+- **RAG search returned hosts the caller cannot see.** The AI chat path
+  deliberately withholds retrieval from scoped roles because the knowledge index
+  is not tagged per scope; the standalone search endpoint ran the same index for
+  anyone signed in, returning device notes, open ports and inventory for
+  out-of-scope hosts. It now refuses for scoped and tenant-limited callers,
+  which is the honest answer until the index carries those tags.
+
 Fourth batch:
 
 - **REGRESSION FIX (introduced earlier in this same release).** The Postgres

@@ -531,3 +531,79 @@ class TestMacAgentKeepsTheSysinfoRecord(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLockedUpdateReadsFreshInsideTheLock(unittest.TestCase):
+    """`load()` is memoised per request, so `_LockedUpdate` handed back a
+    snapshot taken BEFORE the lock was acquired and `__exit__` wrote that stale
+    dict back — the class docstring's promise that the data is loaded while the
+    lock is held was false whenever the cache was warm (for DEVICES_FILE, nearly
+    every request). That is the exact bug issue #8 moved ~24 handlers onto this
+    lock to prevent, except located in the lock itself."""
+
+    def test_a_concurrent_write_is_visible_inside_the_lock(self):
+        import json as _json
+        p = api.DEVICES_FILE
+        api.save(p, {"a": {"name": "a"}})
+        api.load(p)                       # warm the per-request memoiser
+        # Another process commits between our read and our lock.
+        raw = api._json_path(p) if hasattr(api, "_json_path") else None
+        with api._LockedUpdate(p) as devices:
+            pass
+        # Simulate the concurrent commit through the same API, then re-enter.
+        api.save(p, {"a": {"name": "a"}, "b": {"name": "b"}})
+        api.load(p)
+        api.save(p, {"a": {"name": "a"}, "b": {"name": "b"}})
+        with api._LockedUpdate(p) as devices:
+            seen = sorted(devices)
+        self.assertEqual(seen, ["a", "b"],
+                         "the locked read must see committed state, not a "
+                         "pre-lock snapshot")
+
+    def test_the_lock_invalidates_the_cache_before_loading(self):
+        import srcpin
+        src = (_CGI / "api.py").read_text()
+        body = srcpin.py_function(src, "_JsonLockedUpdate") if False else None
+        i = src.index("class _JsonLockedUpdate")
+        block = src[i:src.index("\nclass ", i + 10)]
+        enter = block[block.index("def __enter__"):]
+        self.assertLess(enter.index("_invalidate_load_cache"),
+                        enter.index("load(self.path)"),
+                        "the cache must be dropped BEFORE the in-lock read")
+
+
+class TestExportsRespectScopeAndTenant(unittest.TestCase):
+    """`_filter_devices_for_export` did a bare load() and applied only the query
+    params, so patch-report CSV/XML and the fleet SBOM — all plain
+    require_auth() — returned the whole fleet to a scoped operator. The JSON
+    sibling of the same report has always filtered, which is exactly why the gap
+    was invisible: correct in the UI, wrong only in the export."""
+
+    def test_the_export_helper_applies_the_scope_filter(self):
+        import srcpin
+        src = (_CGI / "api.py").read_text()
+        body = srcpin.py_function(src, "_filter_devices_for_export")
+        self.assertIn("_scope_filter_devices(", body,
+                      "exports must go through the same filter as the JSON report")
+        self.assertNotIn("devices = load(DEVICES_FILE)\n", body,
+                         "a bare load() here bypasses role scope AND tenancy")
+
+
+class TestRagSearchIsGatedLikeTheChatPath(unittest.TestCase):
+    """The corpus is fleet-wide and not per-scope tagged. handle_ai_chat skips
+    retrieval for a scoped caller and says so; the search endpoint ran the same
+    index behind a bare require_auth()."""
+
+    def test_the_handler_refuses_a_scoped_caller(self):
+        import srcpin
+        src = (_CGI / "api.py").read_text()
+        body = srcpin.py_function(src, "handle_ai_rag_search")
+        self.assertIn("_caller_scope()", body)
+        self.assertIn("_tenant_gate()", body)
+        # Anchor on the STATEMENT, not the substring: the explanatory comment
+        # above the gate also contains the words `idx.search()`, and matching
+        # prose put the "retrieval" earlier in the body than the gate. Third
+        # time this session a check matched a comment instead of code.
+        gate = body.index("if _caller_scope() is not None")
+        search = body.index("hits = idx.search(")
+        self.assertLess(gate, search, "the gate must precede the retrieval")
