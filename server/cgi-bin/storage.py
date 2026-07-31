@@ -1008,8 +1008,14 @@ def list_append_chained(path, build_entry, cap=None):
                 (name,)).fetchone()['c']
             if n > cap:
                 excess = n - cap
+                # v6.4.2: evict RESOLVED rows first — see the note in
+                # storage.list_coalesce_or_append. Inert for list files with no
+                # `resolved_at`, where every row sorts equal and the order is
+                # `id`, exactly as before.
                 old = conn.execute(
-                    'SELECT id, doc FROM listrow WHERE file=? ORDER BY id LIMIT ?',
+                    'SELECT id, doc FROM listrow WHERE file=? '
+                    "ORDER BY (json_extract(doc, '$.resolved_at') IS NULL), id "
+                    'LIMIT ?',
                     (name, excess)).fetchall()
                 overflow = [json.loads(r['doc']) for r in old]
                 conn.executemany('DELETE FROM listrow WHERE id=?',
@@ -1084,8 +1090,20 @@ def list_coalesce_or_append(path, coalesce, build, cap=None):
             n = conn.execute('SELECT COUNT(*) AS c FROM listrow WHERE file=?',
                              (name,)).fetchone()['c']
             if n > cap:
+                # v6.4.2: evict RESOLVED rows first. A bare `ORDER BY id`
+                # deleted the OLDEST rows whatever their state, so on a fleet
+                # that accumulates past the cap the still-OPEN alerts went and
+                # the resolved ones stayed — while the Settings retention hint
+                # promises "Open alerts are never purged". The JSON backend was
+                # fixed in v6.4.0 (_trim_alerts); the DB backends, which are the
+                # enterprise default, kept the bug. Open rows go only in the
+                # pathological all-open case (the cap is a memory bound), oldest
+                # first. Generic and inert for list files with no `resolved_at`:
+                # every row then sorts equal and the order is `id`, as before.
                 old = conn.execute(
-                    'SELECT id, doc FROM listrow WHERE file=? ORDER BY id LIMIT ?',
+                    'SELECT id, doc FROM listrow WHERE file=? '
+                    "ORDER BY (json_extract(doc, '$.resolved_at') IS NULL), id "
+                    'LIMIT ?',
                     (name, n - cap)).fetchall()
                 overflow = [json.loads(r['doc']) for r in old]
                 conn.executemany('DELETE FROM listrow WHERE id=?',

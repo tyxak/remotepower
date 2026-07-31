@@ -320,6 +320,40 @@ def _cvss_base_score(vector: str) -> float | None:
         if score is not None:
             return score
 
+    # Case 2b: a CVSS v4.0 vector. NVD and OSV have been publishing these since
+    # 2023, and advisories increasingly carry ONLY a v4 vector — which fell
+    # through every branch here and scored `unknown`, so a 9.3 filed as neither
+    # critical nor high: no risk points, no CVE alert, invisible to the SLA and
+    # compliance views. Silence about a critical CVE is the worst possible
+    # failure mode for this function.
+    #
+    # v4's real formula is a MacroVector lookup table, which is a large thing to
+    # vendor and get right. This maps the v4 BASE metrics onto the v3.1 formula
+    # instead: AV/AC/PR/UI carry over unchanged, the v4 subsequent-system
+    # metrics (SC/SI/SA) stand in for v3's scope change, and VC/VI/VA are v3's
+    # C/I/A. The result is an approximation — deliberately labelled as one by
+    # `_cvss_source()` — but it lands in the right severity band, which is the
+    # decision this score actually drives.
+    if vector.upper().startswith('CVSS:4'):
+        m = _parse_cvss_vector(vector)
+        # UI is the one metric whose VOCABULARY changed: v3 is N|R, v4 is
+        # N|P|A (none / passive / active). Passing 'A' through unmapped made
+        # _cvss3_base_score reject the whole vector and fall back to unknown —
+        # which is how a low/medium v4 advisory stayed invisible even after the
+        # branch above existed. Both v4 values that require a user map to 'R'.
+        _ui = {'N': 'N', 'P': 'R', 'A': 'R'}.get(m.get('UI', 'N'), 'R')
+        approx = {
+            'AV': m.get('AV', 'N'), 'AC': m.get('AC', 'L'),
+            'PR': m.get('PR', 'N'), 'UI': _ui,
+            'C': m.get('VC', 'N'), 'I': m.get('VI', 'N'), 'A': m.get('VA', 'N'),
+            # v4 replaced the scope flag with explicit subsequent-system impact;
+            # any of them non-None is what v3 called a scope change.
+            'S': 'C' if any(m.get(k, 'N') != 'N' for k in ('SC', 'SI', 'SA')) else 'U',
+        }
+        score = _cvss3_base_score(approx)
+        if score is not None:
+            return score
+
     # Case 3: a CVSS v2 vector. We don't implement the full v2 formula;
     # derive a conservative score from the impact metrics via EXACT
     # token lookup (no substring matching). v2 metrics: C/I/A = N|P|C.
@@ -411,7 +445,7 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
 
     `source` records WHERE the severity came from — per the v2.3.4
     spec requirement to log the classification source. One of:
-    'database_specific', 'ubuntu_priority', 'cvss_v3', 'cvss_v2',
+    'database_specific', 'ubuntu_priority', 'cvss_v3', 'cvss_v4_approx', 'cvss_v2',
     'debian_urgency', 'unknown'.
 
     Priority order: distro's own rating (database_specific, then
@@ -453,7 +487,15 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
         score = _cvss_base_score(vec)
         if score is not None:
             vtype = (sev.get('type') or '').upper()
-            src = 'cvss_v2' if vtype.startswith('CVSS_V2') else 'cvss_v3'
+            # v6.4.2: name the v4 source honestly. The score is the v3.1 formula
+            # applied to v4's base metrics, not an official v4 base score, and a
+            # consumer that reads the source deserves to know which it got.
+            if vtype.startswith('CVSS_V2'):
+                src = 'cvss_v2'
+            elif vtype.startswith('CVSS_V4') or vec.upper().startswith('CVSS:4'):
+                src = 'cvss_v4_approx'
+            else:
+                src = 'cvss_v3'
             if score >= _CVSS_BAND_CRITICAL:   return 'critical', src
             if score >= _CVSS_BAND_HIGH:       return 'high', src
             if score >= _CVSS_BAND_MEDIUM:     return 'medium', src

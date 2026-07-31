@@ -164,6 +164,115 @@ class TestAgentlessLoadAverageSurvivesLocale(unittest.TestCase):
             self.assertEqual(got, truth, f"locale {loc} mangled the load average")
 
 
+class TestBruteForceSourcesAreRealAddresses(unittest.TestCase):
+    """`src.strip('[]').split(':')[0]` truncated every IPv6 address to its first
+    hextet, so unrelated attackers merged into one counter — which then crossed
+    the threshold on its own and fired naming `2001` as the source."""
+
+    def test_ipv6_is_kept_whole(self):
+        for ip in ("2001:db8::1", "::1", "2a02:1810:1234:5678::1f"):
+            self.assertEqual(api._brute_src_ip(ip), ip, ip)
+
+    def test_ports_and_brackets_are_peeled(self):
+        self.assertEqual(api._brute_src_ip("[2001:db8::1]:22"), "2001:db8::1")
+        self.assertEqual(api._brute_src_ip("192.0.2.7:52344"), "192.0.2.7")
+        self.assertEqual(api._brute_src_ip("192.0.2.7"), "192.0.2.7")
+
+    def test_non_addresses_are_dropped_not_counted(self):
+        for bad in ("", "-", "invalid", "2001", "not:an:ip"):
+            self.assertIsNone(api._brute_src_ip(bad), bad)
+
+    def test_distinct_sources_stay_distinct(self):
+        seen = {api._brute_src_ip(f"2001:db8:{i}::1") for i in range(20)}
+        self.assertEqual(len(seen), 20,
+                         "merging distinct attackers both hides them and false-fires")
+
+
+class TestAlertEscalationUpdatesTheOpenRow(unittest.TestCase):
+    """Coalescing refreshed only ts/count, so an open row was frozen at its
+    first observation while the delivery channels paged on the NEW severity —
+    the inbox actively disagreed with the page just received."""
+
+    def setUp(self):
+        api.save(api.ALERTS_FILE, {"alerts": []})
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1", "monitored": True}})
+
+    def tearDown(self):
+        api.save(api.ALERTS_FILE, {"alerts": []})
+
+    def test_warn_then_crit_escalates_in_place(self):
+        for sev in ("WARN", "CRIT"):
+            api.fire_webhook("log_alert", {"device_id": "d1", "name": "h1",
+                                           "unit": "syslog", "pattern": "p",
+                                           "count": 1, "severity": sev})
+        rows = [a for a in (api.load(api.ALERTS_FILE) or {}).get("alerts", [])
+                if not a.get("resolved_at")]
+        self.assertEqual(len(rows), 1, "still one row — this is coalescing, not stacking")
+        self.assertEqual(rows[0]["severity"], "critical")
+        self.assertTrue(rows[0].get("escalated_at"))
+
+    def test_a_dip_does_not_downgrade_a_live_page(self):
+        for sev in ("CRIT", "WARN"):
+            api.fire_webhook("log_alert", {"device_id": "d1", "name": "h1",
+                                           "unit": "syslog", "pattern": "p",
+                                           "count": 1, "severity": sev})
+        rows = [a for a in (api.load(api.ALERTS_FILE) or {}).get("alerts", [])
+                if not a.get("resolved_at")]
+        self.assertEqual(rows[0]["severity"], "critical",
+                         "escalate-only: the recover event closes a row, not a dip")
+
+
+class TestCvssV4IsScored(unittest.TestCase):
+    """NVD and OSV publish v4 vectors, which fell through every branch and
+    scored `unknown` — no risk points, no CVE alert, invisible to SLA and
+    compliance. Silence about a critical CVE is the worst failure here."""
+
+    def setUp(self):
+        s = importlib.util.spec_from_file_location(
+            "cve_scanner_v642", _CGI / "cve_scanner.py")
+        self.cs = importlib.util.module_from_spec(s)
+        s.loader.exec_module(self.cs)
+
+    def _sev(self, vec):
+        return self.cs._severity_from_vuln(
+            {"id": "X", "severity": [{"type": "CVSS_V4", "score": vec}]}, "Ubuntu")
+
+    def test_a_critical_v4_advisory_is_critical(self):
+        sev, src = self._sev(
+            "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N")
+        self.assertEqual(sev, "critical")
+        self.assertEqual(src, "cvss_v4_approx",
+                         "the source must say this is derived, not an official v4 score")
+
+    def test_the_v4_only_user_interaction_vocabulary_is_translated(self):
+        # v3 is N|R, v4 is N|P|A. Passing 'A' through unmapped made the whole
+        # vector unparseable, so low/medium v4 advisories stayed invisible even
+        # once the branch existed.
+        self.assertEqual(self._sev(
+            "CVSS:4.0/AV:L/AC:H/AT:P/PR:H/UI:A/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N")[0], "low")
+        self.assertEqual(self._sev(
+            "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N")[0], "medium")
+
+    def test_v3_scoring_is_unchanged(self):
+        self.assertEqual(
+            self.cs._cvss_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"), 9.8)
+
+
+class TestAlertCapEvictsResolvedFirst(unittest.TestCase):
+    """The JSON backend got resolved-first eviction in v6.4.0 (_trim_alerts);
+    the DB backends — the enterprise default — kept deleting oldest-overall, so
+    the cap silently removed OPEN alerts while the retention hint promised it
+    never would."""
+
+    def test_both_db_backends_order_by_resolved_first(self):
+        for mod, frag in (("storage.py", "json_extract(doc, '$.resolved_at') IS NULL"),
+                          ("storage_pg.py", "(doc->>'resolved_at') IS NULL")):
+            src = (_CGI / mod).read_text()
+            i = src.index("def list_coalesce_or_append")
+            block = src[i:src.index("\ndef ", i + 10)]
+            self.assertIn(frag, block, f"{mod} still evicts oldest-overall")
+
+
 class TestMacAgentKeepsTheSysinfoRecord(unittest.TestCase):
     """The macOS agent attached custom-check results to a beat with no sysinfo.
     The server REPLACES dev['sysinfo'] wholesale, so that one-key dict wiped the

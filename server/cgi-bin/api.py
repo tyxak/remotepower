@@ -12,6 +12,7 @@ import json
 import time
 import hashlib
 import hmac
+import ipaddress
 import secrets
 import functools
 import socket
@@ -9952,6 +9953,21 @@ def _record_alert(event, payload):
         ex['ts'] = alert['ts']
         ex['count'] = int(ex.get('count') or 1) + 1
         ex['last_seen'] = alert['ts']
+        # v6.4.2: re-grade on ESCALATION. Only ts/count/last_seen were touched,
+        # so an open row was frozen at its first observation: a disk that went
+        # 85% (medium) then 96% (critical) kept saying medium, and a certificate
+        # that crossed from the warning window into the critical one never
+        # changed. The delivery channels computed the NEW severity and paged on
+        # it, so the inbox actively disagreed with the page the operator had
+        # just received. Escalate-only is the safe direction — a transient dip
+        # must not silently downgrade a live page; the recover event is what
+        # closes a row.
+        _rank = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+        if _rank.get(alert.get('severity'), 0) > _rank.get(ex.get('severity'), 0):
+            ex['severity'] = alert['severity']
+            ex['title'] = alert['title']
+            ex['payload'] = alert['payload']
+            ex['escalated_at'] = alert['ts']
         return ex
 
     def _build(meta):
@@ -33898,6 +33914,39 @@ BRUTE_WINDOW_SECONDS = 300    # 5-minute rolling window
 BRUTE_THRESHOLD      = 20     # default — overridden by config brute_force_threshold
 
 
+def _brute_src_ip(raw):
+    """A log line's source address, normalised — or None if it isn't one.
+
+    v6.4.2: the old one-liner was `src.strip('[]').split(':')[0]` for anything
+    without a dot, which truncates EVERY IPv6 address to its first hextet.
+    `2001:db8::1` and `2001:470::9` both became `2001`, so unrelated attackers
+    from anywhere in a /16 of the address space shared a single counter — which
+    then crossed the threshold on its own and fired a brute-force alert naming
+    `2001` as the source, an address nobody can block or investigate. The real
+    per-source signal was simultaneously lost: one genuine attacker's attempts
+    were diluted across whatever else happened to share its prefix.
+    """
+    s = str(raw or '').strip()
+    if not s or s in ('-', ''):
+        return None
+    # "[2001:db8::1]:22" — bracketed host with a port.
+    if s.startswith('[') and ']' in s:
+        s = s[1:s.index(']')]
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        pass
+    # "192.0.2.1:1234" — IPv4 with a port. A bare IPv6 has several colons and
+    # is handled above, so a single colon here is unambiguous.
+    if s.count(':') == 1:
+        head = s.rsplit(':', 1)[0]
+        try:
+            return str(ipaddress.ip_address(head))
+        except ValueError:
+            pass
+    return None
+
+
 def _brute_config():
     """Return (enabled, threshold, window_seconds) from config.json."""
     cfg = load(CONFIG_FILE) or {}
@@ -33957,11 +34006,9 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
             m = pat.search(line)
             if not m:
                 continue
-            src = m.group(1)
-            if not src or src in ('-', ''):
+            src = _brute_src_ip(m.group(1))
+            if not src:
                 continue
-            # Scrub IPv6 brackets
-            src = src.strip('[]').split(':')[0] if '.' not in src and ':' in src else src
 
             timestamps = unit_bf.get(src, [])
             timestamps = [t for t in timestamps if t >= cutoff]  # expire old

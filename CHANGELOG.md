@@ -139,6 +139,34 @@ The site was fine in every case; the connector was not.
 
 ### Fixed: a wide feature sweep
 
+Second batch:
+
+- **A CVSS v4.0 advisory scored `unknown`.** NVD and OSV have published v4
+  vectors since 2023 and advisories increasingly carry only one; it fell through
+  every branch of the score parser, so a 9.8 was filed as neither critical nor
+  high — no risk points, no CVE alert, invisible to the SLA and compliance
+  views. v4's base metrics are now mapped onto the v3.1 formula and the source
+  is labelled `cvss_v4_approx`, because it is a derivation and not an official
+  v4 base score. (v4's user-interaction metric uses a different vocabulary than
+  v3 — N/P/A against N/R — which had to be translated or low and medium
+  advisories stayed invisible even with the branch in place.)
+- **The alert cap deleted OPEN alerts on SQLite and Postgres.** The JSON backend
+  got resolved-first eviction in v6.4.0; the DB backends — the enterprise
+  default — kept deleting oldest-overall, so on a fleet past the 5000 cap the
+  still-open alerts went and the resolved ones stayed, while the retention hint
+  promises open alerts are never purged. All four cap sites across both backends
+  evict resolved rows first now.
+- **An escalating alert never changed severity.** Coalescing refreshed only the
+  timestamp and count, so a disk going 85% to 96% kept reading medium while the
+  webhook, SIEM and push channels paged on critical — the inbox disagreed with
+  the page the operator had just received. Escalate-only, so a transient dip
+  cannot silently downgrade a live page.
+- **IPv6 brute-force sources were truncated to their first hextet.**
+  `2001:db8::1` and `2001:470::9` both became `2001`, so unrelated attackers
+  shared one counter — which crossed the threshold on its own and fired an alert
+  naming an address nobody can block, while the real per-source signal was
+  diluted away.
+
 Nine parallel hunts across the feature surface, each required to supply a
 runnable reproduction; all 36 findings reproduced when re-run independently.
 Ten are fixed here — the rest are recorded with their reproductions.
