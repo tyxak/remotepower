@@ -302,8 +302,17 @@ class TestMacConflict(_ApiCase):
         # never define one) silently got no detection at all.
         self.api.save(self.api.DEVICES_FILE, {
             'a': {'name': 'vm-a', 'mac': 'AA:BB:CC:DD:EE:FF'},
-            # same MAC, different notation, and reported via interfaces[] not mac
-            'b': {'name': 'vm-b', 'interfaces': [{'mac': 'aa-bb-cc-dd-ee-ff'}]},
+            # Same MAC, different notation, on a SECONDARY nic — the shape a
+            # cloned multi-NIC VM actually has. v6.4.2: this fixture used to say
+            # `'interfaces': [...]`, a key device records never carry (it is a
+            # CMDB field, whose row spec has no `mac` at all), so the test
+            # passed against a device shape that cannot exist while the sweep
+            # detected nothing on any real fleet. Per-NIC MACs are sanitised
+            # into sysinfo.network at ingest.
+            'b': {'name': 'vm-b',
+                  'sysinfo': {'network': [{'iface': 'eth0', 'ip': '10.0.0.9'},
+                                          {'iface': 'eth1',
+                                           'mac': 'aa-bb-cc-dd-ee-ff'}]}},
             'c': {'name': 'vm-c', 'mac': '11:22:33:44:55:66'},
         })
         self.api.save(self.api.IPAM_STATE_FILE, {})

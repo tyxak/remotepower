@@ -1814,7 +1814,7 @@ def collect_sudo_events(limit=100):
             lines = out.strip().splitlines()
             parse_epoch = lambda ln: int(float(ln.split(None, 1)[0])) if ln[:1].isdigit() else 0
         else:
-            raw = _safe_read(host_path('/var/log/auth.log'), 400_000) or ''
+            raw = _safe_read_tail(host_path('/var/log/auth.log'), 400_000) or ''
             lines = raw.splitlines()[-800:]
             parse_epoch = lambda ln: 0
     except Exception:
@@ -4871,6 +4871,28 @@ def _sock_scope(addr):
 MAX_FW_RULES = 200   # per-backend rule cap reported to the server
 
 
+def _nft_is_header(sline):
+    """True when an `nft -a list ruleset` line OPENS a container, not a rule.
+
+    v6.4.2: the discriminator used to be `'{' not in sline`, on the stated
+    assumption that "table/chain headers carry a handle too but always contain
+    `{`, so excluding `{` lines counts rules only". That is false — an
+    anonymous set makes a RULE contain braces:
+    `tcp dport { 22, 80, 443 } accept # handle 6`. Anonymous sets are the
+    standard modern nft idiom and firewalld's generated ruleset is full of
+    them, so on every firewalld host precisely the exposure-relevant rules
+    (which ports/sources are allowed) were dropped from the inventory, from
+    the deletable rule list, and from the `rules` count that `active` and the
+    per-asset risk score derive from. The `rules == 0` keyword fallback only
+    rescues a ruleset where NOTHING parsed.
+
+    A container header is a line whose content BEFORE the `# handle` comment
+    ends with `{`; a rule is anything else carrying a handle.
+    """
+    body = sline.split(' # handle ')[0].rstrip()
+    return body.endswith('{')
+
+
 def _parse_nft_rules(txt, cap=MAX_FW_RULES):
     """Parse `nft -a list ruleset` into [{text, ref}] where ref =
     '<family> <table> <chain> handle <N>' so the server can build an exact
@@ -4888,7 +4910,7 @@ def _parse_nft_rules(txt, cap=MAX_FW_RULES):
             continue
         if not sline or sline == '}':
             continue
-        if '# handle ' in sline and '{' not in sline:
+        if '# handle ' in sline and not _nft_is_header(sline):
             hm = re.search(r'# handle (\d+)', sline)
             if not hm or not (family and table and chain):
                 continue
@@ -5019,14 +5041,19 @@ def collect_firewall_detail():
 
     # nftables — the modern in-kernel firewall (also the backend iptables-nft
     # uses). Count rules by their handle (`nft -a` stamps `# handle N` on each
-    # *rule*; table/chain headers carry a handle too but always contain `{`, so
-    # excluding `{` lines counts rules only). This is far more reliable than the
-    # old verdict-keyword heuristic, which missed rules that don't end in a bare
+    # *rule*), telling rules from container headers with _nft_is_header. The
+    # comment that used to sit here asserted "headers always contain `{`, so
+    # excluding `{` lines counts rules only" — that was wrong, and it is why the
+    # count was wrong: an anonymous set puts braces in a RULE, so on every
+    # firewalld host the port-opening rules were excluded from both the count
+    # and the inventory. This is still far more reliable than the old
+    # verdict-keyword heuristic, which missed rules that don't end in a bare
     # accept/drop (e.g. `... counter` or a named-set jump).
     nft = _which('nft')
     if nft:
         rc, txt, _ = _run([nft, '-a', 'list', 'ruleset'])
-        rules = sum(1 for l in txt.splitlines() if '# handle ' in l and '{' not in l)
+        rules = sum(1 for l in txt.splitlines()
+                    if '# handle ' in l and not _nft_is_header(l.strip()))
         if rules == 0 and txt.strip():
             # Fallback for nft builds where -a doesn't emit handles.
             rules = sum(1 for l in txt.splitlines()
@@ -5671,7 +5698,7 @@ def get_av_status():
         if newest:
             c['db_age_days'] = max(0, int((_time.time() - newest) / 86400))
         # Last scan result from a conventional clamav scan log, if present.
-        log = _safe_read('/var/log/clamav/scan.log', 40_000) or ''
+        log = _safe_read_tail('/var/log/clamav/scan.log', 40_000) or ''
         m = _re.findall(r'Infected files:\s*(\d+)', log)
         if m:
             c['infected'] = int(m[-1])
@@ -5690,7 +5717,7 @@ def get_av_status():
     # ── rkhunter ─────────────────────────────────────────────────────────────
     if _which('rkhunter'):
         r = {'installed': True, 'last_run_ts': None, 'warnings': None}
-        rk = _safe_read('/var/log/rkhunter.log', 200_000) or ''
+        rk = _safe_read_tail('/var/log/rkhunter.log', 200_000) or ''
         warn = _re.findall(r'\[\s*[Ww]arning\s*\]', rk)
         if rk:
             r['warnings'] = len(warn)
@@ -11327,6 +11354,36 @@ def _safe_run(cmd, timeout=10):
         return r.returncode, (r.stdout or '')
     except Exception as e:
         return -1, f'<error: {e}>'
+
+def _safe_read_tail(path, max_bytes=200_000):
+    """Read the LAST ``max_bytes`` of a file (see also `_safe_read`, which
+    reads the first).
+
+    v6.4.2: three APPEND-ONLY logs were read through `_safe_read`, i.e. from
+    the START — the OLDEST content. Once such a log grew past its cap the
+    parse froze permanently on ancient data. For ClamAV that is not merely a
+    stale display: `av_infected` is EDGE-TRIGGERED on the infected count
+    RISING between heartbeats, so a frozen count can never rise and a genuine
+    new detection never raises the critical alert, while a host cleaned months
+    ago stays permanently dirty in the drawer, the attention items and the RAG
+    corpus. Same shape for rkhunter under --append-log and the auth.log sudo
+    fallback.
+
+    A partial first line is harmless here — every caller scans for whole-line
+    patterns and takes the LAST match.
+    """
+    try:
+        with open(host_path(path), 'rb') as f:
+            try:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - max_bytes))
+            except Exception:
+                pass          # not seekable (a pipe/procfs) — read from where we are
+            return f.read(max_bytes).decode('utf-8', 'replace')
+    except Exception:
+        return ''
+
 
 def _safe_read(path, max_bytes=200_000):
     # host_path() is the identity when running natively; in a container it

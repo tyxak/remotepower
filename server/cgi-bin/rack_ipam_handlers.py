@@ -420,7 +420,16 @@ def run_ipam_conflicts_if_due():
         if not isinstance(dev, dict) or dev.get('decommissioned'):
             continue
         macs = set()
-        for m in ([dev.get('mac')] + [i.get('mac') for i in (dev.get('interfaces') or [])
+        # v6.4.2: per-NIC MACs live under sysinfo.network (sanitised through
+        # _sanitize_mac at ingest), NOT under dev['interfaces'] — `interfaces` is
+        # a CMDB record field, and its row spec (_CMDB_LIST_SPECS) has no `mac`
+        # at all, so this comprehension was structurally always empty and the
+        # check collapsed to the single primary MAC captured once at enrolment.
+        # A multi-NIC clone — the exact "cloned VM whose NIC was never
+        # regenerated" case this exists to catch — carries its duplicate on a
+        # SECONDARY interface, and was therefore never detected.
+        _nics = ((dev.get('sysinfo') or {}).get('network') or [])
+        for m in ([dev.get('mac')] + [i.get('mac') for i in _nics
                                       if isinstance(i, dict)]):
             m = A._normalize_mac(m)
             if m:

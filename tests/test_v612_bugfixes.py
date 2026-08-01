@@ -39,8 +39,18 @@ class TestMutedAlertsLiftHealth(unittest.TestCase):
     must stop dragging the device's — and the fleet's — health score down."""
 
     def setUp(self):
+        import tempfile as _tf
         import time
 
+        import attention_isolation
+
+        # v6.4.2: isolate EVERY store the digest reads. This used to repoint
+        # none of them, so a neighbouring module's leftovers landed in the
+        # digest — a real order-dependent failure that alternated between this
+        # test and test_v247.TestAttentionDigest from run to run. `make test`
+        # can never see it; unittest discover is deterministic.
+        self._tmp = _tf.mkdtemp()
+        self._saved_stores = attention_isolation.isolate(api, self._tmp)
         api.save(api.ALERT_MUTES_FILE, {"mutes": []})
         api.save(
             api.DEVICES_FILE,
@@ -59,6 +69,10 @@ class TestMutedAlertsLiftHealth(unittest.TestCase):
             api.save(api._attention_cache_file(), {})
         except Exception:
             pass
+
+    def tearDown(self):
+        import attention_isolation
+        attention_isolation.restore(api, getattr(self, '_saved_stores', None))
 
     def _health(self):
         return api._fleet_health(use_cache=False)

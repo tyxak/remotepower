@@ -39,9 +39,14 @@ class _ApiCase(unittest.TestCase):
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
         api = self.api
-        api.DEVICES_FILE = self._tmp / 'devices.json'
-        api.CONFIG_FILE = self._tmp / 'config.json'
-        api.CVE_FINDINGS_FILE = self._tmp / 'cve.json'
+        # v6.4.2: repoint EVERY store the digest reads, not just the three this
+        # test seeds. The other fifteen kept pointing at the shared per-worker
+        # data dir, so a neighbouring module's leftovers landed in the digest —
+        # a real order-dependent failure that alternated between this test and
+        # test_v612_bugfixes.TestMutedAlertsLiftHealth from run to run, and that
+        # `make test` can never see (unittest discover is deterministic).
+        import attention_isolation
+        self._saved_stores = attention_isolation.isolate(api, self._tmp)
         api.save(api.CONFIG_FILE, {})
         api.save(api.CVE_FINDINGS_FILE, {})
         # v6.4.1 (false-green class 4): the stores above are repointed into a
@@ -54,6 +59,11 @@ class _ApiCase(unittest.TestCase):
             api.save(api._attention_cache_file(), {})
         except Exception:
             pass
+
+
+    def tearDown(self):
+        import attention_isolation
+        attention_isolation.restore(self.api, getattr(self, '_saved_stores', None))
 
     def _capture(self, fn, *a):
         cap = {}
