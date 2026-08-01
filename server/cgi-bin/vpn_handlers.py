@@ -407,9 +407,8 @@ def handle_vpn_default_template() -> None:
         A.respond(400, {'error': 'dns must be an IP address'})
     tmpl = {'allow_internet': allow_internet, 'reach_scope_type': rst,
             'reach_scope_value': rsv, 'dns': dns}
-    cfg = A.load(A.CONFIG_FILE) or {}
-    cfg['vpn_default_template'] = tmpl
-    A.save(A.CONFIG_FILE, cfg)
+    with A._LockedUpdate(A.CONFIG_FILE) as cfg:   # v6.4.2: was an unlocked RMW
+        cfg['vpn_default_template'] = tmpl
     A.audit_log(actor, 'vpn_default_template_set',
                 detail=f'internet={allow_internet} scope={rst}:{rsv}', source_ip=A._get_client_ip())
     A.respond(200, {'ok': True, 'template': tmpl})
@@ -782,9 +781,7 @@ def run_vpn_stats_if_due():
     now = int(time.time())
     if (now - last) < interval:
         return
-    cfg = A.load(A.CONFIG_FILE) or {}
-    cfg['last_vpn_stats_run'] = now
-    A.save(A.CONFIG_FILE, cfg)
+    A._claim_cadence_slot('last_vpn_stats_run', now)
     store = A._vpn_load()
     if not store['tunnels']:
         return

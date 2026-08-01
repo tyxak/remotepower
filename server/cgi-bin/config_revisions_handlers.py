@@ -102,9 +102,16 @@ def handle_config_revision_restore():
     rev = next((r for r in revs if r.get('id') == rid), None)
     if not rev or not isinstance(rev.get('config'), dict):
         A.respond(404, {'error': 'Revision not found'})
-    current = A.load(A.CONFIG_FILE) or {}
+    # v6.4.2: read-and-replace under the lock, so a config save landing between
+    # the read and the write isn't silently reverted (and the pre-restore
+    # snapshot is the config that was ACTUALLY replaced). record_config_revision
+    # takes CONFIG_REVS_FILE's own lock, so it runs after this block — nesting a
+    # second file's lock would raise on the SQLite/Postgres backends.
+    with A._LockedUpdate(A.CONFIG_FILE) as cur:
+        current = dict(cur)
+        cur.clear()
+        cur.update(rev['config'])
     A.record_config_revision(current, rev['config'], f'{actor} (pre-restore)')
-    A.save(A.CONFIG_FILE, rev['config'])
     A.audit_log(actor, 'config_restored',
                 f'revision={rid} ts={int(rev.get("ts") or 0)}')
     A.respond(200, {'ok': True, 'restored': rid})

@@ -6,7 +6,9 @@ source text — every one of these bugs was invisible to the source-level
 guardrails that already existed.
 """
 
+import ast
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -607,3 +609,311 @@ class TestRagSearchIsGatedLikeTheChatPath(unittest.TestCase):
         gate = body.index("if _caller_scope() is not None")
         search = body.index("hits = idx.search(")
         self.assertLess(gate, search, "the gate must precede the retrieval")
+
+
+class TestNoUnlockedConfigReadModifyWrite(unittest.TestCase):
+    """`cfg = load(CONFIG_FILE)` … mutate … `save(CONFIG_FILE, cfg)` with no
+    lock held across the pair loses every key another writer saved in between,
+    because save() writes the WHOLE document from a stale snapshot.
+
+    It was worst in the cadence sweeps: load() memoises per request, so a sweep
+    late in the run wrote back the config as it looked when the request STARTED
+    — a `POST /api/config` landing mid-run had its keys silently reverted
+    (reproduced: `smtp_host` and `ip_allowlist_enabled` vanished after an SNMP
+    poll claimed its cadence slot). 19 sites in api.py plus 4 in the bound
+    modules; the timestamp-only ones now go through `_claim_cadence_slot`.
+
+    Enumerated with `ast`, not a regex: a module docstring mentioning the idiom
+    is not a call site (that false match bit three separate checks this session).
+    """
+
+    @staticmethod
+    def _unlocked_sites(tree):
+        """Yield (function, lineno) for each load/mutate/save pair on
+        CONFIG_FILE that no enclosing `with _LockedUpdate(...)` covers."""
+
+        def _is_config_load(node):
+            # `load(CONFIG_FILE)`, `A.load(A.CONFIG_FILE)`, `... or {}`
+            if isinstance(node, ast.BoolOp):
+                node = node.values[0]
+            if not isinstance(node, ast.Call):
+                return False
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name != "load" or len(node.args) != 1:
+                return False
+            arg = node.args[0]
+            argname = arg.attr if isinstance(arg, ast.Attribute) else getattr(arg, "id", "")
+            return argname == "CONFIG_FILE"
+
+        def _config_save_target(node):
+            """Return the saved variable's name for `save(CONFIG_FILE, x)`."""
+            if not isinstance(node, ast.Call) or len(node.args) != 2:
+                return None
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name != "save":
+                return None
+            a0 = node.args[0]
+            a0name = a0.attr if isinstance(a0, ast.Attribute) else getattr(a0, "id", "")
+            if a0name != "CONFIG_FILE":
+                return None
+            return getattr(node.args[1], "id", None)
+
+        for fnode in ast.walk(tree):
+            if not isinstance(fnode, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # Names bound from a bare load(CONFIG_FILE) → lineno.
+            loaded = {}
+            for n in ast.walk(fnode):
+                if isinstance(n, ast.Assign) and len(n.targets) == 1 \
+                        and isinstance(n.targets[0], ast.Name) \
+                        and _is_config_load(n.value):
+                    loaded[n.targets[0].id] = n.lineno
+            if not loaded:
+                continue
+            # Statements inside any `with _LockedUpdate(...)` block are exempt.
+            covered = set()
+            for n in ast.walk(fnode):
+                if isinstance(n, ast.With) and any(
+                        "LockedUpdate" in ast.dump(item.context_expr)
+                        for item in n.items):
+                    for inner in ast.walk(n):
+                        covered.add(id(inner))
+            for n in ast.walk(fnode):
+                if id(n) in covered:
+                    continue
+                var = _config_save_target(n)
+                if var is not None and var in loaded:
+                    yield fnode.name, n.lineno
+
+    def test_every_config_write_holds_the_lock(self):
+        offenders = []
+        for path in sorted(_CGI.glob("*.py")):
+            tree = ast.parse(path.read_text())
+            for fn, lineno in self._unlocked_sites(tree):
+                offenders.append(f"{path.name}:{lineno} {fn}()")
+        self.assertEqual(
+            offenders, [],
+            "unlocked read-modify-write on CONFIG_FILE — wrap it in "
+            "`with _LockedUpdate(CONFIG_FILE) as cfg:`, or use "
+            "`_claim_cadence_slot(key, now)` if it only stamps a due-marker:\n  "
+            + "\n  ".join(offenders))
+
+    def test_claim_cadence_slot_takes_the_lock(self):
+        # Read the CODE, not the source text: the docstring quotes the very
+        # `save(CONFIG_FILE, cfg)` line it exists to replace, so a substring
+        # check fails on its own explanation. Fourth time prose has matched a
+        # check this session.
+        tree = ast.parse((_CGI / "api.py").read_text())
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_claim_cadence_slot")
+        fn.body = [n for n in fn.body
+                   if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)
+                           and isinstance(n.value.value, str))]
+        code = ast.dump(fn)
+        self.assertIn("_LockedUpdate", code)
+        self.assertNotIn("'save'", code, "must not write the whole document")
+
+    def test_config_save_snapshot_is_a_deep_copy(self):
+        """The touched-key merge diffs `cfg` against `_cfg_before`. With the
+        old SHALLOW `dict(cfg)` the two shared every nested list, so an
+        in-place edit — `for _m in cfg['monitors']: _m.pop('slo_ids')` in the
+        slo_objects prune — compared equal and the change was dropped.
+
+        My first attempt pinned "the handler only assigns top-level keys" by
+        scanning for `cfg[a][b] = v` and `cfg[a].pop(...)`. That passed while
+        the prune (a mutation through a LOOP variable) sailed past it: a static
+        check only rules out the forms its author thought of. So pin the
+        property the merge actually needs — a snapshot that can see any edit —
+        and let the functional test below cover behaviour."""
+        tree = ast.parse((_CGI / "api.py").read_text())
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "handle_config_save")
+        snap = next((n for n in ast.walk(fn)
+                     if isinstance(n, ast.Assign) and len(n.targets) == 1
+                     and getattr(n.targets[0], "id", "") == "_cfg_before"), None)
+        self.assertIsNotNone(snap, "handle_config_save lost its _cfg_before snapshot")
+        self.assertIn("deepcopy", ast.unparse(snap.value),
+                      "a shallow snapshot cannot see an in-place nested edit, so "
+                      "the touched-key merge would silently drop it")
+        self.assertIn("_touched", ast.dump(fn))
+
+
+class TestConfigSaveMergesRatherThanClobbers(unittest.TestCase):
+    """Drives the REAL handle_config_save with a writer landing in between.
+
+    The static checks above prove the merge exists; only this proves it does
+    the right thing in both directions — keeps the foreign key AND applies its
+    own change (a merge that drops the request's own edit would pass every
+    source-level assertion).
+    """
+
+    def setUp(self):
+        from test_v622_alert_params import api as _api
+        self.api = _api
+        self.d = Path(tempfile.mkdtemp(prefix="rp-v642-cfgmerge-"))
+        self._files = {}
+        for attr in ("USERS_FILE", "CONFIG_FILE", "ROLES_FILE"):
+            self._files[attr] = getattr(_api, attr)
+            setattr(_api, attr, self.d / Path(getattr(_api, attr)).name)
+        self._orig = {n: getattr(_api, n) for n in
+                      ("require_admin_auth", "verify_token", "audit_log",
+                       "fire_webhook", "respond", "method", "get_json_obj",
+                       "record_config_revision")}
+        _api.require_admin_auth = lambda: "jakob"
+        _api.verify_token = lambda t: ("jakob", "admin")
+        _api.audit_log = lambda *a, **k: None
+        _api.fire_webhook = lambda *a, **k: None
+        _api.record_config_revision = lambda *a, **k: None
+        _api.method = lambda: "POST"
+        self.cap = {}
+
+        def _resp(s, b=None):
+            self.cap["s"], self.cap["b"] = s, b
+            raise _api.HTTPError(s, b)
+        _api.respond = _resp
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(self.api, n, v)
+        for attr, v in self._files.items():
+            setattr(self.api, attr, v)
+
+    def test_a_concurrent_write_is_not_reverted(self):
+        api = self.api
+        api.save(api.CONFIG_FILE, {"server_name": "rp"})
+
+        # The handler reads its snapshot, then a cadence sweep / second admin
+        # lands `smtp_host` + a due-marker, then the handler's save completes.
+        real_load = api.load
+        fired = []
+
+        def _load_then_interleave(path, *a, **k):
+            out = real_load(path, *a, **k)
+            if path == api.CONFIG_FILE and not fired:
+                fired.append(1)
+                api._invalidate_load_cache(api.CONFIG_FILE)
+                other = real_load(api.CONFIG_FILE) or {}
+                other["smtp_host"] = "mail.example.net"
+                other["last_snmp_poll"] = 1700000000
+                api.save(api.CONFIG_FILE, other)
+                api._invalidate_load_cache(api.CONFIG_FILE)
+            return out
+
+        api.load = _load_then_interleave
+        api.get_json_obj = lambda: {"server_name": "renamed"}
+        try:
+            with self.assertRaises(api.HTTPError):
+                api.handle_config_save()
+        finally:
+            api.load = real_load
+        self.assertEqual(self.cap.get("s"), 200, self.cap.get("b"))
+
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        final = real_load(api.CONFIG_FILE) or {}
+        self.assertEqual(final.get("smtp_host"), "mail.example.net",
+                         "the concurrent writer's key was clobbered by the "
+                         "handler's stale whole-document write")
+        self.assertEqual(final.get("last_snmp_poll"), 1700000000,
+                         "the cadence due-marker was reverted")
+        self.assertEqual(final.get("server_name"), "renamed",
+                         "the merge dropped the request's OWN change")
+
+    def test_a_cleared_key_is_still_removed(self):
+        """The merge must delete, not just upsert — blanking an override pops
+        the key (test_v622's `test_blank_clears_override` contract)."""
+        api = self.api
+        api.get_json_obj = lambda: {"tls_warn_days": 30}
+        with self.assertRaises(api.HTTPError):
+            api.handle_config_save()
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertEqual((api.load(api.CONFIG_FILE) or {}).get("tls_warn_days"), 30)
+        api.get_json_obj = lambda: {"tls_warn_days": ""}
+        with self.assertRaises(api.HTTPError):
+            api.handle_config_save()
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertNotIn("tls_warn_days", api.load(api.CONFIG_FILE) or {})
+
+    def test_a_nested_in_place_prune_still_lands(self):
+        """The slo_objects prune pops `slo_ids` from the monitor dicts inside
+        `cfg['monitors']` — an edit the merge can only see through a deep
+        snapshot. Regression for the second bug the merge introduced."""
+        api = self.api
+        api.get_json_obj = lambda: {"slo_objects": [{"name": "Web", "target_pct": 99.9}]}
+        with self.assertRaises(api.HTTPError):
+            api.handle_config_save()
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        sid = (api.load(api.CONFIG_FILE) or {})["slo_objects"][0]["id"]
+
+        api.get_json_obj = lambda: {"monitors": [
+            {"label": "web", "type": "http", "target": "https://example.com/",
+             "slo_ids": [sid]}]}
+        with self.assertRaises(api.HTTPError):
+            api.handle_config_save()
+
+        api.get_json_obj = lambda: {"slo_objects": []}   # delete the object
+        with self.assertRaises(api.HTTPError):
+            api.handle_config_save()
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        mon = (api.load(api.CONFIG_FILE) or {})["monitors"][0]
+        self.assertNotIn("slo_ids", mon,
+                         "the in-place prune was invisible to the touched-key diff")
+
+
+class TestEntityWriteOneHoldsTheLock(unittest.TestCase):
+    """`_entity_write_one` is the per-device ingest writer for sixteen heartbeat
+    stores (containers, hardware, AV, uptime, disk usage, metrics history, and
+    the PORT/SSH_KEY baselines). On a DB backend it is a single-row upsert; the
+    JSON fallback was a bare load/mutate/save of the WHOLE fleet store — the
+    exact pattern issue #8 moved the device handlers off, on the hot path.
+
+    Not a microsecond window: load() is request-memoised and main()'s cadence
+    warms these stores before dispatch, so the snapshot written back is the one
+    taken when the request STARTED. Every ingest another worker committed during
+    the request was erased, silently — the whole body is best-effort. Losing a
+    PORT_BASELINE row is worse than losing telemetry: the host re-baselines and
+    the new-listening-port detection never fires.
+    """
+
+    def setUp(self):
+        from test_v622_alert_params import api as _api
+        self.api = _api
+        self.d = Path(tempfile.mkdtemp(prefix="rp-v642-entity-"))
+        self.f = self.d / "containers.json"
+
+    def test_a_stale_snapshot_cannot_erase_another_host(self):
+        api = self.api
+        if api._storage_backend() != "json":
+            self.skipTest("the bare RMW is the JSON fallback; DB backends upsert one row")
+        api.save(self.f, {})
+        api._invalidate_load_cache(self.f)
+        api.load(self.f)                      # host a's request memoises {}
+
+        # Host b runs in ANOTHER worker: it commits to the file, and nothing
+        # clears host a's in-process cache. Writing the file directly is what
+        # makes this faithful — an in-process api.save() would invalidate the
+        # shared cache and host a would re-read fresh, hiding the bug (my first
+        # attempt at this test passed against the unfixed code for exactly that
+        # reason).
+        self.f.write_text(json.dumps({"b": {"containers": ["b1"]}}))
+
+        api._entity_write_one(self.f, "a", {"containers": ["a1"]})
+
+        api._invalidate_load_cache(self.f)
+        final = json.loads(self.f.read_text())
+        self.assertEqual(sorted(final), ["a", "b"],
+                         "host a wrote back its start-of-request snapshot and "
+                         "dropped host b's row from the store")
+
+    def test_the_json_fallback_uses_the_lock(self):
+        tree = ast.parse((_CGI / "api.py").read_text())
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_entity_write_one")
+        dumped = ast.dump(fn)
+        self.assertIn("_LockedUpdate", dumped)
+        self.assertNotIn("'save'", dumped,
+                         "a bare save() here writes the whole store from a stale read")
+        self.assertIn("LockBusy", dumped,
+                      "contention must stay best-effort — these blobs are "
+                      "re-reported on the next beat, never fail the heartbeat")

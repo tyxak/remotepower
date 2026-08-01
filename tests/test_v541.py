@@ -243,7 +243,12 @@ class TestEnterpriseHardening(unittest.TestCase):
     # D4 — config-change audit
     def test_config_change_audit_wired(self):
         src = _apisrc_combined()
-        self.assertIn("_cfg_before = dict(cfg or {})", src)
+        # v6.4.2: the snapshot is a DEEP copy now. Shallow, it shared every
+        # nested list with `cfg`, so an in-place edit (the slo_objects prune
+        # pops slo_ids off the monitor dicts) compared equal and the audit —
+        # and the pre-restore revision — never saw it. Pin the property, not
+        # the old literal.
+        self.assertIn("_cfg_before = copy.deepcopy(cfg or {})", src)
         self.assertIn("'config_changed'", src)
 
     # E4 — webhook schema_version

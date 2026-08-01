@@ -5,6 +5,7 @@ Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
 
+import copy
 import os
 import re
 import sys
@@ -2520,6 +2521,27 @@ def _ping_host(host, timeout=2):
     return _tcp_reach_ping(host, timeout)
 
 
+def _claim_cadence_slot(key, now):
+    """Stamp a cadence due-marker into the config, under the lock.
+
+    v6.4.2: these slot claims were `cfg = load(CONFIG_FILE); cfg[key] = now;
+    save(CONFIG_FILE, cfg)` — an UNLOCKED read-modify-write of the WHOLE
+    document. And `load()` memoises for the entire cadence run (_begin_request
+    runs once per run_cadence_once), so a sweep near the end of the tuple wrote
+    back the snapshot taken at its START. Because `save()` writes the whole
+    document, every key an admin had saved in between was DELETED — verified
+    losing `ip_allowlist_enabled` and `smtp_host`, i.e. a security setting
+    silently reverting itself minutes after being turned on.
+
+    Four sibling sweeps (refresh_kev_epss_if_due, ping_healthchecks_if_due,
+    _run_posture_digest_if_due, _maybe_repair_baseline_checks) already used the
+    locked form; this is the same thing, named, so the next sweep gets it right
+    by default. _LockedUpdate re-reads inside the critical section, so the write
+    merges into current state instead of replacing it."""
+    with _LockedUpdate(CONFIG_FILE) as cfg_w:
+        cfg_w[key] = int(now)
+
+
 def run_agentless_reachability_if_due():
     """Ping every ICMP-mode agentless device once per AGENTLESS_PING_INTERVAL
     and flip its `reachable` bit, firing device_offline / device_online on
@@ -2542,12 +2564,10 @@ def run_agentless_reachability_if_due():
                and (d.get('ip') or d.get('hostname') or d.get('host'))]
     if not targets:
         return
-    cfg = load(CONFIG_FILE)
-    cfg['last_agentless_ping'] = now
-    save(CONFIG_FILE, cfg)
+    _claim_cadence_slot('last_agentless_ping', now)
 
     try:
-        _ping_fail_thresh = int(cfg.get('agentless_ping_fail_threshold',
+        _ping_fail_thresh = int(_ro.get('agentless_ping_fail_threshold',
                                         AGENTLESS_PING_FAIL_THRESHOLD)
                                 or AGENTLESS_PING_FAIL_THRESHOLD)
     except (TypeError, ValueError):
@@ -2616,9 +2636,7 @@ def run_routeros_update_check_if_due():
                if (d.get('routeros') or {}).get('enabled')]
     if not targets:
         return
-    cfg = load(CONFIG_FILE)
-    cfg['last_routeros_update_check'] = now
-    save(CONFIG_FILE, cfg)
+    _claim_cadence_slot('last_routeros_update_check', now)
     import routeros as routeros_mod
     results = {}   # dev_id -> update dict
     started = time.time()
@@ -3379,10 +3397,9 @@ def handle_maintenance_mode_set():
     body = _read_valid(request_models.MaintenanceModeSetRequest)
     enabled = bool(body.get('enabled'))
     reason = _sanitize_str(body.get('reason', ''), 200, allow_empty=True) or ''
-    cfg = load(CONFIG_FILE) or {}
-    cfg['maintenance_mode'] = enabled
-    cfg['maintenance_reason'] = reason
-    save(CONFIG_FILE, cfg)
+    with _LockedUpdate(CONFIG_FILE) as cfg:   # v6.4.2: was an unlocked RMW
+        cfg['maintenance_mode'] = enabled
+        cfg['maintenance_reason'] = reason
     audit_log(actor, 'maintenance_mode',
               detail=f"enabled={enabled} reason={reason[:80]}")
     respond(200, {'ok': True, 'enabled': enabled, 'reason': reason})
@@ -3965,10 +3982,18 @@ def _entity_write_one(store_file, dev_id, value):
         except Exception:
             pass
     try:
-        store = load(store_file) or {}
-        store[dev_id] = value
-        save(store_file, store, non_blocking=True)
-        _invalidate_load_cache(store_file)
+        # v6.4.2: the JSON fallback used to be a BARE load/mutate/save — the
+        # exact whole-store read-modify-write issue #8 moved the device handlers
+        # off. `load()` is request-memoised and main()'s cadence warms these
+        # stores before dispatch, so the snapshot written back was the one taken
+        # at the START of the request: every other worker's ingest committed
+        # meanwhile was erased, silently (the whole body is best-effort). Worst
+        # on PORT_BASELINE/SSH_KEY_BASELINE, where losing the row re-baselines
+        # the host and the new-port / new-key detections never fire.
+        with _LockedUpdate(store_file, non_blocking=True) as store:
+            store[dev_id] = value
+    except LockBusy:
+        pass          # secondary blob — re-reported on the next beat, by design
     except Exception:
         pass
 
@@ -12992,16 +13017,15 @@ def handle_device_save_bulk(dev_id):
         # offline notification so we don't ping about an opt-out device.
         dev.update(updates)
     if updates.get('monitored') is False:
-        cfg = load(CONFIG_FILE)
-        changed = False
-        for key in ('offline_notified', 'offline_pending'):
-            d = cfg.get(key, {})
-            if dev_id in d:
-                del d[dev_id]
-                cfg[key] = d
-                changed = True
-        if changed:
-            save(CONFIG_FILE, cfg)
+        # v6.4.2: locked RMW. An unlocked load/mutate/save of the WHOLE config
+        # blob races every other config writer — the loser's keys are silently
+        # reverted to the winner's snapshot.
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            for key in ('offline_notified', 'offline_pending'):
+                d = cfg.get(key) or {}
+                if dev_id in d:
+                    del d[dev_id]
+                    cfg[key] = d
 
     # Audit the bulk save with the field list (not values — keeps the
     # audit log compact and avoids logging long allowlists verbatim)
@@ -17302,16 +17326,15 @@ def handle_device_monitored(dev_id):
         devices[dev_id]['monitored'] = monitored
     # If disabling monitoring, clear any pending offline notification
     if not monitored:
-        cfg = load(CONFIG_FILE)
-        changed = False
-        for key in ('offline_notified', 'offline_pending'):
-            d = cfg.get(key, {})
-            if dev_id in d:
-                del d[dev_id]
-                cfg[key] = d
-                changed = True
-        if changed:
-            save(CONFIG_FILE, cfg)
+        # v6.4.2: locked RMW. An unlocked load/mutate/save of the WHOLE config
+        # blob races every other config writer — the loser's keys are silently
+        # reverted to the winner's snapshot.
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            for key in ('offline_notified', 'offline_pending'):
+                d = cfg.get(key) or {}
+                if dev_id in d:
+                    del d[dev_id]
+                    cfg[key] = d
         _resolve_open_alerts_for_device(dev_id, 'unmonitored')
     respond(200, {'ok': True, 'monitored': monitored})
 
@@ -17355,16 +17378,15 @@ def handle_device_decommission(dev_id):
         devices[dev_id]['monitored'] = False if dc else True
     if dc:
         # Clear any pending offline notification, exactly like disabling monitoring.
-        cfg = load(CONFIG_FILE)
-        changed = False
-        for key in ('offline_notified', 'offline_pending'):
-            d = cfg.get(key, {})
-            if dev_id in d:
-                del d[dev_id]
-                cfg[key] = d
-                changed = True
-        if changed:
-            save(CONFIG_FILE, cfg)
+        # v6.4.2: locked RMW. An unlocked load/mutate/save of the WHOLE config
+        # blob races every other config writer — the loser's keys are silently
+        # reverted to the winner's snapshot.
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            for key in ('offline_notified', 'offline_pending'):
+                d = cfg.get(key) or {}
+                if dev_id in d:
+                    del d[dev_id]
+                    cfg[key] = d
         _resolve_open_alerts_for_device(dev_id, 'decommissioned')
         _prune_ignores_for_device(dev_id)   # v6.4.0 #2: clear its ignore tombstones
     audit_log(actor, 'device_decommission',
@@ -22880,6 +22902,7 @@ def _persist_monitor_results(results):
         except (TypeError, ValueError):
             _hist_cap = MAX_MON_HISTORY
         _path_baselines = cfg.get('path_baselines') or {}
+        _paths_dirty = False
         for r in results:
             key = r['label']
             if key not in mh:
@@ -22899,7 +22922,7 @@ def _persist_monitor_results(results):
                 base = _path_baselines.get(key)
                 if base is None:
                     _path_baselines[key] = cur_hops
-                    cfg['path_baselines'] = _path_baselines
+                    _paths_dirty = True
                     dirty = True
                 elif cur_hops and set(cur_hops) != set(base):
                     added = [h for h in cur_hops if h not in base]
@@ -22908,7 +22931,7 @@ def _persist_monitor_results(results):
                         'label': key, 'target': r['target'],
                         'output': f'+{len(added)} -{len(removed)} hops'})
                     _path_baselines[key] = cur_hops
-                    cfg['path_baselines'] = _path_baselines
+                    _paths_dirty = True
                     dirty = True
             was_down = mon_notified.get(key, False)
             need = thresholds.get(key, 1)
@@ -22938,9 +22961,11 @@ def _persist_monitor_results(results):
         else:
             save(MON_HIST_FILE, mh)
         if dirty:
-            cfg['monitor_notified'] = mon_notified
-            cfg['monitor_fail_streak'] = mon_streak
-            save(CONFIG_FILE, cfg)
+            with _LockedUpdate(CONFIG_FILE) as _live:   # v6.4.2: was unlocked
+                _live['monitor_notified'] = mon_notified
+                _live['monitor_fail_streak'] = mon_streak
+                if _paths_dirty:            # W4-15 path-monitor hop baselines
+                    _live['path_baselines'] = _path_baselines
     except Exception:
         pass
 
@@ -23225,13 +23250,12 @@ def run_integrations_if_due():
     now = int(time.time())
     if (now - last_run) < interval:
         return
-    cfg = load(CONFIG_FILE)   # due: mutable copy for the slot claim + save
-    insts = [i for i in _get_integrations(cfg) if isinstance(i, dict) and i.get('enabled')]
+    insts = [i for i in _get_integrations(_config_ro() or {})
+             if isinstance(i, dict) and i.get('enabled')]
     if not insts:
         return
     # Claim the slot before the (slow) network work so concurrent requests skip.
-    cfg['last_integrations_run'] = now
-    save(CONFIG_FILE, cfg)
+    _claim_cadence_slot('last_integrations_run', now)
     # This runs INLINE in whichever request tripped the cadence, so cap total
     # wall-clock: a few slow/black-holed targets must not stall that request for
     # minutes. Whatever doesn't get polled this cycle is picked up next cycle
@@ -23365,11 +23389,12 @@ def _persist_integration_results(results):
     state['history'] = hist
     save(INTEG_STATE_FILE, state)
     if dirty_cfg:
-        if configured:
-            cfg['integration_notified'] = {k: v for k, v in notified.items() if k in configured}
-        else:
-            cfg['integration_notified'] = notified
-        save(CONFIG_FILE, cfg)
+        with _LockedUpdate(CONFIG_FILE) as _live:   # v6.4.2: was unlocked
+            if configured:
+                _live['integration_notified'] = {k: v for k, v in notified.items()
+                                                 if k in configured}
+            else:
+                _live['integration_notified'] = notified
     for event, payload in pending:
         try:
             fire_webhook(event, payload)
@@ -23909,10 +23934,8 @@ def run_monitors_if_due():
 
     # Mark as in-progress *before* running so a long-running monitor
     # check doesn't trigger a parallel run from another CGI request.
-    cfg = load(CONFIG_FILE)
-    cfg['last_monitor_run'] = now
-    save(CONFIG_FILE, cfg)
-    monitors = cfg.get('monitors', monitors)
+    _claim_cadence_slot('last_monitor_run', now)
+    monitors = (_config_ro() or {}).get('monitors', monitors)
 
     results = _execute_monitor_checks(monitors)
     _persist_monitor_results(results)
@@ -24918,7 +24941,13 @@ def handle_config_save():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = _read_valid(request_models.ConfigSaveRequest)
     body = get_json_obj(); cfg = load(CONFIG_FILE)   # coerce non-dict body → {} (a top-level JSON array must not 500)
-    _cfg_before = dict(cfg or {})   # v5.4.1 (D4): snapshot for the change-audit diff
+    # v5.4.1 (D4): snapshot for the change-audit diff.
+    # v6.4.2: a DEEP copy. Shallow, it shared every nested list/dict with `cfg`,
+    # so an in-place edit (the slo_objects prune does `_m.pop('slo_ids')` over
+    # cfg['monitors']) compared EQUAL and was invisible — the change-audit and
+    # the pre-restore revision both under-reported it, and the touched-key merge
+    # below would have dropped it entirely.
+    _cfg_before = copy.deepcopy(cfg or {})
 
     if 'webhook_url' in body:
         url = str(body['webhook_url']).strip()
@@ -27059,7 +27088,23 @@ def handle_config_save():
         except (TypeError, ValueError):
             pass
 
-    save(CONFIG_FILE, cfg)
+    # v6.4.2: apply only the keys this request CHANGED, under the lock. The
+    # handler builds `cfg` from a snapshot read ~2000 lines earlier; writing the
+    # whole document back clobbers every key another writer landed meanwhile —
+    # a second admin on a different Settings pane, or a cadence sweep stamping
+    # its due-marker. `_cfg_before` is the same snapshot the change-audit diffs
+    # against, so the touched-key set is exactly what this request meant to say.
+    # Sound because every write in this handler is a TOP-LEVEL key assignment
+    # (no in-place mutation of a nested dict, which a shallow snapshot could not
+    # see) — pinned by test_v642_sweep_fixes.
+    _touched = [k for k in set(_cfg_before) | set(cfg)
+                if (k in cfg) != (k in _cfg_before) or _cfg_before.get(k) != cfg.get(k)]
+    with _LockedUpdate(CONFIG_FILE) as _live:
+        for k in _touched:
+            if k in cfg:
+                _live[k] = cfg[k]
+            else:
+                _live.pop(k, None)
     # v5.6.x: prune orphaned monitor_history for monitors just deleted/renamed
     # (see the 'monitors' block above). Done after the config save so we hold no
     # other lock when taking the MON_HIST_FILE lock. Guarded on the monitors
@@ -30837,9 +30882,11 @@ def handle_version_check():
             else:
                 latest = cached_latest
             if latest:
-                cfg['_github_latest_version'] = latest
-                cfg['_github_latest_ts']      = now
-                save(CONFIG_FILE, cfg)
+                # v6.4.2: locked RMW — this ran on any About-page load, so an
+                # unlocked whole-document write raced every config save.
+                with _LockedUpdate(CONFIG_FILE) as _live:
+                    _live['_github_latest_version'] = latest
+                    _live['_github_latest_ts']      = now
         except Exception:
             latest = cached_latest
 
@@ -34569,12 +34616,11 @@ def handle_device_containers_clear(dev_id: str) -> None:
     # Also clear any lingering stale-notified flag so the next time this
     # device goes stale we generate a fresh webhook rather than thinking
     # we already notified.
-    cfg = load(CONFIG_FILE)
-    notified = cfg.get('containers_stale_notified') or {}
-    if isinstance(notified, dict) and dev_id in notified:
-        notified.pop(dev_id, None)
-        cfg['containers_stale_notified'] = notified
-        save(CONFIG_FILE, cfg)
+    with _LockedUpdate(CONFIG_FILE) as cfg:   # v6.4.2: was an unlocked RMW
+        notified = cfg.get('containers_stale_notified') or {}
+        if isinstance(notified, dict) and dev_id in notified:
+            notified.pop(dev_id, None)
+            cfg['containers_stale_notified'] = notified
 
     audit_log(actor, 'containers_clear',
               f'cleared container data for {dev_id} (had_entry={had_entry})')
@@ -39271,9 +39317,8 @@ def handle_ai_rag_index_migrate():
     prev = (cfg.get('rag') or {}).get('index_backend', 'json')
 
     def _set_backend(b):
-        full = load(CONFIG_FILE) or {}
-        full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = b
-        save(CONFIG_FILE, full)
+        with _LockedUpdate(CONFIG_FILE) as full:   # v6.4.2: was an unlocked RMW
+            full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = b
 
     def _set_status(**kw):
         try:
@@ -42149,9 +42194,8 @@ def _maybe_check_disk_predictions():
     # stamp + save the new timestamp.
     if now - int(_config_ro().get('last_disk_predict_check', 0)) < 6 * 3600:
         return
-    cfg = load(CONFIG_FILE)
-    cfg['last_disk_predict_check'] = now
-    save(CONFIG_FILE, cfg)
+    _claim_cadence_slot('last_disk_predict_check', now)
+    cfg = _config_ro() or {}
     # v6.2.2 batch 3: operator-configurable medium-risk ETA suppression window.
     _medium_eta = int(cfg.get('disk_predict_medium_eta_days', 180) or 180)
     try:
@@ -56533,9 +56577,7 @@ def run_snmp_polls_if_due():
     if not targets:
         return
     # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire
-    cfg = load(CONFIG_FILE)
-    cfg['last_snmp_poll'] = now
-    save(CONFIG_FILE, cfg)
+    _claim_cadence_slot('last_snmp_poll', now)
     for dev_id, dev in targets:
         try:
             _do_snmp_poll(dev_id, dev)
@@ -56607,10 +56649,8 @@ def run_image_scan_if_due():
         return
     # Bump the marker BEFORE the network work so a parallel CGI doesn't
     # double-sweep (mirrors run_snmp_polls_if_due).
-    cfg = load(CONFIG_FILE)
-    cfg['last_image_scan'] = now
-    save(CONFIG_FILE, cfg)
-    _scan_images(list(fleet.keys()), fleet, cfg, force=False)
+    _claim_cadence_slot('last_image_scan', now)
+    _scan_images(list(fleet.keys()), fleet, load(CONFIG_FILE), force=False)
 
 
 def _scan_images(refs, fleet, cfg, force=False):
@@ -56879,9 +56919,7 @@ def handle_image_updates_scan():
         respond(200, {'ok': True, 'checked': 0,
                       'note': 'no container images with digests reported yet'})
     checked = _scan_images(list(fleet.keys()), fleet, cfg, force=True)
-    cfg2 = load(CONFIG_FILE)
-    cfg2['last_image_scan'] = int(time.time())
-    save(CONFIG_FILE, cfg2)
+    _claim_cadence_slot('last_image_scan', int(time.time()))
     respond(200, {'ok': True, 'checked': checked})
 
 
@@ -57438,11 +57476,10 @@ def handle_monitor_alerts_clear():
     """Reset monitor alert state so alerts can re-fire."""
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
-    cfg = load(CONFIG_FILE)
-    cfg['monitor_notified'] = {}
-    cfg['offline_notified'] = {}
-    cfg['offline_pending'] = {}
-    save(CONFIG_FILE, cfg)
+    with _LockedUpdate(CONFIG_FILE) as cfg:   # v6.4.2: was an unlocked RMW
+        cfg['monitor_notified'] = {}
+        cfg['offline_notified'] = {}
+        cfg['offline_pending'] = {}
     # v5.6.x: also sweep monitor_history entries for monitors that no longer
     # exist, so a stale "down" from a deleted/renamed monitor stops inflating the
     # "monitors down" badge (which counts history keys, not the live config).
@@ -61692,9 +61729,11 @@ def check_container_webhooks():
             changed = True
 
     if changed:
-        cfg = load(CONFIG_FILE)
-        cfg['containers_stale_notified'] = notified
-        save(CONFIG_FILE, cfg)
+        # v6.4.2: locked RMW — an unlocked save() here wrote back the whole
+        # config from a snapshot taken at the START of the cadence run, deleting
+        # anything an admin had saved since.
+        with _LockedUpdate(CONFIG_FILE) as _cfg_w:
+            _cfg_w['containers_stale_notified'] = notified
 
 
 def handle_services_get():
