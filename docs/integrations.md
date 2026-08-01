@@ -26,6 +26,49 @@ back). Nothing is installed on the target.
 Saved secrets are never sent back to the browser (the form shows a "set" hint and
 leaving a credential blank keeps the stored value). Configuration is admin-only.
 
+## Binding an instance to a host *(v6.4.2)*
+
+An integration watches a **service**; that service runs on a **machine**. Until
+you say which machine, RemotePower has no way to connect the two — a poll result
+carries the instance's label and nothing else, so `integration_down` fired as a
+fleet-level event with no device attached to it.
+
+An instance now takes an optional **`device_id`** (a host already enrolled in
+RemotePower) and an optional **`site`**, set on the instance object you send to
+`POST /api/integrations` and returned by `GET /api/integrations`. Both default to
+empty, and an unbound instance behaves exactly as it always did. Binding is
+admin-only and validated against the fleet — an unknown id is rejected, and one
+belonging to a device you cannot see is refused rather than confirmed to exist.
+
+Everything binding buys follows from one change: the `integration_down` and
+`integration_recovered` payloads now carry that `device_id` (and `site`), which
+is what the rest of the alert pipeline keys on.
+
+- **Maintenance windows suppress it.** Both events joined the suppressible set,
+  so a **device** or **group** window covering the bound host now holds the
+  outbound notification (webhook and e-mail) the same way it holds a
+  `device_offline`. This is the case worth binding for: rebooting one box during
+  a declared window used to notify once per self-hosted app running on it — five
+  services on that NAS, five pages, inside the window the operator had just
+  declared. Only a *global* window could ever catch them, because a device-scoped
+  one had no device to match against.
+- **Per-(host, event) mutes reach it.** A mute is keyed `(device_id, event)`, so
+  an unbound integration alert had no host to mute it *against* — the row's mute
+  button had nothing to send. Bound, muting `integration_down` for that host from
+  [Alert tuning](alert-tuning.md) silences it across the inbox, webhooks, e-mail
+  and browser push, while the activity feed and the SIEM stream keep recording.
+- **Unmonitored hosts stay quiet.** Marking the bound host `monitored: false`
+  (decommissioning, a known-broken box) now suppresses its integrations' alerts
+  too, instead of leaving them as the one signal that kept paging.
+- **The inbox says where the service lives.** `device_id` and `site` are stored
+  on the alert, so a failing service is attributable to a machine and a location
+  rather than to a bare label.
+
+Recovery still matches on the integration id, deliberately: if you bind an
+instance *after* its down-alert was recorded, the stored alert has no device
+while the recovery carries one, and requiring both to match would strand that
+alert open forever.
+
 ## Security model
 
 - Every outbound request goes through RemotePower's **SSRF guard**: the target

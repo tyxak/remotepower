@@ -290,6 +290,8 @@ class TestSuppressibleEvents(unittest.TestCase):
             'reboot_required',
             'container_stopped', 'container_restarting', 'containers_stale',
             'backup_stale',
+            # v6.4.2: an integration bound to a host rides that host's window
+            'integration_down', 'integration_recovered',
         }
         self.assertEqual(set(api_module.SUPPRESSIBLE_EVENTS), expected)
 

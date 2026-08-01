@@ -2415,6 +2415,8 @@ function showPage(name, btn) {
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'sites')    loadSites();
+  if (name === 'attention') loadAttentionPage();   // v6.4.2: the Needs Attention drilldown
+  if (name === 'taxonomy') loadTaxonomy();         // v6.4.2: tag & group registry
   if (name === 'autopatch') loadAutopatch();
   if (name === 'backups')  loadBackupJobs();
   if (name === 'provisioning') loadProvisioning();   // also loads the Ansible playbooks card
@@ -17496,6 +17498,110 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   try { statTiles.enhanceAll(target); } catch (_) {}
 }
 
+// Map a digest item kind → the page to jump to when clicked.
+// The page name must match a `page-<name>` element id — the CVE
+// page is `cve`, not `cves` (this mismatch sent clicks to a blank
+// page in 2.4.7–2.4.11).
+// v6.4.2: hoisted out of _renderHomeAttention so the full Needs-Attention
+// page shares ONE routing table with the Home card — two copies would drift
+// the moment a kind is added to only one of them.
+const PAGE_FOR = {
+  offline: 'devices', patches: 'patches', cve: 'cve',
+  drift: 'drift', mailbox: 'devices',
+  // v3.0.1 attention audit: route new kinds to sensible pages
+  service_down:       'devices',   // device drawer shows services
+  monitor_down:       'monitor',
+  custom_script_fail: 'monitor',   // custom scripts live on Monitor page
+  custom_check:       'checks',    // v6.4.0: protect/baseline checks → Checks page
+  backup:             'devices',
+  snapshot:           'devices',
+  brute_force:        'devices',
+  reboot:             'devices',
+  disk:               'devices',
+  mount:              'devices',   // v3.12.0: mount issues — device drawer Audit shows them
+  tls:                'tls',
+  agent_version:      'devices',
+  // v3.0.1 iteration 3: transient critical events from fleet_events
+  log_alert:          'logs',      // jump to Logs page to see the matches
+  new_port:           'devices',   // device drawer has the port baseline
+  ssh_key:            'devices',
+  // v3.0.2: new NA kinds — surface metric thresholds (memory/swap/cpu)
+  // and container state, parallel to disk above. ACME failures route
+  // to the TLS section where the acme.sh table lives.
+  memory:             'devices',
+  swap:               'devices',
+  cpu:                'devices',
+  container:          'containers',
+  acme:               'tls',
+  // v3.4.0: hardware health (SMART / kernel). Disk-fill forecast cards use
+  // the existing 'disk' kind, already routed to devices above.
+  hardware:           'devices',
+  // v6.4.2: nine kinds _compute_attention has been emitting with no route at
+  // all — every one of them fell through to the dashboard, so clicking the
+  // item landed back where you started. Found by asserting this table covers
+  // the server's emitted kind set (tests/test_v642_attention_ui.py).
+  after_hours:        'alerts',          // fleet-level: alerts that fired out of hours
+  agent_integrity:    'devices',         // the drawer shows the agent build
+  apikey_rotation_due: 'apikeys',
+  av_posture:         'devices',         // AV/rootkit state lives in the drawer
+  cred_rotation:      'cmdb',            // credentials live in the CMDB vault
+  failed_units:       'devices',
+  os_eol:             'devices',
+  proxmox_backup:     'virtualization',  // the guest, not a RemotePower device
+  reliability:        'forecast',        // the predictive page that scored it
+};
+const NA_PILL = {critical: 'critical', warning: 'warn', info: 'info'};
+
+// v6.4.2: the per-item action buttons (investigate / logs / clear-line /
+// snooze / ignore) are built here so the Home card and the Needs Attention
+// page render an identical row of controls. Returns a plain HTML string;
+// every control is data-action dispatched (CSP: no inline handlers).
+function _naItemButtons(i) {
+  const key = i._ignore_key || '';
+  const lbl = `${i.device} — ${i.summary}`;
+  // v3.0.1: show an Investigate button when server reported a mitigation_kind
+  const mitBtn = (i.mitigation_kind && i.device_id) ?
+    `<button class="btn-icon isl-554" title="Investigate with diagnostic + AI suggestion"
+       data-action="openMitigateModal" data-stop-prop="1" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.mitigation_kind)}" data-arg3="${escAttr(i.mitigation_target || '')}" data-arg4="${escAttr(i.device)}">${_icon('search',14)}</button>` : '';
+  // v3.2.3 (#4) / v3.3.0 icon refresh: inline actions are SVG now
+  // — the prior emoji set looked AI-ratchet next to the sidebar
+  // SVGs. snoozeBtn = bell-off (Lucide); logsBtn = file-text. ×
+  // remains text for the permanent-ignore button (different
+  // weight, intentional).
+  const snoozeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  const logsIcon   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+  const snoozeBtn = key
+    ? `<button class="btn-icon isl-556" title="Snooze for 24h (returns automatically)" data-stop-prop="1" data-action="snoozeAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >${snoozeIcon}</button>`
+    : '';
+  const logsBtn = (i.kind === 'log_alert' && i.device_id)
+    ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >${logsIcon}</button>`
+    : '';
+  // v6.3.1: clearing the LINE is the third option between snoozing (comes
+  // back) and deleting the rule (goes blind). Only offered when the alert
+  // actually captured evidence — there is nothing to clear otherwise.
+  // With a captured line this clears THAT message precisely. Without one
+  // (an older event) it falls back to silencing the rule on this unit — the
+  // button must still be here, because an alert with no evidence is exactly
+  // the one an operator most wants to stop.
+  const clearLineBtn = (i.kind === 'log_alert' && (i.device_id || i.pattern))
+    ? `<button class="btn-icon isl-556" title="${escAttr((i.samples && i.samples.length) ? 'Clear this line for good — it stops counting toward the rule, a new message still alerts' : 'No line was captured — silence this rule on this unit')}" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escHtml(i.unit || '')}" data-arg3="${escHtml((i.samples && i.samples[0]) || '')}" data-arg4="${escHtml(i.pattern || '')}" >${_icon('undo', 14)}</button>`
+    : '';
+  const ignoreBtn = `<button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" data-arg3="${escAttr(i.device_id || '')}" >${_icon('x', 14)}</button>`;
+  return mitBtn + logsBtn + clearLineBtn + snoozeBtn + ignoreBtn;
+}
+
+// v3.2.3: for log_alert cards, expose all captured sample lines +
+// the rule pattern in a hover tooltip. The summary itself already
+// shows sample[0] truncated; the tooltip lets the operator see the
+// full match set without leaving the dashboard.
+function _naItemTitle(i) {
+  if (i.kind === 'log_alert' && Array.isArray(i.samples) && i.samples.length) {
+    const sampleList = i.samples.map((s, n) => `${n + 1}. ${s}`).join('\n');
+    return `Pattern: ${i.pattern || '(unknown)'}\n\nMatches:\n${sampleList}`;
+  }
+  return 'Click for details';
+}
+
 // v2.4.7: the Needs Attention digest is now computed server-side by
 // /api/attention — one source of truth, and it includes signals the
 // old client-side version missed (CVE findings, mailbox threshold
@@ -17525,107 +17631,390 @@ async function _renderHomeAttention(preloaded) {
     </div>`;
     return;
   }
-  // Map a digest item kind → the page to jump to when clicked.
-  // The page name must match a `page-<name>` element id — the CVE
-  // page is `cve`, not `cves` (this mismatch sent clicks to a blank
-  // page in 2.4.7–2.4.11).
-  const PAGE_FOR = {
-    offline: 'devices', patches: 'patches', cve: 'cve',
-    drift: 'drift', mailbox: 'devices',
-    // v3.0.1 attention audit: route new kinds to sensible pages
-    service_down:       'devices',   // device drawer shows services
-    monitor_down:       'monitor',
-    custom_script_fail: 'monitor',   // custom scripts live on Monitor page
-    custom_check:       'checks',    // v6.4.0: protect/baseline checks → Checks page
-    backup:             'devices',
-    snapshot:           'devices',
-    brute_force:        'devices',
-    reboot:             'devices',
-    disk:               'devices',
-    mount:              'devices',   // v3.12.0: mount issues — device drawer Audit shows them
-    tls:                'tls',
-    agent_version:      'devices',
-    // v3.0.1 iteration 3: transient critical events from fleet_events
-    log_alert:          'logs',      // jump to Logs page to see the matches
-    new_port:           'devices',   // device drawer has the port baseline
-    ssh_key:            'devices',
-    // v3.0.2: new NA kinds — surface metric thresholds (memory/swap/cpu)
-    // and container state, parallel to disk above. ACME failures route
-    // to the TLS section where the acme.sh table lives.
-    memory:             'devices',
-    swap:               'devices',
-    cpu:                'devices',
-    container:          'containers',
-    acme:               'tls',
-    // v3.4.0: hardware health (SMART / kernel). Disk-fill forecast cards use
-    // the existing 'disk' kind, already routed to devices above.
-    hardware:           'devices',
-  };
-  const PILL = {critical: 'critical', warning: 'warn', info: 'info'};
-  target.innerHTML = items.slice(0, 10).map(i => {
+  const shown = items.slice(0, 10);
+  // v6.4.2: the card used to render its ten rows and stop — no total, no way
+  // to reach the rest, while fleet health is derived from the WHOLE list. Say
+  // how many are hidden and link to the full page.
+  const total = (data && typeof data.total === 'number') ? data.total : items.length;
+  const more = Math.max(0, total - shown.length);
+  const footer = more
+    ? `<div class="dash-feed-item isl-156">
+        <div class="flex-1 hint">${more} more item${more === 1 ? '' : 's'} not shown</div>
+        <button class="btn-icon" data-action-btn="_showPageBtn" data-page="attention">See all ${total}</button>
+      </div>`
+    : `<div class="dash-feed-item isl-156">
+        <div class="flex-1 hint">${total} open item${total === 1 ? '' : 's'}</div>
+        <button class="btn-icon" data-action-btn="_showPageBtn" data-page="attention">Open full list</button>
+      </div>`;
+  target.innerHTML = shown.map(i => {
     const page = PAGE_FOR[i.kind] || 'home';
-    const pill = PILL[i.severity] || 'info';
-    const key  = i._ignore_key || '';
-    const lbl  = `${i.device} — ${i.summary}`;
-    // v3.0.1: show an Investigate button when server reported a mitigation_kind
-    const mitBtn = (i.mitigation_kind && i.device_id) ?
-      `<button class="btn-icon isl-554" title="Investigate with diagnostic + AI suggestion"
-         data-action="openMitigateModal" data-stop-prop="1" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.mitigation_kind)}" data-arg3="${escAttr(i.mitigation_target || '')}" data-arg4="${escAttr(i.device)}">${_icon('search',14)}</button>` : '';
-    // v3.2.3: for log_alert cards, expose all captured sample lines +
-    // the rule pattern in a hover tooltip. The summary itself already
-    // shows sample[0] truncated; the tooltip lets the operator see the
-    // full match set without leaving the dashboard.
-    let cardTitle = 'Click for details';
-    if (i.kind === 'log_alert' && Array.isArray(i.samples) && i.samples.length) {
-      const sampleList = i.samples.map((s, n) => `${n + 1}. ${s}`).join('\n');
-      cardTitle = `Pattern: ${i.pattern || '(unknown)'}\n\nMatches:\n${sampleList}`;
-    }
-    // v3.2.3 (#4) / v3.3.0 icon refresh: inline actions are SVG now
-    // — the prior emoji set looked AI-ratchet next to the sidebar
-    // SVGs. snoozeBtn = bell-off (Lucide); logsBtn = file-text. ×
-    // remains text for the permanent-ignore button (different
-    // weight, intentional).
-    const snoozeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-    const logsIcon   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
-    const snoozeBtn = key
-      ? `<button class="btn-icon isl-556" title="Snooze for 24h (returns automatically)" data-stop-prop="1" data-action="snoozeAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >${snoozeIcon}</button>`
-      : '';
-    const logsBtn = (i.kind === 'log_alert' && i.device_id)
-      ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >${logsIcon}</button>`
-      : '';
-    // v6.3.1: clearing the LINE is the third option between snoozing (comes
-    // back) and deleting the rule (goes blind). Only offered when the alert
-    // actually captured evidence — there is nothing to clear otherwise.
-    // With a captured line this clears THAT message precisely. Without one
-    // (an older event) it falls back to silencing the rule on this unit — the
-    // button must still be here, because an alert with no evidence is exactly
-    // the one an operator most wants to stop.
-    const clearLineBtn = (i.kind === 'log_alert' && (i.device_id || i.pattern))
-      ? `<button class="btn-icon isl-556" title="${escAttr((i.samples && i.samples.length) ? 'Clear this line for good — it stops counting toward the rule, a new message still alerts' : 'No line was captured — silence this rule on this unit')}" data-stop-prop="1" data-action="clearLogLine" data-arg="${escAttr(i.device_id || '')}" data-arg2="${escHtml(i.unit || '')}" data-arg3="${escHtml((i.samples && i.samples[0]) || '')}" data-arg4="${escHtml(i.pattern || '')}" >${_icon('undo', 14)}</button>`
-      : '';
-    return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
+    const pill = NA_PILL[i.severity] || 'info';
+    return `<div class="dash-feed-item isl-156" title="${escAttr(_naItemTitle(i))}">
       <div
            data-action-btn="_showPageBtn" data-page="${page}" class="isl-555">
         <span class="status-pill ${pill}">${escHtml(i.kind)}</span>
         <strong>${escHtml(i.device)}</strong> — ${escHtml(i.summary)}
       </div>
-      ${mitBtn}
-      ${logsBtn}
-      ${clearLineBtn}
-      ${snoozeBtn}
-      <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" data-arg3="${escAttr(i.device_id || '')}" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      ${_naItemButtons(i)}
     </div>`;
-  }).join('');
+  }).join('') + footer;
+  // v6.4.2: the full page reads the same payload — keep it warm so opening it
+  // paints immediately instead of showing "Loading…" for a second round-trip.
+  _attentionRows = items;
+  _attentionTotal = total;
+}
+
+// ── v6.4.2: the full Needs Attention page ────────────────────────────────────
+// /api/attention already returns the WHOLE list plus per-severity counts; the
+// Home card only ever showed the first ten of it. Fleet health is derived from
+// these exact items, so an operator who cannot enumerate them cannot explain
+// (or fix) the score. This page is the drilldown: every item, filterable by
+// severity / kind / device, with the same per-item actions as the card.
+let _attentionRows = [];
+let _attentionTotal = 0;
+let _attentionRegistered = false;
+
+function _registerAttentionTable() {
+  if (_attentionRegistered) return;
+  // The page shell lives in index.html; if it is absent (older markup, a
+  // stripped build) every entry point below no-ops rather than throwing.
+  if (!document.getElementById('attention-tbody')) return;
+  _attentionRegistered = true;
+  tableCtl.register({
+    name: 'attention',
+    tbody: 'attention-tbody',
+    filterInput: 'attention-filter',
+    sortHeaders: 'attention-thead',
+    colspan: 5,
+    columns: ['device', 'severity', 'kind', 'summary'],
+    refresh: () => renderAttentionPage(),
+    getColumns: (i) => ({
+      device:   i.device || '',
+      // Rank, not the word: an alphabetical sort would read
+      // critical < info < warning, which is worse than useless here.
+      severity: ({critical: 3, warning: 2, info: 1})[i.severity] || 0,
+      kind:     i.kind || '',
+      summary:  i.summary || '',
+    }),
+    row: (i) => {
+      const pill = NA_PILL[i.severity] || 'info';
+      const page = PAGE_FOR[i.kind] || 'home';
+      return `<tr title="${escAttr(_naItemTitle(i))}">`
+        + `<td><span class="status-pill ${pill}">${escHtml(i.severity || 'info')}</span></td>`
+        + `<td class="mono-12">${escHtml(i.kind || '')}</td>`
+        + `<td class="fw-600">${escHtml(i.device || '—')}</td>`
+        + `<td>${escHtml(i.summary || '')}</td>`
+        + `<td><div class="user-actions">`
+        + `<button class="btn-icon" title="Open the page this item is about"`
+        + ` data-action-btn="_showPageBtn" data-page="${page}">${_icon('eye', 14)}</button>`
+        + _naItemButtons(i)
+        + `</div></td></tr>`;
+    },
+    emptyMsg: 'Nothing needs attention right now.',
+    emptyMsgFiltered: 'No items match the current filters.',
+  });
+}
+
+async function loadAttentionPage() {
+  _registerAttentionTable();
+  if (!document.getElementById('attention-tbody')) return;
+  const data = await api('GET', '/attention');
+  if (data && Array.isArray(data.items)) {
+    _attentionRows = data.items;
+    _attentionTotal = (typeof data.total === 'number') ? data.total : data.items.length;
+  }
+  _fillAttentionFilterOptions();
+  renderAttentionPage();
+}
+
+// Rebuild the kind/device pickers from the loaded rows, keeping whatever the
+// operator had selected if it still exists (a kind can disappear between polls
+// precisely because they fixed it — silently resetting the filter then hides
+// everything else they were working through).
+function _fillAttentionFilterOptions() {
+  const fill = (id, values, allLabel) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const keep = sel.value;
+    const sorted = [...new Set(values.filter(Boolean).map(String))].sort();
+    sel.replaceChildren();
+    sel.add(new Option(allLabel, 'all'));
+    sorted.forEach(v => sel.add(new Option(v, v)));
+    sel.value = sorted.includes(keep) ? keep : 'all';
+  };
+  fill('attention-kind-filter', _attentionRows.map(i => i.kind), 'All kinds');
+  fill('attention-device-filter', _attentionRows.map(i => i.device), 'All devices');
+}
+
+function renderAttentionPage() {
+  if (!document.getElementById('attention-tbody')) return;
+  const val = id => document.getElementById(id)?.value || 'all';
+  const sev = val('attention-sev-filter');
+  const kind = val('attention-kind-filter');
+  const dev = val('attention-device-filter');
+  let rows = _attentionRows;
+  if (sev !== 'all')  rows = rows.filter(i => i.severity === sev);
+  if (kind !== 'all') rows = rows.filter(i => String(i.kind || '') === kind);
+  if (dev !== 'all')  rows = rows.filter(i => String(i.device || '') === dev);
+  _renderAttentionCounts();
+  tableCtl.render('attention', rows);
+}
+
+// Severity totals over the UNFILTERED set — they are the headline the page
+// exists to give, and they double as one-click severity filters.
+function _renderAttentionCounts() {
+  const box = document.getElementById('attention-counts');
+  if (!box) return;
+  const counts = {critical: 0, warning: 0, info: 0};
+  _attentionRows.forEach(i => {
+    if (counts[i.severity] !== undefined) counts[i.severity] += 1;
+  });
+  const active = document.getElementById('attention-sev-filter')?.value || 'all';
+  const chip = (sevKey, label) => {
+    const n = sevKey === 'all' ? _attentionRows.length : counts[sevKey];
+    const pill = sevKey === 'all' ? 'neutral' : (NA_PILL[sevKey] || 'info');
+    const mark = active === sevKey ? ' — showing' : '';
+    return `<button class="btn-icon" data-action="attentionFilterSeverity" data-arg="${sevKey}"`
+      + ` title="Show only ${label} items${mark}">`
+      + `<span class="status-pill ${pill}">${n}</span> ${escHtml(label)}</button>`;
+  };
+  box.innerHTML = chip('all', 'All') + chip('critical', 'Critical')
+    + chip('warning', 'Warning') + chip('info', 'Info');
+}
+
+function attentionFilterSeverity(sev) {
+  const sel = document.getElementById('attention-sev-filter');
+  if (!sel) return;
+  // data-arg is coerced to a Number when it looks numeric — these values never
+  // do, but String() keeps the comparison honest regardless.
+  sel.value = String(sev);
+  renderAttentionPage();
+}
+
+// ── v6.4.2: fleet-wide tag & group management ────────────────────────────────
+// Groups and tags are free-form strings that drive role scopes, alert routing,
+// baselines, auto-patch scopes, rollout rings, smart groups and report scopes —
+// but until now they could only be edited one device at a time, with no way to
+// see what exists or how many hosts carry each. A typo therefore silently
+// created a second, near-identical scope that looked right in every list.
+//
+// TAG writes ride the shipped POST /api/devices/bulk-tags: ONE admin-gated,
+// tenant-filtered, audit-logged read-modify-write under the devices lock, so a
+// rename / merge / delete either lands for every host or for none. GROUPS have
+// no bulk endpoint yet (see handoff), and an N-request PATCH loop can
+// half-apply, so groups stay READ-ONLY here rather than shipping that.
+let _taxonomyDevices = [];
+let _taxonomyRegistered = false;
+
+function _registerTaxonomyTables() {
+  if (_taxonomyRegistered) return;
+  if (!document.getElementById('taxonomy-tags-tbody')) return;   // shell absent
+  _taxonomyRegistered = true;
+  tableCtl.register({
+    name: 'taxonomy_tags',
+    tbody: 'taxonomy-tags-tbody',
+    filterInput: 'taxonomy-tags-filter',
+    sortHeaders: 'taxonomy-tags-thead',
+    colspan: 3,
+    columns: ['name', 'device_count'],
+    refresh: () => _renderTaxonomy(),
+    getColumns: (t) => ({name: t.name, device_count: t.device_count}),
+    row: (t) => {
+      const admin = !!(_meCache && _meCache.admin);
+      const writes = admin
+        ? `<button class="btn-icon" title="Rename this tag on every device that carries it" data-action="renameTag" data-arg="${escAttr(t.name)}">${_icon('edit', 14)}</button>`
+          + `<button class="btn-icon" title="Merge this tag into another one" data-action="mergeTag" data-arg="${escAttr(t.name)}">${_icon('layers', 14)}</button>`
+          + `<button class="btn-icon c-danger-outline" title="Remove this tag from every device" data-action="deleteTag" data-arg="${escAttr(t.name)}">${_icon('trash', 14)}</button>`
+        : '';
+      return `<tr><td class="fw-600"><span class="tag-pill">${escHtml(t.name)}</span></td>`
+        + `<td>${t.device_count}</td>`
+        + `<td><div class="user-actions">`
+        + `<button class="btn-icon" title="Show the devices carrying this tag" data-action="showDevicesForTag" data-arg="${escAttr(t.name)}">${_icon('eye', 14)}</button>`
+        + writes + `</div></td></tr>`;
+    },
+    emptyMsg: 'No tags in use. Tag a device from its drawer, or in bulk from the Devices page.',
+    emptyMsgFiltered: 'No tags match the filter.',
+  });
+  tableCtl.register({
+    name: 'taxonomy_groups',
+    tbody: 'taxonomy-groups-tbody',
+    filterInput: 'taxonomy-groups-filter',
+    sortHeaders: 'taxonomy-groups-thead',
+    colspan: 3,
+    columns: ['name', 'device_count'],
+    refresh: () => _renderTaxonomy(),
+    getColumns: (g) => ({name: g.name, device_count: g.device_count}),
+    row: (g) => `<tr><td class="fw-600">${escHtml(g.name)}</td>`
+      + `<td>${g.device_count}</td>`
+      + `<td><div class="user-actions">`
+      + `<button class="btn-icon" title="Show the devices in this group" data-action="showDevicesForGroup" data-arg="${escAttr(g.name)}">${_icon('eye', 14)}</button>`
+      + `</div></td></tr>`,
+    emptyMsg: 'No groups in use. Set a device’s group from its drawer.',
+    emptyMsgFiltered: 'No groups match the filter.',
+  });
+}
+
+async function loadTaxonomy() {
+  _registerTaxonomyTables();
+  if (!document.getElementById('taxonomy-tags-tbody')) return;
+  // Counts come from the device list this operator can already see, so they
+  // inherit its scope/tenant filtering for free — a tag used only on devices
+  // outside their scope correctly never appears here.
+  const data = await api('GET', '/devices');
+  if (Array.isArray(data)) _taxonomyDevices = data;
+  _renderTaxonomy();
+}
+
+function _renderTaxonomy() {
+  if (!document.getElementById('taxonomy-tags-tbody')) return;
+  const tagCounts = new Map();
+  const groupCounts = new Map();
+  _taxonomyDevices.forEach(d => {
+    (d.tags || []).forEach(t => {
+      const k = String(t).trim();
+      if (k) tagCounts.set(k, (tagCounts.get(k) || 0) + 1);
+    });
+    const g = String(d.group || '').trim();
+    if (g) groupCounts.set(g, (groupCounts.get(g) || 0) + 1);
+  });
+  const toRows = m => [...m.entries()]
+    .map(([name, device_count]) => ({name, device_count}))
+    .sort((a, b) => b.device_count - a.device_count || a.name.localeCompare(b.name));
+  tableCtl.render('taxonomy_tags', toRows(tagCounts));
+  tableCtl.render('taxonomy_groups', toRows(groupCounts));
+  const ungrouped = _taxonomyDevices.filter(d => !String(d.group || '').trim()).length;
+  const untagged = _taxonomyDevices.filter(d => !(d.tags || []).length).length;
+  const note = document.getElementById('taxonomy-summary');
+  if (note) {
+    note.textContent = `${_taxonomyDevices.length} device(s) · ${groupCounts.size} group(s), `
+      + `${ungrouped} ungrouped · ${tagCounts.size} tag(s), ${untagged} untagged`;
+  }
+}
+
+// data-arg coerces a numeric-looking value to a Number and a tag may well be
+// "2024" — every entry point below re-Strings its name before using it.
+function showDevicesForTag(tag) {
+  setTagFilter(String(tag));
+  showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+}
+
+function showDevicesForGroup(group) {
+  // The Devices grid has no group facet, but its free-text search already
+  // matches d.group, so seeding the search box is the honest way in.
+  const box = document.getElementById('device-search-input');
+  if (box) box.value = String(group);
+  showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+}
+
+// The server strips everything outside this set from a tag name (_clean_tags),
+// so applying the same rule here is what makes the confirmation honest instead
+// of a guess about what will actually be stored.
+function _taxonomyCleanTag(raw) {
+  return String(raw || '').replace(/[^a-zA-Z0-9_\-/]/g, '').slice(0, 64);
+}
+
+function _taxonomyDeviceIdsWithTag(tag) {
+  const t = String(tag);
+  return _taxonomyDevices.filter(d => (d.tags || []).map(String).includes(t)).map(d => d.id);
+}
+
+function _taxonomyTagNames() {
+  return [...new Set(_taxonomyDevices.flatMap(d => (d.tags || []).map(String)))].sort();
+}
+
+async function _taxonomyBulkTags(ids, add, remove, okMsg) {
+  if (!ids.length) { toast('No devices carry that tag any more', 'info'); return; }
+  const r = await api('POST', '/devices/bulk-tags', {device_ids: ids, add, remove});
+  if (r && r.ok) {
+    toast(`${okMsg} on ${r.updated} device(s)`, 'success');
+    await loadTaxonomy();
+    loadDevices();
+  } else {
+    toast((r && r.error) || 'Failed', 'error');
+  }
+}
+
+async function renameTag(tag) {
+  const from = String(tag);
+  const answer = await uiPrompt({
+    title: `Rename tag "${from}"`,
+    message: 'Every device carrying this tag is updated in one operation.',
+    value: from, confirmText: 'Rename',
+  });
+  if (answer === null) return;
+  const next = _taxonomyCleanTag(answer);
+  if (!next) { toast('A tag needs at least one letter, digit, _, - or /', 'error'); return; }
+  if (next === from) return;
+  const ids = _taxonomyDeviceIdsWithTag(from);
+  if (_taxonomyTagNames().includes(next)) {
+    // Renaming onto an existing name IS a merge — say so before doing it.
+    const ok = await uiConfirm({
+      title: 'That tag already exists',
+      message: `"${next}" is already in use. ${ids.length} device(s) will move onto it and `
+               + `"${from}" will stop existing. Continue?`,
+      confirmText: 'Merge',
+    });
+    if (!ok) return;
+  }
+  await _taxonomyBulkTags(ids, [next], [from], `Renamed to "${next}"`);
+}
+
+async function mergeTag(tag) {
+  const from = String(tag);
+  const others = _taxonomyTagNames().filter(t => t !== from);
+  if (!others.length) { toast('There is no other tag to merge into', 'info'); return; }
+  const answer = await uiPrompt({
+    title: `Merge "${from}" into…`,
+    message: `Target tag. In use: ${others.slice(0, 20).join(', ')}`
+             + (others.length > 20 ? ` … and ${others.length - 20} more` : ''),
+    placeholder: others[0], confirmText: 'Merge',
+  });
+  if (answer === null) return;
+  const next = _taxonomyCleanTag(answer);
+  if (!next || next === from) return;
+  const ids = _taxonomyDeviceIdsWithTag(from);
+  const ok = await uiConfirm({
+    title: 'Merge tags',
+    message: `Replace "${from}" with "${next}" on ${ids.length} device(s)? "${from}" will no longer exist.`,
+    confirmText: 'Merge',
+  });
+  if (!ok) return;
+  await _taxonomyBulkTags(ids, [next], [from], `Merged into "${next}"`);
+}
+
+async function deleteTag(tag) {
+  const name = String(tag);
+  const ids = _taxonomyDeviceIdsWithTag(name);
+  const ok = await uiConfirm({
+    title: `Delete tag "${name}"`,
+    message: `Remove it from ${ids.length} device(s)? The devices are untouched, but anything `
+             + 'scoped to this tag — role scopes, alert routing, auto-patch scopes, rollout '
+             + 'rings, smart groups, report scopes — stops matching them.',
+    confirmText: 'Delete', danger: true,
+  });
+  if (!ok) return;
+  await _taxonomyBulkTags(ids, [], [name], `Removed "${name}"`);
+}
+
+// v6.4.2: snooze / ignore act from BOTH the Home card and the Needs Attention
+// page. Refreshing only the card left the page showing the row the operator had
+// just dismissed, so refresh whichever surface is actually on screen.
+function _naRefreshVisible() {
+  if (document.getElementById('page-attention')?.classList.contains('active')) {
+    loadAttentionPage();
+  } else {
+    _renderHomeAttention();
+  }
 }
 
 async function ignoreAttention(key, label, deviceId) {
   if (!key) return;
   const r = await api('POST', '/ignored', { category: 'needs_attention', key, label, device_id: deviceId || '' });
   if (r?.ok) {
-    _renderHomeAttention();
+    _naRefreshVisible();
     pushUndoableAction(`Hide "${label || key}"`,
-      async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _renderHomeAttention(); },
-      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label }); if (u?.ok) _renderHomeAttention(); },
+      async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _naRefreshVisible(); },
+      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label }); if (u?.ok) _naRefreshVisible(); },
       'Hidden from Needs Attention');
   } else {
     toast(r?.error || 'Failed', 'error');
@@ -17642,10 +18031,10 @@ async function snoozeAttention(key, label) {
     category: 'needs_attention', key, label, expires_at,
   });
   if (r?.ok) {
-    _renderHomeAttention();
+    _naRefreshVisible();
     pushUndoableAction(`Snooze "${label || key}"`,
-      async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _renderHomeAttention(); },
-      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label, expires_at: Math.floor(Date.now() / 1000) + 86400 }); if (u?.ok) _renderHomeAttention(); },
+      async () => { const u = await api('POST', '/ignored/remove', { category: 'needs_attention', key }); if (u?.ok) _naRefreshVisible(); },
+      async () => { const u = await api('POST', '/ignored', { category: 'needs_attention', key, label, expires_at: Math.floor(Date.now() / 1000) + 86400 }); if (u?.ok) _naRefreshVisible(); },
       'Snoozed for 24h');
   } else {
     toast(r?.error || 'Failed', 'error');
@@ -17767,6 +18156,9 @@ function _renderHomeActivity(fleetEvents) {
     'control_plane_security_change',
     // v6.2.0: a USB device was connected to a host (physical access)
     'usb_device_added',
+    // v6.4.2: a new device completed enrolment — the one fleet change that
+    // previously left no trace in the activity feed.
+    'device_enrolled',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
@@ -18049,6 +18441,10 @@ function _homeActivityAttrs(event, p) {
     // itself, not a host — the audit log is where the actor and detail are.
     case 'control_plane_security_change':
       return 'data-home-act="audit"';
+    // v6.4.2: a freshly enrolled device — open its drawer so the operator can
+    // check what actually arrived (falls back to the Devices grid without an id).
+    case 'device_enrolled':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
     case 'process_alert': case 'process_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;

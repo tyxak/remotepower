@@ -13,11 +13,255 @@ function _selfFmtBytes(b) {
   return b.toFixed(b < 10 ? 1 : 0) + ' ' + u[i];
 }
 function _selfFmtAgo(ts) { return timeAgo(ts, { empty: 'never', clamp: true }); }
+
+// ─── v6.4.2: one state vocabulary for every subsystem row on this page ──────
+// 'ok' | 'warn' | 'bad' | 'muted'. 'muted' used to fall through to the amber
+// warning glyph, so a sidecar that simply isn't in use read as a fault.
+const _SELF_STATE_ICO = {
+  ok:    '<path d="M20 6 9 17l-5-5"/>',
+  bad:   '<path d="M18 6 6 18M6 6l12 12"/>',
+  warn:  '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  muted: '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
+};
+const _SELF_STATE_CLS = { ok: 'c-green', bad: 'c-red', warn: 'c-amber', muted: 'c-muted' };
+const _SELF_STATE_RANK = { bad: 3, warn: 2, ok: 1, muted: 0 };
+const _SELF_STATE_LABEL = { ok: 'Healthy', warn: 'Check', bad: 'Degraded', muted: 'Not in use' };
+
+function _selfStateIco(state) {
+  const p = _SELF_STATE_ICO[state] || _SELF_STATE_ICO.warn;
+  const cls = _SELF_STATE_CLS[state] || 'c-amber';
+  return `<span class="${cls} rt-ico"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">${p}</svg></span>`;
+}
+function _selfInfoRow(label, value, note, state) {
+  return `<tr><td class="c-muted-padded">${escHtml(label)}</td><td>${_selfStateIco(state)} <strong>${escHtml(value)}</strong>${note ? ` <span class="hint">— ${escHtml(note)}</span>` : ''}</td></tr>`;
+}
+
+// Whether the state actually lives in a database (where the DR archive's
+// logical-store export is the ONLY copy) rather than in DATA_DIR files.
+function _selfDbBackend(s) { return ((s || {}).runtime || {}).storage_backend || ''; }
+
+// Shared by the "Serving & runtime" card and the readiness table so the two
+// can never disagree about whether the scheduler is alive.
+function _selfSchedulerState(rt) {
+  if (rt.scheduler_configured && rt.scheduler_running) {
+    return { value: 'Running', state: 'ok',
+             note: rt.scheduler_last_beat_s != null
+               ? `heartbeat ${rt.scheduler_last_beat_s}s ago; request path skips the cadence`
+               : 'out-of-band process owns the maintenance cadence' };
+  }
+  if (rt.scheduler_configured) {
+    return { value: 'Configured — no heartbeat', state: 'bad',
+             note: 'flag is set but no scheduler process is reporting — start/enable remotepower-scheduler' };
+  }
+  return { value: 'Off', state: 'warn',
+           note: 'the maintenance cadence runs inside each request' };
+}
+
+// The co-located sidecars, as row descriptors. Rendered BOTH as the
+// "Distributed subsystems" table and as rows of the readiness table.
+function _selfSidecarRows(s) {
+  const sub = s.subsystems || {};
+  const rows = [];
+  const fleet = (label, b, offlineNote) => {
+    if (!b || !b.total) { rows.push({ label, state: 'muted', status: 'None configured', detail: '' }); return; }
+    rows.push({ label,
+                state: b.online >= b.total ? 'ok' : (b.online > 0 ? 'warn' : 'bad'),
+                status: `${b.online} online / ${b.total} total`,
+                detail: b.online < b.total ? offlineNote : '' });
+  };
+  fleet('Relay satellites', sub.satellites && sub.satellites.relays, 'some relayed >5 min ago');
+  fleet('Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago');
+  const push = sub.push || {};
+  if (!push.enabled) {
+    rows.push({ label: 'Agent push daemon', state: 'muted', status: 'Off',
+                detail: 'the opt-in wake-nudge channel is disabled' });
+  } else if (push.reachable) {
+    rows.push({ label: 'Agent push daemon', state: 'ok', status: 'Running',
+                detail: `accepting connections on port ${push.port}` });
+  } else {
+    rows.push({ label: 'Agent push daemon', state: 'bad', status: 'Enabled — unreachable',
+                detail: `nothing listening on port ${push.port} — check systemctl status remotepower-push` });
+  }
+  // Syslog / flow receivers are INFORMATIONAL: optional, and they may legitimately
+  // run on another host, so "not detected locally" is never a fault here.
+  const sy = sub.syslog || {};
+  const syAgo = sy.last_ingest ? `last intake ${_selfFmtAgo(sy.last_ingest)}` : 'no intake recorded';
+  const syslogRow = sy.unit === 'active'
+    ? { label: 'Syslog receiver', state: 'ok', status: 'Running',
+        detail: `${sy.sources || 0} source(s) · ${syAgo}` }
+    : (sy.sources
+      ? { label: 'Syslog receiver', state: 'muted', status: 'Not detected locally',
+          detail: `${sy.sources} source(s) enrolled · ${syAgo} — the receiver may run on another host` }
+      : { label: 'Syslog receiver', state: 'muted', status: 'Not in use',
+          detail: 'optional agentless intake — see syslog.md' });
+  rows.push(syslogRow);
+  const fl = sub.flow || {};
+  const flAgo = fl.last_ingest ? `last export ${_selfFmtAgo(fl.last_ingest)}` : 'no export recorded';
+  const flowRow = fl.unit === 'active'
+    ? { label: 'Flow receiver', state: 'ok', status: 'Running',
+        detail: `${fl.sources || 0} exporter(s) · ${flAgo}` }
+    : (fl.sources
+      ? { label: 'Flow receiver', state: 'muted', status: 'Not detected locally',
+          detail: `${fl.sources} exporter(s) enrolled · ${flAgo} — may run on another host` }
+      : { label: 'Flow receiver', state: 'muted', status: 'Not in use',
+          detail: 'optional agentless NetFlow/IPFIX — see flow.md' });
+  rows.push(flowRow);
+  // KMIP is reported only when enabled — and unlike syslog/flow its outage stops
+  // encrypted volumes mounting, so "enabled but not running" IS a fault.
+  const km = sub.kmip || {};
+  if (km.unit || km.clients != null) {
+    const pki = (km.pki_expires_days == null || km.pki_expires_days > 30)
+      ? '' : ` · certificate expires in ${km.pki_expires_days} day${km.pki_expires_days === 1 ? '' : 's'}`;
+    const det = `${km.clients || 0} client(s) · ${km.keys || 0} key(s)${pki}`;
+    if (km.unit === 'active') {
+      rows.push({ label: 'KMIP key server', state: pki ? 'warn' : 'ok',
+                  status: 'Running', detail: det });
+    } else {
+      rows.push({ label: 'KMIP key server', state: 'bad', status: 'Enabled — not detected locally',
+                  detail: `${det} — appliances cannot fetch keys while it is down` });
+    }
+  }
+  return rows;
+}
+
+// The control plane itself: storage, request tier, scheduler, the maintenance
+// sweeps, the recurring jobs and the DR archive. None of these has a webhook
+// event (only server_disk_low/_ok does), so this table is where a wedged sweep
+// or a hollow backup becomes visible at all.
+function _selfControlPlaneRows(s) {
+  const rt = s.runtime || {};
+  const rows = [];
+  const dd = s.data_dir || {};
+  const sb = s.storage_backend || {};
+  const beName = ({ postgres: 'PostgreSQL', sqlite: 'SQLite', json: 'JSON files' })[rt.storage_backend]
+                 || (rt.storage_backend || 'unknown');
+  if (dd.error) {
+    rows.push({ label: 'Storage', state: 'bad', status: 'Unreadable',
+                detail: `${beName} — ${dd.error}` });
+  } else if (sb.last_integrity && sb.last_integrity !== 'ok') {
+    rows.push({ label: 'Storage', state: 'bad', status: 'Integrity check failed',
+                detail: `${beName} — last check reported "${sb.last_integrity}"` });
+  } else if (rt.storage_backend === 'postgres' || rt.storage_backend === 'sqlite') {
+    rows.push({ label: 'Storage', state: 'ok', status: beName, detail: 'readable' });
+  } else {
+    rows.push({ label: 'Storage', state: 'warn', status: beName,
+                detail: rt.storage_backend === 'json'
+                  ? 'dev / very small fleets only'
+                  : 'the backend did not report itself' });
+  }
+  rows.push(rt.server_tier === 'wsgi'
+    ? { label: 'Request tier', state: 'ok', status: 'WSGI · gunicorn + Flask', detail: 'persistent worker pool' }
+    : { label: 'Request tier', state: 'warn', status: rt.server_tier || 'unknown',
+        detail: 'not being served through wsgi.py' });
+  const sch = _selfSchedulerState(rt);
+  rows.push({ label: 'Maintenance scheduler', state: sch.state, status: sch.value, detail: sch.note });
+  const obs = _selfObsLast;
+  if (!obs) {
+    rows.push({ label: 'Maintenance sweeps', state: 'muted', status: 'Not available',
+                detail: 'sweep health is admin-only' });
+  } else if (obs.failing) {
+    rows.push({ label: 'Maintenance sweeps', state: 'bad',
+                status: `${obs.failing} of ${obs.tracked} failing`,
+                detail: 'a failing sweep silently takes its feature down — no alert event fires for it' });
+  } else {
+    rows.push({ label: 'Maintenance sweeps', state: 'ok',
+                status: `${obs.tracked} tracked, none failing`, detail: '' });
+  }
+  const jobs = s.cadence_jobs || {};
+  const jobKeys = Object.keys(jobs).filter(k => k !== 'error' && jobs[k] && typeof jobs[k] === 'object');
+  const stale = jobKeys.filter(k => jobs[k].stale);
+  if (jobs.error || !jobKeys.length) {
+    rows.push({ label: 'Recurring jobs', state: 'muted', status: 'Not reported',
+                detail: jobs.error ? String(jobs.error) : '' });
+  } else if (stale.length) {
+    rows.push({ label: 'Recurring jobs', state: 'bad', status: `${stale.length} wedged`,
+                detail: `${stale.join(', ')} — last run older than 3× the interval` });
+  } else {
+    rows.push({ label: 'Recurring jobs', state: 'ok', status: 'On cadence',
+                detail: `${jobKeys.length} tracked` });
+  }
+  rows.push(_selfBackupReadinessRow(s));
+  return rows;
+}
+
+// v6.4.2: the DR archive as a readiness row. The case that matters is a
+// database backend whose archive carries ZERO logical stores — the tar opens
+// and looks fine, and restoring it produces an empty install.
+function _selfBackupReadinessRow(s) {
+  const bk = s.backup || {};
+  const label = 'Backup & DR';
+  if (!bk.last_run) {
+    return { label, state: 'warn', status: 'Never run',
+             detail: 'no DR archive has been written yet' };
+  }
+  if (bk.stores === 0 && _selfDbBackend(s) === 'postgres') {
+    return { label, state: 'bad', status: 'Last archive is hollow',
+             detail: 'it carries no logical stores, and on PostgreSQL those ARE the state — a restore would produce an empty install' };
+  }
+  if (bk.rpo_breached) {
+    return { label, state: 'bad', status: 'RPO breached',
+             detail: `last archive ${bk.hours_since_last_backup != null ? bk.hours_since_last_backup + 'h' : 'unknown'} ago, target ${bk.rpo_hours}h` };
+  }
+  if (bk.last_drill_ok === false) {
+    return { label, state: 'bad', status: 'Last restore drill failed',
+             detail: `${_selfFmtAgo(bk.last_drill_at)}${bk.last_drill_file ? ' · ' + bk.last_drill_file : ''} — run "Verify restorability now" for the reason` };
+  }
+  if (bk.stores === 0 && _selfDbBackend(s) === 'sqlite') {
+    return { label, state: 'warn', status: 'Database image only',
+             detail: 'the archive carries no logical stores — it can only be restored onto SQLite' };
+  }
+  return { label, state: 'ok', status: `Last run ${_selfFmtAgo(bk.last_run)}`,
+           detail: `${bk.stores != null ? bk.stores + ' store(s) · ' : ''}${bk.encrypted ? 'encrypted' : 'plaintext'}` };
+}
+
+// Populated by loadSelfStatus() / _loadSelfObs(); the readiness table is
+// re-rendered whenever either lands, in whichever order they arrive.
+let _selfStatusLast = null;
+let _selfObsLast = null;
+
+function _selfReadinessRows() {
+  const s = _selfStatusLast;
+  if (!s) return [];
+  return _selfControlPlaneRows(s).concat(_selfSidecarRows(s));
+}
+
+function _renderSelfReadiness() {
+  const tb = document.getElementById('self-readiness-rows');
+  if (!tb) return;
+  tableCtl.wireSortOnly('self-readiness-thead', 'self_readiness', _renderSelfReadiness);
+  // Degraded first by default; the user's own sort (if any) wins on top.
+  const rows = _selfReadinessRows()
+    .sort((a, b) => (_SELF_STATE_RANK[b.state] || 0) - (_SELF_STATE_RANK[a.state] || 0));
+  const sorted = tableCtl.sortRows('self_readiness', rows, r => ({
+    subsystem: r.label,
+    state: _SELF_STATE_RANK[r.state] || 0,
+    status: r.status,
+    detail: r.detail,
+  }));
+  tb.innerHTML = sorted.map(r =>
+    `<tr><td>${escHtml(r.label)}</td>`
+    + `<td>${_selfStateIco(r.state)} <span class="${_SELF_STATE_CLS[r.state] || ''}">${escHtml(_SELF_STATE_LABEL[r.state] || r.state)}</span></td>`
+    + `<td><strong>${escHtml(r.status)}</strong></td>`
+    + `<td class="hint">${escHtml(r.detail || '')}</td></tr>`).join('');
+  const sum = document.getElementById('self-readiness-summary');
+  if (!sum) return;
+  const bad = rows.filter(r => r.state === 'bad').length;
+  const warn = rows.filter(r => r.state === 'warn').length;
+  sum.innerHTML = `${rows.length} subsystem${rows.length === 1 ? '' : 's'} · `
+    + `<span class="${bad ? 'c-red' : 'c-green'}">${bad} degraded</span> · `
+    + `<span class="${warn ? 'c-amber' : 'c-muted'}">${warn} needing a look</span>`;
+}
+
 async function _loadSelfObs() {
   const el = document.getElementById('self-obs-body');
   if (!el) return;
   const d = await api('GET', '/self/observability').catch(() => null);
-  if (!d || d.error) { el.innerHTML = '<div class="c-muted">Unavailable.</div>'; return; }
+  if (!d || d.error) {
+    _selfObsLast = null; _renderSelfReadiness();
+    el.innerHTML = '<div class="c-muted">Unavailable.</div>'; return;
+  }
+  _selfObsLast = d;
+  _renderSelfReadiness();
   const rows = d.sweeps || [];
   if (!rows.length) {
     el.innerHTML = '<div class="c-muted">No sweep activity recorded yet — it accumulates over the next maintenance cycles.</div>';
@@ -127,11 +371,17 @@ async function loadSelfStatus() {
   body.innerHTML = _skeletonBlock();
   _loadSelfObs();
   _loadClientErrors();
-  const s = await api('GET', '/self/status');
+  // v6.4.2: /version rides along — it carries privileged_mode/privileged_help,
+  // which is what explains an unavailable in-app restart on this page.
+  const [s, ver] = await Promise.all([
+    api('GET', '/self/status'),
+    api('GET', '/version').catch(() => null),
+  ]);
   if (!s || s.error) {
     body.innerHTML = '<div class="c-red">Failed to load: ' + escHtml(s?.error || 'unknown') + '</div>';
     return;
   }
+  _selfStatusLast = s;
   // Devices freshness card
   const dev = s.devices || {};
   const offlineSev = dev.offline > 0 ? 'var(--red)' : 'var(--green)';
@@ -182,105 +432,33 @@ async function loadSelfStatus() {
   // backend, request tier, out-of-band scheduler). Answers "am I really on WSGI /
   // Postgres / the scheduler?" at a glance. See docs/scaling.md.
   const rt = s.runtime || {};
-  const _rtIco = (state) => {
-    const p = state === 'ok'
-      ? '<path d="M20 6 9 17l-5-5"/>'
-      : state === 'bad'
-      ? '<path d="M18 6 6 18M6 6l12 12"/>'
-      : '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
-    const cls = state === 'ok' ? 'c-green' : state === 'bad' ? 'c-red' : 'c-amber';
-    return `<span class="${cls} rt-ico"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">${p}</svg></span>`;
-  };
-  const _rtRow = (label, value, note, state) =>
-    `<tr><td class="c-muted-padded">${label}</td><td>${_rtIco(state)} <strong>${escHtml(value)}</strong>${note ? ` <span class="hint">— ${escHtml(note)}</span>` : ''}</td></tr>`;
   const _beMap = { postgres: ['PostgreSQL', 'shared DB — scales across app nodes', 'ok'], sqlite: ['SQLite', 'single-box embedded DB', 'ok'], json: ['JSON files', 'dev / very small fleets only', 'warn'] };
   const _tierMap = { wsgi: ['WSGI · gunicorn + Flask', 'persistent worker pool (the only server)', 'ok'], cgi: ['direct', 'bare api.py invocation, not through wsgi.py', 'warn'] };
   const be = _beMap[rt.storage_backend] || [rt.storage_backend || 'unknown', '', 'warn'];
   const tier = _tierMap[rt.server_tier] || [rt.server_tier || 'unknown', '', 'warn'];
-  let schedVal, schedNote, schedState;
-  if (rt.scheduler_configured && rt.scheduler_running) {
-    schedVal = 'Running'; schedState = 'ok';
-    schedNote = rt.scheduler_last_beat_s != null ? `heartbeat ${rt.scheduler_last_beat_s}s ago; request path skips the cadence` : 'out-of-band process owns the maintenance cadence';
-  } else if (rt.scheduler_configured && !rt.scheduler_running) {
-    schedVal = 'Configured — no heartbeat'; schedState = 'bad';
-    schedNote = 'flag is set but no scheduler process is reporting — start/enable remotepower-scheduler';
-  } else {
-    schedVal = 'Off'; schedState = 'warn';
-    schedNote = 'the maintenance cadence runs inside each request';
-  }
+  const sched = _selfSchedulerState(rt);
   const runtimeCard = `
     <div class="dash-card">
       <div class="section-title">Serving &amp; runtime</div>
       <table class="fs-13">
-        ${_rtRow('Storage backend', be[0], be[1], be[2])}
-        ${_rtRow('Request tier', tier[0], tier[1], tier[2])}
-        ${_rtRow('Out-of-band scheduler', schedVal, schedNote, schedState)}
-        ${_rtRow('Per-request maintenance', rt.cadence_in_request ? 'Runs in each request' : 'Offloaded to scheduler', '', rt.cadence_in_request ? 'warn' : 'ok')}
+        ${_selfInfoRow('Storage backend', be[0], be[1], be[2])}
+        ${_selfInfoRow('Request tier', tier[0], tier[1], tier[2])}
+        ${_selfInfoRow('Out-of-band scheduler', sched.value, sched.note, sched.state)}
+        ${_selfInfoRow('Per-request maintenance', rt.cadence_in_request ? 'Runs in each request' : 'Offloaded to scheduler', '', rt.cadence_in_request ? 'warn' : 'ok')}
       </table>
       <div class="hint mt-8">This is what's actually serving right now. To change it (persistent WSGI/SCGI app tier, PostgreSQL, out-of-band scheduler) see <a href="docs/scaling.md" class="c-accent">scaling.md</a> — env vars go in <code>/etc/remotepower/api.env</code>.</div>
     </div>`;
   // OTHER-2: co-located distributed subsystems (relay/scanner satellites, push
-  // daemon). The scheduler is in the runtime card above.
+  // daemon). The scheduler is in the runtime card above. Row descriptors come
+  // from _selfSidecarRows() so this card and the readiness table above it can
+  // never disagree about a sidecar's state.
   const sub = s.subsystems || {};
-  const _fleetRow = (label, b, offlineNote) => {
-    if (!b || !b.total) return _rtRow(label, 'None configured', '', 'muted');
-    const state = b.online >= b.total ? 'ok' : (b.online > 0 ? 'warn' : 'bad');
-    return _rtRow(label, `${b.online} online / ${b.total} total`,
-                  b.online < b.total ? offlineNote : '', state);
-  };
-  const push = sub.push || {};
-  const pushRow = !push.enabled
-    ? _rtRow('Agent push daemon', 'Off', 'the opt-in wake-nudge channel is disabled', 'muted')
-    : (push.reachable
-      ? _rtRow('Agent push daemon', 'Running', `accepting connections on port ${push.port}`, 'ok')
-      : _rtRow('Agent push daemon', 'Enabled — unreachable', `nothing listening on port ${push.port} — check systemctl status remotepower-push`, 'bad'));
-  // v6.3.1: syslog receiver watcher — INFORMATIONAL only, never a warning:
-  // the receiver is optional and may run on another host. Opt-in alerting
-  // lives in the Checks baseline catalog (rp_syslogd_running).
-  const sy = sub.syslog || {};
-  const _syAgo = sy.last_ingest ? `last intake ${_selfFmtAgo(sy.last_ingest)}` : 'no intake recorded';
-  const syslogRow = sy.unit === 'active'
-    ? _rtRow('Syslog receiver', 'Running', `${sy.sources || 0} source(s) · ${_syAgo}`, 'ok')
-    : (sy.sources
-      ? _rtRow('Syslog receiver', 'Not detected locally', `${sy.sources} source(s) enrolled · ${_syAgo} — the receiver may run on another host`, 'muted')
-      : _rtRow('Syslog receiver', 'Not in use', 'optional agentless intake — see syslog.md', 'muted'));
-  // v6.3.1: NetFlow/IPFIX receiver — informational, same rules as syslog.
-  const fl = sub.flow || {};
-  const _flAgo = fl.last_ingest ? `last export ${_selfFmtAgo(fl.last_ingest)}` : 'no export recorded';
-  const flowRow = fl.unit === 'active'
-    ? _rtRow('Flow receiver', 'Running', `${fl.sources || 0} exporter(s) · ${_flAgo}`, 'ok')
-    : (fl.sources
-      ? _rtRow('Flow receiver', 'Not detected locally', `${fl.sources} exporter(s) enrolled · ${_flAgo} — may run on another host`, 'muted')
-      : _rtRow('Flow receiver', 'Not in use', 'optional agentless NetFlow/IPFIX — see flow.md', 'muted'));
-  // v6.4.1: KMIP key server — informational, same contract as syslog/flow. It
-  // was the one sidecar with no row here, despite being the one whose outage
-  // stops encrypted volumes mounting. Shows PKI expiry too: an expired client
-  // certificate silently ends that appliance's key access.
-  const km = sub.kmip || {};
-  let kmipRow = '';
-  if (km.unit || km.clients != null) {
-    const _pki = (km.pki_expires_days == null)
-      ? ''
-      : (km.pki_expires_days <= 30
-        ? ` · certificate expires in ${km.pki_expires_days} day${km.pki_expires_days === 1 ? '' : 's'}`
-        : '');
-    const _kdet = `${km.clients || 0} client(s) · ${km.keys || 0} key(s)${_pki}`;
-    kmipRow = km.unit === 'active'
-      ? _rtRow('KMIP key server', 'Running', _kdet,
-               (km.pki_expires_days != null && km.pki_expires_days <= 30) ? 'warn' : 'ok')
-      : _rtRow('KMIP key server', 'Enabled — not detected locally',
-               `${_kdet} — appliances cannot fetch keys while it is down`, 'bad');
-  }
   const subsystemsCard = `
     <div class="dash-card">
       <div class="section-title">Distributed subsystems</div>
+      ${sub.error ? `<div class="c-red fs-12 mb-8">Subsystem probe failed: ${escHtml(String(sub.error))}</div>` : ''}
       <table class="fs-13">
-        ${_fleetRow('Relay satellites', sub.satellites && sub.satellites.relays, 'some relayed >5 min ago')}
-        ${_fleetRow('Scan workers', sub.satellites && sub.satellites.scanners, 'some relayed >5 min ago')}
-        ${pushRow}
-        ${syslogRow}
-        ${flowRow}
-        ${kmipRow}
+        ${_selfSidecarRows(s).map(r => _selfInfoRow(r.label, r.status, r.detail, r.state)).join('')}
       </table>
       <div class="hint mt-8">Relays/scan workers extend reach into segmented networks; the push daemon wakes agents on demand; the syslog receiver takes agentless appliance logs. See <a href="docs/scaling.md" class="c-accent">scaling.md</a>, <a href="docs/push.md" class="c-accent">push.md</a> and <a href="docs/syslog.md" class="c-accent">syslog.md</a>.</div>
     </div>`;
@@ -293,14 +471,37 @@ async function loadSelfStatus() {
   const _syslogSvc = (sub.syslog && sub.syslog.unit === 'active') ? ' remotepower-syslogd' : '';
   const _flowSvc = (sub.flow && sub.flow.unit === 'active') ? ' remotepower-flowd' : '';
   const _restartCmd = `sudo systemctl restart remotepower-wsgi remotepower-scheduler${_scannerSvc}${_pushSvc}${_syslogSvc}${_flowSvc}`;
+  const restartAvail = _selfRestartAvailability(ver);
   const restartCard = `
     <div class="dash-card">
       <div class="section-title">Restart the stack</div>
       <div class="hint mb-8">RemotePower runs as an unprivileged service, so restarting it is a host action (needs root on the server). This cleanly restarts the app workers and the out-of-band scheduler${_scannerSvc ? ', the scan worker' : ''}${_pushSvc ? ', the push daemon' : ''} — workers cycle with no dropped requests behind nginx and agents reconnect on their own:</div>
       <div class="row-8-mb8"><code class="self-restart-cmd">${escHtml(_restartCmd)}</code><button class="btn-icon" data-action="copyText" data-arg="${escAttr(_restartCmd)}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>
+      ${restartAvail}
       <div class="hint">See <a href="docs/self-monitoring.md" class="c-accent">self-monitoring.md</a> and <a href="docs/scaling.md" class="c-accent">scaling.md</a>.</div>
     </div>`;
-  body.innerHTML = runtimeCard + subsystemsCard + restartCard + `
+  // v6.4.2: one explicit row per control-plane subsystem. Of the 183 registered
+  // events only server_disk_low/_ok concern the control plane — a wedged sweep,
+  // a dead sidecar or a hollow DR archive fires nothing, so this table is the
+  // only place they are visible.
+  const readinessCard = `
+    <div class="dash-card">
+      <div class="section-title">Control-plane readiness</div>
+      <p class="hint">Every part of RemotePower itself that can fail without paging anyone: storage, the request tier, the maintenance scheduler and its sweeps, the recurring jobs, the DR archive and each co-located sidecar. A degraded row here is a fault in the monitoring, not in the fleet. <a href="docs/self-monitoring.md" class="c-accent">Documentation</a></p>
+      <div id="self-readiness-summary" class="fs-12 mb-8"></div>
+      <div class="scrollable-table-wrap audit-scroll">
+        <table class="fs-13">
+          <thead id="self-readiness-thead"><tr>
+            <th data-col="subsystem">Subsystem</th>
+            <th data-col="state">State</th>
+            <th data-col="status">Status</th>
+            <th data-col="detail">Detail</th>
+          </tr></thead>
+          <tbody id="self-readiness-rows"></tbody>
+        </table>
+      </div>
+    </div>`;
+  body.innerHTML = readinessCard + runtimeCard + subsystemsCard + restartCard + `
     <div class="dash-card">
       <div class="section-title">Site health ${healthPill}</div>
       <table class="fs-13">
@@ -415,8 +616,18 @@ sudo systemctl restart remotepower-api</pre>
           <tr><td class="c-muted-padded">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span class="c-muted">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
           <tr><td class="c-muted-padded">Last file</td><td><code class="fs-11">${escHtml(bk.last_file || '—')}</code>${bk.encrypted ? ' <span class="patch-badge ok">encrypted</span>' : ''}</td></tr>
           <tr><td class="c-muted-padded">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
+          ${_selfBackupContentsRow(s)}
           <tr><td class="c-muted-padded">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
-        </table>` : '<div class="c-muted-fs13 mt-6">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
+          ${bk.last_drill_at ? `<tr><td class="c-muted-padded">Restore drill</td><td>${bk.last_drill_ok === false
+            ? '<span class="patch-badge crit">failed</span>'
+            : (bk.last_drill_ok ? '<span class="patch-badge ok">passed</span>' : '<span class="patch-badge warn">no result</span>')} ${_selfFmtAgo(bk.last_drill_at)}${
+            bk.last_drill_seconds != null ? ` <span class="hint">· checked in ${bk.last_drill_seconds}s</span>` : ''}${
+            bk.last_drill_file ? ` <code class="fs-11">${escHtml(bk.last_drill_file)}</code>` : ''}</td></tr>` : ''}
+        </table>
+        ${_selfHollowArchiveWarning(s)}
+        <div class="mt-8"><button class="btn-icon" data-action="selfVerifyRestore" id="self-verify-restore-btn" title="Decrypt, decompress and inspect the newest archive — reports how much restorable state it actually carries. Nothing is written.">${_icon('fileSearch', 14)} Verify restorability now</button></div>
+        <div id="self-verify-restore-result" class="fs-12 mt-6" role="status" aria-live="polite"></div>`
+        : '<div class="c-muted-fs13 mt-6">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
       ${bk.rpo_hours ? `
         <table class="fs-13 mt-6">
           <tr><td class="c-muted-padded">RPO target</td><td>${bk.rpo_hours}h — last backup ${bk.hours_since_last_backup != null ? bk.hours_since_last_backup + 'h ago' : 'never'}
@@ -442,6 +653,79 @@ sudo systemctl restart remotepower-api</pre>
       </table>
     </div>
   `;
+  _renderSelfReadiness();
+}
+
+// v6.4.2: the in-app "Restart server" button is simply HIDDEN when the
+// privileged helper cannot run, so an operator hunting for it found nothing and
+// no reason. /version now reports WHY: 'blocked' is the shipped hardened unit
+// (NoNewPrivileges=true), where no sudoers drop-in can ever help — say that
+// instead of quietly omitting the control.
+function _selfRestartAvailability(ver) {
+  const mode = ver && ver.privileged_mode;
+  if (mode === 'blocked') {
+    return '<div class="hint mt-8"><span class="c-amber">In-app restart is unavailable on this install.</span> '
+      + escHtml(ver.privileged_help || '')
+      + ' <a href="docs/upgrading.md" class="c-accent">upgrading.md</a></div>';
+  }
+  if (mode === 'absent') {
+    return '<div class="hint mt-8">In-app restart is not set up — the privileged restart helper '
+      + '(<code>packaging/remotepower-server-restart.sh</code>) is not installed, so the command above is the way in. '
+      + 'See <a href="docs/upgrading.md" class="c-accent">upgrading.md</a>.</div>';
+  }
+  if (ver && ver.restart_available) {
+    return '<div class="hint mt-8">This install can also restart the app server in place from '
+      + 'Settings → Install → Restart server'
+      + (mode === 'spool' ? ' (performed by the privileged path unit)' : '') + '.</div>';
+  }
+  return '';
+}
+
+// v6.4.2: what the last DR archive actually CARRIES. `stores` is the number of
+// logical documents the export wrote into the tar; on a database backend that
+// is the entire state, and 0 there means the archive is hollow — it opens, it
+// looks the right size, and restoring it produces an empty install.
+function _selfBackupContentsRow(s) {
+  const bk = s.backup || {};
+  if (bk.stores == null) return '';
+  const be = _selfDbBackend(s);
+  const n = `${bk.stores} logical store${bk.stores === 1 ? '' : 's'}`;
+  if (bk.stores === 0 && be === 'postgres') {
+    return `<tr><td class="c-muted-padded">Archive contents</td><td><span class="patch-badge crit">hollow</span> <span class="c-red">${n}</span></td></tr>`;
+  }
+  if (bk.stores === 0 && be === 'sqlite') {
+    return `<tr><td class="c-muted-padded">Archive contents</td><td><span class="patch-badge warn">database image only</span> <span class="hint">${n} — restorable onto SQLite only</span></td></tr>`;
+  }
+  const note = be === 'json'
+    ? 'plus the data directory itself'
+    : 'exported from the database — restorable onto any backend';
+  return `<tr><td class="c-muted-padded">Archive contents</td><td>${n} <span class="hint">— ${note}</span></td></tr>`;
+}
+
+function _selfHollowArchiveWarning(s) {
+  const bk = s.backup || {};
+  if (bk.stores !== 0 || _selfDbBackend(s) !== 'postgres') return '';
+  return '<div class="c-red fs-12 mt-6">The last archive carried no logical stores. On PostgreSQL nothing else in the tarball holds the state, '
+    + 'so a restore from it would produce an empty install — treat this as having no backup. Check the backup sweep under '
+    + '"Internal health — maintenance sweeps" for the export error, then run a backup again.</div>';
+}
+
+// v6.4.2: run the same decrypt→decompress→structure check the scheduled drill
+// runs, and show its verdict verbatim — the hollow-archive case has its own
+// specific message, which a generic "restore test failed" would have hidden.
+async function selfVerifyRestore() {
+  const el = document.getElementById('self-verify-restore-result');
+  if (el) { el.className = 'fs-12 mt-6 c-muted'; el.textContent = 'Opening the newest archive…'; }
+  const r = await api('POST', '/backup/test-restore').catch(() => null);
+  const ok = !!(r && r.ok);
+  if (el) {
+    el.className = 'fs-12 mt-6 ' + (ok ? 'c-green' : 'c-red');
+    // textContent, not innerHTML: the message embeds a server-side file name.
+    el.textContent = ok
+      ? (r.message || 'Restorable.')
+      : ((r && (r.error || r.message)) || 'Restore test failed.');
+  }
+  toast(ok ? 'Backup restore test passed' : 'Restore test failed', ok ? 'success' : 'error');
 }
 
 // v4.3.0: recent slow requests (handlers past the slow threshold). Tells you

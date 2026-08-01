@@ -112,6 +112,63 @@ start with `rpwi_`, managed as inbound webhooks):
 - **Server disk watchdog** — `disk_watchdog_pct` (default 85, 0 = off) raises
   `server_disk_low` when the data volume fills (recovers with `server_disk_ok`).
 
+## Prometheus exposition
+
+`GET /api/metrics` renders everything above — and most of what the rest of the
+product measures — as Prometheus text exposition, for Grafana or an external
+alertmanager. Authenticate with an operator token or the dedicated **status
+token** (Settings → Advanced), which is the usual choice for a scrape config.
+[`prometheus-metrics-sample.txt`](prometheus-metrics-sample.txt) is real output
+from a small seeded fleet; ready-made dashboards live in
+[`contrib/grafana/`](../contrib/grafana/).
+
+Every per-device family carries `device`, `name` and `group` labels, so a
+dashboard can slice by host or by group without a join.
+
+| Family | What it exposes |
+| --- | --- |
+| `remotepower_info`, `remotepower_devices_total`, `remotepower_devices_online`, `remotepower_device_online`, `remotepower_device_last_seen_timestamp_seconds` | Build version and fleet reachability |
+| `remotepower_device_cpu_percent`, `…_mem_percent`, `…_disk_percent` | Per-host resource utilisation |
+| `remotepower_device_upgradable_packages`, `remotepower_device_cve_findings`, `remotepower_cve_fixable_total` | Patch backlog and vulnerability findings (by `severity`) |
+| `remotepower_monitor_up`, `remotepower_monitor_last_check_timestamp_seconds`, `remotepower_monitor_availability_percent` | The remote checks above |
+| `remotepower_slo_target_percent`, `remotepower_monitor_slo_budget_remaining_percent`, `remotepower_monitor_slo_burn_rate`, `remotepower_slo_object_*` | SLO targets, error budgets and burn rate |
+| `remotepower_service_active`, `remotepower_services_down_total` | Watched systemd units |
+| `remotepower_fleet_health_score`, `remotepower_device_health_score`, `remotepower_attention_items` | Fleet health and the Needs-Attention digest behind it |
+| `remotepower_maintenance_windows_active`, `remotepower_commands_pending_total`, `remotepower_scheduled_jobs_total`, `remotepower_webhook_deliveries_total`, `remotepower_webhook_log_size`, `remotepower_control_plane_uptime_percent`, `remotepower_timeline_events_24h` | Control-plane state |
+
+### Hardware, backup and posture families *(v6.4.2)*
+
+These signals already drove RemotePower's own alerts, drawers and scores, but
+none of them reached the exporter — so a Grafana user could not alert on a
+failing drive, a UPS on battery or a stale backup from RemotePower's own
+metrics. Each block is emitted only when the underlying store has data.
+
+| Family | Extra labels | Notes |
+| --- | --- | --- |
+| `remotepower_device_temperature_celsius` | `sensor` | One series per reading. `sensor` is the board sensor label, `disk:<dev>` for a SMART drive, or `gpu:<name>` |
+| `remotepower_device_temperature_max_celsius` | — | Hottest reading on the host, across all three sources |
+| `remotepower_device_smart_disk_healthy` | `disk`, `model` | 1/0 from the **server-side** SMART verdict — the same one the alert, the digest and the badge use, not a second copy of the rule |
+| `remotepower_device_smart_disks_failed` | — | Drives currently failing that verdict, per host |
+| `remotepower_device_smart_reallocated_sectors`, `…_pending_sectors` | `disk` | The pre-fail counters behind the verdict |
+| `remotepower_device_smart_power_on_seconds` | `disk` | Power-on time in **seconds** (the store keeps hours) |
+| `remotepower_device_smart_wear_ratio`, `…_spare_ratio` | `disk` | SSD/NVMe endurance consumed and remap reserve left, as **0–1 ratios** (the store keeps percentages) |
+| `remotepower_ups_on_battery` | `ups` | 1 when running on battery, using the same `OB`/`BATT` test as the `ups_on_battery` alert, so a dashboard and an alert cannot disagree |
+| `remotepower_ups_battery_charge_ratio`, `remotepower_ups_load_ratio` | `ups` | 0–1 ratios |
+| `remotepower_ups_runtime_seconds`, `remotepower_ups_input_volts`, `remotepower_ups_power_watts` | `ups` | Runtime left, line voltage, output draw |
+| `remotepower_backup_ok`, `remotepower_backup_age_seconds` | `path` | Freshness of each watched backup path — see [backups.md](backups.md) |
+| `remotepower_backup_max_age_seconds` | `path` | The configured threshold, emitted **only** where a monitor names that path, so a rule comparing age against it never compares to an invented default |
+| `remotepower_device_disk_fill_eta_seconds` | — | Predicted time to a full filesystem, emitted only for hosts already trending full — see [forecast.md](forecast.md) |
+| `remotepower_device_risk_score`, `remotepower_risk_devices` | `level` on the rollup | Security-posture risk, 0–100, higher is worse — see [risk.md](risk.md) |
+| `remotepower_device_reliability_score`, `remotepower_reliability_devices` | `level` on the rollup | Predicted hardware failure — see [disk-health.md](disk-health.md) |
+| `remotepower_compliance_pass_ratio`, `remotepower_compliance_devices_evaluated` | — | Fleet baseline compliance, severity-weighted, as a 0–1 ratio |
+| `remotepower_device_compliance_pass_ratio` | — | Per-host, omitted when no check applied (a 0 would read as total failure) |
+| `remotepower_compliance_check_devices` | `check`, `severity`, `result` | Device counts per outcome for one baseline control, so a panel can name the failing check — see [compliance.md](compliance.md) |
+
+Health, risk and reliability are deliberately three separate families, not one
+number: health is the Needs-Attention rollup, risk is security posture, and
+reliability is predicted hardware failure. Folding them together would lose the
+distinction the product makes everywhere else.
+
 ## Permissions
 
 - Viewing check status needs normal authentication.

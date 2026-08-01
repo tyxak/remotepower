@@ -229,6 +229,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/></svg>
           <span>Sites</span>
         </button>
+        <button class="nav-btn" data-page="taxonomy" title="Every tag and group in use, with device counts — rename, merge or delete a tag across the whole fleet">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          <span>Tags &amp; groups</span>
+        </button>
         <button class="nav-btn" id="nav-contacts" data-page="contacts" title="Internal contact directory (team phonebook)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Contacts</span>
@@ -271,6 +275,10 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items" id="sbg-monitoring">
+        <button class="nav-btn" data-page="attention" title="Everything the fleet is raising right now — the full digest behind the dashboard card">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg>
+          <span>Needs Attention</span>
+        </button>
         <button class="nav-btn" data-page="monitor" title="Live monitor — remote checks, device metrics, listening ports, custom scripts and processes in one place">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           <span>Live Monitor</span>
@@ -5919,6 +5927,52 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── Needs Attention page (v6.4.2) ────────────────────────────────
+           The dashboard card renders the first ten items of the SAME
+           /api/attention digest and nothing else linked to the rest, so on any
+           fleet with more than ten open signals the tail was unreachable from
+           the UI. This is that digest in full, sortable and filterable. -->
+      <div id="page-attention" class="page">
+        <div class="page-title">Needs Attention</div>
+        <div class="page-subtitle">Everything the fleet is raising right now, in one sortable list — the same digest the dashboard card summarises, without its top-ten cut-off. Snoozed and ignored items are already filtered out. <a href="docs/attention.md" class="c-accent">Documentation</a></div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadAttentionPage"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <select id="attention-sev-filter" class="form-input input-auto" data-change="renderAttentionPage" aria-label="Filter by severity">
+            <option value="all">All severities</option>
+            <option value="critical">Critical</option>
+            <option value="warning">Warning</option>
+            <option value="info">Info</option>
+          </select>
+          <!-- Kind and device options are rebuilt from the loaded rows on each
+               refresh, so the pickers only ever offer values that occur. -->
+          <select id="attention-kind-filter" class="form-input input-auto" data-change="renderAttentionPage" aria-label="Filter by kind">
+            <option value="all">All kinds</option>
+          </select>
+          <select id="attention-device-filter" class="form-input input-auto" data-change="renderAttentionPage" aria-label="Filter by device">
+            <option value="all">All devices</option>
+          </select>
+          <!-- No data-input: tableCtl.register(filterInput) attaches its own
+               debounced listener, and a second one renders every keystroke twice. -->
+          <input type="text" id="attention-filter" class="form-input page-filter" placeholder="Filter host, kind or detail…" aria-label="Filter host, kind or detail">
+        </div>
+        <div id="attention-counts" class="toolbar"></div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+          <table class="data-table w-full">
+            <thead id="attention-thead"><tr>
+              <th scope="col" data-col="severity">Severity</th>
+              <th scope="col" data-col="kind">Kind</th>
+              <th scope="col" data-col="device">Host</th>
+              <th scope="col" data-col="summary">Detail</th>
+              <th scope="col" class="th-actions"></th>
+            </tr></thead>
+            <tbody id="attention-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+          </table>
+          </div>
+        </div>
+        <p class="hint mt-12">An item disappears the moment its cause clears — this list is recomputed from current fleet state on every load, never read from a stored queue. Where a row offers them, the bell button snoozes it for 24 hours and it returns on its own; the cross ignores it until you restore it under Settings → Ignored items. Both are undoable from the topbar arrows.</p>
+      </div>
+
       <!-- ── Fleet query page (v3.4.2) ────────────────────────────────────── -->
       <!-- v5.6.x lazy page: inert until first visit — showPage clones the
            template in place (i18n MutationObserver localises the clone). -->
@@ -6344,6 +6398,55 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-6 mt-8"><button class="btn-primary" data-action="openSubnetCreate">New subnet</button></div>
           <div id="ipam-occupancy-wrap" class="hidden mt-12"></div>
         </div>
+      </div>
+
+      <!-- ── Tags & groups (v6.4.2) ───────────────────────────────────────
+           Sibling of Sites: both are fleet-organisation surfaces one level
+           above the individual device, which is why this lives in the Fleet
+           group rather than in Settings. Tags and groups were writable from a
+           dozen places (enrolment tokens, auto-placement rules, bulk actions,
+           each device drawer) and readable from none, so a typo'd tag was
+           invisible until it silently shrank a targeted rollout. -->
+      <div id="page-taxonomy" class="page">
+        <div class="page-title">Tags &amp; groups</div>
+        <div class="page-subtitle">Every tag and group actually in use, with the number of devices carrying it. Rename a tag across the whole fleet, merge two that drifted apart, or delete one that stopped meaning anything. <a href="docs/fleet-management.md" class="c-accent">Documentation</a></div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadTaxonomy"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <span id="taxonomy-summary" class="isl-100"></span>
+        </div>
+
+        <div class="dash-card mb-16">
+          <div class="section-title">Tags</div>
+          <p class="hint">A device carries any number of tags. Renaming onto a name that already exists merges the two; deleting a tag removes it from every device but keeps the devices. Counts cover the devices you can see, so a tag used only outside your scope is not listed here.</p>
+          <input type="text" id="taxonomy-tags-filter" class="form-input page-filter mb-8" placeholder="Filter tags…" aria-label="Filter tags">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="taxonomy-tags-thead"><tr>
+                <th scope="col" data-col="name">Tag</th>
+                <th scope="col" data-col="device_count">Devices</th>
+                <th scope="col" class="th-actions"></th>
+              </tr></thead>
+              <tbody id="taxonomy-tags-tbody"><tr><td colspan="3" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <div class="section-title">Groups</div>
+          <p class="hint">A device belongs to exactly one group. Groups are read-only here: there is no bulk group endpoint, and a per-device loop can half-apply, so a group is still renamed from each device's drawer.</p>
+          <input type="text" id="taxonomy-groups-filter" class="form-input page-filter mb-8" placeholder="Filter groups…" aria-label="Filter groups">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="taxonomy-groups-thead"><tr>
+                <th scope="col" data-col="name">Group</th>
+                <th scope="col" data-col="device_count">Devices</th>
+                <th scope="col" class="th-actions"></th>
+              </tr></thead>
+              <tbody id="taxonomy-groups-tbody"><tr><td colspan="3" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="hint mt-12">Renaming or deleting a tag rewrites device records in bulk and is written to the audit log. It does not follow the name anywhere else — role scopes, alert routing, auto-patch scopes, rollout rings, smart groups, SLA targets and saved views that name a tag stop matching those devices until you update them too.</p>
       </div>
 
       <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->

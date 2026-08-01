@@ -250,6 +250,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
         names = {e[0] for e in api_module.WEBHOOK_EVENTS}
         expected = {
             'device_offline', 'device_online',
+            'device_enrolled',                       # v6.4.2: a host joined the fleet
             'agent_stopped', 'agent_started',
             'monitor_down', 'monitor_up', 'path_changed',    # W4-15
             'mailflow_delayed', 'mailflow_ok',               # W4-16

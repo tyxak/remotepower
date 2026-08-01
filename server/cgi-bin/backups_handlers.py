@@ -1289,6 +1289,13 @@ def _maybe_run_restore_drill():
             st['last_drill_ok'] = drill_ok
             st['last_drill_seconds'] = r.get('seconds')
             st['last_drill_file'] = r.get('file')
+            # v6.4.2: persist WHAT the drill found, not just pass/fail. Server
+            # status can then say "the archive holds no restorable state" — the
+            # case a Postgres install used to produce — instead of a generic
+            # failure the operator has to go and reproduce by hand.
+            st['last_drill_stores'] = r.get('stores')
+            st['last_drill_db_image'] = r.get('db_image')
+            st['last_drill_error'] = (r.get('error') or '')[:300]
             payload = {'path': 'self:dr-archive', 'file': r.get('file') or '',
                        'seconds': r.get('seconds'),
                        'error': (r.get('error') or '')[:200]}

@@ -4,7 +4,7 @@
 # the exporter is server/cgi-bin/prometheus_export.py.
 # HELP remotepower_info Server build information.
 # TYPE remotepower_info gauge
-remotepower_info{version="6.4.0"} 1
+remotepower_info{version="6.4.2"} 1
 # HELP remotepower_devices_total Total enrolled devices.
 # TYPE remotepower_devices_total gauge
 remotepower_devices_total 2
@@ -17,8 +17,8 @@ remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
 remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1784849488
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1784842288
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1785625287
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1785618087
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
 remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
@@ -50,7 +50,7 @@ remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severit
 remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1784789788
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1785025587
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
 # HELP remotepower_services_down_total Number of watched services currently not active per device.
@@ -92,19 +92,19 @@ remotepower_cve_fixable_total 0
 remotepower_slo_target_percent 99.9
 # HELP remotepower_monitor_availability_percent Monitor availability over the recent check window.
 # TYPE remotepower_monitor_availability_percent gauge
-remotepower_monitor_availability_percent{label="website"} 99.5
-# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor.
+remotepower_monitor_availability_percent{label="website"} 99.95
+# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor (omitted while the check window is too short to resolve the target).
 # TYPE remotepower_monitor_slo_budget_remaining_percent gauge
-remotepower_monitor_slo_budget_remaining_percent{label="website"} 0.0
+remotepower_monitor_slo_budget_remaining_percent{label="website"} 50.0
 # HELP remotepower_monitor_slo_burn_rate Error-budget burn rate (>1 = over budget).
 # TYPE remotepower_monitor_slo_burn_rate gauge
-remotepower_monitor_slo_burn_rate{label="website"} 5.0
+remotepower_monitor_slo_burn_rate{label="website"} 0.5
 # HELP remotepower_slo_object_target_percent Availability target of the SLA/SLO object.
 # TYPE remotepower_slo_object_target_percent gauge
 remotepower_slo_object_target_percent{name="Public web"} 99.9
 # HELP remotepower_slo_object_availability_percent Check-weighted availability of the attached monitors over the object window.
 # TYPE remotepower_slo_object_availability_percent gauge
-remotepower_slo_object_availability_percent{name="Public web"} 99.5
-# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object.
+remotepower_slo_object_availability_percent{name="Public web"} 99.95
+# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object (omitted while the window holds too few checks to resolve the target).
 # TYPE remotepower_slo_object_budget_remaining_percent gauge
-remotepower_slo_object_budget_remaining_percent{name="Public web"} 0.0
+remotepower_slo_object_budget_remaining_percent{name="Public web"} 50.0

@@ -1660,6 +1660,15 @@ EVENT_REGISTRY = {
     'device_online': dict(
         label='Device came back online', kind='online', title='Device Online',
         resolves=('device_offline',), tags='green_circle,computer'),
+    # v6.4.2: a host JOINING the fleet was the one lifecycle moment nothing
+    # recorded — the audit log could show a re-enrollment or a decommission but
+    # never a first appearance, and no feed row / webhook / mail told anyone a
+    # new machine had started reporting. It records something that HAPPENED
+    # (lifecycle='point'), so there is nothing to clear.
+    'device_enrolled': dict(
+        lifecycle='point',
+        label='A new device enrolled into the fleet', kind='enrollment',
+        title='Device Enrolled', severity='low', tags='sparkles,computer'),
     'agent_stopped': dict(
         label='Agent stopped (host was still up)', kind='agentlifecycle',
         title='Agent Stopped', severity='high'),
@@ -7874,6 +7883,139 @@ def _smtp_recipients_list(cfg):
     return [p.strip() for p in parts if p and '@' in p]
 
 
+# ── v6.4.2: scoped SHARED notification destinations ───────────────────────────
+# Personal subscriptions have been able to filter by group/tag/site since W2-20
+# (`scope_filter` in _deliver_user_notifications); the shared channels — the
+# webhook destination list and the one global smtp_recipients string — could
+# only filter on event name and priority. So an MSP or a multi-team install had
+# no way to send one tenant's (or one site's) alerts to that tenant's channel:
+# every destination got everything, and the only alternative was giving each
+# team a personal subscription and hoping nobody left.
+#
+# The filter is applied at the DELIVERY chokepoints (_send_webhook_to_url and
+# _send_event_email), not at the ~200 firing sites, so every event is covered by
+# construction. Absent/`{'type':'all'}` means "everything", which is what every
+# existing destination has, so this changes no configured behaviour.
+
+def _delivery_scope_ctx(payload):
+    """Resolve an event payload once to the (device, site, tenant) a shared
+    destination routes on. Returns (dev|None, site_str, tenant|None).
+
+    The device is looked up ONCE per event rather than per destination — the
+    fan-out loop asks the same question of every destination."""
+    p = payload if isinstance(payload, dict) else {}
+    dev = None
+    dev_id = p.get('device_id')
+    if dev_id:
+        try:
+            dev = device_get(str(dev_id))
+        except Exception:
+            dev = None
+    site = str((isinstance(dev, dict) and dev.get('site')) or p.get('site') or '')
+    if isinstance(dev, dict):
+        tenant = _device_tenant(dev)
+    else:
+        tenant = str(p.get('tenant')) if p.get('tenant') else None
+    return (dev, site, tenant)
+
+
+def _dest_scope_allows(dest, ctx):
+    """Should this shared destination receive the event `ctx` describes?
+
+    `dest` may carry `scope_filter` ({type: all|groups|tags|sites, values:[…]},
+    the same shape roles and personal subscriptions use) and/or `tenants` (a
+    list of tenant ids). Both absent → True, always.
+
+    A SCOPED destination only receives events it can attribute to its slice: an
+    event with no device and no site/tenant of its own (a fleet-wide monitor, a
+    server-side sweep) is NOT delivered there, because "Tenant A's Slack" asked
+    for tenant A's events and a fleet event isn't one. When that leaves NO
+    destination at all the caller logs one 'filtered' row, so an event reaching
+    nobody is visible rather than silent."""
+    if not isinstance(dest, dict):
+        return True
+    sf = dest.get('scope_filter')
+    sf = sf if isinstance(sf, dict) and sf.get('type', 'all') != 'all' else None
+    raw_tenants = dest.get('tenants')
+    want_tenants = ({str(t).strip() for t in raw_tenants if str(t).strip()}
+                    if isinstance(raw_tenants, list) else set())
+    if not sf and not want_tenants:
+        return True
+    dev, site, tenant = ctx
+    if want_tenants and (tenant is None or tenant not in want_tenants):
+        return False
+    if sf:
+        if isinstance(dev, dict):
+            return _device_in_scope(sf, dev)
+        # No device: a site-scoped destination can still match an event that
+        # names a site directly (an integration bound to a site, not a host).
+        if sf.get('type') == 'sites' and site:
+            return site in (sf.get('values') or [])
+        return False
+    return True
+
+
+def _clean_scope_filter(raw):
+    """Sanitize an operator-supplied delivery scope filter → a dict of the shape
+    _device_in_scope understands, or None for "everything" (which is also what an
+    unrecognised type gets — a filter we can't honour must widen to the previous
+    behaviour, never silently narrow to nothing)."""
+    if not isinstance(raw, dict):
+        return None
+    t = str(raw.get('type') or 'all').strip().lower()
+    if t not in ('groups', 'tags', 'sites'):
+        return None
+    vals = raw.get('values')
+    vals = [_sanitize_str(str(v), 64) for v in vals[:50]] if isinstance(vals, list) else []
+    vals = [v for v in vals if v]
+    if not vals:
+        return None
+    return {'type': t, 'values': vals}
+
+
+def _clean_tenant_list(raw):
+    """Sanitize an operator-supplied tenant allowlist for a shared destination."""
+    if not isinstance(raw, list):
+        return []
+    out = [_sanitize_str(str(t), 64) for t in raw[:50]]
+    return [t for t in out if t]
+
+
+def _event_email_routes(cfg, payload):
+    """The recipient lists this event's email channel should go to.
+
+    The global `smtp_recipients` list is route #1 (optionally scoped by
+    `smtp_scope_filter` / `smtp_tenants`); `email_routes` adds any number of
+    additional {recipients, scope_filter, tenants} lists so one site's or one
+    tenant's alerts can reach their own mailbox. Addresses are de-duplicated
+    ACROSS routes — an address on both the global list and a matching route
+    gets one mail, not two."""
+    ctx = _delivery_scope_ctx(payload)
+    out = []
+    seen = set()
+
+    def _add(addrs):
+        fresh = [a for a in addrs if a.lower() not in seen]
+        for a in fresh:
+            seen.add(a.lower())
+        if fresh:
+            out.append(fresh)
+
+    base = _smtp_recipients_list(cfg)
+    if base and _dest_scope_allows({'scope_filter': cfg.get('smtp_scope_filter'),
+                                    'tenants': cfg.get('smtp_tenants')}, ctx):
+        _add(base)
+    for route in (cfg.get('email_routes') or [])[:20]:
+        if not isinstance(route, dict) or route.get('enabled') is False:
+            continue
+        addrs = [a.strip() for a in re.split(r'[,;\s]+', str(route.get('recipients') or ''))
+                 if a.strip() and '@' in a]
+        if not addrs or not _dest_scope_allows(route, ctx):
+            continue
+        _add(addrs)
+    return out
+
+
 def _alert_act_sig(alert_id, op):
     """W1-21: HMAC tag authorizing a one-click alert action from an email link.
     Namespaced 'alertact:' so it can't be replayed as another signed artefact.
@@ -7926,20 +8068,30 @@ def _alert_email_ack_block(event, payload, cfg):
 
 def _send_event_email(event, payload, message, cfg, server_name):
     """Send the email channel for an event. Failures are logged, never raised."""
-    recipients = _smtp_recipients_list(cfg)
-    if not recipients:
+    # v6.4.2: one send per scoped route (the global recipient list is route #1
+    # and is the ONLY route on an install that has configured no scoping).
+    # 'test' is operator-triggered and has no device to attribute, so it goes to
+    # the configured list unscoped — same carve-out the webhook fan-out makes.
+    routes = ([_smtp_recipients_list(cfg)] if event == 'test'
+              else _event_email_routes(cfg, payload))
+    routes = [r for r in routes if r]
+    if not routes:
         return
-    try:
-        subject, body = smtp_notifier.render_event_email(server_name, event, payload, message)
-        body += _alert_email_ack_block(event, payload, cfg)   # W1-21 (no-op unless enabled)
-        # v5.4.1 (H4): branded HTML alternative; plain text stays as the fallback.
-        smtp_notifier.send_email(cfg, recipients, subject, body,
-                                 html_body=smtp_notifier.brand_html(cfg, subject, body))
-        _log_email(event, recipients, 'ok', '')
-    except smtp_notifier.SmtpError as e:
-        _log_email(event, recipients, 'error', str(e))
-    except Exception as e:
-        _log_email(event, recipients, 'error', f'{type(e).__name__}: {e}')
+    subject = body = None
+    for recipients in routes:
+        try:
+            if subject is None:
+                subject, body = smtp_notifier.render_event_email(
+                    server_name, event, payload, message)
+                body += _alert_email_ack_block(event, payload, cfg)   # W1-21 (no-op unless enabled)
+            # v5.4.1 (H4): branded HTML alternative; plain text stays as the fallback.
+            smtp_notifier.send_email(cfg, recipients, subject, body,
+                                     html_body=smtp_notifier.brand_html(cfg, subject, body))
+            _log_email(event, recipients, 'ok', '')
+        except smtp_notifier.SmtpError as e:
+            _log_email(event, recipients, 'error', str(e))
+        except Exception as e:
+            _log_email(event, recipients, 'error', f'{type(e).__name__}: {e}')
 
 
 def _log_email(event, recipients, status, detail):
@@ -8177,6 +8329,7 @@ CHANNEL_KIND_DEFS = (
     # (kind, label, group)
     ('offline', 'Device offline', 'operational'),
     ('agentlifecycle', 'Agent stopped / started', 'operational'),
+    ('enrollment', 'Device enrolled', 'operational'),   # v6.4.2
     ('online', 'Device came online', 'operational'),
     ('monitor', 'Monitor target up/down', 'operational'),
     ('patches', 'Pending patches', 'operational'),
@@ -8329,6 +8482,11 @@ CHANNEL_KIND_DEFAULTS = {
     # not a HEALTH problem, and an event that pings ntfy at 3am for a phone gets
     # muted within the week, which is how you lose the one that mattered.
     'usb': {'needs_attention': False, 'webhook': False},
+    # v6.4.2: an enrollment is news, not a fault — it belongs in the feed, the
+    # inbox and (for the operator who wants to know when a machine appears) the
+    # webhook, but it must never sit in Needs Attention, which is the list of
+    # things that are BROKEN. Nothing "fixes" a device having joined.
+    'enrollment': {'needs_attention': False},
 }
 
 
@@ -10138,6 +10296,11 @@ def _record_alert(event, payload):
                     # v3.3.4: image-update events — image/tag identify the
                     # alert so image_updated can auto-resolve it.
                     'image', 'tag', 'registry', 'hosts_count',
+                    # v6.4.2: an integration bound to a SITE rather than a host
+                    # (or in addition to one) — stored so the inbox can say
+                    # where the failing service lives and so scoped delivery has
+                    # something to route on when there is no device.
+                    'site',
                     # v4.9.0 fix: keys the matching recover events
                     # (integration_recovered / ip_blacklist_cleared /
                     # resolver_recovered) need stored on the open alert so
@@ -10474,6 +10637,13 @@ def _auto_resolve_alerts(event, payload):
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
         return
+    # v6.4.2: recoveries whose sub_match key is unique across the WHOLE fleet,
+    # so the device-id equality below must not also be required. An integration
+    # instance can be bound to a host after its down-alert was already recorded;
+    # the stored alert then has device_id '' while the recovery carries one, and
+    # a strict device match would leave that alert open forever — the exact
+    # never-clears failure the binding was added to avoid.
+    _id_only = event == 'integration_recovered' and bool(sub_match.get('integration_id'))
     _recovered_tids = []          # tickets whose source alert just recovered
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
@@ -10486,7 +10656,7 @@ def _auto_resolve_alerts(event, payload):
                 # Device-id match required only when the recovery event
                 # provided one; sub_match-only events (monitor_up) skip
                 # this and rely entirely on label/target.
-                if dev_id and a.get('device_id') != dev_id:
+                if dev_id and not _id_only and a.get('device_id') != dev_id:
                     continue
                 # v6.3.0: failed_unit alerts resolve only when ALL their units
                 # have left the failed state (see the elif above). Falls back
@@ -11343,6 +11513,25 @@ def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
                         or str(d.get('name', '')).lower() in want]
     if not destinations:
         return
+    # v6.4.2: per-destination scope. A destination that named a group/tag/site/
+    # tenant only receives events belonging to it; unscoped destinations (every
+    # existing one) are untouched.
+    # 'test' is the operator pressing "Send test" at a destination — it has no
+    # device and would therefore be filtered out of every scoped destination,
+    # i.e. the one moment scoping must NOT apply.
+    if event != 'test':
+        _scope_ctx = _delivery_scope_ctx(safe_payload)
+        kept = [d for d in destinations if _dest_scope_allows(d, _scope_ctx)]
+        if not kept:
+            # Only the "this event reached NOBODY" case is logged. Logging every
+            # skipped destination would write a row (and a store write) per event
+            # per destination on a multi-tenant install — the webhook log is a
+            # debugging surface, and drowning it is the same as deleting it.
+            _log_webhook(event, (destinations[0].get('url', '?')), 'filtered',
+                         'no destination is scoped to this event')
+        destinations = kept
+        if not destinations:
+            return
     # Sanitize the per-event payload once, reuse across destinations
     safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v)
                     for k, v in safe_payload.items()}
@@ -18294,10 +18483,26 @@ def handle_enroll_register():
                 if _site:
                     dev_rec['site'] = _site
                 devices[dev_id] = dev_rec
+                # v6.4.2: a first enrollment left NO trace — no audit row (only
+                # the reenroll/denied branches set pending_audit) and no event,
+                # so "when did this host join?" was unanswerable and nobody was
+                # told a new machine had started reporting.
+                pending_audit = ('enroll',
+                                 f'device={dev_id} hostname={hostname} ip={_get_client_ip()} '
+                                 f'via={"token" if enroll_token else "pin"}')
                 outcome = ('new', dev_id, new_token)
 
     if pending_audit:
         audit_log('enroll', pending_audit[0], pending_audit[1])
+    if outcome[0] == 'new':
+        # Outside the DEVICES lock (fire_webhook would defer anyway) and before
+        # the respond() below, which raises.
+        fire_webhook('device_enrolled', {
+            'device_id': outcome[1], 'device_name': name, 'host': hostname,
+            'ip': ip, 'source': 'token' if enroll_token else 'pin',
+            'detail': f'{os_str or "unknown OS"}, agent {version or "unknown"}'
+                      + (f', group {_grp}' if _grp else ''),
+        })
     if outcome[0] == 'denied_cap':
         respond(403, {'error': f'Device limit reached (max_devices={outcome[1]}). '
                                'Raise the cap in Settings or retire unused devices.'})
@@ -23322,7 +23527,15 @@ def ping_healthchecks_if_due():
 # owns config, the SSRF-safe HTTP client, the poll loop, history and alerting.
 
 INTEGRATION_FIELDS = ('id', 'type', 'label', 'url', 'enabled', 'verify_tls',
-                      'username', 'secret', 'slug', 'interval')
+                      'username', 'secret', 'slug', 'interval',
+                      # v6.4.2: optional binding to the host (and/or site) the
+                      # service actually runs on. Both are OPTIONAL and empty by
+                      # default — an unbound instance behaves exactly as before.
+                      # Bound, its up/down events carry a device_id, which is
+                      # what makes maintenance windows, per-(host,event) mutes,
+                      # unmonitored-host suppression and scoped notification
+                      # routing apply to them like any other device event.
+                      'device_id', 'site')
 # Per-cycle wall-clock cap for the inline poll loop (security: bound the latency
 # a few slow/hostile targets can add to the request that trips the cadence).
 _INTEGRATIONS_POLL_BUDGET_S = 25
@@ -23514,6 +23727,17 @@ def _persist_integration_results(results):
     notified = cfg.get('integration_notified') or {}
     pending = []
     dirty_cfg = False
+    # v6.4.2: the optional host/site binding, keyed exactly like `latest` — the
+    # poll result carries no schema of its own, so read it off the CONFIGURED
+    # instance. Only non-empty values end up in the payload, so an unbound
+    # instance fires the same keys it always did.
+    bound = {}
+    for _bi in _get_integrations(cfg):
+        if isinstance(_bi, dict):
+            _bk = str(_bi.get('id') or _bi.get('label'))
+            _bv = {k: _bi.get(k) for k in ('device_id', 'site') if _bi.get(k)}
+            if _bv:
+                bound[_bk] = _bv
 
     for r in results:
         if not isinstance(r, dict):
@@ -23581,14 +23805,14 @@ def _persist_integration_results(results):
             sev = 'high' if status == integrations_mod.CRIT else 'medium'
             pending.append(('integration_down', {
                 'label': label, 'type': rtype, 'detail': detail,
-                'severity': sev, 'integration_id': key,
+                'severity': sev, 'integration_id': key, **bound.get(key, {}),
             }))
             notified[key] = True
             dirty_cfg = True
         elif (not is_down) and was_down:
             pending.append(('integration_recovered', {
                 'label': label, 'type': rtype, 'detail': detail,
-                'integration_id': key,
+                'integration_id': key, **bound.get(key, {}),
             }))
             notified[key] = False
             dirty_cfg = True
@@ -23761,7 +23985,22 @@ def handle_integrations_save():
                 'username': _no_ctrl(_sanitize_str(raw.get('username', ''), 255)),
                 'slug': _no_ctrl(_sanitize_str(raw.get('slug', ''), 120)),
                 'interval': max(60, int(raw.get('interval', 0) or 0)) if raw.get('interval') else 0,
+                # v6.4.2: optional host/site binding (see INTEGRATION_FIELDS).
+                'device_id': '',
+                'site': _no_ctrl(_sanitize_str(raw.get('site', ''), 80)),
             }
+            _bind = str(raw.get('device_id') or '').strip()
+            if _bind:
+                if not _validate_id(_bind):
+                    respond(400, {'error': f'invalid device_id for {inst["label"]}'})
+                # 403s a real device the caller may not see (another tenant / out
+                # of role scope) and returns for an unknown id, which we reject
+                # below — binding to a device you cannot see would let the
+                # binding leak that device's group/site through alert routing.
+                _scope_block_device(_bind)
+                if device_get(_bind) is None:
+                    respond(400, {'error': f'unknown device_id for {inst["label"]}'})
+                inst['device_id'] = _bind
             # v5.1.0: declarative custom-probe plugin spec (no code). These
             # ride into poll_instance → integrations_mod._custom_probe; the URL
             # is already SSRF-checked above and polled via _SSRFIntegrationClient.
@@ -25219,6 +25458,15 @@ def handle_config_save():
                 clean_entry['events'] = [
                     _sanitize_str(str(e), 64) for e in entry['events'][:64]
                 ]
+            # v6.4.2: optional delivery scope — this destination only receives
+            # events belonging to the named groups/tags/sites (and/or tenants).
+            # Absent = everything, which is what every existing destination has.
+            _dsf = _clean_scope_filter(entry.get('scope_filter'))
+            if _dsf:
+                clean_entry['scope_filter'] = _dsf
+            _dtn = _clean_tenant_list(entry.get('tenants'))
+            if _dtn:
+                clean_entry['tenants'] = _dtn
             if 'min_priority' in entry:
                 try:
                     mp = int(entry['min_priority'])
@@ -25465,6 +25713,49 @@ def handle_config_save():
         cfg['smtp_helo_name'] = _sanitize_str(body['smtp_helo_name'], 255)
     if 'smtp_recipients' in body:
         cfg['smtp_recipients'] = _sanitize_str(body['smtp_recipients'], 2000)
+    # v6.4.2: scope the shared email channel, and add extra scoped recipient
+    # lists. An explicit empty/`all` value CLEARS the scoping (back to "the
+    # global list gets everything"), so a mis-set filter is undoable from the
+    # same control that set it.
+    if 'smtp_scope_filter' in body:
+        _ssf = _clean_scope_filter(body['smtp_scope_filter'])
+        if _ssf:
+            cfg['smtp_scope_filter'] = _ssf
+        else:
+            cfg.pop('smtp_scope_filter', None)
+    if 'smtp_tenants' in body:
+        _stn = _clean_tenant_list(body['smtp_tenants'])
+        if _stn:
+            cfg['smtp_tenants'] = _stn
+        else:
+            cfg.pop('smtp_tenants', None)
+    if 'email_routes' in body:
+        _routes_in = body['email_routes']
+        if not isinstance(_routes_in, list):
+            respond(400, {'error': 'email_routes must be a list'})
+        if len(_routes_in) > 20:
+            respond(400, {'error': 'email_routes limited to 20 entries'})
+        _clean_routes = []
+        for _i, _r in enumerate(_routes_in):
+            if not isinstance(_r, dict):
+                respond(400, {'error': f'email_routes[{_i}] must be an object'})
+            _rcpt = _sanitize_str(_r.get('recipients') or '', 2000)
+            if not [a for a in re.split(r'[,;\s]+', _rcpt) if '@' in a]:
+                respond(400, {'error': f'email_routes[{_i}].recipients needs at least one address'})
+            _entry = {
+                'id':         _sanitize_str(_r.get('id') or f'er_{secrets.token_hex(4)}', 32),
+                'name':       _sanitize_str(_r.get('name') or '', 80),
+                'recipients': _rcpt,
+                'enabled':    bool(_r.get('enabled', True)),
+            }
+            _rsf = _clean_scope_filter(_r.get('scope_filter'))
+            if _rsf:
+                _entry['scope_filter'] = _rsf
+            _rtn = _clean_tenant_list(_r.get('tenants'))
+            if _rtn:
+                _entry['tenants'] = _rtn
+            _clean_routes.append(_entry)
+        cfg['email_routes'] = _clean_routes
 
     # Per-event email toggles
     if 'email_events' in body and isinstance(body['email_events'], dict):
@@ -60531,6 +60822,24 @@ def _build_metrics_ctx():
         'health':            _fleet_health(),
         'fleet_events':      load(FLEET_EVENTS_FILE),
         'cve_fixable_total': sum(_cve_fixable_by_device().values()),
+        # v6.4.2: the exporter grew families for the posture the product already
+        # computes for its own UI — temperature, SMART, UPS, backup freshness,
+        # disk-fill ETA, risk, reliability and baseline compliance. Each block
+        # is gated on its context key, so omitting them here would leave the
+        # families silently absent from every scrape: the exact
+        # "feature that can never fire" shape this codebase keeps hitting.
+        # All of these are cached or cheap reads; the two O(fleet) scores go
+        # through their existing file-backed caches.
+        'hardware':          load(HARDWARE_FILE),
+        # backup_state.json (per-device backup-monitor results, keyed
+        # `<device_id>:<path>`) — NOT self_backup_state.json, which is the
+        # control plane's own DR run and has a completely different shape.
+        'backup_state':      load(DATA_DIR / 'backup_state.json'),
+        'backup_monitors':   cfg.get('backup_monitors') or [],
+        'disk_fill_eta':     _disk_fill_eta(load(DEVICES_FILE) or {}),
+        'risk':              _fleet_risk_cached(),
+        'reliability':       _fleet_reliability_cached(),
+        'compliance':        _compute_compliance(load(DEVICES_FILE) or {}),
     }
 
 
@@ -61077,6 +61386,13 @@ SUPPRESSIBLE_EVENTS = (
     'reboot_required',
     'container_stopped', 'container_restarting', 'containers_stale',
     'backup_stale',
+    # v6.4.2: a self-hosted app is only ever as up as the box under it, so
+    # rebooting that box during a declared window paged once per integration
+    # running on it — inside the window the operator had just declared. The
+    # instance's optional device binding is what lets in_maintenance() match a
+    # device/group window; an UNBOUND instance still only matches a global one,
+    # which is the same broad "expect noise now" the rest of this tuple gets.
+    'integration_down', 'integration_recovered',
 )
 
 

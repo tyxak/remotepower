@@ -188,7 +188,7 @@ Older release notes (v6.3.0 and earlier) live in
  probes.
 - **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),
  service + log-tail alerts, inbound syslog / SNMP-trap receivers, resolver health,
- the healthchecks watchdog.
+ the healthchecks watchdog, and the `/api/metrics` Prometheus exposition.
 - **[cve.md](cve.md)** — Vulnerability scanning: the OSV.dev scanner, KEV + EPSS
  prioritisation, ignores/re-alert, SBOM (CycloneDX / SPDX).
 - **[dns.md](dns.md)** — The Admin → DNS dashboard: read/write records via provider
@@ -248,8 +248,8 @@ Older release notes (v6.3.0 and earlier) live in
  road-warrior VPN (tunnels → clients, reach scopes, browser keygen + QR).
 - **[acme.md](acme.md)** — ACME / Let's Encrypt certificate tracking
  across the fleet.
-- **[attention.md](attention.md)** — The "Needs attention" roll-up: what
- feeds it and how items clear.
+- **[attention.md](attention.md)** — The "Needs attention" roll-up and its
+ full page: what feeds it, how items clear, and the four ways to quiet one.
 - **[bulk-operations.md](bulk-operations.md)** — Multi-device commands,
  tag/group targeting, batch patching.
 - **[custom-scripts.md](custom-scripts.md)** — Custom monitoring scripts:

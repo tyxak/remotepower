@@ -125,8 +125,12 @@ class TestTheResolveMatchKeysAreStored(unittest.TestCase):
 
     def test_every_sub_match_key_is_whitelisted_on_the_alert(self):
         src = (_CGI / 'api.py').read_text()
-        i = src.index('def _record_alert')
-        blk = src[i:i + 9000]
+        # srcpin, not a fixed [i:i+N] window: the whitelist grows every release,
+        # so a byte budget silently slides past `if key in p` and the pin then
+        # fails for a reason that has nothing to do with what it guards.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from srcpin import py_function
+        blk = py_function(src, '_record_alert')
         wl = blk[blk.index('for key in ('):]
         wl = wl[:wl.index('if key in p')]
         missing = [k for k in self.KEYS if f"'{k}'" not in wl]
