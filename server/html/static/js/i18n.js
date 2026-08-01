@@ -961,6 +961,10 @@
     // ── a few common actions ──
     'Save':        { fr: 'Enregistrer', de: 'Speichern', zh: '保存', hi: 'सहेजें', es: 'Guardar', ar: 'حفظ' },
     'Cancel':      { fr: 'Annuler', de: 'Abbrechen', zh: '取消', hi: 'रद्द करें', es: 'Cancelar', ar: 'إلغاء' },
+    // v6.4.2: the Account page's own change-password control. Until now the
+    // only way into that form was the lock icon on the admin Users table.
+    'Change password': { fr: 'Modifier le mot de passe', de: 'Passwort ändern', zh: '修改密码', hi: 'पासवर्ड बदलें', es: 'Cambiar contraseña', ar: 'تغيير كلمة المرور' },
+    'Password':        { fr: 'Mot de passe', de: 'Passwort', zh: '密码', hi: 'पासवर्ड', es: 'Contraseña', ar: 'كلمة المرور' },
     // v6.3.1: Security Advisory (Security -> Advisory)
     'Advisory': { fr: 'Recommandations', de: 'Empfehlungen', zh: '安全建议', hi: 'सुरक्षा सलाह', es: 'Recomendaciones', ar: 'التوصيات' },
     'Security Advisory': { fr: 'Recommandations de sécurité', de: 'Sicherheitsempfehlungen', zh: '安全建议', hi: 'सुरक्षा सलाह', es: 'Recomendaciones de seguridad', ar: 'التوصيات الأمنية' },

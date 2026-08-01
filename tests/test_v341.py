@@ -240,8 +240,15 @@ class TestV341Frontend(unittest.TestCase):
     def test_palette_extended_with_timeline(self):
         # The palette must offer a per-device timeline jump + the new pages.
         self.assertIn('openDeviceTimeline(d.id)', self.APP)
-        self.assertIn("['Timeline', 'timeline']", self.APP)
-        self.assertIn("['Reports', 'reports']", self.APP)
+        # v6.4.2: the palette's page list is DERIVED from the sidebar nav
+        # (_palettePages) instead of a hand-maintained array that had drifted
+        # to 63 entries against a 78-page nav — 17 pages were unreachable via
+        # Ctrl-K and one entry pointed at a page that no longer exists. So the
+        # reachability check is "the nav offers it", not "the array lists it".
+        self.assertIn('function _palettePages(', self.APP)
+        for page in ('timeline', 'reports'):
+            self.assertIn(f'data-page="{page}"', self.HTML,
+                          f'{page} has no nav entry, so the palette cannot reach it')
 
     def test_timeline_css_present(self):
         # Per the CSP rule, styling lives in styles.css, not inline.

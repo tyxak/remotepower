@@ -834,14 +834,26 @@ def _incident_resolution(alert):
 
 
 def _capture_incident_outcome(alert, dev):
-    """Build one outcome record from a resolved, AI-triaged alert. Returns the
-    dict, or None if the alert isn't a capture candidate. Pure — the caller
-    persists + dedups."""
-    tri = alert.get('ai_triage')
-    if not isinstance(tri, dict) or not alert.get('resolved_at'):
+    """Build one outcome record from a resolved alert. Returns the dict, or None
+    if the alert isn't a capture candidate. Pure — the caller persists + dedups.
+
+    v6.4.2: a HUMAN-written resolution note is now a first-class source, not just
+    an AI verdict. This used to return None without an `ai_triage.verdict
+    .root_cause`, while `ai.enabled` defaults to False — so the product's
+    institutional memory of how incidents were fixed was gated behind configuring
+    an LLM provider, in a product whose whole point is that it needs no paid
+    external dependency. `handle_alert_resolve` has always accepted and stored a
+    `resolve_note`; it just had no consumer.
+    """
+    if not alert.get('resolved_at'):
         return None
+    tri = alert.get('ai_triage') if isinstance(alert.get('ai_triage'), dict) else {}
     verdict = tri.get('verdict') if isinstance(tri.get('verdict'), dict) else {}
     root = str(verdict.get('root_cause') or '').strip()
+    # An operator's own note outranks the model: they were there.
+    human = str(alert.get('resolve_note') or alert.get('ack_note') or '').strip()
+    if human:
+        root = human
     if not root:
         return None                      # nothing worth remembering
     fb = tri.get('feedback') if isinstance(tri.get('feedback'), dict) else {}
@@ -849,6 +861,7 @@ def _capture_incident_outcome(alert, dev):
     if 'helpful' in fb:
         rating = 'up' if fb.get('helpful') else 'down'
     return {
+        'source': 'operator' if human else 'ai',
         'alert_id': alert.get('id'),
         'event': alert.get('event') or '',
         'kind': A.EVENT_KIND_MAP.get(alert.get('event')) if hasattr(A, 'EVENT_KIND_MAP') else '',
@@ -879,9 +892,14 @@ def run_incident_memory_if_due():
         return
     alerts = (A.load(A.ALERTS_FILE) or {}).get('alerts', [])
     seen = set(mem.get('seen') or [])
+    # v6.4.2: an operator's own resolution note is a capture candidate too.
+    # Gating this list on ai_triage meant _capture_incident_outcome was never
+    # even called for a human-resolved alert, so widening the builder alone
+    # would have been a half-fix.
     fresh = [a for a in alerts
-             if a.get('resolved_at') and isinstance(a.get('ai_triage'), dict)
-             and a.get('id') not in seen]
+             if a.get('resolved_at') and a.get('id') not in seen
+             and (isinstance(a.get('ai_triage'), dict)
+                  or str(a.get('resolve_note') or a.get('ack_note') or '').strip())]
     devices = A.load(A.DEVICES_FILE) or {}
     new_outcomes = []
     new_ids = []

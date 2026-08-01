@@ -165,7 +165,14 @@ def _escalation_tick(now=None):
                     continue
                 if a.get('severity') not in sevs:
                     continue
-                age_min = (now - int(a.get('ts') or now)) / 60.0
+                # v6.4.2: age from first_seen, not ts. _record_alert rewrites
+                # `ts` to the newest occurrence every time it coalesces a repeat
+                # firing, so an edge-triggered condition that re-fires faster
+                # than tier 1 (nic_errors fires every ~60s heartbeat; tier 1 is
+                # 15m by default) reset its own age on every fire and could
+                # never escalate — the fastest-degrading host was the one nobody
+                # got paged about.
+                age_min = (now - (A._alert_first_seen(a) or now)) / 60.0
                 done = set(a.get('escalated_tiers') or [])
                 for i, tier in enumerate(tiers):
                     if i in done:

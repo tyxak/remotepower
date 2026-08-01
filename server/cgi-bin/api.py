@@ -2177,6 +2177,25 @@ EVENT_REGISTRY = {
         label='A user gained privileged-group membership (sudo/wheel/Administrators)',
         kind='accounts', title='Privileged Group Membership Added',
         severity='high', priority=5, tags='rotating_light,bust_in_silhouette'),
+    # v6.4.2: the same class of signal as priv_group_added, but for the CONTROL
+    # PLANE rather than a managed host. RemotePower told operators when somebody
+    # gained sudo on a monitored box and said nothing at all when somebody
+    # became an admin OF REMOTEPOWER, minted an admin API key, or switched off
+    # MFA enforcement / change approval / the audit log — the account that can
+    # run root commands on the entire fleet. Fires from the handlers that change
+    # who can do what; `change` names which one.
+    # kind='accounts' deliberately: it is the privileged-account channel, so an
+    # operator who routes account changes to a security destination gets these
+    # on the same wire. Fleet-level (no device_id) — the subject is the server.
+    # lifecycle='point' and NO recover event, exactly like priv_group_added: a
+    # privilege change is an EVENT, not a condition. An auto-resolving row would
+    # let a real escalation disappear from the inbox as soon as the attacker
+    # undid the visible half of it.
+    'control_plane_security_change': dict(
+        lifecycle='point',
+        label='A privileged account or security control on RemotePower itself changed',
+        kind='accounts', title='Control-Plane Security Change',
+        severity='high', priority=5, tags='rotating_light,shield'),
     # v6.2.0: a USB device appeared on a host — physical access. Medium, not
     # high: on a homelab desktop this is somebody plugging in a phone, and an
     # event that pages at 3am for a phone charger gets muted within a week.
@@ -4901,6 +4920,30 @@ def _enforce_session_cap(tokens, username):
             del tokens[k]
 
 
+def _stamp_last_login(username):
+    """Record when `username` last authenticated successfully (v6.4.2).
+
+    No user record carried a login timestamp, so there was no dormant-account
+    signal and nothing to answer "is anyone still using this account?" with at
+    access-review time (SOC 2 CC6.2/CC6.3) — the accounts that matter most in a
+    review are exactly the ones nobody has logged into for a year. Every path
+    that mints a session converges on _mint_session (SAML / OIDC / passkey) or
+    handle_login (password / LDAP), so those two are the only call sites.
+
+    MUST NOT be called while a lock is held: it takes its own USERS_FILE lock,
+    and on the SQL backends a nested BEGIN IMMEDIATE (under the TOKENS_FILE
+    lock the callers hold) errors out. Best-effort either way — a failed stamp
+    must never turn a valid login into a failure.
+    """
+    try:
+        with _LockedUpdate(USERS_FILE) as users:
+            u = users.get(username)
+            if isinstance(u, dict):
+                u['last_login'] = int(time.time())
+    except Exception as _ll_err:   # pragma: no cover - defensive
+        sys.stderr.write(f'[remotepower] last_login stamp failed: {_ll_err}\n')
+
+
 def _mint_session(username, extra=None, remember_me=False):
     """Create a session-token record with the standard fields (so an SSO session
     looks exactly like a password-login one) and return the token."""
@@ -4918,6 +4961,7 @@ def _mint_session(username, extra=None, remember_me=False):
     with _LockedUpdate(TOKENS_FILE) as tokens:
         _enforce_session_cap(tokens, username)
         tokens[_token_hash(token)] = rec
+    _stamp_last_login(username)   # v6.4.2 — outside the TOKENS_FILE lock (see docstring)
     return token
 
 def _apikey_hash(raw):
@@ -6937,6 +6981,48 @@ def audit_log(actor, action, detail='', source_ip=None,
             sys.stderr.write(f'[remotepower] audit forward failed: {_fwd_err}\n')
 
 
+# v6.4.2: the control-plane security changes worth announcing. The value is the
+# operator-facing sentence used for the alert/feed `detail`; the key is what the
+# payload carries as `change`, so a webhook consumer can branch on it without
+# parsing prose.
+_CONTROL_PLANE_CHANGES = {
+    'admin_user_created':      'a new admin account was created',
+    'user_promoted_to_admin':  'an account was promoted to admin',
+    'admin_apikey_created':    'an admin-role API key was minted',
+    'mfa_enforcement_disabled': 'MFA is no longer required for any role',
+    'change_approval_disabled': 'four-eyes change approval was switched off',
+    'audit_log_cleared':       'the audit log was cleared',
+}
+
+
+def _fire_control_plane_change(change, actor, target_user='', extra=''):
+    """Announce a change to who can do what ON REMOTEPOWER ITSELF.
+
+    v6.4.2. The product tells operators when somebody gains sudo on a monitored
+    host (priv_group_added) and used to say nothing when somebody became an
+    admin of the server that can run root commands across the whole fleet. The
+    audit log recorded most of these, but nobody watches an audit log — this
+    puts them on the same alert/webhook/feed channels as everything else.
+
+    Best-effort: a notification failure must never break the privileged
+    operation the caller just completed. Call it AFTER the state change is
+    persisted, so the event can't describe something that didn't happen.
+    """
+    base = _CONTROL_PLANE_CHANGES.get(change)
+    if not base:
+        return
+    detail = base + (f' ({extra})' if extra else '')
+    try:
+        fire_webhook('control_plane_security_change', {
+            'change':      str(change)[:64],
+            'actor':       _sanitize_str(actor, 64),
+            'target_user': _sanitize_str(target_user, 64),
+            'detail':      detail[:256],
+        })
+    except Exception as _cp_err:   # pragma: no cover - defensive
+        sys.stderr.write(f'[remotepower] control-plane change event failed: {_cp_err}\n')
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """v3.8.0: a redirect handler that refuses to follow 3xx — so a
     server-initiated POST (audit forward) can't be bounced past the SSRF guard
@@ -7960,6 +8046,9 @@ def _record_fleet_event(event, payload):
                     # with the _record_alert whitelist so a future feed row can
                     # name the rule, per the "two silent whitelists" rule.
                     'rule_name', 'rule_id', 'script_id', 'rule_disabled',
+                    # v6.4.2 control_plane_security_change (lockstep with the
+                    # _record_alert whitelist).
+                    'change', 'actor', 'target_user',
                     # v6.3.1: dependency_missing/_restored feed detail — the broken
                     # edge + upstream so the activity row is self-describing
                     # (mirrors the _record_alert whitelist).
@@ -9933,6 +10022,24 @@ def _alert_muted(event, payload):
     return bool(ctr) and (dev_id, str(ctr)) in _container_mute_set()
 
 
+def _alert_first_seen(alert):
+    """When this alert's condition was FIRST observed (epoch seconds).
+
+    v6.4.2. `ts` is rewritten to the newest occurrence every time _record_alert
+    coalesces a repeat firing, so it cannot be used to age an alert. Falls back
+    to `ts` for rows written before first_seen was stamped, and to 0 for a row
+    with neither (nothing then treats it as aged, which is the safe direction).
+    Every consumer that measures elapsed time on an OPEN alert — escalation
+    tiers, MTTA, MTTR — must go through here.
+    """
+    if not isinstance(alert, dict):
+        return 0
+    try:
+        return int(alert.get('first_seen') or alert.get('ts') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _record_alert(event, payload):
     """Create an alert row if this event is actionable.
 
@@ -10070,17 +10177,29 @@ def _record_alert(event, payload):
                     # v6.1.2 network events: mac_conflict (mac), wan_ip_changed
                     # (old_ip/new_ip). detail already carries the human text, but
                     # store the structured keys too so the inbox can render them.
+                    # v6.4.2 control_plane_security_change: which control
+                    # changed, the admin who changed it, the account it hit.
+                    'change', 'actor', 'target_user',
                     'mac', 'old_ip', 'new_ip'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
                     v = v[:512]
                 summary[key] = v
+    _fired_at = int(time.time())
     alert = {
         'id':              'a-' + os.urandom(6).hex(),
         # v4.1.0 (#54): stable operator-facing id, stamped under the lock below.
         'alertid':         None,
-        'ts':              int(time.time()),
+        'ts':              _fired_at,
+        # v6.4.2: the FIRST occurrence, preserved across coalescing (`ts` and
+        # `last_seen` move to the newest one). Everything that measures how long
+        # a condition has been broken — escalation age, MTTA, MTTR — has to read
+        # this: a condition that re-fires faster than its first escalation tier
+        # (nic_errors is edge-triggered on every ~60s heartbeat) kept resetting
+        # its own age off `ts`, so the fastest-degrading host was the one that
+        # could never page anyone.
+        'first_seen':      _fired_at,
         'event':           str(event)[:64],
         'severity':        sev,
         'title':           _alert_title(event, payload)[:256],
@@ -10112,6 +10231,12 @@ def _record_alert(event, payload):
         if _alert_identity(ex.get('event'), ex.get('payload') or {},
                            ex.get('device_id')) != ident:
             return None
+        # v6.4.2: `ts`/`last_seen` track the newest occurrence; `first_seen`
+        # must survive untouched. Rows written before first_seen existed adopt
+        # the `ts` they currently hold — that IS their first observation, so an
+        # in-flight alert keeps a truthful age across the upgrade.
+        if not ex.get('first_seen'):
+            ex['first_seen'] = ex.get('ts') or alert['ts']
         ex['ts'] = alert['ts']
         ex['count'] = int(ex.get('count') or 1) + 1
         ex['last_seen'] = alert['ts']
@@ -12521,6 +12646,7 @@ def handle_login():
             'ua':        _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
             'last_seen': _now_login,
         }
+    _stamp_last_login(username)   # v6.4.2 — outside the TOKENS_FILE lock
     respond(200, {
         'ok':       True,
         'token':    token,
@@ -27223,6 +27349,14 @@ def handle_config_save():
             record_config_revision(_cfg_before, cfg, _cfg_actor)
     except Exception as _ce:
         log_json('error', 'config_changed audit failed', error=str(_ce))
+    # v6.4.2: two of those keys are security CONTROLS, and switching one off is
+    # the quiet first step of a takeover. Only the disabling transition fires —
+    # turning a control ON is not a security event, and firing on both would
+    # teach operators to ignore the event.
+    if _cfg_before.get('mfa_required_roles') and not cfg.get('mfa_required_roles'):
+        _fire_control_plane_change('mfa_enforcement_disabled', _cfg_actor)
+    if _cfg_before.get('change_approval_enabled') and not cfg.get('change_approval_enabled'):
+        _fire_control_plane_change('change_approval_disabled', _cfg_actor)
     # v3.14.0 (#30): if we just minted a SCIM token, return it once so the
     # operator can copy it into the IdP (it's masked on every subsequent GET).
     _resp = {'ok': True}
@@ -27595,6 +27729,10 @@ def handle_users_list():
         return {'username': u, 'created': d.get('created', 0),
                 'role': d.get('role', 'admin'), 'mfa': mfa,
                 'team': (d.get('ui_prefs') or {}).get('team', ''),
+                # v6.4.2: 0 = never logged in since the field shipped. The
+                # access-review signal — a privileged account nobody has used
+                # in a year is the one to close.
+                'last_login': int(d.get('last_login') or 0),
                 'disabled': bool(d.get('disabled')), 'source': source}
     respond(200, [_row(u, d) for u, d in users.items() if isinstance(d, dict)])
 
@@ -27985,7 +28123,7 @@ def handle_scim_schemas():
 
 
 def handle_user_create():
-    require_admin_auth()
+    _uc_actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
     _rm_ok, _rm_err = request_models.validate(request_models.UserCreateRequest, body)
@@ -28013,6 +28151,9 @@ def handle_user_create():
     users[username] = {'password_hash': hash_password(password), 'created': int(time.time()),
                        'password_changed_at': int(time.time()), 'role': role}
     save(USERS_FILE, users)
+    audit_log(_uc_actor, 'user_create', detail=f'username={username} role={role}')
+    if role == 'admin':
+        _fire_control_plane_change('admin_user_created', _uc_actor, username)
     respond(201, {'ok': True, 'username': username, 'role': role})
 
 
@@ -28061,6 +28202,9 @@ def handle_user_update(username):
         users[username]['role'] = new_role
     audit_log(requester, 'user_role_update',
               detail=f'username={username} {cur_role}→{new_role}')
+    if new_role == 'admin' and cur_role != 'admin':
+        _fire_control_plane_change('user_promoted_to_admin', requester, username,
+                                   extra=f'was {cur_role}')
     respond(200, {'ok': True, 'username': username, 'role': new_role})
 
 
@@ -49766,6 +49910,11 @@ def handle_apikeys_create():
     if rotate_after_days:                                 # v6.1.1
         apikeys[kid]['rotate_after_days'] = rotate_after_days
     save(APIKEYS_FILE, apikeys)
+    if role == 'admin':
+        # An admin API key is a non-expiring-by-default bearer credential with
+        # the same reach as an admin login, and it is minted without a password.
+        _fire_control_plane_change('admin_apikey_created', actor, user,
+                                   extra=f'key "{name}"')
     respond(201, {'ok': True, 'id': kid, 'key': key_value,
                   'note': 'Store this key securely — it will not be shown again.'})
 
@@ -53281,6 +53430,9 @@ def handle_audit_log_clear():
     save(AUDIT_LOG_FILE, {'entries': []})
     # Log the clear itself as the first new (chained) entry
     audit_log(actor, 'clear_audit_log', 'audit log cleared (pre-wipe archived)')
+    # v6.4.2: and announce it off-box. An audit-log wipe that is only recorded
+    # IN the audit log is not a control at all.
+    _fire_control_plane_change('audit_log_cleared', actor)
     respond(200, {'ok': True})
 
 
@@ -53552,13 +53704,25 @@ def _annotate_alert_kb(alerts):
 
 
 def handle_alerts_list():
-    """GET /api/alerts?status=open|ack|resolved|all&limit=N
+    """GET /api/alerts?status=open|ack|resolved|all&limit=N&offset=N&q=&severity=&device_id=
 
     Returns newest first. `status` filter:
       - open      → no ack, no resolve  (default)
       - ack       → ack present, not resolved
       - resolved  → resolved
       - all       → everything
+
+    v6.4.2 — server-side paging and filtering. The inbox previously answered
+    every request with `filtered[:limit]` and no way to reach row 201, so on a
+    fleet that had produced more than `limit` alerts the older ones were simply
+    unreachable through the API. All of the new parameters are optional and the
+    envelope is a superset of the old one, so existing callers are unaffected:
+      offset     integer, clamped >= 0 (default 0)
+      q          case-insensitive substring over device name / event / title
+      severity   critical|high|medium|low, comma-separated for several
+      device_id  exact match
+    Filtering runs AFTER the scope/tenant visibility filter, so `total` counts
+    only rows this caller may actually see.
     """
     user = require_auth()
     qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
@@ -53567,6 +53731,16 @@ def handle_alerts_list():
         limit = max(1, min(1000, int(qs.get('limit', ['200'])[0])))
     except ValueError:
         limit = 200
+    try:
+        offset = max(0, int(qs.get('offset', ['0'])[0]))
+    except ValueError:
+        offset = 0
+    q = (qs.get('q', [''])[0] or '').strip().lower()[:200]
+    # Repeatable either way: ?severity=high&severity=low or ?severity=high,low.
+    want_sev = {s for raw in qs.get('severity', []) for s in
+                (str(raw).lower().replace(' ', '').split(','))
+                if s in ('critical', 'high', 'medium', 'low')}
+    want_dev = _sanitize_str(qs.get('device_id', [''])[0] or '', 64)
     al = load(ALERTS_FILE)
     all_alerts = al.get('alerts', [])
     # v3.5.0 RBAC v2: a scoped role only sees alerts for its in-scope devices
@@ -53589,15 +53763,29 @@ def handle_alerts_list():
     # v3.12.0: My Account → "My acked alerts" — only those this user acked.
     if (qs.get('mine', [''])[0] or '').lower() in ('1', 'true', 'yes'):
         filtered = [a for a in filtered if a.get('acknowledged_by') == user]
+    # v6.4.2 filters — applied after the visibility filter above so `total`
+    # never counts a row the caller cannot see.
+    if want_dev:
+        filtered = [a for a in filtered if a.get('device_id') == want_dev]
+    if want_sev:
+        filtered = [a for a in filtered if a.get('severity') in want_sev]
+    if q:
+        def _hit(a):
+            return q in ' '.join((str(a.get('device_name') or ''),
+                                  str(a.get('event') or ''),
+                                  str(a.get('title') or ''))).lower()
+        filtered = [a for a in filtered if _hit(a)]
     filtered.reverse()  # newest first
-    page = filtered[:limit]
+    page = filtered[offset:offset + limit]
     _annotate_alert_correlation(page)   # v4.1.0: host root-cause folding
     _annotate_alert_mitigation(page)    # v5.8.0 (B1.2): Fix-button tagging
     _annotate_alert_kb(page)            # W1-23: KB-runbook link tagging
     _annotate_alert_lifecycle(page)     # v6.3.1: does this one clear by itself?
     respond(200, {
         'alerts': page,
-        'total':  len(filtered),
+        'total':  len(filtered),   # after filtering, BEFORE paging
+        'offset': offset,
+        'limit':  limit,
         'summary': _alerts_summary(all_alerts),
         # v4.1.0 (#56): tells the UI whether to prompt for an optional comment
         # when acking. Default on.
@@ -53954,6 +54142,66 @@ def handle_me_sessions():
     respond(200, {'sessions': out, 'count': len(out)})
 
 
+def handle_sessions_list():
+    """GET /api/sessions — every active login session, across all users.
+
+    v6.4.2, the access-review companion to GET /api/me/sessions (same row shape,
+    plus the owning user and their role): "who is logged in right now, from
+    where, and since when" had no answer anywhere in the product, so an
+    offboarding or an incident could not be checked against live sessions.
+
+    Session tokens only — API keys are a separate credential with their own
+    list. The raw token is never returned; `id` is the same one-way handle the
+    per-user revoke endpoint takes. Admin-gated, audited, and tenant-scoped: a
+    tenant admin sees only sessions belonging to users in its own tenant.
+    """
+    actor = require_admin_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    gate = _tenant_gate()
+    now = int(time.time())
+    users = load(USERS_FILE) or {}
+    cur = _session_id(get_token_from_request())
+    # This is a USER-keyed store, so tenancy follows the account's tenant_id —
+    # the device helpers (_scope_filter_devices / _device_tenant) do not apply.
+    _tenant_of = {}
+
+    def _visible(uname):
+        if gate is None:
+            return True
+        if uname not in _tenant_of:
+            _tenant_of[uname] = _user_tenant(uname)
+        return _tenant_of[uname] == gate
+
+    out = []
+    for tok, e in (load(TOKENS_FILE) or {}).items():
+        if not isinstance(e, dict):
+            continue
+        uname = e.get('user') or ''
+        if not uname or not _visible(uname):
+            continue
+        ttl = e.get('ttl', TOKEN_TTL)
+        created = int(e.get('created', 0) or 0)
+        if now - created > ttl:
+            continue   # expired but not yet swept
+        urec = users.get(uname) if isinstance(users.get(uname), dict) else {}
+        out.append({
+            'id':        _key_session_id(tok),
+            'user':      uname,
+            'role':      urec.get('role', 'admin'),
+            'current':   _key_session_id(tok) == cur,
+            'source':    ('saml' if e.get('saml') else 'oidc' if e.get('oidc') else 'local'),
+            'ip':        _sanitize_str(str(e.get('ip', '')), 64),
+            'ua':        _sanitize_str(str(e.get('ua', '')), 256),
+            'created':   created,
+            'last_seen': int(e.get('last_seen', created) or 0),
+            'expires_at': created + int(ttl or 0),
+        })
+    out.sort(key=lambda s: s['last_seen'], reverse=True)
+    audit_log(actor, 'sessions_list', f'count={len(out)}')
+    respond(200, {'sessions': out, 'count': len(out)})
+
+
 def handle_me_session_revoke(sid):
     """DELETE /api/me/sessions/<id> — revoke one of the current user's sessions
     by its one-way id. A user can only revoke their own sessions."""
@@ -54178,10 +54426,15 @@ def handle_alert_resolution_stats():
     mttrs, mttas, per_host, timeline = [], [], {}, []
     for a in resolved:
         ts = int(a.get('ts') or 0)
+        # v6.4.2: measure from the FIRST occurrence. `ts` is rewritten on every
+        # coalesced re-fire, so a condition that kept firing while nobody looked
+        # reported a flatteringly short MTTR — the noisier the incident, the
+        # better the number looked.
+        first = _alert_first_seen(a)
         rat = int(a.get('resolved_at') or 0)
         aat = int(a.get('acknowledged_at') or 0)
-        mttr = max(0, rat - ts) if ts else None
-        mtta = max(0, aat - ts) if (ts and aat) else None
+        mttr = max(0, rat - first) if first else None
+        mtta = max(0, aat - first) if (first and aat) else None
         if mttr is not None:
             mttrs.append(mttr)
         if mtta is not None:
@@ -54195,7 +54448,7 @@ def handle_alert_resolution_stats():
         timeline.append({
             'id': a.get('id'), 'alertid': a.get('alertid'), 'title': a.get('title'),
             'severity': a.get('severity'), 'event': a.get('event'), 'host': host,
-            'ts': ts, 'resolved_at': rat, 'mttr': mttr,
+            'ts': ts, 'first_seen': first, 'resolved_at': rat, 'mttr': mttr,
             'how': _alert_resolution_how(a), 'resolved_by': a.get('resolved_by'),
             'acknowledged_by': a.get('acknowledged_by'),
             'note': a.get('resolve_note') or a.get('ack_note') or '',
@@ -64694,6 +64947,8 @@ def _build_exact_routes():
         (None, '/api/me/avatar'): handle_me_avatar,
         # v3.14.0: active session management
         ('GET', '/api/me/sessions'): handle_me_sessions,
+        # v6.4.2: fleet-wide session inventory for access review (admin only).
+        ('GET', '/api/sessions'): handle_sessions_list,
         ('POST', '/api/me/sessions/revoke-others'): handle_me_sessions_revoke_others,
         # v3.14.0: per-account sidebar favorites
         ('POST', '/api/favorites'): handle_favorites_set,

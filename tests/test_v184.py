@@ -322,6 +322,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'cert_file_expiring', 'rogue_uid0',
             'kmip_cert_expiring',                    # v6.4.1 KMIP PKI expiry
             'priv_group_added',                      # v6.2.0 sudo/wheel/Administrators grant
+            'control_plane_security_change',         # v6.4.2 privileged change on RemotePower itself
             'usb_device_added',                      # v6.2.0 USB physical-access tripwire
             'process_alert', 'process_recovered',   # v3.14.0 #36
             'secret_exposed', 'canary_accessed',    # v3.14.0 #35 / W3-38

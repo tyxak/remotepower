@@ -60,7 +60,13 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # are read via A., which is the normal pattern. main()'s cadence, scheduler.py's
 # CADENCE and the route table resolve unchanged because api.py re-imports the
 # names. A debt-adding raise turned into a net −2.
-INLINE_HANDLER_CEILING = 626
+# 626→627 (v6.4.2): handle_sessions_list — the fleet-wide active-session
+# inventory for access review. Core spine, not a subsystem: it is the third
+# member of the inline session family (handle_me_sessions /
+# handle_me_session_revoke / handle_me_sessions_revoke_others) and reads the
+# same TOKENS_FILE + auth helpers those do. Carving one read of the session
+# store into a module would re-bind the whole auth spine to serve one endpoint.
+INLINE_HANDLER_CEILING = 627
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

@@ -7,21 +7,232 @@
 let _alertsCache = [];
 let _alertsAckCommentEnabled = true;   // v4.1.0 (#56): prompt for ack comment
 
+// ── v6.4.2: the inbox is SERVER-paged, searched and filtered ─────────────────
+// It used to ask for a flat limit=500 with no offset and never read `total`, so
+// on a fleet holding more than 500 alerts in the selected status the rest were
+// simply unreachable — and the filter box searched only that loaded slice, so
+// hunting for the host your pager fired on returned "No alerts in this view"
+// and read as "it must have auto-resolved". Search, severity, device and paging
+// all go to the server now (GET /api/alerts?offset=&q=&severity=&device_id=),
+// and the pager states the real total so a narrowed view can never be mistaken
+// for the whole inbox.
+const _ALERTS_PAGE_SIZES = [50, 100, 200, 500];
+let _alertsOffset = 0;
+let _alertsPageSize = 100;
+let _alertsTotal = 0;
+let _alertsQuery = '';         // the q the LOADED page was fetched with
+let _alertsSeverity = '';      // '' | 'critical' | 'critical,high' | …
+let _alertsDeviceId = '';
+let _alertsLoadedStatus = '';
+let _alertsSearchTimer = null;
+
+function _alertsFiltered() {
+  return !!(_alertsQuery || _alertsSeverity || _alertsDeviceId);
+}
+
 async function loadAlerts() {
   const statusEl = document.getElementById('alerts-filter-status');
   const status = (statusEl && statusEl.value) || 'open';
+  // The status <select> lives in static index.html and calls loadAlerts() with
+  // no arguments, so the "status changed → back to page 1" reset is detected
+  // here rather than wired onto the control.
+  if (status !== _alertsLoadedStatus) _alertsOffset = 0;
+  const filterEl = document.getElementById('alerts-filter-text');
+  const q = ((filterEl && filterEl.value) || '').trim();
+  let path = `/alerts?status=${encodeURIComponent(status)}`
+    + `&limit=${encodeURIComponent(_alertsPageSize)}`
+    + `&offset=${encodeURIComponent(_alertsOffset)}`;
+  if (q) path += `&q=${encodeURIComponent(q)}`;
+  if (_alertsSeverity) path += `&severity=${encodeURIComponent(_alertsSeverity)}`;
+  if (_alertsDeviceId) path += `&device_id=${encodeURIComponent(_alertsDeviceId)}`;
   try {
-    const data = await api('GET', `/alerts?status=${encodeURIComponent(status)}&limit=500`);
+    const data = await api('GET', path);
     _alertsCache = (data && data.alerts) || [];
+    _alertsLoadedStatus = status;
+    _alertsQuery = q;
+    // `total` counts everything that matched AFTER filtering and BEFORE paging
+    // — the number the pager must quote. Falling back to the page length keeps
+    // the line honest (never inflated) against a server that omits it.
+    _alertsTotal = (data && typeof data.total === 'number')
+      ? data.total : _alertsCache.length;
+    if (data && typeof data.offset === 'number') _alertsOffset = data.offset;
+    if (data && typeof data.limit === 'number' && data.limit > 0) _alertsPageSize = data.limit;
     window._alertsSummary = (data && data.summary) || null;   // v6.3.0 (wave 8): blast-radius counts
     // v4.1.0 (#56): whether to prompt for an optional comment on ack.
     _alertsAckCommentEnabled = !data || data.ack_comment_enabled !== false;
+    _renderAlertsControls();
     _renderAlertsSummary(data && data.summary);
     renderAlerts();
+    _renderAlertsPager();
     _focusPendingAlert();   // v6.3.0 (UX wave 3): #alerts/<id> deep link
   } catch (e) {
     toast('Failed to load alerts', 'error');
   }
+}
+
+// The severity / device selects and the pager are built here rather than in
+// index.html so the whole paged-inbox contract lives in one file.
+function _alertsControlsHost() {
+  let el = document.getElementById('alerts-controls');
+  if (el) return el;
+  const summary = document.getElementById('alerts-summary');
+  if (!summary || !summary.parentNode) return null;
+  el = document.createElement('div');
+  el.id = 'alerts-controls';
+  el.className = 'isl-186';   // same flex row as the page's own filter bar
+  summary.parentNode.insertBefore(el, summary);
+  return el;
+}
+
+function _alertsPagerHost() {
+  let el = document.getElementById('alerts-pager');
+  if (el) return el;
+  const tbody = document.getElementById('alerts-tbody');
+  const anchor = (tbody && tbody.closest && tbody.closest('.table-card')) || tbody;
+  if (!anchor || !anchor.parentNode) return null;
+  el = document.createElement('div');
+  el.id = 'alerts-pager';
+  el.className = 'table-pager';
+  anchor.parentNode.insertBefore(el, anchor.nextSibling);
+  return el;
+}
+
+const _ALERT_SEV_CHOICES = [
+  ['', 'All severities'],
+  ['critical,high', 'Critical + high'],
+  ['critical', 'Critical'],
+  ['high', 'High'],
+  ['medium', 'Medium'],
+  ['low', 'Low'],
+];
+
+function _renderAlertsControls() {
+  const host = _alertsControlsHost();
+  if (!host) return;
+  if (!host.dataset.built) {
+    host.innerHTML =
+      `<select id="alerts-filter-sev" class="form-input isl-68" data-change="alertsFilterChanged" aria-label="Filter alerts by severity">`
+      + _ALERT_SEV_CHOICES.map(([v, l]) =>
+          `<option value="${escAttr(v)}">${escHtml(l)}</option>`).join('')
+      + `</select>`
+      + `<select id="alerts-filter-device" class="form-input isl-68" data-change="alertsFilterChanged" aria-label="Filter alerts by device">`
+      + `<option value="">All devices</option></select>`
+      + `<button class="btn-icon d-none" id="alerts-clear-filters" data-action="clearAlertFilters" title="Clear the search, severity and device filters">${_icon('x', 12)} Clear filters</button>`;
+    host.dataset.built = '1';
+    _fillAlertDeviceFilter();
+  }
+  const sev = document.getElementById('alerts-filter-sev');
+  if (sev) sev.value = _alertsSeverity;
+  const dev = document.getElementById('alerts-filter-device');
+  if (dev) dev.value = _alertsDeviceId;
+  const clear = document.getElementById('alerts-clear-filters');
+  if (clear) clear.classList.toggle('d-none', !_alertsFiltered());
+}
+
+// Device options are built with `new Option` (text, not markup) so an
+// operator-authored device name can never reach an HTML parser here.
+async function _fillAlertDeviceFilter() {
+  const sel = document.getElementById('alerts-filter-device');
+  if (!sel || typeof _scanDeviceList !== 'function') return;
+  let devs = [];
+  try { devs = await _scanDeviceList(); } catch (e) { return; }
+  if (!Array.isArray(devs) || !devs.length) return;
+  const sorted = devs.slice().sort((a, b) =>
+    String(a.name || a.id || '').localeCompare(String(b.name || b.id || '')));
+  sel.innerHTML = '';
+  sel.appendChild(new Option('All devices', ''));
+  for (const d of sorted) {
+    if (!d || !d.id) continue;
+    sel.appendChild(new Option(String(d.name || d.id), String(d.id)));
+  }
+  sel.value = _alertsDeviceId;
+}
+
+function _renderAlertsPager() {
+  const host = _alertsPagerHost();
+  if (!host) return;
+  const total = _alertsTotal || 0;
+  const shown = (_alertsCache || []).length;
+  const start = shown ? _alertsOffset + 1 : 0;
+  const end = _alertsOffset + shown;
+  const narrowed = _alertsFiltered();
+  const info = shown
+    ? `Showing ${start}–${end} of ${total}${narrowed ? ' matching' : ''}`
+    : (narrowed ? 'No alerts match this search' : 'No alerts in this view');
+  // The count line always shows — it is the honest "you are looking at part of
+  // the inbox" signal. Prev/Next and the size picker only appear once there is
+  // more than one page of results to move through.
+  const paged = total > shown || _alertsOffset > 0;
+  // The server clamps `limit` and we adopt what it echoes, so the size in
+  // effect may not be one we offer — list it too, or the select would show a
+  // page size that isn't the one in use.
+  const sizeList = _ALERTS_PAGE_SIZES.includes(_alertsPageSize)
+    ? _ALERTS_PAGE_SIZES
+    : _ALERTS_PAGE_SIZES.concat([_alertsPageSize]).sort((x, y) => x - y);
+  const sizes = sizeList.map(n =>
+    `<option value="${n}"${n === _alertsPageSize ? ' selected' : ''}>${n}/page</option>`).join('');
+  host.innerHTML =
+    `<span class="table-pager-info">${escHtml(info)}</span>`
+    + (paged
+        ? `<button class="btn-icon" data-action="alertsPage" data-arg="-1"${_alertsOffset <= 0 ? ' disabled' : ''} aria-label="Previous page of alerts">‹ Prev</button>`
+          + `<button class="btn-icon" data-action="alertsPage" data-arg="1"${end >= total ? ' disabled' : ''} aria-label="Next page of alerts">Next ›</button>`
+          + `<select class="form-input table-pager-size" id="alerts-page-size" data-change="alertsPageSize" aria-label="Alerts per page">${sizes}</select>`
+        : '');
+}
+
+function alertsPage(dir) {
+  const step = Number(dir) || 0;
+  const next = _alertsOffset + step * _alertsPageSize;
+  if (next < 0 || (step > 0 && next >= _alertsTotal)) return;
+  _alertsOffset = next;
+  loadAlerts();
+}
+
+function alertsPageSize() {
+  const el = document.getElementById('alerts-page-size');
+  const n = parseInt((el && el.value) || '', 10);
+  if (!n) return;
+  _alertsPageSize = Math.max(1, Math.min(1000, n));
+  _alertsOffset = 0;
+  loadAlerts();
+}
+
+function alertsFilterChanged() {
+  const sev = document.getElementById('alerts-filter-sev');
+  const dev = document.getElementById('alerts-filter-device');
+  _alertsSeverity = (sev && sev.value) || '';
+  _alertsDeviceId = (dev && dev.value) || '';
+  _alertsOffset = 0;
+  loadAlerts();
+}
+
+function clearAlertFilters() {
+  const t = document.getElementById('alerts-filter-text');
+  if (t) t.value = '';
+  _alertsSeverity = '';
+  _alertsDeviceId = '';
+  _alertsOffset = 0;
+  clearTimeout(_alertsSearchTimer);
+  loadAlerts();
+}
+
+// The filter box (static HTML, data-input="renderAlerts", 180ms debounce) now
+// drives a SERVER search. Its own debounce coalesces keystrokes; this second
+// one coalesces the round trip and, until the answer lands, renderAlerts keeps
+// filtering the loaded page locally so typing still feels immediate.
+// Returns true while a server search is outstanding.
+function _scheduleAlertSearch() {
+  const filterEl = document.getElementById('alerts-filter-text');
+  const q = ((filterEl && filterEl.value) || '').trim();
+  if (q === _alertsQuery) return false;
+  clearTimeout(_alertsSearchTimer);
+  _alertsSearchTimer = setTimeout(() => {
+    const el = document.getElementById('alerts-filter-text');
+    if (((el && el.value) || '').trim() === _alertsQuery) return;
+    _alertsOffset = 0;
+    loadAlerts();
+  }, 260);
+  return true;
 }
 
 // ── v6.3.0 (UX wave 3): per-alert deep links ─────────────────────────────────
@@ -42,9 +253,19 @@ function _focusPendingAlert() {
   const row = document.querySelector(`#page-alerts .alerts-row[data-alert-id="${id}"]`);
   if (!row) {
     const st = document.getElementById('alerts-filter-status');
-    if (st && st.value !== 'all' && !window._alertDeepLinkWidened) {
+    // v6.4.2: a leftover search / severity / device filter or a non-first page
+    // hides the target just as effectively as the wrong status did, so the ONE
+    // widening attempt resets the whole view, not only the status.
+    const narrowed = _alertsFiltered() || _alertsOffset > 0;
+    if (((st && st.value !== 'all') || narrowed) && !window._alertDeepLinkWidened) {
       window._alertDeepLinkWidened = true;
-      st.value = 'all';
+      if (st) st.value = 'all';
+      const t = document.getElementById('alerts-filter-text');
+      if (t) t.value = '';
+      _alertsSeverity = '';
+      _alertsDeviceId = '';
+      _alertsOffset = 0;
+      clearTimeout(_alertsSearchTimer);
       loadAlerts();
       return;
     }
@@ -210,6 +431,48 @@ function _alertEvidenceHtml(a) {
   if (bits.length) html += `<div class="hint fs-11">${bits.join(' · ')}</div>`;
   return html;
 }
+// v6.4.2: escalation was invisible. The on-call escalator has always stamped
+// `escalated_tiers` / `escalated_at` onto the alert and shipped them to the
+// client, but nothing rendered them — so an alert that had already paged tier 3
+// looked exactly like one nobody had ever been woken for. The badge carries the
+// tier as TEXT (never colour alone) and the time in its tooltip.
+function _alertEscalationBadge(a) {
+  const raw = Array.isArray(a && a.escalated_tiers) ? a.escalated_tiers : [];
+  const tiers = raw.map(t => parseInt(t, 10)).filter(t => !isNaN(t));
+  if (!tiers.length) return '';
+  const top = Math.max(...tiers);
+  const when = a.escalated_at ? _formatTs(a.escalated_at) : '';
+  const title = `Paged through on-call escalation tier${tiers.length === 1 ? '' : 's'} `
+    + tiers.join(', ') + (when ? ` — last escalated ${when}` : '');
+  return ` <span class="patch-badge warn fs-10" title="${escAttr(title)}">`
+    + `${_icon('trendingUp', 11)} escalated · tier ${top}</span>`;
+}
+
+// How long this condition has been alive: `first_seen` is the FIRST occurrence,
+// `ts` only the latest — a repeating alert that reads "2 minutes ago" can have
+// been firing for a week. Falls back to ts when the server has no first_seen
+// (alerts recorded before the field existed), and says so in the tooltip.
+function _alertAgeHtml(a) {
+  const first = a.first_seen || a.ts;
+  if (!first) return '';
+  const end = a.resolved_at || Math.floor(Date.now() / 1000);
+  const secs = Math.max(0, end - first);
+  const label = a.resolved_at ? 'open for' : 'age';
+  const title = (a.first_seen ? 'First seen ' : 'First occurrence unknown — timed from the last one, ')
+    + _formatTs(first);
+  return `<div class="hint" title="${escAttr(title)}">${label} ${escHtml(_fmtDuration(secs))}</div>`;
+}
+
+// v6.4.2: `resolve_note` — what the operator says actually fixed it. The server
+// has stored it since the resolve handler gained a `note` field, but no client
+// surface ever sent or showed one, which left the product's only institutional
+// memory of a fix behind an LLM-backed advisor.
+function _alertResolveNoteHtml(a) {
+  const note = a && a.resolve_note;
+  if (!note) return '';
+  return `<div class="hint"><strong>Fixed by:</strong> ${_escapeHtml(String(note))}</div>`;
+}
+
 function _alertRowHtml(a, role) {
   const isResolved = !!a.resolved_at;
   const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
@@ -243,6 +506,10 @@ function _alertRowHtml(a, role) {
       }
     }
     actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button> `;
+    // v6.4.2: resolve AND record what fixed it. Kept as a separate icon so the
+    // plain Resolve stays a single instant click — the note is opt-in, never a
+    // dialog in the way of closing an alert.
+    actions += `<button class="btn-icon btn-xs" data-action="resolveAlertWithNote" data-arg="${a.id}" title="Resolve and record what fixed it — the note shows on the resolved row and in the MTTR timeline" aria-label="Resolve with a note">${_icon('edit',12)}</button> `;
     actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
       actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;
@@ -277,8 +544,8 @@ function _alertRowHtml(a, role) {
   return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}${(sev === 'critical' && !isResolved) ? ' alert-crit' : ''}" data-alert-id="${_escapeHtml(String(a.id))}">
     <td>${cb}</td>
     <td>${sevPill}</td>
-    <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}</td>
+    <td class="nowrap">${ts}${_alertAgeHtml(a)}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
@@ -286,7 +553,12 @@ function _alertRowHtml(a, role) {
 }
 function renderAlerts() {
   const filterEl = document.getElementById('alerts-filter-text');
-  const q = ((filterEl && filterEl.value) || '').trim().toLowerCase();
+  // v6.4.2: the search is server-side. While a keystroke's round trip is still
+  // outstanding the loaded page is filtered locally so typing stays responsive;
+  // once the server has answered for this exact text, its result IS the answer
+  // (it also searches the alert message, which the local predicate cannot).
+  const pending = _scheduleAlertSearch();
+  const q = pending ? ((filterEl && filterEl.value) || '').trim().toLowerCase() : '';
   let rows = _alertsCache;
   if (q) {
     rows = rows.filter(a =>
@@ -299,10 +571,16 @@ function renderAlerts() {
   if (!tbody) return;
   if (!rows.length) {
     // v6.3.0 (UX wave 10): calm geometric all-clear mark instead of bare text.
+    // v6.4.2: with a filter applied, "no alerts" would be a lie — say the
+    // search matched nothing and offer the way back out.
+    const narrowed = _alertsFiltered() || !!q;
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">'
       + '<svg class="rp-empty-art" aria-hidden="true" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">'
       + '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6" opacity=".4"/><polyline points="9 12 11 14 15 10"/></svg>'
-      + 'No alerts in this view.</td></tr>';
+      + (narrowed
+          ? 'No alerts match this search. <button class="btn-icon btn-xs" data-action="clearAlertFilters">Clear filters</button>'
+          : 'No alerts in this view.')
+      + '</td></tr>';
     _updateBulkResolveBtn();
     return;
   }
@@ -497,20 +775,40 @@ async function bulkAckAlerts() {
   else toast((r && r.error) || 'Failed', 'error');
 }
 
-async function resolveAlert(id) {
+// v6.4.2: ask what fixed it, THEN resolve. Separate entry point so the plain
+// Resolve button (and the keyboard 'r') stays a single instant click — a
+// cancelled prompt resolves nothing, an empty note resolves exactly as before.
+async function resolveAlertWithNote(id) {
+  const a = (_alertsCache || []).find(x => String(x.id) === String(id));
+  if (a && a.resolved_at) return;
+  const note = await uiPrompt({
+    title: 'Resolve this alert',
+    message: 'What fixed it? (optional — it is kept on the alert and shows in '
+           + 'the resolution timeline, so the next person hitting this has your notes.)',
+    placeholder: 'e.g. restarted postfix after the queue filled the disk',
+    multiline: true,
+    confirmText: 'Resolve',
+  });
+  if (note === null) return;                  // cancelled — nothing happens
+  await resolveAlert(id, String(note).trim());
+}
+
+async function resolveAlert(id, note) {
   // v6.3.1: resolve now has a real inverse (POST /alerts/<id>/unresolve), so
   // the confirm dialog is gone — the row flips instantly and the toast + the
   // topbar undo arrow can take it back (the same pattern ack moved to in
   // v6.3.0; "undo instead of are-you-sure").
   const a = (_alertsCache || []).find(x => String(x.id) === String(id));
   if (a && a.resolved_at) return;
-  const prev = a ? { at: a.resolved_at, by: a.resolved_by } : null;
+  const _note = (typeof note === 'string') ? note.trim() : '';
+  const prev = a ? { at: a.resolved_at, by: a.resolved_by, note: a.resolve_note } : null;
   if (a) {
     a.resolved_at = Math.floor(Date.now() / 1000);
     a.resolved_by = getMe() || 'me';
+    if (_note) a.resolve_note = _note;
     renderAlerts();
   }
-  const revert = () => { if (a && prev) { a.resolved_at = prev.at; a.resolved_by = prev.by; renderAlerts(); } };
+  const revert = () => { if (a && prev) { a.resolved_at = prev.at; a.resolved_by = prev.by; a.resolve_note = prev.note; renderAlerts(); } };
   let reopened = false;
   const doUnresolve = async () => {
     if (reopened) return;
@@ -519,16 +817,18 @@ async function resolveAlert(id) {
     if (u && u.ok) { loadAlerts(); refreshAlertsBadge(); }
     else toast((u && u.error) || 'Could not undo', 'error');
   };
-  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`,
+                      _note ? { note: _note } : {});
   if (r && r.ok) {
     refreshAlertsBadge();
     uiUndoCtl.push({
       label: 'Alert resolved',
       alive: () => !reopened,
       undo: doUnresolve,
-      redo: () => resolveAlert(id),
+      redo: () => resolveAlert(id, _note),
     });
-    toast('Alert resolved', 'success', { action: { label: 'Undo', icon: 'undo', fn: doUnresolve } });
+    toast(_note ? 'Alert resolved — note saved' : 'Alert resolved', 'success',
+          { action: { label: 'Undo', icon: 'undo', fn: doUnresolve } });
   } else { revert(); toast((r && r.error) || 'Failed', 'error'); }
 }
 

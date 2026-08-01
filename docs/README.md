@@ -265,6 +265,9 @@ Older release notes (v6.3.0 and earlier) live in
 - **[ux.md](ux.md)** — Working the interface: undo instead of confirm,
  the notification center, drafts, tables, selection, deep links, charts
  and the posture radar (the v6.3.0 UX program in one guide).
+- **[accessibility.md](accessibility.md)** — Accessibility conformance
+ statement: what is supported against WCAG 2.1 AA, what is partially
+ supported, and the known limitations — for procurement reviews.
 - **[mitigation.md](mitigation.md)** — One-click mitigation runners for
  common findings.
 - **[opnsense.md](opnsense.md)** — OPNsense firewall integration (and the

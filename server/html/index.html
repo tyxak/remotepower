@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-5">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-6">
 
 </head>
 <body>
@@ -215,12 +215,12 @@
          Monitoring MUST stay before Security (tests/test_v234). Sub-sub pages
          (Live Monitor / TLS / Containers) keep their hand-built in-page panels. -->
     <div class="sidebar-group" data-group="fleet">
-      <button class="sidebar-group-toggle" title="Devices and inventory — every enrolled host, assets, sites, contacts, the network map, plus virtual machines and containers">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-fleet" title="Devices and inventory — every enrolled host, assets, sites, contacts, the network map, plus virtual machines and containers">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
         <span>Fleet</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-fleet">
         <button class="nav-btn" data-page="cmdb" title="Configuration Management Database — asset metadata, docs and per-device credentials">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
           <span>CMDB</span>
@@ -265,12 +265,12 @@
     </div>
 
     <div class="sidebar-group" data-group="monitoring">
-      <button class="sidebar-group-toggle" title="Live checks, logs, services, metrics, boards and integrated-software health across the fleet">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-monitoring" title="Live checks, logs, services, metrics, boards and integrated-software health across the fleet">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
         <span>Monitoring</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-monitoring">
         <button class="nav-btn" data-page="monitor" title="Live monitor — remote checks, device metrics, listening ports, custom scripts and processes in one place">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           <span>Live Monitor</span>
@@ -320,12 +320,12 @@
     </div>
 
     <div class="sidebar-group" data-group="hardware">
-      <button class="sidebar-group-toggle" title="Physical telemetry — GPUs, power, thermals, storage and disk health">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-hardware" title="Physical telemetry — GPUs, power, thermals, storage and disk health">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg>
         <span>Hardware</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-hardware">
         <button class="nav-btn" data-page="gpus" title="GPU state across the fleet — NVIDIA & AMD utilisation, memory, temperature, power">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 18v2M18 18v2M7 10h4M9 10v4"/><circle cx="16" cy="12" r="2"/></svg>
           <span>GPUs</span>
@@ -350,12 +350,12 @@
     </div>
 
     <div class="sidebar-group" data-group="security">
-      <button class="sidebar-group-toggle" title="Posture, vulnerabilities, exposure, certificates and risk across the fleet">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-security" title="Posture, vulnerabilities, exposure, certificates and risk across the fleet">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg>
         <span>Security</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-security">
         <button class="nav-btn" data-page="advisory" title="What to fix first — one prioritized list across OS, exposure, identity, integrity and applications">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
           <span>Advisory</span>
@@ -408,12 +408,12 @@
     </div>
 
     <div class="sidebar-group" data-group="compliance">
-      <button class="sidebar-group-toggle" title="Compliance profiles, the audit trail and mail-domain reputation">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-compliance" title="Compliance profiles, the audit trail and mail-domain reputation">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
         <span>Compliance</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-compliance">
         <button class="nav-btn" data-page="compliance" title="PCI DSS / HIPAA / SOC 2 checklist scored from collected data — audit-prep aid">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-51ff642e"/></svg>
           <span>Compliance</span>
@@ -430,12 +430,12 @@
     </div>
 
     <div class="sidebar-group" data-group="patching">
-      <button class="sidebar-group-toggle" title="OS patches, auto-patching and staged rollouts">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-patching" title="OS patches, auto-patching and staged rollouts">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17V7l8-4 8 4v10l-8 4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg>
         <span>Patching</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-patching">
         <button class="nav-btn" data-page="patches" title="Pending system updates across all devices">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-c923885c"/></svg>
           <span>Patches</span>
@@ -452,12 +452,12 @@
     </div>
 
     <div class="sidebar-group" data-group="automation">
-      <button class="sidebar-group-toggle" title="The app catalog, scripts, automation rules, IaC, provisioning and the command queue">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-automation" title="The app catalog, scripts, automation rules, IaC, provisioning and the command queue">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>
         <span>Automation</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-automation">
         <button class="nav-btn" data-page="catalog" title="One-click deploy of curated self-hosted apps via Docker Compose">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           <span>App catalog</span>
@@ -500,12 +500,12 @@
     </div>
 
     <div class="sidebar-group" data-group="scheduling">
-      <button class="sidebar-group-toggle" title="Cron visibility, schedules, tasks, the calendar and maintenance windows">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-scheduling" title="Cron visibility, schedules, tasks, the calendar and maintenance windows">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span>Scheduling</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-scheduling">
         <button class="nav-btn" data-page="cron" title="Cron jobs and systemd timers on a host — view and edit">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9d86dfb3"/></svg>
           <span>Cron</span>
@@ -530,12 +530,12 @@
     </div>
 
     <div class="sidebar-group" data-group="access">
-      <button class="sidebar-group-toggle" title="Connectivity — VPN access, DNS and files">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-access" title="Connectivity — VPN access, DNS and files">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M2 12h20M4 12a8 8 0 0 1 16 0"/></svg>
         <span>Access</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-access">
         <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
           <span>WG Access</span>
@@ -552,12 +552,12 @@
     </div>
 
     <div class="sidebar-group" data-group="backups">
-      <button class="sidebar-group-toggle" title="Orchestrated backup jobs">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-backups" title="Orchestrated backup jobs">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/></svg>
         <span>Backups</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-backups">
         <button class="nav-btn" data-page="backups" title="Orchestrated backup jobs">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-61813343"/></svg>
           <span>Backups</span>
@@ -566,12 +566,12 @@
     </div>
 
     <div class="sidebar-group" data-group="business">
-      <button class="sidebar-group-toggle" title="Billing, time tracking, reports and the knowledge base">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-business" title="Billing, time tracking, reports and the knowledge base">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h10l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 8h6M8 12h8M8 16h5"/></svg>
         <span>Business</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-business">
         <button class="nav-btn" id="nav-billing" data-page="billing" title="Billing — worksheet, invoices and per-customer rates &amp; fees (admin / finance)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2V2l-3 2-3-2-3 2-3-2-3 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="14" y2="13"/></svg>
           <span>Billing</span>
@@ -592,12 +592,12 @@
     </div>
 
     <div class="sidebar-group" data-group="admin">
-      <button class="sidebar-group-toggle" title="Users, keys, signing, server status, settings, AI and documentation">
+      <button class="sidebar-group-toggle" aria-expanded="false" aria-controls="sbg-admin" title="Users, keys, signing, server status, settings, AI and documentation">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
         <span>Admin</span>
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
-      <div class="sidebar-group-items">
+      <div class="sidebar-group-items" id="sbg-admin">
         <button class="nav-btn" data-page="users" title="Manage who can access the dashboard and what they can do — roles and permissions">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Users</span>
@@ -1359,6 +1359,17 @@
           <div id="acct-permissions" class="hint">—</div>
         </div>
 
+        <!-- v6.4.2: until now the change-password form was reachable ONLY from
+             the lock icon in the Users admin table, so a non-admin had no way
+             to change their own password at all. openPasswd() takes the
+             username; loadAccount() stamps it onto this button's data-arg —
+             the account page is the one place it is not known at build time. -->
+        <div class="settings-section" id="account-password-section">
+          <div class="section-title">Password</div>
+          <p class="hint">The password you sign in with. Changing it needs your current password, and signs out every other session that is signed in as you.</p>
+          <button class="btn-icon" id="acct-passwd-btn" data-action="openMyPasswd"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Change password</button>
+        </div>
+
         <div class="settings-section">
           <div class="section-title">Two-Factor Authentication (2FA)</div>
           <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
@@ -1455,49 +1466,49 @@
         <!-- v5.6.x IA: 12 flat tabs → 4 labeled task-oriented clusters. Every
              button/id/data-arg is unchanged (bookmarks #settings/<tab> and
              switchSettingsTab untouched) — grouping is purely visual scent. -->
-        <div class="settings-tabs">
-          <div class="settings-tab-group">
-            <span class="settings-tab-group-label">Setup</span>
-            <button class="settings-tab"        data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
-            <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
+        <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+          <div class="settings-tab-group" role="presentation">
+            <span class="settings-tab-group-label" aria-hidden="true">Setup</span>
+            <button class="settings-tab"        id="settings-tab-btn-install" role="tab" aria-selected="false" aria-controls="settings-pane-install" data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
+            <button class="settings-tab active" id="settings-tab-btn-general" role="tab" aria-selected="true" aria-controls="settings-pane-general" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
           </div>
-          <div class="settings-tab-group">
-            <span class="settings-tab-group-label">Monitoring</span>
-            <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
+          <div class="settings-tab-group" role="presentation">
+            <span class="settings-tab-group-label" aria-hidden="true">Monitoring</span>
+            <button class="settings-tab"        id="settings-tab-btn-notifs" role="tab" aria-selected="false" aria-controls="settings-pane-notifs" data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
             <!-- v6.1.1: was labeled "Dashboard" (data-tab="dashboard" kept
                  unchanged for #settings/dashboard bookmark compat) -- its
                  contents are brute-force/health-score/quiet-hours/on-call/
                  backup-monitoring/process-threshold alert config, zero
                  actual dashboard-widget settings. Relabeled + moved next to
                  Notifications, where the content actually belongs. -->
-            <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Alerting</button>
-            <button class="settings-tab"        data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams" >Alert parameters</button>
-            <button class="settings-tab"        data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
-            <button class="settings-tab"        data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
+            <button class="settings-tab"        id="settings-tab-btn-dashboard" role="tab" aria-selected="false" aria-controls="settings-pane-dashboard" data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Alerting</button>
+            <button class="settings-tab"        id="settings-tab-btn-alertparams" role="tab" aria-selected="false" aria-controls="settings-pane-alertparams" data-tab="alertparams" data-action="switchSettingsTab" data-arg="alertparams" data-action2="loadAlertParams" >Alert parameters</button>
+            <button class="settings-tab"        id="settings-tab-btn-mailbox" role="tab" aria-selected="false" aria-controls="settings-pane-mailbox" data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
+            <button class="settings-tab"        id="settings-tab-btn-ignored" role="tab" aria-selected="false" aria-controls="settings-pane-ignored" data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
           </div>
-          <div class="settings-tab-group">
-            <span class="settings-tab-group-label">Connections</span>
-            <button class="settings-tab"        data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
-            <button class="settings-tab"        data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Virtualization</button>
-            <button class="settings-tab"        data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
+          <div class="settings-tab-group" role="presentation">
+            <span class="settings-tab-group-label" aria-hidden="true">Connections</span>
+            <button class="settings-tab"        id="settings-tab-btn-integrations" role="tab" aria-selected="false" aria-controls="settings-pane-integrations" data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
+            <button class="settings-tab"        id="settings-tab-btn-proxmox" role="tab" aria-selected="false" aria-controls="settings-pane-proxmox" data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Virtualization</button>
+            <button class="settings-tab"        id="settings-tab-btn-ai" role="tab" aria-selected="false" aria-controls="settings-pane-ai" data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
           </div>
-          <div class="settings-tab-group">
-            <span class="settings-tab-group-label">System</span>
-            <button class="settings-tab"        data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
+          <div class="settings-tab-group" role="presentation">
+            <span class="settings-tab-group-label" aria-hidden="true">System</span>
+            <button class="settings-tab"        id="settings-tab-btn-security" role="tab" aria-selected="false" aria-controls="settings-pane-security" data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
             <!-- v6.1.1: split out of Advanced -- the ticket-system config
                  (mailbox, auto-reply, CSAT, business hours, SLA, canned
                  replies, recurring tickets, customer portal) had grown to
                  8 sections buried in a catch-all tab. -->
-            <button class="settings-tab"        data-tab="tickets"  data-action="switchSettingsTab" data-arg="tickets" >Tickets</button>
+            <button class="settings-tab"        id="settings-tab-btn-tickets" role="tab" aria-selected="false" aria-controls="settings-pane-tickets" data-tab="tickets"  data-action="switchSettingsTab" data-arg="tickets" >Tickets</button>
             <!-- v6.1.1: split out of Advanced -- scheduled backup + backup/
                  restore, same reasoning as Tickets above. -->
-            <button class="settings-tab"        data-tab="backups"  data-action="switchSettingsTab" data-arg="backups" >Backups</button>
-            <button class="settings-tab"        data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced" >Advanced</button>
+            <button class="settings-tab"        id="settings-tab-btn-backups" role="tab" aria-selected="false" aria-controls="settings-pane-backups" data-tab="backups"  data-action="switchSettingsTab" data-arg="backups" >Backups</button>
+            <button class="settings-tab"        id="settings-tab-btn-advanced" role="tab" aria-selected="false" aria-controls="settings-pane-advanced" data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced" >Advanced</button>
           </div>
         </div>
 
         <!-- ── General ──────────────────────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-install">
+        <div class="settings-pane" id="settings-pane-install" role="tabpanel" aria-labelledby="settings-tab-btn-install">
           <div class="settings-section">
             <div class="section-title">Getting started</div>
             <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it.</p>
@@ -1541,7 +1552,7 @@
           </div>
         </div>
 
-        <div class="settings-pane active" id="settings-pane-general">
+        <div class="settings-pane active" id="settings-pane-general" role="tabpanel" aria-labelledby="settings-tab-btn-general">
           <div class="settings-section">
             <div class="section-title">Server identity</div>
             <p class="hint">Display name shown in the page title, push notification subject lines, and webhook payloads. Helps tell instances apart when you have more than one.</p>
@@ -1631,7 +1642,7 @@
         </div>
 
         <!-- ── Notifications ────────────────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-notifs">
+        <div class="settings-pane" id="settings-pane-notifs" role="tabpanel" aria-labelledby="settings-tab-btn-notifs">
           <div class="settings-section">
             <div class="section-title">Healthchecks.io watchdog</div>
             <p class="hint">RemotePower pings this URL on a fixed interval so an external watchdog (Healthchecks.io, BetterStack, your own) flips red when the server stops serving requests. Off by default. Cadence defaults to 60 s, minimum 30 s.</p>
@@ -1840,7 +1851,7 @@
         </div>
 
         <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-integrations">
+        <div class="settings-pane" id="settings-pane-integrations" role="tabpanel" aria-labelledby="settings-tab-btn-integrations">
           <!-- v4.7.0: homelab software integrations -->
           <div class="settings-section">
             <div class="section-title">Homelab software integrations</div>
@@ -2250,7 +2261,7 @@
         </div>
 
         <!-- ── Security ─────────────────────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-security">
+        <div class="settings-pane" id="settings-pane-security" role="tabpanel" aria-labelledby="settings-tab-btn-security">
           <div class="settings-filter-row">
             <input type="text" id="sec-filter" class="form-input input-wide" placeholder="Filter security settings…"
                    aria-label="Filter security settings"
@@ -2667,7 +2678,7 @@
         </div>
 
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-advanced">
+        <div class="settings-pane" id="settings-pane-advanced" role="tabpanel" aria-labelledby="settings-tab-btn-advanced">
           <!-- v6.3.0 (UX): configuration history — the last 10 saved states,
                each restorable; a restore stores the replaced state first, so
                it is always undoable. -->
@@ -2823,7 +2834,7 @@
         </div>
 
         <!-- ── Tickets (v6.1.1) — split out of Advanced ────────────────── -->
-        <div class="settings-pane" id="settings-pane-tickets">
+        <div class="settings-pane" id="settings-pane-tickets" role="tabpanel" aria-labelledby="settings-tab-btn-tickets">
           <div class="settings-section">
             <div class="section-title">Tickets</div>
             <p class="hint">Mailbox, threading and auto-reply for the ticket system above. Only relevant when Tickets is enabled.</p>
@@ -2918,7 +2929,7 @@
         </div>
 
         <!-- ── Backups (v6.1.1) — split out of Advanced ────────────────── -->
-        <div class="settings-pane" id="settings-pane-backups">
+        <div class="settings-pane" id="settings-pane-backups" role="tabpanel" aria-labelledby="settings-tab-btn-backups">
           <!-- v3.0.2: backup config -->
           <div class="settings-section">
             <div class="section-title">Scheduled backup</div>
@@ -2974,7 +2985,7 @@
         </div>
 
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-proxmox">
+        <div class="settings-pane" id="settings-pane-proxmox" role="tabpanel" aria-labelledby="settings-tab-btn-proxmox">
           <div class="settings-section">
             <div class="section-title">VMware / OpenShift / Cloud Director</div>
             <p class="hint">Connect read-only to other virtualization platforms — VMware vSphere / ESXi / vCenter, Red Hat OpenShift, and VMware Cloud Director. Their status + inventory feed Alerts and the dashboard, the same way Proxmox does. Pick a platform, fill its URL + credentials, Save, then Test.</p>
@@ -3036,7 +3047,7 @@
         </div>
 
         <!-- ── Mailbox monitor (v2.4.4) ───────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-mailbox">
+        <div class="settings-pane" id="settings-pane-mailbox" role="tabpanel" aria-labelledby="settings-tab-btn-mailbox">
           <div class="settings-section">
             <div class="section-title">Mailbox monitor</div>
             <p class="hint">Count messages in a mailbox without IMAP/SMTP. Pick a device, give it one or more directory paths, and the agent counts the regular files in each (a Maildir <code>new</code> folder holds one file per unread message). Tick "Show on dashboard" to surface a device's count as a tile on the Home dashboard.</p>
@@ -3072,7 +3083,7 @@
         </div>
 
         <!-- ── AI assistant (v2.1.3) ──────────────────────────────────── -->
-        <div class="settings-pane" id="settings-pane-ai">
+        <div class="settings-pane" id="settings-pane-ai" role="tabpanel" aria-labelledby="settings-tab-btn-ai">
           <div class="settings-section">
             <div class="section-title">AI provider</div>
             <p class="hint">Wire in an LLM for the AI buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
@@ -3311,7 +3322,7 @@
         </div>
 
 <!-- ── v2.8.1: Dashboard Settings pane ──────────────────────────────── -->
-      <div class="settings-pane" id="settings-pane-dashboard">
+      <div class="settings-pane" id="settings-pane-dashboard" role="tabpanel" aria-labelledby="settings-tab-btn-dashboard">
 
         <div class="settings-section">
           <div class="section-title">Brute-force detection</div>
@@ -3526,7 +3537,7 @@
 
       <!-- v6.2.2: Alert parameters — one home for the numeric alert-firing
            thresholds that were scattered across other panes, plus new ones. -->
-      <div class="settings-pane" id="settings-pane-alertparams">
+      <div class="settings-pane" id="settings-pane-alertparams" role="tabpanel" aria-labelledby="settings-tab-btn-alertparams">
 
         <div class="mb-16">
           <input type="text" id="ap-filter" class="form-input input-wide"
@@ -4284,7 +4295,7 @@
       </div>
 
       <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->
-      <div class="settings-pane" id="settings-pane-ignored">
+      <div class="settings-pane" id="settings-pane-ignored" role="tabpanel" aria-labelledby="settings-tab-btn-ignored">
         <div class="settings-section">
           <div class="section-title">Ignored items</div>
           <p class="hint">Items you've hidden using the × button on Needs Attention cards, device rows on the Containers page, or stale container rows. Click <em>Restore</em> on any entry to bring it back into view.</p>
@@ -8421,10 +8432,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
 
     <!-- Tabs -->
-    <div class="drawer-tabs">
+    <div class="drawer-tabs" role="tablist" aria-label="Device details">
       <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
+              role="tab" aria-selected="true" aria-controls="drawer-tab-actions"
               data-action="switchDrawerTab" data-arg="actions" >Actions &amp; Settings</button>
       <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
+              role="tab" aria-selected="false" aria-controls="drawer-tab-audit"
               data-action="switchDrawerTab" data-arg="audit" >Audit</button>
     </div>
 
@@ -8432,7 +8445,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="drawer-content">
 
       <!-- ── Actions & Settings tab ─────────────────────────────────── -->
-      <div id="drawer-tab-actions" class="drawer-tab-panel">
+      <div id="drawer-tab-actions" class="drawer-tab-panel" role="tabpanel" aria-labelledby="drawer-tab-btn-actions">
 
         <div class="drawer-section">
           <div class="section-title">Quick actions</div>
@@ -8449,7 +8462,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div><!-- /actions tab -->
 
       <!-- ── Audit tab ───────────────────────────────────────────────── -->
-      <div id="drawer-tab-audit" class="drawer-tab-panel d-none">
+      <div id="drawer-tab-audit" class="drawer-tab-panel d-none" role="tabpanel" aria-labelledby="drawer-tab-btn-audit">
         <div id="drawer-audit-sections"><!-- rendered by JS --></div>
       </div>
 
@@ -9608,16 +9621,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-asset-title" id="cmdb-asset-modal"><div class="modal modal-wide">
   <div class="modal-title" id="cmdb-asset-title">Asset</div>
   <div id="cmdb-asset-tickets" class="mb-8 scroll-cap"></div>
-  <div class="isl-227">
-    <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds" >Credentials</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="hw" data-action="cmdbSwitchTab" data-arg="hw" >Hardware</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="biz" data-action="cmdbSwitchTab" data-arg="biz" >Contracts &amp; contacts</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="snmp" data-action="cmdbSwitchTab" data-arg="snmp" >SNMP</button>
+  <div class="isl-227" role="tablist" aria-label="Asset detail">
+    <button class="btn-icon cmdb-tab-btn active" id="cmdb-tab-btn-props" role="tab" aria-selected="true" aria-controls="cmdb-tab-props" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-docs" role="tab" aria-selected="false" aria-controls="cmdb-tab-docs" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-creds" role="tab" aria-selected="false" aria-controls="cmdb-tab-creds" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds" >Credentials</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-hw" role="tab" aria-selected="false" aria-controls="cmdb-tab-hw" data-tab="hw" data-action="cmdbSwitchTab" data-arg="hw" >Hardware</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-biz" role="tab" aria-selected="false" aria-controls="cmdb-tab-biz" data-tab="biz" data-action="cmdbSwitchTab" data-arg="biz" >Contracts &amp; contacts</button>
+    <button class="btn-icon cmdb-tab-btn" id="cmdb-tab-btn-snmp" role="tab" aria-selected="false" aria-controls="cmdb-tab-snmp" data-tab="snmp" data-action="cmdbSwitchTab" data-arg="snmp" >SNMP</button>
   </div>
 
-  <div id="cmdb-tab-props">
+  <div id="cmdb-tab-props"None role="tabpanel" aria-labelledby="cmdb-tab-btn-props">
     <input type="hidden" id="cmdb-asset-deviceid">
     <div class="form-group cmdb-decomm-row">
       <label class="click-row"><input type="checkbox" id="cmdb-asset-decommissioned"> <strong>Decommissioned</strong></label>
@@ -9727,7 +9740,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
        single-document CMDB shape is auto-migrated server-side at load
        time, so old assets keep working — they appear as a single doc
        titled "Documentation" until the user edits it. -->
-  <div id="cmdb-tab-docs" class="d-none">
+  <div id="cmdb-tab-docs" class="d-none" role="tabpanel" aria-labelledby="cmdb-tab-btn-docs">
     <div class="isl-228">
       <div class="isl-229">Documents</div>
       <button class="btn-icon" id="cmdb-doc-add-btn" data-action="cmdbDocAddOpen" >+ Add document</button>
@@ -9745,7 +9758,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
   </div>
 
-  <div id="cmdb-tab-creds" class="d-none">
+  <div id="cmdb-tab-creds" class="d-none" role="tabpanel" aria-labelledby="cmdb-tab-btn-creds">
     <div id="cmdb-creds-locked-warning" class="isl-231">
       Vault is locked. Unlock from the CMDB page header to add or reveal credentials.
     </div>
@@ -9759,7 +9772,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 
   <!-- v3.2.0 (B5): SNMP polling for agentless devices -->
-  <div id="cmdb-tab-snmp" class="d-none">
+  <div id="cmdb-tab-snmp" class="d-none" role="tabpanel" aria-labelledby="cmdb-tab-btn-snmp">
     <p class="hint">Pure SNMPv2c (community string) polling of the standard <code>sys*</code> group. The server runs a sweep every 5 minutes — switches, APs, IPMI cards, and printers all use the same protocol. Use "Poll now" after editing to verify.</p>
     <div class="form-group">
       <label class="form-label">
@@ -9786,13 +9799,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 
   <!-- v3.12.0: Hardware & network (read-only, from the agent) -->
-  <div id="cmdb-tab-hw" class="d-none">
+  <div id="cmdb-tab-hw" class="d-none" role="tabpanel" aria-labelledby="cmdb-tab-btn-hw">
     <p class="hint">Reported by the agent on its heartbeat. Read-only.</p>
     <div id="cmdb-hw-summary" class="scroll-cap"></div>
   </div>
 
   <!-- v3.12.0: business lists — contracts, contacts, licenses -->
-  <div id="cmdb-tab-biz" class="d-none">
+  <div id="cmdb-tab-biz" class="d-none" role="tabpanel" aria-labelledby="cmdb-tab-btn-biz">
     <div class="form-group">
       <div class="form-row-wrap"><label class="form-label fw-600">Support contracts</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="contracts">+ Add contract</button></div>
       <div id="cmdb-list-contracts" class="scroll-cap"></div>
@@ -10086,14 +10099,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="acme-detail-title" id="acme-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="acme-detail-title">Certificate detail</div>
   <div class="modal-subtitle" id="acme-detail-subtitle"></div>
-  <div class="isl-250">
-    <button class="drawer-tab-btn active" data-acme-tab="overview" data-action="acmeDetailTab" data-arg="overview" >Overview</button>
-    <button class="drawer-tab-btn" data-acme-tab="timeline" data-action="acmeDetailTab" data-arg="timeline" >Timeline</button>
-    <button class="drawer-tab-btn" data-acme-tab="logs" data-action="acmeDetailTab" data-arg="logs" >Logs</button>
+  <div class="isl-250" role="tablist" aria-label="Certificate detail">
+    <button class="drawer-tab-btn active" id="acme-tab-btn-overview" role="tab" aria-selected="true" aria-controls="acme-detail-overview" data-acme-tab="overview" data-action="acmeDetailTab" data-arg="overview" >Overview</button>
+    <button class="drawer-tab-btn" id="acme-tab-btn-timeline" role="tab" aria-selected="false" aria-controls="acme-detail-timeline" data-acme-tab="timeline" data-action="acmeDetailTab" data-arg="timeline" >Timeline</button>
+    <button class="drawer-tab-btn" id="acme-tab-btn-logs" role="tab" aria-selected="false" aria-controls="acme-detail-logs" data-acme-tab="logs" data-action="acmeDetailTab" data-arg="logs" >Logs</button>
   </div>
-  <div id="acme-detail-overview" class="acme-detail-pane isl-251"></div>
-  <div id="acme-detail-timeline" class="acme-detail-pane isl-252"></div>
-  <div id="acme-detail-logs" class="acme-detail-pane isl-252"></div>
+  <div id="acme-detail-overview" class="acme-detail-pane isl-251" role="tabpanel" aria-labelledby="acme-tab-btn-overview"></div>
+  <div id="acme-detail-timeline" class="acme-detail-pane isl-252" role="tabpanel" aria-labelledby="acme-tab-btn-timeline"></div>
+  <div id="acme-detail-logs" class="acme-detail-pane isl-252" role="tabpanel" aria-labelledby="acme-tab-btn-logs"></div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="acme-detail-modal" >Close</button>
   </div>
@@ -10105,20 +10118,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle" id="mitigate-subtitle"></div>
 
   <!-- Tab bar -->
-  <div class="isl-250">
-    <button class="drawer-tab-btn active" data-mit-tab="diagnostic" data-action="mitigateTab" data-arg="diagnostic" >1 · Diagnostic</button>
-    <button class="drawer-tab-btn"        data-mit-tab="ai"         data-action="mitigateTab" data-arg="ai" >2 · AI analysis</button>
-    <button class="drawer-tab-btn"        data-mit-tab="fix"        data-action="mitigateTab" data-arg="fix" >3 · Apply fix</button>
+  <div class="isl-250" role="tablist" aria-label="Investigation steps">
+    <button class="drawer-tab-btn active" id="mit-tab-btn-diagnostic" role="tab" aria-selected="true"  aria-controls="mitigate-pane-diagnostic" data-mit-tab="diagnostic" data-action="mitigateTab" data-arg="diagnostic" >1 · Diagnostic</button>
+    <button class="drawer-tab-btn"        id="mit-tab-btn-ai"         role="tab" aria-selected="false" aria-controls="mitigate-pane-ai"         data-mit-tab="ai"         data-action="mitigateTab" data-arg="ai" >2 · AI analysis</button>
+    <button class="drawer-tab-btn"        id="mit-tab-btn-fix"        role="tab" aria-selected="false" aria-controls="mitigate-pane-fix"        data-mit-tab="fix"        data-action="mitigateTab" data-arg="fix" >3 · Apply fix</button>
   </div>
 
   <!-- Diagnostic tab -->
-  <div id="mitigate-pane-diagnostic" class="mitigate-pane isl-253">
+  <div id="mitigate-pane-diagnostic" class="mitigate-pane isl-253" role="tabpanel" aria-labelledby="mit-tab-btn-diagnostic">
     <div id="mitigate-diag-meta" class="hint-mb"></div>
     <pre id="mitigate-diag-output" class="isl-254">Queuing diagnostic…</pre>
   </div>
 
   <!-- AI tab -->
-  <div id="mitigate-pane-ai" class="mitigate-pane isl-255">
+  <div id="mitigate-pane-ai" class="mitigate-pane isl-255" role="tabpanel" aria-labelledby="mit-tab-btn-ai">
     <div id="mitigate-ai-status" class="hint-mb"></div>
     <div id="mitigate-ai-summary" class="isl-256"></div>
     <div id="mitigate-ai-fix-box" class="isl-257">
@@ -10133,7 +10146,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 
   <!-- Fix tab -->
-  <div id="mitigate-pane-fix" class="mitigate-pane isl-255">
+  <div id="mitigate-pane-fix" class="mitigate-pane isl-255" role="tabpanel" aria-labelledby="mit-tab-btn-fix">
     <div id="mitigate-fix-options" class="isl-262"></div>
     <div class="form-group">
       <label for="mitigate-fix-cmd" class="form-label">Command to run</label>
@@ -11027,38 +11040,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-5"></script>
+<script defer src="static/js/app.js?v=6.4.2-6"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-5"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-6"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-5"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-6"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-5"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-6"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-5"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-5"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-6"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-5"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-6"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11068,6 +11081,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-5"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-6"></script>
 </body>
 </html>

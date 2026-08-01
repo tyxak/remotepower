@@ -374,6 +374,177 @@ At 1000+ agents the time-series and logs are what grow. Keep them bounded:
 
 ---
 
+## Multi-tenancy — one instance, several customers
+
+Not a scaling lever, but the other reason people end up on this page: an MSP
+running one RemotePower for several customers. **Settings → Security →
+Multi-tenancy** points here, so the full workflow lives here.
+
+Tenancy is **off by default** and every helper below is a no-op while it is
+off — a single-organisation install behaves exactly as if none of this
+existed. Turning it on is fully reversible.
+
+### The model
+
+- A **tenant** is a registry entry (`tenants.json`) with an id, a name and a
+  status. There is always a built-in tenant called `default`.
+- A **device** belongs to a tenant via its `tenant` field. Missing = `default`.
+- A **user** belongs to a tenant via `tenant_id` on the user record. Missing =
+  `default`.
+- An **API key** stores the tenant of whoever created it, so a key never
+  resolves through the free-text `user` field on the key record.
+- A **platform superadmin** is an `admin` **in the `default` tenant**. They see
+  and manage everything, including the tenant registry. A tenant's own admin is
+  an `admin` whose `tenant_id` is that tenant — full admin *inside* their
+  tenant, nothing outside it.
+
+When enforcement is on, a device belonging to another tenant is invisible: it
+is filtered out of every fleet list and aggregate, and addressing it by id
+returns **404**, never 403 (a 403 would confirm the id exists).
+
+Limit: **200 tenants** per instance.
+
+### ⚠ The superadmin trap — read this before you add a customer's operator
+
+**`POST /api/users` does not stamp a tenant.** Neither does SSO/SAML JIT
+provisioning, nor SCIM. A new account therefore has **no `tenant_id`**, which
+falls back to `default` — and an account with `role=admin` in the `default`
+tenant *is* a platform superadmin.
+
+So adding a customer's administrator through **Settings → Users** silently
+grants them **full cross-tenant control of your entire fleet**. There is no
+warning in the UI, and nothing about the resulting account looks unusual.
+
+Every account creation must be followed by an explicit tenant assignment:
+
+```bash
+# 1. create the operator (Settings → Users, or the API)
+curl -sS -X POST https://rp.example.com/api/users \
+  -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"acme-admin","password":"…","role":"admin"}'
+
+# 2. IMMEDIATELY put them in their tenant — until this runs they are a superadmin
+curl -sS -X POST https://rp.example.com/api/tenants/tn_XXXXXXXX/users \
+  -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"acme-admin"}'
+```
+
+To audit an existing install, `GET /api/tenants` reports a `user_count` per
+tenant — if `default` holds more accounts than your own platform staff, some of
+them are unintentional superadmins.
+
+### Onboarding a tenant, end to end
+
+Six of the seven tenancy endpoints have **no user interface** — this is an
+API-driven workflow. All of them require a platform superadmin except tenant
+branding (see below).
+
+**1. Create the tenant.**
+
+```bash
+curl -sS -X POST https://rp.example.com/api/tenants \
+  -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Acme Ltd"}'
+# → {"ok":true,"id":"tn_8kQ2v1Ab","name":"Acme Ltd"}
+```
+
+The id is generated (`tn_` + random) — you cannot choose it. Names must be
+unique (case-insensitively); a duplicate returns 409.
+
+**2. Assign the tenant's users.**
+
+```bash
+curl -sS -X POST https://rp.example.com/api/tenants/tn_8kQ2v1Ab/users \
+  -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"acme-admin"}'
+```
+
+This is the **only** way a `tenant_id` is ever set on an account. Re-running it
+with a different tenant moves the user.
+
+**3. Assign the tenant's devices.** A device's tenant is set through the normal
+device-save endpoint; the `tenant` field is accepted **only from a superadmin**,
+and only for a tenant that exists (it is silently ignored otherwise).
+
+```bash
+curl -sS -X POST https://rp.example.com/api/devices/web01 \
+  -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"tenant":"tn_8kQ2v1Ab"}'
+```
+
+Do this **before** enabling enforcement, or the tenant's admins will see an
+empty fleet. Newly enrolled devices carry no tenant and land in `default` —
+assign them as part of onboarding.
+
+**4. Optional: per-tenant branding.** Instance branding is instance-wide; the
+tenant name and accent colour shown to that tenant's users after login can be
+overridden. This is the one tenancy endpoint a tenant's **own admin** may call
+(for their own tenant only) — it is a self-service white-label knob, not a
+platform-operator concern.
+
+```bash
+curl -sS -X PUT https://rp.example.com/api/tenants/tn_8kQ2v1Ab/branding \
+  -H "X-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Acme Ops","accent":"blue"}'
+```
+
+`accent` must be one of `blue`, `emerald`, `violet`, `amber`, `rose`, `cyan`
+(anything else clears it); `name` is capped at 40 characters. An unset value
+falls back to the instance-wide brand. The **login page is
+pre-authentication**, so it always shows the instance brand — there is no
+tenant to resolve until the user has signed in.
+
+**5. Turn enforcement on.** Settings → Security → Multi-tenancy → *Enforce
+tenant isolation* (`tenancy_enforced`). On Postgres you can additionally enable
+*Also enforce at the database* (`tenancy_rls`), which adds row-level security
+beneath the application filter as defence in depth. The app-layer filter stays
+the primary, always-on-when-enforced boundary; RLS is the second layer, not a
+replacement.
+
+**6. Check what is actually isolated.** The same Settings section renders
+`GET /api/tenancy/readiness`, which reports per store whether it is isolated and
+at which layer. Read it before you promise a customer isolation — the honest
+summary is:
+
+| Store | Isolated when enforced? |
+|---|---|
+| Devices, and everything keyed by a device id (metrics, history, alerts, entity records) | **Yes** — app layer, plus the database when RLS is on |
+| Tickets | No — one shared store |
+| CMDB assets & credentials | No — one shared store |
+| Billing, time tracking, invoices | No — one shared store |
+| Audit log | No — **deliberately** global; a superadmin needs one complete trail |
+| Users & roles | No — **deliberately** global control-plane |
+
+### Other things worth knowing
+
+- **Tenant `status` is a label, not a control.** `PUT /api/tenants/{id}` accepts
+  `{"status":"suspended"}` and `GET /api/tenants` reports it, but nothing in the
+  product enforces it — a suspended tenant's users keep working normally. To
+  actually cut access, disable the accounts.
+- **Delete refuses a tenant that still has users** (409) — reassign them first.
+  The `default` tenant can be neither modified nor deleted.
+- **`sso_group_roles` is instance-wide.** One IdP for the whole deployment; only
+  a superadmin may change the group→role map. See [sso.md](sso.md).
+- **A tenant admin cannot promote itself.** `/api/tenants*` is gated on
+  superadmin specifically so a tenant admin cannot
+  `POST /api/tenants/default/users {self}` its way to platform control.
+- **API keys inherit their creator's tenant** and are filtered by it, so a
+  tenant admin's key cannot read across tenants.
+
+The endpoints, for reference:
+
+| Method | Path | Who |
+|---|---|---|
+| GET | `/api/tenants` | superadmin |
+| POST | `/api/tenants` | superadmin |
+| PUT | `/api/tenants/{id}` | superadmin |
+| DELETE | `/api/tenants/{id}` | superadmin |
+| POST | `/api/tenants/{id}/users` | superadmin |
+| GET/PUT | `/api/tenants/{id}/branding` | superadmin, or that tenant's own admin |
+| GET | `/api/tenancy/readiness` | superadmin |
+
+---
+
 ## nginx / OS tuning checklist
 
 - `worker_processes auto;` and a high `worker_connections`.

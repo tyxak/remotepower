@@ -214,6 +214,53 @@ A deactivated account is refused at login even with valid credentials (local
 
 ---
 
+## Which tenant a new account lands in (multi-tenant installs)
+
+Skip this if you run one organisation on the instance — tenancy is off by
+default and none of it applies.
+
+**No account-creation path stamps a tenant.** Not `POST /api/users`, not
+Settings → Users, not OIDC/SAML JIT provisioning, not SCIM. Every one of them
+writes a user record with **no `tenant_id`**, which resolves to the built-in
+`default` tenant.
+
+That matters because a user with `role=admin` in the `default` tenant is a
+**platform superadmin** — the account that sees and manages *every* tenant. So
+creating a customer's administrator through any of the routes above, including
+an IdP group that maps to `admin`, silently produces a superadmin.
+
+The only thing that ever sets `tenant_id` is an explicit assignment:
+
+```bash
+curl -sS -X POST https://rp.example.com/api/tenants/<tenant-id>/users \
+  -H "X-Token: $SUPERADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"acme-admin"}'
+```
+
+Practical consequences for a federated multi-tenant deployment:
+
+- **One IdP per instance.** `sso_group_roles` (the group→role map) is
+  instance-wide, and only a platform superadmin may change it. There is no
+  per-tenant IdP and no per-tenant group map.
+- **A group that maps to `admin` mints superadmins.** Until each JIT-provisioned
+  account is assigned to its tenant, it has platform-wide reach. Either keep
+  federated groups mapped to non-admin roles, or reconcile new accounts to
+  their tenant as part of onboarding.
+- **SCIM does not carry tenancy either.** The IdP can create, role-assign and
+  deactivate users, but it cannot place them in a tenant — that assignment stays
+  a superadmin action against `/api/tenants/{id}/users`.
+- **API keys do inherit the creating user's tenant**, so a tenant admin's key
+  stays confined to that tenant.
+- **Audit it periodically.** `GET /api/tenants` returns a `user_count` per
+  tenant; anything in `default` that is not your own platform staff is an
+  unintended superadmin.
+
+The full tenant onboarding workflow — creating tenants, assigning devices,
+per-tenant branding, what is and is not actually isolated — is in
+[scaling.md](scaling.md#multi-tenancy--one-instance-several-customers).
+
+---
+
 ## Interaction with local accounts and MFA
 
 - **Local passwords stay primary.** The login form always tries the local

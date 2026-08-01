@@ -1031,7 +1031,7 @@ async function showApp() {
       banner.id = 'default-pw-banner';
       banner.style.cssText = 'background:var(--red-soft,#3a1f1f);border-bottom:1px solid var(--red-edge,#7f1d1d);color:var(--red,#f87171);padding:10px 16px;font-size:13px;text-align:center;cursor:pointer';
       banner.innerHTML = '\u26a0 This account is using the default password. <strong>Change it now</strong> \u2014 click here.';
-      banner.onclick = () => showPage('settings', document.querySelector('.nav-btn[data-page=\"settings\"]'));
+      banner.onclick = () => gotoPasswordChange();
       document.body.insertBefore(banner, document.body.firstChild);
     }
     banner.style.display = 'block';
@@ -1649,8 +1649,10 @@ async function api(method, path, body, extra) {
         if (typeof toast === 'function') {
           toast('Change your password first — every other action is blocked.', 'error');
         }
-        // Route to Settings → Account so the change form is one click away.
-        try { showPage('settings', document.querySelector('.nav-btn[data-page=\"settings\"]')); } catch (_) {}
+        // v6.4.2: this used to land on Settings → General, which has NO
+        // password field (the old comment claimed "Settings → Account", which
+        // is not a settings tab at all). The Account page owns the form.
+        try { gotoPasswordChange(); } catch (_) {}
         return parsed;
       }
     } catch (_) { /* fall through to generic handler */ }
@@ -2583,7 +2585,12 @@ async function loadDevices() {
       }
     }
   } catch(e) {
+    // v6.4.2: a toast is gone in 3.5s and leaves the grid showing stale (or
+    // empty) content — a transient 500 read as "you have no devices". Put the
+    // failure IN the panel with a Retry, like the app-*.js pages already do.
     toast('Failed to load devices', 'error');
+    if (!window._devicesRendered) _errorState('devices-container', loadDevices,
+                                              { msg: 'Failed to load devices.' });
   }
 }
 // v3.4.2: signed/integrity badge next to a device's version. Green check =
@@ -3086,8 +3093,8 @@ function onReachabilityModeChange() {
   const row = document.getElementById('ds-manual-status-row');
   if (row) row.classList.toggle('d-none', mode !== 'manual');
 }
-async function clearMonitorAlerts() { if (!await uiConfirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
-async function clearWebhookLog() { if (!await uiConfirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearMonitorAlerts() { if (!await uiConfirm({ message: 'Reset all monitor alert state? This allows alerts to re-fire.', confirmText: 'Reset', danger: true })) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
+async function clearWebhookLog() { if (!await uiConfirm({ message: 'Clear the webhook delivery log?', confirmText: 'Clear', danger: true })) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
 function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
@@ -3625,14 +3632,14 @@ async function toggleMonitorPause(label, paused) {
   }
 }
 
-async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = _skeletonBlock(); openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${escAttr(new Date(h.ts*1000).toLocaleString() + ' — ' + (h.detail||''))}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1];
+async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = _skeletonBlock(); openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${escAttr(_fmtAbsTs(h.ts) + ' — ' + (h.detail||''))}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1];
   // v6.1.2: response-time percentiles over the window. Successful checks only —
   // a timeout's elapsed time is the timeout value, not the service's latency, so
   // folding failures in would make p99 track the timeout constant. Absent on a
   // monitor whose window predates latency capture.
   const L = data.latency;
   const _lat = L ? `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">p50</div><div class="value">${L.p50} ms</div></div><div class="sysinfo-pill"><div class="label">p95</div><div class="value">${L.p95} ms</div></div><div class="sysinfo-pill"><div class="label">p99</div><div class="value">${L.p99} ms</div></div><div class="sysinfo-pill" title="min / avg / max over ${L.samples} successful checks"><div class="label">min · avg · max</div><div class="value fs-13">${L.min} · ${L.avg} · ${L.max} ms</div></div></div>` : '';
-  document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${_scoreClass(pct,90,70)}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div>${_lat}<div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Response</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${h.ms == null ? '—' : escHtml(String(h.ms)) + ' ms'}</td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+  document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${_scoreClass(pct,90,70)}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div>${_lat}<div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Response</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${_fmtAbsTs(h.ts)}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${h.ms == null ? '—' : escHtml(String(h.ms)) + ' ms'}</td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
 // ── v6.4.0: SLA / SLO objects — named availability targets remote probes
 // attach to (slo_ids checkboxes in the monitor editor). Data: GET /api/slo
 // `objects` (per-object availability + error budget over the object window).
@@ -3827,7 +3834,7 @@ function _registerUsersTable() {
         : '<span class="patch-badge crit fs-11">none</span>';
       const srcBadge = `<span class="patch-badge fs-11">${escHtml(u.source || 'local')}</span>`
         + (u.disabled ? ' <span class="patch-badge crit fs-11">disabled</span>' : '');
-      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" title="Change password" data-action="openPasswd" data-arg="${escAttr(u.username)}" >${_icon('lock',14)}</button><button class="btn-icon" title="Edit role" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete user" data-action="deleteUser" data-arg="${escAttr(u.username)}" >${_icon('trash',14)}</button></div></td></tr>`;
+      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? _fmtAbsDate(u.created) : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" title="Change password" data-action="openPasswd" data-arg="${escAttr(u.username)}" >${_icon('lock',14)}</button><button class="btn-icon" title="Edit role" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete user" data-action="deleteUser" data-arg="${escAttr(u.username)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -3836,7 +3843,9 @@ function _registerUsersTable() {
 async function loadUsers() {
   _registerUsersTable();
   const data = await api('GET', '/users');
-  if (!data) return;
+  // v6.4.2: a bare `return` left the skeleton/previous rows up with no hint
+  // that the fetch failed.
+  if (!data) { _errorState('users-tbody', loadUsers, { colspan: 6, msg: 'Failed to load users.' }); return; }
   tableCtl.render('users', data);
   loadRoles();
 }
@@ -3848,7 +3857,7 @@ async function loadRoles() {
   const out = document.getElementById('roles-list');
   if (!out) return;
   const r = await api('GET', '/roles').catch(() => null);
-  if (!r || !Array.isArray(r.roles)) { out.innerHTML = '<div class="c-red">Failed to load roles.</div>'; return; }
+  if (!r || !Array.isArray(r.roles)) { _errorState(out, loadRoles, { msg: 'Failed to load roles.' }); return; }
   _rolesCache = r.roles;
   const custom = r.roles.filter(x => !x.builtin);
   if (!custom.length) { out.innerHTML = '<div class="empty-state">No custom roles. Built-in admin / viewer always exist. Click <strong>Add role</strong> to define a scoped operator role.</div>'; return; }
@@ -3956,7 +3965,7 @@ async function openUserAdd() {
   openModal('user-add-modal');
 }
 async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error', {transient: true}); return; } const data = await withStepUp(() => api('POST', '/users', {username, password, role})); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error'); }
-async function deleteUser(username) { if (!await uiConfirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
+async function deleteUser(username) { if (!await uiConfirm({ message: `Delete user "${username}"?`, confirmText: 'Delete', danger: true })) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: flip a user between admin and viewer without delete+recreate.
 // Server refuses to demote the last admin.
@@ -3971,6 +3980,38 @@ async function editUserRole(username, currentRole) {
   else if (data?.code !== 'step_up_required') toast(data?.error || 'Failed', 'error');
 }
 function openPasswd(username) { document.getElementById('passwd-username').value = username; document.getElementById('passwd-old').value = ''; document.getElementById('passwd-new').value = ''; document.getElementById('passwd-old-wrap').style.display = 'block'; openModal('passwd-modal'); }
+// v6.4.2: the Account page's own "Change password" button. It must NOT dispatch
+// to openPasswd directly — the data-action dispatcher passes data-arg, and with
+// none the username field receives the literal string "undefined", which then
+// 403s as a non-admin trying to change someone else's password. Resolve the
+// signed-in user here instead; the admin Users-table row keeps using openPasswd
+// with an explicit username, which is the only case that may target someone else.
+function openMyPasswd() {
+  const who = (typeof _meCache !== 'undefined' && _meCache && _meCache.username) || '';
+  if (!who) { toast('Could not determine the signed-in account', 'error'); return; }
+  openPasswd(who);
+}
+// v6.4.2: both first-run "change your password" nudges (the red default-password
+// banner and the must_change_password 403 interceptor) used to land on Settings →
+// General, which has no password field at all. Send them to the Account page,
+// which does — and if that page has not shipped its password section yet, open
+// the change-password form directly so the nudge is never a dead end.
+function gotoPasswordChange() {
+  try { showPage('account'); } catch (_) { /* page may be gated/absent */ }
+  setTimeout(() => {
+    const sec = document.getElementById('account-password-section');
+    if (sec) {
+      try { sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      catch (_) { try { sec.scrollIntoView(); } catch (__) {} }
+      // clicking the section's own button routes through the normal dispatcher
+      const btn = sec.querySelector('[data-action="openPasswd"]');
+      if (btn) btn.click();
+      return;   // either way, the operator is looking at the password form
+    }
+    const who = (_meCache && _meCache.username) || '';
+    try { openPasswd(who); } catch (_) {}
+  }, 150);
+}
 async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error', {transient: true}); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
 
 // v6.1.1 (#33): step-up re-auth. A handful of sensitive actions (minting or
@@ -5253,7 +5294,7 @@ async function loadWebhookLog() {
   tbody.innerHTML = entries.slice(0, 50).map(e => {
     const isOk = String(e.status).startsWith('2') || e.status === 200;
     const dot = `<span class="${isOk ? 'c-green' : 'c-red'}" title="${isOk ? 'Delivered' : 'Failed'}">●</span> `;
-    return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${dot}${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
+    return `<tr><td class="hint-nowrap">${_fmtAbsTs(e.ts)}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${dot}${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
   }).join('');
   loadWebhookDlq();
 }
@@ -5307,7 +5348,7 @@ function _applyLitigationHoldStatus(data) {
   const el = document.getElementById('litigation-hold-status');
   if (!el) return;
   if (data && data.enabled) {
-    const started = data.started_at ? new Date(data.started_at * 1000).toLocaleString() : '';
+    const started = data.started_at ? _fmtAbsTs(data.started_at) : '';
     el.textContent = `Active since ${started}${data.started_by ? ' by ' + data.started_by : ''}${data.reason ? ' — ' + data.reason : ''}.`;
   } else {
     el.textContent = '';
@@ -5342,7 +5383,7 @@ async function loadWebhookDlq() {
   if (!entries.length) { wrap.classList.add('d-none'); return; }
   wrap.classList.remove('d-none');
   tbody.innerHTML = entries.slice(0, 100).map(e =>
-    `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td>`
+    `<tr><td class="hint-nowrap">${_fmtAbsTs(e.ts)}</td>`
     + `<td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td>`
     + `<td class="hint" title="${escAttr(e.url||'')}">${escHtml((e.url||'').slice(0, 40))}</td>`
     + `<td class="c-red" title="${escAttr(e.error||'')}">${escHtml((e.error||'').slice(0, 50))}</td>`
@@ -5363,7 +5404,7 @@ async function retryAllDlq() {
   loadWebhookDlq();
 }
 async function clearDlq() {
-  if (!await uiConfirm('Clear the dead-letter queue? Failed deliveries will be discarded.')) return;
+  if (!await uiConfirm({ message: 'Clear the dead-letter queue? Failed deliveries will be discarded.', confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', '/webhook/dlq');
   if (r?.ok) { toast('Dead-letter queue cleared', 'success'); loadWebhookDlq(); }
 }
@@ -5819,9 +5860,14 @@ function filterRows(inputEl) {
   if (!sel) return;
   const q = (inputEl.value || '').trim().toLowerCase();
   let shown = 0, total = 0;
+  const rows = [];
   document.querySelectorAll(sel).forEach(row => {
     // skip placeholder/empty/skeleton rows from the count
     if (row.querySelector && row.querySelector('.skeleton')) return;
+    // our own zero-match node matches the broad selectors some pages use;
+    // counting it would inflate `total` and make it self-matching.
+    if (row.classList.contains('filter-no-match')) return;
+    rows.push(row);
     total++;
     const match = !q || (row.textContent || '').toLowerCase().includes(q);
     row.classList.toggle('row-hidden', !match);
@@ -5831,6 +5877,54 @@ function filterRows(inputEl) {
     const cnt = document.getElementById(inputEl.dataset.filterCount);
     if (cnt) cnt.textContent = q ? `${shown} of ${total}` : '';
   }
+  _filterRowsNoMatch(inputEl, rows, q, shown);
+}
+
+// v6.4.2: only 6 of the 28 filterRows inputs declare a result count, so a query
+// that matched nothing just emptied the panel — most visibly Settings → Alert
+// parameters, where all ~90 threshold cards vanish with no explanation. Say so,
+// with a Clear, in the same words tableCtl.render() uses for managed tables.
+// The node is injected as a sibling of the first row so it lands inside
+// whatever container the rows live in (a tbody, a card grid, a chip row).
+function _filterRowsNoMatch(inputEl, rows, q, shown) {
+  const stale = inputEl._noMatchEl;
+  if (!q || shown || !rows.length) {
+    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+    return;
+  }
+  const first = rows[0];
+  const isRow = first.tagName === 'TR';
+  let node = stale;
+  if (!node || (node.tagName === 'TR') !== isRow) {
+    if (node && node.parentNode) node.parentNode.removeChild(node);
+    node = document.createElement(isRow ? 'tr' : 'div');
+    node.className = isRow ? 'filter-no-match' : 'filter-no-match empty-state';
+    if (isRow) {
+      const td = document.createElement('td');
+      td.className = 'empty-state';
+      node.appendChild(td);
+    }
+    inputEl._noMatchEl = node;
+  }
+  const host = isRow ? node.firstChild : node;
+  if (isRow) host.colSpan = (first.children && first.children.length) || 9;
+  host.textContent = '';
+  const label = document.createElement('span');
+  // the raw query, as typed — textContent, so no escaping question arises
+  label.textContent = `No matches for "${(inputEl.value || '').trim()}".`;
+  host.appendChild(label);
+  host.appendChild(document.createTextNode(' '));
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-icon';
+  btn.textContent = 'Clear';
+  btn.addEventListener('click', () => {
+    inputEl.value = '';
+    filterRows(inputEl);
+    try { inputEl.focus(); } catch (_) {}
+  });
+  host.appendChild(btn);
+  if (first.parentNode) first.parentNode.insertBefore(node, first);
 }
 
 // v3.12.0: searchable dropdowns for large fleets. Any <select> that grows past
@@ -5950,7 +6044,7 @@ function enhanceDeviceCombos(root) {
 // the delta at 0 so a future/skewed ts never reads "-5s ago".
 // v6.3.0 (UX wave 11): absolute-timestamp tooltip companion to timeAgo() —
 // "3h ago" answers "roughly when"; hovering answers "exactly when".
-function _absTs(ts) { return ts ? new Date(parseInt(ts) * 1000).toLocaleString() : ''; }
+function _absTs(ts) { return ts ? _fmtAbsTs(parseInt(ts)) : ''; }
 function timeAgo(ts, opts) { if (opts && opts.empty !== undefined && !ts) return opts.empty; let diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (opts && opts.clamp) diff = Math.max(0, diff); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 
 // ─── v6.1.2: temperature display unit (°C / °F) ────────────────────────────
@@ -6186,6 +6280,38 @@ window.addEventListener('hashchange', () => {
   window._pendingAlertDeepLink = m[1];
   showPage('alerts', document.querySelector('.nav-btn[data-page="alerts"]'));
 });
+
+// v6.4.2: a BARE page hash (#thermal, #risk, #settings/notifs) pasted into an
+// already-running tab used to change the URL and nothing else — page routing
+// from the hash only ran at boot (_routeFromHashOnBoot), and the only
+// hashchange listeners were the alert and device deep links above. Route bare
+// page hashes here too, deliberately through showPage(): it syncs the hash with
+// replaceState, never pushState, so the single-history-entry Back behaviour it
+// documents is preserved (this listener adds no entries of its own).
+function _routeBarePageHash() {
+  try {
+    const raw = (location.hash || '').replace(/^#/, '');
+    if (!raw) return;
+    if (raw.startsWith('device/') || raw.startsWith('devices?')) return;  // own handlers
+    if (/^alerts\//.test(raw)) return;                                    // own handler
+    const page = raw.split(/[/?]/)[0];
+    if (!/^[a-z0-9-]{1,40}$/.test(page)) return;
+    const tab = page === 'settings' ? raw.split('/')[1] : '';
+    const cur = document.querySelector('.page.active');
+    if (cur && cur.id === 'page-' + page) {
+      // already here — the only thing left to honour is a settings sub-tab
+      if (tab) { try { switchSettingsTab(tab); } catch (_) {} }
+      return;
+    }
+    // a lazy page still lives in its <template> until first visit; showPage
+    // clones it, so count the template as known (same rule as boot routing).
+    if (!document.getElementById('page-' + page)
+        && !document.querySelector('template[data-page-tpl="' + page + '"]')) return;
+    showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
+    if (tab) { try { switchSettingsTab(tab); } catch (_) {} }
+  } catch (_) { /* non-fatal */ }
+}
+window.addEventListener('hashchange', _routeBarePageHash);
 
 // v6.3.0 (UX wave 2): click-to-copy. Any element carrying data-copy copies its
 // value (the attribute if non-empty, else its trimmed text) to the clipboard
@@ -6447,7 +6573,7 @@ function _registerScheduleTable() {
       const cmdCls   = isScript ? 'script' : j.command;
       const cmdLabel = isScript ? 'run script' : j.command;
       const jKey = _storeEvtData(j);
-      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon c-danger-outline" title="Delete" data-action-btn="_deleteJobBtn" data-id="${escAttr(j.id)}" >${_icon('trash',14)}</button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : _fmtAbsTs(j.run_at)}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon c-danger-outline" title="Delete" data-action-btn="_deleteJobBtn" data-id="${escAttr(j.id)}" >${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
@@ -6487,7 +6613,7 @@ function _registerHistoryTable() {
       device_name: e.device_name || '',
       command:     e.command || '',
     }),
-    row: (e) => `<tr><td class="isl-345">${new Date(e.ts*1000).toLocaleString()}</td><td class="fw-500">${escHtml(e.actor)}</td><td class="mono-12">${escHtml(e.device_name)}</td><td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td></tr>`,
+    row: (e) => `<tr><td class="isl-345">${_fmtAbsTs(e.ts)}</td><td class="fw-500">${escHtml(e.actor)}</td><td class="mono-12">${escHtml(e.device_name)}</td><td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td></tr>`,
     emptyMsg: 'No commands logged yet.',
     emptyMsgFiltered: 'No commands match the filter.',
   });
@@ -6947,7 +7073,7 @@ async function uninstallAgent(id, name) {
               `  • remove /usr/local/bin/remotepower-agent\n\n` +
               `The device record stays here so you can re-enroll later.\n` +
               `Continue?`;
-  if (!await uiConfirm(msg)) return;
+  if (!await uiConfirm({ message: msg, confirmText: 'Uninstall', danger: true })) return;
   const r = await api('POST', `/devices/${id}/uninstall-agent`, {});
   if (r && r.ok) {
     toast(`Uninstall queued for ${name} — completes on next heartbeat`, 'success');
@@ -7126,7 +7252,7 @@ async function saveMetricThresholds() {
 async function resetMetricThresholds() {
   const id = _currentMetricThresholdsDevice;
   if (!id) return;
-  if (!await uiConfirm('Reset all metric thresholds for this device to fleet defaults?\n\nPer-device overrides AND per-mount disk overrides will be cleared.')) return;
+  if (!await uiConfirm({ message: 'Reset all metric thresholds for this device to fleet defaults?\n\nPer-device overrides AND per-mount disk overrides will be cleared.', confirmText: 'Reset', danger: true })) return;
   const resp = await api('DELETE', `/devices/${id}/metric-thresholds`);
   if (resp?.ok) {
     toast('Reset to defaults', 'success');
@@ -7435,7 +7561,7 @@ async function loadDeviceMetrics() {
   tableCtl.render('snmp_metrics',   snmpRows);
 }
 
-async function clearHistory() { if (!await uiConfirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearHistory() { if (!await uiConfirm({ message: 'Clear all command history? This cannot be undone.', confirmText: 'Clear', danger: true })) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
 let selectedDevices = new Set();
 // v6.3.0 (UX wave 11): remember whether the last real click held Shift —
 // the data-action dispatcher doesn't pass the event through. Capture phase,
@@ -7511,7 +7637,7 @@ async function loadSatellites() {
   if (!Array.isArray(data)) { el.textContent = 'Could not load satellites.'; return; }
   if (!data.length) { el.textContent = 'No satellites yet.'; return; }
   el.innerHTML = data.map(s => {
-    const seen = s.last_seen ? new Date(s.last_seen * 1000).toLocaleString() : 'never connected';
+    const seen = s.last_seen ? _fmtAbsTs(s.last_seen) : 'never connected';
     return `<div class="sb-controls"><span><strong>${escHtml(s.name)}</strong> <span class="hint">· last seen ${escHtml(seen)}${s.last_ip ? ' · ' + escHtml(s.last_ip) : ''}</span></span><button class="btn-icon cell-sm" data-action="deleteSatellite" data-arg="${escAttr(s.id)}">Revoke</button></div>`;
   }).join('');
 }
@@ -7546,7 +7672,7 @@ async function loadRisk() {
   tableCtl.wireSortOnly('risk-thead', 'risk', () => _renderRisk());
   tbody.innerHTML = _skeletonRows(4);
   const data = await api('GET', '/risk');
-  if (!data) { tbody.innerHTML = '<tr><td colspan="4" class="c-red">Failed to load.</td></tr>'; return; }
+  if (!data) { _errorState(tbody, loadRisk, { colspan: 4 }); return; }
   _setRiskCuts(data.risk_levels);   // config cutoffs for the badge word + colour
   _riskResp = data;
   const s = document.getElementById('risk-summary');
@@ -7952,7 +8078,7 @@ async function loadSessions() {
   const data = await api('GET', '/me/sessions');
   const sessions = (data && data.sessions) || [];
   if (!sessions.length) { el.textContent = 'No active sessions.'; return; }
-  const _ago = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '—';
+  const _ago = (ts) => ts ? _fmtAbsTs(ts) : '—';
   el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
     <thead><tr class="c-muted"><th>Session</th><th>IP</th><th>Signed in</th><th>Last active</th><th></th></tr></thead>
     <tbody>${sessions.map(s => {
@@ -7972,14 +8098,14 @@ async function loadSessions() {
 }
 
 async function revokeSession(sid) {
-  if (!await uiConfirm('Revoke this session? That browser/device will be signed out.')) return;
+  if (!await uiConfirm({ message: 'Revoke this session? That browser/device will be signed out.', confirmText: 'Revoke', danger: true })) return;
   const r = await api('DELETE', `/me/sessions/${encodeURIComponent(sid)}`);
   if (r && r.ok) { toast('Session revoked', 'success'); loadSessions(); }
   else toast((r && r.error) || 'Failed to revoke session', 'error');
 }
 
 async function revokeOtherSessions() {
-  if (!await uiConfirm('Sign out all other sessions? Only this browser will stay signed in.')) return;
+  if (!await uiConfirm({ message: 'Sign out all other sessions? Only this browser will stay signed in.', confirmText: 'Sign out', danger: true })) return;
   const r = await api('POST', '/me/sessions/revoke-others');
   if (r && r.ok) { toast(`Signed out ${r.revoked} other session${r.revoked === 1 ? '' : 's'}`, 'success'); loadSessions(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -7994,7 +8120,7 @@ async function loadMyAckedAlerts() {
   el.innerHTML = alerts.map(a => {
     const sev = a.severity || '';
     const color = sev === 'critical' ? 'var(--red)' : sev === 'high' ? 'var(--amber)' : 'var(--muted)';
-    const when = a.acknowledged_at ? new Date(a.acknowledged_at * 1000).toLocaleString() : '';
+    const when = a.acknowledged_at ? _fmtAbsTs(a.acknowledged_at) : '';
     return `<div class="sb-controls"><span><span class="pill" data-color="${color}">${escHtml(sev || '—')}</span> ${escHtml(a.title || a.event || a.id)} <span class="hint">· acked ${escHtml(when)}</span></span></div>`;
   }).join('');
 }
@@ -8051,7 +8177,7 @@ function updateBatchBar() { const bar = document.getElementById('batch-bar'); co
 async function batchDelete() {
   const n = selectedDevices.size;
   if (!n) return;
-  if (!await uiConfirm(`Delete ${n} device(s)? This removes them and all their data permanently.`)) return;
+  if (!await uiConfirm({ message: `Delete ${n} device(s)? This removes them and all their data permanently.`, confirmText: 'Delete', danger: true })) return;
   const data = await api('POST', '/devices/bulk-delete', { device_ids: [...selectedDevices] });
   if (data?.ok) { toast(`Deleted ${data.deleted} of ${data.requested} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
   else toast(data?.error || 'Failed', 'error');
@@ -8081,12 +8207,12 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
   // Blast-radius guardrail (reboot/shutdown): the server refuses an over-cap
   // batch; re-confirm to override.
   if (data?.blast_blocked) {
-    if (await uiConfirm(`${data.error}\n\nProceed anyway?`)) data = await api('POST', ep, {device_ids: [...selectedDevices], confirm_blast: true});
+    if (await uiConfirm({ message: `${data.error}\n\nProceed anyway?`, confirmText: 'Proceed', danger: true })) data = await api('POST', ep, {device_ids: [...selectedDevices], confirm_blast: true});
     else return;
   }
   // v5.0.0 (#F4): agent-update compat — offer to force a flagged mismatch.
   if (data?.incompatible) {
-    if (await uiConfirm(`${data.error}\n\nForce the update anyway?`)) data = await api('POST', ep, {device_ids: [...selectedDevices], force: true});
+    if (await uiConfirm({ message: `${data.error}\n\nForce the update anyway?`, confirmText: 'Force', danger: true })) data = await api('POST', ep, {device_ids: [...selectedDevices], force: true});
     else return;
   }
   if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
@@ -8115,10 +8241,10 @@ const _MC = { W: 560, H: 150, padL: 28, padR: 10, padT: 14, padB: 24 };
 function _fmtTs(ts, spanSecs) {
   const d = new Date(ts * 1000);
   if (spanSecs > 3 * 86400)
-    return d.toLocaleDateString([], { month: 'short', day: '2-digit' });
+    return d.toLocaleDateString(_localeTag(), { month: 'short', day: '2-digit' });
   if (spanSecs > 86400)
-    return d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString(_localeTag(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString(_localeTag(), { hour: '2-digit', minute: '2-digit' });
 }
 function _metricPts(samples, key) {
   return samples.map(m => ({ ts: m.ts, v: m[key] }))
@@ -8170,7 +8296,7 @@ function _mcAnnotations(t0, span) {
       return `<g><line x1="${x}" y1="${_MC.padT}" x2="${x}" y2="${_MC.H - _MC.padB}" ` +
              `stroke="${col}" stroke-width="1" stroke-dasharray="3 2" opacity="0.75"/>` +
              `<circle cx="${x}" cy="${_MC.padT}" r="2.5" fill="${col}"/>` +
-             `<title>${escHtml(a.label)} — ${escHtml(new Date(a.ts * 1000).toLocaleString())}</title></g>`;
+             `<title>${escHtml(a.label)} — ${escHtml(_fmtAbsTs(a.ts))}</title></g>`;
     }).join('');
 }
 
@@ -8263,7 +8389,7 @@ async function restoreBackup() {
   const inp = document.getElementById('restore-file-input');
   const file = inp && inp.files && inp.files[0];
   if (!file) return;
-  if (!await uiConfirm(`Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`)) { inp.value = ''; return; }
+  if (!await uiConfirm({ message: `Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`, confirmText: 'Restore', danger: true })) { inp.value = ''; return; }
   const res = document.getElementById('backup-result');
   if (res) { res.hidden = false; res.textContent = 'Uploading & restoring…'; }
   try {
@@ -8349,8 +8475,27 @@ function _fmtBytes(n) {
 function _localeTag() {
   try {
     const l = (window.RPi18n && window.RPi18n.current) || 'en';
-    return { en: 'en', zh: 'zh-CN', hi: 'hi-IN', es: 'es-ES', ar: 'ar' }[l] || 'en';
+    // v6.4.2: de/fr shipped as UI languages but were missing here, so the two
+    // newest languages formatted dates and money as en-US.
+    return { en: 'en', zh: 'zh-CN', hi: 'hi-IN', es: 'es-ES', ar: 'ar',
+             de: 'de-DE', fr: 'fr-FR' }[l] || 'en';
   } catch (_) { return 'en'; }
+}
+// v6.4.2: bare `_fmtAbsTs(ts)` follows the BROWSER
+// locale, so an operator who picked another language in the app still got the
+// browser's date format. These three are the funnel — route timestamp
+// rendering through them, never a bare toLocale*String(). `ts` is UNIX seconds.
+function _fmtAbsTs(ts, opts) {
+  try { return new Date(Number(ts || 0) * 1000).toLocaleString(_localeTag(), opts || undefined); }
+  catch (_) { return ''; }
+}
+function _fmtAbsDate(ts, opts) {
+  try { return new Date(Number(ts || 0) * 1000).toLocaleDateString(_localeTag(), opts || undefined); }
+  catch (_) { return ''; }
+}
+function _fmtAbsTime(ts, opts) {
+  try { return new Date(Number(ts || 0) * 1000).toLocaleTimeString(_localeTag(), opts || undefined); }
+  catch (_) { return ''; }
 }
 function fmtMoney(amount, currency) {
   const n = Number(amount || 0);
@@ -8476,7 +8621,7 @@ async function saveRetention() {
   if (res) toast('Retention settings saved', 'success');
 }
 async function runMaintenance() {
-  if (!await uiConfirm('Run database maintenance now?\n\nThis purges records older than your retention limits (resolved alerts only — open alerts are kept) and compacts the database. Pruned data cannot be recovered.')) return;
+  if (!await uiConfirm({ message: 'Run database maintenance now?\n\nThis purges records older than your retention limits (resolved alerts only — open alerts are kept) and compacts the database. Pruned data cannot be recovered.', confirmText: 'Run maintenance', danger: true })) return;
   const out = document.getElementById('maintenance-result');
   if (out) { out.hidden = false; out.textContent = 'Running maintenance…'; }
   const res = await api('POST', '/db-maintenance');
@@ -8523,7 +8668,7 @@ function _registerApiKeysTable() {
         const now = Math.floor(Date.now() / 1000);
         const cls = k.expires_at <= now ? 'c-red' : (k.expires_at <= now + 7*86400 ? 'c-amber' : 'hint');
         const pre = k.expires_at <= now ? 'expired ' : '';
-        exp = `<span class="${cls}">${pre}${new Date(k.expires_at*1000).toLocaleDateString()}</span>`;
+        exp = `<span class="${cls}">${pre}${_fmtAbsDate(k.expires_at)}</span>`;
       }
       const rate = k.rate_limit ? `${k.rate_limit}/min` : '<span class="hint">unlimited</span>';
       const editBtn = `<button class="btn-icon" data-action="editApiKey" data-arg="${escAttr(k.id)}" title="Edit name, role, expiry and rate limit (the key secret stays the same)">${_icon('edit',14)}</button>`;
@@ -8531,7 +8676,7 @@ function _registerApiKeysTable() {
       // this one; hidden for an already-rotated-out (inactive) key.
       const rotateBtn = k.active === false ? '' :
         `<button class="btn-icon" data-action="rotateApiKey" data-arg="${escAttr(k.id)}" data-arg2="${escAttr(k.name)}" title="Rotate: mint a replacement key and deactivate this one">${_icon('refresh',14)}</button>`;
-      return `<tr><td class="fw-600">${escHtml(k.name)}${k.active === false ? ' <span class="hint">(rotated out)</span>' : ''}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><div class="user-actions">${editBtn}${rotateBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
+      return `<tr><td class="fw-600">${escHtml(k.name)}${k.active === false ? ' <span class="hint">(rotated out)</span>' : ''}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? _fmtAbsDate(k.created) : '—'}</td><td>${exp}</td><td><div class="user-actions">${editBtn}${rotateBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
@@ -8553,7 +8698,7 @@ async function loadCommandQueue() {
   const body = document.getElementById('cmdqueue-body');
   if (!body) return;
   const r = await api('GET', '/command-queue').catch(() => null);
-  if (!r) { body.innerHTML = '<div class="c-red">Failed to load the command queue.</div>'; return; }
+  if (!r) { _errorState(body, loadCommandQueue, { msg: 'Failed to load the command queue.' }); return; }
   _cmdqResp = r;
   _cmdqPendingShown = 25; _cmdqRecentShown = 50;
   _renderCommandQueue();
@@ -8619,7 +8764,7 @@ function _renderCommandQueue() {
   if (recentTotal) {
     const recentPage = recent.slice(0, _cmdqRecentShown);
     const rows = recentPage.map(e =>
-      `<tr><td class="c-muted fs-12">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td>`
+      `<tr><td class="c-muted fs-12">${e.ts ? _fmtAbsTs(e.ts) : '—'}</td>`
       + `<td class="fw-500">${escHtml(e.device_name || e.device_id || '—')}</td>`
       + `<td class="hint">${escHtml(e.actor || '—')}</td>`
       + `<td class="ff-mono fs-12">${escHtml(e.command || '')}</td></tr>`
@@ -8648,19 +8793,19 @@ async function cancelQueuedCommand(devId, index) {
   else toast(r?.error || 'Failed to cancel', 'error');
 }
 async function clearDeviceQueue(devId, name) {
-  if (!await uiConfirm(`Clear ALL pending commands for ${name}? None of them will be delivered.`)) return;
+  if (!await uiConfirm({ message: `Clear ALL pending commands for ${name}? None of them will be delivered.`, confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue`).catch(() => null);
   if (r?.ok) { toast(`Cleared ${r.removed} queued command(s)`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearAllQueues() {
-  if (!await uiConfirm('Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.')) return;
+  if (!await uiConfirm({ message: 'Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.', confirmText: 'Clear all', danger: true })) return;
   const r = await api('DELETE', '/command-queue').catch(() => null);
   if (r?.ok) { toast(`Cleared ${r.removed} queued command(s) across ${r.devices} device(s)`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearDispatchLog() {
-  if (!await uiConfirm('Clear the dispatched-command log? This clears the command history shown here and on the Command History page.')) return;
+  if (!await uiConfirm({ message: 'Clear the dispatched-command log? This clears the command history shown here and on the Command History page.', confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', '/history').catch(() => null);
   if (r?.ok) { toast('Command history cleared', 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
@@ -8878,7 +9023,7 @@ function _psRenderList() {
       : `<button class="btn-icon" data-action="psPromote" data-arg="${escAttr(s.id)}">Promote to tag…</button> ` +
         `<button class="btn-icon" data-action="psDrift" data-arg="${escAttr(s.id)}">Drift (whole fleet)</button>`;
     return `<div class="settings-row"><strong>${escHtml(s.name)}</strong> ` +
-      `<span class="hint">${new Date(s.created * 1000).toLocaleString()} · ${s.entry_count} package(s) · by ${escHtml(s.created_by || '?')}</span> ` +
+      `<span class="hint">${_fmtAbsTs(s.created)} · ${s.entry_count} package(s) · by ${escHtml(s.created_by || '?')}</span> ` +
       tag + ` <button class="btn-icon c-danger-outline" data-action="psDelete" data-arg="${escAttr(s.id)}">Delete</button></div>`;
   }).join('') : '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -9050,7 +9195,7 @@ async function deleteApiKey(id) {
 // docs/feature-buildout-scoping-internal.md #3 for why: this stays a
 // human-triggered action on purpose, not a silent background job).
 async function rotateApiKey(id, name) {
-  if (!await uiConfirm(`Rotate '${name}'? A new key is minted and this one is deactivated immediately — update every script/integration using it.`)) return;
+  if (!await uiConfirm({ message: `Rotate '${name}'? A new key is minted and this one is deactivated immediately — update every script/integration using it.`, confirmText: 'Rotate', danger: true })) return;
   const data = await api('POST', '/apikeys/' + id + '/rotate', {});
   if (data?.ok) {
     const t = _apiKeyModalTitle(); if (t) t.textContent = 'Key rotated';
@@ -9097,7 +9242,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? _fmtAbsDate(s.created) : '—'}</td><td><div class="user-actions"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></div></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -10440,7 +10585,7 @@ function exportPatchPdf() {
     return `<tr><td>${escHtml(d.name || d.hostname || '?')}</td><td>${escHtml(d.group || '—')}</td><td>${escHtml(d.os || '—')}</td><td>${escHtml(d.pkg_manager || '—')}</td><td class="${cls}">${escHtml(status)}</td></tr>`;
   }).join('');
   rep.innerHTML = `
-    <div class="pr-head"><div><h1>Patch report</h1><div class="pr-meta">${escHtml(scope)} · generated ${escHtml(new Date().toLocaleString())}</div></div></div>
+    <div class="pr-head"><div><h1>Patch report</h1><div class="pr-meta">${escHtml(scope)} · generated ${escHtml(new Date().toLocaleString(_localeTag()))}</div></div></div>
     <div class="pr-cards">
       <div class="pr-card"><div class="pr-k">Devices</div><div class="pr-v">${total}</div></div>
       <div class="pr-card"><div class="pr-k">Up to date</div><div class="pr-v">${patched}</div></div>
@@ -10459,7 +10604,7 @@ function exportPatchPdf() {
     setTimeout(() => { rep.innerHTML = ''; }, 500);
   }));
 }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = _skeletonBlock(); openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div>${data.security_updates > 0 ? `<div class="sysinfo-pill"><div class="label">Security</div><div class="value c-red" title="Updates the distro itself flags as security (apt -security / dnf --security / arch-audit)">${data.security_updates} flagged</div></div>` : ''}<div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${_fmtAbsTs(o.ts)} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -10493,7 +10638,7 @@ function _registerCveTable() {
         'no_packages': '<span class="c-muted">●</span> no package list',
         'unsupported': '<span class="c-amber">●</span> unsupported',
       }[d.status] || d.status;
-      const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
+      const scanText = d.scanned_at ? _fmtAbsTs(d.scanned_at) : statusBadge;
       const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
       const cveTotal = (d.counts.critical||0) + (d.counts.high||0) + (d.counts.medium||0) + (d.counts.low||0);
       const prioBtn = cveTotal > 0
@@ -10568,7 +10713,7 @@ function _registerServicesTable() {
       return false;
     },
     row: (d) => {
-      const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span class="meta-sm-nm">never</span>';
+      const reportText = d.updated_at ? _fmtAbsTs(d.updated_at) : '<span class="meta-sm-nm">never</span>';
       const unitList = (d.services || []).map(s => {
         const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
         // Show the canonical unit systemd resolved an alias to (e.g. you watch
@@ -10633,19 +10778,19 @@ async function openServiceDetail(devId, devName) {
   openModal('service-detail-modal');
   const data = await api('GET', `/devices/${devId}/services`);
   if (!data) return;
-  const updated = data.updated_at ? new Date(data.updated_at*1000).toLocaleString() : 'never';
+  const updated = data.updated_at ? _fmtAbsTs(data.updated_at) : 'never';
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Units watched</div><div class="value">${data.services.length}</div></div><div class="sysinfo-pill"><div class="label">Last report</div><div class="value fs-11">${updated}</div></div></div>`;
   if (!data.services.length) {
     html += '<div class="empty-state">No services configured. Click "Edit watched units" below.</div>';
   } else {
     html += data.services.map(s => {
       const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
-      const sinceText = s.since ? new Date(s.since*1000).toLocaleString() : '—';
+      const sinceText = s.since ? _fmtAbsTs(s.since) : '—';
       const histItems = (s.history || []).slice().reverse();
       const logItems  = (s.log_tail || []).slice(-20);
 
       const histBody = histItems.length
-        ? histItems.map(h => `<div class="isl-404">${new Date(h.ts*1000).toLocaleString()}: ${escHtml(h.from||'?')} → ${escHtml(h.to||'?')}</div>`).join('')
+        ? histItems.map(h => `<div class="isl-404">${_fmtAbsTs(h.ts)}: ${escHtml(h.from||'?')} → ${escHtml(h.to||'?')}</div>`).join('')
         : '<div class="isl-405">No transitions recorded since enrollment.</div>';
 
       const logBody = logItems.length
@@ -10842,7 +10987,7 @@ async function svcAction(devId, unit, action) {
 // Send a signal to a PID via the audited kill: command queue.
 async function killProcess(devId, pid, name) {
   const label = name ? `${pid} (${name})` : `${pid}`;
-  if (!await uiConfirm(`Send SIGTERM to process ${label} on this host?`)) return;
+  if (!await uiConfirm({ message: `Send SIGTERM to process ${label} on this host?`, confirmText: 'Send SIGTERM', danger: true })) return;
   const r = await api('POST', `/devices/${devId}/kill`, {pid: String(pid), signal: 'TERM'});
   if (!r) { toast('Kill failed (no response)', 'error'); return; }
   if (r.error) { toast(r.error, 'error'); return; }
@@ -10924,7 +11069,7 @@ async function loadMaintSuppressions() {
     reason: e.reason || '',
   }));
   tbody.innerHTML = entries.map(e => `<tr>
-    <td class="hint-nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
+    <td class="hint-nowrap">${_fmtAbsTs(e.ts)}</td>
     <td><code class="fs-12">${escHtml(e.event)}</code></td>
     <td class="isl-341">${escHtml(e.device_id || '—')}</td>
     <td class="isl-417">${escHtml(e.window_id || '—')}</td>
@@ -11121,7 +11266,7 @@ async function loadBatchJobs() {
   const out = document.getElementById('batch-jobs');
   if (!out) return;
   const r = await api('GET', '/exec/batch').catch(() => null);
-  if (!r || !Array.isArray(r.jobs)) { out.innerHTML = '<div class="c-red">Failed to load jobs.</div>'; return; }
+  if (!r || !Array.isArray(r.jobs)) { _errorState(out, loadBatchJobs, { msg: 'Failed to load jobs.' }); return; }
   if (!r.jobs.length) { out.innerHTML = '<div class="empty-state">No recent jobs. Queue a one-time install above and follow it here.</div>'; clearTimeout(_batchPollTimer); window._batchJobsPrev = ''; return; }
   // v5.8.0 (PERF): this polls every 5s; skip the full innerHTML rebuild when the
   // job set is byte-identical (mirrors loadDevices' _devicesRawPrev guard). The
@@ -11159,7 +11304,7 @@ function toggleJobDetail(id) {
 }
 
 async function clearBatchJobs() {
-  if (!await uiConfirm('Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.')) return;
+  if (!await uiConfirm({ message: 'Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.', confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', '/exec/batch').catch(() => null);
   if (r?.ok) { _batchExpanded.clear(); clearTimeout(_batchPollTimer); loadBatchJobs(); toast('Jobs cleared', 'info'); }
   else toast(r?.error || 'Failed to clear', 'error');
@@ -11352,8 +11497,8 @@ function renderTimeSeries(elId, series, opts) {
   // tell the two ends apart, so the label carries the time of day as well.
   const _withClock = zoomOn && (maxX - minX) <= 172800;
   const fmtD = ts => _withClock
-    ? new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    ? _fmtAbsTs(ts, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : _fmtAbsDate(ts, { month: 'short', day: 'numeric' });
   svg += `<text x="${padL}" y="${H - 8}" font-size="10" fill="var(--muted)">${fmtD(minX)}</text>`;
   svg += `<text x="${W - padR}" y="${H - 8}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtD(maxX)}</text>`;
   if (win) svg += `<g clip-path="url(#${escAttr(clipId)})">`;
@@ -11396,7 +11541,7 @@ function renderTimeSeries(elId, series, opts) {
     vline.setAttribute('visibility', 'hidden');
     svgEl.appendChild(vline);
     const allPts = series.map(s => (s.points || []).slice().sort((a, b) => a.x - b.x));
-    const fmtFull = ts => new Date(ts * 1000).toLocaleString();
+    const fmtFull = ts => _fmtAbsTs(ts);
     svgEl.addEventListener('mousemove', (ev) => {
       if (dragging) { vline.setAttribute('visibility', 'hidden'); tip.classList.add('d-none'); return; }
       const r = svgEl.getBoundingClientRect();
@@ -11623,7 +11768,7 @@ function _registerAuditTable() {
       const hay = `${e.actor || ''} ${e.action || ''} ${e.detail || ''}`.toLowerCase();
       return hay.includes(q);
     },
-    row: (e) => `<tr><td class="isl-345">${new Date(e.ts*1000).toLocaleString()}</td><td class="fw-500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td class="isl-427">${escHtml(e.detail||'—')}</td><td class="isl-417">${escHtml(e.source_ip||'—')}</td></tr>`,
+    row: (e) => `<tr><td class="isl-345">${_fmtAbsTs(e.ts)}</td><td class="fw-500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td class="isl-427">${escHtml(e.detail||'—')}</td><td class="isl-417">${escHtml(e.source_ip||'—')}</td></tr>`,
     emptyMsg: 'No audit entries yet.',
     emptyMsgFiltered: 'No entries match the current filter.',
   });
@@ -11636,7 +11781,14 @@ async function loadAuditLog() {
   const tbody = document.getElementById('audit-tbody');
   tbody.innerHTML = _skeletonRows(5);
   const data = await api('GET', '/audit-log');
-  _auditLogCache = Array.isArray(data) ? data : [];
+  // v6.4.2: a failed fetch used to fall through to an empty table, which on the
+  // AUDIT page reads as "nothing was ever logged" — the worst possible lie.
+  if (!Array.isArray(data)) {
+    _auditLogCache = [];
+    _errorState('audit-tbody', loadAuditLog, { colspan: 5, msg: 'Failed to load the audit log.' });
+    return;
+  }
+  _auditLogCache = data;
   // Repopulate the action-filter dropdown with whatever actions appear in
   // the data. Sorted alphabetically so the order is stable across reloads.
   const sel = document.getElementById('audit-filter-action');
@@ -11660,7 +11812,7 @@ function renderAuditLog() {
     : _auditLogCache;
   tableCtl.render('audit', rows);
 }
-async function revokeAllSessions() { if (!await uiConfirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
+async function revokeAllSessions() { if (!await uiConfirm({ message: 'Revoke ALL sessions? Everyone (including you) will need to log in again.', confirmText: 'Revoke all', danger: true })) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() {
   // v4.6.0: use the in-app password modal (uiPrompt type:'password') — the native
   // prompt() shows the typed password in clear text and can't be masked.
@@ -11804,7 +11956,7 @@ async function loadPasskeys() {
   const d = await api('GET', '/webauthn/credentials');
   const creds = (d && d.credentials) || [];
   box.innerHTML = creds.length
-    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? new Date(c.created * 1000).toLocaleDateString() : '—'}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || 'passkey')}">${_icon('trash',14)}</button></div>`).join('')
+    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? _fmtAbsDate(c.created) : '—'}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || 'passkey')}">${_icon('trash',14)}</button></div>`).join('')
     : '<div class="hint">No passkeys yet.</div>';
 }
 
@@ -11917,8 +12069,7 @@ async function rotateAuditHmacKey() {
 
 function _formatTs(ts) {
   if (!ts) return '';
-  const d = new Date(ts * 1000);
-  return d.toLocaleString();
+  return _fmtAbsTs(ts);
 }
 
 // Same escaping as escHtml(), plus a null/undefined → '' guard (escHtml renders
@@ -12076,6 +12227,8 @@ async function loadConfirmations() {
     refreshConfirmationsBadge();
   } catch (e) {
     toast('Failed to load confirmations', 'error');
+    _errorState('confirmations-tbody', loadConfirmations,
+                { colspan: 7, msg: 'Failed to load confirmations.' });
   }
 }
 
@@ -12155,7 +12308,7 @@ async function rejectConfirmation(id) {
 }
 
 async function clearConfirmations() {
-  if (!await uiConfirm('Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.')) return;
+  if (!await uiConfirm({ message: 'Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.', confirmText: 'Clear', danger: true })) return;
   const r = await api('DELETE', '/confirmations', {});
   if (r && r.ok) { toast(`Cleared ${r.removed} entr${r.removed === 1 ? 'y' : 'ies'}`, 'success'); loadConfirmations(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -12539,7 +12692,7 @@ async function loadIntegrationsPage() {
       sum.innerHTML = `${items.length} integration${items.length === 1 ? '' : 's'} · <span class="${c.critical > 0 ? 'c-red fw-600' : ''}">${c.critical}</span> critical, <span class="${c.warning > 0 ? 'c-amber' : ''}">${c.warning}</span> warning, ${c.ok} ok`;
     }
   } catch (e) {
-    wrap.innerHTML = '<div class="empty-state">Failed to load integrations.</div>';
+    _errorState(wrap, loadIntegrationsPage, { msg: 'Failed to load integrations.' });
   }
 }
 
@@ -12672,7 +12825,7 @@ function _renderWpLoginPanels(items) {
       const tr = document.createElement('tr');
       const tdTime = document.createElement('td');
       tdTime.className = 'hint';
-      tdTime.textContent = l.ts ? new Date(l.ts * 1000).toLocaleString() : '—';
+      tdTime.textContent = l.ts ? _fmtAbsTs(l.ts) : '—';
       const tdUser = document.createElement('td');
       tdUser.textContent = l.user || '?';     // textContent, never innerHTML —
       const tdIp = document.createElement('td');
@@ -12793,6 +12946,8 @@ async function loadInboundWebhooks() {
     _renderInboundWebhooks((data && data.tokens) || []);
   } catch (e) {
     toast('Failed to load inbound webhooks', 'error');
+    _errorState('inbound-webhooks-tbody', loadInboundWebhooks,
+                { colspan: 8, msg: 'Failed to load inbound webhooks.' });
   }
 }
 
@@ -12975,7 +13130,7 @@ async function toggleInboundWebhook(id, enabledStr) {
 }
 
 async function revokeInboundWebhook(id, label) {
-  if (!await uiConfirm(`Revoke inbound webhook "${label}"? The URL will stop working immediately.`)) return;
+  if (!await uiConfirm({ message: `Revoke inbound webhook "${label}"? The URL will stop working immediately.`, confirmText: 'Revoke', danger: true })) return;
   const r = await api('DELETE', `/inbound-webhooks/${encodeURIComponent(id)}`);
   if (r && r.ok) { toast('Token revoked', 'success'); loadInboundWebhooks(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -13248,7 +13403,7 @@ async function reloadUpdateLogs() {
       ? '<span class="c-green">● success</span>'
       : `<span class="c-red">● failed (rc=${entry.exit_code})</span>`;
     const when = entry.finished_at
-      ? new Date(entry.finished_at * 1000).toLocaleString()
+      ? _fmtAbsTs(entry.finished_at)
       : '—';
     const duration = (entry.finished_at && entry.started_at)
       ? `${Math.max(0, entry.finished_at - entry.started_at)}s`
@@ -13650,7 +13805,7 @@ async function refreshBatchJob() {
     } else if (e.status === 'done') {
       const ok = e.rc === 0;
       pill = `<span class="patch-badge ${ok ? 'ok' : 'warn'} fs-11">rc=${escHtml(String(e.rc))}</span>`;
-      const finished = e.finished_at ? new Date(e.finished_at*1000).toLocaleTimeString() : '';
+      const finished = e.finished_at ? _fmtAbsTime(e.finished_at) : '';
       outBox = `<pre class="isl-503">${escHtml(e.output||'(no output)')}</pre><div class="isl-504">finished ${escHtml(finished)}</div>`;
     }
     body += `<div class="isl-505">
@@ -13697,7 +13852,7 @@ async function runCompose(action) {
   const dir = document.getElementById('compose-project-pick').value;
   if (!dir) { toast('Pick a project first', 'error', {transient: true}); return; }
   // Down is the most disruptive — confirm explicitly.
-  if (action === 'down' && !await uiConfirm(`Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`)) return;
+  if (action === 'down' && !await uiConfirm({ message: `Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`, confirmText: 'Compose down', danger: true })) return;
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
                          {action, dir});
   if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
@@ -13858,7 +14013,7 @@ function _ctrLogsMeta(extra) {
   const el = _ctrLogsEl('meta');
   if (!el) return;
   const bits = [];
-  if (_ctrLogs.fetchedAt) bits.push(`fetched ${new Date(_ctrLogs.fetchedAt).toLocaleTimeString()}`);
+  if (_ctrLogs.fetchedAt) bits.push(`fetched ${new Date(_ctrLogs.fetchedAt).toLocaleTimeString(_localeTag())}`);
   const lines = _ctrLogs.raw ? _ctrLogs.raw.split('\n').length : 0;
   if (lines) bits.push(`${lines} line${lines === 1 ? '' : 's'}`);
   if (_ctrLogs.rc != null && _ctrLogs.rc !== 0) bits.push(`exit ${_ctrLogs.rc}`);
@@ -15141,7 +15296,7 @@ function _renderUnstableHosts() {
   }));
   tbody.innerHTML = sorted.map(r => {
     const reason = r.last_boot_reason
-      ? `${escHtml(r.last_boot_reason)}${r.last_boot_reason_at ? ` <span class="hint">· ${escHtml(new Date(r.last_boot_reason_at * 1000).toLocaleString())}</span>` : ''}`
+      ? `${escHtml(r.last_boot_reason)}${r.last_boot_reason_at ? ` <span class="hint">· ${escHtml(_fmtAbsTs(r.last_boot_reason_at))}</span>` : ''}`
       : '<span class="hint">—</span>';
     return `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
@@ -16282,6 +16437,9 @@ async function loadHome() {
   if (!home) {
     window._homeLastRender = null;   // recover with a full render next tick
     _renderHomeTiles([], {}, {}, {});
+    // v6.4.2: empty tiles read as "healthy, nothing here" — say the fetch
+    // failed and offer the retry instead of silently painting zeroes.
+    _errorState('home-tiles', loadHome, { msg: 'Failed to load the dashboard.' });
     return;
   }
   // v4.3.0 perf: if the bundled payload is byte-identical to what we last
@@ -16349,7 +16507,7 @@ async function loadHome() {
 // ── v4.1.0: Upcoming events + Tickets dashboard cards ───────────────────────
 function _fmtWhen(ts) {
   try {
-    return new Date(ts * 1000).toLocaleString([],
+    return _fmtAbsTs(ts,
       { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch (e) { return ''; }
 }
@@ -17099,7 +17257,7 @@ function dashSize(key, size) {
 }
 
 async function dashReset() {
-  if (!await uiConfirm('Reset the dashboard to its default layout?')) return;
+  if (!await uiConfirm({ message: 'Reset the dashboard to its default layout?', confirmText: 'Reset', danger: true })) return;
   // v6.3.0 (UX wave 4): the reset itself is undoable (topbar arrow / toast).
   const prev = _dashLayout();
   const restore = () => _dashSave(prev, { noUndo: true });
@@ -17603,6 +17761,10 @@ function _renderHomeActivity(fleetEvents) {
     'kmip_cert_expiring', 'kmip_cert_renewed',   // v6.4.1: KMIP PKI expiry (fleet-level)
     // v6.2.0: someone gained sudo/wheel/Administrators on a host
     'priv_group_added',
+    // v6.4.2: a privileged account or security control on RemotePower ITSELF
+    // changed (control-plane, no device_id) — routes to the audit log, which
+    // is where the actor and the full detail are recorded.
+    'control_plane_security_change',
     // v6.2.0: a USB device was connected to a host (physical access)
     'usb_device_added',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
@@ -17883,6 +18045,10 @@ function _homeActivityAttrs(event, p) {
     // v6.2.0: privileged-group grant / USB plug-in → open the affected host.
     case 'priv_group_added': case 'usb_device_added':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    // v6.4.2: a control-plane privilege/security change is about RemotePower
+    // itself, not a host — the audit log is where the actor and detail are.
+    case 'control_plane_security_change':
+      return 'data-home-act="audit"';
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
     case 'process_alert': case 'process_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
@@ -18524,7 +18690,7 @@ async function loadSnapshots() {
       <th class="cell-pad">Name</th><th class="cell-pad">Taken</th>
       <th class="cell-pad">Description</th><th></th></tr></thead><tbody>` +
     snaps.map(s => {
-      const taken = s.snaptime ? new Date(s.snaptime * 1000).toLocaleString() : '—';
+      const taken = s.snaptime ? _fmtAbsTs(s.snaptime) : '—';
       return `<tr class="border-bottom">
         <td class="isl-587">${escHtml(s.name)}${s.vmstate ? ' <span class="isl-588">+RAM</span>' : ''}</td>
         <td class="isl-545">${taken}</td>
@@ -18581,8 +18747,8 @@ async function snapshotRollback(name) {
 
 async function snapshotDelete(name) {
   if (!_snapCtx) return;
-  if (!await uiConfirm(`Delete snapshot "${name}"?\n\nThis is irreversible, but it ` +
-               `does not affect the running guest.`)) return;
+  if (!await uiConfirm({ message: `Delete snapshot "${name}"?\n\nThis is irreversible, but it `
+               + `does not affect the running guest.`, confirmText: 'Delete', danger: true })) return;
   try {
     await api('POST', '/proxmox/snapshot', {
       type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'delete', name: name,
@@ -19020,7 +19186,7 @@ async function forcePackageScan(devId, name, btn) {
 
 // v2.4.7: status endpoint token management.
 async function generateStatusToken() {
-  if (!await uiConfirm('Generate a status token? Any previous token stops working.')) return;
+  if (!await uiConfirm({ message: 'Generate a status token? Any previous token stops working.', confirmText: 'Generate', danger: true })) return;
   try {
     const r = await api('POST', '/status-token', {enabled: true});
     if (r && r.status_token) _renderStatusToken(r.status_token);
@@ -19259,7 +19425,7 @@ async function loadListeningPorts() {
   if (!el) return;
   el.innerHTML = '<span class="c-muted-fs13">Loading…</span>';
   const devs = await api('GET', '/devices');
-  if (!Array.isArray(devs)) { el.textContent = 'Failed to load'; return; }
+  if (!Array.isArray(devs)) { _errorState(el, loadListeningPorts); return; }
 
   // Telemetry view — include unmonitored hosts (they still report data; only
   // alerting is suppressed). Just needs to be online + agented to have ports.
@@ -19371,7 +19537,7 @@ async function loadProcesses() {
   tableCtl.wireSortOnly('processes-thead', 'processes', _renderProcessesFiltered);
   tbody.innerHTML = _skeletonRows(5);
   const devs = await api('GET', '/devices');
-  if (!Array.isArray(devs)) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load.</td></tr>'; return; }
+  if (!Array.isArray(devs)) { _errorState(tbody, loadProcesses, { colspan: 5 }); return; }
 
   // Telemetry view — include unmonitored hosts (only alerting is suppressed).
   const monitored = devs.filter(d => !d.agentless && d.online);
@@ -19576,7 +19742,7 @@ async function loadConfigRevisions() {
     const keys = v.changed_keys || [];
     const preview = keys.slice(0, 6).join(', ') + (keys.length > 6 ? '…' : '');
     return `<div class="rdef-row">
-      <span class="fs-12">${escHtml(new Date((v.ts || 0) * 1000).toLocaleString())} · <strong>${escHtml(v.user || '—')}</strong> · <span class="hint">${keys.length} key(s): ${escHtml(preview)}</span></span>
+      <span class="fs-12">${escHtml(_fmtAbsTs((v.ts || 0)))} · <strong>${escHtml(v.user || '—')}</strong> · <span class="hint">${keys.length} key(s): ${escHtml(preview)}</span></span>
       <button class="btn-icon" data-action="restoreConfigRevision" data-arg="${escAttr(v.id)}" title="Restore this configuration state">${_icon('undo', 12)} Restore</button>
     </div>`;
   }).join('');
@@ -19899,7 +20065,7 @@ function _renderOncallSchedule(r) {
     el.innerHTML = '';
     return;
   }
-  const fmt = ts => new Date(ts * 1000).toLocaleDateString(undefined,
+  const fmt = ts => _fmtAbsDate(ts,
     { weekday: 'short', month: 'short', day: 'numeric' });
   let html = '';
   if ((r.upcoming || []).length) {
@@ -20504,7 +20670,7 @@ async function loadSudoLog(id) {
   if (!ev.length) { box.innerHTML = '<div class="meta-sm-nm">No sudo activity recorded.</div>'; return; }
   box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">'
     + '<thead><tr class="c-muted"><th>When</th><th>User</th><th>Command</th></tr></thead><tbody>'
-    + ev.map(e => `<tr><td class="fs-11">${escHtml(new Date((e.ts||0)*1000).toLocaleString())}</td>`
+    + ev.map(e => `<tr><td class="fs-11">${escHtml(_fmtAbsTs((e.ts||0)))}</td>`
         + `<td class="fs-11"><code>${escHtml(e.user||'')}</code></td>`
         + `<td class="fs-11 ff-mono">${escHtml(e.command||'')}</td></tr>`).join('')
     + '</tbody></table></div>';
@@ -21232,7 +21398,7 @@ async function _loadAuditSection(key) {
           ['USB devices', si.usb && Object.keys(si.usb).length
             ? Object.entries(si.usb).map(([id, label]) => `${label || '?'} (${id})`).join('\n')
             : null],
-          ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
+          ['Last boot', si.last_boot ? _fmtAbsTs(si.last_boot) : null],
           // v3.8.0: why the host last restarted (the command before the reboot)
           ['Boot reason', data?.last_boot_reason || null],
           // v3.8.0: who is logged in right now (active login sessions)
@@ -21258,7 +21424,7 @@ async function _loadAuditSection(key) {
                           + (si.gateway.latency_ms != null ? ` · ${si.gateway.latency_ms}ms` : '')
                           + _gwAvgSuffix(si.gateway) : null],
           ['Mail queue', si.mailq != null ? `${si.mailq} queued` : null],
-          ['Last OOM',  si.last_oom_ts ? new Date(si.last_oom_ts*1000).toLocaleString()
+          ['Last OOM',  si.last_oom_ts ? _fmtAbsTs(si.last_oom_ts)
                           + (si.last_oom_proc ? ` (${si.last_oom_proc})` : '') : null],
           // v6.2.0: Windows security posture (si.win_posture) was collected and
           // surfaced as Checks rows, but never shown at-a-glance in the drawer.
@@ -21496,7 +21662,7 @@ async function _loadAuditSection(key) {
             <tbody>` + [...byUser.entries()].map(([u,rec])=>
               `<tr><td class="isl-629"><code>${escHtml(u)}</code></td>
                    <td class="fs-11">${rec.srcs.length ? rec.srcs.map(s=>`<span class="cmd-badge fs-11">${escHtml(s)}</span>`).join(' ') : '<span class="c-muted">—</span>'}</td>
-                   <td class="fs-11">${rec.lastTs ? escHtml(new Date(rec.lastTs*1000).toLocaleString()) : '<span class="c-muted">—</span>'}</td></tr>`
+                   <td class="fs-11">${rec.lastTs ? escHtml(_fmtAbsTs(rec.lastTs)) : '<span class="c-muted">—</span>'}</td></tr>`
             ).join('') + `</tbody></table></div>`;
         }
         // W3-19: live high-res view (opt-in button; polls a burst channel).
@@ -21688,7 +21854,7 @@ async function _loadAuditSection(key) {
         const older  = outputs.slice(5);
         const renderCmds = (cmds) => cmds.map((o, i) => {
           const rc    = o.rc ?? o.exit_code ?? '?';
-          const ts    = o.ts ? new Date(o.ts*1000).toLocaleString() : '';
+          const ts    = o.ts ? _fmtAbsTs(o.ts) : '';
           const outTxt= o.output || o.stdout || '(no output)';
           return `<div class="audit-cmd-entry" id="cmd-entry-${id}-${i}">
             <div class="audit-cmd-summary" data-action="toggleAuditCmd" data-arg="${id}" data-arg2="${i}">
@@ -21958,7 +22124,7 @@ async function _loadAuditSection(key) {
             trapsHtml = `<h4 class="mt-0">Recent inbound traps (${_traps.length})</h4>`
               + `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13">`
               + `<thead><tr class="c-muted"><th>Time</th><th>OID</th><th>Value</th><th>Agent</th></tr></thead><tbody>`
-              + _traps.map(t => `<tr><td class="fs-11 c-muted">${new Date((t.ts||0)*1000).toLocaleString()}</td><td><code>${escHtml(t.oid||'—')}</code></td><td>${escHtml(t.value||'—')}</td><td class="fs-11">${escHtml(t.agent||'—')}</td></tr>`).join('')
+              + _traps.map(t => `<tr><td class="fs-11 c-muted">${_fmtAbsTs((t.ts||0))}</td><td><code>${escHtml(t.oid||'—')}</code></td><td>${escHtml(t.value||'—')}</td><td class="fs-11">${escHtml(t.agent||'—')}</td></tr>`).join('')
               + `</tbody></table></div>`;
           }
         } catch (_e) { /* traps best-effort */ }
@@ -22971,7 +23137,7 @@ function _renderTimeline() {
   const page = items.slice(0, _timelineShown);
   const rows = page.map(it => {
     const sev = _TIMELINE_SEV[it.severity] || 'sev-low';
-    const whenAbs = new Date((it.ts || 0) * 1000).toLocaleString();
+    const whenAbs = _fmtAbsTs((it.ts || 0));
     // In fleet mode each row names its device (clickable → that device's timeline).
     const devChip = (_timelineFleet && it.device_id)
       ? `<button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${_escapeHtml(it.device_id)}" title="Open ${_escapeHtml(it.device_name || it.device_id)}'s timeline">${_escapeHtml(it.device_name || it.device_id)}</button>`
@@ -23391,7 +23557,7 @@ function _renderRemediationLog() {
   el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead id="remediation-log-thead">
       <tr><th data-col="when">When</th><th data-col="rule">Rule</th><th data-col="host">Host</th><th data-col="event">Event</th><th data-col="status">Status</th></tr></thead><tbody>`
     + sorted.map(a =>
-      `<tr><td class="nowrap">${escHtml(new Date((a.ts || 0) * 1000).toLocaleString())}</td>`
+      `<tr><td class="nowrap">${escHtml(_fmtAbsTs((a.ts || 0)))}</td>`
       + `<td>${escHtml(a.rule_name || a.rule_id || '?')}</td>`
       + `<td>${a.device_id ? `<span data-dev-hover="${escAttr(a.device_id)}">${escHtml(a.device_name || a.device_id)}</span>` : '—'}</td>`
       + `<td><code>${escHtml(a.event || '')}</code></td>`
@@ -23787,7 +23953,10 @@ async function signingGenerate(force) {
   const msg = force === 'force'
     ? 'Regenerate the server signing key? Agents pinned to the OLD public key will reject updates until you redistribute the new key.'
     : 'Generate a server-held signing key? The private key is stored on this server (convenient, but weaker than CI signing — see the note above).';
-  if (!await uiConfirm(msg)) return;
+  // regenerating breaks every agent pinned to the OLD key — that half is
+  // destructive; minting a first key is not.
+  if (!await uiConfirm({ message: msg, confirmText: force === 'force' ? 'Regenerate' : 'Generate',
+                         danger: force === 'force' })) return;
   const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Generating…';
   const r = await api('POST', '/signing/generate', force === 'force' ? { force: true } : {}).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
@@ -23909,7 +24078,7 @@ async function previewDeclarativeImport() {
 }
 async function applyDeclarativeImport() {
   if (!_declarativeImportDoc) { toast('Preview first', 'info'); return; }
-  if (!await uiConfirm('Apply the previewed configuration changes? This overwrites the affected config collections.')) return;
+  if (!await uiConfirm({ message: 'Apply the previewed configuration changes? This overwrites the affected config collections.', confirmText: 'Apply', danger: true })) return;
   const r = await api('POST', '/config/declarative?apply=1', _declarativeImportDoc);
   const el = document.getElementById('declarative-import-result');
   if (r && r.ok) {
@@ -23968,7 +24137,7 @@ async function savePduConfig() {
 async function pduControl(action) {
   const devId = document.getElementById('pdu-dev-id').value;
   const verb = { on: 'Power on', off: 'Power off', cycle: 'Power-cycle' }[action] || action;
-  if (!await uiConfirm(`${verb} this host via its PDU?${action !== 'on' ? ' This cuts power immediately.' : ''}`)) return;
+  if (!await uiConfirm({ message: `${verb} this host via its PDU?${action !== 'on' ? ' This cuts power immediately.' : ''}`, confirmText: verb, danger: action !== 'on' })) return;
   const r = await api('POST', `/devices/${devId}/power-control`, { action });
   if (!r) { toast('Failed (no response)', 'error'); return; }
   if (r.error) { toast(r.error, 'error'); return; }
@@ -24006,7 +24175,7 @@ async function saveUpsDependency() {
 
 // SBOM diff — snapshot the current package set, then compare a later state to it.
 async function sbomCaptureBaseline(devId) {
-  if (!await uiConfirm("Snapshot this host's current package set as the SBOM diff baseline?")) return;
+  if (!await uiConfirm({ message: "Snapshot this host's current package set as the SBOM diff baseline?", confirmText: 'Snapshot' })) return;
   const r = await api('POST', `/devices/${devId}/sbom/baseline`, {});
   if (r?.ok) toast(`Baseline captured (${r.count} packages)`, 'success');
   else toast(r?.error || 'Failed', 'error');
@@ -24017,7 +24186,7 @@ async function sbomShowDiff(devId, devName) {
   if (!r) { toast('Failed to load diff', 'error'); return; }
   if (r.error) { toast(r.error, 'warning'); return; }
   const c = r.counts || {};
-  const when = r.baseline_at ? new Date(r.baseline_at * 1000).toLocaleString() : '—';
+  const when = r.baseline_at ? _fmtAbsTs(r.baseline_at) : '—';
   const section = (title, rows, fmt) => rows.length
     ? `<div class="fw-500 mt-12 mb-4">${title} (${rows.length})</div><div class="scrollable-table-wrap audit-scroll"><table class="fs-12"><tbody>${rows.map(fmt).join('')}</tbody></table></div>`
     : '';
@@ -25131,7 +25300,7 @@ async function loadIgnoredItems() {
     } else {
       html += entries.map(e => {
         const id = sec.identify(e);
-        const when = e.ts ? new Date(e.ts * 1000).toLocaleString() : '';
+        const when = e.ts ? _fmtAbsTs(e.ts) : '';
         // v6.4.0 (#5): for NA ignores, show when the condition was last actually
         // active — a "never" / long-stale ignore is a candidate to drop.
         const active = (sec.key === 'needs_attention' && e.last_seen)
@@ -25166,7 +25335,7 @@ async function loadIgnoredItems() {
     html += cveIgnores.map(c => {
       const scope = c.scope === 'global' ? 'all devices'
                   : (devName[c.scope] ? `device: ${devName[c.scope]}` : `device: ${c.scope}`);
-      const when = c.ts ? new Date(c.ts * 1000).toLocaleString() : '';
+      const when = c.ts ? _fmtAbsTs(c.ts) : '';
       const meta = [scope, c.reason ? `“${c.reason}”` : 'no reason', when].filter(Boolean).join(' · ');
       return `<div class="isl-669">
         <div class="isl-618"><code>${escHtml(c.vuln_id)}</code>
@@ -25194,9 +25363,9 @@ async function loadIgnoredItems() {
         ? `whole rule: ${a.pattern || ''}`
         : (a.norm || a.sample || '(line)');
       const scope = `${a.device || 'whole fleet'} · ${a.unit || 'any unit'}`;
-      const when = a.ts ? new Date(a.ts * 1000).toLocaleString() : '';
+      const when = a.ts ? _fmtAbsTs(a.ts) : '';
       const meta = [scope, a.hits ? `${a.hits} caught` : null,
-                    a.until ? `expires ${new Date(a.until * 1000).toLocaleDateString()}` : null,
+                    a.until ? `expires ${_fmtAbsDate(a.until)}` : null,
                     when].filter(Boolean).join(' · ');
       return `<div class="isl-669">
         <div class="isl-618"><span class="mono-12">${escHtml(String(what).slice(0, 160))}</span>
@@ -25955,6 +26124,10 @@ function _homeNavAction(btn) {
     case 'vpn':
       showPage('vpn', document.querySelector('.nav-btn[data-page="vpn"]'));
       break;
+    // v6.4.2: control-plane security change → the audit log
+    case 'audit':
+      showPage('audit', document.querySelector('.nav-btn[data-page="audit"]'));
+      break;
     case 'tickets':
       showPage('tickets', document.querySelector('.nav-btn[data-page="tickets"]'));
       break;
@@ -26266,6 +26439,51 @@ function _recentDevices() {
   } catch (_) { return []; }
 }
 
+// v6.4.2: the palette's "Go to page" list used to be a hand-maintained array.
+// It drifted: 17 live pages were unreachable via Ctrl-K and ['Ansible','ansible']
+// pointed at a page that no longer exists (the Ansible card moved into
+// Provisioning). Derive it from the sidebar instead, which is the same source
+// showPage() routes against — a new nav entry is in the palette the day it ships.
+// Labels come from the nav (so i18n's translated label is what you search),
+// module-gated entries (.d-none, set by _applyModuleNavGates) are skipped, and
+// the pinned clones under "Main" are ignored so nothing is listed twice.
+//
+// PALETTE_PAGE_ALIASES keeps the curated names that differ from the nav label —
+// people who learned "Fleet Query" or "Network Map" keep finding them.
+const PALETTE_PAGE_ALIASES = [
+  ['Monitoring', 'monitor'], ['TLS', 'tls'], ['IaC', 'iac'],
+  ['Network Map', 'netmap'], ['Command Library', 'cmdlib'], ['Fleet Query', 'query'],
+];
+function _palettePages() {
+  const out = [];
+  const seen = new Set();
+  let btns = [];
+  try {
+    btns = Array.from(document.querySelectorAll('.nav-btn[data-page]'));
+  } catch (_) { btns = []; }
+  for (const b of btns) {
+    const page = b.dataset && b.dataset.page;
+    if (!page || seen.has(page)) continue;
+    if (b.classList.contains('d-none')) continue;         // module switched off
+    if (b.closest && b.closest('#nav-favorites')) continue;   // pinned clone
+    let label = '';
+    for (const s of b.querySelectorAll('span')) {
+      if (s.classList.contains('nav-badge')) continue;
+      label = (s.textContent || '').trim();
+      break;
+    }
+    if (!label) continue;
+    seen.add(page);
+    out.push([label, page]);
+  }
+  for (const [label, page] of PALETTE_PAGE_ALIASES) {
+    // an alias for a gated-off page must stay gated off too
+    if (!seen.has(page)) continue;
+    out.push([label, page]);
+  }
+  return out;
+}
+
 function _palBuildIndex() {
   const items = [];
   // v6.3.0 (UX wave 5): pinned devices rank first of all.
@@ -26294,36 +26512,7 @@ function _palBuildIndex() {
     });
   }
   // Static pages (sidebar destinations)
-  const pages = [
-    ['Dashboard', 'home'], ['Devices', 'devices'], ['Containers', 'containers'],
-    ['Virtualization', 'virtualization'], ['Monitoring', 'monitor'],
-    ['History', 'history'], ['Schedule', 'schedule'], ['Calendar', 'calendar'],
-    ['Tasks', 'tasks'], ['CMDB', 'cmdb'], ['Logs', 'logs'], ['CVEs', 'cve'],
-    ['Patches', 'patches'], ['Drift', 'drift'], ['TLS', 'tls'],
-    ['Pentest', 'scans'],
-    ['IaC', 'iac'], ['Network Map', 'netmap'], ['Audit', 'audit'],
-    ['Server status', 'self'], ['Documentation', 'docs'],
-    ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],
-    ['API Keys', 'apikeys'], ['Scripts', 'scripts'], ['Command Library', 'cmdlib'],
-    ['Command Queue', 'cmdqueue'], ['Fleet Query', 'query'], ['Data Explorer', 'dataexplorer'],
-    ['Package Snapshots', 'patchsnapshots'],
-    ['Maintenance', 'maintenance'], ['Services', 'services'], ['About', 'about'],
-    // v3.4.1: new + previously-missing destinations
-    ['Timeline', 'timeline'], ['Reports', 'reports'], ['Alerts', 'alerts'],
-    ['Compliance', 'compliance'], ['Forecast', 'forecast'],
-    // v4.10.0: catch the palette up with the nav — Security / Monitoring / Admin
-    // pages added since v3.4.1 (Firewall, Risk, DNS, Reputation/DMARC, GPUs, …).
-    ['Firewall', 'firewall'], ['Risk', 'risk'], ['Checks', 'checks'],
-    ['Exposure', 'exposure'], ['Thermal', 'thermal'], ['Power', 'power'],
-    ['Storage', 'storage'], ['Predictive health', 'disk-health'],
-    ['SSH keys', 'ssh-keys'], ['GPUs', 'gpus'], ['DNS', 'dns'],
-    ['Reputation/DMARC', 'dmarc'], ['Integrations', 'integrations'],
-    ['Trends', 'trends'], ['Query', 'query'], ['Links', 'links'],
-    ['Rollouts', 'rollouts'], ['Auto-patch', 'autopatch'], ['Ansible', 'ansible'],
-    ['Automation', 'automation'], ['Software policy', 'software-policy'],
-    ['Sites', 'sites'], ['Backups', 'backups'], ['Release Signing', 'signing'],
-    ['Confirmations', 'confirmations'],
-  ];
+  const pages = _palettePages();
   for (const [label, page] of pages) {
     items.push({label, kind: 'page', sub: 'Go to page',
                 action: () => showPage(page)});
@@ -27069,7 +27258,7 @@ function addWebhookDest() {
   renderWebhookDests();
 }
 async function removeWebhookDest(idx) {
-  if (!await uiConfirm('Remove this destination?')) return;
+  if (!await uiConfirm({ message: 'Remove this destination?', confirmText: 'Remove', danger: true })) return;
   _webhookDests.splice(idx, 1);
   renderWebhookDests();
 }
@@ -27247,7 +27436,7 @@ function _renderDeviceFlows(r) {
     el.innerHTML = '<div class="empty-state">No flow data yet. This device isn\'t exporting NetFlow/IPFIX to the receiver, or <code>remotepower-flowd</code> isn\'t running. See <a href="docs/flow.md" class="c-accent">flow setup</a>.</div>';
     return;
   }
-  const when = new Date(latest.ts * 1000).toLocaleString();
+  const when = _fmtAbsTs(latest.ts);
   const protos = Object.entries(latest.protos || {}).map(([k, v]) => `${escHtml(k)} ${_fmtBytes(v)}`).join(' · ');
   const talkers = (latest.talkers || []).map(t =>
     `<tr><td><code>${escHtml(t.ip)}</code></td><td class="nowrap">${_fmtBytes(t.bytes)}</td><td class="nowrap c-muted">${t.pkts} pkts</td></tr>`).join('');
