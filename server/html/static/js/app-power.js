@@ -8,6 +8,9 @@ async function loadThermal() {
   if (!tbody) return;
   tableCtl.wireSortOnly('thermal-thead', 'thermal', () => _renderThermal());
   tbody.innerHTML = _skeletonRows(5);
+  // Refresh means refresh: drop the per-tier roll-up cache so an expanded
+  // host's timeline re-fetches instead of redrawing the snapshot it opened on.
+  _thermalRollups.clear();
   try {
     const data = await api('GET', '/fleet/thermal');
     _thermalResp = data;
@@ -66,7 +69,7 @@ function _renderThermal() {
       ? renderSparkline(r.trend, {width: 110, height: 20, color: sparkColor, fill: true})
       : '<span class="c-muted">—</span>';
     const open = _thermalExpanded.has(r.device_id);
-    const caret = `<button class="btn-icon thermal-expand" data-action="toggleThermalDetail" data-arg="${escAttr(r.device_id)}" aria-expanded="${open ? 'true' : 'false'}" title="${open ? 'Hide' : 'Show'} all sensors"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${open ? 'rot-180' : ''}"><polyline points="6 9 12 15 18 9"/></svg> ${r.sensors || 0}</button>`;
+    const caret = `<button class="btn-icon thermal-expand" data-action="toggleThermalDetail" data-arg="${escAttr(r.device_id)}" aria-expanded="${open ? 'true' : 'false'}" title="${open ? 'Hide' : 'Show'} every sensor and the temperature timeline"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${open ? 'rot-180' : ''}"><polyline points="6 9 12 15 18 9"/></svg> ${r.sensors || 0}</button>`;
     const main = `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
       <td class="${cls}">${t}</td>
@@ -93,6 +96,7 @@ function _renderThermal() {
       </tr>`;
     }).join('');
     const detail = `<tr class="thermal-detail-row"><td colspan="9">
+      ${_thermalTimelineBlock(r.device_id)}
       <div class="scroll-cap-sm">
         <table class="data-table w-full thermal-sensor-table">
           <thead><tr><th>Sensor</th><th>Temp</th><th>Type</th><th>Critical</th></tr></thead>
@@ -102,6 +106,264 @@ function _renderThermal() {
     </td></tr>`;
     return main + detail;
   }).join('') + note;
+  // The tbody is rebuilt wholesale on every render (sort, expand, refresh), so
+  // any chart inside an expanded row is destroyed with it — repaint them here
+  // rather than only where the row is first opened.
+  _thermalPaintCharts();
+}
+
+// ─── Thermal timeline — the expanded row's real chart ────────────────────────
+// The collapsed row keeps its 110x20 sparkline: that is the at-a-glance read and
+// dropping it would be a regression. Expanding a host now also draws the thing
+// the page never had — an axis chart of that host's hottest-sensor temperature
+// over time, with a range picker and time-pinpointing (`zoom`), fed by the
+// server roll-up tiers (same shape as the Trends page's metrics roll-up).
+//
+// THREE server tiers back FOUR operator-facing ranges. The 5-minute tier is
+// retained ~8 days, so "24 hours" is that same tier clipped to the last day —
+// full 5-minute resolution, which is the resolution an incident needs. Labels
+// are the window an operator thinks in, not the bucket size they never chose.
+const _THERMAL_RANGES = [
+  { key: '24h', label: '24 hours', tier: 'fivemin', span: 86400 },
+  { key: '8d',  label: '8 days',   tier: 'fivemin', span: 8 * 86400 },
+  { key: '30d', label: '30 days',  tier: 'hourly',  span: 30 * 86400 },
+  { key: '2y',  label: '2 years',  tier: 'daily',   span: 730 * 86400 },
+];
+const _thermalRange = new Map();     // device_id -> range key (default '24h')
+const _thermalRollups = new Map();   // 'device_id|tier' -> points[] (cache)
+const _thermalRollupBusy = new Set();  // 'device_id|tier' currently in flight
+// A full 8-day 5-minute tier is ~2300 buckets; drawn as three series that is
+// ~7k SVG nodes inside a table row. Fold to at most this many buckets first —
+// min/max are folded as min/max (the envelope stays honest), avg as the mean.
+const _THERMAL_MAX_POINTS = 300;
+
+function _thermalRangeDef(key) {
+  return _THERMAL_RANGES.find(r => r.key === key) || _THERMAL_RANGES[0];
+}
+function _thermalRangeFor(devId) {
+  return _thermalRangeDef(_thermalRange.get(devId));
+}
+function _thermalHostName(devId) {
+  const h = ((_thermalResp && _thermalResp.hosts) || []).find(x => x.device_id === devId);
+  return (h && h.device) || devId;
+}
+
+// Range picker + chart slot + caption. `thermal-tl-` wraps the lot so switching
+// range can repaint just this block instead of re-rendering (and scroll-jumping)
+// the whole fleet table.
+function _thermalTimelineBlock(devId) {
+  return `<div id="thermal-tl-${escAttr(devId)}" class="mb-8">${_thermalTimelineInner(devId)}</div>`;
+}
+function _thermalTimelineInner(devId) {
+  const cur = _thermalRangeFor(devId).key;
+  // data-arg carries a 'th-' prefix so the dispatcher's numeric coercion
+  // (`!isNaN(v) ? Number(v) : v`) can never mangle a device id into a number.
+  const picker = '<div class="metric-range-picker">' + _THERMAL_RANGES.map(r =>
+    `<button class="metric-range-btn${r.key === cur ? ' sel' : ''}" data-action="thermalSetRange"`
+    + ` data-arg="th-${escAttr(devId)}" data-arg2="${r.key}"`
+    + ` aria-pressed="${r.key === cur ? 'true' : 'false'}">${escHtml(r.label)}</button>`).join('')
+    + '</div>';
+  return picker
+    + `<div id="thermal-ts-${escAttr(devId)}" class="trend-chart"></div>`
+    + `<div id="thermal-tsnote-${escAttr(devId)}" class="hint mt-8"></div>`;
+}
+
+function thermalSetRange(devArg, key) {
+  const devId = String(devArg).replace(/^th-/, '');
+  _thermalRange.set(devId, _thermalRangeDef(key).key);
+  const block = document.getElementById('thermal-tl-' + devId);
+  if (!block) return;
+  block.innerHTML = _thermalTimelineInner(devId);
+  _thermalLoadChart(devId);
+}
+
+function _thermalPaintCharts() {
+  _thermalExpanded.forEach(devId => _thermalLoadChart(devId));
+}
+
+function _thermalNote(devId, html) {
+  const el = document.getElementById('thermal-tsnote-' + devId);
+  if (el) el.innerHTML = html;
+}
+
+async function _thermalLoadChart(devId) {
+  const el = document.getElementById('thermal-ts-' + devId);
+  if (!el) return;   // row collapsed / past the fleet row cap — nothing to paint
+  const def = _thermalRangeFor(devId);
+  const ck = devId + '|' + def.tier;
+  if (_thermalRollups.has(ck)) { _thermalDrawChart(devId); return; }
+  el.innerHTML = '<div class="c-muted">Loading temperature history…</div>';
+  if (_thermalRollupBusy.has(ck)) return;   // a re-render mid-fetch: let it land
+  _thermalRollupBusy.add(ck);
+  let points = null, err = '';
+  try {
+    // api() does NOT throw on an HTTP error — it resolves with the parsed error
+    // body (or null on a non-JSON 502). Treating "no points key" as "no data
+    // yet" would render the pre-history empty state on a 500, i.e. a UI that
+    // lies about a failure. Only an actual points array counts as data.
+    const r = await api('GET', `/devices/${encodeURIComponent(devId)}/thermal/rollup?tier=${def.tier}`);
+    if (r && Array.isArray(r.points)) points = r.points;
+    else err = (r && r.error) ? String(r.error) : 'the server returned no roll-up points';
+  } catch (e) {
+    err = String(e);
+  } finally {
+    _thermalRollupBusy.delete(ck);
+  }
+  if (points === null) {
+    _errorState('thermal-ts-' + devId, () => _thermalLoadChart(devId),
+                { msg: `Failed to load temperature history: ${err}` });
+    _thermalNote(devId, '');
+    return;
+  }
+  _thermalRollups.set(ck, points);
+  // The operator can switch range mid-flight; the newer request owns the chart.
+  // Without this the slower response repaints with the OTHER tier selected.
+  if (_thermalRangeFor(devId).tier !== def.tier) return;
+  _thermalDrawChart(devId);
+}
+
+// Fold consecutive buckets down to <= cap, preserving the min/max envelope.
+function _thermalFold(pts, cap) {
+  if (pts.length <= cap) return { pts, folded: 0 };
+  const group = Math.ceil(pts.length / cap);
+  const out = [];
+  for (let i = 0; i < pts.length; i += group) {
+    let mn = Infinity, mx = -Infinity, sum = 0, n = 0;
+    for (const p of pts.slice(i, i + group)) {
+      const t = p.temp || {};
+      if (typeof t.min === 'number') mn = Math.min(mn, t.min);
+      if (typeof t.max === 'number') mx = Math.max(mx, t.max);
+      if (typeof t.avg === 'number') { sum += t.avg; n++; }
+    }
+    out.push({
+      ts: pts[i].ts,
+      temp: {
+        min: isFinite(mn) ? mn : null,
+        avg: n ? sum / n : null,
+        max: isFinite(mx) ? mx : null,
+      },
+    });
+  }
+  return { pts: out, folded: group };
+}
+
+// min / avg / max across the plotted buckets, optionally clipped to a
+// pinpointed [from, to] window. Values stay CELSIUS — fmtTemp does the °F.
+function _thermalStats(pts, from, to) {
+  let mn = Infinity, mx = -Infinity, sum = 0, n = 0, first = null, last = null;
+  for (const p of pts) {
+    if (from != null && p.ts < from) continue;
+    if (to != null && p.ts > to) continue;
+    const t = p.temp || {};
+    if (first === null) first = p.ts;
+    last = p.ts;
+    if (typeof t.min === 'number') mn = Math.min(mn, t.min);
+    if (typeof t.max === 'number') mx = Math.max(mx, t.max);
+    if (typeof t.avg === 'number') { sum += t.avg; n++; }
+  }
+  return {
+    n, first, last,
+    min: isFinite(mn) ? mn : null,
+    max: isFinite(mx) ? mx : null,
+    avg: n ? sum / n : null,
+  };
+}
+
+// _fmtTs drops to a bare clock at or below a 24h span, but BOTH ends of a
+// 24-hour timeline sit on different days — "14.15 → 14.10" reads backwards.
+// Floor the format span just past a day so a short window keeps its date.
+function _thermalFmtTs(ts, span) { return _fmtTs(ts, Math.max(span, 86401)); }
+
+function _thermalNoteText(def, pts, folded, from, to) {
+  const st = _thermalStats(pts, from, to);
+  if (!st.n) return '<span class="c-muted">No samples in the pinpointed window.</span>';
+  const span = Math.max(1, st.last - st.first);
+  const win = (from != null || to != null)
+    ? `Pinpointed ${escHtml(_thermalFmtTs(st.first, span))} → ${escHtml(_thermalFmtTs(st.last, span))}`
+    : `${escHtml(def.label)} · ${escHtml(_thermalFmtTs(st.first, span))} → ${escHtml(_thermalFmtTs(st.last, span))}`;
+  const bits = [win,
+                `min ${fmtTemp(st.min)}`, `avg ${fmtTemp(st.avg)}`, `max ${fmtTemp(st.max)}`];
+  let extra = '';
+  // Pre-history: the tier is retained far longer than this host has been
+  // rolled up. Say so rather than let a short line read as "that's all there is".
+  if (from == null && to == null && span < def.span * 0.6) {
+    extra += `<div>Roll-up history starts ${escHtml(_thermalFmtTs(st.first, span))} — the`
+           + ` ${escHtml(def.label)} view fills in as more roll-ups accumulate.</div>`;
+  }
+  if (folded > 1) {
+    extra += `<div>Averaged ${folded} buckets per point to keep the chart readable;`
+           + ` the min/max band still shows the true extremes.</div>`;
+  }
+  return `<div>${bits.join(' · ')}</div>` + extra;
+}
+
+// The chart needs NUMBERS on its y-axis, not fmtTemp's formatted string — but a
+// second copy of the C→F conversion (and of the unit symbol) would drift from
+// the formatter and ignore `ui_prefs.temp_unit`. Derive both FROM fmtTemp: two
+// known points give the affine scale, and the tail of a formatted zero gives the
+// symbol. One source of truth, and no unit literal in a render path
+// (tests/test_v612_ux::TestTemperatureUnit pins that).
+function _thermalTempAxis() {
+  const zero = parseFloat(fmtTemp(0, 4));
+  const hundred = parseFloat(fmtTemp(100, 4));
+  const scale = (hundred - zero) / 100;
+  return {
+    conv: c => zero + c * scale,
+    unit: fmtTemp(0, 0).replace(/^[-+\d.]+/, ''),
+  };
+}
+
+function _thermalDrawChart(devId) {
+  const elId = 'thermal-ts-' + devId;
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const def = _thermalRangeFor(devId);
+  const ck = devId + '|' + def.tier;
+  if (!_thermalRollups.has(ck)) return;   // still loading — keep the placeholder
+  const raw = _thermalRollups.get(ck) || [];
+  let pts = raw.filter(p => p && typeof p.ts === 'number'
+                            && p.temp && typeof p.temp.avg === 'number')
+               .sort((a, b) => a.ts - b.ts);
+  if (!pts.length) {
+    // Honest empty state: nothing has been folded yet, and the operator is told
+    // what fills it and what the row's sparkline is showing in the meantime.
+    el.innerHTML = '<div class="empty-state">No roll-up data yet for this host —'
+      + ' the timeline folds once an hour of temperature samples exists.'
+      + ' The sparkline in the row above comes from the live ~24h sample window'
+      + ' and fills in first.</div>';
+    _thermalNote(devId, '');
+    return;
+  }
+  if (def.key === '24h') {
+    // "24 hours" is the 5-minute tier clipped to the last day (see _THERMAL_RANGES).
+    const cut = Math.floor(Date.now() / 1000) - def.span;
+    const recent = pts.filter(p => p.ts >= cut);
+    if (!recent.length) {
+      const lastTs = pts[pts.length - 1].ts;
+      el.innerHTML = '<div class="empty-state">No temperature samples in the last 24 hours'
+        + ` — this host last rolled up ${escHtml(_thermalFmtTs(lastTs, def.span))}.`
+        + ' Pick a longer range to see the history it does have.</div>';
+      _thermalNote(devId, '');
+      return;
+    }
+    pts = recent;
+  }
+  const { pts: shown, folded } = _thermalFold(pts, _THERMAL_MAX_POINTS);
+  const axis = _thermalTempAxis();
+  const series = [['Min', 'min'], ['Avg', 'avg'], ['Max', 'max']].map(([name, key]) => ({
+    name,
+    points: shown.filter(p => typeof p.temp[key] === 'number')
+                 .map(p => ({ x: p.ts, y: axis.conv(p.temp[key]) })),
+  })).filter(s => s.points.length);
+  renderTimeSeries(elId, series, {
+    yUnit: axis.unit,
+    label: `${_thermalHostName(devId)} temperature — ${def.label}`,
+    // Shared-chart contract: opt in to time-pinpointing, and mirror the picked
+    // window into the caption below (null,null on reset).
+    zoom: true,
+    onZoom: (from, to) => _thermalNote(devId, _thermalNoteText(def, shown, folded, from, to)),
+  });
+  _thermalNote(devId, _thermalNoteText(def, shown, folded, null, null));
 }
 
 async function loadPower() {

@@ -6332,6 +6332,25 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 .ts-tip-t { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
 .ts-tip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+/* v6.4.2: shared-chart time pinpointing (renderTimeSeries opts.zoom) — the
+   drag surface, the selection band, and the exact from/to row under it. Only
+   applied to charts that opt in; the classes are absent otherwise. */
+.ts-zoomable { cursor: crosshair; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.ts-sel { fill: var(--accent); fill-opacity: 0.14; stroke: var(--accent); stroke-width: 1; pointer-events: none; }
+.ts-zoom { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.ts-zoom-f { display: inline-flex; flex-direction: column; gap: 4px; margin: 0; }
+.ts-zoom-lab { font-size: 11px; color: var(--muted); }
+.ts-zoom-in { width: auto; min-width: 176px; font-size: 12px; padding: 5px 8px; }
+/* Match the field's 26px box exactly so the row has one baseline, not three. */
+.ts-zoom .btn-icon { padding: 5px 12px; }
+.ts-zoom-hint { font-size: 11px; color: var(--muted); padding-bottom: 6px; }
+.ts-zoom button[disabled] { opacity: 0.45; cursor: default; }
+.ts-zoom button[disabled]:hover { background: transparent; color: var(--muted); }
+@media (max-width: 600px) {
+  .ts-zoom-f { flex: 1 1 148px; }
+  .ts-zoom-in { min-width: 0; width: 100%; }
+  .ts-zoom-hint { flex: 1 1 100%; padding-bottom: 0; }
+}
 /* v6.3.0: drawer posture radar (the last wave-10 deferral). */
 .posture-radar-wrap { display: flex; justify-content: center; }
 .posture-radar { max-width: 320px; width: 100%; height: auto; }

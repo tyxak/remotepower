@@ -132,6 +132,12 @@ ENTITY_FILES = {
     # Born an ENTITY file, so it needs no _COLD_TO_ENTITY_* migration wave:
     # there is no pre-existing cold blob to split.
     'disk_usage.json',
+    # v6.4.2: thermal_rollup.json — the thermal twin of metrics_rollup.json
+    # (per-device fivemin/hourly/daily temperature aggregates, ~2y at the daily
+    # tier). Same O(devices x years) blob shape, so same treatment. Born an
+    # ENTITY file → no _COLD_TO_ENTITY_* migration wave: there is no
+    # pre-existing cold blob to split.
+    'thermal_rollup.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY

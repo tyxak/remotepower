@@ -820,15 +820,18 @@ function cmdbRenderDocs(docs) {
   empty.style.display = 'none';
   // Each doc is a <details> card so the body collapses by default —
   // an asset with 10 docs shouldn't take 10 screens of vertical space.
-  // The first doc is open by default (most common case is "show me
-  // the runbook" without a click).
-  list.innerHTML = docs.map((doc, idx) => {
+  // v6.4.2: they now ALL start collapsed. Auto-opening the first one was a
+  // guess about which document you wanted, and it pushed the rest of the list
+  // below the fold on the assets that have several — so the tab opened showing
+  // one body and no sense of what else was there. The titles are the index;
+  // opening one is a click.
+  list.innerHTML = docs.map((doc) => {
     const created = doc.created_at ? new Date(doc.created_at * 1000).toISOString().split('T')[0] : '';
     const updated = doc.updated_at ? new Date(doc.updated_at * 1000).toISOString().split('T')[0] : '';
     const meta = (created === updated || !created)
       ? (updated ? `updated ${updated}` : '')
       : `created ${created}, updated ${updated}`;
-    return `<details class="cmdb-doc-card isl-431" ${idx === 0 ? 'open' : ''}>
+    return `<details class="cmdb-doc-card isl-431">
       <summary class="isl-432">
         <span class="meta-sm-nm">▸</span>
         <span class="isl-433">${cmdbEscHtml(doc.title || '(untitled)')}</span>

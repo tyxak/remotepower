@@ -310,7 +310,8 @@ index — a doc nobody can find is a doc nobody reads.)
 - **[alerts.md](alerts.md)** — The Alerts inbox: severities, acknowledge/resolve,
  correlation (root cause vs symptom), mutes.
 - **[trends.md](trends.md)** — Metric history and trend charts.
-- **[thermal.md](thermal.md)** — Temperatures and thermal health.
+- **[thermal.md](thermal.md)** — Temperatures and thermal health, plus the
+ per-host temperature timeline (24 hours to 2 years) and time-pinpointing.
 - **[power.md](power.md)** — Power draw, energy, and UPS status.
 - **[gpus.md](gpus.md)** — GPU inventory and utilisation.
 - **[disk-health.md](disk-health.md)** — SMART disk health, wear, NVMe spare

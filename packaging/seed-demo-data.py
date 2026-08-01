@@ -32,6 +32,7 @@ import base64
 import datetime
 import hashlib
 import json
+import math
 import os
 import random
 import secrets
@@ -3492,6 +3493,158 @@ def build_thermal_history() -> dict:
     return out
 
 
+# ─── v6.4.2: long-range thermal roll-ups (the Thermal-page timeline) ─────────
+# thermal_rollup.json is the thermal twin of metrics_rollup.json: per device,
+# three tiers of {min,sum,max,n} buckets folded once an hour from the raw
+# hottest-temperature samples. Expanding a host on Hardware → Thermal charts it
+# (GET /api/devices/<id>/thermal/rollup?tier=…), so without a seed the demo's
+# headline new chart is an empty state on every host — thermal_history.json only
+# carries the ~4h sparkline ring.
+_TR_TIERS = (
+    # (tier name, bucket seconds, retention seconds) — mirrors api.py's
+    # ROLLUP_*_SEC / ROLLUP_*_KEEP exactly, so the seeded store is prunable and
+    # extendable by the real sweep without a reshape.
+    ('fivemin', 300,   8 * 86400),
+    ('hourly',  3600,  30 * 86400),
+    ('daily',   86400, 730 * 86400),
+)
+# Cadence of the synthetic raw stream the tiers are folded from. Production's
+# hardware cycle is ~5 min; the seeder uses 15 min so that one file doesn't
+# dwarf the whole demo dataset — 5 min over 8 days is 2,300 five-minute buckets
+# per host (~3.5 MB, against ~0.6 MB for every other seeded file combined) for
+# detail no chart can show, since the client folds each tier to <=300 points
+# anyway. ONE cadence for every tier, so the min/max band never changes width
+# at a seam between differently-sampled stretches of history.
+_TR_STRIDE = 900
+
+
+def _thermal_curve(dev_id, base_c, t_now, span):
+    """Return f(ts) -> °C for one host: a deterministic temperature curve with
+    the shape real hardware has, not noise.
+
+    Layered, all smooth (autocorrelated) rather than per-sample random, so a
+    bucket's min/max depends on the weather and the workload and not on how
+    densely the seeder happened to sample:
+
+      * a diurnal swing peaking mid-afternoon (ambient + daytime load),
+      * a seasonal swing peaking in July (the payoff of the 2-year view),
+      * a gentle weekly rhythm (busier on weekdays),
+      * three slow wobbles (hours / days / weeks) so a day isn't a clean sine,
+      * a slow upward drift over the whole window — dust,
+      * and, for most hosts, one multi-day hot spell that ramps in and out:
+        the clogged fan you want the long view to show you.
+
+    f(t_now) == base_c exactly, so the timeline's newest point is the value the
+    Thermal table and the row sparkline are showing.
+    """
+    rng = _seeded_random('thermalrollup', dev_id)
+    diurnal = rng.uniform(2.0, 5.5)
+    seasonal = rng.uniform(2.0, 5.0)
+    weekly = rng.uniform(0.3, 1.4)
+    # (amplitude °C, period/2pi seconds, phase) — ~5.3 h, ~2.7 d, ~11 d.
+    wobble = [(rng.uniform(0.2, 0.8), 3037.0, rng.uniform(0, 6.283)),
+              (rng.uniform(0.4, 1.6), 37127.0, rng.uniform(0, 6.283)),
+              (rng.uniform(0.3, 1.2), 151264.0, rng.uniform(0, 6.283))]
+    drift = rng.uniform(0.0, 2.5)
+    hot = None
+    if rng.random() < 0.6:
+        hot = (t_now - span * rng.uniform(0.15, 0.8),      # start
+               rng.uniform(2.5, 6.0) * 86400,              # width
+               rng.uniform(5.0, 11.0))                     # peak °C above normal
+    fspan = float(max(1, span))
+    tau = 2 * math.pi
+
+    def delta(ts):
+        lt = time.localtime(ts)
+        hod = lt.tm_hour + lt.tm_min / 60.0
+        d = (diurnal * math.sin(tau * (hod - 9.0) / 24.0)
+             + seasonal * math.sin(tau * (lt.tm_yday - 111) / 365.25)
+             + weekly * math.sin(tau * (lt.tm_wday + hod / 24.0 - 1.5) / 7.0))
+        for amp, div, phase in wobble:
+            d += amp * math.sin(ts / div + phase)
+        d -= drift * (t_now - ts) / fspan
+        if hot:
+            start, width, peak = hot
+            off = ts - start
+            if 0.0 <= off <= width:
+                # Raised cosine: no discontinuity, so the spell reads as a fan
+                # slowly clogging and being cleaned, not as a step artefact.
+                d += peak * 0.5 * (1.0 - math.cos(tau * off / width))
+        return d
+
+    anchor = delta(t_now)
+
+    def f(ts):
+        return round(max(18.0, min(105.0, base_c + delta(ts) - anchor)), 1)
+    return f
+
+
+def build_thermal_rollup() -> dict:
+    """Per-host temperature roll-up tiers → thermal_rollup.json (v6.4.2 Thermal
+    timeline). Shape mirrors run_thermal_rollup_if_due's store:
+    {_meta:{last_run}, dev_id:{last_ts, fivemin|hourly|daily:[{ts,
+    temp:{min,sum,max,n}}]}} — internal sums, not the min/avg/max the endpoint
+    shapes on read.
+
+    Two things keep it honest rather than merely non-empty:
+
+      * the newest sample is the host's live hottest reading, taken from
+        build_thermal_history, so the timeline ends exactly where the row's
+        sparkline and the Thermal table do;
+      * history reaches back to the device's own ``enrolled_at`` and no further.
+        The demo fleet was enrolled 30–365 days ago, so no host claims two years
+        of temperatures it could not have recorded — and the shorter-tenured
+        hosts exercise the chart's "roll-up history starts <date>" caption.
+    """
+    t_now = now()
+    devices = build_devices()
+    out = {'_meta': {'last_run': t_now}}
+    for dev_id, rec in build_thermal_history().items():
+        samples = rec.get('samples') or []
+        if not samples:
+            continue
+        base_c = samples[-1]['temp']
+        enrolled = (devices.get(dev_id) or {}).get('enrolled_at') or (t_now - 120 * 86400)
+        span = max(3 * 86400, min(730 * 86400, t_now - int(enrolled)))
+        curve = _thermal_curve(dev_id, base_c, t_now, span)
+        # Real collection cadences drift; jitter keeps every host's buckets from
+        # landing on identical boundaries and gives the hourly tier a realistic
+        # 3–5 samples per bucket instead of a fixed 4.
+        jitter = _seeded_random('thermaljitter', dev_id)
+        tiers = {name: {} for name, _sec, _keep in _TR_TIERS}
+        age = 0
+        while age <= span:
+            ts = t_now - age + (jitter.randint(-120, 120) if age else 0)
+            temp = curve(ts)
+            for name, sec, keep in _TR_TIERS:
+                if age > keep:
+                    continue
+                start = ts - ts % sec
+                bucket = tiers[name].get(start)
+                if bucket is None:
+                    tiers[name][start] = {'ts': start,
+                                          'temp': {'min': temp, 'sum': temp,
+                                                   'max': temp, 'n': 1}}
+                else:
+                    agg = bucket['temp']
+                    agg['min'] = min(agg['min'], temp)
+                    agg['max'] = max(agg['max'], temp)
+                    agg['sum'] = round(agg['sum'] + temp, 1)
+                    agg['n'] += 1
+            age += _TR_STRIDE
+        row = {'last_ts': t_now}
+        for name, _sec, keep in _TR_TIERS:
+            # Same rule as _rollup_prune (bucket START >= now - keep), not just
+            # "the sample was inside the window": a sample taken exactly at the
+            # retention edge lands in a bucket that starts before it, and the
+            # first real fold would drop that bucket. Seed what the sweep would
+            # leave behind, so nothing changes shape an hour after seeding.
+            cutoff = t_now - keep
+            row[name] = [tiers[name][k] for k in sorted(tiers[name]) if k >= cutoff]
+        out[dev_id] = row
+    return out
+
+
 # ─── Reputation / DMARC / Resolver-health monitors (v4.8.0 / v4.9.0) ─────────
 # These are standalone monitors (not per-device), so the demo seeds a small,
 # realistic watchlist with a mix of healthy / weak / failing results — otherwise
@@ -5132,6 +5285,7 @@ BUILDERS = {
     'smart_history.json':          build_smart_history,
     'gpu_history.json':            build_gpu_history,
     'thermal_history.json':        build_thermal_history,
+    'thermal_rollup.json':         build_thermal_rollup,
     'dmarc_targets.json':          build_dmarc_targets,
     'dmarc_results.json':          build_dmarc_results,
     'ip_reputation_targets.json':  build_ip_reputation_targets,

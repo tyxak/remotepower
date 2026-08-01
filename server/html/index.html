@@ -7695,7 +7695,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th scope="col" data-col="sensor_label">Hottest sensor</th><th scope="col" data-col="sensor_type">Type</th>
               <th scope="col" data-col="crit_c">Threshold</th><th scope="col" data-col="headroom">Headroom</th>
               <th scope="col">Trend (~24h)</th>
-              <th scope="col" data-col="sensors">Sensors</th>
+              <th scope="col" data-col="sensors" title="Expand a host to see every sensor plus a full temperature timeline (24 hours to 2 years)">Sensors</th>
               <th scope="col" class="th-actions"></th>
             </tr></thead>
             <tbody id="thermal-tbody"><tr><td colspan="9" class="hint">Loading…</td></tr></tbody>
@@ -9732,7 +9732,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="isl-229">Documents</div>
       <button class="btn-icon" id="cmdb-doc-add-btn" data-action="cmdbDocAddOpen" >+ Add document</button>
     </div>
-    <div id="cmdb-docs-list" class="isl-25 scroll-cap">
+    <!-- v6.4.2: scroll-cap-lg (62vh), not scroll-cap (a flat 340px). This
+         list lives in a modal-wide dialog, so a 340px cap meant an opened
+         document was read through a letterbox with the rest of the dialog
+         empty around it. Still capped and still scrolls internally — the
+         box-overflow rule is "cap and scroll", not "cap at 340px". -->
+    <div id="cmdb-docs-list" class="isl-25 scroll-cap-lg">
       <!-- Filled by cmdbRenderDocs() — one .cmdb-doc-card per entry. -->
     </div>
     <div id="cmdb-docs-empty" class="isl-230">

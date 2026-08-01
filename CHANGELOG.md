@@ -6,7 +6,8 @@ All notable changes to RemotePower. Newest first.
 
 Two things about containers that were quietly unfinished: you could not silence
 one container without silencing its host, and the **Logs** button showed you a
-toast instead of any logs.
+toast instead of any logs. Plus the temperature history the Thermal page never
+had — two years of it, on a chart you can zoom to an exact window.
 
 ### Mute everything about one container
 
@@ -53,6 +54,33 @@ toast instead of any logs.
 - An agent older than 6.4.2 cannot parse a tail size, so the server drops it
   rather than failing the whole command, and the window says the agent is showing
   its own default instead of claiming it fetched what you asked for.
+
+### Temperatures you can look back through
+
+- **A temperature timeline per host, from 24 hours to 2 years.** The Thermal page
+  kept exactly one day of temperatures — the column was headed "Trend (~24h)"
+  because that was all there was, so "was this host running this hot last month?"
+  had no answer. Hottest-sensor samples are now folded once an hour into the same
+  three tiers the metric roll-ups use: 5-minute points kept 8 days, hourly kept 30
+  days, daily kept about two years. Expanding a host on **Hardware → Thermal**
+  draws the whole span above the per-sensor table, as **Min / Avg / Max** per
+  point so the envelope is visible and not just the average.
+  `GET /api/devices/{id}/thermal/rollup?tier=fivemin|hourly|daily`.
+- The row's ~24h sparkline is unchanged and still comes from the live sample ring,
+  which is what fills in first on a new install; the timeline says plainly that it
+  is waiting for the first fold rather than looking broken. When a host has less
+  history than the range you picked, the caption says where the history actually
+  starts.
+- **Pinpointing a window, on any chart that asks for it.** The shared time-series
+  helper takes a `zoom` option: drag across the plot to select a window,
+  double-click to reset, or type an exact **From** / **To** and press Enter. The
+  fields and both buttons are keyboard-reachable, so this is not a pointer-only
+  feature, and the y-axis rescales to the window — which is the point, since a 3 °C
+  excursion is invisible against a full-range axis. A pinned window survives a
+  data refresh instead of snapping back mid-investigation. Turned on for the
+  temperature timeline and for the **Trends** device-resources chart, where
+  narrowing to a short recent window re-fetches the finest roll-up tier that
+  still covers it rather than stretching the points already on screen.
 
 ### Windows container actions
 

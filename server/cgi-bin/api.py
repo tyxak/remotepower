@@ -442,6 +442,11 @@ SMART_HIST_FILE  = DATA_DIR / 'smart_history.json'
 # v4.7.0: per-GPU telemetry samples (temp/util/mem%) → GPU-page trend sparklines.
 GPU_HIST_FILE    = DATA_DIR / 'gpu_history.json'
 THERMAL_HIST_FILE = DATA_DIR / 'thermal_history.json'   # v5.0.0: hottest-temp trend
+# v6.4.2: long-range thermal aggregates. THERMAL_HIST_FILE is a MAX_TEMP_SAMPLES
+# ring (~24h at the ~5-min hardware cadence) and nothing older survived it; this
+# folds those samples into the SAME fivemin/hourly/daily tiers the metric roll-up
+# keeps (~8d / 30d / ~2y). Additive — the ring and its sparkline are untouched.
+THERMAL_ROLLUP_FILE = DATA_DIR / 'thermal_rollup.json'
 HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
 HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
@@ -20821,7 +20826,15 @@ def _record_metrics(dev_id, sysinfo):
 # read path; the raw store is untouched. Buckets store sum+n internally so a
 # later run can extend a partial bucket without re-reading raw history.
 _ROLLUP_KEYS = ('cpu', 'mem', 'swap', 'disk')
+# v6.4.2: the bucket machinery below is generic over the series it folds — the
+# key tuple is an ARGUMENT, not a second copy of _rollup_merge/_read_shape. The
+# thermal roll-up (run_thermal_rollup_if_due) folds one series, `temp`.
+_THERMAL_ROLLUP_KEYS = ('temp',)
 METRIC_ROLLUP_INTERVAL = 3600            # fold once an hour
+# v6.4.2: the thermal roll-up folds on the SAME cadence as the metric one — the
+# raw thermal ring is ~24h deep, so an hourly fold is two orders of magnitude
+# inside the eviction window. Aliased (not re-literalled) so they stay in step.
+THERMAL_ROLLUP_INTERVAL = METRIC_ROLLUP_INTERVAL
 # v6.3.1: a 5-minute tier fills the resolution gap between the raw 1-min window
 # (only ~24h) and the hourly tier (30d) — the band incident/triage work wants:
 # "what did CPU actually do in the 90 min around this alert, 5 days ago?" At
@@ -20834,11 +20847,15 @@ ROLLUP_HOURLY_KEEP = 30 * 86400          # 30 days of hourly points
 ROLLUP_DAILY_KEEP  = 730 * 86400         # ~2 years of daily points
 
 
-def _rollup_merge(buckets, samples, bucket_sec):
-    """Fold raw {ts,cpu,mem,swap,disk} samples into aggregate buckets keyed by
-    bucket-start ts. Each bucket keeps, per metric, {min,sum,max,n} so avg is
+def _rollup_merge(buckets, samples, bucket_sec, keys=_ROLLUP_KEYS):
+    """Fold raw {ts, <series>…} samples into aggregate buckets keyed by
+    bucket-start ts. Each bucket keeps, per series, {min,sum,max,n} so avg is
     derivable and a partial bucket can be extended on a later run. Returns the
-    merged bucket list sorted by ts. Pure."""
+    merged bucket list sorted by ts. Pure.
+
+    `keys` is the series tuple to fold — _ROLLUP_KEYS (cpu/mem/swap/disk) for the
+    metric roll-up, _THERMAL_ROLLUP_KEYS (temp) for the thermal one. It defaults
+    to the metric set so every existing 3-arg call site is unchanged."""
     by = {b['ts']: b for b in (buckets or [])}
     for s in samples or []:
         try:
@@ -20852,7 +20869,7 @@ def _rollup_merge(buckets, samples, bucket_sec):
         if b is None:
             b = {'ts': bstart}
             by[bstart] = b
-        for k in _ROLLUP_KEYS:
+        for k in keys:
             v = s.get(k)
             if not isinstance(v, (int, float)):
                 continue
@@ -20872,12 +20889,14 @@ def _rollup_prune(buckets, keep_sec, now):
     return [b for b in buckets if b.get('ts', 0) >= cutoff]
 
 
-def _rollup_read_shape(buckets):
-    """Public per-point shape: {ts, cpu:{min,avg,max}, …} (avg = sum/n)."""
+def _rollup_read_shape(buckets, keys=_ROLLUP_KEYS):
+    """Public per-point shape: {ts, cpu:{min,avg,max}, …} (avg = sum/n).
+    `keys` selects the series, as in _rollup_merge — the thermal roll-up reuses
+    this shaper with _THERMAL_ROLLUP_KEYS so both endpoints answer in one shape."""
     out = []
     for b in buckets or []:
         row = {'ts': b.get('ts')}
-        for k in _ROLLUP_KEYS:
+        for k in keys:
             agg = b.get(k)
             if agg and agg.get('n'):
                 row[k] = {'min': round(agg['min'], 2),
@@ -21024,6 +21043,117 @@ def handle_device_metric_rollup(dev_id):
     rec = _entity_read_one(METRICS_ROLLUP_FILE, dev_id, {}) or {}
     respond(200, {'device_id': dev_id, 'tier': tier,
                   'points': _rollup_read_shape(rec.get(tier) or [])})
+
+
+# ─── v6.4.2: long-range THERMAL roll-ups ─────────────────────────────────────
+# Same shape, same machinery, one series. THERMAL_HIST_FILE is a
+# MAX_TEMP_SAMPLES ring (~24h at the ~5-min hardware cadence) — the Thermal
+# page's column is literally headed "Trend (~24h)" because that is all there
+# was. This folds those samples into the metric roll-up's fivemin/hourly/daily
+# tiers so "was this host running this hot last month?" is answerable.
+def _raw_temp_samples(hist_rec, since_ts):
+    """Hottest-temperature samples newer than since_ts for ONE device, from its
+    THERMAL_HIST_FILE ring record ({'samples': [{ts, temp}, …]}). Defensive about
+    the record shape: the ring is written by _maybe_sample_temp but read here
+    long after, and a hand-edited / half-migrated store must not abort the
+    fleet-wide sweep."""
+    out = []
+    for s in (hist_rec or {}).get('samples') or []:
+        if not isinstance(s, dict) or not isinstance(s.get('temp'), (int, float)):
+            continue
+        try:
+            ts = int(s.get('ts'))
+        except (TypeError, ValueError):
+            continue
+        if ts > since_ts:
+            out.append(s)
+    return out
+
+
+def run_thermal_rollup_if_due():
+    """v6.4.2 cadence: fold each device's new hottest-temperature samples into
+    fivemin/hourly/daily roll-up buckets, exactly as run_metric_rollup_if_due
+    does for cpu/mem/swap/disk. Cheap + idempotent — only samples newer than the
+    per-device high-water mark are folded. Purely ADDITIVE: THERMAL_HIST_FILE's
+    288-sample ring and the fleet sparkline that reads it are untouched.
+
+    Litigation hold (the v6.1.1 rule run_metric_rollup_if_due documents):
+    _rollup_prune is a real age-based DELETION of historical data, so it is
+    skipped while a hold is active. Folding still runs — it is additive and
+    preserves MORE evidence, which is never a problem to keep."""
+    now = int(time.time())
+    # Cadence gate: read ONLY the _meta row. This runs on EVERY request, so the
+    # not-due path must not load()+parse the whole fleet's thermal history to
+    # read one integer (the mistake perf #5 fixed for the metric roll-up).
+    meta = _entity_read_one(THERMAL_ROLLUP_FILE, '_meta', {}) or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    if now - int(meta.get('last_run', 0) or 0) < THERMAL_ROLLUP_INTERVAL:
+        return
+    _hold = _litigation_hold_active()
+    devices = load(DEVICES_FILE) or {}
+    hist = load(THERMAL_HIST_FILE) or {}
+    # Hold the lock across the read-modify-write: this is an ENTITY store, so
+    # save() reconciles-with-DELETE (any device row absent from the dict written
+    # back is dropped). A bare load/mutate/save would let a concurrent writer's
+    # row vanish.
+    with _LockedUpdate(THERMAL_ROLLUP_FILE) as state:
+        prev = state.get('_meta') if isinstance(state.get('_meta'), dict) else {}
+        if now - int(prev.get('last_run', 0) or 0) < THERMAL_ROLLUP_INTERVAL:
+            return                      # another worker claimed this slot
+        # Claim the slot on EVERY path, before any work — NOT only when something
+        # folded. A stamp written only on the changed path leaves an idle fleet
+        # (no agents reporting temperatures at all) permanently un-gated, so this
+        # locked O(fleet) sweep would run on every cadence tick. That exact defect
+        # shipped in the metric roll-up; it is not reproduced here.
+        state['_meta'] = {'last_run': now}
+        for dev_id in list(devices.keys()):
+            rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
+            last_ts = int(rec.get('last_ts', 0) or 0)
+            new = _raw_temp_samples(hist.get(dev_id), last_ts)
+            if not new:
+                continue
+            fivemin = _rollup_merge(rec.get('fivemin') or [], new,
+                                    ROLLUP_5MIN_SEC, _THERMAL_ROLLUP_KEYS)
+            hourly = _rollup_merge(rec.get('hourly') or [], new,
+                                   ROLLUP_HOURLY_SEC, _THERMAL_ROLLUP_KEYS)
+            daily = _rollup_merge(rec.get('daily') or [], new,
+                                  ROLLUP_DAILY_SEC, _THERMAL_ROLLUP_KEYS)
+            state[dev_id] = {
+                'last_ts': max([last_ts] + [int(s['ts']) for s in new]),
+                'fivemin': fivemin if _hold else _rollup_prune(fivemin, ROLLUP_5MIN_KEEP, now),
+                'hourly':  hourly if _hold else _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
+                'daily':   daily if _hold else _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
+            }
+        # prune roll-ups for deleted devices
+        for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
+            del state[k]
+
+
+def handle_device_thermal_rollup(dev_id):
+    """GET /api/devices/<id>/thermal/rollup?tier=fivemin|hourly|daily —
+    aggregated hottest-temperature series (min/avg/max per bucket), in the SAME
+    shape as /metrics/rollup so one chart renderer serves both. Auth:
+    require_auth, scoped. Complements the raw ~24h thermal ring: fivemin (~8d)
+    is the incident-zoom band, hourly keeps 30d, daily ~2y."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    scope = _caller_scope()
+    if scope is not None:
+        dev = device_get(dev_id) or {}
+        if not _device_in_scope(scope, dev):
+            respond(403, {'error': 'Device outside your role scope'})
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    tier = (qs.get('tier') or ['daily'])[0]
+    if tier not in ('fivemin', 'hourly', 'daily'):
+        tier = 'daily'
+    # ENTITY store → answering for one device is one row read, not a parse of the
+    # whole fleet's ~2y of buckets.
+    rec = _entity_read_one(THERMAL_ROLLUP_FILE, dev_id, {}) or {}
+    respond(200, {'device_id': dev_id, 'tier': tier,
+                  'points': _rollup_read_shape(rec.get(tier) or [],
+                                               _THERMAL_ROLLUP_KEYS)})
 
 
 def _drift_policy_mode(dev):
@@ -64951,6 +65081,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/timeline', 'handle_device_timeline', "pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/metrics-history', 'handle_device_metrics_history', "pi.startswith('/api/devices/') and pi.endswith('/metrics-history') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/metrics/rollup', 'handle_device_metric_rollup', "pi.startswith('/api/devices/') and pi.endswith('/metrics/rollup') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/thermal/rollup', 'handle_device_thermal_rollup', "pi.startswith('/api/devices/') and pi.endswith('/thermal/rollup') and m == 'GET'"),
     ('eq', ('GET',), '/api/fleet/timeline', '', 'handle_fleet_timeline', "pi == '/api/fleet/timeline' and m == 'GET'"),
     ('eq', ('GET',), '/api/inventory/search', '', 'handle_inventory_search', "pi == '/api/inventory/search' and m == 'GET'"),
     ('eq', ('GET',), '/api/inventory/catalog', '', 'handle_inventory_catalog', "pi == '/api/inventory/catalog' and m == 'GET'"),
@@ -65632,6 +65763,9 @@ def main():
     _safe(_maybe_push_metrics, '_maybe_push_metrics')
     # W4-10: fold raw metric samples into hourly/daily roll-ups (hourly cadence).
     _safe(run_metric_rollup_if_due, 'run_metric_rollup_if_due')
+    # v6.4.2: same fold for the hottest-temperature samples (same cadence) —
+    # thermal history was capped at the ~24h raw ring before this.
+    _safe(run_thermal_rollup_if_due, 'run_thermal_rollup_if_due')
     # W5-6: re-materialize smart-group membership (~60s cadence).
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).

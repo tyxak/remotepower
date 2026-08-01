@@ -15,3 +15,10 @@ fleet health score, compliance score, and per-device resource history
   the one to reach for when investigating an incident a few days old — hourly
   averages smooth away the spike you're looking for, and the raw window only
   goes back a day.
+- **Pinpointing a window.** The per-device chart takes a time window directly:
+  drag across it to zoom, double-click (or **Reset**) to go back, or type the
+  exact **From** / **To** and press Enter. Narrowing to a short recent window
+  re-fetches the finest tier that still covers it rather than stretching the
+  points already on screen, so zooming in genuinely gains resolution. The pinned
+  window survives a data refresh. The same control is on the temperature
+  timeline — see [Thermal](thermal.md).

@@ -49,7 +49,14 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # CONSTANTS stay in api.py and are read via A., which is the normal pattern.
 # _compute_attention keeps calling the moved helpers unchanged because api.py
 # re-imports the names. Net −6, and the raise is paid back with interest.
-INLINE_HANDLER_CEILING = 627
+# 627→628 (v6.4.2): handle_device_thermal_rollup — one handler, no new
+# subsystem and no new route prefix. It is the exact twin of the inline
+# handle_device_metric_rollup two functions above it and shares its private
+# spine (_rollup_read_shape / _rollup_merge / _rollup_prune / the tier
+# constants). A bound module for a single 12-line reader would have to re-bind
+# that whole roll-up spine through A. to say nothing new — the module rule
+# exists to stop SUBSYSTEMS accreting here, and this is not one.
+INLINE_HANDLER_CEILING = 628
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

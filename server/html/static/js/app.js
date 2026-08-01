@@ -11188,19 +11188,144 @@ async function _renderJobDetail(id) {
 // ─── v3.4.2: Trends — zero-dependency multi-series time-series charts ─────────
 const _CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4'];
 
+// v6.4.2: time-pinpointing on the SHARED axis-chart helper (opts.zoom) — the
+// selected window per chart ELEMENT id, so a poll-tick re-render of the same
+// chart can't yank the operator back to the full range mid-investigation. The
+// hover crosshair (v6.3.0) reads a moment out; this narrows the view TO one.
+const _TS_ZOOM = {};
+
+// Drop a chart's pinpoint window from outside — for a consumer that repoints
+// the same element at different data (another device, another metric), where
+// carrying the previous window over would be wrong. Does not re-render and
+// does not fire opts.onZoom (the caller is about to render anyway).
+function clearTimeSeriesZoom(elId) { delete _TS_ZOOM[elId]; }
+
+// The window a chart is currently pinpointed to, or null. Lets a consumer's
+// own empty/error branches know they must not blow the reset control away.
+function timeSeriesZoom(elId) { return _TS_ZOOM[elId] || null; }
+
+// epoch seconds → the LOCAL "YYYY-MM-DDTHH:MM" that <input type=datetime-local>
+// wants (same shape as the maintenance-window form's toLocal).
+function _tsLocalInput(ts) {
+  const d = new Date(ts * 1000), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+const _TS_ZOOM_ICON = {
+  apply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>',
+  reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><polyline points="3 3 3 8 8 8"/></svg>',
+};
+
+// The exact from/to entry row that rides under a zoomable chart — for when the
+// operator knows the timestamp (an incident at 03:14) instead of eyeballing a
+// drag, and as the KEYBOARD path into a feature that is otherwise pointer-only.
+// Built as DOM nodes with addEventListener wiring: no inline on*= / style=
+// (CSP). `apply(from,to)` / `reset()` own the state change + the re-render.
+function _tsZoomBar(fromTs, toTs, zoomed, note, apply, reset) {
+  const bar = document.createElement('div');
+  bar.className = 'ts-zoom';
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Chart time window');
+  const mkField = (labelText, ts) => {
+    const wrap = document.createElement('label');
+    wrap.className = 'ts-zoom-f';
+    const lab = document.createElement('span');
+    lab.className = 'ts-zoom-lab';
+    lab.textContent = labelText;
+    const inp = document.createElement('input');
+    inp.type = 'datetime-local';
+    inp.className = 'form-input ts-zoom-in';
+    if (ts != null && isFinite(ts)) inp.value = _tsLocalInput(ts);
+    wrap.appendChild(lab);
+    wrap.appendChild(inp);
+    bar.appendChild(wrap);
+    return inp;
+  };
+  const fromIn = mkField('From', fromTs);
+  const toIn = mkField('To', toTs);
+  const mkBtn = (label, icon, title) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn-icon btn-xs';
+    b.title = title;
+    b.innerHTML = icon + escHtml(label);
+    bar.appendChild(b);
+    return b;
+  };
+  const applyBtn = mkBtn('Apply', _TS_ZOOM_ICON.apply, 'Zoom the chart to this exact window');
+  const resetBtn = mkBtn('Reset', _TS_ZOOM_ICON.reset, 'Back to the full range (or double-click the chart)');
+  resetBtn.disabled = !zoomed;
+  const hint = document.createElement('span');
+  hint.className = 'ts-zoom-hint';
+  hint.textContent = note || (zoomed
+    ? 'Zoomed. Drag to narrow further, double-click to reset.'
+    : 'Drag across the chart to zoom into a window.');
+  bar.appendChild(hint);
+  const doApply = () => {
+    const a = fromIn.value ? Math.floor(new Date(fromIn.value).getTime() / 1000) : NaN;
+    const b = toIn.value ? Math.floor(new Date(toIn.value).getTime() / 1000) : NaN;
+    if (!isFinite(a) || !isFinite(b)) { toast('Enter both a from and a to time', 'error', { transient: true }); return; }
+    if (b <= a) { toast('The "to" time must be after the "from" time', 'error', { transient: true }); return; }
+    apply(a, b);
+  };
+  applyBtn.addEventListener('click', doApply);
+  resetBtn.addEventListener('click', reset);
+  [fromIn, toIn].forEach(inp => inp.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); doApply(); }
+  }));
+  return bar;
+}
+
 // Render a multi-series line chart as inline SVG (presentation via SVG
 // attributes, not CSS — CSP-safe). `series` = [{name, points:[{x,y}]}], where x
-// is an epoch second and y a number. opts: {yMin, yMax, yUnit}.
+// is an epoch second and y a number. opts: {yMin, yMax, yUnit, label,
+// crosshair, zoom, onZoom}. opts.zoom turns on time-pinpointing (drag-select /
+// double-click reset / exact from-to entry); opts.onZoom(fromTs, toTs) then
+// fires on every window change — (null, null) on reset — so a consumer can
+// refetch a finer tier for the window instead of just rescaling what it holds.
+// Charts that do NOT pass opts.zoom render and behave exactly as before.
 function renderTimeSeries(elId, series, opts) {
   const el = document.getElementById(elId);
   if (!el) return;
   opts = opts || {};
+  const zoomOn = !!opts.zoom;
+  let win = zoomOn ? _TS_ZOOM[elId] : null;
+  if (win && !(win.to > win.from)) { delete _TS_ZOOM[elId]; win = null; }
+  // The two state-changing paths. onZoom is consumer code: if it throws, the
+  // local re-render below must still happen or the operator is stuck looking
+  // at the pre-zoom chart with no feedback.
+  const _fireZoom = (a, b) => {
+    if (typeof opts.onZoom !== 'function') return;
+    try { opts.onZoom(a, b); } catch (e) { console.error('onZoom handler failed', e); }
+  };
+  const _applyZoom = (from, to) => {
+    _TS_ZOOM[elId] = { from: Math.round(from), to: Math.round(to) };
+    _fireZoom(Math.round(from), Math.round(to));
+    renderTimeSeries(elId, series, opts);
+  };
+  const _resetZoom = () => {
+    delete _TS_ZOOM[elId];
+    _fireZoom(null, null);
+    renderTimeSeries(elId, series, opts);
+  };
   const all = [].concat(...series.map(s => s.points || []));
-  if (!all.length) { el.innerHTML = '<div class="c-muted">No samples yet — a daily point is recorded automatically.</div>'; return; }
+  if (!all.length) {
+    el.innerHTML = '<div class="c-muted">No samples yet — a daily point is recorded automatically.</div>';
+    // A window the consumer refetched into emptiness must not strand the
+    // operator with no way back to the full range.
+    if (win) el.appendChild(_tsZoomBar(win.from, win.to, true, 'No samples in this window.', _applyZoom, _resetZoom));
+    return;
+  }
   const W = 720, H = 220, padL = 40, padR = 12, padT = 12, padB = 26;
   const plotW = W - padL - padR, plotH = H - padT - padB;
-  const xs = all.map(p => p.x), ys = all.map(p => p.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const xs = all.map(p => p.x);
+  const minX = win ? win.from : Math.min(...xs);
+  const maxX = win ? win.to : Math.max(...xs);
+  // Zoomed, the y-axis rescales to what is actually in view — that IS the
+  // point of pinpointing. An explicit yMin/yMax still wins, as before.
+  const inWin = p => p.x >= minX && p.x <= maxX;
+  const visible = win ? all.filter(inWin) : all;
+  const ys = (visible.length ? visible : all).map(p => p.y);
   const yMin = opts.yMin != null ? opts.yMin : Math.min(...ys);
   const yMax = opts.yMax != null ? opts.yMax : Math.max(...ys) || 1;
   const spanX = (maxX - minX) || 1, spanY = (yMax - yMin) || 1;
@@ -11209,6 +11334,13 @@ function renderTimeSeries(elId, series, opts) {
   // v6.3.0 (a11y): role="img" requires an accessible name (axe svg-img-alt).
   const _alabel = opts.label || (series.map(s => s.name).filter(Boolean).join(', ') || 'Time-series chart');
   let svg = `<svg viewBox="0 0 ${W} ${H}" class="ts-chart" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escAttr(_alabel)}">`;
+  // Zoomed, the series are still drawn from the FULL point set and clipped to
+  // the plot box, so a line entering/leaving the window still reaches the edge
+  // instead of stopping at the first in-window sample.
+  const clipId = 'ts-clip-' + elId;
+  if (win) {
+    svg += `<defs><clipPath id="${escAttr(clipId)}"><rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}"/></clipPath></defs>`;
+  }
   // y gridlines + labels (5 ticks)
   for (let i = 0; i <= 4; i++) {
     const yv = yMin + spanY * i / 4;
@@ -11216,10 +11348,15 @@ function renderTimeSeries(elId, series, opts) {
     svg += `<line x1="${padL}" y1="${py.toFixed(1)}" x2="${W - padR}" y2="${py.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
     svg += `<text x="${padL - 6}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(yv)}${opts.yUnit || ''}</text>`;
   }
-  // x end labels (first + last date)
-  const fmtD = ts => new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  // x end labels (first + last date). Zoomed into ≤2 days a bare date can't
+  // tell the two ends apart, so the label carries the time of day as well.
+  const _withClock = zoomOn && (maxX - minX) <= 172800;
+  const fmtD = ts => _withClock
+    ? new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   svg += `<text x="${padL}" y="${H - 8}" font-size="10" fill="var(--muted)">${fmtD(minX)}</text>`;
   svg += `<text x="${W - padR}" y="${H - 8}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtD(maxX)}</text>`;
+  if (win) svg += `<g clip-path="url(#${escAttr(clipId)})">`;
   series.forEach((s, i) => {
     const pts = (s.points || []).slice().sort((a, b) => a.x - b.x);
     if (!pts.length) return;
@@ -11228,6 +11365,7 @@ function renderTimeSeries(elId, series, opts) {
     svg += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
     pts.forEach(p => { svg += `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2" fill="${color}"/>`; });
   });
+  if (win) svg += '</g>';
   svg += '</svg>';
   // legend (only when >1 series)
   let legend = '';
@@ -11242,6 +11380,10 @@ function renderTimeSeries(elId, series, opts) {
   // the data remains readable without it). Listeners are wired here, not via
   // inline handlers (CSP).
   const svgEl = el.querySelector('svg.ts-chart');
+  // Shared by the crosshair and the drag-select below: while a window is being
+  // dragged the hover readout would fight the selection band for the same
+  // pixels. Always false on a chart without opts.zoom.
+  let dragging = false;
   if (svgEl && opts.crosshair !== false) {
     el.classList.add('ts-wrap');
     const tip = document.createElement('div');
@@ -11256,6 +11398,7 @@ function renderTimeSeries(elId, series, opts) {
     const allPts = series.map(s => (s.points || []).slice().sort((a, b) => a.x - b.x));
     const fmtFull = ts => new Date(ts * 1000).toLocaleString();
     svgEl.addEventListener('mousemove', (ev) => {
+      if (dragging) { vline.setAttribute('visibility', 'hidden'); tip.classList.add('d-none'); return; }
       const r = svgEl.getBoundingClientRect();
       if (!r.width) return;
       const fx = (ev.clientX - r.left) * (W / r.width);
@@ -11265,6 +11408,7 @@ function renderTimeSeries(elId, series, opts) {
       const targetX = minX + (fx - padL) / plotW * spanX;
       let anchor = null;   // nearest point overall → the crosshair x
       allPts.forEach(pts => pts.forEach(p => {
+        if (win && !inWin(p)) return;   // zoomed: never anchor off-window
         const d = Math.abs(p.x - targetX);
         if (!anchor || d < anchor.d) anchor = { d, x: p.x };
       }));
@@ -11273,7 +11417,7 @@ function renderTimeSeries(elId, series, opts) {
       vline.setAttribute('x1', px.toFixed(1)); vline.setAttribute('x2', px.toFixed(1));
       vline.setAttribute('visibility', 'visible');
       const rows = series.map((s, i) => {
-        const pts = allPts[i];
+        const pts = win ? allPts[i].filter(inWin) : allPts[i];
         if (!pts.length) return '';
         let nearest = pts[0];
         pts.forEach(p => { if (Math.abs(p.x - anchor.x) < Math.abs(nearest.x - anchor.x)) nearest = p; });
@@ -11291,6 +11435,73 @@ function renderTimeSeries(elId, series, opts) {
     svgEl.addEventListener('mouseleave', () => {
       vline.setAttribute('visibility', 'hidden'); tip.classList.add('d-none');
     });
+  }
+  // v6.4.2: drag-to-select a window, double-click to reset, plus the exact
+  // from/to bar. Opt-in per chart (opts.zoom) — everything above is untouched
+  // for the charts that don't ask for it.
+  if (svgEl && zoomOn) {
+    el.classList.add('ts-wrap');
+    svgEl.classList.add('ts-zoomable');
+    const SNS = 'http://www.w3.org/2000/svg';
+    const band = document.createElementNS(SNS, 'rect');
+    band.setAttribute('class', 'ts-sel');
+    band.setAttribute('x', String(padL));
+    band.setAttribute('y', String(padT));
+    band.setAttribute('width', '0');
+    band.setAttribute('height', String(plotH));
+    band.setAttribute('visibility', 'hidden');
+    svgEl.appendChild(band);
+    const clampPx = v => Math.max(padL, Math.min(W - padR, v));
+    const tsAt = (clientX) => {
+      const r = svgEl.getBoundingClientRect();
+      if (!r.width) return null;
+      const fx = clampPx((clientX - r.left) * (W / r.width));
+      return minX + (fx - padL) / plotW * spanX;
+    };
+    let drag = null;
+    const onMove = (ev) => {
+      if (!drag) return;
+      const t = tsAt(ev.clientX);
+      if (t == null) return;
+      const a = clampPx(sx(drag.ts)), b = clampPx(sx(t));
+      band.setAttribute('x', Math.min(a, b).toFixed(1));
+      band.setAttribute('width', Math.abs(b - a).toFixed(1));
+    };
+    const onUp = (ev) => {
+      window.removeEventListener('pointermove', onMove);
+      const start = drag;
+      drag = null; dragging = false;
+      band.setAttribute('visibility', 'hidden');
+      band.setAttribute('width', '0');
+      if (!start) return;
+      if (Math.abs(ev.clientX - start.clientX) < 4) return;   // a click, not a drag
+      const t = tsAt(ev.clientX);
+      if (t == null) return;
+      const from = Math.min(start.ts, t), to = Math.max(start.ts, t);
+      if (to - from < 1) return;
+      _applyZoom(from, to);
+    };
+    svgEl.addEventListener('pointerdown', (ev) => {
+      if (ev.button) return;   // primary button only (touch/pen report 0)
+      const t = tsAt(ev.clientX);
+      if (t == null) return;
+      drag = { ts: t, clientX: ev.clientX };
+      dragging = true;
+      band.setAttribute('x', clampPx(sx(t)).toFixed(1));
+      band.setAttribute('width', '0');
+      band.setAttribute('visibility', 'visible');
+      // Only for touch/pen: preventDefault on a MOUSE pointerdown can suppress
+      // the compatibility click pair some engines build dblclick from, and
+      // dblclick is the reset gesture. Text selection is held off by the
+      // user-select:none on .ts-zoomable instead.
+      if (ev.pointerType && ev.pointerType !== 'mouse') ev.preventDefault();
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp, { once: true });
+    });
+    svgEl.addEventListener('dblclick', () => { if (_TS_ZOOM[elId]) _resetZoom(); });
+    el.appendChild(_tsZoomBar(minX, maxX, !!win,
+      (win && !visible.length) ? 'No samples in this window.' : '',
+      _applyZoom, _resetZoom));
   }
 }
 
@@ -11315,28 +11526,63 @@ async function loadTrends() {
   }
 }
 
+// v6.4.2: which roll-up tier actually HAS the resolution + the retention for a
+// pinpointed window. Retention per tier is raw ≈24h, 5-min ≈7d, hourly ≈30d,
+// daily ≈2y (the `trend-range` option labels), so a window that is both narrow
+// and recent can be re-served from a finer tier than the one on screen.
+function _trendTierFor(fromTs, toTs) {
+  const now = Date.now() / 1000, age = now - fromTs, span = toTs - fromTs;
+  if (span <= 6 * 3600 && age <= 22 * 3600) return 'raw';
+  if (span <= 3 * 86400 && age <= 6 * 86400) return 'fivemin';
+  if (span <= 30 * 86400 && age <= 28 * 86400) return 'hourly';
+  return 'daily';
+}
+
+// opts.onZoom for the device-metrics chart: refetch the window at a finer tier
+// rather than just stretching the buckets already on screen. (null, null) is
+// the reset — leave the operator's own range choice alone there.
+function _trendZoomRefetch(fromTs, toTs) {
+  if (fromTs == null || toTs == null) return;
+  const sel = document.getElementById('trend-range');
+  if (!sel) return;
+  const want = _trendTierFor(fromTs, toTs);
+  if (sel.value === want) return;
+  sel.value = want;
+  loadTrendDevice();
+}
+
+let _trendZoomDevice = null;
+
 async function loadTrendDevice() {
   const id = document.getElementById('trend-device').value;
   const out = document.getElementById('trend-resources');
+  // A pinpointed window belongs to the host it was drawn on — carrying it to
+  // the next device would silently show that device through the old window.
+  if (id !== _trendZoomDevice) { clearTimeSeriesZoom('trend-resources'); _trendZoomDevice = id; }
   if (!id) { out.innerHTML = '<div class="c-muted">Pick a device to see its memory / swap / disk / CPU-load history.</div>'; return; }
+  const zoomOpts = { yMin: 0, yMax: 100, yUnit: '%', zoom: true, onZoom: _trendZoomRefetch };
   const range = document.getElementById('trend-range')?.value || 'raw';
   if (range === 'fivemin' || range === 'hourly' || range === 'daily') {
     // W4-10 + v6.3.1: roll-ups (min/avg/max per bucket). Plot the avg line per series.
     const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics/rollup?tier=${range}`).catch(() => null);
     if (!r) { out.innerHTML = '<div class="c-red">Failed to load roll-ups.</div>'; return; }
     const pts = r.points || [];
-    if (!pts.length) { out.innerHTML = '<div class="c-muted">No roll-up data yet — folds once ~an hour of samples exists.</div>'; return; }
+    // Empty WHILE pinpointed still goes through the chart helper, so the reset
+    // control survives — an innerHTML message here would strand the operator.
+    if (!pts.length && !timeSeriesZoom('trend-resources')) {
+      out.innerHTML = '<div class="c-muted">No roll-up data yet — folds once ~an hour of samples exists.</div>'; return;
+    }
     const series = [['cpu', 'cpu %'], ['mem', 'memory %'], ['swap', 'swap %'], ['disk', 'disk %']].map(([k, name]) => ({
       name, points: pts.filter(p => p[k]).map(p => ({ x: p.ts, y: p[k].avg })),
     })).filter(s => s.points.length);
-    renderTimeSeries('trend-resources', series, { yMin: 0, yMax: 100, yUnit: '%' });
+    renderTimeSeries('trend-resources', series, zoomOpts);
     return;
   }
   const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics-history`).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load device metrics.</div>'; return; }
   renderTimeSeries('trend-resources',
     (r.series || []).map(s => ({ name: s.name, points: (s.points || []).map(p => ({ x: p.ts, y: p.v })) })),
-    { yMin: 0, yMax: 100, yUnit: '%' });
+    zoomOpts);
 }
 
 // v1.10.0: Audit log gets client-side filtering. The data is loaded once
