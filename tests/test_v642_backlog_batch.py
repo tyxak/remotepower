@@ -406,3 +406,67 @@ class TestEscAttrProducesHtmlNotJsEscapes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWebhookSignatureBindsTheTimestamp(unittest.TestCase):
+    """docs/webhooks.md told receiver authors to "bound the timestamp to reject
+    replays" and shipped a verifier whose only defence was an age check on
+    `X-RemotePower-Timestamp`. But the signature covered the BODY ALONE, so the
+    timestamp header was attacker-mutable: anyone holding one captured delivery
+    could replay that exact body forever by rewriting the timestamp to `now`,
+    and the documented verifier returned True. Replayed alerts re-trigger
+    downstream automation — paging, ticket reopen, remediation hooks.
+
+    V2 binds the timestamp into the MAC (the Stripe/GitHub construction). It is
+    sent ALONGSIDE the legacy header, never instead of it, because the legacy
+    format is one deployed receivers already parse.
+    """
+
+    SECRET = 'shhh'
+
+    def _sign(self, ts, body):
+        import hashlib
+        import hmac
+        return 'v2=' + hmac.new(self.SECRET.encode(), ts.encode() + b'.' + body,
+                                hashlib.sha256).hexdigest()
+
+    def test_the_sender_emits_both_headers(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("X-RemotePower-Signature-V2", src)
+        self.assertIn("X-RemotePower-Signature'] = 'sha256=' + _sig", src,
+                      "the legacy header must keep being sent — dropping it "
+                      "breaks every deployed receiver")
+
+    def test_v2_covers_the_timestamp_and_v1_does_not(self):
+        """The property that matters, stated as a difference: rewriting the
+        timestamp must invalidate v2 while leaving v1 intact — which is exactly
+        why an age check against v1 rejected nothing."""
+        import hashlib
+        import hmac
+        body = b'{"event":"device_offline","device_id":"d1"}'
+        ts = '1785500000'
+        v1 = 'sha256=' + hmac.new(self.SECRET.encode(), body, hashlib.sha256).hexdigest()
+        v2 = self._sign(ts, body)
+
+        replay_ts = '1785599999'          # attacker rewrites the header to "now"
+        self.assertEqual(
+            v1, 'sha256=' + hmac.new(self.SECRET.encode(), body, hashlib.sha256).hexdigest(),
+            "v1 is unchanged by the rewrite — that is the defect")
+        self.assertNotEqual(self._sign(replay_ts, body), v2,
+                            "v2 must not verify once the timestamp is rewritten")
+
+    def test_the_documented_verifier_matches_the_sender(self):
+        """The doc snippet is the thing operators paste; if it disagrees with
+        the sender by one byte, every delivery fails verification."""
+        doc = (ROOT / "docs" / "webhooks.md").read_text()
+        self.assertIn("X-RemotePower-Signature-V2", doc)
+        self.assertIn("ts.encode() + b'.' + raw_body", doc,
+                      "the doc's construction must match the sender's")
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("_ts.encode() + b'.' + body", src)
+
+    def test_the_doc_no_longer_promises_replay_safety_from_v1(self):
+        doc = (ROOT / "docs" / "webhooks.md").read_text()
+        self.assertNotIn("bound the timestamp to\nreject replays", doc)
+        self.assertIn("legacy", doc.lower(),
+                      "the doc must mark the body-only signature as legacy")

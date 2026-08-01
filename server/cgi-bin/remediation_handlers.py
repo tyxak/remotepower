@@ -161,7 +161,7 @@ def run_remediation_verify_if_due():
     for att in due:
         # v6.3.1 (BUGFIX): only judge a fix by "did the alert clear?" for events
         # that HAVE an auto-recover path. For events whose alert stays open until
-        # a human resolves it (oom_detected, log_alert, disk_full, brute_force,
+        # a human resolves it (oom_detected, log_alert, readonly_fs, brute_force,
         # …), "still open" is NOT evidence the fix failed — treating it as such
         # would false-fail and eventually AUTO-DISABLE a working rule. Those
         # attempts are marked 'unverifiable' and skip the failure accounting.

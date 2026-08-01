@@ -121,22 +121,35 @@ write-only; leave blank on later edits to keep it). When set, every delivery is
 signed over the exact bytes sent:
 
 ```
-X-RemotePower-Signature: sha256=<hex HMAC-SHA256 of the raw body>
-X-RemotePower-Timestamp: <unix seconds>
+X-RemotePower-Signature-V2: v2=<hex HMAC-SHA256 of "<timestamp>." + raw body>
+X-RemotePower-Timestamp:    <unix seconds>
+X-RemotePower-Signature:    sha256=<hex HMAC-SHA256 of the raw body>   (legacy)
 ```
 
-Verify on the receiver (constant-time compare, and bound the timestamp to
-reject replays):
+**Verify `X-RemotePower-Signature-V2`.** It covers the timestamp as well as the
+body, which is what makes an age bound meaningful: the legacy
+`X-RemotePower-Signature` signs the body *alone*, so the timestamp header can be
+rewritten by anyone holding a captured delivery and an age check against it
+rejects nothing. Both headers are sent so existing receivers keep working —
+but a receiver checking only the legacy one is not replay-protected, and should
+move.
 
 ```python
 import hashlib, hmac, time
 
 def verify(raw_body: bytes, headers, secret: str, max_age=300) -> bool:
-    sig = headers.get('X-RemotePower-Signature', '')
-    ts = int(headers.get('X-RemotePower-Timestamp', 0))
-    if abs(time.time() - ts) > max_age:
+    sig = headers.get('X-RemotePower-Signature-V2', '')
+    ts = headers.get('X-RemotePower-Timestamp', '')
+    if not sig or not ts:
         return False
-    want = 'sha256=' + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    try:
+        if abs(time.time() - int(ts)) > max_age:
+            return False          # meaningful only because ts is signed below
+    except ValueError:
+        return False
+    want = 'v2=' + hmac.new(secret.encode(),
+                            ts.encode() + b'.' + raw_body,
+                            hashlib.sha256).hexdigest()
     return hmac.compare_digest(want, sig)
 ```
 

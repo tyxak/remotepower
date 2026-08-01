@@ -10,7 +10,7 @@ and every action is audited.
 
 ## Anatomy of a rule
 
-- **Match** — one or more **events** (e.g. `service_down`, `disk_full`,
+- **Match** — one or more **events** (e.g. `service_down`, `readonly_fs`,
   `fail2ban_ban`; blank = any) and/or **severities** (critical/high/medium/low),
   optionally narrowed to a **device group** and/or **tags**.
 - **Actions** — one or more of the below.
@@ -50,7 +50,7 @@ notify/ticket actions on it are the intended way to escalate.
 
 ## Example
 
-*When `disk_full` at **high** severity on tag `prod` → run the `cleanup-logs`
+*When `readonly_fs` at **high** severity on tag `prod` → run the `cleanup-logs`
 script, and if it keeps firing, open a **P2** ticket.* Two rules (or one rule
 with two actions plus a cooldown) cover it. With **Verify within** set to
 `900`, a cleanup that didn't actually clear the disk alert raises

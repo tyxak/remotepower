@@ -7993,7 +7993,7 @@ _ALERT_RECOVER_EXTRA = {ev: tuple(spec['resolves'][1:])
 # resolves-target of a recover event), so their inbox alert clears itself when
 # the condition heals. The auto-remediation verify loop can only judge a fix by
 # "did the alert clear?" for these — events NOT in this set (oom_detected,
-# brute_force_detected, log_alert, disk_full, fail2ban_ban, port_scan_detected,
+# brute_force_detected, log_alert, readonly_fs, fail2ban_ban, port_scan_detected,
 # …) keep their alert open until a human resolves it, so treating "still open"
 # as a failed fix would false-fail and auto-disable a working rule.
 _AUTO_RESOLVABLE_EVENTS = frozenset(
@@ -11484,9 +11484,27 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority,
     _hmac_secret = dest.get('hmac_secret')
     if fmt == 'generic' and _hmac_secret:
         try:
-            _sig = hmac.new(str(_hmac_secret).encode(), body, hashlib.sha256).hexdigest()
+            _ts = str(int(time.time()))
+            _key = str(_hmac_secret).encode()
+            _sig = hmac.new(_key, body, hashlib.sha256).hexdigest()
             headers['X-RemotePower-Signature'] = 'sha256=' + _sig
-            headers['X-RemotePower-Timestamp'] = str(int(time.time()))
+            headers['X-RemotePower-Timestamp'] = _ts
+            # v6.4.2 (SECURITY): the legacy signature above covers the BODY
+            # ALONE, so the timestamp header is attacker-mutable — anyone who
+            # captures one signed delivery can replay that exact body forever
+            # by rewriting the timestamp to `now`, and the reference verifier
+            # docs/webhooks.md ships would return True. Its "bound the
+            # timestamp to reject replays" was a promise the scheme could not
+            # keep, which matters because replayed alerts re-trigger downstream
+            # automation (paging, ticket reopen, remediation hooks).
+            # V2 binds the timestamp INTO the MAC — the standard Stripe/GitHub
+            # construction — so an age bound actually rejects a replay. Sent
+            # ALONGSIDE the legacy header, never instead of it: this is a wire
+            # format existing receivers already parse, so switching outright
+            # would break every deployed verifier.
+            _sig2 = hmac.new(_key, _ts.encode() + b'.' + body,
+                             hashlib.sha256).hexdigest()
+            headers['X-RemotePower-Signature-V2'] = 'v2=' + _sig2
         except Exception:
             pass
     # v3.4.0: global send-rate cap. Checked here — after every filter passes and

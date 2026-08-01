@@ -98,7 +98,7 @@ than the server (downgrade risk) is flagged so you upgrade the server first.
 
 Point the agent at backup files/repos to verify (restic / borg / tar `check`) via
 `backup_monitors` in the agent config. Results ride the heartbeat and raise
-`backup_verify_failed` / `backup_verify_passed` events so a silently-corrupt
+`backup_verify_failed` / `backup_verified` events so a silently-corrupt
 backup is caught before you need it.
 
 ---
