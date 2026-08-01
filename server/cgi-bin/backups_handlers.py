@@ -573,7 +573,7 @@ def handle_backup_job_create():
            'device_name': _backup_targets_summary(targets, devices),
            'type': jtype, 'command': command, 'spec': spec,
            'cron': cron or None, 'enabled': True, 'created': int(time.time()),
-           'created_by': actor, 'last_run': 0, 'last_fired_minute': None}
+           'created_by': actor, 'last_run': 0, 'last_fired_minute': int(time.time()) // 60 - 1}
     data['jobs'].append(job)
     A.save(A.BACKUP_JOBS_FILE, data)
     A.audit_log(actor, 'backup_job_create',
@@ -1435,7 +1435,8 @@ def process_backup_jobs():
             continue
         if job.get('last_fired_minute') == current_minute:
             continue
-        if not A._cron_matches(job['cron'], now):
+        # v6.4.2: catch-up window, not an exact-minute match (see _cron_due_since).
+        if not A._cron_due_since(job['cron'], now, job.get('last_fired_minute')):
             continue
         devices = A.load(A.DEVICES_FILE)
         try:

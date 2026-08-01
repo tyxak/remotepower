@@ -4493,10 +4493,23 @@ class _DbLockedUpdate:
         except self._mod.LockBusyError:
             raise LockBusy(self.path, 0)
         self._scope_mark = _lock_scope_enter()
-        return data
+        # v6.4.2: the backend yields the raw stored document, bypassing api's
+        # load() — so on SQLite/Postgres a config lock used to hand back
+        # `enc:v2:…` CIPHERTEXT where the JSON backend handed back plaintext.
+        # Any handler reading a secret inside the lock got the marker string,
+        # and any secret ASSIGNED inside the lock was stored in the clear.
+        # Decrypt on the way in, re-encrypt on the way out (below), so all
+        # three backends present the same contract.
+        self._doc = data
+        return _config_secrets_inbound(self.path, data)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         failed = exc_type is not None
+        if exc_type is None and isinstance(getattr(self, '_doc', None), dict):
+            enc = _config_secrets_outbound(self.path, self._doc)
+            if enc is not self._doc:            # config file + master key set
+                self._doc.clear()
+                self._doc.update(enc)
         try:
             try:
                 return self._inner.__exit__(exc_type, exc_val, exc_tb)
@@ -4601,6 +4614,13 @@ def _save_held(path, data):
     and anywhere else inside an already-locked section.
     """
     _invalidate_load_cache(path)  # v3.0.2: same invariant as save()
+    # v6.4.2 (SECURITY): the same encrypt-at-rest step save() does. Without it
+    # every write through _LockedUpdate(CONFIG_FILE) stripped encryption from
+    # the WHOLE document — load() decrypts in place, so the lock yielded
+    # plaintext and this wrote that plaintext straight back. Latent while most
+    # config writes still went through save(); moving them onto the lock made
+    # it automatic, so one cadence tick was enough to strip the file.
+    data = _config_secrets_outbound(path, data)
     _m = _dbmod()
     if _m is not None:
         # No separate "held" concept under a DB backend — the backend's save
@@ -16617,7 +16637,7 @@ def handle_autopatch_create():
            # gate is captured here and enforced when the target resolves. Without
            # it a tenant admin's policy could patch/reboot the whole fleet.
            'tenant_gate': _tenant_gate(),
-           'last_run': 0, 'last_fired_minute': None}
+           'last_run': 0, 'last_fired_minute': int(time.time()) // 60 - 1}
     # v5.8.0 (B1.3): optional staged rollout. With `rings`, firing the policy
     # spawns a health-gated rollout (canary → wave → rest) instead of a one-shot
     # fan-out. Without rings, behaviour is unchanged.
@@ -16868,7 +16888,8 @@ def process_autopatch():
             continue
         if pol.get('last_fired_minute') == current_minute:
             continue
-        if not _cron_matches(pol['cron'], now):
+        # v6.4.2: catch-up window, not an exact-minute match (see _cron_due_since).
+        if not _cron_due_since(pol['cron'], now, pol.get('last_fired_minute')):
             continue
         try:
             _autopatch_queue(pol, f'autopatch({pol.get("created_by", "system")})')
@@ -18205,6 +18226,10 @@ def handle_heartbeat():
         _hb_floor = 0
 
     saved_dev = {}
+    # v6.4.2: the sanitised sysinfo as THIS beat sent it, before the
+    # sysinfo_partial merge fills in the stored record. The metric
+    # pipeline must see only what was actually measured — see the merge.
+    _fresh_si = None
     _reboot_webhook_pending = False  # set True inside lock if reboot state changes
     _reboot_cleared_pending = False  # v5.6.x: reboot no longer required (recover)
     _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
@@ -19166,6 +19191,7 @@ def handle_heartbeat():
             # sides are already sanitised, and the flag can only preserve values
             # this device previously sent, never introduce new ones. The next
             # cadence beat is a full replace, so nothing goes stale forever.
+            _fresh_si = safe_si
             if body.get('sysinfo_partial') and isinstance(dev.get('sysinfo'), dict):
                 _merged = dict(dev['sysinfo'])
                 _merged.update(safe_si)
@@ -19191,7 +19217,12 @@ def handle_heartbeat():
             # traceback to stderr (visible in journalctl -u fcgiwrap)
             # while still keeping the heartbeat path resilient.
             try:
-                metric_pending = process_metric_thresholds(dev_id, dev, safe_si, defer=True)
+                # v6.4.2: the FRESH view. On a partial beat the merged record
+                # still carries the last full reading, and feeding that back in
+                # re-observed a 12-minute-old value every beat: it advanced the
+                # flap-damping streak (firing metric_warning off ONE real
+                # measurement) and appended fresh-timestamped duplicate samples.
+                metric_pending = process_metric_thresholds(dev_id, dev, _fresh_si, defer=True)
             except Exception as exc:
                 sys.stderr.write(
                     f"[remotepower] process_metric_thresholds failed for "
@@ -19362,7 +19393,10 @@ def handle_heartbeat():
     # runs in exactly the same cases as before; _record_metrics no-ops when there
     # are no cpu/mem/disk/swap values.
     if 'sysinfo' in saved_dev:
-        _record_metrics(dev_id, saved_dev['sysinfo'])
+        # The FRESH view, for the reason at process_metric_thresholds above — a
+        # beat that measured nothing must not append a sample.
+        _record_metrics(dev_id, _fresh_si if _fresh_si is not None
+                        else saved_dev['sysinfo'])
 
     # W3-47: merge any store-and-forward backfill (samples the agent spooled
     # while the server was unreachable) into the metrics history. History only —
@@ -22266,8 +22300,22 @@ def _send_wol(dev):
             port = 9
     except (ValueError, TypeError):
         port = 9
-    device_ip = _sanitize_ip(dev.get('ip', ''))
-    target = device_ip or _sanitize_ip(cfg.get('wol_broadcast', '')) or '255.255.255.255'
+    def _v4(raw):
+        """An IPv4 literal, or '' — the socket below is AF_INET.
+
+        v6.4.2: `_sanitize_ip` was widened to preserve IPv6, which it used to
+        blank. WoL is an IPv4/L2 broadcast mechanism, so an IPv6 device address
+        that previously fell through to the broadcast now reached sendto() on an
+        AF_INET socket and raised — a device with an IPv6 `ip` stopped waking at
+        all, reported only as 'WoL send failed'."""
+        v = _sanitize_ip(raw or '')
+        try:
+            return v if v and ipaddress.ip_address(v).version == 4 else ''
+        except ValueError:
+            return ''
+
+    device_ip = _v4(dev.get('ip', ''))
+    target = device_ip or _v4(cfg.get('wol_broadcast', '')) or '255.255.255.255'
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -31690,6 +31738,64 @@ SCHED_STATIC_COMMANDS = (
 )
 
 
+
+CRON_CATCHUP_MINUTES = 60   # cap the look-back so a long outage can't burst-fire
+
+
+def _cron_due_since(cron, now, last_minute):
+    """True when ``cron`` matched ANY minute in ``(last_minute, now//60]``.
+
+    v6.4.2. Six cadence sweeps (scheduled commands, backup jobs, auto-patch,
+    both report senders, recurring tickets) were gated on an EXACT wall-clock
+    minute match: they fired only if the cadence happened to execute during the
+    very minute the expression matched. Every other sweep uses a persisted
+    ``now - last_run >= interval`` test, which a late tick still satisfies.
+
+    Under the out-of-band scheduler — the default deployment since v6.1.0 —
+    ``main()`` runs the cadence then sleeps a fixed interval, so ticks are a
+    fixed-PERIOD sequence, not a per-minute sample:
+
+      * at the shipped 60 s interval, any non-zero cadence duration pushes the
+        period past 60 s and minutes get skipped. The shipped per-run wall-clock
+        budgets alone sum to 67 s, which drops ~60 % of a daily job's runs;
+      * at any interval > 60 s the phase relative to a day is CONSTANT (86400 is
+        divisible by 120/300/600), so a given cron minute is either always
+        sampled or NEVER sampled — a daily job silently never fires again.
+
+    Nothing surfaces it: no alert, no log line, the policy still reads enabled
+    with a stale last_run. Evaluating the elapsed minutes is what a real cron
+    daemon does, and it is what ``scheduler.py``'s docstring and docs/wsgi.md
+    already promise ("the interval just controls how often what's due is
+    checked").
+
+    ``last_minute`` is the caller's existing per-entity claim stamp. When it is
+    missing (a schedule that has never fired) only the current minute is
+    considered, so creating a job never back-fires an hour of history.
+    """
+    cur = int(now) // 60
+    try:
+        last = int(last_minute)
+    except (TypeError, ValueError):
+        last = 0
+    if last >= cur:
+        # Already claimed this minute, or the clock moved back — evaluate just
+        # the current minute; the caller's own claim still dedups the fire.
+        start = cur
+    else:
+        # `last <= 0` is a legacy record from before this stamp existed: give it
+        # the same bounded look-back, so an upgrade catches up at most one
+        # window instead of staying dead. A schedule created AFTER this change
+        # is stamped at creation (or seeded on first sight for the state-file
+        # sweeps), so it can never fire for a window that predates it.
+        start = max(last + 1, cur - CRON_CATCHUP_MINUTES + 1)
+    for minute in range(start, cur + 1):
+        try:
+            if _cron_matches(cron, minute * 60):
+                return True
+        except Exception:
+            return False
+    return False
+
 def _validate_scheduled_command(command, dev_id):
     """Reject anything not on the schedule whitelist. respond()s (and so exits)
     on a bad command — the caller never has to check a return value.
@@ -31812,7 +31918,7 @@ def handle_schedule_update(job_id):
             'updated':     int(time.time()),
             # Reset edge-trigger guard so an edit to cron takes effect
             # on the next minute boundary, not the next next-minute.
-            'last_fired_minute': None,
+            'last_fired_minute': int(time.time()) // 60 - 1,
         })
         schedule['jobs'] = jobs
     respond(200, {'ok': True, 'job': target})
@@ -31842,7 +31948,8 @@ def process_schedule():
             # Guard: fire at most once per minute even if process_schedule()
             # is invoked many times per minute (once per CGI request).
             if job.get('last_fired_minute') != current_minute:
-                due = _cron_matches(job['cron'], now)
+                # v6.4.2: catch-up window (see _cron_due_since).
+                due = _cron_due_since(job['cron'], now, job.get('last_fired_minute'))
         elif job.get('run_at') and job['run_at'] <= now:
             due = True
         if due:
@@ -33978,6 +34085,12 @@ BRUTE_WINDOW_SECONDS = 300    # 5-minute rolling window
 BRUTE_THRESHOLD      = 20     # default — overridden by config brute_force_threshold
 
 
+# A source that isn't an address: a DNS name as logged by sshd's UseDNS.
+_BRUTE_SRC_HOST_RE = re.compile(
+    r'^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?'
+    r'(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*$')
+
+
 def _brute_src_ip(raw):
     """A log line's source address, normalised — or None if it isn't one.
 
@@ -34008,6 +34121,14 @@ def _brute_src_ip(raw):
             return str(ipaddress.ip_address(head))
         except ValueError:
             pass
+    # Not an address. sshd with `UseDNS yes` — and plenty of other daemons —
+    # logs a RESOLVED HOSTNAME here, and the pre-v6.4.2 extractor passed those
+    # through unchanged (it only split on ':' for dot-less values). Returning
+    # None instead silently disabled brute-force detection entirely on those
+    # hosts. Keep the whole name as its own counter key; never split it.
+    host = (s.rsplit(':', 1)[0] if s.count(':') == 1 else s).strip().rstrip('.')
+    if _BRUTE_SRC_HOST_RE.match(host):
+        return host.lower()
     return None
 
 
@@ -39217,6 +39338,17 @@ def _rag_retrieve(cfg, query):
     retrieval problem can never break the chat path."""
     rag = cfg.get('rag') or {}
     if not rag.get('enabled') or not (query or '').strip():
+        return []
+    # v6.4.2 (SECURITY): the chokepoint, not each caller. The corpus is
+    # fleet-wide and carries no scope/tenant tags, so retrieval must not run for
+    # a restricted caller at all. handle_ai_chat already skipped retrieval for a
+    # ROLE-scoped caller — but a TENANT admin resolves to `_caller_scope() ==
+    # None`, so that check never fired for them, and POST
+    # /api/devices/{id}/runbook had no check at all and put other tenants' hosts
+    # straight into the model prompt and the response body. Every present and
+    # future consumer is covered here; /api/ai/rag/search keeps its explicit 403
+    # because a search that silently returns nothing would read as "no results".
+    if _caller_scope() is not None or _tenant_gate() is not None:
         return []
     try:
         if _rag_index_backend(cfg) == 'postgres':
@@ -51829,10 +51961,20 @@ def _maybe_send_scheduled_report():
     if not cron or not _valid_cron(cron):
         return
     now = int(time.time())
-    if not _cron_matches(cron, now):
-        return
     current_minute = now // 60
     state_file = DATA_DIR / 'report_schedule_state.json'
+    # v6.4.2: catch-up window (see _cron_due_since) — needs the previous claim,
+    # so read it before the cron test rather than after.
+    _prev = (load(state_file) or {}).get('last_fired_minute')
+    if _prev is None:
+        # v6.4.2: seed an unclaimed schedule to the current minute so its catch-up
+        # window starts NOW. Without this a schedule the operator just configured
+        # would fire for a window that closed before it existed.
+        with _LockedUpdate(state_file) as state:
+            state.setdefault('last_fired_minute', current_minute - 1)
+        _prev = current_minute - 1
+    if not _cron_due_since(cron, now, _prev):
+        return
     # Claim the minute atomically; bail if another heartbeat already sent.
     with _LockedUpdate(state_file) as state:
         if state.get('last_fired_minute') == current_minute:
@@ -52006,12 +52148,20 @@ def _maybe_send_report_definitions():
     now = int(time.time())
     current_minute = now // 60
     state_file = DATA_DIR / 'report_schedule_state.json'
+    _prev_claims = load(state_file) or {}
     for d in defs:
         if not d.get('enabled') or not d.get('cron') or not _valid_cron(d['cron']):
             continue
-        if not _cron_matches(d['cron'], now):
-            continue
         claim_key = 'def_' + str(d.get('id'))
+        _prev = _prev_claims.get(claim_key)
+        if _prev is None:
+            # v6.4.2: seed on first sight — see _maybe_send_scheduled_report.
+            with _LockedUpdate(state_file) as state:
+                state.setdefault(claim_key, current_minute - 1)
+            _prev = current_minute - 1
+        # v6.4.2: catch-up window (see _cron_due_since).
+        if not _cron_due_since(d['cron'], now, _prev):
+            continue
         with _LockedUpdate(state_file) as state:
             if state.get(claim_key) == current_minute:
                 continue

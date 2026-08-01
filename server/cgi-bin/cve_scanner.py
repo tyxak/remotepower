@@ -342,10 +342,23 @@ def _cvss_base_score(vector: str) -> float | None:
         # which is how a low/medium v4 advisory stayed invisible even after the
         # branch above existed. Both v4 values that require a user map to 'R'.
         _ui = {'N': 'N', 'P': 'R', 'A': 'R'}.get(m.get('UI', 'N'), 'R')
+        # v4 split impact into vulnerable-system (VC/VI/VA) and subsequent-system
+        # (SC/SI/SA); v3.1 has ONE impact triple and expresses "it reaches beyond
+        # the vulnerable component" with the scope flag. So take the worst of the
+        # two per dimension. Mapping only the vulnerable-system half scored 0.0
+        # for a vector like `VC:N/VI:N/VA:N/SC:H/SI:H/SA:H` — a real shape (an
+        # official 9.3 CRITICAL) that v3.1's impact term reads as no impact at
+        # all, so it was filed `low` while PRESENTING as a computed score.
+        _rank = {'N': 0, 'L': 1, 'H': 2}
+
+        def _worst(vuln_key, subseq_key):
+            a, b = m.get(vuln_key, 'N'), m.get(subseq_key, 'N')
+            return a if _rank.get(a, 0) >= _rank.get(b, 0) else b
+
         approx = {
             'AV': m.get('AV', 'N'), 'AC': m.get('AC', 'L'),
             'PR': m.get('PR', 'N'), 'UI': _ui,
-            'C': m.get('VC', 'N'), 'I': m.get('VI', 'N'), 'A': m.get('VA', 'N'),
+            'C': _worst('VC', 'SC'), 'I': _worst('VI', 'SI'), 'A': _worst('VA', 'SA'),
             # v4 replaced the scope flag with explicit subsequent-system impact;
             # any of them non-None is what v3 called a scope change.
             'S': 'C' if any(m.get(k, 'N') != 'N' for k in ('SC', 'SI', 'SA')) else 'U',

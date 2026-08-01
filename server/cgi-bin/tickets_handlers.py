@@ -595,10 +595,22 @@ def run_ticket_schedules_if_due():
     now = int(time.time())
     # period key = the matched minute, so a schedule fires once per minute max.
     minute_key = now // 60
+    # v6.4.2: catch-up window (see _cron_due_since) — needs each schedule's
+    # previous claim, so read the state before the cron test.
+    _prev_fired = (A.load(A.TICKET_SCHED_STATE_FILE) or {}).get('fired') or {}
+    _unseen = [s['id'] for s in scheds if s['id'] not in _prev_fired]
+    if _unseen:
+        # v6.4.2: seed on first sight so a just-configured schedule's catch-up
+        # window starts now, not an hour ago.
+        with A._LockedUpdate(A.TICKET_SCHED_STATE_FILE) as st:
+            _f = st.setdefault('fired', {})
+            for _sid in _unseen:
+                _f.setdefault(_sid, minute_key - 1)
+        _prev_fired = dict(_prev_fired, **{_sid: minute_key - 1 for _sid in _unseen})
     due = []
     for s in scheds:
         try:
-            if A._cron_matches(s['cron'], now):
+            if A._cron_due_since(s['cron'], now, _prev_fired.get(s['id'])):
                 due.append(s)
         except Exception:
             continue

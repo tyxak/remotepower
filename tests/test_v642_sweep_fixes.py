@@ -180,9 +180,24 @@ class TestBruteForceSourcesAreRealAddresses(unittest.TestCase):
         self.assertEqual(api._brute_src_ip("192.0.2.7:52344"), "192.0.2.7")
         self.assertEqual(api._brute_src_ip("192.0.2.7"), "192.0.2.7")
 
-    def test_non_addresses_are_dropped_not_counted(self):
-        for bad in ("", "-", "invalid", "2001", "not:an:ip"):
-            self.assertIsNone(api._brute_src_ip(bad), bad)
+    def test_junk_is_dropped_but_a_hostname_is_not(self):
+        """This test originally asserted that EVERY non-address was dropped —
+        and that assertion was itself the regression. sshd with `UseDNS yes`
+        logs a resolved hostname in this position, and the pre-v6.4.2 extractor
+        passed those through unchanged, so dropping them turned brute-force
+        detection completely off on those hosts rather than merely mis-keying
+        it. `2001` is here for the same reason: it is a legal single-label name
+        and the old code kept it. What the IPv6 fix had to stop was `2001`
+        arriving as the *truncation of* `2001:db8::1` — which
+        test_ipv6_is_kept_whole and test_distinct_sources_stay_distinct pin.
+
+        Caught by an adversarial audit of this session's own diff, not by the
+        gate: the gate was green precisely because this test agreed with the
+        bug."""
+        for junk in ("", "-", "not:an:ip", "has space", "bad_host!", "a" * 300):
+            self.assertIsNone(api._brute_src_ip(junk), junk)
+        for name in ("invalid", "2001", "scanner.badguy.example"):
+            self.assertEqual(api._brute_src_ip(name), name, name)
 
     def test_distinct_sources_stay_distinct(self):
         seen = {api._brute_src_ip(f"2001:db8:{i}::1") for i in range(20)}

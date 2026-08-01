@@ -13718,6 +13718,21 @@ async function _ctrLogsFetch() {
     const s = Math.round((Date.now() - started) / 1000);
     _ctrLogsProgress(`Waiting for the agent — ${s}s. Agents check in about once a minute.`);
   }, 1000);
+  // Snapshot the device's command-output history BEFORE queuing. The queued
+  // command string is deterministic for the same container + tail, so the
+  // fallback poll needs to know which entries predate this request. Taking that
+  // snapshot on the poll's first tick — 10s AFTER the 90s wait expired — meant
+  // output that landed in exactly the window the fallback exists for became the
+  // baseline and was never shown: the viewer waited out its full 5 minutes and
+  // reported the host offline while the logs sat in the history the whole time.
+  let priorOutputs = [];
+  try {
+    const _prev = await api('GET', `/devices/${encodeURIComponent(_ctrLogs.devId)}/output`);
+    priorOutputs = (_prev && _prev.outputs) || [];
+  } catch (e) {
+    priorOutputs = [];
+  }
+  if (seq !== _ctrLogs.seq) { _ctrLogs.busy = false; return; }   // superseded
   let r = null;
   try {
     r = await api('POST', `/devices/${encodeURIComponent(_ctrLogs.devId)}/containers/action`,
@@ -13752,7 +13767,7 @@ async function _ctrLogsFetch() {
   // The wait window closed before the agent checked in. Fall back to watching
   // the device's command output — the command IS queued and will run.
   _ctrLogsStopTimers(true);
-  _ctrLogsFallbackPoll(seq, r.queued || '', started);
+  _ctrLogsFallbackPoll(seq, r.queued || '', started, priorOutputs);
 }
 
 // Fallback: the run-and-wait timed out, so watch /output for the exact command
@@ -13769,11 +13784,16 @@ async function _ctrLogsFetch() {
 // then only accept something strictly newer. The comparison is server-clock to
 // server-clock; comparing the browser's clock to the agent's would break on any
 // host whose time is off.
-function _ctrLogsFallbackPoll(seq, queuedCmd, started) {
+function _ctrLogsFallbackPoll(seq, queuedCmd, started, priorOutputs) {
   let tries = 0;
-  let baselineTs = null;      // null until the first poll establishes it
-  const _match = out => ((out && out.outputs) || []).slice().reverse()
-    .find(o => String(o.cmd || '') === queuedCmd) || null;
+  const _newest = (list, cmd) => (list || []).slice().reverse()
+    .find(o => String(o.cmd || '') === cmd) || null;
+  const _match = out => _newest((out && out.outputs) || [], queuedCmd);
+  // Taken BEFORE the command was queued (see _ctrLogsFetch), so anything newer
+  // is genuinely this request's output — including output that arrived while
+  // the run-and-wait window was closing.
+  const _pre = _newest(priorOutputs, queuedCmd);
+  const baselineTs = _pre ? (Number(_pre.ts) || 0) : 0;
   _ctrLogs.pollTimer = setInterval(async () => {
     tries++;
     if (seq !== _ctrLogs.seq || !_ctrLogsOpen()) { _ctrLogsStopTimers(); _ctrLogs.busy = false; return; }
@@ -13789,10 +13809,6 @@ function _ctrLogsFallbackPoll(seq, queuedCmd, started) {
       .catch(() => null);
     if (seq !== _ctrLogs.seq || !out) return;
     const hit = _match(out);
-    if (baselineTs === null) {
-      baselineTs = hit ? (Number(hit.ts) || 0) : 0;
-      return;                 // this tick only establishes what was already there
-    }
     if (hit && (Number(hit.ts) || 0) > baselineTs) _ctrLogsShow(hit.output, hit.rc);
   }, 10000);
 }

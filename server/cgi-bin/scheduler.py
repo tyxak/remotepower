@@ -211,6 +211,7 @@ def main():                             # pragma: no cover - the long-running lo
         if pg_lock is None:
             time.sleep(interval)        # another node is the global leader — idle
             continue
+        _tick_started = time.time()
         try:
             run_cadence_once()
         except Exception as exc:        # the loop must never die
@@ -225,7 +226,13 @@ def main():                             # pragma: no cover - the long-running lo
             })
         except Exception as exc:
             sys.stderr.write(f"[remotepower-scheduler] heartbeat write failed: {exc}\n")
-        time.sleep(interval)
+        # v6.4.2: subtract the cadence's own duration so the tick period stays
+        # `interval`, not `interval + however long the sweeps took`. The cron
+        # sweeps no longer DEPEND on minute alignment (they catch up — see
+        # api._cron_due_since), but drifting ticks also stretch every due-time
+        # sweep's effective period, and the shipped per-run budgets alone sum to
+        # 67 s against a 60 s default.
+        time.sleep(max(1, interval - (time.time() - _tick_started)))
 
 
 if __name__ == '__main__':              # pragma: no cover

@@ -412,6 +412,14 @@ def _port_scope(ip):
         mapped = getattr(addr, 'ipv4_mapped', None)
         if mapped is not None:
             addr = mapped
+        # A wildcard bind is WORLD, however it is spelled. `0.0.0.0` and `::`
+        # are caught above as literals, but a dual-stack socket reports the
+        # wildcard as `::ffff:0.0.0.0` / `::ffff:0:0` — and 0.0.0.0/8 is
+        # `is_private`, so those fell through to 'lan' and silenced the
+        # world-exposed-port check for a service listening on every interface.
+        # (Pre-existing on Linux since v3.11.0; fixed on all three agents.)
+        if addr.is_unspecified:
+            return 'world'
         if addr.is_loopback:
             return 'local'
         if addr.is_private or addr.is_link_local:

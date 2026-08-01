@@ -4007,19 +4007,26 @@ def collect_apt_history(state_file):
         _st = apt_log.stat()
         mtime    = _st.st_mtime
         last_mtime = last_pos = 0
-        saved_ino = 0
+        saved_ino = None
         if state_file.exists():
             try:
                 st = json.loads(state_file.read_text())
                 last_mtime = float(st.get('mtime', 0))
                 last_pos   = int(st.get('pos', 0))
-                saved_ino  = int(st.get('ino', 0) or 0)
+                saved_ino  = st.get('ino')
             except Exception:
                 pass
         # v6.4.2: rotation/truncation reset — same bug and same fix as
         # collect_web_access_logs above. apt rotates history.log too, and an
         # upgrade applied right after a rotation never reached the server.
-        if int(_st.st_ino) != saved_ino or _st.st_size < last_pos:
+        # An UNKNOWN inode is not a rotation: every state file written before
+        # this key existed lacks it, so treating missing-as-0 made the FIRST
+        # beat after an agent upgrade look like a rotation and replay the
+        # whole log as live traffic across the fleet. Reset only on a
+        # KNOWN-different inode (collect_file_log's rule since v5.0.0);
+        # truncation still resets either way.
+        _rotated = saved_ino is not None and int(saved_ino or 0) != int(_st.st_ino)
+        if _rotated or _st.st_size < last_pos:
             last_pos = 0
             last_mtime = 0
         if mtime <= last_mtime:
@@ -4489,12 +4496,12 @@ def collect_web_access_logs(state_dir):
             _st = log_path.stat()
             mtime    = _st.st_mtime
             last_mtime = last_pos = 0
-            saved_ino = 0
+            saved_ino = None
             if state_file.exists():
                 st = json.loads(state_file.read_text())
                 last_mtime = float(st.get('mtime', 0))
                 last_pos   = int(st.get('pos', 0))
-                saved_ino  = int(st.get('ino', 0) or 0)
+                saved_ino  = st.get('ino')
             # v6.4.2: detect ROTATION and TRUNCATION. This persisted only
             # {mtime, pos} and then blindly seek(last_pos), so once logrotate
             # replaced the file (new inode, size 0) — or truncated it in place
@@ -4507,7 +4514,9 @@ def collect_web_access_logs(state_dir):
             # probes) stopped firing after every nightly rotate, with no error
             # anywhere: it read as "nothing happened". collect_file_log() has
             # handled this correctly since v5.0.0; this is the same check.
-            if int(_st.st_ino) != saved_ino or _st.st_size < last_pos:
+            # An UNKNOWN inode is not a rotation — see collect_apt_history.
+            _rotated = saved_ino is not None and int(saved_ino or 0) != int(_st.st_ino)
+            if _rotated or _st.st_size < last_pos:
                 last_pos = 0
                 last_mtime = 0
             if mtime <= last_mtime:
@@ -4828,6 +4837,19 @@ def _sock_scope(addr):
     try:
         import ipaddress
         ip = ipaddress.ip_address(a)
+        # A dual-stack socket reports an IPv4 bind as ::ffff:a.b.c.d; classify
+        # the address it actually represents, not the mapping.
+        _mapped = getattr(ip, 'ipv4_mapped', None)
+        if _mapped is not None:
+            ip = _mapped
+        # A wildcard bind is WORLD, however it is spelled. `0.0.0.0` and `::`
+        # are caught above as literals, but a dual-stack socket reports the
+        # wildcard as `::ffff:0.0.0.0` / `::ffff:0:0` — and 0.0.0.0/8 is
+        # `is_private`, so those fell through to 'lan' and silenced the
+        # world-exposed-port check for a service listening on every interface.
+        # (Pre-existing on Linux since v3.11.0; fixed on all three agents.)
+        if ip.is_unspecified:
+            return 'world'
         if ip.is_loopback:
             return 'local'
         if ip.is_private or ip.is_link_local:
