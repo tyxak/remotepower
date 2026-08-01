@@ -2702,6 +2702,27 @@ input.form-input[type="text"][data-token],
   background: currentColor;
 }
 
+/* Per-event severity dot in the device drawer's Events tab
+   (`<span class="activity-dot ${cls}">`, the second EVENT_CLASS consumer).
+   This class had NO rule at all, so the span was a zero-size empty inline
+   element — every event in that tab looked identical, critical and
+   informational alike. Same tokens as .status-pill above; the row is
+   `.isl-642` (flex, align-items:flex-start), hence flex-basis + the margin
+   that centres the dot on the first 12px/1.5 text line. */
+.activity-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 6px; height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.activity-dot.ok       { background: var(--green); }
+.activity-dot.warn     { background: var(--amber); }
+.activity-dot.critical { background: var(--red); }
+.activity-dot.info     { background: var(--accent); }
+.activity-dot.neutral  { background: var(--muted); }
+
 /* ─── Skeleton loaders ─────────────────────────────────────────────────
  * Show the shape of incoming content rather than a centred spinner. The
  * shimmer is the visual cue that data is loading. */

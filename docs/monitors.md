@@ -51,10 +51,22 @@ data), sortable on every column. An object with no measured checks reads *no
 data*, never a fake breach; deleting one detaches its probes and keeps their
 history.
 
+Availability is a ratio of stored checks, so a window of N checks can only
+resolve steps of 100/N percentage points. When that step is coarser than the
+error budget itself — a 99.9% target leaves 0.1 pp, so it needs at least 1,000
+checks in the window — the budget could only ever read 100% or 0%, and one
+failed check would report a blown budget for a probe that was up 99.7%. The
+budget column shows *too few checks* in that case instead. Raise
+`monitor_history_max` (Settings) so the window holds more checks, or set a
+target the window can actually measure.
+
 `GET /api/slo` returns the objects alongside the per-monitor availability
 list, and the same numbers export as Prometheus gauges
 (`remotepower_slo_object_target_percent`, `…_availability_percent`,
-`…_budget_remaining_percent`) for Grafana SLO dashboards.
+`…_budget_remaining_percent`) for Grafana SLO dashboards. The budget and
+burn-rate gauges are omitted while the window is too coarse to resolve the
+target, so a Grafana panel never reads an unmeasurable budget as a real
+breach; `availability` is always exported.
 
 ## Service monitoring
 

@@ -642,6 +642,31 @@ def _extract_log_timestamp(line, unit, default_ts):
     return default_ts
 
 
+def _agent_line_ts(value, now):
+    """v6.4.2: normalise the `ts` an agent puts on a dict log entry.
+
+    Agents send milliseconds. Kernel entries are the reason this matters:
+    collect_dmesg_logs() parses the `dmesg --time-format=iso` stamp and STRIPS
+    it out of the message, so _extract_log_timestamp has nothing left to find
+    and every kernel error was dated at ingest time instead (up to the agent's
+    24h dmesg lookback out, and re-dated `now` again after each agent restart).
+
+    Anything unparseable, more than 5 years old, or in the FUTURE falls back to
+    `now` — the same +/- 5y sanity bound _extract_log_timestamp applies, plus a
+    future cap because a ts ahead of `now` would never be evicted by the
+    LOG_BUFFER_TTL sweep and would pin itself to the top of the Logs page.
+    """
+    try:
+        t = int(value)
+    except (TypeError, ValueError):
+        return now
+    if t > 100000000000:        # milliseconds (as seconds that would be year 5138)
+        t //= 1000
+    if not (now - 5 * 365 * 86400 < t <= now):
+        return now
+    return t
+
+
 def _line_signature(line):
     """Stable hash of a log line for dedupe purposes. Short prefix is enough —
     the per-unit buffer is small and collisions don't cause data loss, only
@@ -3227,6 +3252,21 @@ def _retention_cutoff(cfg, key):
     return (int(time.time()) - days * 86400) if days > 0 else None
 
 
+def _audit_retention_days(cfg):
+    """Effective audit-log retention in days — the ONE resolver for the key
+    with a non-zero default. Unset/blank = 90d (v5.8.0 moved audit age-pruning
+    out of the append path into the sweep and kept that default, which
+    security-status, the diagnostics bundle and the `audit_retention` compliance
+    control all report as effective); an EXPLICIT 0 means "no age eviction".
+    _purge_old_data and the sweep's arming gate both go through this, because
+    when they disagreed the 90-day default went unenforced on stock installs."""
+    raw = cfg.get('audit_log_retention_days')
+    try:
+        return 90 if raw in (None, '') else int(raw)
+    except (TypeError, ValueError):
+        return 90
+
+
 def _litigation_hold_active(cfg=None):
     """docs/master-improvement-scoping-internal.md #21: True when a litigation
     hold is in effect. Deliberately global/coarse (suspend ALL age-based
@@ -3263,11 +3303,7 @@ def _purge_old_data(cfg=None):
             # So an operator who asked for no age eviction still lost every
             # audit entry older than 90 days — the exact opposite, and silent.
             # The `if _ad > 0 else None` below always intended 0 to disable.
-            _raw = cfg.get(ckey)
-            try:
-                _ad = 90 if _raw in (None, '') else int(_raw)
-            except (TypeError, ValueError):
-                _ad = 90
+            _ad = _audit_retention_days(cfg)
             cutoff = (int(time.time()) - _ad * 86400) if _ad > 0 else None
         else:
             cutoff = _retention_cutoff(cfg, ckey)
@@ -3356,23 +3392,24 @@ def _purge_old_data(cfg=None):
 
 def _retention_sweep_if_due():
     """Daily age-based purge for any log with a configured retention. Cheap
-    when not due / nothing configured. No-op for audit_log (which already
-    prunes on every write)."""
+    when not due / nothing configured. Audit_log is covered here too — since
+    v5.8.0 the append path only enforces the count cap, so this sweep is the
+    only thing that applies its age limit."""
     st = load(RETENTION_STATE_FILE) or {}
     now = int(time.time())
     if now - int(st.get('last', 0) or 0) < 86400:
         return
     cfg = load(CONFIG_FILE) or {}
-    # v6.4.2: audit retention used to be excluded from this "is anything
-    # configured?" test, so an install whose ONLY retention setting was
-    # audit_log_retention_days never armed the daily sweep and never pruned.
-    # It stays excluded from the >0 test (it has a 90-day DEFAULT, which must
-    # not arm the sweep on a stock install) but now arms when EXPLICITLY set —
-    # including to 0, which is harmless: _purge_old_data skips a 0 cutoff.
+    # v6.4.2: audit retention is resolved separately from this "is anything
+    # configured?" test because it is the one key with a non-zero DEFAULT —
+    # `int(cfg.get(k) or 0) > 0` reads unset as "off", so a stock install never
+    # armed the sweep at all and the 90-day audit retention that security-status
+    # and the `audit_retention` compliance control both report as effective was
+    # never actually enforced. Only an EXPLICIT 0 leaves audit unarmed.
     _armed = any(int(cfg.get(k) or 0) > 0
                  for k in _RETENTION_KEYS if k != 'audit_log_retention_days')
     if not _armed:
-        _armed = str(cfg.get('audit_log_retention_days', '')).strip() != ''
+        _armed = _audit_retention_days(cfg) > 0
     if _armed:
         _purge_old_data(cfg)
     st['last'] = now
@@ -15598,6 +15635,44 @@ def _valid_fw_token(s, maxlen=400):
     return isinstance(s, str) and 0 < len(s) <= maxlen and bool(_FW_TOKEN_RE.fullmatch(s))
 
 
+def _iptables_delete_args(ref, maxlen=400):
+    """An `iptables -S` rule spec ('INPUT -p tcp --dport 22 -j ACCEPT') rendered
+    as shell-quoted arguments for `iptables -D`, or None when it isn't one.
+
+    v6.4.2: iptables emits SHELL-QUOTED specs — a comment match reads
+    `-m comment --comment "kube-proxy service portals"` and a negation is a bare
+    `!`. Neither survives _FW_TOKEN_RE (no `"`, no `!`), so the Delete button the
+    Firewall page draws for every rule carrying a `ref` answered 400 "rule ref
+    contains invalid characters" on every k8s/Calico node and on any host whose
+    UFW application profiles put a `--comment` in the iptables chain — the common
+    case on the default Debian/Ubuntu backend, about a rule the operator never
+    typed. Widening the shared charset is the wrong fix (it also guards the `add`
+    spec, which really is interpolated raw), so the ref is tokenised here and
+    every token re-quoted with shlex.quote: the command is shell-safe by
+    construction whatever the rule text holds.
+
+    The ref stays the EXACT spec rather than a positional `<chain> <n>`: the
+    command runs on the next check-in, minutes after the listing was taken, and
+    by then a positional delete on a chain kube-proxy rewrites continuously would
+    remove an unrelated rule."""
+    if not isinstance(ref, str) or not 0 < len(ref) <= maxlen:
+        return None
+    if any(ord(c) < 32 or ord(c) == 127 for c in ref):
+        return None
+    try:
+        toks = shlex.split(ref)
+    except ValueError:          # unbalanced quote — e.g. a spec truncated mid-comment
+        return None
+    # The first token is the chain name (iptables caps it at 28 chars and it
+    # never leads with '-'); anything else means the ref is not a rule spec.
+    # Deliberately not a charset check — every token is shlex.quote()d below, so
+    # a narrower class here would only make chains the old gate accepted (`:`,
+    # `@`, `%` are all in _FW_TOKEN_RE) undeletable again.
+    if not toks or len(toks[0]) > 28 or toks[0].startswith('-'):
+        return None
+    return ' '.join(shlex.quote(t) for t in toks)
+
+
 def handle_firewall_overview():
     """GET /api/firewall — fleet host-firewall posture. ?device=<id> returns that
     one host WITH its per-backend rule lists; otherwise a fleet summary (no rule
@@ -15722,10 +15797,16 @@ def handle_device_firewall_rule(dev_id):
             cmd = f'firewall-cmd --permanent {spec}; firewall-cmd --reload'
     else:  # delete
         ref = str(body.get('ref', '')).strip()
-        if not _valid_fw_token(ref):
+        # An iptables ref is the verbatim `-S` spec and legitimately carries `"`
+        # and `!`, so it is validated + shell-quoted by _iptables_delete_args
+        # rather than by the shared no-metacharacter charset (see that helper).
+        if backend != 'iptables' and not _valid_fw_token(ref):
             respond(400, {'error': 'rule ref contains invalid characters'})
         if backend == 'iptables':
-            cmd = f'iptables -D {ref}'
+            ipt_args = _iptables_delete_args(ref)
+            if not ipt_args:
+                respond(400, {'error': 'rule ref is not a valid iptables rule spec'})
+            cmd = f'iptables -D {ipt_args}'
         elif backend == 'nftables':
             if not ref.startswith(('inet ', 'ip ', 'ip6 ', 'arp ', 'bridge ', 'netdev ')):
                 respond(400, {'error': 'invalid nftables rule ref'})
@@ -19109,7 +19190,12 @@ def handle_heartbeat():
                             if isinstance(rr, dict) and rr.get('text'):
                                 safe_rl.append({
                                     'text':  _sanitize_str(rr.get('text', ''), 400),
-                                    'ref':   _sanitize_str(rr.get('ref', ''), 200),
+                                    # v6.4.2: 400, matching `text` (an iptables
+                                    # ref IS `text` minus '-A '). At 200 a long
+                                    # k8s/Calico comment rule stored a TRUNCATED
+                                    # ref, and an exact-match `iptables -D` built
+                                    # from it can never match the rule.
+                                    'ref':   _sanitize_str(rr.get('ref', ''), 400),
                                     'table': _sanitize_str(rr.get('table', ''), 80),
                                     'chain': _sanitize_str(rr.get('chain', ''), 80),
                                 })
@@ -20881,7 +20967,19 @@ def run_metric_rollup_if_due():
     # lock keeps it that way, so a future per-device rollup writer can't have its
     # row deleted by a concurrent full-set save here.
     with _LockedUpdate(METRICS_ROLLUP_FILE) as state:
-        changed = False
+        # v6.4.2: claim the slot — advance the due-stamp INSIDE the lock, BEFORE
+        # any work. It used to be written only on the folded-something path
+        # (`if changed or not meta`), so on an idle fleet (all-agentless/SNMP
+        # hosts, a fleet-wide agent outage, metrics history off) nothing folded,
+        # the stamp kept its original value, and the gate above stayed
+        # permanently open — this locked O(fleet) sweep then ran on EVERY cadence
+        # tick, i.e. one METRICS_ROLLUP_FILE write lock per request when the
+        # out-of-band scheduler is disabled. Re-reading the stamp under the lock
+        # also stops two workers double-sweeping the same hour.
+        prev = state.get('_meta') if isinstance(state.get('_meta'), dict) else {}
+        if now - int(prev.get('last_run', 0) or 0) < METRIC_ROLLUP_INTERVAL:
+            return                      # another worker claimed this slot
+        state['_meta'] = {'last_run': now}
         for dev_id in list(devices.keys()):
             rec = state.get(dev_id) if isinstance(state.get(dev_id), dict) else {}
             last_ts = int(rec.get('last_ts', 0) or 0)
@@ -20897,16 +20995,9 @@ def run_metric_rollup_if_due():
                 'hourly':  hourly if _hold else _rollup_prune(hourly, ROLLUP_HOURLY_KEEP, now),
                 'daily':   daily if _hold else _rollup_prune(daily, ROLLUP_DAILY_KEEP, now),
             }
-            changed = True
         # prune roll-ups for deleted devices
         for k in [k for k in state.keys() if k != '_meta' and k not in devices]:
             del state[k]
-            changed = True
-        if changed or not meta:
-            state['_meta'] = {'last_run': now}
-        elif not state:
-            # nothing to write and no prior state — don't create an empty row set
-            return
 
 
 def handle_device_metric_rollup(dev_id):
@@ -31605,12 +31696,41 @@ def _slo_target():
     return t if 0 < t < 100 else 99.9
 
 
+def _slo_budget_window(budget_pct, n_checks):
+    """v6.4.2: (resolution, measurable) for an error budget over a COUNT-bounded
+    check window. Returns (None, None) for an empty window.
+
+    `resolution` is the smallest non-zero downtime the window can express — one
+    failed check out of `n_checks`, in percentage points. Availability here is a
+    ratio of samples, so it only ever moves in 100/N steps, and the monitor
+    history is capped by monitor_history_max (default MAX_MON_HISTORY = 300).
+    At the shipped 99.9% target that made the WHOLE budget (0.1 pp) a third of a
+    single check: budget_remaining_pct could only ever read 100.0 or 0.0, and
+    the first failed check reported "budget exhausted, burn 3.3x" for a monitor
+    that was up 99.67% of the window. Callers publish the resolution next to the
+    budget and must not present the budget/burn numbers when `measurable` is
+    False — they stay arithmetically right but carry no information. (Re-cutting
+    the same samples over a TIME window does not help; the ratio quantises
+    identically. Only more samples per window, or a less strict target, buys
+    resolution.)"""
+    if not n_checks:
+        return None, None
+    resolution = round(100.0 / n_checks, 4)
+    # Round before comparing: 100.0 - 99.9 is 0.09999999999999432 in binary
+    # floating point, which would call a 1000-check window (0.1 pp per check)
+    # one ULP too coarse to measure its own 0.1 pp budget.
+    return resolution, budget_pct > 0 and round(budget_pct, 6) >= resolution
+
+
 def _compute_slo():
     """v5.4.1 (F3): per-monitor availability vs the SLO target + error-budget
     remaining, computed over each monitor's recent check history (count-bounded by
     MAX_MON_HISTORY — so this is "availability over the recent check window", which
     we label honestly). Error budget = the allowed downtime (100 - target); remaining
-    is what's left of it; burn > 1 means the budget is blown."""
+    is what's left of it; burn > 1 means the budget is blown. `budget_measurable`
+    is False when the window is too coarse for the target (see
+    _slo_budget_window) — the budget/burn numbers are then arithmetically right
+    but carry no information, and consumers must not present them."""
     target = _slo_target()
     budget = 100.0 - target            # allowed downtime %
     mh = load(MON_HIST_FILE) or {}
@@ -31626,16 +31746,22 @@ def _compute_slo():
         consumed = max(0.0, 100.0 - avail)   # actual downtime %
         remaining = 100.0 if budget <= 0 else max(0.0, min(100.0, (budget - consumed) / budget * 100.0))
         burn = 0.0 if budget <= 0 else round(consumed / budget, 3)
+        resolution, measurable = _slo_budget_window(budget, len(checks))
         out.append({
-            'label':                _sanitize_str(str(label), 128),
-            'checks':               len(checks),
-            'availability':         round(avail, 4),
-            'target':               target,
-            'budget_remaining_pct': round(remaining, 2),
-            'burn_rate':            burn,
-            'meeting_slo':          avail >= target,
+            'label':                 _sanitize_str(str(label), 128),
+            'checks':                len(checks),
+            'availability':          round(avail, 4),
+            'target':                target,
+            'budget_remaining_pct':  round(remaining, 2),
+            'burn_rate':             burn,
+            'min_representable_pct': resolution,
+            'budget_measurable':     measurable,
+            'meeting_slo':           avail >= target,
         })
-    out.sort(key=lambda x: x['budget_remaining_pct'])   # worst budget first
+    # Worst budget first; availability breaks the tie, because an unmeasurable
+    # window dumps every monitor with any failure into the same 0.0 bucket and
+    # the sort would otherwise be a coin flip between them.
+    out.sort(key=lambda x: (x['budget_remaining_pct'], x['availability']))
     return {'target': target, 'window': 'recent checks', 'monitors': out,
             'objects': _compute_slo_objects(mh)}
 
@@ -31697,6 +31823,9 @@ def _compute_slo_objects(mh):
                                  if checks_n else None),
             })
         avail = (100.0 * up / total) if total else None
+        # Same count-bounded-window caveat as _compute_slo: the object's window
+        # is expressed in days but its resolution is still one stored check.
+        resolution, measurable = _slo_budget_window(budget, total)
         if avail is None:
             remaining, burn, meeting = None, None, None
         else:
@@ -31706,21 +31835,26 @@ def _compute_slo_objects(mh):
             burn = 0.0 if budget <= 0 else round(consumed / budget, 3)
             meeting = avail >= target
         out.append({
-            'id':                   str(o.get('id') or ''),
-            'name':                 _sanitize_str(str(o.get('name') or ''), 128),
-            'description':          _sanitize_str(str(o.get('description') or ''), 300),
-            'target':               target,
-            'window_days':          window_days,
-            'monitors':             per_mon,
-            'checks':               total,
-            'availability':         round(avail, 4) if avail is not None else None,
-            'budget_remaining_pct': round(remaining, 2) if remaining is not None else None,
-            'burn_rate':            burn,
-            'meeting_slo':          meeting,
+            'id':                    str(o.get('id') or ''),
+            'name':                  _sanitize_str(str(o.get('name') or ''), 128),
+            'description':           _sanitize_str(str(o.get('description') or ''), 300),
+            'target':                target,
+            'window_days':           window_days,
+            'monitors':              per_mon,
+            'checks':                total,
+            'availability':          round(avail, 4) if avail is not None else None,
+            'budget_remaining_pct':  round(remaining, 2) if remaining is not None else None,
+            'burn_rate':             burn,
+            'min_representable_pct': resolution,
+            'budget_measurable':     measurable,
+            'meeting_slo':           meeting,
         })
-    # Breaching first (worst budget), then measured-and-meeting, then no-data.
+    # Breaching first (worst budget), then measured-and-meeting, then no-data;
+    # availability breaks the budget tie (an unmeasurable window pins every
+    # object with a failure to 0.0, so the budget alone can't order them).
     out.sort(key=lambda x: (x['availability'] is None,
-                            x['budget_remaining_pct'] if x['budget_remaining_pct'] is not None else 100.0))
+                            x['budget_remaining_pct'] if x['budget_remaining_pct'] is not None else 100.0,
+                            x['availability'] if x['availability'] is not None else 100.0))
     return out
 
 
@@ -32989,6 +33123,14 @@ def handle_disk_usage_scan(dev_id):
             respond(404, {'error': 'device not found'})
         if dev.get('agentless'):
             respond(400, {'error': 'agentless devices cannot run a disk scan'})
+        # v6.4.2: the du collector is Linux/macOS only — the Windows agent has no
+        # reader for force_du_scan at all, so the heartbeat popped the flag and
+        # threw it away while the operator got a green "runs it on the next
+        # heartbeat" toast and a report that never arrived. Refuse honestly, the
+        # same way scap_handlers gates its Linux-only scan.
+        if _device_os_family(dev) not in ('linux', 'darwin'):
+            respond(400, {'error': 'Disk-usage scanning needs the du tool — '
+                                   'Linux and macOS hosts only.'})
         dev['force_du_scan'] = True
     audit_log(actor, 'disk_usage_scan_queued', detail=f'device={dev_id}')
     respond(200, {'ok': True, 'message': 'Disk-usage scan queued — the agent runs '
@@ -38570,7 +38712,11 @@ def _rag_source_files(sources):
     if sources.get('rollouts'):
         files.append(ROLLOUTS_FILE)
     if sources.get('network_map'):
-        files.append(LINKS_FILE)
+        # Topology edges live on the DEVICE record (connected_to / depends_on),
+        # not in links.json — that is the shared bookmark dashboard. Watching
+        # links.json meant declaring or clearing an edge never invalidated the
+        # index. DEVICES_FILE is already watched by drift/compliance/firewall.
+        files.append(DEVICES_FILE)
         files.append(DISCOVERY_FILE)
     return files
 
@@ -38929,10 +39075,13 @@ def _rag_build_corpus(cfg):
             sys.stderr.write(f'rag: rollouts source failed: {e}\n')
 
     # v5.6.0: network topology (dependency links) + unmanaged-host discovery.
+    # The topology is the device records' connected_to/depends_on fields — this
+    # passed LINKS_FILE (the bookmark dashboard, always a dict) since v5.6.0, so
+    # the builder's list branch never ran and the deps chunk was never emitted.
     if sources.get('network_map'):
         try:
             docs += rag_index.build_network_map_corpus(
-                load(LINKS_FILE) or [], load(DISCOVERY_FILE) or {}, now=now)
+                _load_ro(DEVICES_FILE) or {}, load(DISCOVERY_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: network_map source failed: {e}\n')
 
@@ -51608,7 +51757,18 @@ def _fleet_report_csv_bytes(report):
     import csv, io
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(['Section', 'Metric', 'Value'])
+
+    def row(cells):
+        """Every cell through _csv_safe, like _csv_emit / handle_patch_report_csv /
+        _fleet_query_bytes already do. This exporter was the one that didn't, and
+        the worst-devices block below writes the operator-set display name — a
+        name starting with '=' (or +/-/@) executes as a formula when the fleet or
+        site posture report, the CSV most likely to be mailed to a customer, is
+        opened in Excel/Sheets. Mapping here rather than at each call site so a
+        future row can't reintroduce the gap."""
+        w.writerow([_csv_safe(c) for c in cells])
+
+    row(['Section', 'Metric', 'Value'])
     # Tolerate custom reports that omit sections, exactly like the sibling
     # _render_report_email has since v3.14.0. This renderer never got the same
     # treatment, so every ?sections= subset that dropped one of the six blocks
@@ -51622,16 +51782,16 @@ def _fleet_report_csv_bytes(report):
     p = report.get('patches') or {}
     c = report.get('cve') or {}
     if d:
-        w.writerow(['Devices', 'Total', d.get('total', 0)])
-        w.writerow(['Devices', 'Online', d.get('online', 0)])
-        w.writerow(['Devices', 'Offline', d.get('offline', 0)])
+        row(['Devices', 'Total', d.get('total', 0)])
+        row(['Devices', 'Online', d.get('online', 0)])
+        row(['Devices', 'Offline', d.get('offline', 0)])
     if h:
-        w.writerow(['Health', 'Fleet score', h.get('score', 0)])
-        w.writerow(['Health', 'Grade', h.get('grade', '')])
+        row(['Health', 'Fleet score', h.get('score', 0)])
+        row(['Health', 'Grade', h.get('grade', '')])
     if a:
-        w.writerow(['Attention', 'Critical', a.get('critical', 0)])
-        w.writerow(['Attention', 'Warning', a.get('warning', 0)])
-        w.writerow(['Attention', 'Info', a.get('info', 0)])
+        row(['Attention', 'Critical', a.get('critical', 0)])
+        row(['Attention', 'Warning', a.get('warning', 0)])
+        row(['Attention', 'Info', a.get('info', 0)])
     if sla:
         # 'sla' is a selectable section that this renderer never emitted at all,
         # so a CSV report including it silently dropped the fleet-uptime headline
@@ -51639,24 +51799,24 @@ def _fleet_report_csv_bytes(report):
         # (same idiom as compliance below) rather than nothing — a selected
         # section that writes no row is indistinguishable from a deselected one.
         pct = sla.get('fleet_uptime_pct')
-        w.writerow(['SLA', f"Fleet uptime ({sla.get('days', 30)}d) %",
-                    pct if pct is not None else 'N/A'])
+        row(['SLA', f"Fleet uptime ({sla.get('days', 30)}d) %",
+             pct if pct is not None else 'N/A'])
     if p:
-        w.writerow(['Patches', 'Devices with patches', p.get('devices_with_patches', 0)])
-        w.writerow(['Patches', 'Total pending', p.get('total_pending', 0)])
+        row(['Patches', 'Devices with patches', p.get('devices_with_patches', 0)])
+        row(['Patches', 'Total pending', p.get('total_pending', 0)])
     if c:
         for sev in ('critical', 'high', 'medium', 'low'):
-            w.writerow(['CVE', sev.capitalize(), c.get(sev, 0)])
-        w.writerow(['CVE', 'Devices affected', c.get('devices_affected', 0)])
+            row(['CVE', sev.capitalize(), c.get(sev, 0)])
+        row(['CVE', 'Devices affected', c.get('devices_affected', 0)])
     for fw, fwrep in ((report.get('compliance') or {}).get('frameworks') or {}).items():
-        w.writerow(['Compliance', fw.upper() + ' pass %',
-                    fwrep.get('score') if fwrep.get('score') is not None else 'N/A'])
+        row(['Compliance', fw.upper() + ' pass %',
+             fwrep.get('score') if fwrep.get('score') is not None else 'N/A'])
     if h:
-        w.writerow([])
-        w.writerow(['Worst devices', 'Score', 'Critical/Warning'])
+        row([])
+        row(['Worst devices', 'Score', 'Critical/Warning'])
         for dev in h.get('worst') or []:
-            w.writerow([dev.get('device_name', ''), dev.get('score', 0),
-                        f"{dev.get('critical', 0)}/{dev.get('warning', 0)}"])
+            row([dev.get('device_name', ''), dev.get('score', 0),
+                 f"{dev.get('critical', 0)}/{dev.get('warning', 0)}"])
     return buf.getvalue().encode()
 
 
@@ -59088,7 +59248,14 @@ def _refresh_kev_epss_now():
                 if len(parts) < 2:
                     continue
                 cid = parts[0].upper()
-                if want and cid not in want:
+                # v6.4.2 (BUG): this read `if want and cid not in want` — an
+                # EMPTY `want` short-circuited the guard away, so the WHOLE feed
+                # (~290k rows, ~7–8 MB of JSON) was kept and save()d. That is
+                # exactly the state this bound was written for: a server before
+                # its first scan, or any fleet whose ecosystems OSV can't map, so
+                # the blob was rewritten daily and deepcopied by every _kev_epss()
+                # reader. No findings means nothing to enrich → keep nothing.
+                if cid not in want:
                     continue
                 try:
                     epss[cid] = round(float(parts[1]), 4)
@@ -62233,8 +62400,15 @@ def handle_log_submit():
         for line in lines[:MAX_LOG_LINES_PER_UNIT]:
             # v2.9.1: dmesg/kernel entries are submitted as dicts —
             # extract the 'message' field rather than rendering as Python repr
+            ts_hint = now
             if isinstance(line, dict):
                 s = str(line.get('message') or line.get('line') or '').strip()[:1024]
+                # v6.4.2: a dict entry carries the agent's own event time, and
+                # for kernel lines it is the ONLY timestamp left — the agent
+                # strips the dmesg stamp out of the message. Used as the
+                # FALLBACK, not an override, so apt.history (ts=now, but the
+                # Start-Date is still in the text) keeps its v3.0.1 dating.
+                ts_hint = _agent_line_ts(line.get('ts'), now)
             else:
                 s = str(line)[:1024]
             if not s:
@@ -62250,7 +62424,7 @@ def handle_log_submit():
             # v3.0.1: use the line's own timestamp if it has one. Lines from
             # apt.history etc. carry an absolute date — without this, every
             # re-submission stamped them with `now` so they always looked new.
-            line_ts = _extract_log_timestamp(s, unit, now)
+            line_ts = _extract_log_timestamp(s, unit, ts_hint)
             clean_lines.append({'ts': line_ts, 'line': s, 'sig': sig})
 
         combined = existing_lines + clean_lines
@@ -65502,7 +65676,14 @@ def main():
     _safe(_retention_sweep_if_due, '_retention_sweep_if_due')
     # v5.4.1 (G3): record an hourly control-plane "served a request" bucket.
     # Cheap (mtime-gated; writes at most once/hour) — feeds observed-availability.
-    _safe(_record_self_alive, '_record_self_alive')
+    # v6.4.2: called DIRECTLY (like _record_satellite below), NOT via _safe(), and
+    # deliberately NOT in scheduler.CADENCE. Under RP_EXTERNAL_SCHEDULER=1 — the
+    # install default — _safe() early-returns, so the only writer left was the
+    # scheduler daemon, which ticks whether or not gunicorn is up: a total
+    # app-server outage still reported 100% observed availability. The bucket's
+    # whole contract is "the control plane served a request", so only the request
+    # path may stamp it. It swallows every exception itself, so it needs no _safe.
+    _record_self_alive()
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch

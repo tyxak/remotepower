@@ -1220,7 +1220,13 @@ class TestG3ControlPlaneUptime(unittest.TestCase):
 
     def test_wired_into_cadence_and_selftest(self):
         src = _apisrc_combined()
-        self.assertIn("_safe(_record_self_alive, '_record_self_alive')", src)
+        # v6.4.2: this used to pin `_safe(_record_self_alive, ...)` — i.e. it pinned
+        # the bug. _safe() early-returns under RP_EXTERNAL_SCHEDULER=1 (the install
+        # default), so the bucket was only ever written by the scheduler daemon,
+        # which ticks whether or not gunicorn is up. It must be an UNCONDITIONAL
+        # request-path call, or "hours the control plane served a request" reports
+        # 100% straight through a total app-server outage.
+        self.assertIn("\n    _record_self_alive()\n", src)
         self.assertIn("'control_uptime':  _control_uptime()", src)
         self.assertIn("'uptime': up,", src)
 

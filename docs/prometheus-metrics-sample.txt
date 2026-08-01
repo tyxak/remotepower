@@ -77,8 +77,8 @@ remotepower_webhook_log_size 0
 remotepower_fleet_health_score 88
 # HELP remotepower_device_health_score Per-device health score (0-100).
 # TYPE remotepower_device_health_score gauge
-remotepower_device_health_score{device="nas-1"} 75
-remotepower_device_health_score{device="web-1"} 100
+remotepower_device_health_score{device="def456",name="nas-1"} 75
+remotepower_device_health_score{device="abc123",name="web-1"} 100
 # HELP remotepower_attention_items Needs-attention items by severity.
 # TYPE remotepower_attention_items gauge
 remotepower_attention_items{severity="critical"} 1

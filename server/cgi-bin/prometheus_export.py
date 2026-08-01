@@ -306,8 +306,17 @@ def generate_metrics(ctx: dict) -> str:
         lines.append('# HELP remotepower_device_health_score Per-device health score (0-100).')
         lines.append('# TYPE remotepower_device_health_score gauge')
         for d in health.get('devices', []):
+            # v6.4.2: key on the device ID like every other per-device family
+            # here. This one carried the operator-editable DISPLAY NAME in the
+            # `device` label: two hosts sharing a name (cloned images, default
+            # `raspberrypi`/`localhost`, multi-site estates) emitted the same
+            # series identity twice, so Prometheus dropped one of them as a
+            # duplicate sample and that host had no health score at all — and
+            # even with unique names no `on(device)` join against
+            # remotepower_device_online/cpu/cve could ever match.
             lines.append(_metric('remotepower_device_health_score',
-                         {'device': d.get('device_name') or d.get('device_id', '')},
+                         {'device': d.get('device_id', ''),
+                          'name':   d.get('device_name') or d.get('device_id', '')},
                          d.get('score', 100)))
         counts = health.get('counts') or {}
         lines.append('# HELP remotepower_attention_items Needs-attention items by severity.')
@@ -353,14 +362,20 @@ def generate_metrics(ctx: dict) -> str:
             for m in mons:
                 lines.append(_metric('remotepower_monitor_availability_percent',
                                      {'label': str(m.get('label', ''))}, float(m.get('availability') or 0)))
-            lines.append('# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor.')
+        # v6.4.2: monitors whose check window is too coarse to resolve the SLO
+        # target are skipped — the budget there is binary (100 or 0), so the
+        # gauge would flip a service that was up 99.67% straight to "budget
+        # exhausted". Same reasoning as the no-data object skip below.
+        budget_mons = [m for m in mons if m.get('budget_measurable') is not False]
+        if budget_mons:
+            lines.append('# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor (omitted while the check window is too short to resolve the target).')
             lines.append('# TYPE remotepower_monitor_slo_budget_remaining_percent gauge')
-            for m in mons:
+            for m in budget_mons:
                 lines.append(_metric('remotepower_monitor_slo_budget_remaining_percent',
                                      {'label': str(m.get('label', ''))}, float(m.get('budget_remaining_pct') or 0)))
             lines.append('# HELP remotepower_monitor_slo_burn_rate Error-budget burn rate (>1 = over budget).')
             lines.append('# TYPE remotepower_monitor_slo_burn_rate gauge')
-            for m in mons:
+            for m in budget_mons:
                 lines.append(_metric('remotepower_monitor_slo_burn_rate',
                                      {'label': str(m.get('label', ''))}, float(m.get('burn_rate') or 0)))
         # v6.4.0: named SLA/SLO objects (monitor attachments, per-object window).
@@ -379,11 +394,14 @@ def generate_metrics(ctx: dict) -> str:
             for o in slo_objs:
                 lines.append(_metric('remotepower_slo_object_availability_percent',
                                      {'name': str(o.get('name', ''))}, float(o.get('availability') or 0)))
-            lines.append('# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object.')
-            lines.append('# TYPE remotepower_slo_object_budget_remaining_percent gauge')
-            for o in slo_objs:
-                lines.append(_metric('remotepower_slo_object_budget_remaining_percent',
-                                     {'name': str(o.get('name', ''))}, float(o.get('budget_remaining_pct') or 0)))
+            # v6.4.2: same unmeasurable-window skip as the per-monitor budget.
+            budget_objs = [o for o in slo_objs if o.get('budget_measurable') is not False]
+            if budget_objs:
+                lines.append('# HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object (omitted while the window holds too few checks to resolve the target).')
+                lines.append('# TYPE remotepower_slo_object_budget_remaining_percent gauge')
+                for o in budget_objs:
+                    lines.append(_metric('remotepower_slo_object_budget_remaining_percent',
+                                         {'name': str(o.get('name', ''))}, float(o.get('budget_remaining_pct') or 0)))
 
     # v5.4.1 (G3): observed control-plane availability over rolling windows.
     # A gap is downtime OR a quiet hour with zero traffic (see the API note).

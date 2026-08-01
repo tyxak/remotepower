@@ -107,7 +107,11 @@ CADENCE = (
     '_run_posture_digest_if_due',
     '_sqlite_maintenance_if_due',
     '_retention_sweep_if_due',
-    '_record_self_alive',
+    # v6.4.2: _record_self_alive is deliberately NOT a cadence sweep. Its hourly
+    # bucket means "the control plane served a request", and this daemon ticks on
+    # its own timer whether or not gunicorn is up — stamping it here reported 100%
+    # observed availability straight through a total app-server outage. main()
+    # calls it directly on the request path instead.
 )
 
 # A stable 63-bit key for the Postgres advisory lock (multi-node leader election).

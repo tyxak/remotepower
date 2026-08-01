@@ -2632,7 +2632,11 @@ function renderDevices() {
   const groupSel = document.getElementById('device-group-filter');
   if (groupSel) {
     const cur = groupSel.value;
-    groupSel.innerHTML = '<option value="all">All groups</option>' + allGroups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
+    // Ungrouped hosts were only reachable via "All groups" — the site filter has
+    // had an Unassigned option since v3.5.0, and the board's "(no group)" tile
+    // needs something to hand off to.
+    const ungrouped = devices.some(d => !d.group) ? '<option value="__none__">— Unassigned —</option>' : '';
+    groupSel.innerHTML = '<option value="all">All groups</option>' + allGroups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('') + ungrouped;
     groupSel.value = cur;
   }
   document.getElementById('stat-total').textContent   = devices.length;
@@ -2679,7 +2683,8 @@ function renderDevices() {
   else if (snmpFilter === 'ok')   filtered = filtered.filter(d => d.snmp_status && d.snmp_status.ok);
   else if (snmpFilter === 'fail') filtered = filtered.filter(d => d.snmp_status && d.snmp_status.enabled && !d.snmp_status.ok);
   const deviceGroupFilter = document.getElementById('device-group-filter')?.value || 'all';
-  if (deviceGroupFilter !== 'all') filtered = filtered.filter(d => d.group === deviceGroupFilter);
+  if (deviceGroupFilter === '__none__') filtered = filtered.filter(d => !d.group);
+  else if (deviceGroupFilter !== 'all') filtered = filtered.filter(d => d.group === deviceGroupFilter);
   // v3.5.0: site/team filter. Options are the site IDs present on devices,
   // labelled via the cached registry (loaded lazily once).
   const siteSel = document.getElementById('device-site-filter');
@@ -3656,7 +3661,7 @@ function _registerSloTable() {
       window:       o.window_days || 0,
       probes:       (o.monitors || []).map(m => m.label).join(' '),
       availability: o.availability === null ? -1 : (o.availability || 0),
-      budget:       o.budget_remaining_pct === null ? -1 : (o.budget_remaining_pct || 0),
+      budget:       (o.budget_remaining_pct === null || o.budget_measurable === false) ? -1 : (o.budget_remaining_pct || 0),
       status:       _sloStatusOf(o),
     }),
     row: (o) => {
@@ -3668,8 +3673,13 @@ function _registerSloTable() {
         : `<span class="mon-status ${st === 'meeting' ? 'up' : 'down'}">${st === 'meeting' ? '✓ meeting' : '✗ breached'}</span>`;
       const avail = o.availability === null || o.availability === undefined ? '—'
         : `<span class="${o.meeting_slo ? 'c-green' : 'c-red'}">${_sloPct(o.availability)}%</span>`;
+      // v6.4.2: an unmeasurable window (budget thinner than one stored check)
+      // makes the budget binary — 100% until any check fails, then 0% with a
+      // huge burn rate for a probe that was up 99.67%. Show why, not the lie.
       const budget = o.budget_remaining_pct === null || o.budget_remaining_pct === undefined ? '—'
-        : `${_sloPct(o.budget_remaining_pct)}%${o.burn_rate > 1 ? ' <span class="c-red fs-11" title="Error-budget burn rate — over 1 means the budget is blown">×' + o.burn_rate.toFixed(1) + '</span>' : ''}`;
+        : o.budget_measurable === false
+          ? `<span title="Not measurable yet — the ${o.checks} checks in this window resolve to ${_sloPct(o.min_representable_pct)}% steps, coarser than the ${_sloPct(100 - o.target)}% error budget. Widen the window (Settings → monitor history) or relax the target.">— <span class="fs-11">too few checks</span></span>`
+          : `${_sloPct(o.budget_remaining_pct)}%${o.burn_rate > 1 ? ' <span class="c-red fs-11" title="Error-budget burn rate — over 1 means the budget is blown">×' + o.burn_rate.toFixed(1) + '</span>' : ''}`;
       const acts = (_meCache && _meCache.admin)
         ? `<button class="btn-icon isl-44" title="Edit" data-action="editSloObject" data-arg="${escAttr(o.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeSloObject" data-arg="${escAttr(o.id)}">${_icon('trash',14)}</button>`
         : '';
@@ -15455,13 +15465,18 @@ function renderDiff(baselineText, currentText) {
 // devices, drift, CVEs, patches, webhook log. No new server endpoint
 // needed. Refresh implicit (re-runs on every visit to the page).
 
-// v2.9.1: module-scope so audit drawer and activity feed share the same map
+// v2.9.1: module-scope so audit drawer and activity feed share the same map.
+// The value is a CSS token, so it must be one that .status-pill AND
+// .activity-dot actually define (ok/warn/critical/info/neutral). Three entries
+// said 'crit', which has no rule — a honeytoken trip, a breached patch SLA and
+// a backup-size anomaly rendered as uncoloured plain text in the dashboard
+// activity feed, i.e. less alarming than an `info` blue `command_queued`.
 const EVENT_CLASS = {
   'device_offline': 'critical', 'device_online': 'ok',
   'agent_stopped': 'critical', 'agent_started': 'ok',
   'monitor_down': 'critical', 'monitor_up': 'ok',
   'service_down': 'critical', 'service_up': 'ok',
-  'cve_found': 'warn', 'patch_alert': 'warn', 'patch_sla_violation': 'crit', 'patch_sla_ok': 'ok', 'campaign_completed': 'ok',
+  'cve_found': 'warn', 'patch_alert': 'warn', 'patch_sla_violation': 'critical', 'patch_sla_ok': 'ok', 'campaign_completed': 'ok',
   'drift_detected': 'warn',
   'metric_warning': 'warn', 'metric_critical': 'critical',
   'metric_recovered': 'ok',
@@ -15472,7 +15487,7 @@ const EVENT_CLASS = {
   'mailbox_threshold': 'warn', 'mailbox_recovered': 'ok',
   'command_queued': 'info', 'command_executed': 'info',
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
-  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'crit', 'canary_accessed': 'crit',
+  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'critical', 'canary_accessed': 'critical',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn', 'snapshot_recovered': 'ok',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
@@ -15964,8 +15979,44 @@ async function loadBoard() {
   });
 }
 function boardOpenGroup(key) {
-  // Jump to Devices filtered to this group/site/tag.
+  // Jump to Devices filtered to this group/site/tag. `key` is the rollup key from
+  // GET /api/board — a group name, a site id, or a tag, depending on _boardBy.
+  // This used to drop `key` on the floor and open the FULL, unfiltered fleet, so
+  // the operator had to re-find and re-apply by hand the very filter the tile
+  // exists to apply for them (worst on a big paginated fleet).
+  key = (key == null) ? '' : String(key);   // data-arg coercion can hand us a Number
+  const group = document.getElementById('device-group-filter');
+  const site  = document.getElementById('device-site-filter');
+  // Reset all three scope dimensions first: a leftover group filter ANDed with a
+  // site tile renders an empty grid, which reads as "no devices" not "stale filter".
+  activeTagFilter = null;
+  if (group) group.value = 'all';
+  if (site)  site.value  = 'all';
+  // renderDevices() rebuilds these <option> lists from the loaded devices and
+  // restores whatever value it found — but a value with no matching <option> reads
+  // back as '', so seed the option before assigning it.
+  const pick = (sel, val, label) => {
+    if (!sel) return;
+    if (![...sel.options].some(o => o.value === val)) sel.add(new Option(label || val, val));
+    sel.value = val;
+  };
+  if (!key) {
+    /* no key to scope by — fall through to the plain Devices page */
+  } else if (_boardBy === 'tag') {
+    // '(untagged)' is the board's own synthetic bucket; there is no tag to match.
+    if (key !== '(untagged)') activeTagFilter = key;
+  } else if (_boardBy === 'site') {
+    if (key === '(no site)') pick(site, '__none__', '— Unassigned —');
+    else pick(site, key, _siteNameById[key] || key);
+  } else {
+    if (key === '(no group)') pick(group, '__none__', '— Unassigned —');
+    else pick(group, key);
+  }
   showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+  // showPage's loadDevices() skips the repaint when the payload is unchanged since
+  // the last poll, so render explicitly — otherwise the filter we just set would
+  // not take effect until some unrelated device change happened to arrive.
+  renderDevices();
 }
 
 async function loadHome() {
@@ -20151,8 +20202,18 @@ async function copyDeviceSummary(id) {
   const L = [];
   L.push(`Host: ${d.name || id}`);
   if (d.os) L.push(`OS: ${d.os}${si.kernel ? ` (kernel ${si.kernel})` : ''}`);
-  if (si.cpu_model) L.push(`CPU: ${si.cpu_model}${si.cpu_count ? ` · ${si.cpu_count} cores` : ''}`);
-  if (si.mem_total_gb) L.push(`RAM: ${si.mem_total_gb} GB`);
+  // v6.4.2: these lines read `cpu_model` / `mem_total_gb` / `loadavg` (below),
+  // and the heartbeat sanitizer stores NONE of them — safe_si whitelists `cpu`,
+  // `mem_total_mb` and `loadavg_1m`. So CPU, RAM and load were structurally
+  // absent from every summary ever copied. Core count was collateral damage:
+  // it hung off the dead cpu_model guard, so build the CPU line from whichever
+  // of the two facts is present. (Same keys the drawer Overview pills use.)
+  const cpuBits = [si.cpu, si.cpu_count ? `${si.cpu_count} cores` : ''].filter(Boolean);
+  if (cpuBits.length) L.push(`CPU: ${cpuBits.join(' · ')}`);
+  if (si.mem_total_mb) {
+    const mb = Number(si.mem_total_mb);
+    L.push(`RAM: ${mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb + ' MB'}`);
+  }
   L.push(`Agent: v${d.version || '?'} · poll ${d.poll_interval || '?'}s · ${d.online ? 'online' : 'OFFLINE'}`);
   if (si.uptime) L.push(`Uptime: ${si.uptime}`);   // the `uptime -p` prose
   const pct = [];
@@ -20161,8 +20222,10 @@ async function copyDeviceSummary(id) {
   if (si.disk_percent != null) pct.push(`DISK ${si.disk_percent}%`);
   if (si.swap_percent != null) pct.push(`SWAP ${si.swap_percent}%`);
   if (pct.length) L.push(`Usage: ${pct.join(' · ')}`);
-  if (si.loadavg) L.push(`Load: ${Array.isArray(si.loadavg) ? si.loadavg.join(' ') : si.loadavg}`);
-  if (si.temperature_c != null) L.push(`Temp: ${fmtTemp(si.temperature_c, 0)}`);
+  if (si.loadavg_1m != null) L.push(`Load: ${si.loadavg_1m}`);
+  // No temperature line: sysinfo carries none. `temperature_c` only ever exists
+  // on SMART/SNMP hardware records, which are behind a separate lazily-loaded
+  // endpoint — the old `si.temperature_c` read could never fire.
   if (d.pending_updates) L.push(`Pending updates: ${d.pending_updates}`);
   if (si.failed_units && si.failed_units.length) L.push(`Failed units: ${si.failed_units.join(', ')}`);
   if (si.reboot_required) L.push('Reboot required: yes');
@@ -21043,6 +21106,11 @@ async function _loadAuditSection(key) {
           // Disk-fill forecasting already says WHEN a mount fills; this says what
           // to delete. Rendered only when a scan has actually run.
           const duPaths = (duRec && duRec.paths) ? duRec.paths : null;
+          // v6.4.2: the Windows agent has no du collector, so the server now
+          // refuses the scan there. Say so instead of offering a button that
+          // 400s (and instead of "No disk-usage scan yet", which reads as
+          // "click here" and never becomes anything else on a Windows host).
+          const duSupported = !/windows/i.test(String((_drawerDeviceData || {}).os || ''));
           h += `<div class="section-title mt-12">Disk usage</div>`;
           if (duPaths && Object.keys(duPaths).length) {
             const rows = [];
@@ -21061,12 +21129,17 @@ async function _loadAuditSection(key) {
             if (duRec.ts) {
               h += `<div class="fs-11 c-muted mt-4">Scanned ${escHtml(_fmtTs(duRec.ts))}</div>`;
             }
+          } else if (!duSupported) {
+            h += `<div class="c-muted fs-14">Disk-usage scanning needs the
+                  <code>du</code> tool — Linux and macOS hosts only.</div>`;
           } else {
             h += `<div class="c-muted fs-14">No disk-usage scan yet. Enable it in
                   Settings → Security, then scan on demand.</div>`;
           }
-          h += `<button class="btn btn-sm mt-4" data-action="duScan" data-arg="${escAttr(id)}">
-                  Scan disk usage</button>`;
+          if (duSupported) {
+            h += `<button class="btn btn-sm mt-4" data-action="duScan" data-arg="${escAttr(id)}">
+                    Scan disk usage</button>`;
+          }
         }
         // v3.13.0: per-host storage / RAID health (ZFS / mdadm / btrfs).
         // Previously only on the fleet Storage page — surface this host's own

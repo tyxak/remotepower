@@ -592,7 +592,11 @@ def build_live_state_corpus(devices, facets=None, now=0):
         # summary chunks; the reindex throttle (api side) bounds how often
         # this re-embeds when embeddings are enabled.
         usage = []
-        for label, key in (('load average', 'loadavg'),
+        # NB: the stored key is `loadavg_1m` — safe_si has never written a
+        # `loadavg`, so this tuple used to index nothing and load average was
+        # missing from every device's usage chunk (the advisor could not answer
+        # a load question about any host).
+        for label, key in (('load average (1m)', 'loadavg_1m'),
                            ('cpu usage %', 'cpu_percent'),
                            ('memory usage %', 'mem_percent'),
                            ('swap usage %', 'swap_percent'),
@@ -1841,18 +1845,43 @@ def build_rollouts_corpus(store, now=0):
     return docs
 
 
-def build_network_map_corpus(links, discovery, now=0):
-    """v5.6.0: network topology + unmanaged-host discovery for the RAG. `links` is
-    the LINKS_FILE list (records carrying `connected_to`); `discovery` is the
+def build_network_map_corpus(devices, discovery, now=0):
+    """v5.6.0: network topology + unmanaged-host discovery for the RAG. `devices`
+    is the DEVICES_FILE store — the topology lives on the device record itself
+    (`connected_to`, the physical uplink, and `depends_on`, the declared logical
+    upstreams); there is no separate topology file. `discovery` is the
     DISCOVERY_FILE (hosts agents saw on the LAN that aren't enrolled). Feeds the
     unmonitored-visibility principle — the AI can answer "what depends on host X?"
     and "what's on our network we aren't monitoring?"."""
     docs = []
     deps = []
-    if isinstance(links, list):
-        for rec in links:
-            if isinstance(rec, dict) and rec.get('connected_to'):
-                deps.append(f"- {rec.get('device_id') or rec.get('id') or '?'} -> {rec.get('connected_to')}")
+    # Store shape: the id is the mapping KEY (a persisted device record carries
+    # no 'id' of its own — that is only stamped on read-time projections), so
+    # iterate items(). A list is still accepted defensively.
+    if isinstance(devices, dict):
+        recs = [(did, rec) for did, rec in devices.items() if isinstance(rec, dict)]
+    elif isinstance(devices, list):
+        recs = [(rec.get('device_id') or rec.get('id') or '', rec)
+                for rec in devices if isinstance(rec, dict)]
+    else:
+        recs = []
+    names = {did: (rec.get('name') or did) for did, rec in recs}
+
+    def _ep(did):
+        # Retrieval is lexical, so an edge written with the opaque enrolment id
+        # alone can never match a question that names the host.
+        nm = names.get(did)
+        return f"{nm} ({did})" if nm and nm != did else str(did)
+
+    for did, rec in recs:
+        if not did:
+            continue
+        if rec.get('connected_to'):
+            deps.append(f"- {_ep(did)} -> {_ep(rec['connected_to'])} (uplink)")
+        upstreams = rec.get('depends_on')
+        for up in (upstreams if isinstance(upstreams, list) else []):
+            if up:
+                deps.append(f"- {_ep(did)} depends on {_ep(up)}")
     if deps:
         docs.append(make_doc(
             'netmap/deps', 'network_map', 'dependencies',
@@ -2328,9 +2357,22 @@ def build_self_obs_corpus(store, now=0):
         if not isinstance(s, dict):
             continue
         bit = name
-        if s.get('last_error'):
-            bit += f" — LAST ERROR: {str(s.get('last_error'))[:120]}"
-        elif s.get('last_ok'):
+        # v6.4.2: key off what the producer (api._self_obs_mark) ACTUALLY writes —
+        # last_outcome/last_ok/last_err/err. The old branch read `last_error`, a key
+        # nothing has ever written, so the error arm was dead: a sweep failing on
+        # every tick kept its stale last_ok and was indexed for the AI as "— ok",
+        # contradicting the Server-status page. Same rule handle_self_observability
+        # uses, so the AI and the UI can't disagree.
+        try:
+            last_ok = int(s.get('last_ok') or 0)
+            last_err = int(s.get('last_err') or 0)
+        except (TypeError, ValueError):
+            last_ok = last_err = 0
+        failing = (s.get('last_outcome') == 'err' if s.get('last_outcome')
+                   else bool(last_err and last_err >= last_ok))
+        if failing:
+            bit += f" — LAST ERROR: {str(s.get('err') or 'error')[:120]}"
+        elif last_ok:
             bit += " — ok"
         lines.append(f"- {bit}")
     if lines:

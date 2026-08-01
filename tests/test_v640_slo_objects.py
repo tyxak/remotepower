@@ -227,7 +227,12 @@ class TestComputeSloObjects(_Base):
 
     def test_prometheus_gauges_for_measured_objects(self):
         now = int(time.time())
-        self._seed({"web": [{"ts": now - 60, "ok": True}]},
+        # v6.4.2: the window needs >= 1000 checks for a 99.9% target to be
+        # resolvable at all (100/N pp per check vs a 0.1 pp budget). The old
+        # single-check fixture exercised the case the exporter now suppresses,
+        # so it asserted the presence of a gauge that carried no information.
+        self._seed({"web": [{"ts": now - 60 * i, "ok": True}
+                            for i in range(1000)]},
                    [{"id": "slo-web", "name": "Web SLO", "target_pct": 99.9,
                      "window_days": 30},
                     {"id": "slo-new", "name": "Fresh", "target_pct": 99.9,

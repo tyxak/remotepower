@@ -64,8 +64,11 @@ As with firewall edits, each action is queued through the audited command pipeli
 - **Editing** (rules, bans, jails) requires the **`command`** permission for the
   target device — a viewer cannot make changes. Custom scoped operator roles can
   edit only hosts in their scope.
-- Rule specs and references are **strictly validated server-side** — only
-  letters, digits and rule punctuation are accepted, so a rule field can never
-  inject a second shell command.
+- Rule specs and references are **strictly validated server-side**, so a rule
+  field can never inject a second shell command. A spec you *type* accepts only
+  letters, digits and rule punctuation; an iptables *delete* reference is the
+  host's own `iptables -S` line, so quoted comments
+  (`-m comment --comment "kube-proxy service portals"`) and `!` negations are
+  kept intact and every argument is shell-quoted before the command runs.
 - Edits never bypass **quarantine** or the **4-eyes change-approval** controls
   that already gate the command queue.

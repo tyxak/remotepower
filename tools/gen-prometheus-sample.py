@@ -56,8 +56,13 @@ def main():
     cfg['slo_objects'] = [{'id': 'slo-web', 'name': 'Public web',
                            'target_pct': 99.9, 'window_days': 30}]
     api.save(api.CONFIG_FILE, cfg)
+    # 2000 checks, not 200: a 99.9% target leaves a 0.1 pp error budget, and a
+    # window of N checks can only resolve 100/N pp. Under ~1000 samples the
+    # budget is thinner than one check, the exporter suppresses the
+    # budget/burn gauges as unmeasurable, and the sample would silently lose
+    # the remotepower_*_slo_*budget* families that test_prometheus_sample pins.
     api.save(api.MON_HIST_FILE, {'website': [
-        {'ts': now - i * 300, 'ok': i != 3, 'ms': 42} for i in range(200)]})
+        {'ts': now - i * 300, 'ok': i != 3, 'ms': 42} for i in range(2000)]})
     api._LOAD_CACHE.clear()
     txt = prometheus_export.generate_metrics(api._build_metrics_ctx())
     out = ROOT / 'docs' / 'prometheus-metrics-sample.txt'

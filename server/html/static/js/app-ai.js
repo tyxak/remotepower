@@ -332,8 +332,15 @@ async function saveAISettings() {
       send_cmd_output: document.getElementById('ai-priv-cmd-output').checked,
     },
     limits: {
+      // `|| 4000` is fine here: the server requires 1 <= max_tokens <= 16000, so 0
+      // is not a legal value and clobbering it costs nothing.
       max_tokens_per_response:   parseInt(document.getElementById('ai-max-tokens').value, 10)   || 4000,
-      max_requests_per_user_day: parseInt(document.getElementById('ai-max-requests').value, 10) || 100,
+      // NaN-safe: 0 is legal ("cap disabled", the hint next to the input says so and
+      // _ai_rate_limit_check treats cap <= 0 as unlimited), so || would clobber it —
+      // typing 0 used to POST 100, and any save of this page re-armed a cap that had
+      // been disabled through the API.
+      max_requests_per_user_day: (() => { const v = parseInt(document.getElementById('ai-max-requests').value, 10);
+                                          return Number.isFinite(v) ? v : 100; })(),
     },
     auto_triage: {
       enabled:      !!document.getElementById('ai-triage-auto')?.checked,
