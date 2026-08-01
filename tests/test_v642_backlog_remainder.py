@@ -125,8 +125,8 @@ class TestMetricRollupRefreshesItsDueStamp(unittest.TestCase):
 
     def test_the_stamp_is_written_on_both_paths(self):
         import srcpin
-        body = srcpin.py_function((_CGI / "api.py").read_text(),
-                                  "run_metric_rollup_if_due")
+        from apisrc import api_source   # the sweep lives in rollup_handlers.py
+        body = srcpin.py_function(api_source(), "run_metric_rollup_if_due")
         tree = ast.parse(body)
         stamps = [n for n in ast.walk(tree)
                   if isinstance(n, ast.Assign)

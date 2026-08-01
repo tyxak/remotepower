@@ -126,15 +126,19 @@ class TestMetricsRollupIsAnEntityStore(unittest.TestCase):
 
     def test_the_cadence_gate_reads_only_the_meta_row(self):
         """The is-it-due? check runs on EVERY request. It used to load+parse the
-        whole fleet's rollup history just to read one integer, on the not-due path."""
-        src = (CGI / 'api.py').read_text()
-        i = src.index('def run_metric_rollup_if_due')
-        head = src[i:i + 4000]
+        whole fleet's rollup history just to read one integer, on the not-due path.
+
+        v6.4.2: the sweep moved into the rollup_handlers bound module, so read the
+        COMBINED source (apisrc) and tolerate the ``A.`` namespace prefix."""
+        from apisrc import api_source
+        from tests import srcpin
+        head = srcpin.py_function(api_source(), 'run_metric_rollup_if_due')
         # Everything before the "is it due?" early-return runs on EVERY request.
         gate = head[:head.index('METRIC_ROLLUP_INTERVAL')]
-        self.assertIn("_entity_read_one(METRICS_ROLLUP_FILE, '_meta'", gate)
-        self.assertNotIn('load(METRICS_ROLLUP_FILE)', gate,
-                         'the not-due path must not load the whole store')
+        self.assertRegex(
+            gate, r"_entity_read_one\((?:A\.)?METRICS_ROLLUP_FILE, '_meta'")
+        self.assertNotRegex(gate, r"(?<!_)load\((?:A\.)?METRICS_ROLLUP_FILE\)",
+                            'the not-due path must not load the whole store')
 
 
 class TestConditionalNavCounts(unittest.TestCase):

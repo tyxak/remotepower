@@ -49,14 +49,18 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # CONSTANTS stay in api.py and are read via A., which is the normal pattern.
 # _compute_attention keeps calling the moved helpers unchanged because api.py
 # re-imports the names. Net −6, and the raise is paid back with interest.
-# 627→628 (v6.4.2): handle_device_thermal_rollup — one handler, no new
-# subsystem and no new route prefix. It is the exact twin of the inline
-# handle_device_metric_rollup two functions above it and shares its private
-# spine (_rollup_read_shape / _rollup_merge / _rollup_prune / the tier
-# constants). A bound module for a single 12-line reader would have to re-bind
-# that whole roll-up spine through A. to say nothing new — the module rule
-# exists to stop SUBSYSTEMS accreting here, and this is not one.
-INLINE_HANDLER_CEILING = 628
+# 627→628 (v6.4.2): handle_device_thermal_rollup was added inline on a
+# "one handler, too coupled to the roll-up spine to carve" justification.
+# 628→626 (v6.4.2): that justification did not survive contact either — the
+# roll-up spine was 247 lines with 2-5 external references per symbol, so it
+# carved cleanly into rollup_handlers.py and took BOTH readers with it
+# (handle_device_metric_rollup as well as the thermal one), along with
+# _rollup_merge / _rollup_prune / _rollup_read_shape / _raw_temp_samples and
+# the two cadence sweeps. Only the tier/retention CONSTANTS stay in api.py and
+# are read via A., which is the normal pattern. main()'s cadence, scheduler.py's
+# CADENCE and the route table resolve unchanged because api.py re-imports the
+# names. A debt-adding raise turned into a net −2.
+INLINE_HANDLER_CEILING = 626
 
 
 class TestApiHandlerRatchet(unittest.TestCase):
