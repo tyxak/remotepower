@@ -174,7 +174,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Webhooks | Generic JSON, Discord, ntfy, Slack, Gotify, Microsoft Teams, Pushover, Telegram, Matrix *(Telegram/Matrix v5.3.0)*; auto-format detection |
-| Signed webhook deliveries | Optional per-destination HMAC secret → `X-RemotePower-Signature` (HMAC-SHA256 over the raw body) + timestamp header on generic-format deliveries, so receivers verify authenticity; secret write-only *(v5.3.0)* |
+| Signed webhook deliveries | Optional per-destination HMAC secret on generic-format deliveries, so receivers verify authenticity; secret write-only *(v5.3.0)*. `X-RemotePower-Signature-V2` covers the **timestamp and the body together**, which is what lets a receiver's age check reject a replayed delivery; the body-only `X-RemotePower-Signature` is still sent alongside it so existing receivers keep working *(v6.4.2)* |
 | Browser push | Web Push (VAPID) notifications straight to subscribed browsers / the PWA — no third-party service; admin-enabled, per-browser opt-in *(v4.0.0)* |
 | GitHub issues | `github` destination opens an issue with labels *(v3.3.0)* |
 | PagerDuty / Opsgenie | PagerDuty Events v2 (trigger + auto-resolve), Opsgenie Alerts v2 *(v3.4.1)* |

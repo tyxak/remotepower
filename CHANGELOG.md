@@ -64,13 +64,13 @@ toast instead of any logs.
   same container-id validation as the Linux agent. **Update** (pull and recreate)
   is deliberately not implemented there and refuses with a message saying so.
 
-### Fixed: the WordPress integration reporting "invalid JSON" on healthy sites
+### WordPress: "invalid JSON" on a healthy site
 
-A bug hunt on the WordPress connector, prompted by JSON errors from the field.
-The site was fine in every case; the connector was not.
+Prompted by JSON errors reported from the field. The site was fine in every
+case; the connector was not.
 
-- **The REST index was too big to read, so we cut it in half and blamed the
-  site.** The connector fetched the unfiltered `/wp-json/` index, which
+- **The REST index was too big to read, so it was cut in half and the site got
+  the blame.** The connector fetched the unfiltered `/wp-json/` index, which
   enumerates every registered route with its full schema — routinely several
   megabytes on a site running WooCommerce, Yoast or Elementor. The transport
   reads a bounded 2 MB, so the body arrived truncated mid-object and the
@@ -98,7 +98,7 @@ The site was fine in every case; the connector was not.
   and the operator was shown `AttributeError: 'list' object has no attribute
   'get'`. (The same idiom appears at 18 other connector call sites; they are
   unchanged here because several legitimately expect a list, and a blanket
-  sweep is how that gets broken.)
+  change is how that gets broken.)
 - **A `null` body was reported healthy.** It produced a green "site up" tile for
   something that was never confirmed to be WordPress at all.
 - **"Credentials rejected" was blamed for everything.** A 404, an HTML login
@@ -119,8 +119,8 @@ The site was fine in every case; the connector was not.
 - **Every IPv6 address was silently blanked, everywhere.** The shared IP
   sanitiser's pattern matched only the fully-expanded eight-group form, so
   `2001:db8::1`, `::1` and an IPv4-mapped `::ffff:192.0.2.1` all became empty
-  strings with nothing logged. Found via the WordPress login table — where the
-  row read `admin | — | Denmark (DK)`, an IP-less login with a country, which
+  strings with nothing logged. It showed up in the WordPress login table — where
+  the row read `admin | — | Denmark (DK)`, an IP-less login with a country, which
   looks like corruption — but the same helper guards the audit log's source IP,
   device create/update, the interface inventory and the gateway, so an IPv6
   network's addresses quietly vanished from all of them. Validation now goes
@@ -137,94 +137,75 @@ The site was fine in every case; the connector was not.
   connector returns the 5 most recent it finds while scanning a bounded window
   of the login channel. Reworded to what it does.
 
-### Fixed: a wide feature sweep
+The rest of the release is correctness work across the product. Most of the
+defects below are long-standing; all of the fixes land here, before this
+release ships.
 
-Sixth batch — reproduced against the current build, then fixed:
+### Alerts: what fires, and what clears it
 
-- **An apostrophe in a timesheet note destroyed the entry.** The helper that
-  escapes values into HTML attributes emitted JavaScript-string escapes
-  (`\x27`) instead of HTML entities. A browser hands those back literally, so
-  `JSON.parse` threw, **Edit** opened a blank form, and **Save** then wrote the
-  blank over a real billing record. Rate names, invoice prefixes and the issuer
-  name printed on invoice PDFs were corrupted the same way.
-- **"Send IP addresses = off" did not hide IPv6 addresses.** The matcher could
-  only recognise the fully expanded eight-group form, so `2001:db8::1`,
-  `fe80::1` and `::1` — every address anyone actually writes — went to the AI
-  provider verbatim while the toggle read as on.
-- **Custom report downloads returned an error whenever a section was
-  unticked.** The CSV renderer required every block to be present, so the exact
-  URL the Download button builds failed for any saved definition that left one
-  out.
-- **The IP allowlist blocked agents it promised not to.** Enabling it broke the
-  self-update signature fetch (so an agent downloaded an update it then refused
-  to install), the live-metrics push and file-manager uploads — while the
-  Settings hint said it "never blocks an agent".
-- **A certificate that could not be reached was reported as expired.** An
-  unknown expiry was encoded as zero days, which is also what "expires today"
-  looks like, so a transient DNS or connection failure raised a critical
-  certificate-expiry alert.
-- **Proxmox snapshots with a hyphen could be seen but not used.** `pre-upgrade`
-  is a name Proxmox creates happily; it was listed with working-looking Rollback
-  and Delete buttons that always refused it — discovered at the moment a
-  rollback matters most.
-- **Hours logged in the evening landed on the wrong day.** Time entries defaulted
-  to the UTC date, so evening entries in the Americas and after-midnight entries
-  in Europe fell on the wrong day, week and invoice month; the timesheet CSV
-  separately labelled the file with one week and fetched another.
+- **Every expiring certificate on one port was a single alert.** `tls_expiry`
+  targets are not devices, so an alert's identity was `(event, '', port)` and
+  every certificate expiring on :443 coalesced into a single inbox row. Renewing the
+  first host then auto-resolved that row and the rest expired with nothing in
+  the inbox at all. `host` is an identity field now.
+- **A certificate that could not be reached was reported as expired.** A failed
+  probe carries no expiry, and an unknown expiry was encoded as zero days —
+  which is also what "expires today" looks like. So a transient DNS or
+  connection failure raised a critical certificate-expiry alert. Unknown is
+  unknown now, in the day count itself as well as in the alert path and
+  needs-attention; unreachability is already its own signal.
+- **Every CRIT log rule was filed as medium.** The log engine fires with
+  `severity`, the severity resolver read `level` — so a CRIT rule disagreed
+  with its own needs-attention card, was dropped by min-priority filters, and
+  never reached web push or broke through quiet hours.
+- **An escalating alert never changed severity.** Coalescing refreshed only the
+  timestamp and count, so a disk going 85% to 96% kept reading medium while the
+  webhook, SIEM and push channels paged on critical — the inbox disagreed with
+  the page the operator had just received. Escalate-only, so a transient dip
+  cannot silently downgrade a live page.
+- **The alert cap deleted open alerts on SQLite and Postgres.** The JSON backend
+  got resolved-first eviction in v6.4.0; the DB backends — the enterprise
+  default — kept deleting oldest-overall, so on a fleet past the 5000 cap the
+  still-open alerts went and the resolved ones stayed, while the retention hint
+  promises open alerts are never purged. All four cap sites across both backends
+  evict resolved rows first now.
+- **Capping any store failed outright on PostgreSQL.** The Postgres half of the
+  eviction change above read a JSON field without casting the column, which
+  PostgreSQL cannot parse — and the statement is only reached once a store
+  passes its cap, which makes it invisible on a fresh install. On the enterprise
+  default backend that would have meant HTTP 500 on every command-queue action
+  past 200 logged commands and on every audited admin action past 500 audit
+  entries, with new alerts and fleet events silently dropped past their caps.
+  Both sites now cast, like every other JSON access in that module. The Postgres
+  cap test seeded rows with no resolution timestamp, so every row sorted equal
+  and the expression was never evaluated even with a live server; it now seeds a
+  mixed set through both code paths, and a static check that runs everywhere
+  fails on any uncast JSON operator against a text column.
+- **A CVSS v4.0 advisory scored `unknown`.** NVD and OSV have published v4
+  vectors since 2023 and advisories increasingly carry only one; it fell through
+  every branch of the score parser, so a 9.8 was filed as neither critical nor
+  high — no risk points, no CVE alert, invisible to the SLA and compliance
+  views. v4's base metrics are now mapped onto the v3.1 formula and the source
+  is labelled `cvss_v4_approx`, because it is a derivation and not an official
+  v4 base score. Two of the translations are load-bearing: v4's user-interaction
+  metric uses a different vocabulary than v3 — N/P/A against N/R — without which
+  low and medium advisories stayed invisible even with the branch in place; and
+  v4 splits impact into the vulnerable system and the systems downstream of it,
+  so the worse of the two is taken per dimension. Reading only the vulnerable
+  half scores an official 9.3 critical as 0.0, which is worse than `unknown`
+  because it presents as a computed number.
+- **IPv6 brute-force sources were truncated to their first hextet.**
+  `2001:db8::1` and `2001:470::9` both became `2001`, so unrelated attackers
+  shared one counter — which crossed the threshold on its own and fired an alert
+  naming an address nobody can block, while the real per-source signal was
+  diluted away. Sources logged as a resolved hostname, which is what `sshd` with
+  `UseDNS` writes, keep a counter of their own rather than being discarded.
 
-Fifth batch — a second sweep, over surface the first did not cover:
+### Scheduled work that never ran
 
-- **The write lock handed back stale data.** `_LockedUpdate` acquired the file
-  lock and then read through a per-request memoiser, so it returned a snapshot
-  taken BEFORE the lock existed and wrote that snapshot back on exit — the
-  guarantee it exists to provide, and the one ~24 handlers were moved onto it
-  for. A device enrolled by a concurrent process was absent from the stale copy
-  and was deleted by the locked write, taking its token with it; the same root
-  cause dropped sessions created during a login. Both database backends already
-  read inside their transaction; the file backend now agrees.
-- **Patch-report CSV, patch-report XML and the fleet SBOM ignored role scope and
-  tenancy.** All three share a helper that read the whole device store and
-  applied only the URL's own filters, so an operator restricted to one group
-  could download the entire fleet's patch state or software inventory. The JSON
-  version of the very same report has always filtered correctly, which is why
-  this was invisible: right on screen, wrong in the export.
-- **RAG search returned hosts the caller cannot see.** The AI chat path
-  deliberately withholds retrieval from scoped roles because the knowledge index
-  is not tagged per scope; the standalone search endpoint ran the same index for
-  anyone signed in, returning device notes, open ports and inventory for
-  out-of-scope hosts. It now refuses for scoped and tenant-limited callers,
-  which is the honest answer until the index carries those tags.
-
-Fourth batch:
-
-- **REGRESSION FIX (introduced earlier in this same release).** The Postgres
-  half of the alert-cap fix wrote `doc->>'resolved_at'` against a TEXT column.
-  PostgreSQL has no `text ->> unknown` operator, so the statement could not
-  parse — and it is only reached once a store passes its cap, which makes it
-  invisible on a fresh install. On the enterprise default backend that would
-  have meant HTTP 500 on every command-queue action past 200 logged commands
-  and on every audited admin action past 500 audit entries, with new alerts and
-  fleet events silently dropped past their caps. Both sites now cast `::jsonb`,
-  like every other JSON access in that module. The Postgres cap test previously
-  seeded rows with no `resolved_at`, so every row sorted equal and the
-  expression was never evaluated even with a live server; it now seeds a mixed
-  set through both code paths, and a static guard that runs everywhere fails on
-  any uncast JSON operator against a TEXT column.
-- **Log collectors went blind after every rotation.** The web-access and
-  apt-history collectors persisted only a position and seeked to it, so once
-  logrotate replaced the file — or truncated it under copytruncate — the stale
-  offset pointed past the end: nothing was read, the position was rewritten
-  unchanged, and every line below it was dropped until the new file grew past
-  the old size, which on a quiet host is days. Access-log rules (auth failures,
-  5xx spikes, scanner probes) simply stopped firing after each nightly rotate,
-  with no error anywhere. Both now detect a changed inode or a shrunk file and
-  restart, which is what the general file-log collector has always done.
-
-Third batch:
-
-- **Scheduled work that could never fire.** There were THREE cron evaluators
-  with three different sets of capabilities, and all three ACCEPTED what they
-  could not evaluate — so a schedule the validator allowed simply never ran. A
+- **Schedules that could never fire.** There were three cron evaluators with
+  three different sets of capabilities, and all three accepted what they could
+  not evaluate — so a schedule the validator allowed simply never ran. A
   maintenance window of `0 22 * * 1-5` (weeknights) suppressed nothing, and with
   command gating on it held every exec and upgrade for its devices forever,
   waiting for a window that could not open. `dow=7` — Sunday, which every
@@ -232,101 +213,320 @@ Third batch:
   Mar/Jun/Sep/Dec instead of Jan/Apr/Jul/Oct, because the step anchored at 0
   rather than at the field's minimum. There is one evaluator now, handling
   lists, ranges, steps, steps on ranges, and Sunday as both 0 and 7.
-- **Loopback services reported as world-exposed on Windows and macOS.** Both
-  classifiers were string-prefix copies whose loopback test was an exact
-  three-value tuple with a catch-all of "world", so `127.0.0.2`, the
-  uncompressed `0:0:0:0:0:0:0:1`, and — the common one — `::ffff:127.0.0.1`,
-  which is how a dual-stack socket reports an IPv4 bind through psutil, each
-  raised a HIGH "port exposed to the world" alert for a service bound to
-  localhost. The server does not recompute the scope, so the alert stood. All
-  three agents now use the same address parsing, and an address that cannot be
-  classified stays "world" — an exposure we cannot read should fail loud.
+- **Six kinds of scheduled work fired only if a tick landed inside the matching
+  minute.** Scheduled commands, backup jobs, auto-patch, both report senders and
+  recurring tickets tested for an exact wall-clock minute instead of for elapsed
+  time. Under the out-of-band scheduler — the default since v6.1.0 — ticks are a
+  fixed-period sequence rather than a per-minute sample, so at any interval above
+  60 seconds the phase relative to a day is constant and a daily job was either
+  always sampled or never sampled at all; at the shipped 60-second interval a
+  realistic cadence duration lost most of its runs. Nothing surfaced it: no alert,
+  no log line, and the policy still read as enabled. They now evaluate the
+  minutes that have elapsed, the way a real cron daemon does, with the look-back
+  capped so a long outage cannot burst-fire, and a schedule is claimed when it is
+  created so it can never fire for a window that predates it.
+- **Audit-log retention was never enforced.** The daily retention pass armed
+  only if some other retention key happened to be set, so a stock install never
+  ran it — while the security-status page and the `audit_retention` compliance
+  control both reported the 90-day default as effective.
+- **An idle fleet re-ran the metric rollup on every tick.** The rollup advanced
+  its due-stamp only on the path where it had changes to write, so with nothing
+  to do it stayed permanently due and took a fleet-wide locked pass each time.
 
-Second batch:
+### Configuration, locking and storage
 
-- **A CVSS v4.0 advisory scored `unknown`.** NVD and OSV have published v4
-  vectors since 2023 and advisories increasingly carry only one; it fell through
-  every branch of the score parser, so a 9.8 was filed as neither critical nor
-  high — no risk points, no CVE alert, invisible to the SLA and compliance
-  views. v4's base metrics are now mapped onto the v3.1 formula and the source
-  is labelled `cvss_v4_approx`, because it is a derivation and not an official
-  v4 base score. (v4's user-interaction metric uses a different vocabulary than
-  v3 — N/P/A against N/R — which had to be translated or low and medium
-  advisories stayed invisible even with the branch in place.)
-- **The alert cap deleted OPEN alerts on SQLite and Postgres.** The JSON backend
-  got resolved-first eviction in v6.4.0; the DB backends — the enterprise
-  default — kept deleting oldest-overall, so on a fleet past the 5000 cap the
-  still-open alerts went and the resolved ones stayed, while the retention hint
-  promises open alerts are never purged. All four cap sites across both backends
-  evict resolved rows first now.
-- **An escalating alert never changed severity.** Coalescing refreshed only the
-  timestamp and count, so a disk going 85% to 96% kept reading medium while the
-  webhook, SIEM and push channels paged on critical — the inbox disagreed with
-  the page the operator had just received. Escalate-only, so a transient dip
-  cannot silently downgrade a live page.
-- **IPv6 brute-force sources were truncated to their first hextet.**
-  `2001:db8::1` and `2001:470::9` both became `2001`, so unrelated attackers
-  shared one counter — which crossed the threshold on its own and fired an alert
-  naming an address nobody can block, while the real per-source signal was
-  diluted away.
+- **The write lock handed back stale data.** `_LockedUpdate` acquired the file
+  lock and then read through a per-request memoiser, so it returned a snapshot
+  taken *before* the lock existed and wrote that snapshot back on exit — the
+  guarantee it exists to provide, and the one ~24 handlers were moved onto it
+  for. A device enrolled by a concurrent process was absent from the stale copy
+  and was deleted by the locked write, taking its token with it; the same root
+  cause dropped sessions created during a login. Both database backends already
+  read inside their transaction; the file backend now agrees.
+- **23 places wrote the whole configuration document back from a stale
+  snapshot.** Each read, changed and saved with no lock held across the pair.
+  Worst in the periodic maintenance passes, which memoise their read for the
+  length of a request: a `POST /api/config` landing mid-run had its keys
+  silently reverted — an admin could enable the IP allowlist or set an SMTP
+  host and watch the setting turn itself back off minutes later. Timestamp-only
+  claims go through a dedicated slot claim now; everything else holds the lock,
+  and a configuration save applies only the keys the request actually changed.
+  The same unlocked pattern sat on the heartbeat's per-device stores, where
+  concurrent workers dropped each other's device rows across sixteen stores —
+  losing a listening-port or SSH-key baseline is worse than losing telemetry,
+  because the host re-baselines and the new-port and new-key detections never
+  fire.
+- **Secrets could be written to the configuration in the clear.** The save path
+  used while the lock is held skipped the encrypt-at-rest step the ordinary save
+  performs, so on an install with `RP_CONFIG_KEY` set one write through the lock
+  stripped encryption from the whole document — the SMTP password, the OIDC
+  client secret, the LDAP bind password and every webhook URL. The database
+  backends had the mirror defect: the lock yielded the stored ciphertext, so a
+  secret read inside it came back as the marker string and a secret written
+  inside it was stored plaintext. All three backends present the same contract
+  now — decrypt on the way in, encrypt on the way out.
+- **Three settings offered "0 = off" and ignored it.** The UPS critical-runtime
+  trigger, audit-log retention and the AI daily request cap could not tell an
+  explicit 0 from unset, so switching one off silently restored its default —
+  and any later save of the AI page re-armed a cap that had been disabled
+  through the API.
+- **The exploit-prediction cache stored the entire feed when there was nothing
+  to enrich.** The bound that keeps only the scores matching known findings
+  short-circuited itself when the set of findings was empty, so a server before
+  its first scan — or any fleet whose ecosystems the advisory source cannot map
+  — persisted the whole ~290,000-row feed, rewrote it daily, and copied it on
+  every read.
 
-Nine parallel hunts across the feature surface, each required to supply a
-runnable reproduction; all 36 findings reproduced when re-run independently.
-Ten are fixed here — the rest are recorded with their reproductions.
+### Data that reached the wrong operator
 
-- **Every expiring certificate on one port was a single alert.** `tls_expiry`
-  targets are not devices, so an alert's identity was `(event, '', port)` and
-  every certificate expiring on :443 coalesced into ONE inbox row. Renewing the
-  first host then auto-resolved that row and the rest expired with nothing in
-  the inbox at all. `host` is an identity field now.
+- **Patch-report CSV, patch-report XML and the fleet SBOM ignored role scope and
+  tenancy.** All three share a helper that read the whole device store and
+  applied only the URL's own filters, so an operator restricted to one group
+  could download the entire fleet's patch state or software inventory. The JSON
+  version of the very same report has always filtered correctly, which is why
+  this was invisible: right on screen, wrong in the export.
+- **Retrieval returned hosts the caller cannot see.** The AI chat path
+  deliberately withholds retrieval from scoped roles because the knowledge index
+  is not tagged per scope; the standalone search endpoint and the per-device
+  runbook generator ran the same index for anyone signed in, returning device
+  notes, open ports and inventory for out-of-scope hosts, and chat's own check
+  was blind to tenancy. The gate now sits at the shared entry point rather than
+  at each caller, and covers scoped and tenant-limited callers alike — refusing
+  is the honest answer until the index carries those tags.
+- **Cross-tenant leak on Monitoring → Tuning.** The noisy-events timeline on that
+  page is scope- and tenant-filtered; the mute list one line below it was not, so
+  a tenant-scoped administrator could read every other tenant's muted alerts and
+  the hostnames attached to them. Nothing was reachable without authentication.
+
+### Reports, billing and metrics
+
+- **An apostrophe in a note destroyed the record.** The helper that escapes
+  values into HTML attributes emitted JavaScript-string escapes instead of HTML
+  entities. A browser hands those back literally, so the value could not be
+  parsed on the way back in: **Edit** opened a blank form on a timesheet entry
+  and **Save** then wrote the blank over a real billing record. Rate names,
+  invoice prefixes and the issuer name printed on invoice PDFs were corrupted
+  the same way. Every call site was classified before the change — all of them
+  are quoted attributes and none is a JavaScript string, which is what makes
+  emitting entities the correct fix — and attribute-escaping safety was
+  re-verified in both quote styles.
+- **Custom report downloads returned an error whenever a section was
+  unticked.** The CSV renderer required every block to be present, so the exact
+  URL the Download button builds failed for any saved definition that left one
+  out. Its e-mail sibling has tolerated subsets since v3.14.0.
+- **Spreadsheet formula characters were not neutralised in the posture report.**
+  A device name is operator-set, and a cell that begins with one of the
+  characters a spreadsheet treats as the start of a formula is executed rather
+  than displayed when the file is opened in Excel, Sheets or LibreOffice. Every
+  sibling exporter already neutralised those cells; the fleet and site posture
+  report — the CSV most likely to be mailed to a customer — did not. Every cell
+  now goes through the same guard, applied once for the whole renderer so a
+  future row cannot reintroduce the gap.
+- **Hours logged in the evening landed on the wrong day.** Time entries defaulted
+  to the UTC date, so evening entries in the Americas and after-midnight entries
+  in Europe fell on the wrong day, week and invoice month; the timesheet CSV
+  separately labelled the file with one week and fetched another.
+- **Prometheus per-device health was keyed on the display name**, so two hosts
+  named the same emitted the same series identity — one was dropped as a
+  duplicate sample and had no health score at all — and even with unique names
+  the metric could not be joined against any other per-device series, which all
+  key on the device id. It keys on the device id now, like the rest of them.
+- **The SLO error budget was reported as a precise number it could not
+  support.** A 99.9% target allows 0.1 percentage points of downtime, but a
+  window bounded by 300 stored checks can only express steps of 0.33pp — so the
+  remaining budget could only ever read 100% or 0%, and Prometheus saw a hard
+  breach the moment a single check failed for a probe that was up 99.67%.
+  Measuring the window in time rather than in checks does not help: it is
+  bounded by sample count either way, so the information is genuinely absent.
+  The API and the SLO page now say the window is too coarse to measure the
+  budget and name both the step size and the target, instead of printing a
+  number that carries no information, and a monitor whose window cannot resolve
+  its budget is left out of the Prometheus budget series rather than reported as
+  breached.
+
+### Agents and platform parity
+
 - **A macOS host with a custom check assigned lost its record 11 beats in 12.**
   Check results are reported every beat by design, but the server replaces
   `sysinfo` wholesale — so the one-key dict wiped uptime, platform, kernel,
   mounts, listening ports and every percentage between cadence beats. The
   host's Checks page collapsed from 14 rows to 2, so a filling disk or an
   exposed port reported nothing wrong ~92% of the time. A partial beat is
-  flagged and merged now, keeping both properties.
-- **An unreachable host reported CRITICAL "Certificate EXPIRED".** A failed
-  probe carries no expiry and the day count returned 0 for that, which is
-  indistinguishable from "expires today". Fixed in both the alert path and
-  needs-attention; unreachability is already its own signal.
+  flagged and merged now, keeping both properties, and the metric history is
+  sampled only from a full beat so a merged record cannot fabricate readings.
 - **Every mount on a Windows host was dropped at ingest** — the sanitiser
   required a leading `/`, so the storage view, every per-mount disk check and
-  the disk-fill forecast were permanently empty, which reads as healthy.
-- **Every CRIT log rule was filed as medium.** The log engine fires with
-  `severity`, the severity resolver read `level` — so a CRIT rule disagreed
-  with its own needs-attention card, was dropped by min-priority filters, and
-  never reached web push or broke through quiet hours.
+  the disk-fill forecast were permanently empty, which reads as healthy. A
+  Windows drive letter and a UNC root are accepted now.
+- **Loopback services reported as world-exposed on Windows and macOS.** Both
+  classifiers were string-prefix copies whose loopback test was an exact
+  three-value tuple with a catch-all of "world", so `127.0.0.2`, the
+  uncompressed `0:0:0:0:0:0:0:1`, and — the common one — `::ffff:127.0.0.1`,
+  which is how a dual-stack socket reports an IPv4 bind through psutil, each
+  raised a high-severity "port exposed to the world" alert for a service bound to
+  localhost. The server does not recompute the scope, so the alert stood. All
+  three agents now use the same address parsing, including the mapped-address
+  unwrapping that made a dual-stack wildcard bind read as LAN-only on Linux and
+  silenced the world-exposed check there. An address that cannot be classified
+  stays "world" — an exposure we cannot read should fail loud, which is why an
+  empty bind address now classifies as "world" rather than "local", matching
+  what Linux has done deliberately since v3.11.0.
 - **Agentless hosts reported a load average of 0.0 for any load below 1.00.**
   The remote probe parsed `uptime` with `awk -F,`, which splits on the decimal
   separator in most of Europe. It reads `/proc/loadavg` under a pinned C locale
   now, so the agentless CPU check can actually leave "ok".
-- **Three settings offered "0 = off" and ignored it.** The UPS critical-runtime
-  trigger and audit-log retention both used `int(cfg.get(k) or <default>)`,
-  which cannot tell an explicit 0 from unset — switching them off silently
-  restored the default. Audit retention also never armed the daily sweep unless
-  some *other* retention key happened to be set.
 - **A hostname was silently rewritten, not rejected.** `db_primary` was enrolled
   as `dbprimary`; underscores are forbidden by RFC-1123 and ubiquitous in
-  practice. Every join on the hostname then failed against the machine's real
-  name — including the EDR coverage cross-reference, which reported a protected
-  host as uncovered. A false "unprotected" is what teaches an operator to stop
-  reading that list.
-- **Editing a time entry whose note contained an apostrophe destroyed it.** The
-  entry was round-tripped through an attribute using JS-string escaping, so it
-  came back as invalid JSON, the dialog opened populated with defaults, and
-  saving overwrote the real entry with them.
+  practice — Windows and AD hosts, compose service names, homelab boxes. Every
+  join on the hostname then failed against the machine's real name — including
+  the EDR coverage cross-reference, which reported a protected host as
+  uncovered. A false "unprotected" is what teaches an operator to stop reading
+  that list. Underscores are kept now; genuinely unsafe characters are still
+  stripped.
+- **The IP allowlist blocked agents it promised not to.** Enabling it broke the
+  self-update signature fetch on all three platforms (so an agent downloaded an
+  update it then refused to install), the live-metrics push and the file-manager
+  transfer the agent posts when you download a file from a host — while the
+  Settings hint said it "never blocks an agent". All of these authenticate on the
+  device token in the request body, never on an operator session, which is why
+  they were missed.
+- **"Scan disk usage" accepted a job the target cannot run.** The disk-usage
+  collector is Linux and macOS only, so the button on a Windows host returned
+  success and produced nothing, behind an empty-state that reads as "click
+  here". The server refuses it there and the drawer says why, rather than
+  drawing a button that fails.
 
-### Fixed
+### Host security signals that had gone quiet
 
-- **Cross-tenant leak on Monitoring → Tuning.** The noisy-events timeline on that
-  page is scope- and tenant-filtered; the mute list one line below it was not, so
-  a tenant-scoped administrator could read every other tenant's muted alerts and
-  the hostnames attached to them. Found while adding container mutes. Nothing was
-  reachable without authentication.
+- **The rules that open a port vanished from the firewall inventory on firewalld
+  hosts.** The nftables parser told a rule from a header by looking for a brace,
+  on the stated assumption that only headers contain one. An anonymous set puts
+  braces in a *rule* — the standard modern nft idiom, and what firewalld
+  generates — so exactly the rules that open a port or allow a source were not
+  counted. An operator auditing what is open on the box saw the
+  established-connection and loopback rules and concluded nothing was exposed.
+  Two of five rules reported before, five of five now; the rule count also feeds
+  the per-asset risk score.
+- **Malware-scanner results froze once the log filled.** The shared reader
+  returns the *first* bytes — the oldest content — and ClamAV, rkhunter and the
+  sudo fallback all append. Once the log passed its cap the parse was stuck on
+  ancient data permanently. `av_infected` is edge-triggered on the count rising
+  between heartbeats, so a frozen count can never rise and a genuine new
+  detection never fires the critical alert, while a host cleaned months ago
+  stays dirty in the drawer, the attention items and the retrieval corpus.
+  Append-only logs are read from the tail now; the head reader keeps its
+  semantics for the `/proc` readers that depend on them.
+- **Log collectors went blind after every rotation.** The web-access and
+  apt-history collectors persisted only a position and seeked to it, so once
+  logrotate replaced the file — or truncated it under copytruncate — the stale
+  offset pointed past the end: nothing was read, the position was rewritten
+  unchanged, and every line below it was dropped until the new file grew past
+  the old size, which on a quiet host is days. Access-log rules (auth failures,
+  5xx spikes, scanner probes) simply stopped firing after each nightly rotate,
+  with no error anywhere. Both now restart on a known-different inode or a
+  shrunk file, which is what the general file-log collector has always done —
+  known-different, so that a first beat after an agent upgrade cannot look like
+  a rotation and replay a whole access log as live traffic.
+- **Duplicate-MAC detection could never fire.** The check read an address list
+  on the CMDB record, whose row specification has no MAC at all, so the
+  comparison was structurally always empty and the check collapsed to the single
+  primary address captured once at enrolment. The multi-NIC clone — the exact
+  "cloned VM whose NIC was never regenerated" case it exists to catch — was
+  therefore never detected. It reads the per-NIC addresses the agent reports.
+- **Kernel log timestamps were parsed and then discarded.** The agent strips the
+  stamp out of a kernel message when it parses it, so the server had nothing
+  left to find and dated every kernel error at the moment it arrived — wrong by up to the
+  agent's 24-hour look-back window, and re-dated again after each agent restart. The entry's own
+  event time is the fallback now, bounded in both directions so an unparseable
+  or future stamp cannot escape eviction.
+- **The firewall Delete button refused most real rules.** iptables emits
+  shell-quoted rule specifications, so a rule carrying a comment or a negation
+  contains characters the shared strict allowlist rejects — and that same
+  allowlist is what guards a rule you *add*, so widening it was the wrong fix.
+  A delete reference is now parsed into tokens and each
+  token quoted individually, which makes the resulting command safe by
+  construction whatever the rule text holds. Before this, Delete answered 400 on
+  every Kubernetes node and on any host whose UFW application profiles put a
+  comment in the chain — about a rule the operator never typed.
+
+### What the AI advisor is given
+
+- **"Send IP addresses = off" did not hide IPv6 addresses.** The matcher could
+  only recognise the fully expanded eight-group form, so `2001:db8::1`,
+  `fe80::1` and `::1` — every address anyone actually writes — went to the AI
+  provider verbatim while the toggle read as on. A long address could even match
+  in two halves, which looks redacted in a spot check.
+- **The network-topology source read the wrong store**, so half its corpus was
+  always empty: the topology lives on the device record itself, not in a
+  separate file. It reads device records now, and writes each edge with the
+  host's name as well as its id, because retrieval is lexical and an edge
+  written with the enrolment id alone can never match a question that names the
+  host.
+- **Load average was missing from every device's usage summary.** The corpus
+  builder read a key the heartbeat sanitiser has never written, so the advisor
+  could not answer a load question about any host.
+- **A background job that was failing outright was indexed as "— ok".** The
+  self-observability corpus read an error field no producer writes.
+
+### Interface
+
+- **A board tile did not carry its filter.** Clicking a group, site or tag tile
+  opened the full, unfiltered fleet, so the operator had to find and re-apply by
+  hand the very filter the tile exists to apply for them — worst on a large
+  paginated fleet. The tile now sets the filter, including the board's own
+  synthetic "no group" and "no site" buckets, and the group filter gained the
+  Unassigned option it had been missing since the site filter got one in v3.5.0.
+  Group is optional, so unassigned is the common case.
+- **The three most severe events had no severity colour at all.** A honeytoken
+  trip, a breached patch SLA and a backup-size anomaly carried a colour token
+  with no rule behind it, so they rendered as plain uncoloured text in the
+  dashboard activity feed — less alarming than a blue informational "command
+  queued". The device drawer's Events tab had the same gap for every event: its
+  severity dot had no rule either, so the span was zero-sized and critical and
+  informational looked identical.
+- **Copy host summary copied facts the server does not store.** CPU model, RAM,
+  load and temperature were read under key names the heartbeat sanitiser does
+  not write, so all four were structurally absent from every summary ever
+  copied, and the core count went with them. It reads the keys the drawer's own
+  Overview pills use; the temperature line, which could never have had data, is
+  gone.
+- **Proxmox snapshots with a hyphen could be seen but not used.** `pre-upgrade`
+  is a name Proxmox creates happily; it was listed with working-looking Rollback
+  and Delete buttons that always refused it — discovered at the moment a
+  rollback matters most.
 - **The device drawer's container Logs button** passed the container name through
   the dispatcher's numeric coercion, so a container called `0x10` was requested as
   `16`. It passes the raw name now.
+
+### Documentation that promised more than the code did
+
+- **Webhook replay protection was described but not delivered.** The receiver
+  guidance told authors to bound the timestamp to reject replays, and shipped a
+  reference verifier — but the signature covered the request body alone, so the
+  timestamp header was not authenticated and an age check on it could not mean
+  anything. That matters because a replayed alert delivery re-triggers whatever
+  the receiver automates: paging, ticket reopen, remediation hooks. Rather than
+  delete the promise, a second header — `X-RemotePower-Signature-V2` — binds the
+  timestamp into the signature, the same construction Stripe's `Stripe-Signature`
+  uses. It
+  is sent alongside the existing header, never instead of it, so no deployed
+  receiver breaks; the documentation now recommends V2 and says plainly that the
+  body-only signature carries no replay protection.
+- **The only worked example in the automation guide could never fire.** It was
+  built on an event name that has never existed. Rule validation accepts any
+  string, so the rule saves, shows as enabled, and is then skipped for every
+  real event — leaving a fire count of 0, which is also what a correct rule looks
+  like on a healthy fleet. The invented name had spread further than the guide:
+  into two source comments, into the agent-command guide (with a second invented
+  name), and into the AI system prompt that suggests automations, from which the
+  model would confidently teach operators to build the same dead rule. All
+  corrected to real events, and a guardrail now fails if a guide that teaches
+  rule-building — or that prompt — names an event outside the registry.
+- **The feature reference claimed volumes are never pruned** while the handler
+  ships both a volume prune and a system prune, and while the row four lines
+  above it documented that correctly. The stale row is gone, its one accurate
+  fact — that the *scheduled* prune is restricted to safe scopes — folded into
+  the row that survives.
 
 ## v6.4.1 — "Cust0dyMatters" — 2026-07-29
 

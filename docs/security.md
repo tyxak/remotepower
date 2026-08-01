@@ -33,34 +33,49 @@ whitelisted, capability-negotiated) and the reused HTTPS transport (same
 certificate/mTLS verification, redirects still refused), and a live header and
 auth-boundary check of production. One agent hardening — a billion-laughs guard on
 the OpenSCAP XML parse — was made from the scan, and the bar held: **no Critical,
-High, or Medium finding ships**. That pass built on
-[security-review-6.3.0.md](security-review-6.3.0.md) for **v6.3.0** — SAST clean
-across the stack, a live black-box check of the production edge, and an
-adversarial audit that closed a set of pre-existing cross-tenant isolation gaps
-(certificate control, alert-data reads, credential metadata) and a stored-XSS
-vector via unescaped SNMP data — and on **v6.4.0** (see
+High, or Medium finding ships**. That pass built on **v6.4.0** (see
 [security-review-6.4.0.md](security-review-6.4.0.md), three parallel adversarial
 reviewers over the agentic-triage, flow-receiver and dependency-verification
-code, with the binary flow parser found notably well-hardened). The current pass
-is [security-review-6.4.1.md](security-review-6.4.1.md) for **v6.4.1**, weighted
-toward the new **KMIP key server** — the highest-consequence surface the release
-adds, since it holds encryption keys for other people's storage. Every trust
+code, with the binary flow parser found notably well-hardened) and on
+[security-review-6.4.1.md](security-review-6.4.1.md) for **v6.4.1**, weighted
+toward the **KMIP key server** — the highest-consequence surface that release
+added, since it holds encryption keys for other people's storage. Every trust
 boundary was traced by hand rather than reviewed function-by-function: the
 TLS-terminating sidecar holds no key material and no store access, mTLS is
 enforced both at the handshake and again on every operation, per-client key
 scoping is applied on all nine object operations rather than merely documented,
 key material is AES-256-GCM at rest under a master key excluded from backups,
 and the listener is bounded against resource exhaustion (message size, TTLV
-nesting depth, connections, timeouts). The review also states the two accepted
+nesting depth, connections, timeouts). That review also states the two accepted
 trade-offs in the open — opt-in legacy ciphers for appliances that offer nothing
 else, and the availability coupling that makes it a mistake to unlock a
-machine's storage against a KMIP server that machine hosts. The v4.10.0
-headline surface, the **Security → Firewall** page (view/edit
+machine's storage against a KMIP server that machine hosts.
+
+The current pass is [security-review-6.4.2.md](security-review-6.4.2.md) for
+**v6.4.2**. It found real defects, and every one of them is fixed before the
+release goes out.
+Configuration secrets stopped being encrypted at rest on one write path; the AI
+privacy toggle did not redact compressed IPv6 addresses; three
+places applied an access-control gate to one endpoint and not to its sibling
+(the patch-report/SBOM exports, standalone knowledge retrieval, and the mute list
+on Monitoring → Tuning); the webhook signature covered the body alone, so the age
+check the documentation recommended could not reject a replay; and one export did
+not neutralise spreadsheet formula cells. The review also lists a set of
+monitoring controls that were evaluating nothing at all — a loopback service
+reported as world-exposed while a wildcard bind was not, an antivirus alert that
+could never fire because its log was read from the wrong end, firewall rules
+missing from the inventory, and duplicate-MAC detection reading a field that does
+not exist — on the principle that a control which is silent reports the same
+thing as a control that is clear.
+
+The v4.10.0 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
-construction: every edit is **server-validated against a strict character
-allowlist, permission-gated, written to the audited command queue, and skipped on
-quarantined hosts** — there is no path from the UI to a command the operator could
-not already run with that permission.
+construction: every edit is **server-validated, permission-gated, written to the
+audited command queue, and skipped on quarantined hosts** — a rule you add is
+checked against a strict character allowlist, and a rule you delete is parsed
+into tokens and quoted, so an existing rule's comment or negation reaches the
+host as an inert argument. There is no path from the UI to a command the operator
+could not already run with that permission.
 
 ### Control-plane hardening (v5.0.0)
 
@@ -106,7 +121,7 @@ security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
 state-changing requests, and the SSRF-safe fetch path were all verified live. A
 durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-6.4.1.md) files.
+[`security-review-*.md`](security-review-6.4.2.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -174,7 +189,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-6.4.1.md](security-review-6.4.1.md).
+summarised in the latest, [security-review-6.4.2.md](security-review-6.4.2.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
 gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -351,7 +366,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-6.4.1.md](security-review-6.4.1.md)).
+  [security-review-6.4.2.md](security-review-6.4.2.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
   semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

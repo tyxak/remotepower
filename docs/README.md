@@ -58,6 +58,17 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Security controls and on-disk data layout.
 - **[threat-model.md](threat-model.md)** — Structured STRIDE threat/mitigation
  matrix, organized by attacker goal rather than by feature.
+- **[security-review-6.4.2.md](security-review-6.4.2.md)** — the
+ v6.4.2 "Qu1etMatters" pass. Unlike the passes before it, this one found real
+ defects rather than confirming their absence, and all of them are fixed in the
+ release: configuration secrets that stopped being encrypted at rest on one write
+ path, a privacy control that did not redact compressed IPv6 addresses, an
+ access-control gate applied to one endpoint and not its sibling (patch/SBOM
+ exports, standalone retrieval, the Tuning mute list), a webhook signature that
+ could not support the replay protection the documentation promised, and an
+ export that did not neutralise spreadsheet formula cells — plus a set of
+ monitoring controls that were evaluating nothing, and the concurrency defects
+ behind a lost device row and a reverted security setting.
 - **[security-review-6.4.1.md](security-review-6.4.1.md)** — the
  v6.4.1 "Cust0dyMatters" pass, weighted toward the new **KMIP key server** as the
  highest-consequence surface the release adds: every trust boundary traced by
@@ -77,14 +88,6 @@ holds long-form docs that don't fit there.
  surfaces were found notably well-hardened; three LOW defects fixed (a cross-tenant
  AI-triage scoreboard count leak, an unbounded flow-sidecar map → DoS, and an AI
  daily-cap debited before validation); no Critical/High/Medium ships.
-- **[security-review-6.3.0.md](security-review-6.3.0.md)** — the
- v6.3.0 "Fl0wMatters" pass — SAST clean (Bandit 0 new, gitleaks clean; the one
- CodeQL result is the by-design agentless syslog listener, triaged and
- documented), a live black-box check of the production edge, and an adversarial
- audit that fixed pre-existing cross-tenant isolation gaps (ACME certificate
- control, alert-data reads, credential metadata) and a stored-XSS vector via
- unescaped SNMP data — each no-op on a single-tenant install and regression-
- tested; no Critical/High/Medium ships.
 
 ## Release notes
 
