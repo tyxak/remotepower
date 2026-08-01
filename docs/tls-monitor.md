@@ -106,6 +106,12 @@ and that's fine if you're using internal CAs deliberately.
 Sorted by status (critical / warning first), then alphabetically
 by host.
 
+`days_left` is `null` when the last probe failed or never ran —
+there is no expiry to report. (It used to be `0`, which reads as
+"expires today", so an unreachable host looked like an expired
+certificate.) `status` is `error` / `unknown` in that case, and
+the page shows `—`.
+
 `POST /api/tls/targets`:
 
 ```json

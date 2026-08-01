@@ -17,6 +17,8 @@ Pure functions, no api imports — unit-testable and importable from anywhere.
 import hashlib
 import re
 
+import sanitize  # stdlib-only leaf module (no api globals) — see _fold_ipv6
+
 # Deliberately ordered: the most specific shapes first, so a UUID isn't first
 # chewed up into "a run of hex digits" and an IP isn't reduced to numbers.
 _SUBS = (
@@ -27,7 +29,17 @@ _SUBS = (
     # UUIDs
     (re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
                 r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'), '<uuid>'),
-    # IPv4 (+ optional port) and the obvious IPv6 shapes
+    # Every legal IPv6 form, validated rather than pattern-matched. The expanded
+    # regex further down only matches the fully-EXPANDED form, so a compressed
+    # peer (`2001:db8::1`) reached the number fold as `<n>:db8::<n>` — two hosts
+    # differing in a hex group (`::cafe` vs `::beef`) kept distinct signatures
+    # and "I have seen this line" never suppressed the next one. This runs
+    # BEFORE the IPv4 sub so an IPv4-mapped peer (`::ffff:10.0.0.9`) folds as
+    # ONE address instead of having its tail eaten into `<ip>:<ip>`.
+    (sanitize._IPV6_CANDIDATE_RE, lambda m: sanitize._fold_ipv6(m.group(0), '<ip>')),
+    # IPv4 (+ optional port), then the expanded-only IPv6 shape. That regex
+    # STAYS: it also folds MAC / EUI-64 style colon runs, which `ipaddress`
+    # rejects and which have always folded to `<ip>` here.
     (re.compile(r'\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b'), '<ip>'),
     (re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b'), '<ip>'),
     # hostnames / FQDNs. The reverse-DNS-blocklist noise class varies the

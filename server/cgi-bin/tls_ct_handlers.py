@@ -97,7 +97,9 @@ def handle_tls_list() -> None:
             'starttls':        t.get('starttls', 'none'),
             'last_check':      r.get('checked_at', 0),
             'expires_at':      r.get('expires_at', 0),
-            'days_left':       tls_monitor.days_until_expiry(r) if r else 0,
+            # None (not 0) when the probe failed or never ran — 0 read as
+            # "expires today" and sorted the row to the top of the watchlist.
+            'days_left':       tls_monitor.days_until_expiry(r),
             'status':          tls_monitor.status_for(r, warn, crit) if r else 'unknown',
             'addresses':       r.get('addresses', []),
             'issuer':          r.get('issuer', ''),
@@ -278,7 +280,15 @@ def _tls_expiry_crossings(target, prev, cur):
     if not cur or cur.get('status') == 'error' or not cur.get('expires_at'):
         return []
     days      = tls_monitor.days_until_expiry(cur)
-    prev_days = tls_monitor.days_until_expiry(prev) if prev else 9999
+    prev_days = tls_monitor.days_until_expiry(prev) if prev else None
+    if prev_days is None:
+        # No previous probe, or the previous probe FAILED — either way we hold
+        # no prior day count, so treat the target as "not yet in alert state"
+        # and let the crossing fire. The old 0-for-unknown return made
+        # `prev_days > crit` read 0 > 7 = False, so a cert that genuinely
+        # crossed into critical on the probe right after a failed one never
+        # alerted — and never would, because the edge had been consumed.
+        prev_days = 9999
     host = target.get('host', '?')
     port = int(target.get('port', 443))
     out = []
@@ -308,6 +318,14 @@ def _tls_renewal_crossings(target, prev, cur):
     warn = int(target.get('warn_days', _gc.get('tls_warn_days', A.TLS_DEFAULT_WARN_DAYS)))
     days      = tls_monitor.days_until_expiry(cur)
     prev_days = tls_monitor.days_until_expiry(prev)
+    if days is None:
+        return []   # this probe FAILED — unreachable is not "renewed"
+    if prev_days is None:
+        # The previous probe failed, so we can't prove the cert was ever below
+        # warn — but a tls_expiry alert may still be open from before it, and
+        # firing the recovery is a no-op when there is nothing to resolve. This
+        # is what the old 0-for-unknown return did, and it is the safe side.
+        prev_days = 0
     if days > warn >= prev_days:
         return [{'host': target.get('host', '?'),
                  'port': int(target.get('port', 443)), 'days_left': days}]

@@ -139,6 +139,39 @@ The site was fine in every case; the connector was not.
 
 ### Fixed: a wide feature sweep
 
+Sixth batch — reproduced against the current build, then fixed:
+
+- **An apostrophe in a timesheet note destroyed the entry.** The helper that
+  escapes values into HTML attributes emitted JavaScript-string escapes
+  (`\x27`) instead of HTML entities. A browser hands those back literally, so
+  `JSON.parse` threw, **Edit** opened a blank form, and **Save** then wrote the
+  blank over a real billing record. Rate names, invoice prefixes and the issuer
+  name printed on invoice PDFs were corrupted the same way.
+- **"Send IP addresses = off" did not hide IPv6 addresses.** The matcher could
+  only recognise the fully expanded eight-group form, so `2001:db8::1`,
+  `fe80::1` and `::1` — every address anyone actually writes — went to the AI
+  provider verbatim while the toggle read as on.
+- **Custom report downloads returned an error whenever a section was
+  unticked.** The CSV renderer required every block to be present, so the exact
+  URL the Download button builds failed for any saved definition that left one
+  out.
+- **The IP allowlist blocked agents it promised not to.** Enabling it broke the
+  self-update signature fetch (so an agent downloaded an update it then refused
+  to install), the live-metrics push and file-manager uploads — while the
+  Settings hint said it "never blocks an agent".
+- **A certificate that could not be reached was reported as expired.** An
+  unknown expiry was encoded as zero days, which is also what "expires today"
+  looks like, so a transient DNS or connection failure raised a critical
+  certificate-expiry alert.
+- **Proxmox snapshots with a hyphen could be seen but not used.** `pre-upgrade`
+  is a name Proxmox creates happily; it was listed with working-looking Rollback
+  and Delete buttons that always refused it — discovered at the moment a
+  rollback matters most.
+- **Hours logged in the evening landed on the wrong day.** Time entries defaulted
+  to the UTC date, so evening entries in the Americas and after-midnight entries
+  in Europe fell on the wrong day, week and invoice month; the timesheet CSV
+  separately labelled the file with one week and fetched another.
+
 Fifth batch — a second sweep, over surface the first did not cover:
 
 - **The write lock handed back stale data.** `_LockedUpdate` acquired the file

@@ -263,7 +263,13 @@ class TestTLSMonitor(unittest.TestCase):
         now = int(time.time())
         self.assertEqual(tls_monitor.days_until_expiry({"expires_at": now + 5 * 86400}), 5)
         self.assertEqual(tls_monitor.days_until_expiry({"expires_at": now - 2 * 86400}), -2)
-        self.assertEqual(tls_monitor.days_until_expiry({}), 0)
+        # v6.4.2: "we have no expiry" is None, NOT 0. This line used to assert
+        # 0 — which is the same value that means "expires today", and that is
+        # exactly how a failed probe (which returns early with expires_at 0)
+        # was scored as an EXPIRED certificate by every arithmetic consumer.
+        self.assertIsNone(tls_monitor.days_until_expiry({}))
+        self.assertIsNone(tls_monitor.days_until_expiry(
+            {"tls_error": "connection refused", "expires_at": 0}))
 
     def test_probe_returns_structured_result_on_dns_failure(self):
         """Regression: handle_tls_scan crashed with AttributeError when the

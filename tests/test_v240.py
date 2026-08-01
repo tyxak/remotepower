@@ -101,7 +101,10 @@ class TestSnapshotClient(unittest.TestCase):
         self.assertTrue(px._valid_snapshot_name('before_upgrade'))
         self.assertTrue(px._valid_snapshot_name('Snap1'))
         self.assertFalse(px._valid_snapshot_name('123bad'))      # leading digit
-        self.assertFalse(px._valid_snapshot_name('has-dash'))    # dash
+        # A hyphen is legal in a pve-configid — this used to assert False,
+        # which is why `pre-upgrade` (a name PVE happily creates) was listed
+        # in the UI and then refused by rollback/delete.
+        self.assertTrue(px._valid_snapshot_name('has-dash'))
         self.assertFalse(px._valid_snapshot_name('has space'))
         self.assertFalse(px._valid_snapshot_name(''))
         self.assertFalse(px._valid_snapshot_name('x' * 41))      # too long

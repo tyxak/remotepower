@@ -92,6 +92,59 @@ def _sanitize_ip(ip):
     return s if _IP_RE.match(s) else ''
 
 
+# An IPv6 literal cannot be pattern-matched with the obvious regex. Both
+# ai_provider.redact() and logsig.normalize() carried a copy of
+# `(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}`, which can only ever match the
+# fully-EXPANDED eight-group form: a `::` run cannot satisfy `[0-9a-fA-F]{1,4}:`,
+# so `2001:db8::1`, `fe80::1`, `::1` and `::ffff:192.0.2.1` — i.e. every address
+# anyone actually writes or logs — slipped straight through. In ai_provider that
+# meant the "Send IP addresses = off" privacy toggle shipped every IPv6 address
+# verbatim to the cloud provider while reading as ON; worse, a long address was
+# matched in two halves ('<IPv6>::<IPv6>'), which looks redacted in a spot-check
+# while both halves are still there. This is the same defect `_sanitize_ip`
+# carried above, so it gets the same cure: match a permissive CANDIDATE run and
+# let `ipaddress` decide what is an address.
+#
+# The lookarounds stop a run starting or ending mid-word, which is what keeps
+# `std::vector` and `Foo::bar` from validating as the addresses `d::` and
+# `::ba` and mangling readable text — they work because `std`/`Foo` contain
+# non-hex letters. An identifier whose parts are ALL hex (`a::b`, `dead::beef`)
+# is character-for-character a legal IPv6 address, so nothing can tell the two
+# apart and it is redacted. That is the right way to be wrong for a privacy
+# control: over-redacting costs a little readability, under-redacting ships the
+# operator's addresses to a third party.
+_IPV6_CANDIDATE_RE = re.compile(
+    r'(?<![0-9A-Za-z_.:])[0-9A-Fa-f.:]*:[0-9A-Fa-f.:]*(?![0-9A-Za-z_])')
+
+
+def _is_ipv6(value):
+    """True if `value` is a literal IPv6 address in any legal form."""
+    try:
+        return isinstance(ipaddress.ip_address(value), ipaddress.IPv6Address)
+    except ValueError:
+        return False
+
+
+def _fold_ipv6(text, repl):
+    """Replace every IPv6 literal in free text with `repl`.
+
+    Characters that trail the address without being part of it — the full stop
+    in "reached 2001:db8::1." or a ':443' port suffix — are preserved: the
+    candidate run is shrunk from the right until `ipaddress` accepts a prefix.
+    A run with fewer than two colons is skipped outright ('::', the shortest
+    legal address, has two), which keeps a bare clock time out of the loop.
+    """
+    def _one(m):
+        tok = m.group(0)
+        if tok.count(':') < 2:
+            return tok
+        for end in range(min(len(tok), MAX_IP_LEN), 1, -1):
+            if _is_ipv6(tok[:end]):
+                return repl + tok[end:]
+        return tok
+    return _IPV6_CANDIDATE_RE.sub(_one, text)
+
+
 def _sanitize_mac(mac):
     if not mac:
         return ''

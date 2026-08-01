@@ -79,7 +79,19 @@ function editTimeEntry(eid, entryJson) {
   _teShow(e);
 }
 
-function _todayStr() { return new Date().toISOString().slice(0, 10); }
+// A time entry's `date` is an opaque YYYY-MM-DD the server buckets the timesheet
+// grid and the invoice period by, so it must be the operator's OWN calendar day
+// — which is what the server itself defaults to (time.localtime, _te_validate_
+// and_build). toISOString() gave the UTC day instead: at UTC-4 everything logged
+// from 20:00 was pre-dated to tomorrow (31 Jul 22:00 EDT fell out of July's
+// invoice) and at UTC+2 everything before 02:00 to yesterday. Build from local
+// components, the way _isoWeekString below already does — that mismatch is why
+// the week label on screen stayed right while the date under it did not.
+function _localDayStr(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function _todayStr() { return _localDayStr(new Date()); }
 
 function _teShow(e) {
   const body = document.getElementById('time-entry-body');
@@ -296,10 +308,24 @@ async function _tsEnsureWatchable() {
   return _tsWatchable;
 }
 
-function _isoWeekString(d) {
+/* Monday of the ISO week containing `d`, as a UTC-normalised Date built from
+   d's LOCAL calendar fields (the normalisation the week label has always used).
+   Everything that names or bounds the displayed week goes through here: the
+   label and the CSV export bounds were two independent implementations — the
+   label read the local calendar, the export read getUTCDay()/getTime() — so an
+   operator whose local date and UTC date fell in different ISO weeks (UTC+13
+   Monday morning, US Eastern Sunday evening) downloaded the neighbouring week's
+   rows under the right filename. Staying in UTC after the shift also keeps the
+   day arithmetic below free of DST hour drift. */
+function _isoWeekMonday(d) {
   const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const day = dt.getUTCDay() || 7;
-  dt.setUTCDate(dt.getUTCDate() + 4 - day);
+  dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() || 7) - 1));
+  return dt;
+}
+
+function _isoWeekString(d) {
+  const dt = _isoWeekMonday(d);
+  dt.setUTCDate(dt.getUTCDate() + 3);   // ISO-8601: a week is named for its Thursday
   const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
   return dt.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
@@ -330,9 +356,12 @@ async function loadTimesheet() {
         : escHtml(e.category || '');
       const tk = e.ticket_number ? ` <span class="meta-sm-nm">#${escHtml(String(e.ticket_number))}</span>` : '';
       const lock = e.locked ? ` <span class="meta-sm-nm" title="Invoiced — locked">${_bIcon('lock', 12)}</span>` : '';
+      // v6.4.2: escHtml, NOT escAttr — same read-back-and-parsed value as the
+      // ticket-hours drawer above. This is the primary edit surface, so the
+      // apostrophe-in-a-note data loss described there hit here hardest.
       const ej = encodeURIComponent(JSON.stringify(e));
       const act = e.locked ? '' :
-        `<button class="btn-icon cell-sm" data-action="editTimeEntry" data-arg="${escAttr(e.id)}" data-arg2="${escAttr(ej)}" title="Edit">${_bIcon('edit', 12)}</button>
+        `<button class="btn-icon cell-sm" data-action="editTimeEntry" data-arg="${escAttr(e.id)}" data-arg2="${escHtml(ej)}" title="Edit">${_bIcon('edit', 12)}</button>
          <button class="btn-icon cell-sm c-danger-outline" data-action="deleteTimeEntry" data-arg="${escAttr(e.id)}" title="Delete">${_bIcon('trash', 12)}</button>`;
       return `<div class="row-6 ts-entry"><span class="fw-600">${_bHours(e.hours)}h</span> ${b}
         <span class="meta-sm-nm">${where}${tk}${e.note ? ' · ' + escHtml(e.note) : ''}</span>${lock}
@@ -395,10 +424,16 @@ function tsViewMine() { _tsViewUser = ''; loadTimesheet(); }
 function tsExportCsv() {
   const wk = _isoWeekString(_tsCursor || new Date());
   // export my entries for the visible week via the ledger CSV (from/to bounds)
+  // Bound the window on the LOCAL calendar, the same one `wk` above is built
+  // from — getUTCDay()+toISOString() put them a whole ISO week apart whenever
+  // the local and UTC dates fall in different weeks (NZ Monday morning, US
+  // Eastern Sunday evening), so the file named …-W32.csv carried W31's rows.
+  // Stepping by date components rather than ±864e5 also survives a DST week.
   const base = new Date(_tsCursor || new Date());
-  const day = base.getUTCDay() || 7; const mon = new Date(base.getTime() - (day - 1) * 864e5);
-  const from = mon.toISOString().slice(0, 10);
-  const to = new Date(mon.getTime() + 6 * 864e5).toISOString().slice(0, 10);
+  const day = base.getDay() || 7;
+  const mon = new Date(base.getFullYear(), base.getMonth(), base.getDate() - (day - 1));
+  const from = _localDayStr(mon);
+  const to = _localDayStr(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6));
   const u = _tsViewUser ? '&user=' + encodeURIComponent(_tsViewUser) : '';
   _downloadAuthed('/api/time-entries?format=csv&from=' + from + '&to=' + to + u,
                   'timesheet-' + (_tsViewUser || 'me') + '-' + wk + '.csv', 'Timesheet CSV downloaded');
@@ -612,7 +647,9 @@ async function _billingWorksheet() {
   const host = document.getElementById('billing-host');
   if (!host) return;
   const opts = await _bSiteSelectOptions(window._wsSite || '');
-  const month = window._wsMonth || new Date().toISOString().slice(0, 7);
+  // local month, not the UTC one — on 31 Jul 22:00 EDT this defaulted the
+  // billing worksheet to August and the month's last day's hours went unbilled
+  const month = window._wsMonth || _localDayStr(new Date()).slice(0, 7);
   host.innerHTML = `
     <div class="dash-card">
       <div class="form-row">

@@ -1090,7 +1090,7 @@ function tlsDetailOpen(id) {
       <div class="c-muted">Hostname match</div><div>${hostnameMatchHtml}</div>
       <div class="c-muted">Label</div><div>${fmt(t.label, '—')}</div>
       <div class="c-muted">Status</div><div>${escHtml(t.status)}</div>
-      <div class="c-muted">Days left</div><div>${t.days_left}d</div>
+      <div class="c-muted">Days left</div><div>${typeof t.days_left === 'number' ? t.days_left + 'd' : '—'}</div>
       <div class="c-muted">Expires</div><div>${t.expires_at ? new Date(t.expires_at*1000).toLocaleString() : '—'}</div>
       <div class="c-muted">Issuer</div><div>${fmt(t.issuer, '—')}</div>
       <div class="c-muted">Subject</div><div>${fmt(t.subject, '—')}</div>

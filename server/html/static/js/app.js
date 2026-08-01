@@ -5709,11 +5709,12 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
     if (e.target === el && _backdropDismisses()) closeModal(el.id);
   });
 });
-// v2.1.0: escHtml escapes for HTML content + double-quoted attribute values.
-// It deliberately does NOT escape ' — HTML entity decoding turns &#39; back
-// into ' before the JS-in-attribute parser sees it, which would break any
-// `onclick="foo('${escAttr(x)}')"` site. Use escAttr() for values that are
-// interpolated into JS string literals inside an HTML attribute.
+// escHtml escapes for HTML content AND for quoted attribute values: it encodes
+// & < > " ' as character references, so neither quote style can be broken out
+// of, and the parser decodes them back to the original text on the way in. It
+// is the only escaper this app needs — see escAttr() below.
+// (An older comment here claimed escHtml "deliberately does NOT escape '"; it
+// has escaped ' since v2.1.0 — the code, not that comment, was right.)
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 // v5.8.0 (SECURITY, defence-in-depth): an operator-authored URL going into an
 // href must be reduced to http/https only — escHtml/escAttr stop quote-breakout
@@ -5745,18 +5746,35 @@ function _ensurePwFormA11y() {
     f.insertBefore(u, f.firstChild);
   });
 }
-// v2.1.0: escape for use inside a JS string that's embedded in an HTML
-// attribute, e.g. onclick="foo('${escAttr(x)}')". The output is pure ASCII
-// (no HTML metacharacters) so the HTML parser passes it through verbatim,
-// and the JS hex escapes (\xNN) decode to the original chars when the
-// attribute fires. This is the bug behind "auto-refresh closes the
-// browser window": a device name containing an apostrophe broke out of
-// the inline JS string in the dropdown rebuild and could call window.close()
-// (or any other API) on re-render, depending on what followed the quote.
-// v1.x's escHtml passed ' through unchanged, so anyone whose hostname had
-// `O'Brien` or whose group ended with a tick caused the failure on every
-// 60s refresh.
-function escAttr(s) { return String(s).replace(/[&<>"'`\\\n\r\u2028\u2029]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2,'0')); }
+// escAttr() is a historical alias for escHtml() — kept because ~850 call sites
+// use the name, NOT because it escapes differently.
+//
+// v2.1.0 introduced it as a JS-STRING escaper (` ' ` -> the four characters
+// \x27) for values interpolated into an inline `onclick="foo('${x}')"` handler.
+// That era is over: the CSP is `script-src 'self'` with zero inline on*=
+// handlers, so every surviving call site is a plain quoted HTML attribute
+// (data-arg / value / title / id / class). \xNN is a JS-string escape, not a
+// character reference, so the HTML parser hands it back verbatim — nothing on
+// either side ever un-escaped it, and the mangling was permanent:
+//
+//   * Timesheet / ticket-hours stash a whole entry as
+//     data-arg2="${escAttr(encodeURIComponent(JSON.stringify(e)))}".
+//     encodeURIComponent leaves ' alone (RFC-3986 sub-delim), so a note like
+//     "Rebuilt Bob's mail server" reached editTimeEntry as ...Bob\x27s... —
+//     an illegal JSON escape. JSON.parse threw, its catch arm swallowed it,
+//     and _teShow({}) painted a BLANK form while still in edit mode; Save then
+//     PATCHed the real entry to hours=1 / today / not-billable / no note.
+//   * Any value="${escAttr(x)}" read straight back by a save handler (rate
+//     card name, invoice_prefix, issuer_name on invoice PDFs, fee label)
+//     round-tripped `Tier 1 & 2` as `Tier 1 \x26 2`, and since \ is itself in
+//     the old character class the damage compounded on every further save.
+//
+// escHtml emits real character references, which the parser decodes back to the
+// original text when the attribute is read — and it is exactly as safe here: it
+// escapes both " and ', so neither quote style can be broken out of (the
+// `O'Brien` breakout that motivated v2.1.0 stays closed). ` and \ and newlines
+// no longer need escaping because they are inert inside a quoted attribute.
+function escAttr(s) { return escHtml(s); }
 // v4.3.0: shared table loading placeholder — skeleton rows instead of a bare
 // "Loading…" cell, so every table fetches with the same polished treatment.
 function _skeletonRows(colspan, count) {
@@ -13010,9 +13028,8 @@ async function reloadUpdateLogs() {
 //   * Docker-compose dropdown on device cards: up/down/restart/pull/logs,
 //     pointing only at projects the agent itself reported in its heartbeat.
 //
-// All three rendering paths use escHtml() for text and escAttr() for
-// JS-in-onclick — see the comment on escAttr above. Mixing them up is
-// the exact bug that triggered the 2.0.0 auto-refresh crash.
+// All three rendering paths escape every interpolated value with escHtml()
+// (escAttr() is an alias for it — see the comment on escAttr above).
 
 let _scriptsCache = [];
 
@@ -18497,7 +18514,7 @@ function sshLinkIcon(d) {
   if (/windows/i.test(String(d.os || ''))) return '';
   const host = (d.ip || '').trim() || (d.hostname || '').trim();
   if (!host) return '';
-  // escAttr the host since it goes into an onclick attribute.
+  // escAttr the host since it goes into an HTML attribute.
   // v3.0.3: explicit color:var(--text) — without it the <a> takes the
   // browser's default link colour (blue), which is hard to read against
   // the dark sidebar/table. var(--text) resolves to near-white in dark
@@ -23896,7 +23913,10 @@ function downloadReportDef(id) {
   const fmt = d.format === 'csv' ? 'csv' : 'json';
   const secs = encodeURIComponent((d.sections || []).join(','));
   fetch(`/api/report/fleet?format=${fmt}&sections=${secs}`, { headers: { 'X-Token': getToken() } })
-    .then(r => r.blob())
+    // Without the r.ok gate (which downloadFleetReport/downloadSiteReport both
+    // have) a 4xx/5xx body was saved to disk as <report-name>.csv — the operator
+    // got a plausibly-named export containing {"error": "..."} and no error toast.
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
     .then(blob => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

@@ -55,6 +55,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# stdlib-only leaf module (no api globals). _fold_ipv6 lives there so this
+# redactor and logsig.normalize() share ONE IPv6 matcher instead of two copies
+# of the same broken regex — which is exactly how this bug came to exist twice.
+import sanitize
+
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -209,6 +214,11 @@ def _ssrf_opener(ctx, allow_loopback=False):
 # and run Ollama locally — this is best-effort, not a guarantee.
 
 _IPV4_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+# Expanded-form-only, and deliberately KEPT as a mop-up pass behind
+# sanitize._fold_ipv6 (which handles every legal address, `::` included): this
+# pattern also folds the colon-separated hex runs `ipaddress` rejects — MAC and
+# EUI-64 addresses — which this toggle has incidentally redacted since v2.1.0.
+# Dropping it to "fix" IPv6 would have opened a new leak while closing one.
 _IPV6_RE = re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b')
 # Hostname-shaped tokens: at least one dot, alphanumeric + hyphen labels.
 # We don't try to identify "is this hostname mine" — we redact anything
@@ -238,6 +248,9 @@ def redact(text, privacy):
     out = _AWS_KEY_RE.sub('<REDACTED-AWS>', out)
     out = _LONG_HEX_RE.sub('<REDACTED-HEX>', out)
     if not privacy.get('send_ips', False):
+        # IPv6 runs FIRST: an IPv4-mapped address ('::ffff:192.0.2.1') has to
+        # fold as one address rather than have its tail eaten by the IPv4 pass.
+        out = sanitize._fold_ipv6(out, '<IPv6>')
         out = _IPV4_RE.sub('<IP>', out)
         out = _IPV6_RE.sub('<IPv6>', out)
     if not privacy.get('send_hostnames', False):

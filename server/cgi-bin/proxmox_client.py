@@ -556,11 +556,28 @@ def guest_action(pc: dict, guest_type: str, vmid: int, action: str) -> dict:
 #   POST   .../snapshot/<name>/rollback → roll back to a snapshot
 #   DELETE .../snapshot/<name>          → delete a snapshot
 #
-# A Proxmox snapshot name must match ^[A-Za-z][A-Za-z0-9_]*$ — we
-# validate before sending so a bad name is rejected locally with a
-# clear message rather than as an opaque Proxmox 400.
+# A Proxmox snapshot name is a `pve-configid` capped at 40 chars:
+# ^[A-Za-z][A-Za-z0-9_-]*$ — the HYPHEN is legal, as `lifecycle()` below
+# has always accepted. We validate a name we are about to CREATE so a bad
+# one is rejected locally with a clear message rather than as an opaque
+# Proxmox 400.
 
-_SNAPSHOT_NAME_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_]{0,39}$')
+_SNAPSHOT_NAME_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')
+
+# Acting on an EXISTING snapshot is a different question from creating one.
+# list_snapshots() returns every name Proxmox reports and the UI draws a
+# Rollback + Delete button for each row, so gating those two on the
+# create-time grammar meant any snapshot taken outside RemotePower (the PVE
+# web UI, `qm snapshot`, a snapshot-automation tool) was listed with buttons
+# that then failed with "Invalid snapshot name." — `pre-upgrade` being the
+# obvious one, and rollback being exactly the emergency path you least want
+# refused. So the action gate enforces only what the outgoing request
+# actually needs: an ASCII-letter-first (as PVE guarantees, and which also
+# rules out a '..' path segment), separator-free, control-char-free, sanely
+# bounded single URL path segment. It is a strict superset of
+# _SNAPSHOT_NAME_RE; anything else in the name is percent-encoded at the
+# sink by quote(..., safe='').
+_SNAPSHOT_ACTION_RE = re.compile(r'^[A-Za-z][^\x00-\x1f\x7f/\\]{0,63}$')
 
 # Proxmox always has a synthetic 'current' pseudo-snapshot in the list;
 # it is the live state, not a real snapshot — never rollback/delete it.
@@ -568,7 +585,13 @@ _SNAPSHOT_RESERVED = {'current'}
 
 
 def _valid_snapshot_name(name: str) -> bool:
+    """True for a name we may ask Proxmox to CREATE."""
     return bool(name) and bool(_SNAPSHOT_NAME_RE.match(name))
+
+
+def _actionable_snapshot_name(name: str) -> bool:
+    """True for an EXISTING snapshot name we may roll back to or delete."""
+    return bool(name) and bool(_SNAPSHOT_ACTION_RE.match(name))
 
 
 def list_snapshots(pc: dict, guest_type: str, vmid: int) -> list[dict]:
@@ -612,7 +635,7 @@ def create_snapshot(pc: dict, guest_type: str, vmid: int,
     if not _valid_snapshot_name(name):
         raise ProxmoxError(
             'Invalid snapshot name. Use a letter followed by letters, '
-            'digits or underscores (max 40 chars).')
+            'digits, underscores or hyphens (max 40 chars).')
     try:
         vmid = int(vmid)
     except (ValueError, TypeError):
@@ -633,14 +656,14 @@ def rollback_snapshot(pc: dict, guest_type: str, vmid: int, name: str) -> dict:
     state since the snapshot was taken."""
     if guest_type not in _GUEST_TYPES:
         raise ProxmoxError(f'Unknown guest type: {guest_type!r}')
-    if not _valid_snapshot_name(name) or name in _SNAPSHOT_RESERVED:
+    if not _actionable_snapshot_name(name) or name in _SNAPSHOT_RESERVED:
         raise ProxmoxError('Invalid snapshot name.')
     try:
         vmid = int(vmid)
     except (ValueError, TypeError):
         raise ProxmoxError('Invalid vmid.') from None
     node = urllib.parse.quote(pc['node'])
-    sn = urllib.parse.quote(name)
+    sn = urllib.parse.quote(name, safe='')
     upid = _request(pc, f'/nodes/{node}/{guest_type}/{vmid}/snapshot/{sn}/rollback',
                     method='POST')
     return {'vmid': vmid, 'type': guest_type, 'snapshot': name,
@@ -653,14 +676,14 @@ def delete_snapshot(pc: dict, guest_type: str, vmid: int, name: str) -> dict:
     running guest."""
     if guest_type not in _GUEST_TYPES:
         raise ProxmoxError(f'Unknown guest type: {guest_type!r}')
-    if not _valid_snapshot_name(name) or name in _SNAPSHOT_RESERVED:
+    if not _actionable_snapshot_name(name) or name in _SNAPSHOT_RESERVED:
         raise ProxmoxError('Invalid snapshot name.')
     try:
         vmid = int(vmid)
     except (ValueError, TypeError):
         raise ProxmoxError('Invalid vmid.') from None
     node = urllib.parse.quote(pc['node'])
-    sn = urllib.parse.quote(name)
+    sn = urllib.parse.quote(name, safe='')
     upid = _request(pc, f'/nodes/{node}/{guest_type}/{vmid}/snapshot/{sn}',
                     method='DELETE')
     return {'vmid': vmid, 'type': guest_type, 'snapshot': name,

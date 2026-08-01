@@ -809,11 +809,24 @@ def status_for(result: dict, warn_days: int, crit_days: int) -> str:
     return "ok"
 
 
-def days_until_expiry(result: dict) -> int:
-    """Return integer days until the cert expires; negative if expired."""
+def days_until_expiry(result: dict) -> int | None:
+    """Return integer days until the cert expires; negative if expired.
+
+    ``None`` means "we have no expiry to report". A probe that failed (DNS
+    blip, connection refused, handshake error) returns early from
+    ``_probe_tls`` with ``expires_at`` still 0, and this used to hand that
+    back as the number 0 — indistinguishable from "expires today". Every
+    consumer that did arithmetic on the result therefore scored a merely
+    unreachable host as an EXPIRED certificate: a critical Needs-Attention
+    row, a CRITICAL ``tls_expiry`` webhook, an entry in the compliance
+    report's expiring list, and the top line of the AI advisor's cert chunk.
+    Unreachability is its own fact (``status_for`` reports it as ``error``);
+    it is not evidence about the certificate. Callers must SKIP a ``None``
+    rather than compare it.
+    """
     expires = result.get("expires_at", 0)
     if not expires:
-        return 0
+        return None
     return int((expires - _now()) / 86400.0)
 
 

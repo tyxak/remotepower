@@ -5212,10 +5212,19 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/enroll/token',
     '/api/agent/version',
     '/api/agent/download',
+    # v6.4.2: the SIGNATURE fetch is the third leg of every self-update and was
+    # missing here, so with the allowlist on the agent downloaded the binary and
+    # then 403'd on the signature — hitting its fail-closed branch ("Release
+    # signature required but unavailable … Refusing to install"). Self-update
+    # died fleet-wide while the heartbeat kept the fleet looking healthy. Same
+    # token-free public read as /api/agent/download directly above.
+    '/api/agent/signature',
     '/api/agent/win/version',      # v6.2.0: Windows agent self-update (token-free, like Linux)
     '/api/agent/win/download',
+    '/api/agent/win/signature',    # v6.4.2: as above, Windows leg
     '/api/agent/mac/version',      # v6.3.0: macOS agent self-update (token-free, like the others)
     '/api/agent/mac/download',
+    '/api/agent/mac/signature',    # v6.4.2: as above, macOS leg
     '/api/agent/win/install',      # v6.2.0: Windows onboarding one-liner (baked one-time token)
     '/api/agent/install',
     '/api/csp-report',
@@ -5230,6 +5239,15 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     # v3.4.2: agents POST OpenSCAP results here (self-authenticated by device
     # token); exempt so a host on a dynamic IP can still report.
     '/api/scap/report',
+    # v6.4.2: the remaining agent-initiated ingest endpoints, all authenticated
+    # by the DEVICE TOKEN in the body (never a user session) — exactly the trade
+    # already accepted for /api/heartbeat and /api/scap/report above. Missing
+    # them meant enabling the allowlist silently killed log + package reporting
+    # and compose-stack deploys on every host with a dynamic IP. The exact match
+    # is load-bearing: the operator-facing '/api/logs/tail' stays gated.
+    '/api/logs',
+    '/api/packages',
+    '/api/compose/fetch',
     # W1-31: customers click the CSAT survey link from arbitrary IPs; the HMAC
     # signature is the capability, so exempt it from the operator IP allowlist.
     '/api/tickets/csat',
@@ -5255,6 +5273,21 @@ _IP_ALLOWLIST_EXEMPT_PREFIXES = (
     '/api/ping/',
 )
 
+# v6.4.2 — agent-initiated POSTs that live UNDER /api/devices/<id>/, so neither
+# an exact match nor a prefix match can reach them. Both authenticate on the
+# DEVICE TOKEN in the body (handle_device_live_sample / handle_files_archive_chunk
+# — no user session is ever accepted), so exempting them is the same trade as
+# /api/heartbeat. Without this, turning the allowlist on 403'd every live-metric
+# sample and every file-manager download chunk fleet-wide, contradicting the
+# Settings hint's promise that enabling it "never blocks an agent".
+# Matched as startswith('/api/devices/') AND endswith(...) — mirroring the
+# dispatcher's own route patterns — so a bare '/api/devices' stays gated and no
+# unrelated path can back into the exemption through the suffix alone.
+_IP_ALLOWLIST_EXEMPT_DEVICE_SUFFIXES = (
+    '/live-sample',
+    '/files/archive-chunk',
+)
+
 
 def _enforce_ip_allowlist():
     """v3.3.0: optional IP allowlist for UI/API access.
@@ -5263,9 +5296,13 @@ def _enforce_ip_allowlist():
     matches an entry in `ip_allowlist` (CIDRs or bare addresses) are
     allowed through. Loopback (127.0.0.1 / ::1) is ALWAYS allowed so
     a local MCP sidecar and the operator's recovery shell can never
-    be locked out. Agent paths (heartbeat, enrollment, agent binary
-    download) are exempted so enabling the allowlist doesn't brick
-    the fleet — agents on dynamic IPs keep working.
+    be locked out. EVERY agent-initiated path (heartbeat, enrollment,
+    the full self-update triple version/download/signature, telemetry
+    ingest, and the two device-scoped agent POSTs) is exempted so
+    enabling the allowlist doesn't brick the fleet — agents on dynamic
+    IPs keep working. That set is the promise the Settings hint makes
+    ("enabling this never blocks an agent"); when a new agent endpoint
+    lands, it belongs in one of the three tuples above.
 
     Off by default. The Settings UI's save path refuses to enable the
     allowlist unless the current request's IP is already in it (or
@@ -5279,6 +5316,8 @@ def _enforce_ip_allowlist():
     if pi in _IP_ALLOWLIST_EXEMPT_PATHS:
         return
     if pi.startswith(_IP_ALLOWLIST_EXEMPT_PREFIXES):
+        return
+    if pi.startswith('/api/devices/') and pi.endswith(_IP_ALLOWLIST_EXEMPT_DEVICE_SUFFIXES):
         return
     ip = _get_client_ip()
     # Loopback safety net — never lock out a local request.
@@ -51552,30 +51591,54 @@ def _fleet_report_csv_bytes(report):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(['Section', 'Metric', 'Value'])
-    d = report['devices']
-    w.writerow(['Devices', 'Total', d['total']])
-    w.writerow(['Devices', 'Online', d['online']])
-    w.writerow(['Devices', 'Offline', d['offline']])
-    w.writerow(['Health', 'Fleet score', report['health']['score']])
-    w.writerow(['Health', 'Grade', report['health']['grade']])
-    a = report['attention']
-    w.writerow(['Attention', 'Critical', a.get('critical', 0)])
-    w.writerow(['Attention', 'Warning', a.get('warning', 0)])
-    w.writerow(['Attention', 'Info', a.get('info', 0)])
-    p = report['patches']
-    w.writerow(['Patches', 'Devices with patches', p['devices_with_patches']])
-    w.writerow(['Patches', 'Total pending', p['total_pending']])
-    for sev in ('critical', 'high', 'medium', 'low'):
-        w.writerow(['CVE', sev.capitalize(), report['cve'][sev]])
-    w.writerow(['CVE', 'Devices affected', report['cve']['devices_affected']])
-    for fw, fwrep in (report['compliance'].get('frameworks') or {}).items():
+    # Tolerate custom reports that omit sections, exactly like the sibling
+    # _render_report_email has since v3.14.0. This renderer never got the same
+    # treatment, so every ?sections= subset that dropped one of the six blocks
+    # below raised an uncaught KeyError out of handle_fleet_report -> HTTP 500 —
+    # i.e. the URL the Custom reports "Download" button builds for any saved
+    # definition with a box unticked.
+    d = report.get('devices') or {}
+    h = report.get('health') or {}
+    a = report.get('attention') or {}
+    sla = report.get('sla') or {}
+    p = report.get('patches') or {}
+    c = report.get('cve') or {}
+    if d:
+        w.writerow(['Devices', 'Total', d.get('total', 0)])
+        w.writerow(['Devices', 'Online', d.get('online', 0)])
+        w.writerow(['Devices', 'Offline', d.get('offline', 0)])
+    if h:
+        w.writerow(['Health', 'Fleet score', h.get('score', 0)])
+        w.writerow(['Health', 'Grade', h.get('grade', '')])
+    if a:
+        w.writerow(['Attention', 'Critical', a.get('critical', 0)])
+        w.writerow(['Attention', 'Warning', a.get('warning', 0)])
+        w.writerow(['Attention', 'Info', a.get('info', 0)])
+    if sla:
+        # 'sla' is a selectable section that this renderer never emitted at all,
+        # so a CSV report including it silently dropped the fleet-uptime headline
+        # the JSON and emailed forms both carry. Uncovered fleets report 'N/A'
+        # (same idiom as compliance below) rather than nothing — a selected
+        # section that writes no row is indistinguishable from a deselected one.
+        pct = sla.get('fleet_uptime_pct')
+        w.writerow(['SLA', f"Fleet uptime ({sla.get('days', 30)}d) %",
+                    pct if pct is not None else 'N/A'])
+    if p:
+        w.writerow(['Patches', 'Devices with patches', p.get('devices_with_patches', 0)])
+        w.writerow(['Patches', 'Total pending', p.get('total_pending', 0)])
+    if c:
+        for sev in ('critical', 'high', 'medium', 'low'):
+            w.writerow(['CVE', sev.capitalize(), c.get(sev, 0)])
+        w.writerow(['CVE', 'Devices affected', c.get('devices_affected', 0)])
+    for fw, fwrep in ((report.get('compliance') or {}).get('frameworks') or {}).items():
         w.writerow(['Compliance', fw.upper() + ' pass %',
                     fwrep.get('score') if fwrep.get('score') is not None else 'N/A'])
-    w.writerow([])
-    w.writerow(['Worst devices', 'Score', 'Critical/Warning'])
-    for dev in report['health']['worst']:
-        w.writerow([dev['device_name'], dev['score'],
-                    f"{dev['critical']}/{dev['warning']}"])
+    if h:
+        w.writerow([])
+        w.writerow(['Worst devices', 'Score', 'Critical/Warning'])
+        for dev in h.get('worst') or []:
+            w.writerow([dev.get('device_name', ''), dev.get('score', 0),
+                        f"{dev.get('critical', 0)}/{dev.get('warning', 0)}"])
     return buf.getvalue().encode()
 
 
