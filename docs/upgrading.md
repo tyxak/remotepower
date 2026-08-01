@@ -110,6 +110,44 @@ its header has the setup commands (drop it in `/usr/local/sbin/` and add a
 one-line sudoers entry for the API user). Then set the path to
 `/usr/local/sbin/remotepower-server-update`.
 
+### Escalation under `NoNewPrivileges=true` *(v6.4.2)*
+
+The shipped `remotepower-wsgi.service` sets `NoNewPrivileges=true`, which blocks
+`sudo`'s setuid transition **regardless of the sudoers entry** — the same reason
+the WireGuard helper runs sudo-free on ambient capabilities. On such a host the
+sudo route above cannot work, and the interface now says so instead of offering
+a button that always fails: **Run update** and **Restart server** are hidden when
+no working escalation route exists, and the error names the real cause.
+
+Two ways to enable them:
+
+1. **The systemd route (recommended — keeps the hardening).** Install the path
+   units, which watch for a request file the app server can create in its own
+   data directory and perform the action as root:
+
+   ```
+   sudo install -m0644 packaging/remotepower-server-restart.path \
+                       packaging/remotepower-server-restart-run.service \
+                       packaging/remotepower-server-update.path \
+                       packaging/remotepower-server-update-run.service \
+                       /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now remotepower-server-restart.path \
+                               remotepower-server-update.path
+   ```
+
+   The app server gains no new privilege: the only thing it can express is
+   *which* of the two fixed actions to run, by which empty file it creates.
+   Nothing an operator types reaches the unit. Request files are excluded from
+   DR archives, so a restore can never queue an action on the host it lands on.
+
+2. **The sudo route.** Add a drop-in with `NoNewPrivileges=false`
+   (`systemctl edit remotepower-wsgi`) and keep the sudoers entry. This gives up
+   part of the unit's hardening; prefer option 1.
+
+If your data directory is not `/var/lib/remotepower`, edit the `PathExists=` and
+`ExecStartPre=` lines in the four unit files to match.
+
 On bare metal, the storage layout migrates itself transparently on first
 start after an upgrade — nothing to run by hand for that part. On Docker,
 first-boot Postgres migration is a real one-shot step with a real failure

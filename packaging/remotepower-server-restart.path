@@ -1,0 +1,27 @@
+[Unit]
+Description=RemotePower — watch for an app-server restart request
+Documentation=file:///usr/share/doc/remotepower-server/upgrading.md
+
+# v6.4.2: the escalation route that works under the hardening we ship.
+#
+# remotepower-wsgi.service sets NoNewPrivileges=true, which blocks sudo's setuid
+# transition regardless of any sudoers drop-in — so the web process cannot run
+# the root-owned restart helper itself. Instead it creates an EMPTY request file
+# in its data directory (already its one ReadWritePaths= entry) and systemd,
+# running as root, performs the action.
+#
+# The web process therefore gains no privilege it did not have: the only thing
+# it can express is "restart" (by which filename it creates), never a command.
+#
+# Install:
+#   install -m0644 remotepower-server-restart.path \
+#                  remotepower-server-restart-run.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now remotepower-server-restart.path
+
+[Path]
+PathExists=/var/lib/remotepower/.restart.request
+Unit=remotepower-server-restart-run.service
+
+[Install]
+WantedBy=multi-user.target

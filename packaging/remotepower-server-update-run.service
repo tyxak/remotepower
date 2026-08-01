@@ -1,0 +1,12 @@
+[Unit]
+Description=RemotePower — perform the requested server self-update
+Documentation=file:///usr/share/doc/remotepower-server/upgrading.md
+
+[Service]
+Type=oneshot
+# A self-update pulls code and restarts the service; 10 minutes matches the
+# timeout the in-process path used.
+TimeoutStartSec=600
+# Consume the request first — a failed update must not re-run on a loop.
+ExecStartPre=/bin/rm -f /var/lib/remotepower/.update.request
+ExecStart=/usr/local/sbin/remotepower-server-update

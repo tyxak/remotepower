@@ -1,0 +1,19 @@
+[Unit]
+Description=RemotePower — watch for a server self-update request
+Documentation=file:///usr/share/doc/remotepower-server/upgrading.md
+
+# Companion to remotepower-server-restart.path — same reasoning, same protocol.
+# See that file's header for why sudo cannot be used from the web process.
+#
+# Install:
+#   install -m0644 remotepower-server-update.path \
+#                  remotepower-server-update-run.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now remotepower-server-update.path
+
+[Path]
+PathExists=/var/lib/remotepower/.update.request
+Unit=remotepower-server-update-run.service
+
+[Install]
+WantedBy=multi-user.target

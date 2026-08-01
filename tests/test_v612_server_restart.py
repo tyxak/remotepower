@@ -106,9 +106,12 @@ class TestServerRestart(_Base):
         api.get_json_obj = lambda: {'cmd': 'rm -rf /', 'service': '; reboot'}
         s, d = self._call(api.handle_server_restart)
         self.assertEqual(s, 200)
-        src = (CGI / 'api.py').read_text()
-        i = src.index('def handle_server_restart')
-        body = src[i:i + 2500]
+        # v6.4.2: was a fixed src[i:i+2500] window, which silently stopped
+        # covering the subprocess call as soon as the handler grew a preflight.
+        # srcpin extracts the whole def by indentation, so it cannot drift.
+        import srcpin
+        body = srcpin.py_function((CGI / 'api.py').read_text(),
+                                  'handle_server_restart')
         self.assertIn('subprocess.run([RESTART_SCRIPT]', body,
                       'must run the fixed script path as a single argv element')
         self.assertNotIn('shell=True', body)

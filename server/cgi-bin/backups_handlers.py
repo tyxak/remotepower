@@ -305,6 +305,12 @@ def _run_data_backup(triggered_by='scheduled'):
                         _snap_tmp.unlink()
                 except OSError:
                     pass
+        # v6.4.2: export the logical stores for ANY database backend. Under
+        # SQLite this rides alongside the .db snapshot (belt and braces, and it
+        # makes the archive restorable onto a JSON install); under Postgres —
+        # the install-server.sh default — it is the ONLY copy of the state,
+        # because nothing the walk above can see holds it.
+        _stores = A._tar_add_logical_stores(tar, 'remotepower/')
     # v5.0.0 (#C2): encrypt at rest if RP_BACKUP_PASSPHRASE is set. The plaintext
     # tarball is replaced by `*.tar.gz.enc` (AES-256-GCM, streamed) and unlinked,
     # so nothing readable lingers in backup_path. The passphrase lives ONLY in the
@@ -404,11 +410,15 @@ def _run_data_backup(triggered_by='scheduled'):
         # v6.2.2: visible on the posture/self page — a backup that silently
         # skipped paths must say so, not present itself as complete.
         'skipped_unreadable': skipped_unreadable[:50],
+        # v6.4.2: how many logical stores the archive actually carries. On a DB
+        # backend this is the state; 0 there means the archive is hollow and the
+        # operator needs to know BEFORE they need the restore.
+        'stores': _stores,
     }
     A.save(A.DATA_DIR / 'self_backup_state.json', state)
     return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
             'bytes': out_path.stat().st_size, 'pruned': pruned,
-            'offsite_ok': offsite_ok,
+            'offsite_ok': offsite_ok, 'stores': _stores,
             'skipped_unreadable': len(skipped_unreadable)}
 
 
@@ -562,6 +572,21 @@ def handle_backup_job_create():
     targets = [d for d in A._resolve_targets(body) if d in devices]
     if not targets:
         A.respond(400, {'error': 'select at least one device you can manage'})
+    # v6.4.2: structured FILE jobs are POSIX-only — `filebackup._is_abs_path`
+    # rejects any path not starting with '/' and the generated command is
+    # rsync/tar over ssh. A Windows or macOS host could be picked from the same
+    # device picker as everything else, got a success toast, and then failed
+    # silently on every cron tick (the success-toast-then-silence class). Split
+    # the batch honestly, the way SCAP already does.
+    os_skipped = []
+    if jtype == 'file':
+        targets, os_skipped = A._split_targets_by_os_support(
+            targets, supported=('linux',))
+        if not targets:
+            A.respond(400, {'error': 'file-backup jobs run on Linux hosts only — '
+                            f'{len(os_skipped)} target(s) skipped '
+                            f'({", ".join(os_skipped[:5])}). Use a command job '
+                            'with a platform-native tool for these hosts.'})
     if cron and not A._valid_cron(cron):
         A.respond(400, {'error': 'invalid cron expression'})
     data = A._backup_jobs_load()
@@ -578,7 +603,11 @@ def handle_backup_job_create():
     A.save(A.BACKUP_JOBS_FILE, data)
     A.audit_log(actor, 'backup_job_create',
                 detail=f'job={job["id"]} devices={len(targets)} type={jtype}')
-    A.respond(200, {'ok': True, 'id': job['id']})
+    A.respond(200, {'ok': True, 'id': job['id'],
+                    'skipped_unsupported': os_skipped,
+                    'note': (f'{len(os_skipped)} non-Linux host(s) were left out of '
+                             f'this file job: {", ".join(os_skipped[:5])}'
+                             if os_skipped else '')})
 
 
 def _backup_targets_summary(target_ids, devices):
@@ -1063,9 +1092,25 @@ def handle_backup_restore():
     _MAX_RESTORE_MEMBERS = 50000
     safe_members = []
     total_bytes = 0
-    for m in tf.getmembers():
+    _members = tf.getmembers()
+    # v6.4.2: the two archive shapes this endpoint has to accept.
+    # `GET /api/backup/download` writes members relative to DATA_DIR
+    # (`devices.json`); the SCHEDULED DR archive written by _run_data_backup
+    # prefixes every member with `remotepower/`. Extraction joins the member
+    # name onto DATA_DIR verbatim, so uploading a nightly archive used to
+    # recreate the whole install one level down at DATA_DIR/remotepower/ and
+    # restore nothing usable — while still reporting "N files restored". Strip
+    # the shared root when (and only when) every member carries it.
+    _strip_root = bool(_members) and all(
+        m.name == 'remotepower' or m.name.startswith('remotepower/')
+        for m in _members)
+    for m in _members:
         if not (m.isfile() or m.isdir()):
             A.respond(400, {'error': f'archive contains a non-regular entry ({m.name}) — refused'})
+        if _strip_root:
+            m.name = m.name[len('remotepower/'):] if m.name != 'remotepower' else ''
+            if not m.name:
+                continue          # the root dir entry itself
         name = m.name
         if name.startswith('/') or '..' in name.replace('\\', '/').split('/'):
             A.respond(400, {'error': f'unsafe path in archive: {name}'})
@@ -1091,9 +1136,23 @@ def handle_backup_restore():
         A._invalidate_backend_cache()
     except Exception:
         pass
+    # v6.4.2: on SQLite/Postgres the extracted *.json files are inert — load()
+    # reads the database, not the disk. Import them so a restore actually
+    # restores. (Under SQLite an archive may instead carry the .db image, which
+    # the walk above put back in place; importing the JSON stores on top of it
+    # is idempotent and makes a cross-backend restore work either way.)
+    imported = []
+    try:
+        imported = A._import_json_stores_into_backend()
+    except Exception as e:
+        A.respond(500, {'error': f'files were extracted but importing them into the '
+                                 f'{A._storage_backend()} backend failed: {e} — the '
+                                 f'pre-restore snapshot is {snap_name}'})
     A.audit_log(actor, 'backup_restore',
-              f'{restored} files restored (safety snapshot {snap_name})')
-    A.respond(200, {'ok': True, 'restored': restored, 'snapshot': snap_name})
+              f'{restored} files restored, {len(imported)} stores imported '
+              f'(safety snapshot {snap_name})')
+    A.respond(200, {'ok': True, 'restored': restored, 'snapshot': snap_name,
+                    'stores_imported': len(imported)})
 
 
 def handle_backup_run():
@@ -1148,13 +1207,29 @@ def _restore_drill_core():
             src = dec
         members = 0
         saw_root = False
+        # v6.4.2: a structure check that only asserted "the tar opens and has a
+        # remotepower/ member" passed on an archive carrying no state at all —
+        # which is exactly what a Postgres install produced before the logical
+        # -store export landed. Count the restorable STATE the archive holds
+        # (logical *.json documents, or a SQLite image) and fail the drill when
+        # it is empty, so a hollow archive can never report green.
+        stores = 0
+        db_image = False
         with tarfile.open(str(src), 'r:gz') as tar:
             for m in tar:
                 members += 1
-                top = m.name.split('/', 1)[0]
-                if top == 'remotepower':
+                parts = m.name.split('/', 1)
+                if parts[0] == 'remotepower':
                     saw_root = True
-        ok = saw_root and members > 0
+                if not m.isfile():
+                    continue
+                bn = os.path.basename(m.name)
+                if bn.endswith('.json') and not bn.endswith('.lock'):
+                    stores += 1
+                elif bn.endswith('.db'):
+                    db_image = True
+        has_state = stores > 0 or db_image
+        ok = saw_root and members > 0 and has_state
         # master-improvement-scoping #56: record how long the check itself took
         # as a REAL, measured lower-bound signal toward the declared RTO target
         # -- this is decrypt+decompress+structure-check only, not a full
@@ -1162,9 +1237,14 @@ def _restore_drill_core():
         # the RTO measurement.
         elapsed = round(time.time() - started, 2)
         return {'ok': ok, 'file': latest.name, 'members': members,
+                'stores': stores, 'db_image': db_image,
                 'encrypted': str(latest).endswith('.enc'), 'seconds': elapsed,
-                'error': None if ok
-                         else 'Archive opened but the expected remotepower/ tree was missing.'}
+                'error': None if ok else (
+                    'Archive opened but the expected remotepower/ tree was missing.'
+                    if not saw_root else
+                    'the archive contains no restorable state (no logical stores '
+                    'and no database image) — a restore from it would produce an '
+                    'empty install')}
     except Exception as e:
         return {'ok': False, 'file': latest.name,
                 'error': f'restore test failed: {str(e)[:200]}'}

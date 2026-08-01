@@ -31012,9 +31012,17 @@ def handle_version_check():
         'self_update_configured': bool((cfg.get('self_update_command') or '').strip()),
         # v6.1.2: whether the scoped restart script is installed (drives the
         # "Restart server" button — hidden in a container / when not set up).
-        'restart_available': (Path(RESTART_SCRIPT).exists()
+        # v6.4.2: a bare file-exists check said "available" on the shipped
+        # hardened unit, where NoNewPrivileges=true makes the script's `sudo -n`
+        # escalation impossible — the button was offered and always failed.
+        'restart_available': (_privileged_helper_mode(RESTART_SCRIPT)
+                              in ('root', 'sudo', 'spool')
                               and not Path('/.dockerenv').exists()
                               and os.environ.get('RP_IN_CONTAINER') != '1'),
+        'privileged_mode': _privileged_helper_mode(RESTART_SCRIPT),
+        'privileged_help': (_PRIV_BLOCKED_HELP
+                            if _privileged_helper_mode(RESTART_SCRIPT) == 'blocked'
+                            else ''),
     })
 
 
@@ -31035,7 +31043,25 @@ def handle_server_self_update():
     p = Path(cmd)
     if not p.is_absolute() or not p.exists():
         respond(400, {'error': f'update script not found or not an absolute path: {cmd}'}); return
-    audit_log(actor, 'server_self_update', detail=f'cmd={cmd}')
+    # v6.4.2: the shipped update script escalates with `exec sudo -n "$0"`, which
+    # NoNewPrivileges=true blocks outright — so on a stock install this returned
+    # a raw "sudo: effective uid is not 0" in a <pre> and told the operator to
+    # check a sudoers drop-in that could not fix it. Preflight it.
+    _mode = _privileged_helper_mode(cmd)
+    if _mode == 'blocked':
+        respond(400, {'error': f'the update script cannot escalate here: {_PRIV_BLOCKED_HELP}',
+                      'no_new_privs': True}); return
+    if _mode == 'spool':
+        audit_log(actor, 'server_self_update', detail='via privileged path-unit')
+        try:
+            _request_privileged_action('update')
+        except OSError as e:
+            respond(500, {'error': f'could not queue the update request: {e}'}); return
+        respond(200, {'ok': True, 'mode': 'systemd', 'output': '',
+                      'message': 'Update requested — systemd is running it as root. '
+                                 'The service restarts when it finishes; re-check '
+                                 'the version here afterwards.'}); return
+    audit_log(actor, 'server_self_update', detail=f'cmd={cmd} mode={_mode}')
     # NB: respond() raises HTTPError (an Exception subclass), so it MUST stay
     # outside the try — a success respond() inside `except Exception` gets caught
     # and rewritten to a 500 (a real bug this handler shipped with since v5.0.0,
@@ -31057,6 +31083,91 @@ def handle_server_self_update():
 # Overridable for a non-standard install location.
 RESTART_SCRIPT = os.environ.get('RP_RESTART_SCRIPT', '/usr/local/sbin/remotepower-server-restart')
 
+# v6.4.2: where a privileged systemd path-unit looks for an action request. This
+# is the escalation route that WORKS under the hardening we actually ship — see
+# _privileged_helper_mode().
+#
+# It deliberately lives in DATA_DIR rather than a /run spool: DATA_DIR is already
+# the app server's one `ReadWritePaths=` entry, so no new RuntimeDirectory (which
+# remotepower-wsgi.service documents that it must NOT declare — systemd would
+# delete the shared /run/remotepower on every restart) and no tmpfiles fragment
+# rendered per-host with the right web user is needed.
+PRIV_SPOOL_DIR = Path(os.environ.get('RP_PRIV_SPOOL', str(DATA_DIR)))
+
+
+def _no_new_privs():
+    """True when this process runs with NoNewPrivileges — in which case sudo's
+    setuid escalation is blocked no matter what the sudoers file says.
+
+    This is not hypothetical: the shipped `remotepower-wsgi.service` sets
+    `NoNewPrivileges=true` (and grants CAP_NET_RAW/CAP_NET_ADMIN ambiently
+    instead, which is why the WireGuard helper runs sudo-free — see
+    `vpn_handlers._wg_direct`). Both privileged helpers re-exec themselves with
+    `exec sudo -n "$0"`, so on a stock install they could never escalate, and
+    the operator was told to go check a sudoers drop-in that cannot help.
+    """
+    try:
+        for line in Path('/proc/self/status').read_text().splitlines():
+            if line.startswith('NoNewPrivs:'):
+                return line.split()[1].strip() == '1'
+    except OSError:
+        pass
+    return False
+
+
+def _privileged_helper_mode(script=None):
+    """How (or whether) this process can run a root-owned helper.
+
+    Returns one of:
+      'root'    — already uid 0; run it directly.
+      'sudo'    — not root, but NoNewPrivileges is off, so `sudo -n` can work.
+      'spool'   — sudo is blocked, but the privileged path-unit is installed;
+                  drop a request file and let systemd run it as root.
+      'blocked' — the script is there but nothing can run it. Say so plainly.
+      'absent'  — the helper is not installed at all.
+    """
+    p = Path(script or RESTART_SCRIPT)
+    spool_ok = PRIV_SPOOL_DIR.is_dir() and os.access(str(PRIV_SPOOL_DIR), os.W_OK)
+    if not p.exists():
+        # No helper on disk means no route works — the path unit's ExecStart
+        # points at this same script, so a writable spool proves nothing.
+        return 'absent'
+    try:
+        if os.geteuid() == 0:
+            return 'root'
+    except AttributeError:          # non-POSIX
+        pass
+    if not _no_new_privs():
+        return 'sudo'
+    return 'spool' if spool_ok else 'blocked'
+
+
+_PRIV_BLOCKED_HELP = (
+    'this service runs with NoNewPrivileges=true (the shipped '
+    'remotepower-wsgi.service hardening), so sudo cannot escalate — a sudoers '
+    'drop-in will not change that. Install the privileged helper units '
+    '(packaging/remotepower-server-restart.path + .service, and .update.* for '
+    'updates) so systemd performs the action as root, or add a drop-in with '
+    'NoNewPrivileges=false if you prefer the sudo route. See docs/upgrading.md.'
+)
+
+
+def _request_privileged_action(kind):
+    """Ask the privileged path-unit to perform `kind` ('restart' | 'update').
+
+    Writing the request file is the whole protocol: systemd's `.path` unit is
+    watching for it and starts the matching oneshot `.service` as root, which
+    consumes the file. Nothing the operator types reaches the unit — the file is
+    empty and the action is fixed by which filename was created.
+    """
+    if kind not in ('restart', 'update'):
+        raise ValueError(f'unknown privileged action: {kind}')
+    PRIV_SPOOL_DIR.mkdir(parents=True, exist_ok=True)
+    req = PRIV_SPOOL_DIR / f'.{kind}.request'
+    fd = os.open(str(req), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.close(fd)
+    return req
+
 
 def handle_server_restart():
     """POST /api/server/restart — restart the app-server service (Settings →
@@ -31076,13 +31187,25 @@ def handle_server_restart():
         respond(400, {'error': 'this instance runs in a container — restart the '
                                'container via your orchestrator, not from here',
                       'containerized': True}); return
-    p = Path(RESTART_SCRIPT)
-    if not p.exists():
+    mode = _privileged_helper_mode(RESTART_SCRIPT)
+    if mode == 'absent':
         respond(400, {'error': 'restart is not set up on this host — install the '
                                'scoped restart script + sudoers drop-in '
                                '(packaging/remotepower-server-restart.sh header)',
                       'configured': False}); return
-    audit_log(actor, 'server_restart', detail=f'script={RESTART_SCRIPT}')
+    if mode == 'blocked':
+        respond(400, {'error': f'restart cannot run here: {_PRIV_BLOCKED_HELP}',
+                      'configured': False, 'no_new_privs': True}); return
+    if mode == 'spool':
+        # systemd performs the restart as root; we never escalate.
+        audit_log(actor, 'server_restart', detail='via privileged path-unit')
+        try:
+            _request_privileged_action('restart')
+        except OSError as e:
+            respond(500, {'error': f'could not queue the restart request: {e}'}); return
+        respond(200, {'ok': True, 'mode': 'systemd',
+                      'message': 'Restart requested — systemd is performing it.'}); return
+    audit_log(actor, 'server_restart', detail=f'script={RESTART_SCRIPT} mode={mode}')
     # respond() raises HTTPError (an Exception) — keep it OUTSIDE the try, or a
     # success respond() gets caught by `except Exception` and rewritten to a 500.
     try:
@@ -47722,10 +47845,94 @@ _BACKUP_EXCLUDE_NAMES = {'attention_cache.json', 'fleet_risk_cache.json',
                          # KMIP master key: NEVER in generic backups — it
                          # travels only in the passphrase-encrypted KMIP
                          # recovery bundle (backups keep the ciphertext only).
-                         'kmip_master.key'}
+                         'kmip_master.key',
+                         # v6.4.2: privileged-action requests are transient
+                         # signals to a systemd path unit. Archiving one would
+                         # mean a restore silently queues a restart/update on
+                         # the machine being restored onto.
+                         '.restart.request', '.update.request'}
 _BACKUP_SNAPSHOT_DIR = 'restore-snapshots'
 
 
+
+
+def _tar_add_logical_stores(tar, arc_prefix=''):
+    """Add every DB-backed logical store to an open tarfile as JSON.
+
+    v6.4.2: a DR archive is built by walking DATA_DIR, which is correct only on
+    the JSON backend. Under SQLite the live `.db` is excluded from the walk and
+    re-added as a consistent `storage.snapshot()`, so SQLite archives do carry
+    the state — but Postgres (the `install-server.sh` DEFAULT) has neither a
+    walk-visible file nor a snapshot branch, so its archives carried no devices,
+    alerts, config, tickets, tokens or vault at all. `pg_dump` is deliberately
+    not used: it needs a client binary, credentials and a matching server
+    version on the restore host. Instead we export the same logical documents
+    `load()` serves, under the JSON backend's own filenames — so the archive has
+    ONE shape on every backend and restores onto any of them.
+
+    Returns the number of stores added. No-op (0) on the JSON backend, where the
+    files are already on disk and picked up by the walk.
+    """
+    mod = _dbmod()
+    if mod is None:
+        return 0
+    import io as _io
+    import tarfile as _tarfile
+    try:
+        names = mod.iter_files(DATA_DIR)
+    except Exception as e:
+        # A DR archive must never vanish because the export failed — but it
+        # must not silently pretend either. Surface it and let the caller's
+        # own error handling decide.
+        sys.stderr.write(f'[remotepower] backup: logical-store export failed: {e}\n')
+        return 0
+    added = 0
+    for name in names:
+        try:
+            raw = json.dumps(mod.load(DATA_DIR / name),
+                             separators=(',', ':')).encode('utf-8')
+        except Exception as e:
+            sys.stderr.write(
+                f'[remotepower] backup: could not export store {name}: {e}\n')
+            continue
+        info = _tarfile.TarInfo(arc_prefix + name)
+        info.size = len(raw)
+        info.mode = 0o600
+        info.uid = info.gid = 0
+        info.uname = info.gname = ''
+        try:
+            info.mtime = int(mod.mtime(DATA_DIR / name) or 0)
+        except Exception:
+            info.mtime = 0
+        try:
+            tar.addfile(info, _io.BytesIO(raw))
+            added += 1
+        except Exception as e:
+            sys.stderr.write(
+                f'[remotepower] backup: could not add store {name}: {e}\n')
+    return added
+
+
+def _import_json_stores_into_backend():
+    """Load every `*.json` now sitting in DATA_DIR into the active DB backend.
+
+    The restore path extracts an archive as files; on SQLite/Postgres those
+    files are inert until imported (`load()` reads the database, not the disk).
+    Both DB modules already ship the importer used by the backend-migration
+    tool — SQLite calls it `migrate_json_to_sqlite`, Postgres `import_from_json`
+    — so this just picks the right one. Returns the list of imported names.
+    """
+    mod = _dbmod()
+    if mod is None:
+        return []
+    fn = getattr(mod, 'import_from_json', None) or \
+        getattr(mod, 'migrate_json_to_sqlite', None)
+    if fn is None:
+        return []
+    names = fn(DATA_DIR)
+    _invalidate_backend_cache()
+    _LOAD_CACHE.clear()
+    return list(names or [])
 
 
 def _write_data_dir_tar(tar):
@@ -47743,6 +47950,8 @@ def _write_data_dir_tar(tar):
                 tar.add(full, arcname=rel, recursive=False)
             except Exception:
                 pass
+    # DB backends keep the state out of DATA_DIR — export it alongside.
+    _tar_add_logical_stores(tar)
 
 
 
@@ -65873,10 +66082,28 @@ def handle_device_host_config_put(dev_id):
         hc.pop('drift', None)
         applied = bool(hc.get('apply_enabled'))
         enforced = bool(hc.get('enforce'))
+        # v6.4.2: desired-state APPLY is implemented in the Linux agent only —
+        # the Windows and macOS agents document `host_config_desired` as a key
+        # they deliberately do not read. Saving it against such a host used to
+        # return a plain success, so the operator believed users/sudoers/motd
+        # were being enforced on a machine that ignores the whole feature.
+        # The desired state is still stored (it is a policy record, and the host
+        # may later gain a Linux agent), but the answer says so out loud.
+        _fam = _device_os_family(devices.get(dev_id))
+    # _device_os_family defaults to 'linux' for unknown/absent OS strings, which
+    # is the right default here too — never block on a host we cannot classify.
+    supported = _fam == 'linux'
+    note = ''
+    if not supported:
+        note = (f'saved, but this is a {_fam} host — desired-state apply is '
+                'implemented in the Linux agent only, so nothing will be '
+                'enforced here. The stored policy is still visible for audit.')
 
     audit_log(actor, 'host_config_update',
-              f'dev_id={dev_id} sections={list(desired.keys())} apply_enabled={applied} enforce={enforced}')
-    respond(200, {'ok': True, 'apply_enabled': applied, 'enforce': enforced})
+              f'dev_id={dev_id} sections={list(desired.keys())} apply_enabled={applied} '
+              f'enforce={enforced} os={_fam} supported={supported}')
+    respond(200, {'ok': True, 'apply_enabled': applied, 'enforce': enforced,
+                  'supported': supported, 'note': note})
 
 
 def handle_device_host_config_current(dev_id):

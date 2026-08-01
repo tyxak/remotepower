@@ -1,0 +1,16 @@
+[Unit]
+Description=RemotePower — perform the requested app-server restart
+Documentation=file:///usr/share/doc/remotepower-server/upgrading.md
+
+[Service]
+Type=oneshot
+# Consume the request FIRST, so a failed restart cannot loop: the path unit
+# retriggers only when the file reappears.
+ExecStartPre=/bin/rm -f /var/lib/remotepower/.restart.request
+# The helper detaches the actual `systemctl restart` so it survives its own
+# cgroup being torn down. Running here as root, it takes the `id -u` == 0
+# branch and never reaches its `sudo -n` fallback.
+ExecStart=/usr/local/sbin/remotepower-server-restart
+# The request file lives in the web process's data dir; this unit only removes
+# it, so it needs no directory of its own. If RP_DATA_DIR is not the default,
+# edit the path here and in the .path unit to match.

@@ -94,6 +94,22 @@ the server after a loss:
 - `GET /api/backup/download` streams the data dir; `POST /api/backup/restore`
   restores from an uploaded archive (admin, with a safety confirmation);
   `POST /api/backup/test-restore` verifies the latest backup actually restores.
+  Both archive shapes are accepted — the download stream, and the scheduled
+  archive (whose members sit under a `remotepower/` root); the restore strips
+  that root when every member carries it, so a nightly archive restores where
+  you expect rather than one directory down *(v6.4.2)*.
+- **The archive carries your data on every storage backend** *(v6.4.2)*. A DR
+  archive is built by walking the data directory, which tells the whole story
+  only on the single-file JSON backend. SQLite adds a consistent database
+  snapshot; Postgres — the installer default — keeps nothing in the data
+  directory at all, so its archives previously contained no devices, alerts,
+  config, tickets, tokens or vault. Every database backend now also exports its
+  logical documents into the archive under the same filenames the JSON backend
+  uses, which means one archive shape restores onto any backend. `stores` in the
+  backup result and on Server status reports how many were written.
+- Restoring onto a database backend **imports** the archive rather than just
+  unpacking it — extracted files are inert there, because reads go to the
+  database, not the disk. The response reports `stores_imported`.
 - A **scheduled self-backup** runs off the heartbeat path, gated to once every
   24h (`backup.enabled`, state in `self_backup_state.json`, guarded by a
   `.backup_in_progress` sentinel). The gate uses the storage-aware
@@ -107,7 +123,9 @@ the server after a loss:
   `restore_drill_ok`. So "the backup is restorable" is continuously proven,
   not assumed — if the passphrase changes, the cryptography library breaks, or
   archives corrupt, you hear about it within a week instead of during a
-  disaster.
+  disaster. The drill counts the **restorable state** in the archive (logical
+  stores, or a database image) and fails when there is none, so an archive that
+  opens cleanly but holds nothing can no longer report green *(v6.4.2)*.
 - An optional **WORM audit sink** (`audit_worm_path`) appends the hash-chained
   audit log to a tamper-resistant location (an append-only mount or S3 Object
   Lock), so the audit trail survives even a full compromise.
