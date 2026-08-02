@@ -9,6 +9,20 @@ one container without silencing its host, and the **Logs** button showed you a
 toast instead of any logs. Plus the temperature history the Thermal page never
 had — two years of it, on a chart you can zoom to an exact window.
 
+Then a much wider sweep, and one theme runs through nearly all of it: a promise
+the code did not keep. The nightly disaster-recovery archive contained none of
+your fleet on the installer's default database. **Restart server** and **Run
+update now** could not work on a stock install, and the error they returned
+sent you off to fix something that was never the problem. An alert aged from
+its most recent firing rather than its first, so the fastest-degrading host was
+the one that could never escalate. A privileged account could be created on
+RemotePower itself and nothing anywhere recorded it. Those are fixed — and the
+gaps they exposed are filled: **Needs Attention** and **Tags & groups** are
+real pages now, the alert inbox pages and filters server-side, shared
+notification destinations can be scoped to a site or a tenant, an integration
+can name the host it runs on, and the metrics endpoint exports the posture the
+product has always computed for its own screens and never let you take away.
+
 ### Mute everything about one container
 
 - **Per-container alert mute.** Every container in Fleet → Containers → View now
@@ -91,6 +105,198 @@ had — two years of it, on a chart you can zoom to an exact window.
   pause, unpause and logs now run through `docker` on Windows, argv-only with the
   same container-id validation as the Linux agent. **Update** (pull and recreate)
   is deliberately not implemented there and refuses with a message saying so.
+
+### Disaster recovery you can actually restore from
+
+- **The DR archive did not contain the fleet on a Postgres install.** The
+  archive is built by walking the data directory, which is the whole story only
+  on the single-file JSON backend. SQLite re-adds a consistent database
+  snapshot; Postgres — the installer default since v6.1.0 — keeps nothing on
+  disk, so its nightly archives held no devices, alerts, config, tickets,
+  tokens or vault at all. Every database backend now exports its logical
+  documents into the archive under the same filenames the JSON backend uses, so
+  one archive shape restores onto any backend. `pg_dump` is deliberately not
+  used: it would need a client binary, credentials and a version-matched server
+  on the restore host — three more things to be wrong on the worst day of the
+  year. The backup result and Server status report `stores`, how many documents
+  the archive carries, so a hollow archive is visible before you need it rather
+  than after.
+- **Restoring a nightly archive did not work on any backend.** Scheduled
+  archives prefix every member with `remotepower/`, and `POST
+  /api/backup/restore` joined member names onto the data directory verbatim —
+  so uploading one recreated the whole install one directory down and restored
+  nothing usable, while still reporting how many files it had restored. The
+  restore strips that root when every member carries it, and afterwards imports
+  the stores into the database, because on SQLite and Postgres the extracted
+  files are inert (reads go to the database, not the disk). The response
+  reports `stores_imported`.
+- **The weekly restore drill passed on both**, because all it asserted was that
+  the tar opened and had a `remotepower/` member — which a hollow Postgres
+  archive satisfies perfectly. It counts the restorable state an archive
+  actually holds now and fails when there is none, and it persists what it
+  found, so Server status shows what the archive holds rather than only whether
+  the drill passed.
+
+### Restart and update under the hardening we ship
+
+- **"Restart server" and "Run update now" could not work on a stock install.**
+  The shipped `remotepower-wsgi.service` sets `NoNewPrivileges=true`, which
+  blocks sudo's setuid transition regardless of any sudoers drop-in — the same
+  fact `vpn_handlers` documents as the reason the WireGuard helper runs
+  sudo-free on ambient capabilities. Both helper scripts re-exec themselves
+  under `sudo -n`, so neither could ever escalate. `restart_available` was a
+  bare file-exists check, so the button was offered, always failed, and pointed
+  the operator at a sudoers rule that could not have fixed it.
+- **There is a real preflight now**, and a route that works under the hardening:
+  four systemd units (`remotepower-server-restart.path` + `-run.service`, and
+  the matching `update` pair) watch the data directory for a request file and
+  perform the action as root. The app server creates an *empty* file in its own
+  `ReadWritePaths=` directory, so the only thing it can express is which of two
+  fixed actions to run — never a command, never an argument. Where sudo does
+  work (an unhardened unit, or running as root) that path is unchanged; where
+  nothing can work, the error says so and names both ways out. Request files
+  are excluded from archives, so a restore can never queue an action on the
+  host it lands on.
+
+### Alerts that age from when they broke
+
+- **Alerts carried only `ts`, which `_record_alert` rewrites to the newest
+  occurrence every time it coalesces a repeat firing.** Everything measuring
+  elapsed time on an open alert was therefore measuring the wrong thing. An
+  edge-triggered condition re-firing faster than its first escalation tier —
+  `nic_errors` fires on every ~60s heartbeat, tier one defaults to fifteen
+  minutes — reset its own age on every fire and could never escalate, so the
+  fastest-degrading host was the one nobody got paged about. MTTA and MTTR had
+  the same flaw from the other end: an alert acknowledged four hours after it
+  broke reported zero. Alerts carry **`first_seen`** now, preserved through
+  coalescing and falling back to `ts` for rows written before this change, and
+  `_alert_first_seen()` is the one accessor every elapsed-time consumer goes
+  through, escalation tiers included. The inbox shows age from the first
+  occurrence rather than from the most recent re-fire.
+
+### An inbox with more than one page
+
+- **The alert inbox always asked for 500 rows and had no way to ask for the
+  next ones.** Past 500 the rest were simply unreachable, and the client-side
+  filter box searched only the loaded slice — so an operator looking for the
+  host their pager had just fired on got "no alerts in this view" and concluded
+  it had resolved itself. `GET /api/alerts` now takes `offset` alongside
+  `limit`, plus `q` (a substring over device name, event and title), `severity`
+  (repeatable, or comma-separated) and `device_id`, and returns `total`,
+  `offset` and `limit`. Everything new is optional and the envelope is a
+  superset of the old one, so existing callers are unaffected. `total` is
+  computed *after* the scope and tenant visibility filter, so it can never
+  count a row the caller is not allowed to see.
+
+### RemotePower now watches its own privileges
+
+- **Nothing fired when a privileged account or a security control on
+  RemotePower itself changed** — while the same product pages you when someone
+  joins `wheel` on a monitored box. Creating an admin, promoting a viewer to
+  admin, minting an admin-role API key, emptying MFA enforcement, disabling
+  change approval and clearing the audit log now raise
+  **`control_plane_security_change`** through the normal event path — inbox,
+  webhook, e-mail, push, activity feed — with the payload keys added to both
+  whitelists (the half that silently drops fields when it is missed). It is a
+  point event with no recovery, deliberately: an auto-resolving row would let a
+  real escalation disappear from the inbox the moment the attacker undid the
+  visible half of it. `handle_user_create` had no audit entry at all before
+  this.
+- **A device joining the fleet was never recorded anywhere.** The enrollment
+  handler built an audit entry for re-enrollment and for both denial paths and
+  left the successful first enrollment as `None`, with no event to match — so
+  the audit log could show when a host re-enrolled or was decommissioned, but
+  never when it first appeared. **`device_enrolled`** records it now, and is
+  explicitly kept out of Needs Attention: a new host is news, not a problem.
+- **No user record carried a last-login time**, so there was no dormant-account
+  signal and no access review, and an admin could revoke sessions without ever
+  being able to see them. Users carry **`last_login`** now, and **`GET
+  /api/sessions`** lists every live session fleet-wide — who, which role, from
+  where, since when — admin-gated, audited, and scoped to the session owner's
+  tenant. Session tokens only; API keys are a separate credential with their
+  own list, and the raw token is never returned.
+
+### Notifications that reach the right people
+
+- **An integration instance had no host.** That sounds like a schema detail and
+  was not: `integration_down` carried no `device_id`, was absent from
+  `SUPPRESSIBLE_EVENTS`, and `_alert_muted` bails on any payload without a
+  device — so rebooting a NAS inside a maintenance window you had declared
+  correctly suppressed the host going offline and then paged you once per
+  self-hosted app it runs, at 3am, with no way to silence it short of disabling
+  each integration by hand. An instance can now name a **device** and a
+  **site**; both are optional, so an unbound instance behaves exactly as
+  before. Bound, its up and down events carry a device, which is what makes
+  maintenance windows, per-(host, event) mutes, unmonitored-host suppression
+  and scoped routing apply to them like any other device event. The binding
+  opened one new hole and closed it in the same pass: an instance bound *after*
+  its down-alert was recorded left the stored row without a device while the
+  recovery carried one, which the identity guard would have stranded open
+  forever.
+- **Shared notification destinations could not be scoped.** Every destination
+  received every enabled event from every tenant, and e-mail had one global
+  recipient list — so an MSP running three customers had no way to send each
+  customer's alerts to their own channel, short of creating a fake operator
+  account per customer to hang a personal webhook off. Destinations now take
+  the same group / tag / site filter personal subscriptions have always had,
+  plus a tenant allowlist, and e-mail gains `email_routes`: any number of
+  additional recipient lists, each with its own scope, alongside the global
+  `smtp_recipients` list (which can itself be scoped with `smtp_scope_filter` /
+  `smtp_tenants`). The filter is applied at the two delivery chokepoints rather
+  than at each of the ~200 firing sites, so every event is covered by
+  construction. An absent filter still means everything, which is what every
+  existing destination has. A *scoped* destination deliberately does not
+  receive an event it cannot attribute to its slice — "tenant A's Slack" asked
+  for tenant A's events and a fleet-wide sweep is not one — and when that
+  leaves no destination at all, one `filtered` row is logged so the silence is
+  visible rather than silent. The operator-triggered **Test** event bypasses
+  scoping on purpose: that control exists to prove a destination works, and
+  quietly delivering nothing would defeat it.
+
+### Metrics for the posture we already compute
+
+- **Eight new families on `GET /api/metrics`** — temperature, SMART, UPS,
+  backup freshness, disk-fill ETA, risk, reliability and baseline compliance.
+  All of it is posture the product already computes for its own screens and
+  could not export, so a Grafana user could not alert on a failing disk or a
+  stale backup from RemotePower's own endpoint. Among the new series:
+  `remotepower_device_temperature_celsius`,
+  `remotepower_device_smart_disk_healthy` with its wear, spare and
+  pending/reallocated-sector siblings, `remotepower_ups_on_battery` and
+  `remotepower_ups_runtime_seconds`, `remotepower_backup_ok` and
+  `remotepower_backup_age_seconds`, `remotepower_device_disk_fill_eta_seconds`,
+  `remotepower_device_risk_score`, `remotepower_device_reliability_score` and
+  `remotepower_device_compliance_pass_ratio`.
+- Each block is gated on a context key, and the context builder supplied none
+  of them — so the families were unreachable on a live scrape while every test
+  passed. That is the "feature that can never fire" shape this codebase keeps
+  hitting, caught here before release. They are wired now, and measured at 14ms
+  cold and 5ms warm on a 300-host fleet, because the two O(fleet) scores go
+  through their existing caches.
+- The backup family reads the per-device backup-monitor store, **not** the
+  control plane's own DR state — the two share a name prefix and nothing else.
+
+### Two pages that were missing
+
+- **Needs Attention has a page.** The digest had exactly one consumer: a
+  dashboard card showing the first ten items with no total, no filter and no
+  way through to the rest — while fleet health is derived from the very items
+  the operator could not enumerate. It is now that digest in full, sortable,
+  filterable by severity, kind, host and free text, with per-severity counts and
+  the same snooze and ignore actions the card offers. It is recomputed from
+  current fleet state on every load and never read from a stored queue, so an
+  item disappears the moment its cause clears.
+- **Tags and groups have a page.** They drive role scopes, alert routing,
+  service baselines, auto-patch scopes, rollout rings and report scopes, and
+  there was no way to even list them with counts — let alone rename one across
+  the fleet. Both are listed now with device counts, ungrouped and untagged
+  totals, and click-through to the matching devices. **Rename**, **merge** and
+  **delete** ship for tags, and a rename onto a name already in use is a merge,
+  which the confirmation says before doing it. Groups stay read-only for now,
+  because the only server-side primitive is one device at a time and a loop
+  that half-applies leaves a group half-renamed, which is worse than not
+  offering it. Counts derive from the device list the operator can already see,
+  so they inherit its scope and tenant filtering for free.
 
 ### WordPress: "invalid JSON" on a healthy site
 
@@ -423,6 +629,18 @@ release ships.
   success and produced nothing, behind an empty-state that reads as "click
   here". The server refuses it there and the drawer says why, rather than
   drawing a button that fails.
+- **File-backup jobs and desired-state host config accepted targets they can
+  never act on.** Structured file jobs are POSIX-only — every source path must
+  be absolute and the generated command is rsync or tar over ssh — and desired
+  state is implemented in the Linux agent alone, which the Windows and macOS
+  agents document as a heartbeat key they deliberately do not read. Both were
+  offered from the same device picker as everything else, returned a success
+  toast, and then did nothing on every cron tick. They are split by OS now,
+  reusing the helper OpenSCAP already uses: a file job reports which non-Linux
+  hosts it left out, and refuses outright if that leaves no target at all.
+  Desired state is still *stored* for a Windows or macOS host, because it is a
+  policy record and the host may later gain a Linux agent, but the answer says
+  plainly that nothing will be enforced there.
 
 ### Host security signals that had gone quiet
 
@@ -495,6 +713,17 @@ release ships.
   could not answer a load question about any host.
 - **A background job that was failing outright was indexed as "— ok".** The
   self-observability corpus read an error field no producer writes.
+- **Institutional memory of how incidents were fixed was gated behind
+  configuring an LLM.** The outcome harvester returned nothing without an
+  `ai_triage` verdict, and `ai.enabled` defaults to off — so in a product whose
+  premise is that it needs no paid external dependency, the memory of what
+  actually fixed past alerts on this fleet was empty for anyone who had not
+  bought an API key. An operator's own **resolution note** — a field
+  `handle_alert_resolve` has always accepted and stored, with no consumer — is
+  a first-class source now, and outranks the model when both are present,
+  because the operator was there. Both the corpus builder and the sweep's
+  candidate filter needed widening: fixing only the builder would have left the
+  sweep never calling it for a human-resolved alert.
 
 ### Interface
 
@@ -525,6 +754,45 @@ release ships.
 - **The device drawer's container Logs button** passed the container name through
   the dispatcher's numeric coercion, so a container called `0x10` was requested as
   `16`. It passes the raw name now.
+- **A failed load emptied the panel and toasted about it.** A transient 500 on
+  the core pages read as "you have no devices" — the toast is gone in four
+  seconds and the empty panel stays. Those pages render the inline failure state
+  with a **Retry** button that the per-page modules have used since v6.3.0, so
+  the panel says what went wrong and offers the one action that fixes it.
+- **The command palette's page list was hand-maintained and had drifted.** It
+  carried 63 entries against a 78-page navigation, and one of them pointed at a
+  page that no longer exists. It derives the list from the sidebar now — the
+  same source `showPage()` routes against — so a new nav entry is in the
+  palette the day it ships, with the translated label as the thing you search.
+  Module-gated entries stay hidden, pinned clones are not listed twice, and a
+  short alias table keeps the curated names that differ from the nav label
+  ("Fleet Query", "Network Map") findable.
+- **A page hash pasted into a running tab did nothing.** The hash was read at
+  load and never again, so sending a colleague a link to a page only worked if
+  they had no tab open already. It routes now.
+- **Destructive confirmations did not look destructive**, a filter that matches
+  nothing now says so instead of emptying the panel and leaving you to guess,
+  and dates follow the in-app language rather than the browser's — German and
+  French were missing from the locale map entirely, so those two interfaces
+  formatted every date in English.
+- **The Account page had no way to change your password.** The only entry point
+  in the product was the lock icon on the admin Users table — which a
+  non-admin never sees — and both first-run nudges sent you to Settings →
+  General, which has no password field. It has one now, dispatching through
+  `openMyPasswd` so the signed-in account resolves itself; passing no argument
+  to the admin `openPasswd` would have put the literal string "undefined" in
+  the username field.
+- **Accent colours were only ever checked as text *on* the accent, never as
+  text.** With the shipped defaults every "Documentation" link rendered at about
+  2.2:1 on white — under even the large-text floor. Accents now have a per-theme
+  ink variant (`--accent-ink`), verified by a test that computes the ratios
+  rather than trusting the palette.
+- **Printing any page other than Reports produced a blank sheet.** The print
+  stylesheet hid everything except the Reports page's `#print-report` element,
+  which only that page ever fills — so the other 79 pages, every modal and
+  drawer, and the public status board all printed empty. The report's takeover
+  is scoped to "the report is actually populated" now, and everything else
+  prints the active page.
 
 ### Documentation that promised more than the code did
 

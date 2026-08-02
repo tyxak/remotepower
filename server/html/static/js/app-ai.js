@@ -467,7 +467,7 @@ function _ensureAIModal() {
 }
 
 function closeAIModal() {
-  if (_aiModalEl) _aiModalEl.classList.remove('active');
+  closeModal('ai-modal');
 }
 
 function aiModalCopy() {
@@ -487,7 +487,16 @@ function aiModalDebug() {
 
 async function openAIModal({title, system, userMsg, context, onResult, actionLabel, maxTokens}) {
   _ensureAIModal();
-  _aiModalEl.classList.add('active'); _raiseModalZ(_aiModalEl);
+  // v6.4.2: the shared modal manager, not a bare .active toggle — this dialog
+  // sits in front of the operator for 30-120s on a slow local model, and until
+  // now Escape did nothing, Tab wandered out into the page behind it, and focus
+  // was never handed back to the button that opened it. openModal calls
+  // _raiseModalZ itself, so an AI modal raised from another modal still wins.
+  // Guarded on .active throughout this file: several entry points ("What was
+  // sent?", Regenerate) are buttons INSIDE the already-open dialog, and a
+  // second openModal would record one of them as the focus-restore target —
+  // a node that is hidden by the time the dialog closes.
+  if (!_aiModalEl.classList.contains('active')) openModal('ai-modal');
   document.getElementById('ai-modal-title').textContent = title || 'AI';
   document.getElementById('ai-modal-meta').textContent  =
     `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
@@ -1054,7 +1063,7 @@ async function aiInsightDebug(key) {
 // button, so EVERY AI action can be inspected — not just the insight cards.
 async function _aiRunDebug({ title, system, userMsg, context }) {
   _ensureAIModal();
-  _aiModalEl.classList.add('active'); _raiseModalZ(_aiModalEl);
+  if (!_aiModalEl.classList.contains('active')) openModal('ai-modal');
   document.getElementById('ai-modal-title').textContent = title || 'AI — debug';
   document.getElementById('ai-modal-meta').textContent = 'debug — no model call, no cost';
   const body = document.getElementById('ai-modal-body');
@@ -1384,9 +1393,25 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
   }
 }
 
+// v6.4.2: both runbook entry points below now open through openModal(), which
+// pushes onto app.js's _modalStack and locks body scroll. closeRunbookModal()
+// lives in app.js (it predates this module) and only strips .active — that
+// would leave `modal-open` on <body> (page scroll stuck) and a stale stack
+// entry. Wrap it here, next to the open side, so the push and the pop stay
+// together; app-ai.js is loaded after app.js, so this assignment wins. The
+// guard flag keeps it idempotent if app.js ever adopts closeModal itself.
+if (typeof closeRunbookModal === 'function' && !closeRunbookModal._rpStacked) {
+  const _rbCloseInner = closeRunbookModal;
+  closeRunbookModal = function () {
+    _rbCloseInner();
+    closeModal('runbook-modal');
+  };
+  closeRunbookModal._rpStacked = true;
+}
+
 async function aiGenerateRunbook(devId, deviceName) {
   _ensureRunbookModal();
-  _runbookModalEl.classList.add('active'); _raiseModalZ(_runbookModalEl);
+  if (!_runbookModalEl.classList.contains('active')) openModal('runbook-modal');
   _runbookCurrentDevice = {id: devId, name: deviceName};
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent =
@@ -1427,7 +1452,7 @@ async function aiGenerateRunbook(devId, deviceName) {
 
 async function aiViewRunbook(devId, deviceName) {
   _ensureRunbookModal();
-  _runbookModalEl.classList.add('active'); _raiseModalZ(_runbookModalEl);
+  if (!_runbookModalEl.classList.contains('active')) openModal('runbook-modal');
   _runbookCurrentDevice = {id: devId, name: deviceName};
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent = 'Loading…';
@@ -2053,8 +2078,7 @@ function _ensureLogSweepModal() {
 
 function closeLogSweepModal() {
   if (_lsPollTimer) { clearInterval(_lsPollTimer); _lsPollTimer = null; }
-  if (typeof closeModal === 'function') closeModal('log-sweep-modal');
-  else if (_lsModalEl) _lsModalEl.classList.remove('active');
+  closeModal('log-sweep-modal');
 }
 
 function openLogSweep(devId, name) {
@@ -2063,8 +2087,10 @@ function openLogSweep(devId, name) {
   document.getElementById('log-sweep-title').textContent = `Diagnose from logs — ${_lsDevName}`;
   // Drive through the modal manager so Escape closes it, focus is trapped and
   // restored, and body scroll locks — the a11y contract every other modal has.
-  if (typeof openModal === 'function') openModal('log-sweep-modal');
-  else { _lsModalEl.classList.add('active'); if (typeof _raiseModalZ === 'function') _raiseModalZ(_lsModalEl); }
+  // (The typeof-guarded fallback that used to sit here was dead weight: this
+  // module hard-depends on dozens of app.js globals already, and the fallback
+  // branch was exactly the inaccessible path openModal exists to replace.)
+  openModal('log-sweep-modal');
   _logSweepLoad();
 }
 

@@ -234,6 +234,228 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
     return out
 
 
+# ─── v6.4.2: memory / swap / CPU-load headroom projection ────────────────────
+# The daily metric samples have carried mem_percent, swap_percent and
+# loadavg_1m + cpu_count next to the mount series since v3.9.0, but only disk
+# was ever projected — an operator could see a host trending to 100% memory on
+# the Trends chart and had nothing that computed (or could alert on) *when*.
+# Same least-squares fit, same R² gate and the same "don't invent a date"
+# discipline as forecast_mounts.
+
+# Past this a linear extrapolation of memory/CPU pressure is fiction. These
+# series are far less monotone than disk usage (a restart resets them), so the
+# actionable window is much shorter than the 2-year disk horizon.
+_RESOURCE_HORIZON_DAYS = 180
+
+# Percentage points per day below which the series isn't really climbing — at
+# this rate a single point of headroom takes 100 days, so anything slower is
+# indistinguishable from flat inside the 180-day horizon.
+_RESOURCE_CLIMB_FLOOR = 0.01
+
+# Per-metric ceiling ("this is a problem") and floor ("not worth projecting
+# from down here"). Everything is expressed in percent so one row shape covers
+# all three: load is normalised to percent-of-cores (load 4 on 4 cores = 100%),
+# which is the only reading of a load average that means anything across hosts.
+# A projection is only produced for a metric ALREADY past its floor — a host
+# creeping from 3% to 5% memory does not need a saturation date.
+RESOURCE_DEFS = {
+    'memory': {'label': 'Memory',   'ceiling':  90.0, 'floor': 60.0},
+    'swap':   {'label': 'Swap',     'ceiling':  80.0, 'floor':  5.0},
+    'load':   {'label': 'CPU load', 'ceiling': 100.0, 'floor': 50.0},
+}
+# Stable presentation order (dict order is an implementation detail callers
+# shouldn't rely on for a UI list).
+RESOURCE_METRICS = ('memory', 'swap', 'load')
+
+
+def _finite_num(v):
+    """Return v as a float if it is a usable, finite, non-negative number.
+
+    Rejects bools (`isinstance(True, int)` is True, and a boolean percentage is
+    garbage rather than 1%), strings, NaN and ±inf. Returns None otherwise, so
+    a ragged sample list just contributes fewer points instead of raising."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    v = float(v)
+    # NaN != NaN; the inf comparison catches ±inf without importing math.
+    if v != v or v in (float('inf'), float('-inf')) or v < 0:
+        return None
+    return v
+
+
+def _resource_value(sample, metric):
+    """Pull one metric out of a daily sample as a percent, or None if absent.
+
+    None is the normal case for a hole in the series (an agent that reported no
+    swap that day, a platform with no load average) — callers skip the point.
+    """
+    if metric == 'memory':
+        return _finite_num(sample.get('mem_percent'))
+    if metric == 'swap':
+        return _finite_num(sample.get('swap_percent'))
+    if metric == 'load':
+        la = _finite_num(sample.get('loadavg_1m'))
+        cores = _finite_num(sample.get('cpu_count'))
+        if la is None or not cores:
+            # Without a core count a load average has no scale — 4.0 is idle on
+            # a 64-core box and on fire on a 2-core one. Drop the point rather
+            # than project against a meaningless ceiling.
+            return None
+        return 100.0 * la / cores
+    return None
+
+
+def forecast_resources(samples, min_points=3, min_r2=_MIN_R2, metrics=None,
+                       ceilings=None, floors=None,
+                       horizon_days=_RESOURCE_HORIZON_DAYS):
+    """Project days-until-saturation for memory, swap and CPU load.
+
+    The counterpart to forecast_mounts for the non-disk series in the same
+    metrics_history samples. Returns a list of dicts, one per metric that has
+    at least `min_points` usable samples, sorted soonest-to-saturate first:
+
+        {metric, label, unit, current, ceiling, floor, headroom,
+         trend_per_day, recent_per_day, stalled, days_to_saturation,
+         saturation_date_ts, saturated, noisy, beyond_horizon, below_floor,
+         r2, points, series, slope, intercept, t0_ts}
+
+    Same discipline as the disk forecast: a date is only reported when the
+    metric is already past its floor, is genuinely climbing, the least-squares
+    fit is clean (R² >= min_r2), recent growth hasn't stalled, and saturation
+    lands inside `horizon_days`. Otherwise the row is still returned (the
+    current reading and trend are useful on their own) with
+    days_to_saturation = None and the flag saying which gate declined:
+    below_floor / noisy / stalled / beyond_horizon.
+
+    A metric already at or over its ceiling is reported with saturated = True
+    and days_to_saturation = 0.0 regardless of trend — that is a live problem,
+    not a forecast.
+
+    `ceilings` / `floors` are optional {metric: percent} overrides so an
+    operator-tunable threshold can be threaded in from the caller (this module
+    never imports api.py).
+    """
+    if not samples:
+        return []
+    wanted = RESOURCE_METRICS if metrics is None else tuple(metrics)
+    ceilings = ceilings or {}
+    floors = floors or {}
+
+    out = []
+    for metric in wanted:
+        defs = RESOURCE_DEFS.get(metric)
+        if not defs:
+            continue   # unknown metric name — ignore rather than raise
+        ceiling = _finite_num(ceilings.get(metric))
+        if not ceiling:
+            ceiling = defs['ceiling']
+        # A floor of 0 is meaningful ("project from anywhere"), so test for
+        # None rather than falsiness the way the ceiling does.
+        floor = _finite_num(floors.get(metric))
+        if floor is None:
+            floor = defs['floor']
+
+        pts = []
+        for s in samples:
+            if not isinstance(s, dict):
+                continue
+            ts = s.get('ts')
+            if not isinstance(ts, (int, float)) or isinstance(ts, bool):
+                continue
+            val = _resource_value(s, metric)
+            if val is None:
+                continue   # hole in the series
+            pts.append((float(ts), val))
+        if len(pts) < min_points:
+            continue
+
+        pts.sort(key=lambda p: p[0])
+        t0 = pts[0][0]
+        xs = [(t - t0) / DAY for t, _v in pts]
+        ys = [v for _t, v in pts]
+        cur = pts[-1][1]
+        latest_ts = pts[-1][0]
+        slope, intercept = linear_fit(xs, ys)      # percent per day, full window
+        r2 = _r_squared(xs, ys, slope, intercept)
+
+        # Re-fit over just the recent window, exactly as forecast_mounts does,
+        # so a spike earlier in the window can't keep projecting a saturation
+        # date after the pressure has already come back down.
+        recent_slope = None
+        recent = [p for p in pts if p[0] >= latest_ts - _RECENT_WINDOW_DAYS * DAY]
+        if len(recent) >= 2 and (recent[-1][0] - recent[0][0]) >= 0.5 * DAY:
+            r_t0 = recent[0][0]
+            recent_slope, _ri = linear_fit([(t - r_t0) / DAY for t, _v in recent],
+                                           [v for _t, v in recent])
+
+        stalled = (recent_slope is not None
+                   and recent_slope <= _RESOURCE_CLIMB_FLOOR
+                   and slope > _RESOURCE_CLIMB_FLOOR)
+
+        days = None
+        sat_ts = None
+        noisy = False
+        beyond_horizon = False
+        below_floor = cur < floor
+        saturated = cur >= ceiling
+        if saturated:
+            # Already there — report it as the present-tense problem it is.
+            days = 0.0
+            sat_ts = int(latest_ts)
+        elif slope > _RESOURCE_CLIMB_FLOOR and not stalled and not below_floor:
+            if r2 >= min_r2:
+                proj_slope = slope
+                # Decelerating: prefer the current (gentler) rate over the
+                # alarmist full-window one, same as the disk projection.
+                if (recent_slope is not None
+                        and _RESOURCE_CLIMB_FLOOR < recent_slope < slope):
+                    proj_slope = recent_slope
+                d2s = (ceiling - cur) / proj_slope
+                if d2s <= horizon_days:
+                    days = d2s
+                    sat_ts = int(latest_ts + d2s * DAY)
+                else:
+                    beyond_horizon = True
+            else:
+                # Too noisy to trust a date — keep the row, skip the number.
+                noisy = True
+
+        out.append({
+            'metric':             metric,
+            'label':              defs['label'],
+            'unit':               '%',
+            'current':            round(cur, 1),
+            'ceiling':            round(float(ceiling), 1),
+            'floor':              round(float(floor), 1),
+            'headroom':           round(max(0.0, ceiling - cur), 1),
+            'trend_per_day':      round(slope, 3),
+            # Recent-window rate (last _RECENT_WINDOW_DAYS); None when there are
+            # too few recent points to re-fit.
+            'recent_per_day':     round(recent_slope, 3) if recent_slope is not None else None,
+            'stalled':            stalled,
+            'days_to_saturation': round(days, 1) if days is not None else None,
+            'saturation_date_ts': sat_ts,
+            'saturated':          saturated,
+            'noisy':              noisy,
+            'beyond_horizon':     beyond_horizon,
+            'below_floor':        below_floor,
+            'r2':                 round(r2, 2),
+            'points':             len(pts),
+            # Chartable raw series + fitted line, same convention as the mount
+            # rows: series is [unix_ts, percent]; the line is
+            # y = slope*(days since t0_ts) + intercept.
+            'series':             [[int(t), round(v, 1)] for t, v in pts],
+            'slope':              round(slope, 5),
+            'intercept':          round(intercept, 3),
+            't0_ts':              int(t0),
+        })
+
+    # Soonest-to-saturate first; metrics that never saturate sink to the bottom.
+    out.sort(key=lambda r: (r['days_to_saturation'] is None,
+                            r['days_to_saturation'] or 0))
+    return out
+
+
 def _sample_on_or_before(samples, target_ts):
     """Return the latest sample whose ts <= target_ts, or the earliest sample
     if none predates the target (so a short history still yields a baseline)."""

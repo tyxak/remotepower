@@ -297,12 +297,20 @@ function _ensureDriftModal() {
 }
 
 function closeDriftDetail() {
-  if (_driftDeviceModal) _driftDeviceModal.classList.remove('active');
+  closeModal('drift-detail-modal');
 }
 
 async function openDriftDetail(devId, devName) {
   _ensureDriftModal();
-  _driftDeviceModal.classList.add('active'); _raiseModalZ(_driftDeviceModal);
+  // v6.4.2: go through the shared modal manager. Activating .active directly
+  // skipped the _modalStack, so Escape did nothing (while the injected close
+  // button's tooltip advertised "Close (Esc)"), Tab escaped the dialog, and
+  // focus never came back to the row button that opened it. openModal already
+  // calls _raiseModalZ, so the stacking behaviour is unchanged.
+  // Guarded on .active because "Accept all" re-enters this function from a
+  // button INSIDE the open dialog — a second openModal would record that
+  // button as the focus-restore target, and it is hidden by the time we close.
+  if (!_driftDeviceModal.classList.contains('active')) openModal('drift-detail-modal');
   _driftCurrentDevice = {id: devId, name: devName};
   document.getElementById('drift-detail-title').textContent = `Drift detail — ${devName}`;
   const body = document.getElementById('drift-detail-body');
@@ -508,7 +516,7 @@ function _ensureDriftDiffModal() {
 }
 
 function closeDriftDiff() {
-  if (_driftDiffModal) _driftDiffModal.classList.remove('active');
+  closeModal('drift-diff-modal');
   if (_driftDiffPollHandle) {
     clearInterval(_driftDiffPollHandle);
     _driftDiffPollHandle = null;
@@ -518,7 +526,10 @@ function closeDriftDiff() {
 
 async function openDriftDiff(devId, path) {
   _ensureDriftDiffModal();
-  _driftDiffModal.classList.add('active'); _raiseModalZ(_driftDiffModal);
+  // Nested over the drift-detail modal — openModal pushes it on top of the
+  // stack, so Escape closes the diff first and hands focus back to the detail
+  // dialog rather than dismissing both (or neither, as before).
+  openModal('drift-diff-modal');
   _driftDiffCurrent = {devId, path, startedAt: Date.now()};
   document.getElementById('drift-diff-title').textContent = 'Drift diff';
   document.getElementById('drift-diff-path').textContent = path;
