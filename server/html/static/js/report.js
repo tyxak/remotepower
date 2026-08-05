@@ -42,8 +42,25 @@
     const fws = (rep.compliance && rep.compliance.frameworks) || {};
     const when = new Date((rep.generated_ts ? rep.generated_ts * 1000 : Date.now())).toLocaleString();
 
+    // v6.4.2: white-label the printable report. An operator who set a brand name
+    // still got "RemotePower" and the RemotePower logo on the artifact they hand
+    // to a customer — the one surface where branding matters most. The server
+    // now ships `brand` on both full and sectioned reports.
+    const brand = (rep.brand && rep.brand.name) || '';
+    const prod = brand || 'RemotePower';
+    if (brand) {
+      // Swap the wordmark for the operator's name rather than showing both.
+      const logo = document.querySelector('.head img');
+      if (logo) logo.classList.add('hidden');
+      const h1 = document.querySelector('.head h1');
+      if (h1) h1.textContent = brand + ' — Fleet posture report';
+      const accent = (rep.brand && rep.brand.accent) || '';
+      // A property assignment, not an inline style attribute — CSP-safe.
+      if (accent) document.documentElement.style.setProperty('--pr-accent', accent);
+    }
+
     el('pr-meta').textContent = 'Generated ' + when
-      + (rep.server_version ? ' · RemotePower ' + rep.server_version : '');
+      + (rep.server_version ? ' · ' + prod + ' ' + rep.server_version : '');
 
     el('pr-cards').innerHTML =
         card('Health', (h.score != null ? h.score : '—') + '/100', h.grade || '')
@@ -80,9 +97,9 @@
     }
     el('pr-sections').innerHTML = html;
     el('pr-foot').textContent =
-      'RemotePower fleet posture report — generated on demand. '
-      + 'Figures reflect the latest data RemotePower has collected.';
-    document.title = (rep.server_name || 'RemotePower') + ' — Fleet posture report';
+      prod + ' fleet posture report — generated on demand. '
+      + 'Figures reflect the latest data ' + prod + ' has collected.';
+    document.title = (brand || rep.server_name || 'RemotePower') + ' — Fleet posture report';
   }
 
   async function init() {

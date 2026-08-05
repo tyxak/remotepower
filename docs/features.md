@@ -460,11 +460,11 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Health-gated rollouts | Auto-halt + `rollout_halted` if a host's health drops during verify; pauses, never auto-rolls-back *(v4.10.0)* |
 | Rollout rollback | One-click rollback for a staged script rollout *(v5.0.0)* |
 | Rolling reboot orchestrator | Reboot a scope in dependency-ordered waves (leaves first, upstreams last, from each device's `depends_on`; cycle-safe), health-gated + verified per wave via the rollout engine. `POST /api/rollouts/reboot-plan` + `action: reboot` *(v6.0.0)* |
-| Fleet posture reports | One report binding patches/CVEs/health/compliance; JSON/CSV or scheduled email *(v3.4.1)* |
+| Fleet posture reports | One report binding patches/CVEs/health/compliance; JSON/CSV or scheduled email; every Reports table exports to CSV from its card *(v3.4.1; table export v6.4.2)* |
 | Custom report builder | Pick sections (devices/health/attention/patches/CVE/SLA/compliance), JSON/CSV, download or schedule *(v4.0.0)* |
 | Per-site (customer) reports | Same report scoped to one site; RBAC-scoped *(v4.10.0)* |
 | SLA / uptime reporting | Per-device + per-group uptime % over 7/30/90d *(v3.4.1)* |
-| Print / Save as PDF | Self-contained posture report for native print/PDF *(v3.4.2)* |
+| Print / Save as PDF | Self-contained posture report for native print/PDF; **white-labelled** — uses the configured brand name and accent in the title, heading, footer and section rules, and hides the RemotePower wordmark when one is set (an unbranded install renders unchanged) *(v3.4.2; white-label v6.4.2)* |
 | Public status page | Standalone `status.html` (no login) via status token *(v3.4.1)*; **operator-posted incidents** (title / impact / status with a running update log, above the component list) + optional subscriber emails on open/resolve. `GET/POST /api/incidents` *(v6.0.0)*; opt-in **auto-promotion** — a single alert firing on N-or-more devices at once (Settings → Security → Incident auto-promotion) auto-opens an incident pre-filled from the cluster and auto-resolves it once every alert in it clears *(v6.1.1)* |
 | Status endpoint | `/api/status` machine-readable fleet summary (status token) *(v2.4.7)* |
 | iCal feed | `/api/schedule.ics` — scheduled jobs + maintenance windows, recurring as RRULEs *(v3.4.1)* |

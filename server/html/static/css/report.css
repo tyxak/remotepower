@@ -19,8 +19,11 @@ body {
 .toolbar button:hover { background: #e9e9e9; }
 .head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
 .head img { height: 40px; width: auto; }
-h1 { font-size: 28px; margin: 0; }
-h2 { font-size: 16px; margin: 26px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }
+/* v6.4.2: --pr-accent is set from the operator's brand_accent by report.js
+   when one is configured; it falls back to the default ink/rule otherwise,
+   so an unbranded install renders exactly as before. */
+h1 { font-size: 28px; margin: 0; color: var(--pr-accent, #111); }
+h2 { font-size: 16px; margin: 26px 0 8px; border-bottom: 2px solid var(--pr-accent, #bbb); padding-bottom: 4px; }
 .meta { color: #555; font-size: 12px; margin-bottom: 18px; }
 .cards { display: flex; gap: 12px; flex-wrap: wrap; }
 .card { border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 130px; }

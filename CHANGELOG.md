@@ -149,6 +149,22 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Reports that carry your name
+
+- **The printable report ignored your branding.** It is the artifact an operator
+  hands to a customer, and it was the one surface that still said "RemotePower"
+  in its title, its footer and its metadata line, with the RemotePower wordmark
+  at the top — regardless of the brand name and accent colour set in Settings.
+  It now uses them, and an install with no branding configured renders exactly as
+  it did before. Custom reports keep the branding too: the section filter
+  whitelists metadata keys, so a missing entry there would have quietly dropped
+  it from every sectioned report.
+- **The reporting subsystem moved into its own module.** Eight handlers, the
+  report builder and both scheduled sweeps came out of `api.py` into
+  `reports_handlers.py` — no behaviour change, but the file's inline-handler
+  ceiling drops from 625 to **617**. It had been sitting exactly at the ceiling,
+  which meant no new endpoint could be added anywhere until something moved.
+
 ### Finding things
 
 - **The sidebar search offered a destination that led nowhere.** Searching

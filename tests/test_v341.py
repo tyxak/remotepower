@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from routing_harness import routes_to  # noqa: E402
+from apisrc import api_source  # noqa: E402
 
 
 class TestVersionBumps(unittest.TestCase):
@@ -154,7 +155,13 @@ class TestV341HealthHistoryAndAlerts(unittest.TestCase):
 
 
 class TestV341Backend(unittest.TestCase):
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    # v6.4.2: the COMBINED server source (api.py + every *_handlers.py). The
+    # reporting subsystem — _build_fleet_report / _fleet_report_csv_bytes /
+    # _render_report_email / handle_fleet_report / the report-schedule pair —
+    # moved into reports_handlers.py, so a raw api.py pin no longer sees it.
+    # Behaviour is unchanged; the route-table asserts elsewhere in this file
+    # stay on raw api.py, which is where the route table lives.
+    API = api_source()
 
     def test_handlers_defined(self):
         for fn in ('def handle_device_timeline(',
@@ -366,7 +373,9 @@ class TestV341SmallTrio(unittest.TestCase):
 
 class TestV341MediumTier(unittest.TestCase):
     """SLA/uptime reporting, capacity dashboard, public status page, ticketing."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    # v6.4.2: combined source — the SLA headline is folded into the posture
+    # report, which now lives in reports_handlers.py (see TestV341Backend).
+    API = api_source()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
     ROOT = REPO_ROOT

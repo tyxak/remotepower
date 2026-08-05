@@ -76,7 +76,19 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # two files. Their route-table entries, the test suite's api.handle_devices_*
 # calls and the source pins all resolve unchanged (api.py re-imports the names;
 # tests/apisrc.py reads the COMBINED source). Nine new endpoints, net −2.
-INLINE_HANDLER_CEILING = 625
+# 625→617 (v6.4.2): the REPORTING subsystem (fleet + per-site posture report,
+# the HMAC-signed compliance evidence pack, the scheduled fleet-report cron and
+# the saved custom report definitions) landed in reports_handlers.py. A textbook
+# carve: eight handlers plus the pure logic they own (_build_fleet_report,
+# _REPORT_SECTIONS/_filter_report_sections, _fleet_report_csv_bytes,
+# _render_report_email, _clean_report_def/MAX_REPORT_DEFS) and the two cadence
+# sweeps (_maybe_send_scheduled_report, _maybe_send_report_definitions). It only
+# READS posture through helpers that stay on the spine and owns no state beyond
+# report_schedule_state.json + two config keys, so nothing else moved. The route
+# table, main()'s _safe(...) cadence and scheduler.py's CADENCE resolve unchanged
+# (api.py re-imports the names); tests/apisrc.py reads the COMBINED source.
+# api.py was AT the ceiling before this, which is why it went first.
+INLINE_HANDLER_CEILING = 617
 
 
 class TestApiHandlerRatchet(unittest.TestCase):
