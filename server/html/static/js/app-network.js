@@ -214,6 +214,7 @@ async function loadMdns() {
     return;
   }
   const svcs = d.services || [];
+  _mdnsServices = svcs;   // cross-feature: "Add as device" reads these by index
   if (!svcs.length) {
     const p = document.createElement('div');
     p.className = 'hint';
@@ -226,19 +227,50 @@ async function loadMdns() {
   const t = document.createElement('table');
   t.className = 'data-table';
   const th = document.createElement('thead');
-  th.innerHTML = '<tr><th>Name</th><th>Type</th><th>Host</th><th>Address</th><th>Port</th><th>Seen by</th></tr>';
+  th.innerHTML = '<tr><th>Name</th><th>Type</th><th>Host</th><th>Address</th><th>Port</th><th>Seen by</th><th></th></tr>';
   const tb = document.createElement('tbody');
-  svcs.forEach(s => {
+  svcs.forEach((s, i) => {
     const tr = document.createElement('tr');
     [s.name, s.type, s.host, s.address, s.port ? String(s.port) : '', s.seen_by].forEach(v => {
       const td = document.createElement('td');
       td.textContent = v || '—';
       tr.appendChild(td);
     });
+    // v6.4.2: the list used to be a dead end — an operator could see a printer,
+    // a NAS or a Home Assistant advertising itself and had no way to act on it,
+    // while every other discovery surface offers "Add as device". Same
+    // cross-link as discoveryAddDevice(), built with DOM APIs (no inline
+    // handler / style attribute — CSP) and dispatched by index via data-action.
+    const act = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.className = 'btn-icon fs-11';
+    btn.dataset.action = 'mdnsAddDevice';
+    btn.dataset.arg = String(i);
+    btn.title = 'Add the host advertising this service as an agentless device';
+    btn.innerHTML = _icon('package', 13);
+    btn.appendChild(document.createTextNode(' Add as device'));
+    act.appendChild(btn);
+    tr.appendChild(act);
     tb.appendChild(tr);
   });
   t.appendChild(th); t.appendChild(tb); wrap.appendChild(t);
   el.appendChild(wrap);
+}
+
+let _mdnsServices = [];
+
+// Cross-feature: mDNS discovery → enrollment. Pre-fills the agentless add modal
+// from the advertised service, mirroring discoveryAddDevice() in app.js. mDNS
+// carries no MAC, so that field is left for the operator.
+function mdnsAddDevice(idx) {
+  const s = _mdnsServices[idx];
+  if (!s) return;
+  agentlessAddOpen({
+    name:     s.name || s.host || s.address,
+    hostname: s.host || '',
+    ip:       s.address || '',
+    mac:      '',
+  });
 }
 
 // v5.0.0: scope the topology to one site / group / tag so a big fleet stays

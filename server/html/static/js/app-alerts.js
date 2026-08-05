@@ -65,6 +65,10 @@ async function loadAlerts() {
     renderAlerts();
     _renderAlertsPager();
     _focusPendingAlert();   // v6.3.0 (UX wave 3): #alerts/<id> deep link
+    // v6.4.2: fill the "What happened last time" card. Fire-and-forget and
+    // cached — it re-paints the rows once, so an alert whose signature we have
+    // resolved before can advertise that fact.
+    loadIncidentMemory();
   } catch (e) {
     toast('Failed to load alerts', 'error');
   }
@@ -545,7 +549,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}${_alertAgeHtml(a)}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
@@ -1109,4 +1113,203 @@ function showAlertTriage(id) {
   const body = document.getElementById('ai-insight-body');
   if (body) _renderTriageResult(body, a.ai_triage, a.id, a.device_id);
   openModal('ai-insight-modal');
+}
+
+// ─── v6.4.2: "What happened last time" — the HUMAN view of incident memory ───
+// Since v6.3.1 RemotePower has harvested every resolved incident into a durable,
+// tenant-tagged outcome store (INCIDENT_MEMORY_FILE): the root cause recorded at
+// the time, how the alert actually cleared, and whether the triage verdict was
+// rated useful. It outlives the alert itself (alerts are pruned after
+// alerts_retention_days). That memory was wired to the MACHINE in three places —
+// the RAG corpus, the `prior_incidents` evidence tool, and the triage loop — and
+// to a human in NONE. The team's own incident history was readable only by the
+// model. This is a pure render over the existing GET /api/ai/incident-memory
+// (require_auth, tenant-scoped server-side): no new handler, no config key.
+//
+// SHAPE NOTE (verified by driving the endpoint, not by reading it): a row is
+//   {source, alert_id, event, kind, severity, tenant, device_id, device_name,
+//    root_cause, recommended_action, confidence, resolution, resolved_at,
+//    rating, captured_at}
+// `resolution` is NOT the fix — it is how the alert CLOSED ("auto-resolved
+// (recover event)" / "resolved by <user>"). The what-actually-happened text is
+// `root_cause`, which holds the operator's own resolve_note when they wrote one
+// (source:'operator') and the model's verdict otherwise (source:'ai'). The
+// column headings say so, because guessing here would misdescribe the record.
+
+let _incidentMem = null;          // rows, newest-first as the server sorts them
+let _incidentMemLoading = false;
+let _incidentMemFilter = null;    // {event, kind} — the deep-link narrowing
+
+// The alert row carries no `kind` (it is not in the _record_alert whitelist), so
+// the event→kind mapping is read back off the memory itself rather than
+// duplicating the server's EVENT_KIND_MAP in the client. Data we already hold,
+// never an invented second registry.
+function _incidentKindFor(ev) {
+  const hit = (_incidentMem || []).find(o => o && o.event === ev && o.kind);
+  return hit ? hit.kind : '';
+}
+
+function _incidentRatingRank(o) {
+  return o.rating === 'up' ? 0 : (o.rating === 'down' ? 2 : 1);
+}
+
+// Mirrors the server's _similar_incidents ranking exactly: same-event above
+// same-kind-only, a thumbs-up verdict first, then most recent. The operator sees
+// the same order the triage loop reasons over.
+function _incidentMemMatches(ev, kind) {
+  const k = kind || _incidentKindFor(ev);
+  return (_incidentMem || []).filter(o => {
+    if (!o) return false;
+    return (!!ev && o.event === ev) || (!!k && o.kind === k);
+  }).sort((x, y) => {
+    const ex = (ev && x.event === ev) ? 0 : 1;
+    const ey = (ev && y.event === ev) ? 0 : 1;
+    if (ex !== ey) return ex - ey;
+    const rx = _incidentRatingRank(x), ry = _incidentRatingRank(y);
+    if (rx !== ry) return rx - ry;
+    return (Number(y.resolved_at) || 0) - (Number(x.resolved_at) || 0);
+  });
+}
+
+// Row badge — shown only where a prior actually exists, so it is a signal
+// rather than decoration. Deliberately on the ROW and not on the AI verdict
+// badge: an alert nobody ever ran triage on is exactly the one whose history
+// is worth surfacing.
+function _priorIncidentBadge(a) {
+  if (!_incidentMem || !_incidentMem.length || !a || !a.event) return '';
+  const n = _incidentMemMatches(a.event).filter(
+    o => String(o.alert_id) !== String(a.id)).length;
+  if (!n) return '';
+  return ` <button class="patch-badge fs-10" data-action="showPriorIncidents"`
+    + ` data-arg="${escAttr(String(a.id))}"`
+    + ` title="${escAttr(n + ' similar incident(s) on this fleet were resolved before — see what fixed them')}">`
+    + `${_icon('clock', 11)} ${n} prior</button>`;
+}
+
+async function loadIncidentMemory(force) {
+  // Only fetch when the card is actually on the page. The Alerts page is a lazy
+  // template, and a card that has not been hydrated needs no data — this keeps
+  // the inbox load from firing a second request for a surface nobody is looking
+  // at, and keeps GET /api/alerts the last request loadAlerts() issues.
+  if (!document.getElementById('incident-mem-tbody')) return;
+  if (_incidentMemLoading) return;
+  if (_incidentMem && !force) { _renderIncidentMemory(); return; }
+  _incidentMemLoading = true;
+  const r = await api('GET', '/ai/incident-memory').catch(() => null);
+  _incidentMemLoading = false;
+  if (!r || r.error) {
+    _incidentMem = _incidentMem || [];
+    _renderIncidentMemory(r && r.error ? String(r.error) : 'Could not load prior incidents');
+    return;
+  }
+  _incidentMem = Array.isArray(r.outcomes) ? r.outcomes : [];
+  _renderIncidentMemory();
+  // Repaint the inbox so rows can advertise their priors now that we have them.
+  if (typeof renderAlerts === 'function') renderAlerts();
+}
+
+function clearIncidentFilter() {
+  _incidentMemFilter = null;
+  _renderIncidentMemory();
+}
+
+// Deep link from an alert row. Narrows the card to that alert's signature and
+// brings it into view — the alert does not need an AI verdict for this to work.
+function showPriorIncidents(alertId) {
+  const a = (_alertsCache || []).find(x => String(x.id) === String(alertId));
+  if (!a) { toast('Alert is no longer in this view', 'info'); return; }
+  _incidentMemFilter = {event: a.event || '', kind: _incidentKindFor(a.event || '')};
+  const paint = () => {
+    _renderIncidentMemory();
+    const card = document.getElementById('incident-mem-card');
+    if (card && card.scrollIntoView) card.scrollIntoView({behavior: 'smooth', block: 'start'});
+  };
+  if (!_incidentMem) { loadIncidentMemory().then(paint); return; }
+  paint();
+}
+
+function _incidentSourceBadge(o) {
+  return o.source === 'operator'
+    ? `<span class="patch-badge ok fs-10" title="An operator's own resolution note — they were there">operator</span>`
+    : `<span class="patch-badge fs-10" title="Captured from the stored AI triage verdict">AI</span>`;
+}
+
+function _incidentRatingCell(o) {
+  if (o.rating === 'up') {
+    return `<span class="c-success" title="The triage verdict was rated helpful">${_icon('thumbsUp', 12)}</span>`;
+  }
+  if (o.rating === 'down') {
+    return `<span class="c-red" title="The triage verdict was rated unhelpful">${_icon('thumbsDown', 12)}</span>`;
+  }
+  return '<span class="c-muted">—</span>';
+}
+
+function _renderIncidentMemory(errMsg) {
+  const tb = document.getElementById('incident-mem-tbody');
+  if (!tb) return;   // card markup not present (lazy page not yet hydrated)
+  // Eager sort wire-up — before the empty/error branches, so the ↕ indicators
+  // are there from the first paint rather than appearing only once data lands.
+  tableCtl.wireSortOnly('incident-mem-thead', 'incidentmem', () => _renderIncidentMemory());
+
+  const summary = document.getElementById('incident-mem-summary');
+  const clearBtn = document.getElementById('incident-mem-clear');
+  const f = _incidentMemFilter;
+  let rows = _incidentMem || [];
+  if (f) {
+    rows = _incidentMemMatches(f.event, f.kind);
+  }
+  if (clearBtn) clearBtn.classList.toggle('d-none', !f);
+
+  if (errMsg) {
+    tb.innerHTML = `<tr><td colspan="7" class="empty-state">${_escapeHtml(errMsg)}</td></tr>`;
+    if (summary) summary.textContent = '';
+    return;
+  }
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="7" class="empty-state">${
+      f ? 'No prior incident on this fleet matches that signature yet.'
+        : 'No resolved incidents recorded yet. Resolve an alert with a note (or run AI triage on one) and it is remembered here.'
+    }</td></tr>`;
+    if (summary) {
+      summary.textContent = f
+        ? `0 matching ${f.event || 'incident'}`
+        : `${(_incidentMem || []).length} recorded`;
+    }
+    return;
+  }
+
+  const sorted = tableCtl.sortRows('incidentmem', rows, o => ({
+    resolved_at: Number(o.resolved_at) || 0,
+    event: o.event || '',
+    kind: o.kind || '',
+    device_name: o.device_name || o.device_id || '',
+    root_cause: o.root_cause || '',
+    resolution: o.resolution || '',
+    rating: o.rating || '',
+  }));
+
+  tb.innerHTML = sorted.map(o => {
+    const dev = o.device_name || o.device_id || '—';
+    const sev = o.severity || '';
+    const action = o.recommended_action
+      ? `<div class="hint">Recommended: ${_escapeHtml(o.recommended_action)}</div>` : '';
+    return `<tr>
+      <td class="nowrap">${_escapeHtml(_formatTs(o.resolved_at))}</td>
+      <td class="nowrap">${_escapeHtml(o.event || '—')}${
+        sev ? ` <span class="sev-pill sev-${escAttr(sev)}">${escHtml(sev)}</span>` : ''}</td>
+      <td class="nowrap">${_escapeHtml(o.kind || '—')}</td>
+      <td>${o.device_id
+        ? `<span data-dev-hover="${escAttr(o.device_id)}">${_escapeHtml(dev)}</span>`
+        : _escapeHtml(dev)}</td>
+      <td>${_incidentSourceBadge(o)} ${_escapeHtml(o.root_cause || '—')}${action}</td>
+      <td>${_escapeHtml(o.resolution || '—')}</td>
+      <td class="ta-center">${_incidentRatingCell(o)}</td>
+    </tr>`;
+  }).join('');
+
+  if (summary) {
+    summary.textContent = f
+      ? `${rows.length} prior ${f.event || 'incident'} — closest match first`
+      : `${rows.length} of ${(_incidentMem || []).length} recorded`;
+  }
 }

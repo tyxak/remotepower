@@ -1012,6 +1012,11 @@
     'Clear this log line': { fr: 'Effacer cette ligne de journal', de: 'Diese Logzeile löschen', zh: '清除此日志行', hi: 'यह लॉग पंक्ति साफ़ करें', es: 'Descartar esta línea de registro', ar: 'إلغاء سطر السجل هذا' },
     'Verify':      { fr: 'Vérifier', de: 'Verifizieren', zh: '验证', hi: 'सत्यापित करें', es: 'Verificar', ar: 'التحقق' },
     'Refresh':     { fr: 'Actualiser', de: 'Aktualisieren', zh: '刷新', hi: 'ताज़ा करें', es: 'Actualizar', ar: 'تحديث' },
+    // v6.4.2: the human view of incident memory (Alerts page, prior-incidents card).
+    "What happened last time": { "fr": "Ce qui s'est passé la dernière fois", "de": "Was beim letzten Mal geschah", "zh": "上次发生了什么", "hi": "पिछली बार क्या हुआ था", "es": "Qué pasó la última vez", "ar": "ما حدث في المرة الماضية" },
+    "Show all":    { "fr": "Tout afficher", "de": "Alle anzeigen", "zh": "显示全部", "hi": "सभी दिखाएँ", "es": "Mostrar todo", "ar": "إظهار الكل" },
+    "Closed by":   { "fr": "Clôturé par", "de": "Geschlossen von", "zh": "关闭者", "hi": "बंद किया गया", "es": "Cerrado por", "ar": "أُغلق بواسطة" },
+    "Rated":       { "fr": "Évalué", "de": "Bewertet", "zh": "评分", "hi": "रेटेड", "es": "Valorado", "ar": "مُقيَّم" },
     // v6.4.2: container log viewer toolbar + per-container mute.
     'Copy':        { fr: 'Copier', de: 'Kopieren', zh: '复制', hi: 'कॉपी करें', es: 'Copiar', ar: 'نسخ' },
     'Download':    { fr: 'Télécharger', de: 'Herunterladen', zh: '下载', hi: 'डाउनलोड करें', es: 'Descargar', ar: 'تنزيل' },

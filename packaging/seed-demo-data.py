@@ -5176,37 +5176,61 @@ def build_flow() -> dict:
 
 def build_incident_memory() -> dict:
     """Cross-fleet incident outcome memory → incident_memory.json. Feeds the
-    triage `prior_incidents` evidence tool: resolved+triaged alerts harvested
-    into durable, tenant-tagged records so a repeat alert can cite what fixed
-    it last time."""
+    triage `prior_incidents` evidence tool, the `incident_memory` RAG source and
+    the Alerts page's "What happened last time" card: resolved alerts harvested
+    into durable, tenant-tagged records so a repeat alert can cite what fixed it
+    last time.
+
+    v6.4.2: this builder wrote a shape NOTHING reads. The store's key is
+    `outcomes` (not `incidents`) and every consumer reads `root_cause` /
+    `resolved_at` / `rating` — so on a demo install the handler returned
+    `{"outcomes": [], "count": 0}`, the RAG source contributed zero docs, and the
+    evidence tool had no priors. Two further mismatches were silent for the same
+    reason: `disk_full`/`cert_expiring` are not real EVENT_REGISTRY events (so
+    same-event ranking could never fire), and `tenant: None` never equals
+    `_device_tenant(dev)`, which returns DEFAULT_TENANT ('default') for an
+    untenanted device — so `_similar_incidents` would have skipped every row even
+    after the key rename. Fields below mirror `_capture_incident_outcome` exactly.
+    `seen` carries the source alert ids so the harvester doesn't re-add them.
+    """
     t = now()
-    return {'incidents': [
-        {'id': _stable_hex('incmem', 1, nbytes=6), 'event': 'disk_full',
-         'device_id': 'nc01', 'device_name': 'nc01',
-         'kind': 'resource', 'severity': 'high',
-         'opened': t - 86400 * 26, 'resolved': t - 86400 * 26 + 5400,
-         'summary': 'Nextcloud preview cache filled /srv after a bulk photo '
-                    'import.',
-         'resolution': 'Pruned appdata previews and capped preview generation; '
-                       'reclaimed 61 GB.',
-         'helpful': True, 'tenant': None},
-        {'id': _stable_hex('incmem', 2, nbytes=6), 'event': 'failed_unit',
-         'device_id': 'gt01', 'device_name': 'gt01',
-         'kind': 'service', 'severity': 'high',
-         'opened': t - 86400 * 12, 'resolved': t - 86400 * 12 + 900,
-         'summary': 'gitea.service failed to start after a package upgrade.',
-         'resolution': 'The upgrade moved the config; pointed the unit at the '
-                       'new path and re-enabled it.',
-         'helpful': True, 'tenant': None},
-        {'id': _stable_hex('incmem', 3, nbytes=6), 'event': 'cert_expiring',
-         'device_id': 'ng01', 'device_name': 'ng01',
-         'kind': 'tls', 'severity': 'medium',
-         'opened': t - 86400 * 40, 'resolved': t - 86400 * 40 + 1800,
-         'summary': 'ACME renewal stopped after the DNS provider token was '
-                    'rotated.',
-         'resolution': 'Refreshed the DNS API credential and forced a renew.',
-         'helpful': True, 'tenant': None},
-    ]}
+    rows = [
+        {'source': 'operator', 'alert_id': _stable_hex('incmem', 1, nbytes=6),
+         'event': 'metric_critical', 'kind': 'metric', 'severity': 'critical',
+         'tenant': 'default', 'device_id': 'nc01', 'device_name': 'nextcloud.lab',
+         'root_cause': 'Nextcloud preview cache filled /srv after a bulk photo '
+                       'import — appdata previews had grown to 61 GB.',
+         'recommended_action': 'Prune appdata previews and cap preview '
+                               'generation in config.php.',
+         'confidence': 'high',
+         'resolution': 'resolved by jakob',
+         'resolved_at': t - 86400 * 26 + 5400, 'rating': 'up',
+         'captured_at': t - 86400 * 26 + 5700},
+        {'source': 'ai', 'alert_id': _stable_hex('incmem', 2, nbytes=6),
+         'event': 'failed_unit', 'kind': 'failed_units', 'severity': 'medium',
+         'tenant': 'default', 'device_id': 'gt01', 'device_name': 'gitea.lab',
+         'root_cause': 'gitea.service failed to start after a package upgrade '
+                       'moved the config out of /etc/gitea.',
+         'recommended_action': 'Point the unit at the new config path and '
+                               're-enable it.',
+         'confidence': 'medium',
+         'resolution': 'resolved by jakob',
+         'resolved_at': t - 86400 * 12 + 900, 'rating': 'up',
+         'captured_at': t - 86400 * 12 + 1200},
+        {'source': 'operator', 'alert_id': _stable_hex('incmem', 3, nbytes=6),
+         'event': 'tls_expiry', 'kind': 'tls', 'severity': 'medium',
+         'tenant': 'default', 'device_id': 'ng01', 'device_name': 'nginx.lab',
+         'root_cause': 'ACME renewal stopped silently after the DNS provider '
+                       'token was rotated; the hook kept failing auth.',
+         'recommended_action': '',
+         'confidence': '',
+         'resolution': 'auto-resolved (recover event)',
+         'resolved_at': t - 86400 * 40 + 1800, 'rating': None,
+         'captured_at': t - 86400 * 40 + 2100},
+    ]
+    return {'outcomes': rows,
+            'seen': [r['alert_id'] for r in rows],
+            'last_run': t - 3600}
 
 
 # Maps file basename → builder. Each builder returns the JSON-able payload.

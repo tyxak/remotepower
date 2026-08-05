@@ -191,9 +191,14 @@ if _AVAILABLE:
         username: str = ''
         password: str = ''   # NOT coerced -- old code requires isinstance(password, str) already
         role: str = 'admin'
+        # v6.4.2. Optional with a default, per the additive-superset rule: the
+        # handler distinguishes absent (-> True) from an explicit false, so this
+        # must not narrow a body that omits it.
+        must_change_password: bool = True
 
         _v_username = field_validator('username', mode='before')(_coerce_str_loose)
         _v_role = field_validator('role', mode='before')(_coerce_str_loose)
+        _v_mcp = field_validator('must_change_password', mode='before')(_coerce_bool_loose)
 
     class ApiKeyCreateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore')

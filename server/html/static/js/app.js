@@ -12077,7 +12077,7 @@ async function loadAuditLog() {
   loadSecurityPosture();   // v4.2.0 (A6): posture self-check card on this page
   _refreshAuditChainBadge();  // sweep: persistent chain status, not just a toast
   const tbody = document.getElementById('audit-tbody');
-  tbody.innerHTML = _skeletonRows(5);
+  tbody.innerHTML = _skeletonRows(6);
   const data = await api('GET', '/audit-log');
   // v6.4.2: a failed fetch used to fall through to an empty table, which on the
   // AUDIT page reads as "nothing was ever logged" — the worst possible lie.
@@ -15813,7 +15813,7 @@ async function loadSoftwarePolicy() {
     const summary = document.getElementById('swpol-summary');
     if (summary) summary.textContent = `${(_swPolicy.rules||[]).length} rules · ${_swViolations.length} violations`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 function _renderSwRules() {
@@ -15844,16 +15844,58 @@ function _renderSwViolations() {
     found:    r.found || '',
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="isl-534">No policy violations. Either no rules are set, or the fleet is compliant.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No policy violations. Either no rules are set, or the fleet is compliant.</td></tr>';
     return;
   }
+  // v6.4.2: a Fix button per row. The remediation already existed server-side —
+  // POST /install and /uninstall go through _resolve_targets (scope- and
+  // tenant-safe), skip quarantined hosts and write a batch job Rollouts tracks.
+  // The page listed the problem and made you copy the hostname somewhere else.
+  const canFix = !!(_meCache && (_meCache.admin || (_meCache.permissions || []).length));
   tbody.innerHTML = rows.map(r => `<tr>
     <td class="fw-500">${escHtml(r.device)}</td>
     <td><span class="pill">${escHtml(r.type)}</span></td>
     <td>${escHtml(r.package)}</td>
     <td class="hint">${escHtml(r.expected || '—')}</td>
     <td data-color="var(--red)">${escHtml(r.found || '—')}</td>
+    <td><div class="user-actions">${canFix
+      ? `<button class="btn-icon btn-xs" data-action="swPolFixViolation" data-arg="${escAttr('d-' + (r.device_id || ''))}" data-arg2="${escAttr(r.package || '')}" data-arg3="${escAttr(r.type || '')}" title="${r.type === 'banned' ? 'Uninstall this package from this host' : 'Install or upgrade this package on this host'}">${_icon('wrench', 13)}</button>`
+      : ''}</div></td>
   </tr>`).join('');
+}
+
+// v6.4.2: queue the remediation the rule implies. `banned` means remove it;
+// `required`/`min_version` mean install (the package manager upgrades to the
+// repo's latest). Deliberately promises only that the job was QUEUED — an
+// install cannot satisfy a min_version the distro repo does not carry, and a
+// toast claiming it fixed the violation would be the success-toast-then-silence
+// class this release keeps finding.
+async function swPolFixViolation(devArg, pkg, type) {
+  // The dispatcher coerces `!isNaN(v) ? Number(v) : v`, and a device id can be
+  // all digits or hex — hence the 'd-' prefix at the call site.
+  const devId = String(devArg || '').replace(/^d-/, '');
+  const pkgName = String(pkg || '');
+  if (!devId || !pkgName) return;
+  const remove = type === 'banned';
+  const ok = await uiConfirm({
+    title: remove ? `Uninstall "${pkgName}"?` : `Install "${pkgName}"?`,
+    message: remove
+      ? 'Queues an uninstall on this host. Quarantined hosts are skipped.'
+      : 'Queues an install on this host, which upgrades to the version your '
+        + 'package repository carries.\n\nIf the repo has nothing new enough, the '
+        + 'violation will remain — this queues the attempt, it does not guarantee '
+        + 'the outcome.',
+    confirmText: remove ? 'Uninstall' : 'Install',
+    danger: remove,
+  });
+  if (!ok) return;
+  const r = await api('POST', remove ? '/uninstall' : '/install',
+                      {device_ids: [devId], packages: pkgName});
+  if (r && r.ok) {
+    toast('Queued — follow it on Rollouts → Recent jobs', 'success');
+  } else {
+    toast((r && r.error) || 'Failed to queue', 'error');
+  }
 }
 function swPolDeleteRule(i) {
   _swPolicy.rules.splice(Number(i), 1);
@@ -21516,6 +21558,53 @@ function stopLiveView() {
 }
 
 // W3-40: load a device's sudo audit trail into the drawer.
+// v6.4.2: custom metrics with their history, threshold and alert state. The
+// endpoint has always returned all three; nothing read it.
+async function loadCustomMetrics(id) {
+  const box = document.getElementById('ds-custom-metrics');
+  if (!box) return;
+  box.innerHTML = '<div class="meta-sm-nm">Loading…</div>';
+  const r = await api('GET', '/devices/' + encodeURIComponent(id) + '/custom-metrics');
+  if (!r || !r.ok) { box.innerHTML = '<div class="meta-sm-nm">Not available.</div>'; return; }
+  const rows = r.metrics || [];
+  if (!rows.length) { box.innerHTML = '<div class="meta-sm-nm">No custom metrics reported.</div>'; return; }
+  box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">'
+    + '<thead><tr><th>Metric</th><th>Now</th><th>Threshold</th><th>Trend</th></tr></thead><tbody>'
+    + rows.map(m => {
+        const t = m.threshold;
+        // A threshold is {op, value, severity}; say it in words rather than
+        // printing the raw object, and say "—" when none is configured.
+        const tTxt = (t && t.value != null)
+          ? `${escHtml(String(t.op || 'gt') === 'lt' ? '<' : '>')} ${escHtml(String(t.value))}`
+          : '—';
+        const cls = m.alerted ? 'c-red' : '';
+        const cur = m.current == null ? '—' : escHtml(String(m.current));
+        return `<tr><td class="fs-12"><code>${escHtml(m.name)}</code></td>`
+          + `<td class="fs-12 ta-center ${cls}">${cur}${m.alerted ? ' <span class="status-pill critical">alerting</span>' : ''}</td>`
+          + `<td class="fs-12 ta-center c-muted">${tTxt}</td>`
+          + `<td>${_sparkline(m.samples || [])}</td></tr>`;
+      }).join('')
+    + '</tbody></table></div>';
+}
+
+// Tiny inline SVG sparkline over [{ts,val}]. Presentation attributes only —
+// no inline style attribute, so it is CSP-clean.
+function _sparkline(samples) {
+  const pts = (samples || []).map(s => Number(s.val)).filter(v => isFinite(v));
+  if (pts.length < 2) return '<span class="c-muted fs-11">—</span>';
+  const w = 120, hgt = 22;
+  const lo = Math.min(...pts), hi = Math.max(...pts);
+  const span = (hi - lo) || 1;
+  const d = pts.map((v, i) => {
+    const x = (i / (pts.length - 1)) * (w - 2) + 1;
+    const y = hgt - 1 - ((v - lo) / span) * (hgt - 2);
+    return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 ${w} ${hgt}" width="${w}" height="${hgt}" fill="none" `
+    + `stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="c-accent">`
+    + `<path d="${d}"/></svg>`;
+}
+
 async function loadSudoLog(id) {
   const box = document.getElementById('ds-sudo-log');
   if (!box) return;
@@ -22572,13 +22661,17 @@ async function _loadAuditSection(key) {
         // W3-19: live high-res view (opt-in button; polls a burst channel).
         h += `<div class="mt-16 mb-8 fw-500 fs-13">Live view</div>`
           + `<div id="ds-live"><button class="btn-icon cell-sm" data-action="startLiveView" data-arg="${escAttr(id)}">Start live (1s samples, ~30s)</button></div>`;
-        // W3-11: operator-supplied custom metrics (if any).
+        // W3-11: operator-supplied custom metrics.
+        // v6.4.2: the drawer showed a flat name/value pair out of the last
+        // heartbeat, while the server kept 720 rolling samples per metric,
+        // evaluated thresholds against them and fired custom_metric_alert. The
+        // history, the threshold and the alert state existed and were shown
+        // nowhere — GET /devices/{id}/custom-metrics had no caller in the SPA
+        // at all. Loaded on demand like the sudo trail below, so the drawer
+        // stays cheap for the hosts that have no custom metrics.
         if (si.custom_metrics && Object.keys(si.custom_metrics).length) {
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Custom metrics</div>`
-            + `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627"><thead><tr class="c-muted"><th>Metric</th><th>Value</th></tr></thead><tbody>`
-            + Object.entries(si.custom_metrics).map(([k, v]) =>
-                `<tr><td class="fs-12"><code>${escHtml(k)}</code></td><td class="fs-12">${escHtml(String(v))}</td></tr>`).join('')
-            + `</tbody></table></div>`;
+            + `<div id="ds-custom-metrics"><button class="btn-icon cell-sm" data-action="loadCustomMetrics" data-arg="${escAttr(id)}">Load history &amp; thresholds</button></div>`;
         }
         // W3-40: privileged-command (sudo) audit trail — loaded on demand.
         h += `<div class="mt-16 mb-8 fw-500 fs-13">Privileged commands (sudo)</div>

@@ -28585,8 +28585,17 @@ def handle_user_create():
         respond(400, {'error': _pp_msg})
     users = load(USERS_FILE)
     if username in users: respond(400, {'error': 'User already exists'})
+    # v6.4.2: a created account starts with a password its ADMIN chose, which
+    # they then have to convey somehow. Flag it so the first login goes through
+    # the change-password gate that already exists (_enforce_password_change,
+    # pre-dispatch) — the same treatment the seeded default admin has always
+    # had. Opt-out via must_change_password:false for an automated provisioner
+    # that sets a real credential out of band; the model defaults it ON, so an
+    # existing caller that sends nothing gets the safer behaviour.
+    _must_change = body.get('must_change_password')
     users[username] = {'password_hash': hash_password(password), 'created': int(time.time()),
-                       'password_changed_at': int(time.time()), 'role': role}
+                       'password_changed_at': int(time.time()), 'role': role,
+                       'must_change_password': True if _must_change is None else bool(_must_change)}
     save(USERS_FILE, users)
     audit_log(_uc_actor, 'user_create', detail=f'username={username} role={role}')
     if role == 'admin':
@@ -28777,7 +28786,19 @@ def handle_user_passwd():
     users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
     # v2.3.2: once the password is changed, clear the default-password
     # warning flag so the UI banner stops showing.
-    users[username].pop('must_change_password', None)
+    #
+    # v6.4.2: but only for a SELF-change. An admin resetting someone else's
+    # password has just invented one and is about to send it over Slack or
+    # read it down the phone — the very case the flag exists for. Clearing it
+    # there meant the forgotten-password path ended with a shared secret the
+    # product never asked anyone to replace. Setting it makes the next login
+    # go through the existing change-password gate, which is already built:
+    # _enforce_password_change() runs pre-dispatch and the client already shows
+    # the banner. So this is one line, not a feature.
+    if username == requester:
+        users[username].pop('must_change_password', None)
+    else:
+        users[username]['must_change_password'] = True
     save(USERS_FILE, users)
 
     # Invalidate all existing sessions for this user on password change
@@ -53553,6 +53574,11 @@ _EVENT_TO_MITIGATION = {
     'ssh_key_added':        'ssh_key',
     'new_port_detected':    'new_port',
     'log_alert':            'log_alert',
+    # v6.4.2: a policy violation is a package problem, so it maps to the
+    # existing 'patches' playbook. Verified 'patches' IS a key in
+    # _MITIGATE_PLAYBOOKS — the consumer does `if kind not in playbooks:
+    # continue`, so a mapping to a nonexistent playbook is a silent no-op.
+    'software_policy_violation': 'patches',
 }
 _METRIC_TO_MITIGATION = {'cpu': 'cpu', 'memory': 'memory', 'mem': 'memory',
                          'swap': 'swap', 'disk': 'disk'}

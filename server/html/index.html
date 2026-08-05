@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-18">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-19">
 
 </head>
 <body>
@@ -5006,27 +5006,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="settings configuration webhook smtp ldap totp account">
+          <details class="doc-card" data-keywords="settings configuration notifications webhook smtp ldap oidc saml totp integrations ai backups tickets alert parameters thresholds ignored items mailbox proxmox virtualization advanced retention install getting started">
             <summary><strong>Settings page</strong> — server-wide configuration</summary>
             <div class="doc-body">
-              <p>Tabs:</p>
+              <p>Fourteen panes, in four groups:</p>
               <ul>
-                <li><strong>Account</strong> — change password, enable/disable TOTP 2FA, view active sessions, revoke sessions.</li>
-                <li><strong>Webhooks</strong> — add destination URLs (Discord, ntfy, Slack, generic JSON), per-event toggles, "send test event" buttons.</li>
-                <li><strong>SMTP</strong> — outbound email settings for the digest endpoint and password resets.</li>
-                <li><strong>LDAP</strong> — bind URL, search base, attribute mappings; "Test connection" button.</li>
-                <li><strong>Service watch</strong> — list of systemd units the agents should monitor, applied to all devices unless overridden.</li>
-                <li><strong>Log rules</strong> — regex patterns for log_alert events.</li>
-                <li><strong>Server functions</strong> — autocomplete list for CMDB asset function field.</li>
-                <li><strong>Backup</strong> — one-click ZIP download of all state JSON files.</li>
+                <li><strong>Setup</strong> — <em>Getting started</em> (the install checklist and agent one-liner) and <em>General</em> (poll interval, timezone, data retention, session length).</li>
+                <li><strong>Monitoring</strong> — <em>Notifications</em> (webhook destinations, SMTP, per-event routing, additional email routes), <em>Dashboard</em> (widgets, needs-attention tuning), <em>Alert parameters</em> (~70 numeric thresholds and the score weights), <em>Mailbox monitor</em>, and <em>Ignored items</em> (mutes, cleared log lines, suppressions).</li>
+                <li><strong>Connections</strong> — <em>Integrations</em> (homelab connectors, Prometheus, inbound webhooks), <em>Virtualization</em> (Proxmox, vSphere, Cloud Director, OpenShift), and <em>AI assistant</em> (provider, model, RAG sources).</li>
+                <li><strong>System</strong> — <em>Security</em> (2FA, SSO/LDAP, IP allowlist, session policy), <em>Tickets</em>, <em>Backups</em>, and <em>Advanced</em> (module switches, storage backend, GitOps, danger zone).</li>
               </ul>
+              <p>Your own password, 2FA and active sessions are on <strong>My Account</strong>, not in Settings. <a href="docs/settings.md" class="c-accent">Documentation</a></p>
             </div>
           </details>
 
           <details class="doc-card" data-keywords="users accounts admin viewer roles">
             <summary><strong>Users page</strong> (Admin) — local accounts</summary>
             <div class="doc-body">
-              <p>Manage local user accounts. Each user has a username, bcrypt password, role (admin or viewer), optional TOTP secret, optional email for password reset.</p>
+              <p>Manage local user accounts. Each user has a username, a bcrypt password, a role and an optional TOTP secret. A newly created account, and any account whose password an admin resets, must choose a new password at next sign-in.</p>
               <p><strong>Roles:</strong> admin can do everything. Viewer is read-only — can browse all pages but every write endpoint returns 403.</p>
               <p><strong>LDAP users</strong> auto-create on first successful bind; their role defaults to viewer until an admin promotes them.</p>
             </div>
@@ -7990,8 +7987,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <thead id="swpol-viol-thead"><tr>
                 <th scope="col" data-col="device">Device</th><th scope="col" data-col="type">Rule</th><th scope="col" data-col="package">Package</th>
                 <th scope="col" data-col="expected">Expected</th><th scope="col" data-col="found">Found</th>
+                <th scope="col" class="th-actions"></th>
               </tr></thead>
-              <tbody id="swpol-viol-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+              <tbody id="swpol-viol-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -8434,6 +8432,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </details>
         </div><!-- /mttr card -->
+
+        <!-- v6.4.2: the HUMAN view of incident memory. The resolved-incident
+             outcome store (v6.3.1) fed the RAG corpus, the `prior_incidents`
+             evidence tool and the triage loop — and no human surface at all.
+             Pure render over the existing GET /api/ai/incident-memory. -->
+        <div class="dash-card" id="incident-mem-card">
+        <div class="section-title">What happened last time</div>
+        <p class="hint">Incidents this fleet has already worked through — the cause recorded at the time, how the alert finally cleared, and whether the AI triage verdict was rated useful. Kept after the alert itself is pruned. The AI advisor already reasons over this memory; this is the same record, for you. <a href="docs/alerts.md" class="c-accent">Documentation</a></p>
+        <div class="row-8-center mb-8">
+          <input type="text" id="incident-mem-filter" class="form-input page-filter" placeholder="Filter event, host, or cause…" aria-label="Filter prior incidents" data-input="filterRows" data-input-el="1" data-filter-target="#incident-mem-tbody tr">
+          <button class="btn-icon" data-action="loadIncidentMemory" data-arg="1"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon d-none" id="incident-mem-clear" data-action="clearIncidentFilter">Show all</button>
+          <span id="incident-mem-summary" class="fs-12 c-muted"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="incident-mem-thead"><tr>
+                <th scope="col" data-col="resolved_at">Resolved</th>
+                <th scope="col" data-col="event">Event</th>
+                <th scope="col" data-col="kind">Kind</th>
+                <th scope="col" data-col="device_name">Device</th>
+                <th scope="col" data-col="root_cause">What happened</th>
+                <th scope="col" data-col="resolution">Closed by</th>
+                <th scope="col" data-col="rating">Rated</th>
+              </tr></thead>
+              <tbody id="incident-mem-tbody">
+                <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div><!-- /prior incidents card -->
       </div>
       </template>
 
@@ -11232,38 +11263,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-18"></script>
+<script defer src="static/js/app.js?v=6.4.2-19"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-18"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-19"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-18"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-19"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-18"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-19"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-18"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-18"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-19"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-19"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-18"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-19"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11273,6 +11304,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-18"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-19"></script>
 </body>
 </html>
