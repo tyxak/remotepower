@@ -390,12 +390,22 @@ class TestTagsAndGroupsPage(PageShellMixin, unittest.TestCase):
                    if b.get("data-action")}
         self.assertIn("loadTaxonomy", actions)
 
-    def test_groups_card_admits_it_is_read_only(self):
-        """There is no bulk group endpoint, so the group table ships without
-        rename/merge/delete. Saying so in the card is the difference between a
-        deliberate limit and a button the operator hunts for and never finds."""
-        cards = list(self.page().find_all(cls="dash-card"))
-        self.assertIn("read-only", cards[1].inner_text().lower())
+    def test_groups_card_states_what_a_rename_does_not_touch(self):
+        """Groups were read-only here until v6.4.2, and the card said so —
+        which was right while the only primitive was PATCH-per-device.
+
+        The atomic endpoints exist now, so the card carries the write actions
+        and the honest caveat has moved: a rename does NOT rewrite the role
+        scopes, alert routing, auto-patch targets, rollout rings or smart
+        groups that name the group. That is the sentence worth pinning, because
+        it is the one an operator needs before pressing the button.
+        """
+        text = list(self.page().find_all(cls="dash-card"))[1].inner_text().lower()
+        self.assertIn("not", text)
+        self.assertIn("role scopes", text)
+        self.assertNotIn("read-only", text,
+                         "the card still claims groups are read-only, but the "
+                         "table now offers rename/merge/delete")
 
     def test_no_orphan_rename_dialog_is_left_behind(self):
         """An earlier shell carried a taxonomy-rename-modal; the loader drives

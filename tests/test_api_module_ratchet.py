@@ -66,7 +66,17 @@ _API = Path(__file__).resolve().parent.parent / 'server' / 'cgi-bin' / 'api.py'
 # handle_me_session_revoke / handle_me_sessions_revoke_others) and reads the
 # same TOKENS_FILE + auth helpers those do. Carving one read of the session
 # store into a module would re-bind the whole auth spine to serve one endpoint.
-INLINE_HANDLER_CEILING = 627
+# 627→625 (v6.4.2): the fleet-ops subsystem (bulk device attribute edit, group
+# taxonomy rename/merge/delete, per-package patch approval, log-ring retention
+# + export) landed in fleet_ops_handlers.py as a bound module — and it TOOK ITS
+# TWO INLINE SIBLINGS WITH IT. handle_devices_bulk_delete /
+# handle_devices_bulk_tags (+ _clean_tags) were the only two bulk device WRITES
+# in api.py; the new handle_devices_bulk_attrs is the third member of that
+# family, so leaving the first two inline would have split one subsystem across
+# two files. Their route-table entries, the test suite's api.handle_devices_*
+# calls and the source pins all resolve unchanged (api.py re-imports the names;
+# tests/apisrc.py reads the COMBINED source). Nine new endpoints, net −2.
+INLINE_HANDLER_CEILING = 625
 
 
 class TestApiHandlerRatchet(unittest.TestCase):

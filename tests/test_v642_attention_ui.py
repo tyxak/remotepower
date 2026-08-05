@@ -593,16 +593,37 @@ class TestTaxonomyWrites(_V8):
         self.assertIn(("POST", "/api/devices/bulk-tags"),
                       set(api._build_exact_routes().keys()))
 
-    def test_groups_are_read_only_until_a_bulk_endpoint_exists(self):
-        # Deliberate: PATCH-per-device can half-apply. If a bulk group endpoint
-        # lands, wire the group table's write actions and delete this test.
+    def test_groups_offer_the_three_write_actions_and_their_routes_exist(self):
+        """Groups were read-only here until v6.4.2 for a real reason: the only
+        primitive was PATCH-per-device, which can half-apply and leave a group
+        split across two names. `/api/taxonomy/groups/*` is a single atomic
+        read-modify-write, so the actions are now correct — this test is the
+        positive inverse of the one that guarded the old state.
+
+        Both halves are pinned: the buttons exist AND the routes they call are
+        registered. Either alone is a dead end.
+        """
         src = client_js()
         row = js_function(src, "_registerTaxonomyTables")
         groups = row[row.index("name: 'taxonomy_groups'"):]
-        for act in ('renameTag', 'deleteTag', 'mergeTag'):
-            self.assertNotIn(act, groups,
-                             "the groups table offers a write action with no "
-                             "atomic server endpoint behind it")
+        for act in ('renameGroup', 'mergeGroup', 'deleteGroup'):
+            self.assertIn(act, groups,
+                          f"the groups table is missing the {act} write action")
+        routes = set(api._build_exact_routes().keys())
+        for p in ('/api/taxonomy/groups/rename', '/api/taxonomy/groups/merge',
+                  '/api/taxonomy/groups/delete'):
+            self.assertIn(('POST', p), routes,
+                          f"{p} is not registered — the button is a dead end")
+
+    def test_group_writes_do_not_go_through_the_tag_bulk_helper(self):
+        """The point of the endpoint is that there is no client-side loop; a
+        group op routed through _taxonomyBulkTags would reintroduce one."""
+        src = client_js()
+        for fn in ('renameGroup', 'mergeGroup', 'deleteGroup'):
+            body = js_function(src, fn)
+            self.assertNotIn('_taxonomyBulkTags', body,
+                             f"{fn} must call the atomic group endpoint")
+            self.assertIn('_taxonomyGroupOp', body)
 
 
 class TestNewFleetEvents(unittest.TestCase):

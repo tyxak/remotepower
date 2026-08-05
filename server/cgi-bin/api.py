@@ -351,6 +351,10 @@ MAX_SITES           = 500
 # v3.6.0
 BACKUP_JOBS_FILE    = DATA_DIR / 'backup_jobs.json'      # orchestrated backup commands
 AUTOPATCH_FILE      = DATA_DIR / 'autopatch_policies.json'  # scheduled auto-patch policies
+# v6.4.2: per-package approve/decline decisions over the fleet patch catalog.
+# A logical storage key like every other *.json under DATA_DIR (a DB row under
+# SQLite/Postgres) — gate reads with backend_exists(), never Path.exists().
+PATCH_APPROVALS_FILE = DATA_DIR / 'patch_approvals.json'
 AV_FILE             = DATA_DIR / 'av_status.json'        # endpoint AV/malware posture
 PROXMOX_BACKUP_CACHE = DATA_DIR / 'proxmox_backup_cache.json'  # per-guest backup recency
 MAX_BACKUP_JOBS     = 200
@@ -683,8 +687,14 @@ def _line_signature(line):
 
 
 
-LOG_BUFFER_TTL          = 6 * 3600 # rolling N-hour buffer
-MAX_LOG_BUFFER_BYTES    = 2 * 1024 * 1024   # 2 MB per device cap
+# v6.4.2: both are now DEFAULTS behind operator-tunable config keys (Settings →
+# Advanced → Data retention). Read them through fleet_ops_handlers'
+# `_log_buffer_ttl()` / `_log_buffer_unit_cap()`, never directly, and HOIST the
+# read out of any per-device/per-unit loop — every consumer sits on an ingest
+# hot path. The constants stay as the fallback so an untouched install behaves
+# exactly as it did before the keys existed.
+LOG_BUFFER_TTL          = 6 * 3600 # rolling N-hour buffer (log_buffer_retention_hours)
+MAX_LOG_BUFFER_BYTES    = 2 * 1024 * 1024   # suggested per-UNIT cap (log_buffer_max_bytes_per_unit; 0/off by default)
 
 # v1.11.5: per-user UI preferences (density, persistent filter strings,
 # column sort state). Stored in users.json under the 'ui_prefs' key, keyed
@@ -1406,6 +1416,36 @@ for _fl_name in (
 ):
     globals()[_fl_name] = getattr(flow_handlers_mod, _fl_name)
 del _fl_name
+# fleet-wide bulk device edit, group taxonomy ops, per-package patch approval,
+# log-buffer retention + export (v6.4.2)
+_fo_spec = _tk_ilu.spec_from_file_location(
+    'fleet_ops_handlers', Path(__file__).parent / 'fleet_ops_handlers.py')
+fleet_ops_handlers_mod = _tk_ilu.module_from_spec(_fo_spec)
+_fo_spec.loader.exec_module(fleet_ops_handlers_mod)
+fleet_ops_handlers_mod.bind(globals())
+for _fo_name in (
+        # shared helpers
+        '_visible_devices', '_clean_tags', '_clean_group',
+        '_require_instance_wide_policy_writer',
+        # bulk device writes (bulk-delete/bulk-tags MOVED here from api.py)
+        '_BULK_ATTR_FIELDS', 'handle_devices_bulk_delete',
+        'handle_devices_bulk_tags', 'handle_devices_bulk_attrs',
+        # taxonomy: inventory + atomic group rename/merge/delete
+        '_GROUP_REF_STORES', '_count_group_refs', '_group_reference_report',
+        'handle_taxonomy_list', '_taxonomy_group_apply',
+        'handle_taxonomy_group_rename', 'handle_taxonomy_group_merge',
+        'handle_taxonomy_group_delete',
+        # per-package patch approval (consumed by _autopatch_queue)
+        '_APPROVAL_STATES', '_patch_approvals', '_patch_approval_sets',
+        '_autopatch_pin_prefix', '_approval_packages_from_body',
+        'handle_patch_approvals_list', 'handle_patch_approval_set',
+        'handle_patch_approval_clear',
+        # ingested-log-line ring: retention tunables + export
+        '_log_buffer_ttl', '_log_buffer_unit_cap', '_trim_unit_buffer',
+        '_LOG_EXPORT_MAX_LINES', 'handle_logs_export',
+):
+    globals()[_fo_name] = getattr(fleet_ops_handlers_mod, _fo_name)
+del _fo_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -13174,32 +13214,11 @@ def handle_device_delete(dev_id):
     respond(200, {'ok': True})
 
 
-def handle_devices_bulk_delete():
-    """v5.0.0 (#F1): ``POST /api/devices/bulk-delete`` {device_ids:[...]} — delete
-    many devices in one action (e.g. everything matching a tag, selected in the
-    UI). Admin only; audit-logged with the count."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = _read_valid(request_models.DevicesBulkDeleteRequest)
-    ids = body.get('device_ids') or []
-    if not isinstance(ids, list) or not ids:
-        respond(400, {'error': 'device_ids must be a non-empty list'})
-    ids = [str(i) for i in ids if _validate_id(str(i))][:1000]
-    # SEC: body-supplied id list, not under /api/devices/ — a tenant admin must
-    # not delete another tenant's devices. Keep only ids the caller can see
-    # (no-op for an unscoped single-tenant admin).
-    _vis = _scope_filter_devices(load(DEVICES_FILE) or {})
-    ids = [i for i in ids if i in _vis]
-    deleted = 0
-    for dev_id in ids:
-        try:
-            if _purge_device(dev_id):
-                deleted += 1
-        except Exception:
-            pass
-    audit_log(actor, 'devices_bulk_delete', detail=f'deleted={deleted}/{len(ids)}')
-    respond(200, {'ok': True, 'deleted': deleted, 'requested': len(ids)})
+# v6.4.2: handle_devices_bulk_delete / handle_devices_bulk_tags / _clean_tags
+# moved to fleet_ops_handlers.py, where they sit next to their new sibling
+# handle_devices_bulk_attrs (the three bulk device WRITES are one subsystem).
+# api.py re-imports the names above, so the route table, the test suite and
+# every caller resolve them unchanged. Ratchet: 627 → 625.
 
 
 def handle_device_tags(dev_id):
@@ -13219,46 +13238,6 @@ def handle_device_tags(dev_id):
             respond(404, {'error': 'Device not found'})
         devices[dev_id]['tags'] = tags
     respond(200, {'ok': True, 'tags': tags})
-
-
-def _clean_tags(raw):
-    out = [re.sub(r'[^a-zA-Z0-9_\-/]', '', str(t))[:MAX_TAG_LEN] for t in (raw or [])[:MAX_TAG_COUNT]]
-    return [t for t in out if t]
-
-
-def handle_devices_bulk_tags():
-    """v5.0.0 (#F2): ``POST /api/devices/bulk-tags`` — add and/or remove tags on
-    many devices at once. Body: {device_ids:[...], add:[...], remove:[...]}.
-    Add/remove are set-merged onto each device's existing tags (idempotent)."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = _read_valid(request_models.DevicesBulkTagsRequest)
-    ids = body.get('device_ids') or []
-    if not isinstance(ids, list) or not ids:
-        respond(400, {'error': 'device_ids must be a non-empty list'})
-    add = _clean_tags(body.get('add'))
-    remove = set(_clean_tags(body.get('remove')))
-    if not add and not remove:
-        respond(400, {'error': 'pass at least one tag in add or remove'})
-    ids = {str(i) for i in ids if _validate_id(str(i))}
-    _vis = _scope_filter_devices(load(DEVICES_FILE) or {})   # SEC: tenant/scope filter
-    ids = {i for i in ids if i in _vis}
-    updated = 0
-    with _LockedUpdate(DEVICES_FILE) as devices:
-        for dev_id in ids:
-            dev = devices.get(dev_id)
-            if not dev:
-                continue
-            cur = [t for t in (dev.get('tags') or []) if t not in remove]
-            for t in add:
-                if t not in cur:
-                    cur.append(t)
-            dev['tags'] = cur[:MAX_TAG_COUNT]
-            updated += 1
-    audit_log(actor, 'devices_bulk_tags',
-              detail=f'updated={updated} add={",".join(add)[:80]} remove={",".join(remove)[:80]}')
-    respond(200, {'ok': True, 'updated': updated})
 
 
 def handle_device_notes(dev_id):
@@ -17322,10 +17301,15 @@ def _autopatch_queue(pol, actor):
         (native if _device_os_family(devices.get(d)) in ('windows', 'darwin')
          else linux).append(d)
     if linux:
-        _queue_command_batch(
-            linux,
-            f'exec:{_SCHED_UPGRADE_REBOOT_CMD}' if reboot else f'exec:{_SCHED_UPGRADE_CMD}',
-            actor)
+        # v6.4.2: honour the operator's per-package patch APPROVALS. Declined
+        # packages are pinned (and approved ones un-pinned, so the state
+        # converges) immediately before the upgrade runs — without this the
+        # approve/decline list would be a record with no effect, the
+        # "feature that can never fire" class. '' when no approvals exist, so
+        # an install that doesn't use them queues the identical command string.
+        _pin = _autopatch_pin_prefix()
+        _up = _SCHED_UPGRADE_REBOOT_CMD if reboot else _SCHED_UPGRADE_CMD
+        _queue_command_batch(linux, f'exec:{_pin}{_up}', actor)
     if native:
         # The Windows and macOS agents never auto-reboot on `upgrade` (Windows
         # passes -IgnoreReboot; brew has no such concept), so a reboot-on-patch
@@ -17353,7 +17337,13 @@ def handle_autopatch_run(pol_id):
     pol['last_run'] = int(time.time())
     save(AUTOPATCH_FILE, data)
     audit_log(actor, 'autopatch_run', detail=f'policy={pol_id} queued={n}')
-    respond(200, {'ok': True, 'queued': n})
+    # v6.4.2: report the approvals this run enforced, and be honest that the
+    # pin only rides the LINUX command — the Windows/macOS `upgrade` verb has
+    # no per-package exclusion, so a declined package is NOT held there.
+    _apr, _dec = _patch_approval_sets()
+    respond(200, {'ok': True, 'queued': n,
+                  'declined_packages': sorted(_dec)[:30],
+                  'declined_enforced_on': 'linux' if _dec else ''})
 
 
 def process_autopatch():
@@ -24937,6 +24927,10 @@ def handle_config_get():
     safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
     safe.setdefault('slo_objects', [])   # v6.4.0: SLA/SLO objects
+    # v6.4.2: ingested-log-line ring retention. Surfaced so the Settings input
+    # renders the EFFECTIVE value rather than a blank box on a stock install.
+    safe.setdefault('log_buffer_retention_hours', LOG_BUFFER_TTL // 3600)
+    safe.setdefault('log_buffer_max_bytes_per_unit', 0)   # 0 = no cap
 
     # v1.8.4 — derived/effective values that the UI uses
     safe.setdefault('server_name', '')
@@ -26863,6 +26857,22 @@ def handle_config_save():
                 v = int(body[_rkey])
                 if not (0 <= v <= 3650):
                     respond(400, {'error': f'{_rkey} must be 0..3650'})
+                cfg[_rkey] = v
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{_rkey} must be an integer'})
+
+    # v6.4.2: the INGESTED LOG-LINE ring (LOG_BUFFER_TTL / the per-unit byte
+    # cap). Seven age-based retention keys above were tunable while the ring
+    # holding the actual log lines was two hard-coded module constants.
+    # 0 = "use the built-in default" for both (6h TTL / no byte cap), which is
+    # also what an install that never opens Settings gets.
+    for _rkey, _lo, _hi in (('log_buffer_retention_hours', 0, 168),
+                            ('log_buffer_max_bytes_per_unit', 0, 64 * 1024 * 1024)):
+        if _rkey in body:
+            try:
+                v = int(body[_rkey] or 0)
+                if not (_lo <= v <= _hi):
+                    respond(400, {'error': f'{_rkey} must be {_lo}..{_hi}'})
                 cfg[_rkey] = v
             except (TypeError, ValueError):
                 respond(400, {'error': f'{_rkey} must be an integer'})
@@ -40684,7 +40694,11 @@ def _forecast_min_r2():
 
 
 def handle_device_forecast(dev_id):
-    """GET /api/devices/<id>/forecast — disk-fill projection per mount."""
+    """GET /api/devices/<id>/forecast — disk-fill + resource-headroom projection.
+
+    v6.4.2: `resources` joins `mounts` — memory / swap / CPU-load saturation
+    fitted from the same daily samples, already sorted soonest-to-saturate
+    first by forecast.py, so the caller renders it in order as-is."""
     require_auth()
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
@@ -40692,8 +40706,10 @@ def handle_device_forecast(dev_id):
         respond(404, {'error': 'Device not found'})
     rec = (load(METRICS_HIST_FILE) or {}).get(dev_id, {})
     samples = rec.get('samples', [])
+    _min_r2 = _forecast_min_r2()      # one config read, two projections
     respond(200, {
-        'mounts':      forecast.forecast_mounts(samples, min_r2=_forecast_min_r2()),
+        'mounts':      forecast.forecast_mounts(samples, min_r2=_min_r2),
+        'resources':   forecast.forecast_resources(samples, min_r2=_min_r2),
         'sample_days': len(samples),
     })
 
@@ -40711,6 +40727,8 @@ def handle_forecast():
     _min_r2 = _forecast_min_r2()
     rows = []
     dev_count = 0
+    res_rows = []
+    res_dev_count = 0
     for dev_id, rec in mh_all.items():
         dev = devices.get(dev_id)
         if not dev:
@@ -40725,9 +40743,27 @@ def handle_forecast():
             m['device_id'] = dev_id
             m['device_name'] = name
             rows.append(m)
+        # v6.4.2: memory/swap/CPU-load headroom from the same samples. Stays
+        # INSIDE this scope-guarded loop so it inherits the tenant filter above
+        # — a second loop over mh_all would leak every tenant's hosts.
+        res = forecast.forecast_resources(samples, min_r2=_min_r2)
+        if res:
+            res_dev_count += 1
+        for r in res:
+            r = dict(r)
+            r['device_id'] = dev_id
+            r['device_name'] = name
+            res_rows.append(r)
     # Soonest-to-fill first; mounts that never fill (days_to_full None) sink.
     rows.sort(key=lambda r: (r.get('days_to_full') is None, r.get('days_to_full') or 0))
-    respond(200, {'mounts': rows, 'devices': dev_count})
+    # Same convention for the resource rows (they arrive sorted per device;
+    # this re-sorts the merged fleet-wide list).
+    res_rows.sort(key=lambda r: (r.get('days_to_saturation') is None,
+                                 r.get('days_to_saturation') or 0))
+    # `devices` stays MOUNT-scoped — the page summary reads it as "N mounts
+    # across M devices", so resource-only hosts get their own counter.
+    respond(200, {'mounts': rows, 'devices': dev_count,
+                  'resources': res_rows, 'resource_devices': res_dev_count})
 
 
 def handle_device_changes(dev_id):
@@ -45154,6 +45190,10 @@ def _compute_attention():
     # carry one) was discarded as a duplicate. The latest occurrence is also
     # simply the right thing to show — an operator asking "what is happening"
     # means now, not this morning.
+    # v6.4.2: one config read for the whole sweep — the TTL is operator-tunable
+    # now, and reading it per event would put a _config_ro() call inside a loop
+    # over the whole 24h event window.
+    _log_ttl = _log_buffer_ttl()
     for ev in reversed(events):
         if not isinstance(ev, dict): continue
         ts = ev.get('ts', 0)
@@ -45204,9 +45244,9 @@ def _compute_attention():
             elif samples:
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
-            elif ts < now - LOG_BUFFER_TTL:
+            elif ts < now - _log_ttl:
                 # No sample on the event, and its lines have rolled out of the
-                # 6h buffer, so the evidence is gone for good. Needs Attention
+                # buffer, so the evidence is gone for good. Needs Attention
                 # keeps events for 24h — nearly a day longer than the logs
                 # behind them — and a card that can never show what it matched
                 # is not something anyone can act on. Drop it from the
@@ -51064,7 +51104,12 @@ def handle_patch_catalog():
                     slot['packages'].setdefault(pn, set()).add(nm)
         if cve_fixable.get(dev_id):
             cve_hosts += 1
-    rows = [{'package': n, 'count': len(hosts), 'devices': sorted(hosts)[:60]}
+    # v6.4.2: stamp each row with the operator's approve/decline decision so the
+    # catalog is where the decision is both MADE and SEEN (POST
+    # /api/patch-approvals records it; _autopatch_pin_prefix enforces it).
+    _approvals = _patch_approvals()
+    rows = [{'package': n, 'count': len(hosts), 'devices': sorted(hosts)[:60],
+             'approval': str((_approvals.get(n) or {}).get('state') or '')}
             for n, hosts in catalog.items()]
     rows.sort(key=lambda r: (-r['count'], r['package'].lower()))
     tp_out = []
@@ -51079,6 +51124,10 @@ def handle_patch_catalog():
         'devices_without_detail': sorted(no_detail),
         'cve_fixable_hosts':     cve_hosts,
         'third_party':           tp_out,
+        'approved_packages':     sum(1 for e in _approvals.values()
+                                     if isinstance(e, dict) and e.get('state') == 'approved'),
+        'declined_packages':     sum(1 for e in _approvals.values()
+                                     if isinstance(e, dict) and e.get('state') == 'declined'),
     })
 
 
@@ -56130,15 +56179,20 @@ def handle_syslog_in(token_str):
         new_msgs.append(msg)
 
     if new_entries:
+        # v6.4.2: operator-tunable ring retention — both reads hoisted OUT of
+        # the lock (and out of the list comprehension below).
+        _ttl = _log_buffer_ttl()
+        _unit_cap = _log_buffer_unit_cap()
         try:
             with _LockedUpdate(LOG_WATCH_FILE) as store:
                 dev_buf = store.setdefault(dev_id, {'units': {}, 'updated_at': now})
                 units_buf = dev_buf.setdefault('units', {})
                 syslog_buf = units_buf.setdefault('syslog', [])
                 syslog_buf.extend(new_entries)
-                # Age-bound: drop entries older than LOG_BUFFER_TTL
-                cutoff = now - LOG_BUFFER_TTL
-                syslog_buf[:] = [e for e in syslog_buf if e.get('ts', 0) >= cutoff]
+                # Age-bound: drop entries older than the configured TTL
+                cutoff = now - _ttl
+                syslog_buf[:] = _trim_unit_buffer(
+                    [e for e in syslog_buf if e.get('ts', 0) >= cutoff], _unit_cap)
                 dev_buf['updated_at'] = now
         except Exception as e:
             respond(500, {'error': f'log buffer write failed: {e}'})
@@ -56229,11 +56283,14 @@ def handle_snmp_trap_in(token_str):
         _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400', 'no traps in body')
         respond(400, {'error': 'no traps provided (expect {"traps":[{oid,value}]})'})
 
+    # v6.4.2: the trap ring shares the ingested-line TTL (same "how far back do
+    # I keep raw inbound telemetry" decision); read once, outside the lock.
+    _ttl = _log_buffer_ttl()
     try:
         with _LockedUpdate(SNMP_TRAPS_FILE) as store:
             buf = store.setdefault(dev_id, [])
             buf.extend(new_traps)
-            cutoff = now - LOG_BUFFER_TTL
+            cutoff = now - _ttl
             buf[:] = [e for e in buf if e.get('ts', 0) >= cutoff][-200:]
     except Exception as e:
         respond(500, {'error': f'trap store write failed: {e}'})
@@ -63058,6 +63115,10 @@ def handle_log_submit():
     _cfg_ignore = load(CONFIG_FILE) or {}
     _ignore_pats = tuple(_cfg_ignore.get('log_ignore_patterns') or [])
     _ignore_res = _compiled_patterns_cached(_ignore_pats, re.IGNORECASE)
+    # v6.4.2: the ring's retention is operator-tunable now. Same hoisting rule
+    # as the ignore patterns above — one read per submission, never per unit.
+    _ttl = _log_buffer_ttl()
+    _unit_cap = _log_buffer_unit_cap()
 
     for unit_raw, lines in units_in.items():
         # v6.4.1: _sanitize_log_unit, NOT _sanitize_unit_name — the strict
@@ -63109,12 +63170,17 @@ def handle_log_submit():
         combined = existing_lines + clean_lines
         # Trim by age — embedded timestamps mean old lines now get evicted
         # naturally rather than perpetually re-stamped to `now`.
-        cutoff = now - LOG_BUFFER_TTL
+        cutoff = now - _ttl
         combined = [e for e in combined if e.get('ts', 0) >= cutoff]
         # v3.0.1: byte cap removed — was silently dropping nginx.access and
         # brute-force lines whenever apt.history bloat filled the buffer.
         # With content dedupe + embedded timestamps + TTL the buffer no
         # longer grows unboundedly on idle units.
+        # v6.4.2: an OPT-IN cap is back, but PER UNIT (the v3.0.1 bug was a
+        # per-DEVICE cap letting one bloated unit starve the others) and
+        # keeping the NEWEST lines. Default 0 = off, so this is a no-op unless
+        # an operator sets log_buffer_max_bytes_per_unit.
+        combined = _trim_unit_buffer(combined, _unit_cap)
         # v1.8.2: always keep the unit key, even if empty — so the device
         # appears on the Logs page as "watched, quiet in this window"
         units_buf[unit] = combined
@@ -65364,6 +65430,18 @@ def _build_exact_routes():
         ('GET', '/api/agent-compat'): handle_agent_compat,                # v5.0.0 #F4
         ('POST', '/api/devices/bulk-delete'): handle_devices_bulk_delete,  # v5.0.0 #F1
         ('POST', '/api/devices/bulk-tags'): handle_devices_bulk_tags,      # v5.0.0 #F2
+        # v6.4.2 fleet-ops (fleet_ops_handlers.py). Every path here is an EXACT
+        # route with an explicit method and NO path parameter, so the OpenAPI
+        # spec picks all of them up from _build_exact_routes().keys().
+        ('POST', '/api/devices/bulk-attrs'): handle_devices_bulk_attrs,
+        ('GET', '/api/taxonomy'): handle_taxonomy_list,
+        ('POST', '/api/taxonomy/groups/rename'): handle_taxonomy_group_rename,
+        ('POST', '/api/taxonomy/groups/merge'): handle_taxonomy_group_merge,
+        ('POST', '/api/taxonomy/groups/delete'): handle_taxonomy_group_delete,
+        ('GET', '/api/patch-approvals'): handle_patch_approvals_list,
+        ('POST', '/api/patch-approvals'): handle_patch_approval_set,
+        ('POST', '/api/patch-approvals/delete'): handle_patch_approval_clear,
+        ('GET', '/api/logs/export'): handle_logs_export,
         ('GET', '/api/maintenance-mode'): handle_maintenance_mode_get,    # v5.0.0 #R3
         ('POST', '/api/maintenance-mode'): handle_maintenance_mode_set,
         ('GET', '/api/litigation-hold'): handle_litigation_hold_get,      # v6.1.1 (#21)

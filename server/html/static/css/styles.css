@@ -1896,7 +1896,13 @@
   #ticket-detail-modal > .modal > .modal-close,
   #host-config-modal > .modal > .modal-close { position: absolute; }
   .modal-title    { font-size: 16px; font-weight: 640; margin-bottom: 6px; }
-  .modal-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  /* v6.4.2: pre-line, because uiConfirm/uiPrompt set this element with
+     textContent and 40 call sites author a "\n\n" to separate the action from
+     its consequence ("This cannot be undone. Use Clear resolved if you only
+     want to purge resolved."). Without it every one of those collapsed into a
+     single run-on grey line, burying the escape hatch mid-sentence. Wrapping is
+     unaffected — pre-line still wraps, it only stops eating authored breaks. */
+  .modal-subtitle { font-size: 12.5px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; white-space: pre-line; }
   .pin-display {
     background: var(--bg);
     border: 1px solid var(--border);
@@ -6489,6 +6495,28 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 
 /* v3.4.2: Trends charts */
 .trend-chart { width: 100%; overflow-x: auto; }
+/* v6.4.2: metric explorer pickers (app-trends.js). Two flat panels beside each
+   other above the chart — hairline, 11px radius, no font-size of their own so
+   they stay on the 13.5px body anchor. The host box also carries .scroll-cap,
+   which owns its height cap; do not add a second max-height here. */
+.mx-hostbox {
+  flex: 1 1 260px;
+  min-width: 200px;
+  align-self: stretch;
+  padding: 8px 10px;
+  border: 1px solid var(--hair);
+  border-radius: 11px;
+  background: var(--surface);
+}
+.mx-metricbox {
+  flex: 0 1 auto;
+  min-width: 150px;
+  align-self: stretch;
+  padding: 8px 10px;
+  border: 1px solid var(--hair);
+  border-radius: 11px;
+  background: var(--surface);
+}
 .ts-chart { width: 100%; height: auto; display: block; }
 .ts-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .ts-leg { display: inline-flex; align-items: center; gap: 6px; }

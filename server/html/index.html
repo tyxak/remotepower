@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-6">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-7">
 
 </head>
 <body>
@@ -287,7 +287,7 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-896fd277"/></svg>
           <span>Checks</span>
         </button>
-        <button class="nav-btn" data-page="logs" title="6-hour rolling log buffer — search, tail live and manage alert rules">
+        <button class="nav-btn" data-page="logs" title="Rolling log buffer — search, tail live and manage alert rules">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
           <span>Logs</span>
         </button>
@@ -1797,6 +1797,19 @@
               <div class="meta-sm">Comma-, semicolon- or whitespace-separated list. All listed addresses receive every enabled event.</div>
               <div class="meta-sm">Tip: add a self-hosted help-desk's inbound address (osTicket, Zammad, Request Tracker, FreeScout) here to turn alerts into tickets — no extra setup. See <a href="docs/webhooks.md" class="c-accent">Notifications docs</a>.</div>
             </div>
+            <div class="form-group settings-subsection">
+              <label for="cfg-smtp-scope-type" class="form-label">Send this list only events from</label>
+              <div class="form-row-wrap">
+                <select id="cfg-smtp-scope-type" class="form-input input-narrow">
+                  <option value="all">the whole fleet</option>
+                  <option value="groups">these groups</option>
+                  <option value="tags">these tags</option>
+                  <option value="sites">these sites</option>
+                </select>
+                <input type="text" id="cfg-smtp-scope-val" class="form-input" placeholder="comma-separated values" aria-label="Scope values">
+              </div>
+              <div class="meta-sm">A scoped recipient list only receives events it can attribute to that slice. An event with no host and no site of its own — a fleet-wide monitor, a server-side sweep — will <strong>not</strong> be emailed to it. Leave on <em>the whole fleet</em> unless you route by site or team.</div>
+            </div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-alert-ack-links"> Add one-click <strong>Acknowledge / Resolve</strong> links to alert emails</label><span class="hint">Signed, single-capability links so an operator can ack or resolve straight from the email — no login. Uses this request's server hostname for the link; leave off if the server isn't reachable at that address.</span></div>
 
             <div class="isl-38">
@@ -1824,6 +1837,14 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <!-- v6.4.2: additional per-scope email routes -->
+          <div class="settings-section">
+            <div class="section-title">Additional email routes</div>
+            <p class="hint">Beyond the single Recipients list above, add any number of extra lists — each with its own delivery scope — so one site's alerts reach that site's team without every operator receiving the whole fleet. The Recipients list keeps working exactly as before; these are additive.</p>
+            <div id="email-routes" class="scroll-cap"></div>
+            <button class="btn-secondary mt-8" data-action="addEmailRoute">+ Add email route</button>
           </div>
 
           <div class="settings-section">
@@ -2816,7 +2837,12 @@
                 <input type="number" id="ret-alerts" min="0" max="3650" step="1" class="form-input"></label>
               <label for="ret-metrics">Metric samples (days)
                 <input type="number" id="ret-metrics" min="0" max="3650" step="1" class="form-input"></label>
+              <label for="ret-logbuf-h">Ingested log lines (hours)
+                <input type="number" id="ret-logbuf-h" min="0" max="168" step="1" class="form-input"></label>
+              <label for="ret-logbuf-b">Log bytes per unit (0 = no cap)
+                <input type="number" id="ret-logbuf-b" min="0" max="67108864" step="1024" class="form-input"></label>
             </div>
+            <p class="hint">The last two cap the in-memory ring holding <em>ingested log lines</em> (syslog / journal forwarding), which is a different thing from the day-based limits above: hours, not days, and a per-<strong>unit</strong> byte cap that keeps the newest lines. <code>0</code> on either means the built-in default — a 6-hour window and no byte cap. A per-unit cap stops one chatty unit crowding every other unit out of the buffer.</p>
             <p class="hint">Metric samples (the device <strong>Trend</strong> charts) are kept as a time-series only on the <strong>SQLite</strong> or <strong>PostgreSQL</strong> backend — that's what makes a 30-day point-in-time history practical. On the JSON backend the charts show the recent rolling window only.</p>
             <div class="retention-controls">
               <button class="btn-icon" data-action="saveRetention"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-9b2800a9"/></svg> Save retention</button>
@@ -4918,7 +4944,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="logs journal journalctl tail regex pattern alert">
             <summary><strong>Logs page</strong> — log tail across the fleet with pattern matching</summary>
             <div class="doc-body">
-              <p>Per-device journalctl output for watched units. Agents submit log lines on every heartbeat; server keeps a rolling 6-hour buffer.</p>
+              <p>Per-device journalctl output for watched units. Agents submit log lines on every heartbeat; the server keeps a rolling buffer, 6 hours by default and tunable under Settings → Advanced → Data retention.</p>
               <p><strong>Search:</strong> regex over the buffered logs. Filter by device, unit, time range. Useful for "did this error happen anywhere in the last hour?"</p>
               <p><strong>Pattern alerts:</strong> Settings → Log rules. Define regex patterns; matches fire <code>log_alert</code> webhook with the matched line, device, and unit. Useful for kernel oops, OOM kills, fail2ban bans, anything you want a notification on.</p>
               <p><strong>Per-device or fleet-global rules:</strong> rules can be scoped to a device (only matches there fire) or fleet-global (matches on any device fire).</p>
@@ -5724,15 +5750,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── Forecast page (v3.4.0): disk-fill projection across the fleet ──── -->
       <div id="page-forecast" class="page">
         <div class="page-title">Forecast</div>
-        <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. Ephemeral mounts (<code>/tmp</code>, <code>/run</code>, <code>/dev/shm</code>, …) are excluded, and a heavily-fluctuating mount shows <em>fluctuating</em> instead of a misleading date. <a href="docs/forecast.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history, plus memory, swap and CPU-load headroom from the same samples. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. Ephemeral mounts (<code>/tmp</code>, <code>/run</code>, <code>/dev/shm</code>, …) are excluded, and a heavily-fluctuating mount shows <em>fluctuating</em> instead of a misleading date. <a href="docs/forecast.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
           <button class="btn-secondary" data-action="loadForecast"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-ce8e1447"/></svg> Refresh</button>
-          <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter device or mount…" data-input="renderForecastTable" data-input-value="1" data-input-debounce="180" autocomplete="off" aria-label="Filter device or mount">
+          <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter device, mount or resource…" data-input="renderForecastTable" data-input-value="1" data-input-debounce="180" autocomplete="off" aria-label="Filter device, mount or resource">
           <label class="form-label fs-12"><input type="checkbox" id="forecast-atrisk" data-change="renderForecastTable"> At-risk only</label>
           <span id="forecast-summary" class="fs-12 c-muted"></span>
         </div>
         <div id="forecast-chart" class="mb-16"></div>
         <div id="forecast-body"><div class="c-muted">Loading…</div></div>
+        <div id="forecast-res-body" class="mt-16"></div>
       </div>
 
       <!-- ── Timeline page (v3.4.1) ───────────────────────────────────────── -->
@@ -6433,7 +6460,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="dash-card">
           <div class="section-title">Groups</div>
-          <p class="hint">A device belongs to exactly one group. Groups are read-only here: there is no bulk group endpoint, and a per-device loop can half-apply, so a group is still renamed from each device's drawer.</p>
+          <p class="hint">A device belongs to exactly one group. Renaming onto a name that already exists merges the two; deleting a group clears the label from every device but keeps the devices. Counts cover the devices you can see. Renaming a group does <strong>not</strong> rewrite the role scopes, alert routing, auto-patch targets, rollout rings or smart groups that name it — you are told which ones still reference it so you can repoint them.</p>
           <input type="text" id="taxonomy-groups-filter" class="form-input page-filter mb-8" placeholder="Filter groups…" aria-label="Filter groups">
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
@@ -6703,7 +6730,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v1.8.1: Logs page ─────────────────────────────────────────────── -->
       <div id="page-logs" class="page">
         <div class="page-title">Logs</div>
-        <div class="page-subtitle">6-hour rolling buffer across the fleet. Search, tail live, or manage alert rules. <a href="docs/log-watch.md" class="c-accent">Documentation</a></div>
+        <div class="page-subtitle">Rolling log buffer across the fleet. Search, tail live, or manage alert rules. <a href="docs/log-watch.md" class="c-accent">Documentation</a></div>
 
         <!-- Search bar + stats -->
         <div class="toolbar">
@@ -11143,38 +11170,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-6"></script>
+<script defer src="static/js/app.js?v=6.4.2-7"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-7"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-7"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-7"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-6"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-7"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-7"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-6"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-7"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11184,6 +11211,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-6"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-7"></script>
 </body>
 </html>

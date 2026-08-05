@@ -96,6 +96,106 @@ product has always computed for its own screens and never let you take away.
   narrowing to a short recent window re-fetches the finest roll-up tier that
   still covers it rather than stretching the points already on screen.
 
+### Fleet operations that were one device at a time
+
+- **Groups can be renamed, merged and deleted across the fleet.** Tags have had
+  this for releases; groups were read-only on **Tags & groups** for a real
+  reason, which the page said out loud: the only server primitive was one device
+  per request, and a client-side loop can fail halfway and leave a group split
+  across two names with no way to tell which half moved. There is now a single
+  atomic endpoint per operation — every device commits or none do — so the
+  buttons are safe and they are there.
+- **It tells you what it did not touch.** A group is the primary selector for
+  role scopes, alert routing, auto-patch targets, rollout rings and smart
+  groups. Renaming one deliberately does **not** rewrite those — silently
+  repointing an RBAC scope from a device-taxonomy screen is the worse failure —
+  so the response lists every store that still names the old group, and the
+  toast is a warning naming them rather than a success.
+- **Bulk device attribute edit.** `POST /api/devices/bulk-attrs` sets group,
+  site, tags (replace or add/remove), monitored, decommissioned, icon, notes,
+  poll interval, update channel, offline-alert delay and reachability across a
+  selection in one locked write. A missing key is not touched; validation runs
+  *before* the lock so a bad field cannot half-apply. The cap is 1000 devices,
+  not the 100 the generic target resolver uses.
+- **Per-package patch approval.** Approve or decline individual packages and the
+  auto-patch run honours it — declined packages are pinned (`apt-mark hold` /
+  versionlock / addlock) immediately before the upgrade, and approving one
+  un-pins it so the state converges rather than drifting. The patch catalog
+  carries each decision. Honest about its edges: the run reports
+  `declined_enforced_on: "linux"`, because the Windows and macOS upgrade verbs
+  have no per-package exclusion — and staged/ringed policies do not yet pick up
+  the pin, which is stated rather than left to be discovered.
+- **Patch approvals are gated as the instance-wide policy they are.** The store
+  has no tenant dimension and feeds the command queued for every tenant's hosts,
+  so under multi-tenancy only a platform superadmin can change it — otherwise one
+  tenant declining `openssl` would pin it across the whole instance. Reads stay
+  open: seeing the policy that governs your own hosts is legitimate. A no-op on
+  single-tenant installs, which is nearly all of them.
+- **The ingested log ring is tunable, and exportable.** Its 6-hour window and
+  per-unit byte cap were two hard-coded constants; both are now under **Settings
+  → Advanced → Data retention** (`0` on either keeps the built-in default), and
+  `GET /api/logs/export` returns the buffer as CSV or NDJSON. The Logs page no
+  longer claims a fixed six hours, because it is no longer fixed.
+- These land in a new bound module rather than growing `api.py`, which let the
+  inline-handler ceiling come **down** from 627 to 625: the two existing bulk
+  device writes moved out to sit beside the new one.
+
+### Assets that could not be updated
+
+- **Four served pages were pinned to stale assets for up to a year.** `/static/`
+  is served `immutable` with a one-year max-age, and the deploy step that
+  rewrites asset versions only ever touched `index.html`. So the **public status
+  board** requested `styles.css?v=5.1.0` and `status.css?v=5.1.0` — both edited
+  several releases ago — while the customer portal had no version marker at all
+  and could not be invalidated short of a hard refresh no customer will perform.
+  A first-time visitor and a returning one saw different stylesheets. Every
+  served page now busts its assets with the same version the shell uses, and the
+  lockstep test reads all of them instead of just `index.html`.
+
+### One chart, many hosts
+
+- **A metric explorer on Monitoring → Trends.** Everything else on that page
+  answers a question about one host. This answers the cross-host ones — "which of
+  these eight boxes ran hot last Tuesday?" — by overlaying any hosts against any
+  metrics (CPU, memory, swap, disk, temperature; average, minimum or maximum) on
+  a single axis, over any window from 24 hours to two years, reading the same
+  roll-up history the per-device charts read.
+- The roll-up tier is picked from the window you asked for and then **stated
+  under the chart**, along with how far back each host's history actually goes —
+  a coarse tier that has smoothed your spike away should say so rather than look
+  like an innocent flat line. Force a specific tier if you want one.
+- Hosts beyond the eight-per-run fetch cap are **reported in that note, not
+  dropped silently**. Export CSV gives exactly the series on screen — same hosts,
+  metrics, window and tier. Saved queries are `localStorage`, and the card says
+  so: they are a convenience for repeat investigations, not something a colleague
+  can open.
+
+### Forecasting that is not only about disks
+
+- **Memory, swap and CPU load are projected too.** The Forecast page has always
+  answered "when does this mount fill?" while the samples behind it also carried
+  memory, swap and load average — collected daily for months and never fitted.
+  A **Resource headroom** table now sits below the mounts, one row per metric per
+  host, soonest-to-saturate first, with the current reading, the ceiling it is
+  heading for, the remaining headroom and the trend per day. Both
+  `GET /api/forecast` and `GET /api/devices/{id}/forecast` carry a `resources`
+  list alongside `mounts`, and each host's drawer shows its own rows.
+- **It declines to guess, and says why.** Memory saturates at 90%, swap at 80%,
+  load at 100% of cores — but a metric below its floor (60 / 5 / 50%) gets no
+  date at all, because extrapolating a box sitting at 12% memory to 90% produces
+  a confident-looking number built on nothing. The row is still shown, with the
+  gate that declined named in place of the date: `below floor`, `growth stalled`,
+  `fluctuating` (the same R² noise gate as the disk projection, and the same
+  operator-tunable floor), `>6 mo`, or `at ceiling` for a host that is already
+  there — which is a live problem, not a forecast.
+- CPU load is normalised to percent-of-cores, so 100% means one runnable process
+  per core. A load average arriving without a core count is dropped rather than
+  projected: 4.0 is idle on a 64-core box and on fire on a 2-core one.
+- The page's filter and **At-risk only** toggle drive both tables, and the
+  fleet-wide list is scoped to the caller's tenant and role exactly as the mounts
+  list is — resource rows are built inside the same scope-guarded pass, not a
+  second one.
+
 ### Windows container actions
 
 - **The Windows agent can run container actions.** It has reported containers
@@ -252,6 +352,22 @@ product has always computed for its own screens and never let you take away.
   visible rather than silent. The operator-triggered **Test** event bypasses
   scoping on purpose: that control exists to prove a destination works, and
   quietly delivering nothing would defeat it.
+- **All three of those are now settable in the interface**, not only over the
+  API. An integration card gained a **Runs on host** picker (fed from the device
+  list you can already see, so it cannot offer a host the save would reject) and
+  a **Site** field; a destination's Advanced panel gained the group / tag / site
+  scope and, when tenancy is on, the tenant allowlist; and **Settings →
+  Notifications** gained a scope for the global recipient list plus an
+  **Additional email routes** editor. Each control says plainly that a scoped
+  target stops receiving fleet-wide events, because "alerts stopped" is the
+  support ticket this feature would otherwise generate. Two details that would
+  have made the editor destructive are handled rather than documented: the
+  routes list is only sent once its loader has actually populated it — the
+  server replaces the whole list, so a Settings save from a pane that failed to
+  load would have deleted every API-configured route — and a half-typed row with
+  no recipients is dropped client-side instead of 400-ing the entire save. A
+  binding that names a host outside your view stays selectable rather than
+  silently resetting to unbound on the next save.
 
 ### Metrics for the posture we already compute
 
@@ -727,6 +843,16 @@ release ships.
 
 ### Interface
 
+- **Confirm dialogs stopped eating their own paragraph breaks.** Around forty
+  confirm and prompt messages deliberately author a blank line to separate the
+  action from its consequence — "This cannot be undone. Use *Clear resolved* if
+  you only want to purge resolved." The dialog's message element had no
+  `white-space` rule, so every one of those collapsed into a single run-on grey
+  line with the escape hatch buried mid-sentence, which is the opposite of why
+  the author split it out.
+- **Byte totals go past gigabytes.** The shared formatter stopped at GB, so a
+  multi-terabyte WireGuard tunnel counter or netflow total rendered as a
+  four- or five-digit GB number. It now has TB and PB rungs.
 - **A board tile did not carry its filter.** Clicking a group, site or tag tile
   opened the full, unfiltered fleet, so the operator had to find and re-apply by
   hand the very filter the tile exists to apply for them — worst on a large

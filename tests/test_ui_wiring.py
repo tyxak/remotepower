@@ -197,17 +197,48 @@ class TestCacheBustLockstep(unittest.TestCase):
     change, and a forgotten bump means browsers serve a stale shell against a
     new API. Made structural in the v6.4.0 micropolish pass."""
 
-    def test_cache_name_matches_every_asset_version(self):
+    def _cache_name_version(self):
         sw = (_HTML / "sw.js").read_text()
         m = re.search(r"CACHE_NAME\s*=\s*'remotepower-shell-v([\w.\-]+)'", sw)
         self.assertIsNotNone(m, "CACHE_NAME not found in sw.js")
-        ver = m.group(1)
+        return m.group(1)
+
+    def test_cache_name_matches_every_asset_version(self):
+        ver = self._cache_name_version()
         html = _index_html()
         versions = set(re.findall(r"\?v=([\w.\-]+)", html))
         self.assertEqual(versions, {ver},
                          f"index.html ?v= values {sorted(versions)} out of "
                          f"lockstep with sw.js CACHE_NAME v{ver} — bump both "
                          "together on every client-asset change")
+
+    # v6.4.2: the guard used to read index.html ONLY, so the four non-SPA
+    # surfaces drifted for years — status.html sat on ?v=5.1.0 while status.css
+    # and status.js had both been edited since, and portal.html had no bust at
+    # all. /static/ is served `max-age=31536000, immutable`, and
+    # deploy-server.sh's content-hash rewrite only touches index.html, so a
+    # returning viewer of the PUBLIC status board was pinned to a stylesheet
+    # from three minor versions ago for a year.
+    _LOCAL_ASSET = re.compile(
+        r'(?:href|src)="((?!https?:|//)[^"]*\.(?:css|js)(?:\?[^"]*)?)"')
+
+    def test_every_html_surface_is_in_lockstep(self):
+        ver = self._cache_name_version()
+        offenders = []
+        for path in sorted(_HTML.glob("*.html")):
+            for ref in self._LOCAL_ASSET.findall(path.read_text()):
+                m = re.search(r"\?v=([\w.\-]+)", ref)
+                if not m:
+                    offenders.append(f"{path.name}: {ref} has NO ?v= bust")
+                elif m.group(1) != ver:
+                    offenders.append(
+                        f"{path.name}: {ref} is v{m.group(1)}, not v{ver}")
+        self.assertEqual(offenders, [],
+                         "every served HTML surface must bust its local assets "
+                         f"with the current CACHE_NAME version (v{ver}); "
+                         "/static/ is immutable for a year, so a stale or "
+                         "missing ?v= pins returning viewers to old assets:\n  "
+                         + "\n  ".join(offenders))
 
 
 class TestEveryDataAttributeIsConsumed(unittest.TestCase):

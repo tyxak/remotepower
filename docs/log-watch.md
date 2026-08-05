@@ -1,7 +1,14 @@
 # Logs (log watch)
 
-**Monitoring → Logs** keeps a 6-hour rolling buffer of journal/syslog lines
-across the fleet. Search it, tail it live, or attach alert rules to it.
+**Monitoring → Logs** keeps a rolling buffer of journal/syslog lines across the
+fleet. Search it, tail it live, or attach alert rules to it.
+
+The window is **6 hours by default and operator-tunable** under **Settings →
+Advanced → Data retention** (`log_buffer_retention_hours`, 0–168; `0` restores
+the default). An optional per-**unit** byte cap
+(`log_buffer_max_bytes_per_unit`, `0` = no cap) keeps the newest lines and stops
+one chatty unit crowding every other unit out of the buffer. The buffer can be
+exported as CSV or NDJSON with `GET /api/logs/export`.
 
 ## Using the page
 

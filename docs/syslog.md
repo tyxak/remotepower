@@ -6,7 +6,8 @@ lines two ways and runs them through the same log-watch buffer and alert-rule
 engine as agent-shipped journal lines, so a matching line pages you exactly
 like any other host would.
 
-Both paths land in the 6-hour rolling **Monitoring → Logs** buffer under a
+Both paths land in the rolling **Monitoring → Logs** buffer (6 hours by default,
+tunable — see [log-watch.md](log-watch.md)) under a
 synthetic `syslog` unit, and both evaluate your per-device and global
 `log_alert` rules. See [log-watch.md](log-watch.md) for the buffer and rule
 editor.

@@ -1763,7 +1763,7 @@ const _SIDEBAR_KW = {
   'query': 'fleet query filter search devices ad-hoc',
   'targets': 'monitor probes http ping healthcheck synthetic agentless reachability snmp',
   'device metrics': 'metrics cpu memory ram disk swap load average sparkline charts utilization',
-  'forecast': 'forecast disk fill capacity planning days to full projection trend',
+  'forecast': 'forecast disk fill capacity planning days to full projection trend memory swap cpu load saturation headroom ceiling resource',
   'timeline': 'timeline history events activity chronological',
   'listening ports': 'ports listening open ports sockets netstat',
   'custom scripts': 'scripts automation run script shell command library',
@@ -2266,6 +2266,7 @@ const _LAZY_PAGE_MODULES = {
   timesheet: ['app-billing.js'],
   billing: ['app-billing.js'],
   users: ['app-billing.js'],        // loadTimesheetWatchers lives there
+  trends: ['app-trends.js'],        // metric explorer card
 };
 const _ALL_LAZY_MODULES = [...new Set(Object.values(_LAZY_PAGE_MODULES).flat())];
 const _loadedJsModules = new Set();
@@ -2456,7 +2457,11 @@ function showPage(name, btn) {
   if (name === 'signing')    loadSigning();
   if (name === 'query')      loadFleetQuery();
   if (name === 'rollouts')   loadRollouts();
-  if (name === 'trends')     loadTrends();
+  // v6.4.2: an explicit call, not a loadTrends monkey-patch from app-trends.js —
+  // the lazy-module guard skips any function app.js also defines, so a wrapper
+  // would be the one wiring shape no test can verify. mountMetricExplorer is
+  // idempotent and showPage re-enters after _loadPageJs, so it is defined here.
+  if (name === 'trends')   { loadTrends(); mountMetricExplorer(); }
   if (name === 'exposure')   loadExposure();
   if (name === 'protect')  { loadProtectChecks(); loadGuardVault(); }
   if (name === 'advisory')   advScopeChanged();   // wire the picker; build on demand
@@ -4334,8 +4339,26 @@ async function loadSettings() {
   if (_pdr) _pdr.value = data.posture_digest_recipients || '';
 
   // v3.0.2: multi-webhook destinations editor
+  // Must be set BEFORE renderWebhookDests — it gates the per-destination tenant
+  // control, and the tenancy checkbox further down runs long after this render.
+  _tenancyOn = !!data.tenancy_enforced;
   _webhookDests = Array.isArray(data.webhook_urls) ? data.webhook_urls.map(d => ({...d})) : [];
   renderWebhookDests();
+  // v6.4.2: additional email routes. Setting the loaded flag here is what
+  // permits saveSettings to send the key at all — see the note on
+  // _emailRoutesLoaded (the server replaces the whole list).
+  _emailRoutes = Array.isArray(data.email_routes) ? data.email_routes.map(r => ({...r})) : [];
+  _emailRoutesLoaded = true;
+  renderEmailRoutes();
+  // Global recipient-list scope.
+  const _ssT = document.getElementById('cfg-smtp-scope-type');
+  const _ssV = document.getElementById('cfg-smtp-scope-val');
+  if (_ssT && _ssV) {
+    const _sf = (data.smtp_scope_filter && typeof data.smtp_scope_filter === 'object') ? data.smtp_scope_filter : {};
+    _ssT.value = ['groups', 'tags', 'sites'].includes(_sf.type) ? _sf.type : 'all';
+    _ssV.value = Array.isArray(_sf.values) ? _sf.values.join(', ') : '';
+    _smtpScopeLoaded = true;
+  }
 
   // v3.0.2: session/audit/backup settings. (The old session-ttl-short/long
   // inputs are gone — the live surface is the cfg-session-short/long pair,
@@ -4343,16 +4366,10 @@ async function loadSettings() {
   const _ar = document.getElementById('audit-retention-days');
   if (_ar) _ar.value = data.audit_log_retention_days ?? '';
 
-  // v3.12.0: data retention (days; 0 = keep all)
-  const _retMap = {
-    'ret-history': 'history_retention_days',
-    'ret-fleet':   'fleet_events_retention_days',
-    'ret-webhook': 'webhook_log_retention_days',
-    'ret-monitor': 'monitor_history_retention_days',
-    'ret-alerts':  'alerts_retention_days',
-    'ret-metrics': 'metric_samples_retention_days',
-  };
-  for (const [id, key] of Object.entries(_retMap)) {
+  // v3.12.0: data retention. Reads the SAME table saveRetention writes from —
+  // this was a duplicated literal, which is how a field gets added to one half
+  // and silently never loads (or never saves) in the other.
+  for (const [id, [key]] of Object.entries(_RETENTION_FIELDS)) {
     const el = document.getElementById(id);
     if (el) el.value = data[key] ?? 0;
   }
@@ -4925,6 +4942,26 @@ async function saveSettings(btn) {
       delete c.hmac_secret_set;
       return c;
     });
+  }
+
+  // v6.4.2: additional email routes + the global recipient-list scope.
+  // BOTH are gated on their loader having run. The server REPLACES the whole
+  // routes list and treats an explicit all/empty scope as "clear", so sending
+  // either from a pane that failed to load would delete an operator's
+  // API-configured routing while toasting "Saved".
+  if (_emailRoutesLoaded && Array.isArray(_emailRoutes)) {
+    payload.email_routes = _emailRoutes
+      .filter(r => (Array.isArray(r.recipients) ? r.recipients.length : false))
+      .map(r => ({...r}));
+  }
+  if (_smtpScopeLoaded) {
+    const _st = document.getElementById('cfg-smtp-scope-type');
+    const _sv = document.getElementById('cfg-smtp-scope-val');
+    if (_st && _sv) {
+      const _vals = _sv.value.split(',').map(s => s.trim()).filter(Boolean);
+      payload.smtp_scope_filter = (_st.value === 'all' || !_vals.length)
+        ? {type: 'all'} : {type: _st.value, values: _vals};
+    }
   }
 
   // v3.0.2: audit retention + backup config. (session_ttl_short/long are
@@ -8468,7 +8505,11 @@ function _fmtBytes(n) {
   if (n < 1024) return n + ' B';
   if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
   if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
-  return (n / 1073741824).toFixed(1) + ' GB';
+  if (n < 1099511627776) return (n / 1073741824).toFixed(1) + ' GB';
+  // v6.4.2: multi-terabyte totals (WireGuard tunnel counters, netflow byte
+  // sums) used to stop at GB and render as four- and five-digit numbers.
+  if (n < 1125899906842624) return (n / 1099511627776).toFixed(1) + ' TB';
+  return (n / 1125899906842624).toFixed(1) + ' PB';
 }
 
 // v5.4.1 (H2): locale-aware Intl helpers. The in-app language picker
@@ -8599,22 +8640,32 @@ async function migrateStorage() {
 }
 
 // v3.12.0: data retention + on-demand maintenance ────────────────────────────
+// [config key, min, max, unit] — the bounds mirror the server's own per-key
+// checks in handle_config_save. v6.4.2: the last two are NOT days (hours and
+// bytes), which is why the bound moved onto the row; a single hardcoded
+// 0..3650 would have rejected every legal value for both.
 const _RETENTION_FIELDS = {
-  'ret-history': 'history_retention_days',
-  'ret-fleet':   'fleet_events_retention_days',
-  'ret-webhook': 'webhook_log_retention_days',
-  'ret-monitor': 'monitor_history_retention_days',
-  'ret-alerts':  'alerts_retention_days',
-  'ret-metrics': 'metric_samples_retention_days',
+  'ret-history':  ['history_retention_days',         0, 3650, 'days'],
+  'ret-fleet':    ['fleet_events_retention_days',    0, 3650, 'days'],
+  'ret-webhook':  ['webhook_log_retention_days',     0, 3650, 'days'],
+  'ret-monitor':  ['monitor_history_retention_days', 0, 3650, 'days'],
+  'ret-alerts':   ['alerts_retention_days',          0, 3650, 'days'],
+  'ret-metrics':  ['metric_samples_retention_days',  0, 3650, 'days'],
+  'ret-logbuf-h': ['log_buffer_retention_hours',     0, 168,  'hours'],
+  'ret-logbuf-b': ['log_buffer_max_bytes_per_unit',  0, 67108864, 'bytes'],
 };
 async function saveRetention() {
   const body = {};
-  for (const [id, key] of Object.entries(_RETENTION_FIELDS)) {
+  for (const [id, [key, lo, hi, unit]] of Object.entries(_RETENTION_FIELDS)) {
     const el = document.getElementById(id);
     if (!el) continue;
+    // Blank means "leave it alone" rather than 0, which for these keys means
+    // "use the built-in default" and would silently reset a tuned value.
+    if (el.value === '') continue;
     const v = parseInt(el.value, 10);
-    if (isNaN(v) || v < 0 || v > 3650) {
-      toast('Retention days must be 0–3650', 'error');
+    if (isNaN(v) || v < lo || v > hi) {
+      toast(`${el.labels?.[0]?.textContent?.trim() || key}: must be ${lo}–${hi} ${unit}`, 'error');
+      el.focus();
       return;
     }
     body[key] = v;
@@ -12401,6 +12452,11 @@ async function loadIntegrationsTab() {
 // ── v4.7.0: homelab software integrations ────────────────────────────────────
 let _integrations = [];
 let _integrationCatalog = [];
+// v6.4.2: the host/site binding picker. Sourced from GET /devices, which is
+// already scope- and tenant-filtered server-side — the save handler runs
+// _scope_block_device on whatever we send, so a picker fed from a wider source
+// would just offer options that 403.
+let _integDevices = [];
 // Map a connector result status to the canonical themed .status-pill variant
 // (adapts to every theme incl. Industrial light/dark; carries a status dot).
 const _INTEG_PILL = { ok: 'ok', warning: 'warn', critical: 'critical', unknown: 'neutral' };
@@ -12409,6 +12465,9 @@ async function loadIntegrations() {
   const data = await api('GET', '/integrations');
   _integrations = (data && data.integrations) || [];
   _integrationCatalog = (data && data.catalog) || [];
+  // Non-fatal: without it the binding picker degrades to "keep what is set"
+  // rather than breaking the whole page.
+  try { _integDevices = await _scanDeviceList(); } catch (_) { _integDevices = []; }
   _showHomelab = !data || data.show_homelab !== false;
   const cb = document.getElementById('show-homelab');
   if (cb) cb.checked = _showHomelab;
@@ -12516,11 +12575,51 @@ function _integrationCardHtml(it, idx) {
           <input type="url" class="form-input mw-260" data-ifield="url" value="${escAttr(it.url || '')}" placeholder="https://service.lan:port"></div>
       </div>
       <div class="settings-row">${fields}</div>
+      ${_integrationBindHtml(it, idx)}
       <div class="settings-row">
         <label class="form-label"><input type="checkbox" data-ifield="verify_tls" ${it.verify_tls !== false ? 'checked' : ''}> Verify TLS (uncheck for self-signed)</label>
         <span id="integration-test-${idx}" class="hint ml-8"></span>
       </div>
     </div>`;
+}
+
+// v6.4.2: bind an instance to the host (and/or site) the service actually runs
+// on. Optional and empty by default — an unbound instance behaves exactly as
+// before. Bound, its up/down events carry a device_id, which is what makes
+// maintenance windows, per-(host,event) mutes, unmonitored-host suppression and
+// scoped notification routing apply to them like any other device event.
+//
+// No read-back code is needed: _readIntegrationCards syncs every [data-ifield]
+// element generically, and both controls are plain scalars.
+function _integrationBindHtml(it, idx) {
+  const bound = it.device_id || '';
+  const opts = ['<option value="">(not bound to a host)</option>'].concat(
+    (_integDevices || []).map(d => {
+      const id = d.id || d.device_id || '';
+      const nm = d.name || id;
+      return `<option value="${escAttr(id)}"${id === bound ? ' selected' : ''}>${escHtml(nm)}</option>`;
+    }));
+  // A binding set through the API may name a host this operator cannot see, or
+  // one since deleted. Silently dropping to "(not bound)" would make Save wipe
+  // it, so keep it as an explicit option that says what it is.
+  if (bound && !(_integDevices || []).some(d => (d.id || d.device_id) === bound)) {
+    opts.push(`<option value="${escAttr(bound)}" selected>${escHtml(bound)} (not in your view)</option>`);
+  }
+  // Sites the DEVICES actually carry — that raw string is what scope matching
+  // compares against, so offering the site registry's display name instead
+  // would produce a filter that matches nothing.
+  const sites = Array.from(new Set((_integDevices || [])
+    .map(d => (d.site || '').trim()).filter(Boolean))).sort();
+  const dl = `integ-sites-${idx}`;
+  return `<div class="settings-row">
+        <div class="form-group"><label class="form-label">Runs on host <span class="hint">(optional)</span></label>
+          <select class="form-input" data-ifield="device_id">${opts.join('')}</select></div>
+        <div class="form-group"><label class="form-label">Site <span class="hint">(optional)</span></label>
+          <input type="text" class="form-input" data-ifield="site" list="${dl}" autocomplete="off"
+                 value="${escAttr(it.site || '')}" placeholder="e.g. hq, dc1">
+          <datalist id="${dl}">${sites.map(s => `<option value="${escAttr(s)}"></option>`).join('')}</datalist></div>
+      </div>
+      <p class="hint">Binding an integration routes its up/down events like a device event — maintenance windows, per-host mutes and scoped notification destinations all apply.</p>`;
 }
 
 // Sync the DOM inputs back into the _integrations model before save/test.
@@ -17844,11 +17943,24 @@ function _registerTaxonomyTables() {
     columns: ['name', 'device_count'],
     refresh: () => _renderTaxonomy(),
     getColumns: (g) => ({name: g.name, device_count: g.device_count}),
-    row: (g) => `<tr><td class="fw-600">${escHtml(g.name)}</td>`
-      + `<td>${g.device_count}</td>`
-      + `<td><div class="user-actions">`
-      + `<button class="btn-icon" title="Show the devices in this group" data-action="showDevicesForGroup" data-arg="${escAttr(g.name)}">${_icon('eye', 14)}</button>`
-      + `</div></td></tr>`,
+    // v6.4.2: groups gained the same three write actions tags have. They were
+    // read-only until now for a real reason — the only server primitive was one
+    // device per PATCH, and a client-side loop can half-apply and leave a group
+    // split across two names. /api/taxonomy/groups/* is a single atomic
+    // read-modify-write, so the loop is gone and the actions are safe.
+    row: (g) => {
+      const admin = !!(_meCache && _meCache.admin);
+      const writes = admin
+        ? `<button class="btn-icon" title="Rename this group on every device in it" data-action="renameGroup" data-arg="${escAttr(g.name)}">${_icon('edit', 14)}</button>`
+          + `<button class="btn-icon" title="Merge this group into another one" data-action="mergeGroup" data-arg="${escAttr(g.name)}">${_icon('layers', 14)}</button>`
+          + `<button class="btn-icon c-danger-outline" title="Clear this group from every device (the devices stay)" data-action="deleteGroup" data-arg="${escAttr(g.name)}">${_icon('trash', 14)}</button>`
+        : '';
+      return `<tr><td class="fw-600">${escHtml(g.name)}</td>`
+        + `<td>${g.device_count}</td>`
+        + `<td><div class="user-actions">`
+        + `<button class="btn-icon" title="Show the devices in this group" data-action="showDevicesForGroup" data-arg="${escAttr(g.name)}">${_icon('eye', 14)}</button>`
+        + writes + `</div></td></tr>`;
+    },
     emptyMsg: 'No groups in use. Set a device’s group from its drawer.',
     emptyMsgFiltered: 'No groups match the filter.',
   });
@@ -17910,6 +18022,13 @@ function showDevicesForGroup(group) {
 // so applying the same rule here is what makes the confirmation honest instead
 // of a guess about what will actually be stored.
 function _taxonomyCleanTag(raw) {
+  return String(raw || '').replace(/[^a-zA-Z0-9_\-/]/g, '').slice(0, 64);
+}
+
+// v6.4.2: mirrors the server's _clean_group (alphanumeric + - _ /, capped at
+// MAX_GROUP_LEN = 64) so the client rejects the same input rather than posting
+// something the server will silently sanitise into a different group name.
+function _taxonomyCleanGroup(raw) {
   return String(raw || '').replace(/[^a-zA-Z0-9_\-/]/g, '').slice(0, 64);
 }
 
@@ -17994,6 +18113,101 @@ async function deleteTag(tag) {
   });
   if (!ok) return;
   await _taxonomyBulkTags(ids, [], [name], `Removed "${name}"`);
+}
+
+// ── v6.4.2: group rename / merge / delete ───────────────────────────────────
+// Deliberately NOT routed through _taxonomyBulkTags: groups have their own
+// atomic server endpoint, and the whole point of it is that there is no
+// client-side per-device loop to half-apply.
+
+function _taxonomyGroupNames() {
+  return [...new Set(_taxonomyDevices
+    .map(d => String(d.group || '').trim()).filter(Boolean))].sort();
+}
+
+// A group is the primary selector for role scopes, alert routing, auto-patch
+// targets, rollout rings, smart groups and saved views. The endpoint reports
+// those references rather than rewriting them — silently repointing an RBAC
+// scope from a device-taxonomy screen would be the worse failure — so the
+// operator has to be TOLD, which means a warning toast, not a success one.
+async function _taxonomyGroupOp(op, payload, okMsg) {
+  const r = await api('POST', `/taxonomy/groups/${op}`, payload);
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  const orphans = Array.isArray(r.orphan_references) ? r.orphan_references : [];
+  if (orphans.length) {
+    const where = orphans.map(o => `${o.store} (${o.references})`).join(', ');
+    toast(`${okMsg} on ${r.updated} device(s). Still referenced in ${where} — repoint those.`,
+          'warning');
+  } else {
+    toast(`${okMsg} on ${r.updated} device(s)`, 'success');
+  }
+  await loadTaxonomy();
+  loadDevices();
+}
+
+const _GROUP_REF_WARNING =
+  'Role scopes, alert routing, auto-patch targets, rollout rings and smart groups that '
+  + 'name this group are NOT rewritten — you will be told which ones still reference it.';
+
+async function renameGroup(group) {
+  const from = String(group);
+  const answer = await uiPrompt({
+    title: `Rename group "${from}"`,
+    message: `Every device in this group is updated in one atomic operation.\n\n${_GROUP_REF_WARNING}`,
+    value: from, confirmText: 'Rename',
+  });
+  if (answer === null) return;
+  const next = _taxonomyCleanGroup(answer);
+  if (!next) { toast('A group needs at least one letter, digit, _, - or /', 'error'); return; }
+  if (next === from) return;
+  if (_taxonomyGroupNames().includes(next)) {
+    // Renaming onto an existing name IS a merge — say so before doing it.
+    const ok = await uiConfirm({
+      title: 'That group already exists',
+      message: `"${next}" is already in use. Every device in "${from}" moves onto it and `
+               + `"${from}" stops existing. Continue?`,
+      confirmText: 'Merge',
+    });
+    if (!ok) return;
+    await _taxonomyGroupOp('merge', {from: [from], to: next}, `Merged into "${next}"`);
+    return;
+  }
+  await _taxonomyGroupOp('rename', {from, to: next}, `Renamed to "${next}"`);
+}
+
+async function mergeGroup(group) {
+  const from = String(group);
+  const others = _taxonomyGroupNames().filter(g => g !== from);
+  if (!others.length) { toast('There is no other group to merge into', 'info'); return; }
+  const answer = await uiPrompt({
+    title: `Merge "${from}" into…`,
+    message: `Target group. In use: ${others.slice(0, 20).join(', ')}`
+             + (others.length > 20 ? ` … and ${others.length - 20} more` : ''),
+    placeholder: others[0], confirmText: 'Merge',
+  });
+  if (answer === null) return;
+  const next = _taxonomyCleanGroup(answer);
+  if (!next || next === from) return;
+  const ok = await uiConfirm({
+    title: 'Merge groups',
+    message: `Move every device in "${from}" onto "${next}"? "${from}" will no longer exist.`
+             + `\n\n${_GROUP_REF_WARNING}`,
+    confirmText: 'Merge',
+  });
+  if (!ok) return;
+  await _taxonomyGroupOp('merge', {from: [from], to: next}, `Merged into "${next}"`);
+}
+
+async function deleteGroup(group) {
+  const name = String(group);
+  const ok = await uiConfirm({
+    title: `Delete group "${name}"`,
+    message: `Clear this group from every device that carries it? The devices themselves are `
+             + `kept — only the label goes.\n\n${_GROUP_REF_WARNING}`,
+    confirmText: 'Delete', danger: true,
+  });
+  if (!ok) return;
+  await _taxonomyGroupOp('delete', {group: name}, `Cleared "${name}"`);
 }
 
 // v6.4.2: snooze / ignore act from BOTH the Home card and the Needs Attention
@@ -23097,6 +23311,26 @@ function _renderHardwareSection(id, hw, fc, ch) {
     h += `</div>`;
   }
 
+  // ── Resource headroom (v6.4.2) ─────────────────────────────────────
+  // Same daily samples as the mount projection, non-disk half. Only rows worth
+  // acting on: already at the ceiling, or with a real saturation date.
+  const resRows = ((fc && fc.resources) || []).filter(r => r.days_to_saturation != null || r.saturated);
+  if (resRows.length) {
+    h += `<div class="hw-block"><div class="hw-h">Resource headroom</div>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr>
+        <th>Resource</th><th>Now</th><th>Ceiling</th><th>Trend</th><th>Saturates in</th></tr></thead><tbody>` +
+      resRows.map(r => {
+        const d2s = r.days_to_saturation;
+        const cls = r.saturated ? 'c-red' : d2s == null ? 'c-muted' : d2s < 14 ? 'c-red' : d2s < 45 ? 'c-amber' : '';
+        const txt = r.saturated ? 'at ceiling' : (d2s == null ? '—' : _fmtDays(d2s));
+        return `<tr><td>${escHtml(r.label || r.metric || '')}</td>
+          <td class="ta-center">${r.current}%</td>
+          <td class="ta-center c-muted">${r.ceiling}%</td>
+          <td class="ta-center">${r.trend_per_day}%/day</td>
+          <td class="ta-center ${cls}">${txt}</td></tr>`;
+      }).join('') + `</tbody></table></div></div>`;
+  }
+
   // ── What changed (7 days) ──────────────────────────────────────────
   const changes = (ch && ch.changes) || [];
   if (changes.length) {
@@ -23379,36 +23613,56 @@ function complianceFix(topic) {
 // ─── v3.4.0: Forecast page — fleet disk-fill projection + regression chart ───
 let _forecastRows = [];
 let _forecastSel = 0;
+// v6.4.2: memory / swap / CPU-load headroom, fitted from the same daily samples
+// as the mount projection and delivered on the same response.
+let _forecastResRows = [];
 
 async function loadForecast() {
   const body = document.getElementById('forecast-body');
   const chart = document.getElementById('forecast-chart');
   const summary = document.getElementById('forecast-summary');
+  const resBody = document.getElementById('forecast-res-body');
   if (!body) return;
   const r = await api('GET', '/forecast');
   if (!r || !Array.isArray(r.mounts)) {
     body.innerHTML = '<div class="c-red">Failed to load forecast.</div>';
     if (chart) chart.innerHTML = '';
+    // Clear the resources table too — a stale one surviving a failed reload
+    // reads as live data.
+    if (resBody) resBody.innerHTML = '';
+    _forecastResRows = [];
     return;
   }
   _forecastRows = r.mounts;
+  // Defensive: an older server (or a cached body) carries no `resources` key.
+  _forecastResRows = Array.isArray(r.resources) ? r.resources : [];
   _forecastSel = 0;
   if (summary) {
     const filling = _forecastRows.filter(m => m.days_to_full != null).length;
-    summary.textContent = _forecastRows.length
-      ? `${_forecastRows.length} mount(s) across ${r.devices} device(s) with history — ${filling} projected to fill.`
-      : '';
+    const parts = [];
+    if (_forecastRows.length) {
+      parts.push(`${_forecastRows.length} mount(s) across ${r.devices} device(s) with history — ${filling} projected to fill.`);
+    }
+    const sat = _forecastResRows.filter(x => x.days_to_saturation != null).length;
+    if (_forecastResRows.length) {
+      parts.push(`${_forecastResRows.length} resource series across ${r.resource_devices || 0} device(s) — ${sat} projected to saturate.`);
+    }
+    summary.textContent = parts.join(' ');
   }
-  if (!_forecastRows.length) {
+  // Only the true empty state hides everything — a fleet with resource series
+  // but no projectable mounts must still see its resources table.
+  if (!_forecastRows.length && !_forecastResRows.length) {
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">${_icon('trendingUp', 28)}</div>`
       + `<div class="empty-title">No forecast yet</div>`
-      + `<div class="empty-text">RemotePower needs a few days of daily metrics history per host before it can project disk-fill.<br>Check back once agents have been reporting for several days.</div></div>`;
+      + `<div class="empty-text">RemotePower needs a few days of daily metrics history per host before it can project disk-fill or resource saturation.<br>Check back once agents have been reporting for several days.</div></div>`;
     if (chart) chart.innerHTML = '';
+    if (resBody) resBody.innerHTML = '';
     return;
   }
   _forecastShown = _FORECAST_PAGE;
   _renderForecastTable();
   _renderForecastChart();
+  _renderForecastResTable();
 }
 
 function forecastSelect(idx) {
@@ -24816,7 +25070,9 @@ function downloadReportDef(id) {
 // don't render a thousand-row table. Public wrappers are wired to the toolbar.
 const _FORECAST_PAGE = 50;
 let _forecastShown = _FORECAST_PAGE;
-function renderForecastTable() { _forecastShown = _FORECAST_PAGE; _renderForecastTable(); }
+// The toolbar filter / at-risk toggle drive BOTH tables — a filter that
+// silently applied to only the mounts half would misrepresent the page.
+function renderForecastTable() { _forecastShown = _FORECAST_PAGE; _renderForecastTable(); _renderForecastResTable(); }
 function forecastShowMore() { _forecastShown += _FORECAST_PAGE; _renderForecastTable(); }
 
 function _renderForecastTable() {
@@ -24876,8 +25132,13 @@ function _renderForecastTable() {
     footer = `<div class="tl-more"><span class="c-muted fs-12">Showing ${page.length} of ${total}</span>`
       + `<button class="btn-secondary" data-action="forecastShowMore">Load ${Math.min(_FORECAST_PAGE, total - _forecastShown)} more</button></div>`;
   }
+  // Distinguish "your filter excluded everything" from "no mount has enough
+  // history yet" — the page can now render with resources but no mounts.
   const emptyNote = total === 0
-    ? '<div class="c-muted p-12">No mounts match the current filter.</div>' : '';
+    ? (_forecastRows.length
+        ? '<div class="c-muted p-12">No mounts match the current filter.</div>'
+        : '<div class="c-muted p-12">No mount has enough history for a disk-fill projection yet.</div>')
+    : '';
   body.innerHTML = `<div class="table-card"><table class="audit-table"><thead id="forecast-thead"><tr>
     <th data-col="device">Device</th><th data-col="mount">Mount</th>
     <th data-col="gb">Used</th><th data-col="used">%</th>
@@ -24885,6 +25146,76 @@ function _renderForecastTable() {
     <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table></div>${emptyNote}${footer}`;
   // Wire sort after the thead exists (re-wires each render — safe).
   tableCtl.wireSortOnly('forecast-thead', 'forecast', _renderForecastTable);
+}
+
+// v6.4.2: resource headroom — memory / swap / CPU-load saturation, the non-disk
+// half of the same daily-sample projection. Deliberately its own table with its
+// own sort-prefs name: the mount columns (GB, mount path, fill date) don't exist
+// on a resource row, so a shared prefs key would land this table on an
+// undefined getter for anyone who had sorted the mounts table by Mount.
+function _renderForecastResTable() {
+  const body = document.getElementById('forecast-res-body');
+  if (!body) return;
+  if (!_forecastResRows.length) { body.innerHTML = ''; return; }
+  // Honour the page's own toolbar: same filter box and at-risk toggle as mounts.
+  const q = (document.getElementById('forecast-filter')?.value || '').trim().toLowerCase();
+  const atRiskOnly = !!document.getElementById('forecast-atrisk')?.checked;
+  let pool = _forecastResRows;
+  if (atRiskOnly) pool = pool.filter(r => r.days_to_saturation != null);
+  if (q) pool = pool.filter(r => (r.device_name || '').toLowerCase().includes(q)
+                              || (r.label || '').toLowerCase().includes(q));
+  const sorted = tableCtl.sortRows('forecastres', pool.slice(), r => ({
+    device: r.device_name, metric: r.label,
+    cur: r.current, ceiling: r.ceiling, headroom: r.headroom,
+    perday: r.trend_per_day,
+    days: (r.days_to_saturation == null ? 1e12 : r.days_to_saturation),
+    date: (r.saturation_date_ts || 1e15),
+  }));
+  const rows = sorted.map(r => {
+    const d2s = r.days_to_saturation;
+    const daysCls = r.saturated ? 'c-red'
+      : r.stalled ? 'c-green'
+      : r.noisy ? 'c-amber'
+      : d2s == null ? 'c-muted'
+      : d2s < 14 ? 'c-red' : d2s < 45 ? 'c-amber' : '';
+    // Same ladder as the mounts table: say WHICH gate declined to give a date
+    // rather than showing a bare dash.
+    const daysTxt = r.saturated
+      ? `<span title="Already at or above the ${r.ceiling}% ceiling — a live problem, not a projection">at ceiling</span>`
+      : r.stalled
+      ? `<span title="Long-run trend is up, but growth has flattened recently (recent ${r.recent_per_day}%/day) — no saturation projected">growth stalled</span>`
+      : r.noisy
+      ? `<span title="Fluctuates too much for a reliable projection (R²=${r.r2})">fluctuating</span>`
+      : r.below_floor
+      ? `<span title="Below the ${r.floor}% floor — too low to project from">below floor</span>`
+      : r.beyond_horizon
+      ? `<span title="Saturates at the current rate, but more than 6 months out — not an actionable risk">&gt;6 mo</span>`
+      : d2s == null ? 'no saturation' : _fmtDays(d2s);
+    const when = (r.saturated || r.stalled || r.noisy || r.below_floor || r.beyond_horizon)
+      ? '—'
+      : (r.saturation_date_ts ? new Date(r.saturation_date_ts * 1000).toISOString().slice(0, 10) : '—');
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device_name || '')}</td>
+      <td>${escHtml(r.label || r.metric || '')}</td>
+      <td class="ta-center">${r.current}%</td>
+      <td class="ta-center c-muted">${r.ceiling}%</td>
+      <td class="ta-center">${r.headroom}%</td>
+      <td class="ta-center"${r.recent_per_day != null ? ` title="recent: ${r.recent_per_day}%/day"` : ''}>${r.trend_per_day}%/day</td>
+      <td class="ta-center ${daysCls}">${daysTxt}</td>
+      <td class="ta-center">${escHtml(when)}</td></tr>`;
+  }).join('');
+  const emptyNote = sorted.length === 0
+    ? '<div class="c-muted p-12">No resource series match the current filter.</div>' : '';
+  // Heading emitted from JS on purpose: a static .section-title in index.html is
+  // scanned by the i18n gate; the MutationObserver still translates this one.
+  body.innerHTML = `<div class="section-title">Resource headroom</div>`
+    + `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="forecast-res-thead"><tr>
+    <th data-col="device">Device</th><th data-col="metric">Resource</th>
+    <th data-col="cur">Now</th><th data-col="ceiling">Ceiling</th>
+    <th data-col="headroom">Headroom</th><th data-col="perday">Trend</th>
+    <th data-col="days">Saturates in</th><th data-col="date">Date</th></tr></thead>`
+    + `<tbody>${rows}</tbody></table></div>${emptyNote}`;
+  tableCtl.wireSortOnly('forecast-res-thead', 'forecastres', _renderForecastResTable);
 }
 
 // Inline SVG forecast chart: observed usage as a line + gradient area, the
@@ -27491,6 +27822,9 @@ async function runBulkAction() {
 // `pushover_token_set: true/false` instead of the value; saving an empty
 // field preserves the existing secret.
 let _webhookDests = [];
+// v6.4.2: set from GET /api/config in loadSettings. Gates the per-destination
+// tenant allowlist — a control that filters nothing is worse than no control.
+let _tenancyOn = false;
 const _WEBHOOK_FORMATS = [
   ['discord',   'Discord',        'https://discord.com/api/webhooks/...'],
   ['slack',     'Slack',          'https://hooks.slack.com/services/...'],
@@ -27611,6 +27945,7 @@ function renderWebhookDests() {
             <div class="meta-sm-nm">Batch non-critical notifications into one summary every N minutes (0 = send immediately). Critical/urgent events always page right away.</div>
             <div class="meta-sm-nm">Or specify exact event names (one per line):</div>
             <textarea data-field="events" class="form-input isl-748" rows="3" placeholder="device_offline&#10;cve_found&#10;monitor_down">${escHtml((d.events || []).join('\n'))}</textarea>
+            ${_destScopeHtml(d)}
           </div>
         </details>
       </div>`;
@@ -27624,6 +27959,37 @@ function renderWebhookDests() {
     });
   });
 }
+// v6.4.2: per-destination delivery scope. The server has honoured
+// `scope_filter` / `tenants` on a shared destination since this release, but
+// there was no way to set either outside the API.
+//
+// Lives inside the existing <details> so the card doesn't grow for the majority
+// who never scope a destination.
+function _destScopeHtml(d) {
+  const sf = (d && typeof d.scope_filter === 'object' && d.scope_filter) || {};
+  const t = ['groups', 'tags', 'sites'].includes(sf.type) ? sf.type : 'all';
+  const vals = Array.isArray(sf.values) ? sf.values.join(', ') : '';
+  const tenants = Array.isArray(d.tenants) ? d.tenants.join(', ') : '';
+  const opt = (v, lbl) => `<option value="${v}"${t === v ? ' selected' : ''}>${lbl}</option>`;
+  return `<div class="meta-sm-nm">Deliver only events from part of the fleet:</div>
+            <label class="isl-746">
+              Scope:
+              <select data-field="scope_type" class="form-input isl-747">
+                ${opt('all', 'the whole fleet')}${opt('groups', 'these groups')}${opt('tags', 'these tags')}${opt('sites', 'these sites')}
+              </select>
+            </label>
+            <label class="isl-746">
+              Values:
+              <input type="text" data-field="scope_values" class="form-input isl-747" value="${escAttr(vals)}" placeholder="comma-separated">
+            </label>`
+    + (_tenancyOn ? `
+            <label class="isl-746">
+              Tenants:
+              <input type="text" data-field="tenant_values" class="form-input isl-747" value="${escAttr(tenants)}" placeholder="comma-separated tenant ids">
+            </label>` : '')
+    + `<div class="meta-sm-nm">A scoped destination only receives events it can attribute to that slice. An event with no host and no site of its own — a fleet-wide monitor, a server-side sweep — will <strong>not</strong> reach it.</div>`;
+}
+
 function _readWebhookDestCard(idx, card) {
   const d = _webhookDests[idx] || {};
   card.querySelectorAll('[data-field]').forEach(el => {
@@ -27632,12 +27998,34 @@ function _readWebhookDestCard(idx, card) {
     else if (f === 'min_priority') d[f] = el.value === '' ? null : parseInt(el.value, 10);
     else if (f === 'digest_minutes') d[f] = el.value === '' ? 0 : parseInt(el.value, 10);
     else if (f === 'events') d[f] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
+    // scope_type / scope_values / tenant_values are TRANSIENT form fields that
+    // compose into objects below — the generic `d[f] = el.value` branch would
+    // write the raw string, and the server's _clean_scope_filter returns None
+    // for a non-dict, so the filter would silently never apply.
+    else if (f === 'scope_type' || f === 'scope_values' || f === 'tenant_values') { /* composed below */ }
     else if (f === 'pushover_token' || f === 'pushover_user' || f === 'itsm_secret' || f === 'matrix_token' || f === 'hmac_secret') {
       // Don't overwrite the placeholder unless the user typed something
       if (el.value) d[f] = el.value;
     }
     else d[f] = el.value;
   });
+  const _csv = sel => {
+    const el = card.querySelector(`[data-field="${sel}"]`);
+    return el ? el.value.split(',').map(s => s.trim()).filter(Boolean) : null;
+  };
+  const stEl = card.querySelector('[data-field="scope_type"]');
+  if (stEl) {
+    const st = stEl.value;
+    const vals = _csv('scope_values') || [];
+    // 'all' (or a scope with no values) clears the filter — the server treats an
+    // explicit all/empty as "deliver everything", so mirror that here rather
+    // than persisting a filter that matches nothing.
+    d.scope_filter = (st === 'all' || !vals.length) ? { type: 'all' } : { type: st, values: vals };
+  }
+  if (_tenancyOn) {
+    const tv = _csv('tenant_values');
+    if (tv !== null) d.tenants = tv;
+  }
   _webhookDests[idx] = d;
 }
 function updateWebhookDest(idx) {
@@ -27689,6 +28077,91 @@ async function saveWebhookDests() {
     return false;
   }
   return true;
+}
+
+// ── v6.4.2: additional email routes ─────────────────────────────────────────
+// The server has accepted `email_routes` (extra {recipients, scope_filter,
+// tenants} lists beside the single SMTP recipient list) since this release,
+// with no way to set them outside the API.
+//
+// `_emailRoutesLoaded` is load-bearing, not defensive dressing: the server
+// REPLACES the whole list on save, so posting `email_routes: []` from a pane
+// whose loader never ran would silently delete every API-configured route.
+// saveSettings only sends the key once this is true.
+let _emailRoutes = [];
+let _emailRoutesLoaded = false;
+// Same guard for the global recipient-list scope: the server treats an explicit
+// all/empty value as "clear the scoping", so an unloaded control that saved
+// would silently un-scope an API-configured list.
+let _smtpScopeLoaded = false;
+
+function renderEmailRoutes() {
+  const wrap = document.getElementById('email-routes');
+  if (!wrap) return;
+  if (!_emailRoutes.length) {
+    wrap.innerHTML = '<div class="c-muted fs-12 p-12">No additional routes — the Recipients list above receives everything.</div>';
+    return;
+  }
+  wrap.innerHTML = _emailRoutes.map((r, idx) => {
+    const sf = (r && typeof r.scope_filter === 'object' && r.scope_filter) || {};
+    const t = ['groups', 'tags', 'sites'].includes(sf.type) ? sf.type : 'all';
+    const vals = Array.isArray(sf.values) ? sf.values.join(', ') : '';
+    const rcpts = Array.isArray(r.recipients) ? r.recipients.join(', ') : (r.recipients || '');
+    const opt = (v, lbl) => `<option value="${v}"${t === v ? ' selected' : ''}>${lbl}</option>`;
+    return `<div class="webhook-dest-card email-route-card" data-idx="${idx}">
+      <div class="settings-row">
+        <div class="form-group"><label class="form-label">Name</label>
+          <input type="text" class="form-input" data-erfield="name" value="${escAttr(r.name || '')}" placeholder="e.g. DC1 on-call"></div>
+        <div class="form-group flex-1"><label class="form-label">Recipients</label>
+          <input type="text" class="form-input" data-erfield="recipients" value="${escAttr(rcpts)}" placeholder="ops@example.com, oncall@example.com"></div>
+        <button class="btn-icon c-danger-outline" data-action="removeEmailRoute" data-arg="${idx}" title="Remove route">${_icon('trash', 14)}</button>
+      </div>
+      <div class="settings-row">
+        <div class="form-group"><label class="form-label">Only events from</label>
+          <select class="form-input input-narrow" data-erfield="scope_type">
+            ${opt('all', 'the whole fleet')}${opt('groups', 'these groups')}${opt('tags', 'these tags')}${opt('sites', 'these sites')}
+          </select></div>
+        <div class="form-group flex-1"><label class="form-label">Values</label>
+          <input type="text" class="form-input" data-erfield="scope_values" value="${escAttr(vals)}" placeholder="comma-separated"></div>
+      </div>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('.email-route-card').forEach(card => {
+    const idx = parseInt(card.dataset.idx, 10);
+    card.querySelectorAll('[data-erfield]').forEach(el => {
+      const ev = el.tagName === 'SELECT' ? 'change' : 'input';
+      el.addEventListener(ev, () => _readEmailRouteCard(idx, card));
+    });
+  });
+}
+
+function _readEmailRouteCard(idx, card) {
+  const r = _emailRoutes[idx] || {};
+  const get = f => {
+    const el = card.querySelector(`[data-erfield="${f}"]`);
+    return el ? el.value : '';
+  };
+  const csv = f => get(f).split(',').map(s => s.trim()).filter(Boolean);
+  r.name = get('name');
+  r.recipients = csv('recipients');
+  const st = get('scope_type');
+  const vals = csv('scope_values');
+  // Same convention as a webhook destination: 'all' (or no values) clears the
+  // filter rather than persisting one that matches nothing.
+  r.scope_filter = (st === 'all' || !vals.length) ? { type: 'all' } : { type: st, values: vals };
+  _emailRoutes[idx] = r;
+}
+
+function addEmailRoute() {
+  _emailRoutes.push({ name: '', recipients: [], scope_filter: { type: 'all' } });
+  _emailRoutesLoaded = true;   // the editor is now authoritative
+  renderEmailRoutes();
+}
+
+async function removeEmailRoute(idx) {
+  if (!await uiConfirm({ message: 'Remove this email route?', confirmText: 'Remove', danger: true })) return;
+  _emailRoutes.splice(idx, 1);
+  renderEmailRoutes();
 }
 
 // ── CSP L1: apply data-color / data-bg / data-bd attributes after innerHTML ──

@@ -254,8 +254,8 @@ Older release notes (v6.3.0 and earlier) live in
  tag/group targeting, batch patching.
 - **[custom-scripts.md](custom-scripts.md)** — Custom monitoring scripts:
  server-defined bash health checks with fleet-wide results.
-- **[forecast.md](forecast.md)** — Disk-fill forecasting and predictive
- disk health.
+- **[forecast.md](forecast.md)** — Capacity forecasting: disk-fill, memory /
+ swap / CPU-load headroom, and predictive disk health.
 - **[health-score.md](health-score.md)** — How the fleet health score is
  computed.
 - **[host-config.md](host-config.md)** — Declarative per-host desired

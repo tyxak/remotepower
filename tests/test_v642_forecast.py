@@ -422,5 +422,132 @@ class TestProperties(unittest.TestCase):
             self.assertGreaterEqual(r['headroom'], 0.0)
 
 
+class TestHandlerWiring(unittest.TestCase):
+    """The projection existed and was tested for a full release while NOTHING
+    called it — `forecast_resources` had zero callers outside this file.
+
+    So these tests drive the REAL handlers rather than the module: a green
+    source-text assertion proves a line exists, never that it runs. Only
+    `verify_token` is stubbed — stubbing `require_auth` would pass a handler
+    that had no gate at all.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'api_forecast_wiring', _ROOT / 'server' / 'cgi-bin' / 'api.py')
+        cls.api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.api)
+
+    def setUp(self):
+        api = self.api
+        # Reset every store this test reads: another module's test can leave
+        # rows behind under xdist/pytest-randomly, and a count assertion would
+        # then fail only under one cross-module ordering.
+        api.save(api.METRICS_HIST_FILE, {})
+        api.save(api.DEVICES_FILE, {})
+        self._real_verify = api.verify_token
+        api.verify_token = lambda *a, **k: {'role': 'admin', 'user': 'admin'}
+        self._real_env = getattr(api._RCTX, 'environ', None)
+        api._RCTX.environ = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/api/forecast'}
+
+    def tearDown(self):
+        # Restore in tearDown, not inline — a leaked monkeypatch makes every
+        # later test in the process assert against the stub.
+        self.api.verify_token = self._real_verify
+        self.api._RCTX.environ = self._real_env
+
+    # -- helpers ---------------------------------------------------------
+    def _call(self, fn, *a):
+        api = self.api
+        try:
+            fn(*a)
+        except (SystemExit, api.HTTPError) as e:
+            # respond() raises HTTPError carrying the already-decoded dict as
+            # .body — it is NOT a JSON string.
+            return getattr(e, 'body', None)
+        return None
+
+    def _seed(self, dev_id='dev1', name='web01', days=14, register=True):
+        """A rising memory series: 62% climbing 2pp/day, plus swap and load."""
+        api = self.api
+        samples = []
+        for i in range(days):
+            ts = NOW + (i - days + 1) * DAY
+            samples.append({
+                'ts': ts, 'mem_percent': 62.0 + i * 2.0, 'swap_percent': 3.0,
+                'loadavg_1m': 1.0 + i * 0.25, 'cpu_count': 4, 'disks': [],
+            })
+        hist = api.load(api.METRICS_HIST_FILE) or {}
+        hist[dev_id] = {'samples': samples}
+        api.save(api.METRICS_HIST_FILE, hist)
+        if register:
+            devs = api.load(api.DEVICES_FILE) or {}
+            devs[dev_id] = {'id': dev_id, 'name': name, 'token': 't',
+                            'monitored': True}
+            api.save(api.DEVICES_FILE, devs)
+
+    # -- per-device ------------------------------------------------------
+    def test_device_forecast_returns_resources(self):
+        self._seed()
+        body = self._call(self.api.handle_device_forecast, 'dev1')
+        self.assertIsInstance(body, dict)
+        self.assertIn('resources', body)
+        res = body['resources']
+        self.assertTrue(res, 'resources came back empty — the caller is not wired')
+        mem = next((r for r in res if r['metric'] == 'memory'), None)
+        self.assertIsNotNone(mem, 'no memory row for a clean rising series')
+        self.assertIsNotNone(mem['days_to_saturation'])
+        # The chartable contract the frontend renders from.
+        self.assertTrue(mem['series'])
+        self.assertIn('t0_ts', mem)
+
+    def test_device_forecast_keeps_its_existing_contract(self):
+        """The added key must not displace what callers already read."""
+        self._seed()
+        body = self._call(self.api.handle_device_forecast, 'dev1')
+        self.assertIn('mounts', body)
+        self.assertEqual(body['sample_days'], 14)
+
+    # -- fleet -----------------------------------------------------------
+    def test_fleet_forecast_stamps_device_identity(self):
+        self._seed()
+        body = self._call(self.api.handle_forecast)
+        res = body['resources']
+        self.assertTrue(res)
+        self.assertTrue(all(r['device_id'] == 'dev1' for r in res))
+        self.assertTrue(all(r['device_name'] == 'web01' for r in res))
+
+    def test_fleet_resource_device_count_is_separate_from_mounts(self):
+        """`devices` feeds the page's 'N mounts across M devices' sentence;
+        folding resource-only hosts into it would make that sentence wrong."""
+        self._seed()
+        body = self._call(self.api.handle_forecast)
+        self.assertEqual(body['resource_devices'], 1)
+        self.assertEqual(body['devices'], 0)      # no disks in these samples
+
+    def test_fleet_resources_sort_soonest_first(self):
+        self._seed()
+        rows = self._call(self.api.handle_forecast)['resources']
+        dated = [i for i, r in enumerate(rows) if r['days_to_saturation'] is not None]
+        undated = [i for i, r in enumerate(rows) if r['days_to_saturation'] is None]
+        if dated and undated:
+            self.assertLess(max(dated), min(undated))
+
+    def test_fleet_resources_respect_device_scope(self):
+        """Pins that the resources block stayed INSIDE the scope-guarded loop.
+
+        A device with metrics history but no entry in the (scope-filtered)
+        device set must contribute no row — drifting the block into a second
+        loop over the history store would leak every tenant's hosts.
+        """
+        self._seed()                                    # dev1: registered
+        self._seed(dev_id='ghost', name='ghost', register=False)
+        rows = self._call(self.api.handle_forecast)['resources']
+        self.assertTrue(rows, 'sanity: the registered device should still appear')
+        self.assertTrue(all(r['device_id'] != 'ghost' for r in rows))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
