@@ -26290,6 +26290,7 @@ const _REPORT_SECTION_LABELS = {
   devices: 'Devices', health: 'Health score', attention: 'Needs attention',
   patches: 'Patches', cve: 'CVEs', sla: 'SLA / uptime', compliance: 'Compliance',
   period: 'Period activity',
+  summary: 'AI summary (costs tokens)',
 };
 let _reportDefs = [];
 let _reportDefEditId = '';
@@ -26301,10 +26302,17 @@ async function loadReportDefs() {
   _reportDefs = (data && data.definitions) || [];
   _rdefPopulateSites();
   const available = (data && data.available_sections) || Object.keys(_REPORT_SECTION_LABELS);
+  // v6.4.2: opt-in sections cost tokens per delivery, so they render UNCHECKED
+  // and the server keeps them out of the "no sections chosen = everything"
+  // default. Sending an install an AI bill it never agreed to would be the
+  // wrong way to add a narrative.
+  const optIn = new Set((data && data.opt_in_sections) || []);
   // Build the section checkboxes once.
   if (secEl && !secEl.dataset.built) {
-    secEl.innerHTML = available.map(s =>
-      `<label class="rdef-sec"><input type="checkbox" class="rdef-sec-cb" value="${escAttr(s)}" checked> ${escHtml(_REPORT_SECTION_LABELS[s] || s)}</label>`).join('');
+    secEl.innerHTML = available.concat([...optIn]).map(s =>
+      `<label class="rdef-sec" ${optIn.has(s) ? 'title="Asks the configured AI provider to write a covering paragraph each time this report is delivered. Needs AI enabled in Settings."' : ''}>`
+      + `<input type="checkbox" class="rdef-sec-cb" value="${escAttr(s)}"${optIn.has(s) ? '' : ' checked'}> `
+      + `${escHtml(_REPORT_SECTION_LABELS[s] || s)}</label>`).join('');
     secEl.dataset.built = '1';
   }
   // v6.1.2 (#41): webhook destinations. Rebuilt every load (unlike sections,

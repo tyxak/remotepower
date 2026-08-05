@@ -1603,6 +1603,27 @@ SYSTEM_PROMPTS = {
         "most urgent, scannable bullets, no preamble. If the fleet is healthy, "
         "say so in one line."
     ),
+    # v6.4.2: the covering paragraph a report needs and never had. Every
+    # artifact that leaves the box — posture digest, scheduled report, custom
+    # report, evidence pack — was uninterpreted numbers, and the person who
+    # needs a report most is the one who never logs in. "Fleet health score:
+    # 82/100 · Patches: 9 device(s) pending" tells a manager or a customer
+    # nothing about whether that is good, what is driving it, or what they are
+    # being asked to approve. This is the paragraph the operator was writing by
+    # hand every month.
+    'report_summary': (
+        "You are writing the executive summary that opens a fleet posture "
+        "report. Your reader is a manager or a customer, not the operator — "
+        "assume they will read THIS and not the numbers below it. Given the "
+        "report's figures, write 3-5 short sentences covering: whether the "
+        "fleet is in good shape and how that compares to the previous period; "
+        "the one or two things actually driving the numbers; and what, if "
+        "anything, needs a decision from the reader. Plain prose, no bullets, "
+        "no headings, no preamble, no restating figures they can already see. "
+        "Never invent a number that is not in the data — if a figure is "
+        "missing, do not mention that topic. If everything is healthy and "
+        "nothing needs a decision, say so in two sentences and stop."
+    ),
     'log_anomaly': (
         "You are a Linux log-analysis assistant. Given recent journal output "
         "across watched units, identify what is abnormal or new: error/warning "

@@ -1485,6 +1485,9 @@ for _rp_name in (
         # report assembly + renderers (shared by the handlers and both sweeps)
         '_build_fleet_report', '_REPORT_SECTIONS', '_filter_report_sections',
         '_fleet_report_csv_bytes', '_render_report_email',
+        # v6.4.2: the opt-in AI narrative section
+        '_REPORT_OPT_IN_SECTIONS', '_ALL_REPORT_SECTIONS',
+        '_build_report_summary', '_attach_report_summary', '_report_summary_context',
         # fleet / per-site posture report + the signed evidence pack
         'handle_fleet_report', 'handle_site_report', 'handle_evidence_pack',
         # scheduled fleet report (config.json report_schedule) + its cadence sweep

@@ -263,10 +263,94 @@ def _build_fleet_report(site_id=None):
 # v3.14.0: custom report builder — selectable sections + saved definitions.
 _REPORT_SECTIONS = ('devices', 'sla', 'patches', 'cve', 'health', 'attention',
                     'compliance', 'period')
+# v6.4.2: sections that cost real money and latency to produce. Deliberately
+# OUTSIDE the default tuple, because `sections or list(_REPORT_SECTIONS)` would
+# otherwise switch AI billing on for every install that has ever saved a report
+# definition. Opt-in per definition, and a no-op when AI is disabled.
+_REPORT_OPT_IN_SECTIONS = ('summary',)
+_ALL_REPORT_SECTIONS = _REPORT_SECTIONS + _REPORT_OPT_IN_SECTIONS
+
+
+def _report_summary_context(report):
+    """The figures the summary model is allowed to see — the report's own
+    numbers, nothing else.
+
+    Built as an explicit projection rather than handing over the whole report:
+    the report carries per-device rows (names, IPs, scores) and this goes to a
+    possibly-cloud provider. `ai_provider.chat` redacts per the privacy config
+    on top of this, but the narrower input is the one that cannot leak a
+    hostname the operator forgot to redact.
+    """
+    def _pick(section, *keys):
+        src = report.get(section) or {}
+        return {k: src.get(k) for k in keys if src.get(k) is not None}
+
+    ctx = {
+        'health':     _pick('health', 'score', 'grade'),
+        'devices':    _pick('devices', 'total', 'online', 'offline', 'monitored'),
+        'attention':  _pick('attention', 'critical', 'warning', 'info'),
+        'patches':    _pick('patches', 'devices_with_patches', 'total_pending',
+                            'security_pending'),
+        'cve':        _pick('cve', 'critical', 'high', 'medium', 'devices_affected',
+                            'kev_count'),
+        'sla':        _pick('sla', 'days', 'fleet_uptime_pct'),
+        'compliance': _pick('compliance', 'score', 'passing', 'failing'),
+        'period':     report.get('period') or {},
+    }
+    if report.get('site_name'):
+        ctx['scope'] = f"one site: {report['site_name']}"
+    return {k: v for k, v in ctx.items() if v}
+
+
+def _build_report_summary(report):
+    """The narrative paragraph, or a dict saying why there isn't one.
+
+    Never raises and never blocks the report: a provider outage must cost the
+    covering paragraph, not the artifact the operator scheduled. The reason is
+    RETURNED rather than swallowed, so the email can say "AI summary
+    unavailable" instead of silently looking like a report that was never
+    configured for one.
+    """
+    try:
+        cfg = A._ai_cfg() or {}
+        if not cfg.get('enabled'):
+            return {'error': 'AI is disabled in settings'}
+        ctx = _report_summary_context(report)
+        if not ctx:
+            return {'error': 'report has no figures to summarise'}
+        res = A.ai_provider.chat(
+            cfg,
+            [{'role': 'user',
+              'content': 'Fleet posture report figures:\n'
+                         + A.json.dumps(ctx, indent=2, default=str)}],
+            system=A.ai_provider.SYSTEM_PROMPTS['report_summary'],
+            max_tokens=600)
+        if not res.get('ok'):
+            return {'error': str(res.get('error') or 'AI request failed')[:200]}
+        text = (res.get('text') or '').strip()
+        if not text:
+            return {'error': 'the model returned an empty summary'}
+        return {'text': text[:4000], 'model': res.get('model', ''),
+                'generated_ts': int(A.time.time())}
+    except Exception as e:                              # pragma: no cover
+        return {'error': f'{type(e).__name__}: {str(e)[:160]}'}
+
+
+def _attach_report_summary(report, sections):
+    """Add the narrative to `report` in place when the caller asked for it.
+
+    Separate from _build_fleet_report so the ~30 places that build a report for
+    the UI never pay for an AI call they did not ask for.
+    """
+    if 'summary' not in set(sections or ()):
+        return report
+    report['summary'] = _build_report_summary(report)
+    return report
+
 
 def _filter_report_sections(report, sections):
     """Keep report metadata + only the requested sections (empty/None = all)."""
-    keep = set(sections or ()) & set(_REPORT_SECTIONS)
+    keep = set(sections or ()) & set(_ALL_REPORT_SECTIONS)
     if not keep:
         return report
     # v6.4.2: 'brand' is metadata, not a section — without it here a SECTIONED
@@ -275,7 +359,7 @@ def _filter_report_sections(report, sections):
     out = {k: report[k] for k in ('generated_ts', 'server_version', 'server_name', 'brand')
            if k in report}
     out['sections'] = sorted(keep)
-    for k in _REPORT_SECTIONS:
+    for k in _ALL_REPORT_SECTIONS:
         if k in keep and k in report:
             out[k] = report[k]
     return out
@@ -378,7 +462,11 @@ def handle_fleet_report():
     # v3.14.0: optional ?sections=devices,cve,health filter (custom reports).
     sections = (qs.get('sections') or [''])[0]
     if sections:
-        report = A._filter_report_sections(report, [s.strip() for s in sections.split(',') if s.strip()])
+        _want = [s.strip() for s in sections.split(',') if s.strip()]
+        report = A._filter_report_sections(report, _want)
+        # v6.4.2: only when explicitly asked for — an AI call per report view
+        # would be a bill nobody agreed to.
+        _attach_report_summary(report, _want)
     if fmt == 'csv':
         data = A._fleet_report_csv_bytes(report)
         ts = A.time.strftime('%Y%m%d-%H%M%S')
@@ -510,6 +598,16 @@ def _render_report_email(report):
         f"Generated {when}  ·  RemotePower {report.get('server_version', '')}",
         "",
     ]
+    # v6.4.2: the narrative goes FIRST, above the figures, because it exists for
+    # the reader who stops there. An "AI summary unavailable" line rather than
+    # silence when the provider is down — otherwise a report configured for a
+    # summary is indistinguishable from one that never was, and nobody notices
+    # the covering paragraph has been missing for a month.
+    _sm = report.get('summary') or {}
+    if _sm.get('text'):
+        lines += ['Summary', '-------', _sm['text'].strip(), '']
+    elif _sm.get('error'):
+        lines += [f"(AI summary unavailable: {_sm['error']})", '']
     if h:
         lines.append(f"Fleet health score : {h.get('score', '?')}/100 ({h.get('grade', '?')})")
     if d:
@@ -688,7 +786,7 @@ def _clean_report_def(body):
     name = A._sanitize_str(str(body.get('name', '')), 64).strip()
     if not name:
         return None
-    sections = [s for s in (body.get('sections') or []) if s in _REPORT_SECTIONS]
+    sections = [s for s in (body.get('sections') or []) if s in _ALL_REPORT_SECTIONS]
     fmt = str(body.get('format', 'json')).lower()
     if fmt not in ('json', 'csv'):
         fmt = 'json'
@@ -732,7 +830,8 @@ def handle_report_defs_list():
     A.require_auth()
     cfg = A.load(A.CONFIG_FILE) or {}
     A.respond(200, {'definitions': cfg.get('report_definitions') or [],
-                    'available_sections': list(_REPORT_SECTIONS)})
+                    'available_sections': list(_REPORT_SECTIONS),
+                    'opt_in_sections': list(_REPORT_OPT_IN_SECTIONS)})
 
 
 def handle_report_defs_save():
@@ -822,6 +921,11 @@ def _maybe_send_report_definitions():
             report = A._filter_report_sections(
                 A._build_fleet_report(site_id=_site) if _site
                 else A._build_fleet_report(), d.get('sections'))
+            # v6.4.2: the narrative. The person who needs a report most is the
+            # one who never logs in — and every artifact that left the box was
+            # uninterpreted numbers, even though the model that writes the
+            # covering paragraph was already sitting behind an in-app button.
+            _attach_report_summary(report, d.get('sections'))
             subject, body = A._render_report_email(report)
             subject = f"[{d.get('name')}] " + subject
         except Exception as e:

@@ -70,6 +70,18 @@
              (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high');
 
     let html = '';
+
+    // v6.4.2: the narrative, first, above every figure. The reader this
+    // document is printed for is usually the one who never logs in — they got
+    // "Fleet health score: 82/100 · Patches: 9 device(s) pending" and no way to
+    // tell whether that was good or what they were being asked to approve.
+    const sm = rep.summary || {};
+    if (sm.text) {
+      html += '<h2>Summary</h2><p class="pr-summary">'
+        + esc(sm.text).replace(/\n{2,}/g, '</p><p class="pr-summary">')
+                      .replace(/\n/g, '<br>')
+        + '</p>';
+    }
     // v6.4.2: what changed over the window, not just where things stand.
     const per = rep.period || null;
     if (per) {
