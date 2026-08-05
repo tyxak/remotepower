@@ -12,6 +12,7 @@ DEVICES_FILE / SNMP_DATA_FILE / SNMP_TRAPS_FILE + the _device_snmp_target /
 _do_snmp_poll helpers stay in api.py, read via A. All handlers live under
 /api/devices/<id>/… so main()'s _enforce_device_scope covers their tenancy/scope.
 """
+import re
 import time
 
 
@@ -394,4 +395,158 @@ def handle_device_snmp_walk(dev_id):
         'truncated': len(rows) >= limit,
         'elapsed_ms': int((time.time() - started) * 1000),
         'presets': [{'oid': o, 'label': lbl} for o, lbl in SNMP_WALK_PRESETS],
+    })
+
+
+# ── v6.4.2: SNMP trap rules ─────────────────────────────────────────────────
+# Inbound traps were stored as raw dotted OID strings and raised as ONE
+# coalesced `snmp_trap_received` per host with no identity field. A UPS
+# reporting `.1.3.6.1.4.1.318.0.5` (on battery) and a switch reporting a
+# chatty linkDown both arrived as "SNMP trap received", at the same severity,
+# folded into the same open alert row. Paging on the first while ignoring the
+# second — the entire reason to run a trap receiver — was not expressible.
+#
+# A rule maps an OID prefix (and optionally a value regex) to a severity, or
+# to `ignore`. It is deliberately NOT a new event name: an operator-defined
+# event could never be in EVENT_REGISTRY, and every consumer downstream —
+# routing matrix, alert rules, the webhook event list — is keyed on that
+# registry. So a matched trap stays `snmp_trap_received` and carries the rule
+# name, which IS in _ALERT_IDENTITY_FIELDS, so distinct traps stop coalescing.
+_TRAP_SEVERITIES = ('critical', 'high', 'medium', 'low', 'info', 'ignore')
+_MAX_TRAP_RULES = 200
+
+
+def _trap_rules_load():
+    st = A.load(A.SNMP_TRAP_RULES_FILE) or {}
+    rules = st.get('rules')
+    return rules if isinstance(rules, list) else []
+
+
+def _clean_trap_rule(raw, existing_id=''):
+    """Validate one rule. Responds 400 rather than dropping — this is an
+    operator editing a form, not a bulk import, so a silent drop would leave
+    them looking at a rule that saved and does nothing."""
+    if not isinstance(raw, dict):
+        A.respond(400, {'error': 'rule must be an object'})
+    oid = A._sanitize_str(str(raw.get('oid_prefix', '')), 128).strip()
+    if not oid:
+        A.respond(400, {'error': 'oid_prefix is required'})
+    if not re.fullmatch(r'[0-9]+(\.[0-9]+)*', oid.lstrip('.')):
+        A.respond(400, {'error': 'oid_prefix must be a dotted numeric OID'})
+    sev = str(raw.get('severity', 'medium')).lower()
+    if sev not in _TRAP_SEVERITIES:
+        A.respond(400, {'error': 'severity must be one of ' + ', '.join(_TRAP_SEVERITIES)})
+    vm = A._sanitize_str(str(raw.get('value_match', '')), 200)
+    if vm:
+        # Compile now so a bad regex is the operator's problem at save time,
+        # not a silently non-matching rule discovered during an outage.
+        try:
+            re.compile(vm)
+        except Exception as e:
+            A.respond(400, {'error': f'value_match is not a valid regex: {str(e)[:120]}'})
+    dev = A._sanitize_str(str(raw.get('device_id', '')), 64)
+    if dev and not A._validate_id(dev):
+        A.respond(400, {'error': 'device_id is not a valid device id'})
+    return {
+        'id':          existing_id or ('trap-' + A.secrets.token_hex(6)),
+        'name':        A._sanitize_str(str(raw.get('name', '')), 60) or oid.lstrip('.'),
+        'oid_prefix':  oid.lstrip('.'),
+        'value_match': vm,
+        'severity':    sev,
+        'device_id':   dev,
+        'enabled':     bool(raw.get('enabled', True)),
+    }
+
+
+def handle_snmp_trap_rules():
+    """GET /api/snmp/trap-rules — list; POST — create. Admin.
+
+    Rules are instance-wide (like log-alert rules), so they are admin-gated
+    rather than tenant-scoped; an optional `device_id` narrows one rule to a
+    single host, and that id is scope-checked on save.
+    """
+    actor = A.require_admin_auth()
+    if A.method() == 'GET':
+        A.respond(200, {'rules': _trap_rules_load(),
+                        'severities': list(_TRAP_SEVERITIES)})
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    rule = _clean_trap_rule(A.get_json_obj())
+    if rule['device_id']:
+        A._scope_block_device(rule['device_id'])
+    with A._LockedUpdate(A.SNMP_TRAP_RULES_FILE) as st:
+        rules = st.get('rules')
+        if not isinstance(rules, list):
+            rules = []
+        if len(rules) >= _MAX_TRAP_RULES:
+            A.respond(400, {'error': f'trap rule limit reached (max {_MAX_TRAP_RULES})'})
+        rules.append(rule)
+        st['rules'] = rules
+    A.audit_log(actor, 'snmp_trap_rule_create',
+                detail=f'oid={rule["oid_prefix"]} severity={rule["severity"]}')
+    A.respond(201, {'ok': True, 'rule': rule})
+
+
+def handle_snmp_trap_rule(rule_id):
+    """PATCH /api/snmp/trap-rules/<id> — replace; DELETE — remove. Admin."""
+    actor = A.require_admin_auth()
+    rule_id = A._sanitize_str(str(rule_id or ''), 64)
+    if A.method() == 'DELETE':
+        with A._LockedUpdate(A.SNMP_TRAP_RULES_FILE) as st:
+            rules = [r for r in (st.get('rules') or []) if r.get('id') != rule_id]
+            if len(rules) == len(st.get('rules') or []):
+                A.respond(404, {'error': 'rule not found'})
+            st['rules'] = rules
+        A.audit_log(actor, 'snmp_trap_rule_delete', detail=f'id={rule_id}')
+        A.respond(200, {'ok': True})
+    if A.method() != 'PATCH':
+        A.respond(405, {'error': 'Method not allowed'})
+    rule = _clean_trap_rule(A.get_json_obj(), existing_id=rule_id)
+    if rule['device_id']:
+        A._scope_block_device(rule['device_id'])
+    with A._LockedUpdate(A.SNMP_TRAP_RULES_FILE) as st:
+        rules = st.get('rules') or []
+        for i, r in enumerate(rules):
+            if r.get('id') == rule_id:
+                rules[i] = rule
+                break
+        else:
+            A.respond(404, {'error': 'rule not found'})
+        st['rules'] = rules
+    A.audit_log(actor, 'snmp_trap_rule_update', detail=f'id={rule_id}')
+    A.respond(200, {'ok': True, 'rule': rule})
+
+
+def handle_snmp_trap_rule_test():
+    """POST /api/snmp/trap-rules/test — which rule would this trap match?
+
+    The finding this closes is that an operator cannot tell what a trap will
+    do until it arrives at 3am. `{oid, value}` in, the matching rule (or the
+    default) out — including the resolved MIB name, so they can confirm they
+    typed the right OID prefix without waiting for the device to emit one.
+    """
+    A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    oid = A._sanitize_str(str(body.get('oid', '')), 256)
+    val = A._sanitize_str(str(body.get('value', '')), 512)
+    dev = A._sanitize_str(str(body.get('device_id', '')), 64)
+    # The dry run takes a device id from the BODY, so main()'s pre-dispatch
+    # _enforce_device_scope (which only covers /api/devices/<id>/…) does not
+    # reach it. Left ungated, a tenant admin could ask which rules apply to a
+    # host in another tenant and read the rule set back — small, but it is the
+    # exact shape that has produced cross-tenant HIGHs four times in this
+    # codebase.
+    if dev:
+        A._scope_block_device(dev)
+    import snmp as snmp_mod          # sibling module; api.py imports it lazily too
+    rule = A._snmp_trap_rule_match(oid, val, dev, _trap_rules_load())
+    A.respond(200, {
+        'oid': oid,
+        'oid_label': snmp_mod.oid_label(oid.lstrip('.')),
+        'matched': rule,
+        'severity': (rule or {}).get('severity', 'medium'),
+        'action': ('suppressed' if (rule or {}).get('severity') == 'ignore'
+                   else 'alert'),
     })

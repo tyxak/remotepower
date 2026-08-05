@@ -13051,6 +13051,7 @@ let _lastCreatedInboundWebhookUrl = '';
 
 async function loadIntegrationsTab() {
   await loadInboundWebhooks();
+  loadTrapRules();
   // Render OIDC redirect-URI hint based on current origin
   const hintEl = document.getElementById('oidc-redirect-hint');
   if (hintEl) {
@@ -13745,6 +13746,162 @@ function _dnsControlRow(item, dnsCtl) {
 // ── v4.7.0: fleet GPU page (Hardware → GPUs) — NVIDIA + AMD, rich cards ─────
 // v4.7.0: temperature + utilisation trend sparklines (last ~4h of samples).
 // Renders nothing until there are ≥2 points, so a fresh host shows no empty box.
+
+// ─── v6.4.2: SNMP trap rules ────────────────────────────────────────────────
+// An inbound trap used to arrive as a raw dotted OID at one fixed severity,
+// coalesced into a single alert per host — so a UPS reporting "on battery" and
+// a switch reporting its fourth linkDown of the hour were the same row, and
+// acknowledging the noise buried the outage. A rule maps an OID prefix (and
+// optionally a value pattern) to a severity, or drops the trap entirely.
+let _trapRules = [];
+let _trapRuleEdit = null;
+
+const _TRAP_SEV_PILL = {
+  critical: 'sev-critical', high: 'sev-high', medium: 'sev-medium',
+  low: 'sev-low', info: 'sev-low', ignore: 'sev-low',
+};
+
+async function loadTrapRules() {
+  const tbody = document.getElementById('trap-rules-tbody');
+  if (!tbody) return;
+  let data;
+  try {
+    data = await api('GET', '/snmp/trap-rules');
+  } catch (e) {
+    _errorState('trap-rules-tbody', loadTrapRules,
+                { colspan: 7, msg: 'Failed to load trap rules.' });
+    return;
+  }
+  _trapRules = (data && data.rules) || [];
+  tableCtl.wireSortOnly('trap-rules-thead', 'trap_rules', () => _renderTrapRules());
+  _renderTrapRules();
+}
+
+function _renderTrapRules() {
+  const tbody = document.getElementById('trap-rules-tbody');
+  if (!tbody) return;
+  if (!_trapRules.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No trap rules yet — every trap alerts at medium.</td></tr>';
+    return;
+  }
+  const rows = tableCtl.sortRows('trap_rules', _trapRules.slice(), r => ({
+    name: r.name || '', oid_prefix: r.oid_prefix || '',
+    value_match: r.value_match || '', severity: r.severity || '',
+    device_id: r.device_id || '', enabled: r.enabled ? 1 : 0,
+  }));
+  tbody.innerHTML = rows.map(r => {
+    const sev = `<span class="sev-pill ${_TRAP_SEV_PILL[r.severity] || 'sev-medium'}">${escHtml(r.severity || 'medium')}</span>`;
+    const scope = r.device_id
+      ? `device ${escHtml(_deviceNameById(r.device_id) || r.device_id)}`
+      : 'any device';
+    const status = r.enabled
+      ? '<span class="sev-pill sev-success">enabled</span>'
+      : '<span class="sev-pill sev-low">disabled</span>';
+    return `<tr>
+      <td><strong>${escHtml(r.name || '')}</strong></td>
+      <td class="ff-mono fs-12">${escHtml(r.oid_prefix || '')}</td>
+      <td class="ff-mono fs-12">${escHtml(r.value_match || '') || '<span class="c-muted">any</span>'}</td>
+      <td>${sev}</td>
+      <td class="hint">${scope}</td>
+      <td>${status}</td>
+      <td class="nowrap">
+        <button class="btn-icon btn-xs" data-action="editTrapRule" data-arg="${escAttr(r.id)}">Edit</button>
+        <button class="btn-icon btn-xs c-danger-outline" data-action="deleteTrapRule" data-arg="${escAttr(r.id)}">Delete</button>
+      </td></tr>`;
+  }).join('');
+}
+
+function _deviceNameById(id) {
+  const d = (window._devicesCache || []).find(x => x.id === id);
+  return d ? (d.name || id) : '';
+}
+
+function _fillTrapRuleForm(r) {
+  const set = (i, v) => { const el = document.getElementById(i); if (el) el.value = v ?? ''; };
+  set('tr-name', r.name); set('tr-oid', r.oid_prefix);
+  set('tr-value', r.value_match); set('tr-severity', r.severity || 'medium');
+  const dsel = document.getElementById('tr-device');
+  if (dsel) {
+    dsel.innerHTML = '<option value="">Any device</option>' +
+      (window._devicesCache || []).map(d =>
+        `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('');
+    dsel.value = r.device_id || '';
+  }
+  const en = document.getElementById('tr-enabled');
+  if (en) en.checked = r.enabled !== false;
+}
+
+function openTrapRuleCreate() {
+  _trapRuleEdit = null;
+  _fillTrapRuleForm({ severity: 'medium', enabled: true });
+  document.getElementById('trap-rule-modal-title').textContent = 'New trap rule';
+  openModal('trap-rule-modal');
+}
+
+function editTrapRule(id) {
+  const r = _trapRules.find(x => x.id === id);
+  if (!r) return;
+  _trapRuleEdit = id;
+  _fillTrapRuleForm(r);
+  document.getElementById('trap-rule-modal-title').textContent = 'Edit trap rule';
+  openModal('trap-rule-modal');
+}
+
+async function saveTrapRule() {
+  const val = i => (document.getElementById(i)?.value || '').trim();
+  const body = {
+    name: val('tr-name'), oid_prefix: val('tr-oid'),
+    value_match: val('tr-value'), severity: val('tr-severity') || 'medium',
+    device_id: val('tr-device'),
+    enabled: !!document.getElementById('tr-enabled')?.checked,
+  };
+  if (!body.oid_prefix) { toast('An OID prefix is required', 'error', {transient: true}); return; }
+  const r = _trapRuleEdit
+    ? await api('PATCH', `/snmp/trap-rules/${encodeURIComponent(_trapRuleEdit)}`, body)
+    : await api('POST', '/snmp/trap-rules', body);
+  if (r && r.ok) {
+    toast('Trap rule saved', 'success');
+    closeModal('trap-rule-modal');
+    loadTrapRules();
+  } else {
+    toast((r && r.error) || 'Save failed', 'error');
+  }
+}
+
+async function deleteTrapRule(id) {
+  undoableDelete({
+    label: 'Trap rule deleted',
+    hide: () => _hideRowByAction('deleteTrapRule', id, 'tr'),
+    commit: () => api('DELETE', `/snmp/trap-rules/${encodeURIComponent(id)}`),
+    undo: () => loadTrapRules(),
+    after: () => loadTrapRules(),
+  });
+}
+
+// The dry run. Without it an operator finds out what a trap does when it
+// arrives at 3am — and a mistyped OID prefix looks identical to a correct one
+// until the device happens to emit.
+async function testTrapRule() {
+  const out = document.getElementById('trap-test-result');
+  const oid = (document.getElementById('trap-test-oid')?.value || '').trim();
+  if (!out) return;
+  if (!oid) { out.textContent = 'Enter an OID to test.'; return; }
+  const r = await api('POST', '/snmp/trap-rules/test', {
+    oid, value: (document.getElementById('trap-test-value')?.value || '').trim(),
+  }).catch(() => null);
+  if (!r) { out.textContent = 'Test failed.'; return; }
+  const label = r.oid_label ? ` (${escHtml(r.oid_label)})` : '';
+  if (!r.matched) {
+    out.innerHTML = `<code>${escHtml(r.oid)}</code>${label} matches no rule — `
+      + `it would alert at <strong>medium</strong>, coalesced with this host's other unmatched traps.`;
+    return;
+  }
+  const verb = r.action === 'suppressed'
+    ? 'would be <strong>dropped</strong> without alerting'
+    : `would alert at <strong>${escHtml(r.severity)}</strong>`;
+  out.innerHTML = `<code>${escHtml(r.oid)}</code>${label} matches `
+    + `<strong>${escHtml(r.matched.name)}</strong> — it ${verb}.`;
+}
 
 async function loadInboundWebhooks() {
   try {

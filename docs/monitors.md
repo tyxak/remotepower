@@ -95,7 +95,30 @@ start with `rpwi_`, managed as inbound webhooks):
   through the syslog rules (fires `log_alert`).
 - **SNMP traps** — `POST /api/snmp/trap/{token}` accepts `{traps:[{oid,value,…}]}`
   or a single trap; a decoding trapd feeds it. New traps raise
-  **`snmp_trap_received`** (coalesced to one open alert per host).
+  **`snmp_trap_received`**. Well-known OIDs are resolved to their MIB name on
+  ingest, so the alert reads `upsOnBattery` rather than a bare dotted string.
+
+### Trap rules
+
+Settings → Integrations → **SNMP trap rules** decides what a trap *means*. A
+rule matches an **OID prefix** — and optionally a regex against the value — and
+sets the alert severity, or `ignore` to drop the trap without alerting at all.
+
+- **Longest prefix wins.** A rule on `1.3.6.1.4.1.318.0.5` (upsOnBattery) beats
+  a broad `1.3.6.1.4.1.318` rule added later, so you never have to reorder.
+- **Traps matching different rules stay in different alerts.** The matched rule
+  name is part of the alert's identity, so a UPS on battery and a chatty
+  linkDown from the same switch no longer fold into one row where acknowledging
+  the noise buries the outage.
+- A rule can be scoped to a single device, or left fleet-wide.
+- Traps matching no rule keep the old behaviour: one coalesced `medium` alert
+  per host.
+- **Test before you wait for 3am.** `POST /api/snmp/trap-rules/test` with
+  `{oid, value}` (or the Test box on the settings pane) reports which rule would
+  match and what it would do — a mistyped OID prefix otherwise looks exactly
+  like a correct one until the device happens to emit.
+
+`GET/POST /api/snmp/trap-rules`, `PATCH/DELETE /api/snmp/trap-rules/{id}`.
 - **SNMP polling** is separate: per device, `POST …/snmp/poll` and a deep
   inspection at `GET …/snmp/deep`.
 

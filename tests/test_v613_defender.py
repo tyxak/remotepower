@@ -143,10 +143,15 @@ class TestWiring(unittest.TestCase):
         self.assertIn("av_realtime_off", on["resolves"])
 
     def test_tool_key_is_whitelisted_on_stored_alerts(self):
-        """Without this, the inbox can't say WHICH engine found the malware."""
+        """Without this, the inbox can't say WHICH engine found the malware.
+
+        v6.4.2: was a fixed src[start:start+6000] window. _record_alert's
+        whitelist keeps growing (every per-resource alert adds a key and a
+        comment explaining why), so the pin fell off the end and failed on
+        working code — the re-widening treadmill srcpin exists to end."""
+        from srcpin import py_function
         src = (_CGI / "api.py").read_text()
-        start = src.index("def _record_alert(")
-        self.assertIn("'tool'", src[start:start + 6000])
+        self.assertIn("'tool'", py_function(src, "_record_alert"))
 
     def test_windows_agent_sends_av_top_level(self):
         """`av` is ingested by _ingest_av, which is NOT part of the safe_si

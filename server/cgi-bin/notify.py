@@ -802,6 +802,16 @@ def _webhook_message(event, payload):
         # would read "server_upgraded: unknown".
         return (f'RemotePower upgraded from {payload.get("from", "?")} to '
                 f'{payload.get("to", "?")}')
+    elif event == "snmp_trap_received":
+        # v6.4.2: the generic fallback rendered "sw-core: Snmp trap received"
+        # with no OID and no MIB name at all — an operator woken by this had
+        # to go and look up what fired. Lead with the matched rule or the
+        # resolved MIB label, whichever exists.
+        who = payload.get("rule") or payload.get("oid_label") or ""
+        n = payload.get("count", 1)
+        head = f"{who} on {name}" if who else f"SNMP trap from {name}"
+        return (f'{head}: {n} trap(s), OID {payload.get("oid", "?")} = '
+                f'{payload.get("value", "?")}')
     elif event == "audit_forward_failed":
         # Fleet-level. Lead with the count, because the compliance question is
         # "how much of the audit log is missing from the SIEM", not "is it down".

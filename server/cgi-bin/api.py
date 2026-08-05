@@ -178,6 +178,7 @@ OIDC_STATES_FILE = DATA_DIR / 'oidc_states.json'
 # in snmp.py (pure-stdlib SNMPv2c).
 SNMP_DATA_FILE = DATA_DIR / 'snmp_data.json'
 SNMP_TRAPS_FILE = DATA_DIR / 'snmp_traps.json'   # inbound SNMP traps, per device
+SNMP_TRAP_RULES_FILE = DATA_DIR / 'snmp_trap_rules.json'  # v6.4.2: OID → severity rules
 SBOM_BASELINE_FILE = DATA_DIR / 'sbom_baselines.json'   # per-device package baseline for SBOM diffs
 TICKETS_FILE = DATA_DIR / 'tickets.json'   # built-in ticket system (opt-in)
 TICKET_SCHED_STATE_FILE = DATA_DIR / 'ticket_sched_state.json'  # W1-27 recurring-ticket dedup
@@ -1368,6 +1369,8 @@ snmp_device_handlers_mod.bind(globals())
 for _ds_name in (
         'handle_device_snmp', 'handle_device_snmp_poll', 'handle_device_snmp_deep',
         'handle_device_snmp_walk', '_validate_walk_oid', 'SNMP_WALK_PRESETS',
+        'handle_snmp_trap_rules', 'handle_snmp_trap_rule', 'handle_snmp_trap_rule_test',
+        '_trap_rules_load',
 ):
     globals()[_ds_name] = getattr(snmp_device_handlers_mod, _ds_name)
 del _ds_name
@@ -2015,10 +2018,14 @@ EVENT_REGISTRY = {
     'snmp_recover': dict(
         label='SNMP polling recovered', kind='snmp', title='SNMP Device Recovered',
         resolves=('snmp_unreachable', 'snmp_dead')),
+    # v6.4.2: severity is payload-derived so an operator's trap rule can raise a
+    # UPS "on battery" to critical and leave a chatty linkDown at low, instead of
+    # every trap arriving as one undifferentiated medium. Unmatched traps still
+    # resolve to medium — see _alert_severity.
     'snmp_trap_received': dict(
         lifecycle='point',
         label='Inbound SNMP trap received from a host', kind='snmp', title='SNMP Trap',
-        severity='medium'),
+        severity=None),
     'mcp_confirmation_expired': dict(
         lifecycle='point',
         label='MCP confirmation expired without operator decision', kind='mcp',
@@ -9144,6 +9151,12 @@ def _alert_severity(event, payload):
     # INFO dashboard notice — on-demand scans you launched yourself never alert.
     if event == 'scan_finding':
         return 'info'
+    # v6.4.2: an operator trap rule sets the severity; unmatched traps keep the
+    # 'medium' they have always had. `_snmp_trap_rule_match` never returns
+    # 'ignore' to this path — a suppressed trap is not fired at all.
+    if event == 'snmp_trap_received':
+        sev = str(p.get('severity') or '').lower()
+        return sev if sev in ('critical', 'high', 'medium', 'low', 'info') else 'medium'
     if event == 'cve_found':
         if int(p.get('critical') or 0) > 0:
             return 'critical'
@@ -9496,7 +9509,12 @@ def _alert_title(event, payload):
         return (f'Mail queue backed up on {name}: {p.get("count","?")} queued '
                 f'(threshold {p.get("threshold","?")})')
     if event == 'snmp_trap_received':
-        return (f'SNMP trap from {name}: {p.get("count","?")} trap(s), '
+        # v6.4.2: lead with the rule name and the MIB label. "SNMP trap from
+        # sw-core: 1 trap(s), OID 1.3.6.1.4.1.318.0.5 = 1" told an operator
+        # being woken at 3am nothing they could act on.
+        who = p.get('rule') or p.get('oid_label') or ''
+        head = f'{who} on {name}' if who else f'SNMP trap from {name}'
+        return (f'{head}: {p.get("count","?")} trap(s), '
                 f'OID {p.get("oid","?")} = {p.get("value","?")}')
     if event == 'vault_break_glass':
         return (f'Break-glass reveal on {name}: "{p.get("label","?")}" by '
@@ -9583,6 +9601,11 @@ _ALERT_IDENTITY_FIELDS = (
     # recovery (nic_errors_cleared sub_match) resolves the wrong one / masks a
     # still-erroring NIC. Same class as pool/process above.
     'iface',
+    # v6.4.2: a matched SNMP trap rule. Without it, every trap from one host
+    # coalesces into a single open alert row regardless of what it says — a UPS
+    # on battery and a chatty linkDown share one row, and acknowledging the
+    # noisy one buries the one that mattered.
+    'rule',
     # v6.4.0: same coalescing class — dependency_missing fires per EDGE and
     # ticket_sla_breached per TICKET, both carrying a device_id. Without these,
     # two broken upstream edges (or two breaching tickets) on one host merged
@@ -10781,6 +10804,12 @@ def _record_alert(event, payload):
                     # v6.2.2: NIC interface name — the nic_errors alert's
                     # per-interface match key for nic_errors_cleared resolve.
                     'iface',
+                    # v6.4.2: SNMP trap identity + the resolved MIB name. `rule`
+                    # is in _ALERT_IDENTITY_FIELDS, so it has to be STORED too —
+                    # an identity field the row doesn't carry discriminates
+                    # nothing. `oid_label` is what makes the inbox row readable
+                    # ("upsOnBattery" rather than 1.3.6.1.4.1.318.0.5).
+                    'rule', 'oid', 'oid_label',
                     # v6.3.1: remediation_failed detail (which rule/fix failed;
                     # whether the failure auto-disabled the rule).
                     'rule_name', 'rule_id', 'script_id', 'rule_disabled',
@@ -57082,6 +57111,44 @@ def handle_syslog_in(token_str):
     respond(200, {'ok': True, 'lines_received': len(new_entries)})
 
 
+def _snmp_trap_rule_match(oid, value, dev_id, rules):
+    """First enabled rule whose OID prefix (and optional value regex) matches.
+
+    v6.4.2. Longest-prefix wins, so a specific rule beats a broad one written
+    later — `.1.3.6.1.4.1.318.0.5` (upsOnBattery) is not shadowed by an
+    enterprise-wide `.1.3.6.1.4.1.318` rule the operator added afterwards.
+    Order in the list is NOT the tiebreak, because an operator adding a
+    narrower rule expects it to take effect without reordering the broad one.
+
+    A rule with a `device_id` applies only to that host; a rule without one
+    applies fleet-wide. Returns the rule dict, or None for "no rule matched",
+    which keeps the pre-v6.4.2 behaviour (a medium, coalesced alert).
+    """
+    o = str(oid or '').lstrip('.')
+    best, best_len = None, -1
+    for r in (rules or []):
+        if not isinstance(r, dict) or not r.get('enabled', True):
+            continue
+        if r.get('device_id') and r['device_id'] != dev_id:
+            continue
+        pre = str(r.get('oid_prefix') or '').lstrip('.')
+        if not pre or not (o == pre or o.startswith(pre + '.')):
+            continue
+        vm = r.get('value_match') or ''
+        if vm:
+            try:
+                if not re.search(vm, str(value or '')):
+                    continue
+            except re.error:
+                # A regex that no longer compiles must not silently swallow the
+                # trap — skip the rule and let a broader one (or the default)
+                # take it.
+                continue
+        if len(pre) > best_len:
+            best, best_len = r, len(pre)
+    return best
+
+
 def handle_snmp_trap_in(token_str):
     """POST /api/snmp/trap/<token>
 
@@ -57131,16 +57198,29 @@ def handle_snmp_trap_in(token_str):
     elif isinstance(body, list):
         raw = body[:50]
     now = int(time.time())
+    # v6.4.2: resolve the OID to its well-known MIB name, and classify against
+    # the operator's trap rules. `snmp.oid_label` has existed since the OID
+    # browser shipped and had exactly one caller — so the trap store, the one
+    # place an unreadable dotted string actually costs an operator something at
+    # 3am, was the one place it was not used.
+    import snmp as _snmp_mod
+    _rules = _trap_rules_load()
     new_traps = []
     for tr in raw:
         if not isinstance(tr, dict):
             continue
+        _oid = _sanitize_str(str(tr.get('oid', '')), 256)
+        _val = _sanitize_str(str(tr.get('value', '')), 512)
+        _rule = _snmp_trap_rule_match(_oid, _val, dev_id, _rules)
         new_traps.append({
             'ts':    now,
-            'oid':   _sanitize_str(str(tr.get('oid', '')), 256),
-            'value': _sanitize_str(str(tr.get('value', '')), 512),
+            'oid':   _oid,
+            'label': _snmp_mod.oid_label(_oid.lstrip('.')),
+            'value': _val,
             'type':  _sanitize_str(str(tr.get('type', '')), 64),
             'agent': _sanitize_str(str(tr.get('agent', '')), 128),
+            'rule':  (_rule or {}).get('name', ''),
+            'severity': (_rule or {}).get('severity', ''),
         })
     if not new_traps:
         _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400', 'no traps in body')
@@ -57158,17 +57238,40 @@ def handle_snmp_trap_in(token_str):
     except Exception as e:
         respond(500, {'error': f'trap store write failed: {e}'})
 
-    # Coalesced per-host alert (fired AFTER the trap-store lock; fire_webhook
-    # takes its own locks — never nest).
-    try:
-        first = new_traps[0]
-        fire_webhook('snmp_trap_received', {
-            'device_id': dev_id, 'name': dev.get('name', dev_id),
-            'count': len(new_traps), 'oid': first.get('oid', ''),
-            'value': first.get('value', ''),
-        })
-    except Exception as e:
-        sys.stderr.write(f'[remotepower] snmp_trap_received fire failed dev={dev_id}: {e}\n')
+    # v6.4.2: one alert per matched RULE, plus one coalesced alert for whatever
+    # matched nothing. Before this every trap from a host folded into a single
+    # open row with no identity field, so a UPS reporting "on battery" and a
+    # switch reporting its fourth linkDown of the hour were the same alert —
+    # acknowledging the noise buried the outage. `rule` is now an identity
+    # field, so the two stay apart; a rule set to `ignore` fires nothing at all,
+    # which is the other half of why anyone runs a trap receiver.
+    #
+    # Fired AFTER the trap-store lock; fire_webhook takes its own locks.
+    _fired = {}
+    _plain = []
+    for t in new_traps:
+        if t.get('severity') == 'ignore':
+            continue
+        if t.get('rule'):
+            _fired.setdefault(t['rule'], []).append(t)
+        else:
+            _plain.append(t)
+    _batches = [(name, ts) for name, ts in _fired.items()]
+    if _plain:
+        _batches.append(('', _plain))
+    for _rule_name, _ts in _batches:
+        try:
+            first = _ts[0]
+            fire_webhook('snmp_trap_received', {
+                'device_id': dev_id, 'name': dev.get('name', dev_id),
+                'count': len(_ts), 'oid': first.get('oid', ''),
+                'oid_label': first.get('label', ''),
+                'value': first.get('value', ''),
+                'rule': _rule_name,
+                'severity': first.get('severity', ''),
+            })
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] snmp_trap_received fire failed dev={dev_id}: {e}\n')
 
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
@@ -66358,6 +66461,9 @@ def _build_exact_routes():
         ('POST', '/api/device-profiles'): handle_device_profiles,
         # W5-6: smart groups (saved-query dynamic groups, admin-gated).
         ('GET', '/api/smart-groups'): handle_smart_groups,
+        ('GET', '/api/snmp/trap-rules'): handle_snmp_trap_rules,
+        ('POST', '/api/snmp/trap-rules'): handle_snmp_trap_rules,
+        ('POST', '/api/snmp/trap-rules/test'): handle_snmp_trap_rule_test,
         ('POST', '/api/smart-groups'): handle_smart_groups,
         # W5-3: rack registry + elevation view.
         ('GET', '/api/racks'): handle_racks,
@@ -66810,6 +66916,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', None, '/api/webhook/in/', '', 'handle_inbound_webhook', "pi.startswith('/api/webhook/in/')"),
     ('pat', None, '/api/syslog/in/', '', 'handle_syslog_in', "pi.startswith('/api/syslog/in/')"),
     ('pat', None, '/api/snmp/trap/', '', 'handle_snmp_trap_in', "pi.startswith('/api/snmp/trap/')"),
+    # v6.4.2: OID → severity rules for inbound traps (admin CRUD + a dry-run).
+    ('pat', ('PATCH', 'DELETE'), '/api/snmp/trap-rules/', '', 'handle_snmp_trap_rule', "pi.startswith('/api/snmp/trap-rules/') and m in ('PATCH', 'DELETE')"),
     ('pat', ('POST',), '/api/flow/in/', '', 'handle_flow_in', "pi.startswith('/api/flow/in/') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/flows', 'handle_device_flows', "pi.startswith('/api/devices/') and pi.endswith('/flows') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_revoke', "pi.startswith('/api/inbound-webhooks/') and m == 'DELETE'"),

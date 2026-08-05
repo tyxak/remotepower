@@ -1970,6 +1970,7 @@
     "Import .ics": { "fr": "Importer .ics", "de": ".ics importieren", "zh": "导入 .ics", "hi": ".ics Import करें", "es": "Importar .ics", "ar": "استيراد ‎.ics" },
     "Import events from an .ics file": { "fr": "Importer des événements depuis un fichier .ics", "de": "Ereignisse aus einer .ics-Datei importieren", "zh": "从 .ics 文件导入事件", "hi": ".ics फ़ाइल से events import करें", "es": "Importar eventos desde un archivo .ics", "ar": "استيراد الأحداث من ملف ‎.ics" },
     "Import now": { "fr": "Importer maintenant", "de": "Jetzt importieren", "zh": "立即导入", "hi": "अभी import करें", "es": "Importar ahora", "ar": "استورد الآن" },
+    "SNMP trap rules": { "fr": "Règles de trap SNMP", "de": "SNMP-Trap-Regeln", "zh": "SNMP Trap 规则", "hi": "SNMP trap नियम", "es": "Reglas de trap SNMP", "ar": "قواعد SNMP trap" },
     "Inbound webhooks & syslog": { "fr": "Webhooks entrants & syslog", "de": "Eingehende Webhooks & Syslog", "zh": "入站 Webhook 与 syslog", "hi": "Inbound webhooks व syslog", "es": "Webhooks entrantes y syslog", "ar": "Webhooks الواردة وsyslog" },
     "Ingest URL": { "fr": "URL d'ingestion", "de": "Erfassungs-URL", "zh": "采集 URL", "hi": "इनजेस्ट URL", "es": "URL de ingesta", "ar": "URL الاستيعاب" },
     "Install": { "fr": "Installer", "de": "Installieren", "zh": "安装", "hi": "इंस्टॉल करें", "es": "Instalar", "ar": "تثبيت" },
