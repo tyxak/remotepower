@@ -10422,6 +10422,11 @@ def _record_alert(event, payload):
                     # v3.3.4: image-update events — image/tag identify the
                     # alert so image_updated can auto-resolve it.
                     'image', 'tag', 'registry', 'hosts_count',
+                    # v6.4.2: which upstream this alert is collateral from.
+                    # Without it the inbox cannot say "20 of these 21 host
+                    # groups are consequences of the switch" — the server
+                    # computed exactly that and discarded it.
+                    'upstream_down',
                     # v6.4.2: an integration bound to a SITE rather than a host
                     # (or in addition to one) — stored so the inbox can say
                     # where the failing service lives and so scoped delivery has
@@ -11313,8 +11318,34 @@ def fire_webhook(event, payload):
     # v4.8.0: log instead of swallowing silently — a serialization bug here
     # used to drop alerts/auto-resolves with zero trace (SIEM/webpush below
     # already log their failures; these two were the silent holes).
+    # v6.4.2: dependency suppression already computes WHICH upstream is down (see
+    # the block further below) and then throws the answer away — it suppresses
+    # webhook delivery and returns, but `_record_alert` has ALREADY run, so the
+    # downstream alert is in the inbox with nothing marking it as collateral. A
+    # rack switch losing power gave the operator 21 host groups, each with its
+    # own device_offline marked "root cause" for that host, and no sign that 20
+    # of them were consequences. The server knew; it just did not say.
+    #
+    # Computed once here, stamped onto the alert, and reused by the suppression
+    # block below so the lookup is not done twice.
+    _upstream_collateral = None
+    _coll_dev = (payload or {}).get('device_id') if isinstance(payload, dict) else None
+    if (_coll_dev and event not in _ALERT_RECOVER
+            and not event.endswith(('_up', '_online', '_recover', '_recovered'))):
+        try:
+            _upstream_collateral = _upstream_down(
+                _coll_dev, load(DEVICES_FILE) or {}, int(time.time()),
+                get_online_ttl())
+        except Exception:
+            _upstream_collateral = None
     try:
-        _record_alert(event, payload)
+        # A COPY — never mutate the caller's payload; several call sites reuse
+        # theirs for the webhook body and for a later event.
+        _alert_payload = payload
+        if _upstream_collateral and isinstance(payload, dict):
+            _alert_payload = dict(payload)
+            _alert_payload['upstream_down'] = _upstream_collateral
+        _record_alert(event, _alert_payload)
     except Exception as e:
         sys.stderr.write(f'[remotepower] alert ledger record failed {event}: {e}\n')
     try:
@@ -11477,11 +11508,8 @@ def fire_webhook(event, payload):
     # Recover events (device_online, *_recover/*_up) are never suppressed, so a
     # device coming back always clears. The event is still recorded above.
     if dev_id and event not in _ALERT_RECOVER and not event.endswith(('_up', '_online', '_recover', '_recovered')):
-        try:
-            up_name = _upstream_down(dev_id, load(DEVICES_FILE) or {},
-                                     int(time.time()), get_online_ttl())
-        except Exception:
-            up_name = None
+        up_name = _upstream_collateral   # v6.4.2: computed once above, at the
+                                         # point the alert row is written
         if up_name:
             u = _suppression_log_url()
             if u:
@@ -47966,12 +47994,45 @@ def handle_incidents():
     rec = {'id': iid, 'title': title, 'impact': impact, 'status': status,
            'created_at': now, 'updated_at': now,
            'updates': [{'ts': now, 'status': status, 'body': msg}] if msg or status else []}
+    # v6.4.2: declare an incident FROM the alerts in front of you. The incident
+    # object already spans an alert cluster when the auto-promoter builds it —
+    # alert_ids, device_ids, and `incident_id` stamped back onto each member —
+    # but an operator could only ever create an empty one from a form buried in
+    # Settings → Integrations, with no way to say which alerts it was about.
+    # Same shape as _auto_promote_incident_for_cluster, filtered to the caller's
+    # visible alerts so this cannot be used to enumerate or claim another
+    # tenant's rows.
+    _want = body.get('alert_ids')
+    _link_ids, _link_devs = [], []
+    if isinstance(_want, list) and _want:
+        _astore = load(ALERTS_FILE) or {}
+        _visible = {a.get('id'): a for a in _filter_alerts_for_caller(
+            _astore.get('alerts') or [])}
+        for _aid in _want[:200]:
+            _a = _visible.get(_aid)
+            if not _a:
+                continue
+            _link_ids.append(_aid)
+            if _a.get('device_id') and _a['device_id'] not in _link_devs:
+                _link_devs.append(_a['device_id'])
+        if _link_ids:
+            rec['alert_ids'] = _link_ids
+            rec['device_ids'] = _link_devs
     with _LockedUpdate(INCIDENTS_FILE) as store:
         incs = store.setdefault('incidents', [])
         if len(incs) >= 500:
             respond(400, {'error': 'incident limit reached'})
         incs.append(rec)
-    audit_log(actor, 'incident_create', f'id={iid} {title}')
+    if _link_ids:
+        # A SECOND lock, never nested inside the first — see CLAUDE.md's
+        # self-locking-helpers rule, and the auto-promoter above does the same.
+        with _LockedUpdate(ALERTS_FILE) as astore:
+            _ids = set(_link_ids)
+            for a in (astore.get('alerts') or []):
+                if a.get('id') in _ids:
+                    a['incident_id'] = iid
+    audit_log(actor, 'incident_create',
+              f'id={iid} {title}' + (f' alerts={len(_link_ids)}' if _link_ids else ''))
     _notify_incident_subscribers(rec, load(CONFIG_FILE) or {}, event='created')
     respond(200, {'ok': True, 'id': iid})
 
@@ -53547,6 +53608,21 @@ def _annotate_alert_correlation(alerts):
             a['_root_cause'] = True
         elif a.get('event') in ALERT_SYMPTOM_EVENTS and _is_open(a):
             a['_symptom_of'] = roots[did]
+    # v6.4.2: CROSS-DEVICE collateral. The folding above is strictly within one
+    # device_id, so a rack switch losing power gave 21 host groups — each with
+    # its own device_offline marked "root cause" FOR THAT HOST — and nothing
+    # saying 20 of them were consequences. `upstream_down` is stamped at
+    # fire_webhook time (dependency suppression already computed it and threw it
+    # away), so surface it as a distinct annotation: a downstream host's
+    # device_offline is genuinely the root cause on that host, and ALSO
+    # collateral from the upstream. Both facts are true and the operator needs
+    # the second one.
+    for a in alerts:
+        if not _is_open(a):
+            continue
+        up = (a.get('payload') or {}).get('upstream_down')
+        if up:
+            a['_collateral_of'] = str(up)[:64]
     return alerts
 
 

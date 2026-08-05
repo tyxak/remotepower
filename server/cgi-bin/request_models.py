@@ -1770,6 +1770,10 @@ if _AVAILABLE:
         impact: str = ''
         status: str = ''
         title: str = ''
+        # v6.4.2: declare an incident FROM alerts. `Any` on purpose — the handler
+        # already iterates defensively and a strict `list` would narrow what the
+        # endpoint accepts, which the model is never allowed to do.
+        alert_ids: Any = None
         _v0 = field_validator('body', 'impact', 'status', 'title', mode='before')(_coerce_str_loose)
 
     class IncidentUpdateRequest(BaseModel):

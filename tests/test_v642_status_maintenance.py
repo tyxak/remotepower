@@ -38,7 +38,7 @@ class TestStatusPageMaintenance(unittest.TestCase):
         self.now = now = int(time.time())
         # One device, offline, and it is the only member of the component.
         api.save(api.DEVICES_FILE, {
-            "d1": {"name": "web01", "token": "t", "monitored": True,
+            "spmaint-d1": {"name": "web01", "token": "t", "monitored": True,
                    "last_seen": now - 99999}})
         cfg = api.load(api.CONFIG_FILE) or {}
         self._cfg_before = json.loads(json.dumps(cfg))
@@ -47,12 +47,27 @@ class TestStatusPageMaintenance(unittest.TestCase):
         # RP_DATA_DIR can leave a large `online_ttl` behind, and then a device
         # 99999s stale still reads as online — the class-4 shared-store
         # order-dependency, which shows up only under xdist and looks like flake.
+        #
+        # v6.4.2: the SECOND half of that, found the same way. The device id was
+        # `d1`, which half the suite uses; a neighbour module sharing this data
+        # dir writes `d1` with a CURRENT last_seen, and then the product's
+        # last_seen-regression guard correctly REFUSES this setUp's deliberately
+        # stale write ("last_seen regression prevented dev=d1 ... by=setUp"), so
+        # the host reads online and every status assertion here fails at once.
+        # The guard is right; the fixture was using a name it did not own.
         cfg["online_ttl"] = 300
+        # ...and the FLOOR, which is the half this originally missed.
+        # get_online_ttl() returns max(min_online_ttl, online_ttl), so pinning
+        # only online_ttl leaves a neighbour's leaked min_online_ttl in charge —
+        # a large one makes the 99999s-stale device read ONLINE and every status
+        # assertion in this class fails at once, which is exactly the shape that
+        # showed up under xdist and looked like flake.
+        cfg["min_online_ttl"] = 150
         cfg["status_page"] = {
             "enabled": True, "title": "Status", "show_incidents": True,
             "show_maintenance": True, "incident_days": 30,
             "components": [{"id": "c1", "group": "Core", "name": "Web",
-                            "device_ids": ["d1"], "monitors": []}],
+                            "device_ids": ["spmaint-d1"], "monitors": []}],
         }
         api.save(api.CONFIG_FILE, cfg)
         api._LOAD_CACHE.clear()
@@ -66,7 +81,7 @@ class TestStatusPageMaintenance(unittest.TestCase):
         api._LOAD_CACHE.clear()
 
     def _window(self, **kw):
-        w = {"id": "w1", "scope": "device", "target": "d1",
+        w = {"id": "w1", "scope": "device", "target": "spmaint-d1",
              "start": _iso(self.now - 3600), "end": _iso(self.now + 3600),
              "reason": _REASON}
         w.update(kw)

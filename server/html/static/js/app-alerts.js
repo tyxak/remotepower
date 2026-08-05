@@ -495,6 +495,42 @@ function alertTimeline(alertId) {
   }, 60);
 }
 
+// v6.4.2: declare an incident from the alert in front of you.
+//
+// The incident object already spans an alert cluster when auto-promotion builds
+// it, and it is stamped back onto each member alert — but the only way an
+// OPERATOR could make one was a title/impact form inside Settings →
+// Integrations → Public status page, with no way to say which alerts it covered
+// and no button anywhere near the alerts themselves.
+//
+// Defaults to every OPEN alert on the same host, because a real incident is
+// almost never one alert — and the operator can still narrow it afterwards.
+async function declareIncident(alertId) {
+  const a = (_alertsCache || []).find((x) => String(x.id) === String(alertId));
+  if (!a) return;
+  const sameHost = (_alertsCache || []).filter(
+    (x) => !x.resolved_at && !x.incident_id && x.device_id
+           && x.device_id === a.device_id);
+  const ids = sameHost.length ? sameHost.map((x) => x.id) : [a.id];
+  const host = a.device_name || a.device_id || 'the fleet';
+  if (!await uiConfirm({
+    title: 'Declare an incident',
+    message: `Open an incident covering ${ids.length} open alert(s) on ${host}?\n\nIt appears on the public status page and notifies status subscribers. Each alert is linked to it, so the inbox shows they are being worked together.`,
+    confirmText: 'Declare', danger: false,
+  })) return;
+  const r = await api('POST', '/incidents', {
+    title: `${a.title || a.event || 'Incident'} — ${host}`.slice(0, 160),
+    impact: (a.severity === 'critical') ? 'major'
+            : (a.severity === 'high') ? 'minor' : 'none',
+    status: 'investigating',
+    body: `Declared from the Alerts inbox: ${ids.length} open alert(s) on ${host}.`,
+    alert_ids: ids,
+  }).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Could not declare incident', 'error'); return; }
+  toast(`Incident opened covering ${ids.length} alert(s)`, 'success');
+  loadAlerts();
+}
+
 function _alertRowHtml(a, role) {
   const isResolved = !!a.resolved_at;
   const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
@@ -538,6 +574,9 @@ function _alertRowHtml(a, role) {
     // which on a busy host may not even reach the 03:41 the alert is about.
     // The row knows its own timestamp; "what surrounded this" is the question.
     actions += `<button class="btn-icon btn-xs" data-action="alertTimeline" data-arg="${a.id}" title="Timeline: what else happened on this host around the time this alert first fired" aria-label="Show the timeline around this alert">${_icon('clock',12)}</button> `;
+    if (!a.incident_id) {
+      actions += `<button class="btn-icon btn-xs" data-action="declareIncident" data-arg="${a.id}" title="Declare an incident from this alert — spans the alerts you pick, shows on the public status page and notifies subscribers">Incident</button> `;
+    }
     actions += `<button class="btn-icon btn-xs" data-action="copyAlertLink" data-arg="${a.id}" title="Copy a link to this alert" aria-label="Copy a link to this alert">${_icon('link',12)}</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
       actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;
@@ -557,8 +596,23 @@ function _alertRowHtml(a, role) {
     `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;
   const badge = role === 'root'
     ? ' <span class="alert-rc-badge rc-root">root cause</span>'
-    : role === 'symptom' ? ' <span class="alert-rc-badge rc-symptom">symptom</span>' : '';
+    : role === 'symptom' ? ' <span class="alert-rc-badge rc-symptom">symptom</span>'
+    // v6.4.2: this host depends on an upstream that is currently offline. Named,
+    // because "collateral" without the name leaves the operator hunting for
+    // which upstream — the work this is meant to remove.
+    : (role === 'collateral' && a._collateral_of)
+      ? ` <span class="alert-rc-badge rc-collateral" title="This host depends on ${escAttr(a._collateral_of)}, which is offline. Fix the upstream first.">collateral — ${_escapeHtml(a._collateral_of)} is down</span>`
+      : '';
   const titleCls = role === 'symptom' ? ' class="alert-symptom-cell"' : '';
+  // v6.4.2: this alert is part of a declared incident. The incident object has
+  // spanned an alert cluster since auto-promotion shipped — it stamps
+  // `incident_id` onto every member alert — and the inbox never rendered it, so
+  // an on-call operator working 14 alerts had no sign an incident existed at
+  // all; it was three clicks into Settings → Integrations, a pane nobody opens
+  // during an outage.
+  const incBadge = a.incident_id
+    ? ` <span class="patch-badge fs-10" title="Part of declared incident ${escAttr(a.incident_id)} — other alerts in this incident are being worked together">incident</span>`
+    : '';
   // v5.0.0: ITSM ticket opened on ack — link straight to it.
   const ticketLink = a.ticket_ref
     ? (a.ticket_url
@@ -573,7 +627,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}${_alertAgeHtml(a)}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${confirmTag}${_alertEscalationBadge(a)}${badge}${incBadge}${ticketLink}${kbLink}${a.ai_triage ? ` <button class="patch-badge fs-10" data-action="showAlertTriage" data-arg="${a.id}" title="AI triage verdict stored — click to view">${_icon('sparkles',11)} AI verdict</button>` : ''}${_priorIncidentBadge(a)}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}${_alertEvidenceHtml(a)}${_alertResolveNoteHtml(a)}</td>
     <td>${a.device_id ? `<span data-dev-hover="${_escapeHtml(a.device_id)}">${_escapeHtml(dev)}</span>` : _escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
@@ -646,6 +700,12 @@ function _renderAlertsGrouped(rows) {
       key, items,
       name: items[0].device_name || items[0].device_id || 'Fleet / no host',
       worst, openCount, hasRoot: items.some(a => a._root_cause),
+      // v6.4.2: which upstream this whole host group is collateral from. A rack
+      // switch losing power gave 21 host groups, each with its own
+      // device_offline marked "root cause" for that host and nothing saying 20
+      // were consequences — the server had already computed the upstream in
+      // order to suppress the webhook fan-out, and discarded it.
+      collateralOf: (items.find(a => a._collateral_of) || {})._collateral_of || '',
     };
   });
   arr.sort((x, y) => x.worst - y.worst || y.openCount - x.openCount
@@ -653,7 +713,14 @@ function _renderAlertsGrouped(rows) {
   const order = a => a._root_cause ? 0 : a._symptom_of ? 1 : 2;
   let html = '';
   for (const g of arr) {
-    if (g.items.length === 1) { html += _alertRowHtml(g.items[0], ''); continue; }
+    // A one-alert host has no group header to hang the note on — pass the
+    // marker through so the row itself can show it. Without this the single
+    // most common shape (one downstream host, one device_offline) is exactly
+    // the case that stays silent.
+    if (g.items.length === 1) {
+      html += _alertRowHtml(g.items[0], g.items[0]._collateral_of ? 'collateral' : '');
+      continue;
+    }
     const items = g.items.slice().sort((a, b) =>
       order(a) - order(b)
       || (_ALERT_SEV_RANK[a.severity] ?? 9) - (_ALERT_SEV_RANK[b.severity] ?? 9)
@@ -662,6 +729,11 @@ function _renderAlertsGrouped(rows) {
     const worstName = _ALERT_SEV_NAME[g.worst] || 'low';
     const caret = collapsed ? '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' : '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
     const rootNote = g.hasRoot ? ' · host offline — symptoms folded' : '';
+    // Named, not just flagged: "collateral" alone leaves the operator hunting
+    // for which upstream, which is the work this is meant to remove.
+    const upNote = g.collateralOf
+      ? ` · <span class="c-amber" title="This host depends on ${_escapeHtml(g.collateralOf)}, which is offline. Fix the upstream first — these alerts are downstream of it.">collateral — ${_escapeHtml(g.collateralOf)} is down</span>`
+      : '';
     let groupActions = '';
     if (g.openCount) {
       groupActions =
@@ -669,7 +741,7 @@ function _renderAlertsGrouped(rows) {
         `<button class="btn-icon btn-xs c-success" data-action="resolveGroup" data-arg="${escAttr(g.key)}">Resolve all</button>`;
     }
     html += `<tr class="alerts-group-row">
-      <td colspan="6"><button class="alerts-group-toggle" data-action="toggleAlertGroup" data-arg="${escAttr(g.key)}">${caret} <strong>${_escapeHtml(g.name)}</strong></button> <span class="sev-pill sev-${worstName}">${worstName}</span> <span class="hint">${g.openCount} open / ${g.items.length} total${rootNote}</span></td>
+      <td colspan="6"><button class="alerts-group-toggle" data-action="toggleAlertGroup" data-arg="${escAttr(g.key)}">${caret} <strong>${_escapeHtml(g.name)}</strong></button> <span class="sev-pill sev-${worstName}">${worstName}</span> <span class="hint">${g.openCount} open / ${g.items.length} total${rootNote}${upNote}</span></td>
       <td class="nowrap">${groupActions}</td></tr>`;
     if (!collapsed) {
       for (const a of items) {

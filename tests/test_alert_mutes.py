@@ -15,8 +15,12 @@ behaviour, the "fleet_events is NOT suppressed" guarantee, and the wiring.
 import os as _rp_os, tempfile as _rp_tempfile
 _rp_os.environ.setdefault("RP_DATA_DIR", _rp_tempfile.mkdtemp())
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import srcpin  # noqa: E402
 
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / 'server' / 'cgi-bin'
@@ -76,14 +80,15 @@ class TestRecordAlertSuppression(unittest.TestCase):
 
 class TestFleetEventsNotSuppressed(unittest.TestCase):
     def test_fleet_event_recorder_has_no_mute_gate(self):
-        seg = _SRC[_SRC.index('def _record_fleet_event'):
-                   _SRC.index('def _record_fleet_event') + 1600]
+        seg = srcpin.py_function(_SRC, '_record_fleet_event')
         self.assertNotIn('_alert_muted', seg,
                          'fleet_events must record even when muted (Tuning needs it)')
 
     def test_fire_webhook_records_fleet_event_before_mute_gate(self):
-        body = _SRC[_SRC.index('def fire_webhook'):
-                    _SRC.index('def fire_webhook') + 6000]
+        # v6.4.2: was a fixed `+ 6000` char window, which stopped containing the
+        # mute gate the moment anything was inserted above it — the growth-proof
+        # form is srcpin's indentation-bounded function body (CLAUDE.md).
+        body = srcpin.py_function(_SRC, 'fire_webhook')
         self.assertIn('_record_fleet_event(event, payload)', body)
         # v5.6.0: the mute is computed once into `_muted` and the delivery gate is
         # `if _muted: return`; fleet_events must still be recorded before it.

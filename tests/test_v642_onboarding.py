@@ -183,8 +183,16 @@ class TestChecklistTickIsEvidence(unittest.TestCase):
 
     def test_an_unreadable_log_does_not_break_the_checklist(self):
         api.save(api.CONFIG_FILE, {"webhook_url": "https://x/y"})
-        api.save(api.WEBHOOK_LOG_FILE, "not a log at all")
-        step, body = self._notif_step()
+        try:
+            api.save(api.WEBHOOK_LOG_FILE, "not a log at all")
+            step, body = self._notif_step()
+        finally:
+            # Leave the store readable. A poisoned shared store is the class-4
+            # order-dependency, and this one really did take out an unrelated
+            # module (the Prometheus exporter iterated the string's CHARACTERS
+            # and 500'd the whole scrape — a real bug, now fixed, but this test
+            # must not be the thing that fires it at a neighbour).
+            api.save(api.WEBHOOK_LOG_FILE, {"entries": []})
         self.assertFalse(step["done"])
         self.assertEqual(len(body["steps"]), 5, "the checklist itself broke")
 

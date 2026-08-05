@@ -5955,6 +5955,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
                   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
 .alert-rc-badge.rc-root { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
 .alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
+/* v6.4.2: this alert is downstream of a declared upstream that is offline.
+   Amber, not red: the host really is down, but fixing IT is not the job — the
+   upstream is. Distinct from rc-root (fix this) and rc-symptom (ignore this). */
+.alert-rc-badge.rc-collateral { background: rgba(255,193,7,0.15); color: var(--amber); border: 1px solid var(--amber); }
 .alerts-row.alert-symptom .alert-symptom-cell { padding-left: 22px; border-left: 2px solid var(--border); }
 /* v4.1.0: resizable dashboard grid (size = column span on a 6-col grid) */
 .dash-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 22px;

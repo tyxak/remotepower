@@ -330,13 +330,32 @@ def generate_metrics(ctx: dict) -> str:
     lines.append(f"remotepower_scheduled_jobs_total {len(ctx.get('schedule') or [])}")
 
     # Webhook deliveries — derive counts from the log buffer
-    wlog = ctx.get('webhook_log') or []
+    # v6.4.2: the log is normally {'entries': [...]} but old deployments carry a
+    # bare list, and a corrupt/hand-edited store can be anything at all. Iterating
+    # a STRING yields characters, and `'n'.get(...)` raised AttributeError out of
+    # generate_metrics — 500ing the ENTIRE /api/metrics scrape, so one malformed
+    # store took down every gauge Prometheus reads. Normalise, then skip anything
+    # that is not a record.
+    wlog = ctx.get('webhook_log')
+    if isinstance(wlog, dict):
+        wlog = wlog.get('entries')
+    if not isinstance(wlog, list):
+        wlog = []
     wh_counts = {'ok': 0, 'error': 0, 'other': 0}
     for entry in wlog:
+        if not isinstance(entry, dict):
+            continue
         st = entry.get('status', '')
         if st == 'error':
             wh_counts['error'] += 1
-        elif isinstance(st, int) or (isinstance(st, str) and st.isdigit()):
+        # A webhook row's status is the HTTP code ('200'); an EMAIL row's is the
+        # literal 'ok' that _log_email writes. Only the first was counted, so
+        # every successful email landed in "other" and
+        # remotepower_webhook_deliveries_total{status="ok"} under-reported on any
+        # install using email delivery.
+        elif (isinstance(st, int)
+              or (isinstance(st, str)
+                  and (st.isdigit() or st.lower() in ('ok', 'success')))):
             wh_counts['ok'] += 1
         else:
             wh_counts['other'] += 1
