@@ -45,7 +45,6 @@ const _MX_MAX_PICKED = 200;
 // buckets x 8 hosts x 4 metrics is ~23k circles. Fold to this many points per
 // series first — the shape survives, the DOM does not explode.
 const _MX_MAX_POINTS = 240;
-const _MX_MAX_SAVED = 40;
 const _MX_LS_KEY = 'rp_metric_explorer_v1';
 // value = seconds back from now; 0 = the absolute from/to the operator typed.
 const _MX_RANGES = [
@@ -192,7 +191,18 @@ function _mxNormalizeQuery(q) {
   };
 }
 
-function _mxSavedLoad() {
+// v6.4.2: saved queries live on the SERVER, in the shared query_templates store
+// (kind=metric) alongside Data Explorer and Fleet Query saved queries — so one
+// sharing model and one tenant gate cover all three, instead of this page
+// quietly having neither.
+//
+// `_mxSaved` is the in-memory mirror; every mutation refetches rather than
+// patching it, because the server is the source of truth and a stale mirror is
+// how a "saved" query turns out not to be.
+let _mxSaved = [];
+
+// Kept ONLY to migrate anything an operator already has in this browser.
+function _mxLocalLegacy() {
   let raw = null;
   try { raw = localStorage.getItem(_MX_LS_KEY); } catch (_) { return []; }
   let arr;
@@ -201,12 +211,37 @@ function _mxSavedLoad() {
   return arr.map(_mxNormalizeQuery).filter(q => q.name);
 }
 
-function _mxSavedStore(list) {
-  try {
-    localStorage.setItem(_MX_LS_KEY, JSON.stringify((list || []).slice(0, _MX_MAX_SAVED)));
-    return true;
-  } catch (_) {
-    return false;   // private mode / quota — the caller tells the operator
+function _mxSavedLoad() { return _mxSaved; }
+
+async function _mxSavedFetch() {
+  const r = await api('GET', '/query/templates?kind=metric').catch(() => null);
+  const rows = (r && Array.isArray(r.templates)) ? r.templates : [];
+  // Normalise through the SAME function the local blobs went through, so a
+  // record written by a different build is still runnable.
+  _mxSaved = rows.map(t => {
+    const q = _mxNormalizeQuery(Object.assign({}, t.params || {}, {name: t.name}));
+    q.id = t.id;                       // server id, used for open/delete
+    q.shared = t.visibility === 'shared';
+    return q;
+  }).filter(q => q.name);
+  return _mxSaved;
+}
+
+// One-time lift of this browser's queries. The local copy is cleared only once
+// every one of them is confirmed stored server-side.
+async function _mxMigrateLocal() {
+  const local = _mxLocalLegacy();
+  if (!local.length) return;
+  let moved = 0;
+  for (const q of local) {
+    const r = await api('POST', '/query/templates',
+                        {name: q.name, kind: 'metric', params: q, shared: false})
+                .catch(() => null);
+    if (r && r.ok) moved++;
+  }
+  if (moved === local.length) {
+    try { localStorage.removeItem(_MX_LS_KEY); } catch (_) {}
+    toast(`Moved ${moved} saved quer${moved === 1 ? 'y' : 'ies'} to the server`, 'success');
   }
 }
 
@@ -255,7 +290,7 @@ function _mxCardHtml() {
       <button type="button" class="btn-icon btn-xs" data-action="openMetricExplorerQuery">${_icon('bookOpen', 12)} Open</button>
       <button type="button" class="btn-icon btn-xs" data-action="deleteMetricExplorerQuery">${_icon('trash', 12)} Delete</button>
     </div>
-    <div class="hint mt-8">Saved queries live in this browser only — there is no server-side query store.</div>`;
+    <div class="hint mt-8">Saved queries are stored on the server: private to your account by default, and shareable with your team when you save one.</div>`;
 }
 
 // Mounted into the existing Trends page rather than a page of its own: the
@@ -272,7 +307,14 @@ function mountMetricExplorer() {
     page.appendChild(card);
     syncMetricExplorerWindow();
   }
-  _mxRenderSaved();
+  // Saved queries come from the server now, so render only after they land —
+  // calling _mxRenderSaved() synchronously here would paint "No saved queries"
+  // over a list the operator does have.
+  _mxSavedFetch()
+    .then(() => { _mxRenderSaved(); return _mxMigrateLocal(); })
+    .then(() => _mxSavedFetch())
+    .then(_mxRenderSaved)
+    .catch(() => _mxRenderSaved());
   _mxLoadDevices();
 }
 
@@ -517,7 +559,7 @@ function exportMetricExplorerCsv() {
   toast('CSV downloaded', 'success');
 }
 
-// ─── saved queries (this browser only) ───────────────────────────────────────
+// ─── saved queries (server-backed, shareable) ────────────────────────────────
 
 function _mxRenderSaved() {
   const sel = document.getElementById('mx-saved');
@@ -528,16 +570,23 @@ function _mxRenderSaved() {
     : '<option value="">No saved queries</option>';
 }
 
-function saveMetricExplorerQuery() {
+async function saveMetricExplorerQuery() {
   const q = _mxReadQuery();
   if (!q.name) { toast('Give the query a name first', 'error', { transient: true }); return; }
   if (!q.devices.length) { toast('Pick at least one host before saving', 'error', { transient: true }); return; }
-  const list = _mxSavedLoad().filter(s => s.name !== q.name);
-  list.unshift(q);
-  if (!_mxSavedStore(list)) { toast('Could not save — this browser is blocking local storage', 'error'); return; }
+  const shared = await uiConfirm({
+    title: 'Share with your team?',
+    message: 'Shared queries are visible to everyone in your organisation.\n\n'
+             + 'Private keeps it to your account.',
+    confirmText: 'Share',
+  });
+  const r = await api('POST', '/query/templates',
+                      {name: q.name, kind: 'metric', params: q, shared: !!shared});
+  if (!r || !r.ok) { toast((r && r.error) || 'Save failed', 'error'); return; }
+  await _mxSavedFetch();
   _mxRenderSaved();
   const sel = document.getElementById('mx-saved');
-  if (sel) sel.value = q.id;
+  if (sel) sel.value = r.id || '';
   toast(`Saved "${q.name}"`, 'success');
 }
 
@@ -556,11 +605,15 @@ async function deleteMetricExplorerQuery() {
   if (!q) { toast('Pick a saved query first', 'error', { transient: true }); return; }
   const ok = await uiConfirm({
     title: 'Delete saved query',
-    message: `Delete "${q.name}"? It is only stored in this browser.`,
+    message: q.shared
+      ? `Delete "${q.name}"? It is shared with your team, so it goes for everyone.`
+      : `Delete "${q.name}"?`,
     confirmText: 'Delete', danger: true,
   });
   if (!ok) return;
-  _mxSavedStore(_mxSavedLoad().filter(s => s.id !== id));
+  const r = await api('DELETE', '/query/templates/' + encodeURIComponent(q.id));
+  if (!r || !r.ok) { toast((r && r.error) || 'Delete failed', 'error'); return; }
+  await _mxSavedFetch();
   _mxRenderSaved();
 }
 

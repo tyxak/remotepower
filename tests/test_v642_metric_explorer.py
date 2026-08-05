@@ -241,18 +241,25 @@ class TestSavedQueryRestoresItsHosts(unittest.TestCase):
         """)
         self.assertEqual(ctx.eval("JSON.stringify(_mxPicked)"), '["web01"]')
 
-    def test_a_saved_query_round_trips_through_localstorage(self):
+    def test_a_saved_query_restores_its_hosts(self):
+        """The fatal defect this module was nearly dropped for: opening a saved
+        query left ZERO hosts picked, because the host getter had a write side
+        effect that spliced the selection down to whatever the STALE checkboxes
+        said. Storage moved to the server in v6.4.2; the regression it guards
+        against is in _mxApplyQuery, which is unchanged, so the coverage stays."""
         ctx = _ctx()
         ctx.eval("""
           _mxDevices = [{id:'web01',name:'web01'},{id:'db01',name:'db01'}];
-          mountHostBoxes(['web01','db01'], ['web01','db01']);
-          document.getElementById('mx-name').value = 'weekly cpu';
-          saveMetricExplorerQuery();
           mountHostBoxes(['web01','db01'], []);          // a fresh page visit
           _mxPicked = [];
+          // A record shaped as _mxSavedFetch() builds it from the server.
+          _mxSaved = [_mxNormalizeQuery({name:'weekly cpu', devices:['web01','db01'],
+                                         metrics:['cpu']})];
+          _mxSaved[0].id = 'srv-1';
         """)
-        saved = ctx.eval("JSON.stringify(_mxSavedLoad().map(function(q){return q.name;}))")
-        self.assertEqual(saved, '["weekly cpu"]')
+        self.assertEqual(
+            ctx.eval("JSON.stringify(_mxSavedLoad().map(function(q){return q.name;}))"),
+            '["weekly cpu"]')
         ctx.eval("_mxApplyQuery(_mxSavedLoad()[0]);")
         self.assertEqual(ctx.eval("JSON.stringify(_mxPicked)"), '["web01","db01"]')
 
@@ -619,13 +626,13 @@ class TestNormalizeQueryIsUnbreakable(unittest.TestCase):
         self.ctx.eval("_LS['rp_metric_explorer_v1'] = "
                       "JSON.stringify([{devices:['a']}, {name:'keep', devices:['a']}]);")
         self.assertEqual(self.ctx.eval(
-            "JSON.stringify(_mxSavedLoad().map(function(q){return q.name;}))"), '["keep"]')
+            "JSON.stringify(_mxLocalLegacy().map(function(q){return q.name;}))"), '["keep"]')
 
     def test_a_corrupt_blob_is_not_fatal(self):
         for raw in ("not json", "null", '"a string"', "{}", "[1,2,3]"):
             with self.subTest(raw=raw):
                 self.ctx.eval("_LS['rp_metric_explorer_v1'] = %s;" % _js(raw))
-                self.assertEqual(self.ctx.eval("_mxSavedLoad().length"), 0)
+                self.assertEqual(self.ctx.eval("_mxLocalLegacy().length"), 0)
 
 
 # ── 8. house rules the module has to keep ───────────────────────────────────
@@ -666,15 +673,20 @@ class TestHouseRules(unittest.TestCase):
         self.assertIn("scroll-cap", m.group(1))
 
     def test_it_only_calls_endpoints_that_exist(self):
-        paths = set(re.findall(r"api\('GET', [`']/([A-Za-z0-9/_${}().?&=-]+)",
+        # Every verb, not just GET: v6.4.2 added POST/DELETE for server-backed
+        # saved queries, and a write to a route that does not exist fails just
+        # as silently as a read. No hardcoded count — that only ever produces a
+        # failure that says "expected 3, found 4" about a legitimate addition.
+        paths = set(re.findall(r"api\('[A-Z]+', [`']/([A-Za-z0-9/_${}().?&=-]+)",
                                trends_js()))
-        self.assertEqual(len(paths), 3, f"expected all 3 reads, found {paths}")
-        # Both registries yield (METHOD, path) pairs; the explorer only reads.
+        self.assertTrue(paths, "the explorer calls no endpoints at all?")
         served = {r[1] for r in api._build_exact_routes()} | {
             r[1] for r in api._dispatcher_routes()}
         for p in sorted(paths):
             tmpl = ("/api/" + p.split("?")[0]
-                    .replace("${encodeURIComponent(id)}", "{device_id}"))
+                    .replace("${encodeURIComponent(id)}", "{device_id}")
+                    .replace("${encodeURIComponent(q.id)}", "{id}"))
+            tmpl = tmpl.rstrip("/")
             with self.subTest(path=tmpl):
                 self.assertIn(tmpl, served, f"{tmpl} is not a served route")
 

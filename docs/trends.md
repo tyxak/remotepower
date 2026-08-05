@@ -48,8 +48,8 @@ hot last Tuesday?" — by overlaying any hosts and any metrics on a single axis.
   page.
 - **Export CSV** downloads exactly the series on screen — same hosts, same
   metrics, same window, same tier.
-- **Saved queries live in this browser only.** They are stored in
-  `localStorage`, not on the server: they do not sync between browsers or
-  operators, and clearing site data removes them. They are a convenience for
-  repeat investigations, not a shared artifact — for something colleagues need,
-  use a [report](reports.md) or a [saved fleet query](fleet-query.md).
+- **Saved queries are stored on the server and can be shared.** They use the
+  same store as Data Explorer and Fleet Query saved queries: private to your
+  account by default, tenant-scoped, and shareable with your organisation when
+  you choose. Anything you had saved in a browser before v6.4.2 is migrated
+  automatically the first time you open the page.

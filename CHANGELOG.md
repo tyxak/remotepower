@@ -164,6 +164,9 @@ product has always computed for its own screens and never let you take away.
   and the local copy is cleared only once every one of them is safely stored.
   Renaming and duplicating still work, and a rename creates the replacement
   before removing the original, so an interrupted edit cannot lose the query.
+- The **Metric explorer's** saved queries moved to the same store, so all three
+  saved-query surfaces now behave identically — the card no longer has to tell
+  you its queries live in one browser, because they do not.
 
 ### Maintenance the status page understands
 
