@@ -10475,80 +10475,161 @@ function filterDevices() {
   renderDevices();
 }
 
-// ─── v3.14.0: saved & shareable views (Devices page) ────────────────────────
-// A view is a named snapshot of the Devices filter controls, stored per-account
-// in _uiPrefs.views and shareable via the URL hash (#devices?view=Name).
-const _DEVICE_VIEW_CONTROLS = {
-  q:      'device-search-input',
-  status: 'device-status-filter',
-  snmp:   'device-snmp-filter',
-  group:  'device-group-filter',
-  site:   'device-site-filter',
+// ─── v3.14.0: saved & shareable views ───────────────────────────────────────
+// A view is a named snapshot of a page's filter controls, stored per-account in
+// _uiPrefs.views and shareable via the URL hash (#<page>?view=Name).
+//
+// v6.4.2: this was implemented once and hardcoded to the Devices page. The
+// storage schema already carried a `page` field that only ever held 'devices',
+// and every accessor filtered `v.page === 'devices'` — so an MSP operator who
+// wanted "Critical CVEs, customer Acme, unpatched" as a saved lens re-set four
+// filters by hand on every visit, and the link they pasted into a ticket
+// (`#cve`) opened the unfiltered fleet-wide page. The schema, the per-account
+// persistence, the dropdown, the undo-on-delete and the `#page?view=` hash
+// handler were all already written; only the hardcoding stood in the way.
+//
+// One registry row per page. `ids` maps a short state key to a control id, and
+// `after` re-renders that page once the values are restored — a view that
+// restores the controls and does not re-filter is a view that appears to do
+// nothing.
+const _VIEW_PAGES = {
+  devices: {
+    ids: { q: 'device-search-input', status: 'device-status-filter',
+           snmp: 'device-snmp-filter', group: 'device-group-filter',
+           site: 'device-site-filter' },
+    after: () => {
+      // Persist the search box like a normal edit, then re-filter.
+      const se = document.getElementById('device-search-input');
+      if (se && _uiPrefsLoaded) {
+        getTablePrefs('devices').filter = se.value || '';
+        _scheduleFlushUiPrefs();
+      }
+      renderDevices();
+    },
+  },
+  // These three need no `after`: their controls are wired through the normal
+  // data-input / data-change dispatch (or tableCtl's own filterInput), so
+  // dispatching the control's OWN event re-filters the page. Naming a renderer
+  // per page would mean naming three functions from memory — `renderCveTable`
+  // does not exist, the CVE table is tableCtl-managed — and an invented one is
+  // an undefined global that dies silently in a branch nobody exercises.
+  cve:    { ids: { q: 'cve-filter' } },
+  alerts: { ids: { q: 'alerts-filter-text', status: 'alerts-filter-status',
+                   grouped: 'alerts-group-host' } },
+  checks: { ids: { q: 'checks-filter-text', status: 'checks-filter-status',
+                   hide_disabled: 'checks-hide-disabled',
+                   hide_unmon: 'checks-hide-unmon' } },
 };
-function _captureDeviceViewState() {
+
+// The page a view belongs to. `_currentPageId()` is the live page, so the same
+// dropdown serves every registered page without per-page wiring.
+function _currentPageId() {
+  const el = document.querySelector('.page.active');
+  return el ? String(el.id || '').replace(/^page-/, '') : '';
+}
+function _viewPage() {
+  const p = _currentPageId();
+  return _VIEW_PAGES[p] ? p : 'devices';
+}
+
+function _captureViewState(page) {
+  const spec = _VIEW_PAGES[page];
   const st = {};
-  for (const [k, id] of Object.entries(_DEVICE_VIEW_CONTROLS)) {
+  if (!spec) return st;
+  for (const [k, id] of Object.entries(spec.ids)) {
     const el = document.getElementById(id);
-    if (el) st[k] = el.value || '';
+    if (!el) continue;
+    // A checkbox filter (group-by-host, hide-muted) is as much part of a view
+    // as a text box, and reading `.value` off one yields the useless string
+    // "on" — which is how a restored view would silently tick every box.
+    st[k] = (el.type === 'checkbox') ? !!el.checked : (el.value || '');
   }
   return st;
 }
-function _applyDeviceViewState(st) {
-  if (!st) return;
-  for (const [k, id] of Object.entries(_DEVICE_VIEW_CONTROLS)) {
+
+function _applyViewState(page, st) {
+  const spec = _VIEW_PAGES[page];
+  if (!spec || !st) return;
+  for (const [k, id] of Object.entries(spec.ids)) {
     const el = document.getElementById(id);
-    if (el && st[k] !== undefined) el.value = st[k];
+    if (!el || st[k] === undefined) continue;
+    if (el.type === 'checkbox') el.checked = !!st[k];
+    else el.value = st[k];
+    // Drive the control's OWN wiring rather than naming a renderer per page.
+    // Every one of these is hooked through the data-input / data-change
+    // dispatch or tableCtl's filterInput, so the page re-filters itself and a
+    // page added to the registry later needs no renderer lookup at all.
+    try {
+      const evt = (el.tagName === 'INPUT' && el.type !== 'checkbox') ? 'input' : 'change';
+      el.dispatchEvent(new Event(evt, { bubbles: true }));
+    } catch (_) { /* a control with no listener is fine */ }
   }
-  // Persist the search box like a normal edit, then re-filter.
-  const se = document.getElementById('device-search-input');
-  if (se && _uiPrefsLoaded) { getTablePrefs('devices').filter = se.value || ''; _scheduleFlushUiPrefs(); }
-  renderDevices();
+  // Devices predates the dispatch wiring and needs its explicit re-render.
+  if (spec.after) {
+    try { spec.after(); } catch (_) { /* a broken renderer must not eat the view */ }
+  }
 }
+
+// With a Views menu on more than one page there is more than one dropdown in
+// the DOM, so a bare getElementById would open the Devices one from the CVE
+// page. Scope to the active page; fall back to the original id.
+function _viewsDropdown() {
+  return document.querySelector('.page.active .views-dropdown')
+      || document.getElementById('views-dropdown');
+}
+
 function _getViews() {
   if (!Array.isArray(_uiPrefs.views)) _uiPrefs.views = [];
   return _uiPrefs.views;
 }
 function toggleViewsMenu() {
-  const dd = document.getElementById('views-dropdown');
+  const dd = _viewsDropdown();
   if (!dd) return;
   if (dd.classList.contains('hidden')) renderViewsMenu();
   dd.classList.toggle('hidden');
 }
 function renderViewsMenu() {
-  const dd = document.getElementById('views-dropdown');
+  const dd = _viewsDropdown();
   if (!dd) return;
-  const views = _getViews().filter(v => v.page === 'devices');
+  const page = _viewPage();
+  // Pre-v6.4.2 views were written with page:'devices'; a view saved before the
+  // field meant anything has none at all. Treat a missing page as 'devices' so
+  // an operator's existing views do not vanish from the menu.
+  const views = _getViews().filter(v => (v.page || 'devices') === page);
   const items = views.length
     ? views.map(v => `<div class="views-row">
         <button class="views-item" data-action="applyDeviceView" data-arg="${escAttr(v.name)}">${escHtml(v.name)}</button>
         <button class="views-del" data-action="deleteDeviceView" data-arg="${escAttr(v.name)}" title="Delete view">&times;</button>
       </div>`).join('')
-    : '<div class="views-empty hint">No saved views yet.</div>';
+    : '<div class="views-empty hint">No saved views for this page yet.</div>';
   dd.innerHTML = items
     + '<button class="views-item views-save" data-action="saveDeviceView"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Save current view…</button>';
 }
 async function saveDeviceView() {
+  const page = _viewPage();
   const name = (await uiPrompt({title: 'Save view', message: 'Name this view (current filters will be saved):', confirmText: 'Save'}) || '').trim();
   if (!name) return;
   const views = _getViews();
-  const existing = views.find(v => v.page === 'devices' && v.name === name);
-  const state = _captureDeviceViewState();
-  if (existing) existing.state = state;
-  else views.push({ name, page: 'devices', state });
+  const existing = views.find(v => (v.page || 'devices') === page && v.name === name);
+  const state = _captureViewState(page);
+  if (existing) { existing.state = state; existing.page = page; }
+  else views.push({ name, page, state });
   _scheduleFlushUiPrefs();
   renderViewsMenu();
   toast(`View “${name}” saved`, 'success');
 }
-function applyDeviceView(name) {
-  const v = _getViews().find(x => x.page === 'devices' && x.name === name);
+function applyDeviceView(name, page) {
+  const pg = page || _viewPage();
+  const v = _getViews().find(x => (x.page || 'devices') === pg && x.name === name);
   if (!v) return;
-  _applyDeviceViewState(v.state);
-  try { history.replaceState(null, '', `#devices?view=${encodeURIComponent(name)}`); } catch (_) {}
-  document.getElementById('views-dropdown')?.classList.add('hidden');
+  _applyViewState(pg, v.state);
+  try { history.replaceState(null, '', `#${pg}?view=${encodeURIComponent(name)}`); } catch (_) {}
+  _viewsDropdown()?.classList.add('hidden');
 }
 function deleteDeviceView(name) {
+  const page = _viewPage();
   const views = _getViews();
-  const i = views.findIndex(v => v.page === 'devices' && v.name === name);
+  const i = views.findIndex(v => (v.page || 'devices') === page && v.name === name);
   if (i < 0) return;
   // v6.3.0 (UX wave 1): undoable — views are pure client prefs, so undo is a
   // straight re-insert at the old position before the debounced flush lands.
@@ -10595,13 +10676,16 @@ async function deleteDevice(id, name) {
 }
 function _applyInitialViewHash() {
   try {
-    const m = (location.hash || '').match(/^#devices\?view=(.+)$/);
-    if (!m) return;
-    const name = decodeURIComponent(m[1]);
-    showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
-    // Give loadDevices() time to populate the group/site dropdowns so the
-    // restored select values stick, then apply the saved view.
-    setTimeout(() => applyDeviceView(name), 400);
+    // v6.4.2: any registered page, not just devices — the link an operator
+    // pastes into a ticket is the whole point of a shareable view.
+    const m = (location.hash || '').match(/^#([a-z0-9-]+)\?view=(.+)$/);
+    if (!m || !_VIEW_PAGES[m[1]]) return;
+    const page = m[1];
+    const name = decodeURIComponent(m[2]);
+    showPage(page, document.querySelector(`.nav-btn[data-page="${page}"]`));
+    // Give the page's loader time to populate its dropdowns so the restored
+    // select values stick, then apply the saved view.
+    setTimeout(() => applyDeviceView(name, page), 400);
   } catch (_) {}
 }
 // v4.3.0: #device/<id> deep link — opens the device drawer directly (the
