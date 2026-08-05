@@ -26,6 +26,8 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
+    'Privileged commands': { fr: 'Commandes privilégiées', de: 'Privilegierte Befehle', zh: '特权命令', hi: 'विशेषाधिकार वाले कमांड', es: 'Comandos privilegiados', ar: 'الأوامر المميّزة' },
+    'Find a page': { fr: 'Trouver une page', de: 'Seite finden', zh: '查找页面', hi: 'पेज खोजें', es: 'Buscar una página', ar: 'ابحث عن صفحة' },
     'Settings sections': { fr: 'Sections des paramètres', de: 'Einstellungsbereiche', zh: '设置分区', hi: 'सेटिंग्स अनुभाग', es: 'Secciones de ajustes', ar: 'أقسام الإعدادات' },
     'Device details': { fr: 'Détails de l’appareil', de: 'Gerätedetails', zh: '设备详情', hi: 'डिवाइस विवरण', es: 'Detalles del dispositivo', ar: 'تفاصيل الجهاز' },
     'Asset detail': { fr: 'Détail de l’actif', de: 'Asset-Detail', zh: '资产详情', hi: 'एसेट विवरण', es: 'Detalle del activo', ar: 'تفاصيل الأصل' },

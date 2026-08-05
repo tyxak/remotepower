@@ -149,6 +149,32 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Finding things
+
+- **The sidebar search offered a destination that led nowhere.** Searching
+  "snmp" returned a plausible **Settings ▸ SNMP** hit — pointing at a Settings
+  tab that does not exist. Clicking it deselected every tab and every panel and
+  left Settings rendered blank, with no way out but clicking Settings again. It
+  now goes to Devices, where SNMP actually lives, and an unknown tab name falls
+  back to the first panel instead of stranding you.
+- **Four real Settings panels were missing from that index entirely** — Alert
+  parameters, Ignored items, Tickets and Backups. Searching "threshold",
+  "ignored" or "mute" returned "No matching page", and Alert parameters holds
+  around seventy tunable thresholds.
+- **The first-run tour taught the wrong search box.** Its coach-mark pointed at
+  the sidebar box while promising it would find devices, alerts and CVEs, and
+  told you to press `/` — which opens the command palette, drawn on top of the
+  very element being highlighted. A new operator followed that, typed an alert
+  title into the sidebar box, got "No matching page", and concluded search was
+  broken. The step now describes the box it points at and names the palette.
+- **Fleet-wide privileged-command search reached the interface.** Every agent
+  reports its `sudo` activity, the server has indexed it fleet-wide behind an
+  admin/auditor endpoint for releases, and the AI advisor could already search
+  it — but an operator asking "who ran anything matching `firewalld`, anywhere,
+  last week" had to open each host's drawer in turn. **Audit Log → Privileged
+  commands** searches the whole fleet at once, scoped to the hosts you can see,
+  and says when results were capped rather than implying it showed everything.
+
 ### Accessibility state that was decorative
 
 - **The sidebar and every tab widget were announcing the wrong state.** An

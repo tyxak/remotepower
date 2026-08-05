@@ -1855,9 +1855,16 @@ const _SIDEBAR_EXTRA = [
   { label: 'Settings ▸ Advanced', tab: 'advanced', kw: 'advanced backup backups export import release signing gpg automation rules danger reset' },
   { label: 'Settings ▸ Email / Mailbox', tab: 'mailbox', kw: 'mailbox email smtp imap inbound helpdesk osticket ticket' },
   { label: 'Settings ▸ Proxmox', tab: 'proxmox', kw: 'proxmox pve token node cluster lxc qemu' },
-  { label: 'Settings ▸ SNMP', tab: 'snmp', kw: 'snmp community oid synology mikrotik routeros agentless poller snmpv3 v3 usm auth priv aes sha' },
+  // There is no settings-pane-snmp — SNMP lives on the Devices and Monitors
+  // pages. This row used to point at a tab that does not exist, which left
+  // Settings rendered with no pane selected and an empty body.
+  { label: 'Devices ▸ SNMP', page: 'devices', kw: 'snmp community oid synology mikrotik routeros agentless poller snmpv3 v3 usm auth priv aes sha' },
   { label: 'Settings ▸ Getting started', tab: 'install', kw: 'install setup checklist onboarding getting started first run' },
   { label: 'Settings ▸ General', tab: 'general', kw: 'general poll interval timezone retention session demo offline ttl' },
+  { label: 'Settings ▸ Alert parameters', tab: 'alertparams', kw: 'alert parameters thresholds threshold tuning numeric cutoffs weights score grades nic errors temperature clock skew ups inode conntrack cvss forecast r2' },
+  { label: 'Settings ▸ Ignored items', tab: 'ignored', kw: 'ignored items mute mutes muted suppressed suppression cleared lines snooze exclusions' },
+  { label: 'Settings ▸ Tickets', tab: 'tickets', kw: 'tickets helpdesk sla business hours queue priorities ticket system' },
+  { label: 'Settings ▸ Backups', tab: 'backups', kw: 'backups backup schedule retention restore disaster recovery archive passphrase' },
 ];
 let _sidebarIdx = null, _sidebarHits = [];
 function _buildSidebarIdx() {
@@ -1875,7 +1882,7 @@ function _buildSidebarIdx() {
   const extra = _SIDEBAR_EXTRA.map(e => ({
     label: e.label,
     hay: (e.label + ' ' + (e.kw || '')).toLowerCase(),
-    go: () => { try { gotoSetupStep('settings', e.tab); } catch (_) {} },
+    go: () => { try { if (e.page) showPage(e.page); else gotoSetupStep('settings', e.tab); } catch (_) {} },
   }));
   _sidebarIdx = nav.concat(extra);
 }
@@ -1928,7 +1935,11 @@ const _TOUR_STEPS = [
   { sel: '[data-page="home"]', title: 'Dashboard', body: 'Your fleet at a glance — health, alerts and composable widgets. This is home base.' },
   { sel: '[data-page="devices"]', title: 'Devices', body: 'Every enrolled host. Open one to inspect it, run commands, reboot, patch and more.' },
   { sel: '[data-page="alerts"]', title: 'Alerts', body: 'The operational inbox — acknowledge, resolve and track every fired event.' },
-  { sel: '#sidebar-search', title: 'Search anything', body: 'Jump to any page, device, alert or CVE — press “/” anywhere to focus it.' },
+  // The sidebar box only ever returns PAGES ('No matching page' on anything
+  // else). Devices, alerts and CVEs are the command palette's job, and “/”
+  // opens the palette — on top of whatever this coach-mark highlights. Point
+  // at the box, describe what it actually does, and name the other one.
+  { sel: '#sidebar-search', title: 'Find a page', body: 'Type what you want to do — it jumps to the matching page or Settings section. For devices, alerts and CVEs press “/” (or Ctrl-K) to open the command palette.' },
   { sel: '[data-page="settings"]', title: 'Settings', body: 'Integrations, notifications, security policy, backups — configure RemotePower here.' },
 ];
 function _tourDone() { try { return localStorage.getItem('rp_tour_done') === '1'; } catch (_) { return true; } }
@@ -4091,6 +4102,18 @@ async function withStepUp(callFn) {
 
 // ─── v1.8.4: Settings tabs + new fields ─────────────────────────────────────
 function switchSettingsTab(tab) {
+  // v6.4.2: fall back to the first pane rather than deactivating everything.
+  // A tab name with no matching pane used to leave Settings rendered with no
+  // tab selected and an empty body, and the only way out was clicking Settings
+  // again. A typo in a link should not strand the operator.
+  // Guarded on panes EXISTING: they are injected lazily when the Settings page
+  // first renders, so an unguarded lookup would "fall back" over a perfectly
+  // valid tab simply because it ran a moment too early.
+  if (tab && document.querySelector('.settings-pane')
+          && !document.getElementById(`settings-pane-${tab}`)) {
+    const first = document.querySelector('.settings-tab[data-tab]');
+    tab = first ? first.dataset.tab : tab;
+  }
   _syncTabs(document.querySelectorAll('.settings-tab'), b => b.dataset.tab === tab);
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.id === `settings-pane-${tab}`));
@@ -21495,6 +21518,54 @@ async function loadSudoLog(id) {
         + `<td class="fs-11"><code>${escHtml(e.user||'')}</code></td>`
         + `<td class="fs-11 ff-mono">${escHtml(e.command||'')}</td></tr>`).join('')
     + '</tbody></table></div>';
+}
+
+// v6.4.2: the fleet-wide tier of the same corpus. GET /api/sudo-search has been
+// live (admin/auditor, tenant-scoped) with no caller anywhere in the SPA — the
+// only human path to "who ran anything matching firewalld, anywhere" was opening
+// each device drawer in turn and pressing Load sudo history. The AI advisor could
+// already search it as a RAG source; the operator could not.
+async function runSudoSearch() {
+  const body = document.getElementById('sudo-search-body');
+  const sum = document.getElementById('sudo-search-summary');
+  if (!body) return;
+  const q = (document.getElementById('sudo-search-q')?.value || '').trim();
+  const user = (document.getElementById('sudo-search-user')?.value || '').trim();
+  body.innerHTML = '<div class="meta-sm-nm">Searching…</div>';
+  if (sum) sum.textContent = '';
+  const qs = new URLSearchParams({limit: '200'});
+  if (q) qs.set('q', q);
+  if (user) qs.set('user', user);
+  const r = await api('GET', `/sudo-search?${qs.toString()}`);
+  if (!r || !r.ok) {
+    body.innerHTML = '<div class="meta-sm-nm">Not available — admin or auditor role required.</div>';
+    return;
+  }
+  const ev = r.events || [];
+  if (sum) {
+    // The server caps at `limit`; say so rather than implying these are all of them.
+    sum.textContent = r.total > ev.length
+      ? `${ev.length} of ${r.total} matches (newest first)`
+      : `${ev.length} match${ev.length === 1 ? '' : 'es'}`;
+  }
+  if (!ev.length) {
+    body.innerHTML = q || user
+      ? '<div class="meta-sm-nm">No privileged commands match that search.</div>'
+      : '<div class="meta-sm-nm">No sudo activity recorded across the fleet yet.</div>';
+    return;
+  }
+  body.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">'
+    + '<thead id="sudo-search-thead"><tr><th data-col="ts">When</th><th data-col="device">Device</th>'
+    + '<th data-col="user">User</th><th data-col="command">Command</th></tr></thead><tbody>'
+    + tableCtl.sortRows('sudosearch', ev.slice(), e => ({
+        ts: e.ts || 0, device: e.device_name || '', user: e.user || '', command: e.command || '',
+      })).map(e =>
+        `<tr><td class="fs-11">${escHtml(_fmtAbsTs(e.ts || 0))}</td>`
+        + `<td class="fs-11 fw-500">${escHtml(e.device_name || '')}</td>`
+        + `<td class="fs-11"><code>${escHtml(e.user || '')}</code></td>`
+        + `<td class="fs-11 ff-mono">${escHtml(e.command || '')}</td></tr>`).join('')
+    + '</tbody></table></div>';
+  tableCtl.wireSortOnly('sudo-search-thead', 'sudosearch', () => runSudoSearch());
 }
 
 async function snoozeDeviceAlerts(devId, name) {

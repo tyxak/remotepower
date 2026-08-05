@@ -151,5 +151,98 @@ class TestLogRetentionUI(unittest.TestCase):
         self.assertIn("'log_buffer_max_bytes_per_unit',  0, 67108864", m)
 
 
+
+class TestFleetSudoSearch(unittest.TestCase):
+    """GET /api/sudo-search was live, admin/auditor-gated and tenant-scoped, and
+    called from NOWHERE in the SPA. The AI advisor could already search this
+    corpus as a RAG source; the operator's only path was opening each device
+    drawer in turn."""
+
+    def test_the_card_exists_on_the_audit_page(self):
+        i = _HTML.index('id="page-audit"')
+        j = _HTML.index('<div id="page-', i + 10)
+        page = _HTML[i:j]
+        self.assertIn('id="sudo-search-q"', page)
+        self.assertIn('data-action="runSudoSearch"', page)
+        self.assertIn('id="sudo-search-body"', page)
+
+    def test_the_handler_exists_and_calls_the_real_endpoint(self):
+        self.assertTrue(_dispatched('runSudoSearch'))
+        body = re.search(r"async function runSudoSearch\(.*?\n\}", _APP, re.S).group(0)
+        self.assertIn('/sudo-search?', body)
+
+    def test_the_route_is_registered(self):
+        self.assertIn(('GET', '/api/sudo-search'), _ROUTES)
+
+    def test_it_says_when_results_were_capped(self):
+        """The server caps at `limit`; rendering the page silently would imply
+        those are all the matches."""
+        body = re.search(r"async function runSudoSearch\(.*?\n\}", _APP, re.S).group(0)
+        self.assertIn('r.total', body)
+
+    def test_it_names_the_role_requirement_rather_than_failing_blankly(self):
+        body = re.search(r"async function runSudoSearch\(.*?\n\}", _APP, re.S).group(0)
+        self.assertIn('auditor', body.lower())
+
+
+class TestSudoSearchIsScoped(unittest.TestCase):
+    """Drives the REAL handler: the fleet tier must not widen what a scoped
+    caller can see."""
+
+    def setUp(self):
+        import tempfile as _tf
+        self.api = api
+        self.cap = {}
+        self._orig = {n: getattr(api, n) for n in ('respond', 'verify_token', '_env')}
+
+        def _resp(status, data=None):
+            self.cap['status'] = status
+            self.cap['data'] = data
+            raise api.HTTPError(status, data)
+        api.respond = _resp
+        api.get_token_from_request = lambda: 'tok'
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web01', 'token': 't', 'monitored': True},
+            'd2': {'name': 'db01', 'token': 't', 'monitored': True},
+        })
+        api.save(api.SUDO_LOG_FILE, {
+            'd1': [{'ts': 100, 'user': 'root', 'command': 'systemctl restart firewalld'}],
+            'd2': [{'ts': 101, 'user': 'app', 'command': 'apt-get install nginx'}],
+        })
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(api, n, v)
+
+    def _search(self, qs='', role='admin'):
+        api.verify_token = lambda *a, **k: ('u', role)
+        api._RCTX.environ = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/api/sudo-search',
+                             'QUERY_STRING': qs}
+        self.cap.clear()
+        try:
+            api.handle_sudo_search()
+        except (SystemExit, api.HTTPError) as e:
+            return getattr(e, 'body', None) or self.cap.get('data')
+        return None
+
+    def test_it_searches_the_whole_fleet(self):
+        body = self._search('q=firewalld')
+        evs = (body or {}).get('events') or []
+        self.assertTrue(evs, 'the fleet search returned nothing for a known command')
+        self.assertEqual(evs[0]['device_name'], 'web01')
+
+    def test_the_user_filter_applies(self):
+        evs = (self._search('user=app') or {}).get('events') or []
+        self.assertTrue(all(e['user'] == 'app' for e in evs))
+
+    def test_a_read_only_role_without_auditor_is_refused(self):
+        self._search('', role='viewer')
+        self.assertEqual(self.cap.get('status'), 403)
+
+    def test_auditor_is_allowed(self):
+        body = self._search('', role='auditor')
+        self.assertTrue((body or {}).get('ok'), 'auditor was refused its own endpoint')
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

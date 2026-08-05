@@ -525,3 +525,66 @@ class TestNotificationMatrixIsLabelled(_Base):
             self.skipTest('event matrix not rendered in this fixture')
         self.assertNotEqual(pair[0], pair[1])
         self.assertTrue(all(pair), f'blank accessible name: {pair}')
+
+
+class TestSidebarSearchDestinations(_Base):
+    """Every sidebar-search destination must LAND somewhere. One pointed at a
+    Settings tab with no backing pane, which deactivated every tab and pane and
+    left the page rendered with an empty body at #settings/snmp — with no way
+    back except clicking Settings again."""
+
+    def _open_settings(self):
+        # The panes are injected lazily on first render of the Settings page —
+        # 0 in the DOM until then. Checking before this point reports every
+        # destination as dead, which is a bug in the test, not the index.
+        self.page.evaluate("showPage('settings')")
+        self.page.wait_for_selector('#page-settings.active', timeout=15000)
+        # attached, not visible — a pane is display:none until its tab is active
+        self.page.wait_for_selector('.settings-pane', state='attached', timeout=15000)
+
+    def test_every_settings_destination_has_a_real_pane(self):
+        self._open_settings()
+        bad = self.page.evaluate("""() =>
+            (typeof _SIDEBAR_EXTRA === 'undefined' ? [] : _SIDEBAR_EXTRA)
+              .filter(e => e.tab && !document.getElementById('settings-pane-' + e.tab))
+              .map(e => e.label)""")
+        self.assertEqual(bad, [], f'sidebar search offers dead destinations: {bad}')
+
+    def test_every_real_pane_is_findable(self):
+        """The reverse gap: four panes were missing from the index entirely, so
+        searching 'alert parameters' or 'ignored' returned 'No matching page'."""
+        self._open_settings()
+        missing = self.page.evaluate("""() => {
+            const listed = new Set((typeof _SIDEBAR_EXTRA === 'undefined' ? [] : _SIDEBAR_EXTRA)
+                                    .map(e => e.tab).filter(Boolean));
+            return Array.from(document.querySelectorAll('.settings-pane'))
+                .map(p => p.id.replace('settings-pane-', ''))
+                .filter(t => t && !listed.has(t));
+        }""")
+        self.assertEqual(missing, [],
+                         f'settings panes unreachable from sidebar search: {missing}')
+
+    def test_an_unknown_tab_does_not_strand_the_operator(self):
+        self.page.evaluate("showPage('settings')")
+        self.page.wait_for_selector('#page-settings.active', timeout=15000)
+        self.page.evaluate("switchSettingsTab('definitely-not-a-pane')")
+        self.page.wait_for_timeout(150)
+        active = self.page.evaluate(
+            """() => document.querySelectorAll('.settings-pane.active').length""")
+        self.assertEqual(active, 1,
+                         'an unknown settings tab left the page with no pane showing')
+
+    def test_the_tour_describes_the_box_it_points_at(self):
+        """It claimed the sidebar box searches devices, alerts and CVEs. It does
+        not — it returns pages only, and the '/' it taught opens a different
+        widget on top of the one being highlighted."""
+        step = self.page.evaluate("""() => {
+            const s = (typeof _TOUR_STEPS === 'undefined' ? [] : _TOUR_STEPS)
+                        .find(x => x.sel === '#sidebar-search');
+            return s ? {title: s.title, body: s.body} : null;
+        }""")
+        self.assertIsNotNone(step, 'the sidebar-search tour step vanished')
+        body = step['body'].lower()
+        self.assertIn('palette', body,
+                      'the tour still does not name the widget that does search '
+                      'devices/alerts/CVEs')
