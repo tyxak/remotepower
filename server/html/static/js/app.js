@@ -24709,59 +24709,158 @@ function copyText(text) {
 
 function copyApiKeyValue() { copyText(document.getElementById('apikey-value-display')?.textContent || ''); }
 
-function loadFleetQuery() { _renderSavedQueries(); }
-function _savedQueries() {
-  try { return JSON.parse(localStorage.getItem('rp_fleet_queries') || '[]'); } catch (_) { return []; }
+// ── Saved fleet queries (server-side since v6.4.2) ──────────────────────────
+// These lived in localStorage, so a team's fleet-interrogation knowledge was
+// trapped in one browser profile — and, unlike the Data Explorer's saved
+// queries, they had no tenant model or sharing at all. They now ride the same
+// server store, discriminated by kind=fleet, so all three saved-query surfaces
+// share one sharing model and one tenant gate.
+let _fqSaved = [];
+
+async function loadFleetQuery() {
+  const r = await api('GET', '/query/templates?kind=fleet').catch(() => null);
+  _fqSaved = (r && Array.isArray(r.templates)) ? r.templates : [];
+  _renderSavedQueries();
+  _migrateLocalFleetQueries();
 }
+
+// One-time lift of anything already in this browser. Without it an operator
+// simply loses the queries they had, which is a worse first impression of the
+// feature than not shipping it.
+async function _migrateLocalFleetQueries() {
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem('rp_fleet_queries') || '[]'); } catch (_) { return; }
+  if (!Array.isArray(local) || !local.length) return;
+  let moved = 0;
+  for (const q of local.slice(0, 50)) {
+    if (!q || !q.name) continue;
+    const r = await api('POST', '/query/templates',
+                        {name: String(q.name).slice(0, 80), kind: 'fleet',
+                         params: q.f || {}, shared: false}).catch(() => null);
+    if (r && r.ok) moved++;
+  }
+  // Only clear once every one of them is safely server-side.
+  if (moved === local.filter(q => q && q.name).length) {
+    try { localStorage.removeItem('rp_fleet_queries'); } catch (_) {}
+    toast(`Moved ${moved} saved quer${moved === 1 ? 'y' : 'ies'} to the server — they are shareable now`, 'success');
+    const r2 = await api('GET', '/query/templates?kind=fleet').catch(() => null);
+    _fqSaved = (r2 && Array.isArray(r2.templates)) ? r2.templates : _fqSaved;
+    _renderSavedQueries();
+  }
+}
+
 function _renderSavedQueries() {
   const wrap = document.getElementById('fq-saved');
   if (!wrap) return;
-  const qs = _savedQueries();
-  // v5.0.0 (#U5): each saved query gets rename + duplicate + delete actions.
-  wrap.innerHTML = qs.map((q, i) =>
-    `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}" title="Apply this query" tabindex="0" role="button">${escHtml(q.name)}</span>`
-    + `<button class="btn-icon fs-11" data-action="renameFleetQuery" data-arg="${i}" title="Rename">${_icon('edit', 12)}</button>`
-    + `<button class="btn-icon fs-11" data-action="duplicateFleetQuery" data-arg="${i}" title="Duplicate">${_icon('copy', 12)}</button>`
-    + `<button class="btn-icon fs-11" data-action="deleteFleetQuery" data-arg="${i}" title="Delete saved query">${_icon('trash', 12)}</button>`).join('');
+  if (!_fqSaved.length) {
+    wrap.innerHTML = '<span class="c-muted fs-12">No saved queries yet.</span>';
+    return;
+  }
+  // data-arg carries the server id, which is hex — the dispatcher coerces a
+  // numeric-looking arg to Number, so an index would have been fine but an id
+  // must be non-numeric by construction. token_hex(8) can be all digits, so
+  // the id is prefixed at the call site below.
+  wrap.innerHTML = _fqSaved.map(q => {
+    const a = escAttr('q-' + q.id);
+    const shared = q.visibility === 'shared'
+      ? ` <span class="pill" title="Shared with your team">shared</span>` : '';
+    return `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${a}" title="Apply this query" tabindex="0" role="button">${escHtml(q.name)}</span>${shared}`
+      + `<button class="btn-icon fs-11" data-action="renameFleetQuery" data-arg="${a}" title="Rename">${_icon('edit', 12)}</button>`
+      + `<button class="btn-icon fs-11" data-action="shareFleetQuery" data-arg="${a}" title="${q.visibility === 'shared' ? 'Shared with your team' : 'Share with your team'}">${_icon('users', 12)}</button>`
+      + `<button class="btn-icon fs-11" data-action="duplicateFleetQuery" data-arg="${a}" title="Duplicate">${_icon('copy', 12)}</button>`
+      + `<button class="btn-icon c-danger-outline fs-11" data-action="deleteFleetQuery" data-arg="${a}" title="Delete saved query">${_icon('trash', 12)}</button>`;
+  }).join('');
 }
-async function renameFleetQuery(i) {
-  const qs = _savedQueries(); const q = qs[i]; if (!q) return;
-  const name = await uiPrompt({ message: 'Rename query:', value: q.name });
-  if (!name) return;
-  q.name = name.slice(0, 40);
-  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs));
-  _renderSavedQueries();
+
+function _fqById(arg) {
+  const id = String(arg || '').replace(/^q-/, '');
+  return _fqSaved.find(q => q.id === id) || null;
 }
-function duplicateFleetQuery(i) {
-  const qs = _savedQueries(); const q = qs[i]; if (!q) return;
-  qs.splice(i + 1, 0, { name: (q.name + ' copy').slice(0, 40), f: { ...(q.f || {}) } });
-  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs.slice(0, 50)));
-  _renderSavedQueries();
-  toast('Query duplicated', 'success');
-}
+
 async function saveFleetQuery() {
   const name = await uiPrompt({message: 'Name this query:'});
   if (!name) return;
-  const qs = _savedQueries();
-  qs.push({ name: name.slice(0, 40), f: _fqFields() });
-  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs.slice(0, 50)));
-  _renderSavedQueries();
-  toast(`Saved query "${name.slice(0, 40)}"`, 'success');
+  const shared = await uiConfirm({
+    title: 'Share with your team?',
+    message: 'Shared queries are visible to everyone in your organisation.\n\n'
+             + 'Private keeps it to your account. You can change this later.',
+    confirmText: 'Share',
+  });
+  const r = await api('POST', '/query/templates',
+                      {name: name.slice(0, 80), kind: 'fleet',
+                       params: _fqFields(), shared: !!shared});
+  if (!r || !r.ok) { toast((r && r.error) || 'Save failed', 'error'); return; }
+  toast(`Saved query "${name.slice(0, 80)}"`, 'success');
+  loadFleetQuery();
 }
-function applyFleetQuery(i) {
-  const q = _savedQueries()[i]; if (!q) return;
-  const f = q.f || {};
+
+async function duplicateFleetQuery(arg) {
+  const q = _fqById(arg);
+  if (!q) return;
+  const r = await api('POST', '/query/templates',
+                      {name: (q.name + ' copy').slice(0, 80), kind: 'fleet',
+                       params: q.params || {}, shared: q.visibility === 'shared'});
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  toast('Query duplicated', 'success');
+  loadFleetQuery();
+}
+
+// The store has no update endpoint, so an edit is re-save + delete. Ordered so
+// a failure leaves the ORIGINAL in place: create the replacement first, and only
+// remove the old one once that succeeded. The reverse order can lose the query.
+async function _fqResave(q, changes, okMsg) {
+  const r = await api('POST', '/query/templates', {
+    name: (changes.name != null ? changes.name : q.name).slice(0, 80),
+    kind: 'fleet',
+    params: q.params || {},
+    shared: changes.shared != null ? changes.shared : (q.visibility === 'shared'),
+  });
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return false; }
+  await api('DELETE', '/query/templates/' + encodeURIComponent(q.id)).catch(() => null);
+  toast(okMsg, 'success');
+  loadFleetQuery();
+  return true;
+}
+
+async function renameFleetQuery(arg) {
+  const q = _fqById(arg);
+  if (!q) return;
+  const name = await uiPrompt({message: 'Rename query:', value: q.name});
+  if (!name || name === q.name) return;
+  await _fqResave(q, {name: name}, `Renamed to "${name.slice(0, 80)}"`);
+}
+
+async function shareFleetQuery(arg) {
+  const q = _fqById(arg);
+  if (!q) return;
+  if (q.visibility === 'shared') {
+    toast('Already shared with your team', 'info');
+    return;
+  }
+  await _fqResave(q, {shared: true}, `"${q.name}" is now shared with your team`);
+}
+
+function applyFleetQuery(arg) {
+  const q = _fqById(arg);
+  if (!q) return;
+  const f = q.params || {};
   for (const [param, id] of Object.entries(_FQ_FIELDS)) {
     const el = document.getElementById(id);
-    if (el) el.value = f[param] || '';
+    if (el) el.value = f[param] != null ? f[param] : '';
   }
   runFleetQuery();
 }
-function deleteFleetQuery(i) {
-  const qs = _savedQueries(); qs.splice(i, 1);
-  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs));
-  _renderSavedQueries();
+
+async function deleteFleetQuery(arg) {
+  const q = _fqById(arg);
+  if (!q) return;
+  if (!await uiConfirm({message: `Delete saved query "${q.name}"?`,
+                        confirmText: 'Delete', danger: true})) return;
+  const r = await api('DELETE', '/query/templates/' + encodeURIComponent(q.id));
+  if (!r || !r.ok) { toast((r && r.error) || 'Delete failed', 'error'); return; }
+  loadFleetQuery();
 }
+
 async function runFleetQuery() {
   const out = document.getElementById('fq-results');
   // Eager wire-up (CLAUDE.md): wire sort before the fetch / empty branches so

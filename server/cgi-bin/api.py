@@ -27933,6 +27933,56 @@ def handle_query_fields():
                   for name, (_, fields) in _QE_ENTITIES.items()}})
 
 
+# v6.4.2: saved queries come from three surfaces now — the Data Explorer
+# (predicate), the Fleet Query page and the Metric explorer. They shared nothing:
+# the Data Explorer persisted server-side WITH tenant isolation and visibility,
+# while the two newer pages kept theirs in localStorage, so a team's
+# fleet-interrogation knowledge was trapped in one browser profile and the two
+# newer surfaces silently had no tenant model at all.
+#
+# One store, one sharing model, one tenant gate — discriminated by `kind`.
+_QT_KINDS = ('predicate', 'fleet', 'metric')
+
+# Accepted Fleet Query facets. Mirrors the client's _FQ_FIELDS keys exactly;
+# tests/test_v642_saved_queries.py pins the two together, because a facet added
+# to one side only would be silently dropped on save with no error.
+_FQ_PARAMS = (
+    'group', 'tag', 'os', 'online', 'pending_gt', 'integrity', 'cve_min',
+    'version', 'pkg_manager', 'has_package', 'monitored', 'agentless',
+    'quarantined', 'reboot', 'failed', 'kernel_outdated', 'tp_pending',
+    'disk_gt', 'mem_gt', 'offline_days', 'cpu_gt', 'swap_gt', 'load_gt',
+    'kernel', 'platform', 'drift', 'mount_issue', 'port_world',
+    'storage_degraded', 'clock_skew', 'gateway_unreachable', 'oom_recent',
+    'uptime_gt', 'uptime_lt', 'cores_gt', 'cores_lt', 'container_stopped',
+    'container_restarting', 'timer_failed', 'brute_force', 'smart_failure',
+    'ups_on_battery', 'temp_high', 'inode_gt', 'fd_gt', 'conntrack_gt',
+)
+_MX_PARAMS = ('devices', 'metrics', 'stat', 'tier', 'rel', 'from', 'to')
+
+
+def _clean_saved_params(kind, raw):
+    """Whitelist a saved query's params. Never stores arbitrary keys: these are
+    replayed into a query the server runs, so an unknown key is dropped rather
+    than round-tripped."""
+    if not isinstance(raw, dict):
+        return {}
+    allowed = _FQ_PARAMS if kind == 'fleet' else _MX_PARAMS
+    out = {}
+    for k in allowed:
+        if k not in raw:
+            continue
+        v = raw[k]
+        if isinstance(v, list):
+            out[k] = [_sanitize_str(str(x), 64) for x in v[:64]]
+        elif isinstance(v, bool):
+            out[k] = v
+        elif isinstance(v, (int, float)):
+            out[k] = v
+        else:
+            out[k] = _sanitize_str(str(v), 128)
+    return out
+
+
 def handle_query_templates():
     """GET /api/query/templates — saved queries (name/entity/where/sort). Any
     authenticated user can save/run one; write is confined to the owner or an
@@ -27963,8 +28013,20 @@ def handle_query_templates():
     is_admin = _resolve_role(role).get('admin')
     gate = _tenant_gate()
     templates = load(QUERY_TEMPLATES_FILE) or {}
+    # v6.4.2: filter by kind, defaulting to 'predicate'. THIS IS A REGRESSION
+    # GUARD, not a convenience: the Data Explorer calls this endpoint bare and
+    # assigns t.entity to its entity picker, so without the default it would
+    # start listing fleet/metric queries it cannot run and render an undefined
+    # entity badge. A record with no `kind` is a template saved before this
+    # change — treated as 'predicate', the same way a missing `visibility` is
+    # treated as 'shared' above.
+    _qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    want_kind = (_qs.get('kind') or ['predicate'])[0].strip().lower()
+    if want_kind not in _QT_KINDS:
+        want_kind = 'predicate'
     visible = [t for t in templates.values()
-              if (gate is None or (t.get('tenant') or DEFAULT_TENANT) == gate)
+              if (t.get('kind') or 'predicate') == want_kind
+              and (gate is None or (t.get('tenant') or DEFAULT_TENANT) == gate)
               and (is_admin or t.get('owner') == actor
                    or t.get('visibility', 'shared') == 'shared')]
     respond(200, {'ok': True, 'templates': sorted(visible, key=lambda t: t.get('name', '').lower())})
@@ -27980,20 +28042,37 @@ def handle_query_template_create():
     entity = str(body.get('entity', '')).strip()
     if not name:
         respond(400, {'error': 'name required'})
-    if entity not in _QE_ENTITIES:
-        respond(400, {'error': f'unknown entity: {entity!r}'})
-    _, fields = _QE_ENTITIES[entity]
+    kind = str(body.get('kind', '') or 'predicate').strip().lower()
+    if kind not in _QT_KINDS:
+        respond(400, {'error': f'unknown kind: {kind!r}'})
     where = body.get('where')
-    if where:
-        try:
-            query_engine.validate_predicate(where, fields)
-        except query_engine.QueryError as e:
-            respond(400, {'error': str(e)})
+    params = {}
+    if kind == 'predicate':
+        # Unchanged path — entity + predicate validation exactly as before.
+        if entity not in _QE_ENTITIES:
+            respond(400, {'error': f'unknown entity: {entity!r}'})
+        _, fields = _QE_ENTITIES[entity]
+        if where:
+            try:
+                query_engine.validate_predicate(where, fields)
+            except query_engine.QueryError as e:
+                respond(400, {'error': str(e)})
+    else:
+        # A fleet/metric query is a flat facet dict, not a predicate tree.
+        entity, where = '', None
+        params = _clean_saved_params(kind, body.get('params'))
+        if not params:
+            respond(400, {'error': 'params required (no recognised facets)'})
     tid = secrets.token_hex(8)
     with _LockedUpdate(QUERY_TEMPLATES_FILE) as templates:
-        if len(templates) >= 200:
-            respond(400, {'error': 'template limit reached (max 200)'})
-        templates[tid] = {'id': tid, 'name': name, 'entity': entity, 'where': where,
+        # v6.4.2: the cap counts SAME-KIND rows. Three producers sharing one
+        # limit would let a busy metric-explorer user crowd the Data Explorer
+        # out of its own store.
+        if sum(1 for t in templates.values()
+               if (t.get('kind') or 'predicate') == kind) >= 200:
+            respond(400, {'error': f'template limit reached for {kind} (max 200)'})
+        templates[tid] = {'id': tid, 'name': name, 'kind': kind,
+                          'entity': entity, 'where': where, 'params': params,
                           'sort': str(body.get('sort', '')).strip() or None,
                           'sort_desc': bool(body.get('sort_desc')),
                           # v6.1.1 (#38): private by default -- a saved

@@ -149,6 +149,22 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Saved queries stop living in one browser
+
+- **Fleet Query's saved queries were browser-local.** A team's
+  fleet-interrogation knowledge — the queries someone worked out during an
+  incident — lived in one Chrome profile, invisible to colleagues and gone with
+  the cache. They now persist server-side and can be **shared with your team**,
+  with the same private-by-default rule the Data Explorer's saved queries use.
+- The divergence mattered more than the missing persistence: the Data Explorer
+  stored its queries with tenant isolation and a visibility model, while the two
+  newer surfaces silently had neither. Rather than a second store — and a second
+  sharing model to get wrong — all three now share one, told apart by kind.
+- **Queries already in your browser are moved automatically** on first visit,
+  and the local copy is cleared only once every one of them is safely stored.
+  Renaming and duplicating still work, and a rename creates the replacement
+  before removing the original, so an interrupted edit cannot lose the query.
+
 ### Maintenance the status page understands
 
 - **A declared maintenance window showed customers a red outage with no

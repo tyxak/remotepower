@@ -1283,12 +1283,16 @@ if _AVAILABLE:
     class QueryTemplateCreateRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         entity: str = ''
+        kind: str = ''
         name: str = ''
+        # Any, never a strict dict: a model is an ADDITIVE superset pre-check,
+        # and narrowing here would 400 a body the handler happily accepts.
+        params: Any = None
         shared: str = ''
         sort: str = ''
         sort_desc: bool = False
         where: str = ''
-        _v0 = field_validator('entity', 'name', 'shared', 'sort', 'where', mode='before')(_coerce_str_loose)
+        _v0 = field_validator('entity', 'kind', 'name', 'shared', 'sort', 'where', mode='before')(_coerce_str_loose)
         _v1 = field_validator('sort_desc', mode='before')(_coerce_bool_loose)
 
     class ScimUsersCollectionRequest(BaseModel):
