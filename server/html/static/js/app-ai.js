@@ -300,8 +300,13 @@ function _ragRenderSearch(semantic) {
     device: r.device || '',
     id:     r.id || '',
   }));
+  // v6.4.2: the rows were inert text. The retrieval found the ticket, named it,
+  // and gave the operator no way to open it — so "test retrieval" was the only
+  // thing it could be used for, which is what it was labelled. Every row now
+  // routes to the entity it describes (ragOpenHit maps the chunk-id prefix).
   const rows = sorted.map(r => `
-    <tr>
+    <tr class="pointer" data-action="ragOpenHit" data-arg="${escAttr(r.id)}"
+        tabindex="0" title="Open what this chunk describes">
       <td><code>${escHtml(r.id)}</code></td>
       <td>${escHtml(r.source || '')}</td>
       <td>${escHtml(r.device || '—')}</td>

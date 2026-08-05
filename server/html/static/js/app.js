@@ -28732,6 +28732,123 @@ function _renderPageRelated(page) {
   if (!existing) sub.appendChild(row);
 }
 
+// ─── v6.4.2: knowledge search — the corpus that was already indexed ─────────
+// Neither search box reached tickets, KB articles, CMDB assets, contacts,
+// sites, saved-script CONTENT or the documentation. The command palette
+// indexed devices, pages, actions, open alerts, CVE rollups and command
+// history; the sidebar box indexed nav labels and Settings tabs.
+//
+// Meanwhile `POST /api/ai/rag/search` runs lexical+semantic retrieval over the
+// 34-source RAG corpus — which explicitly includes tickets, kb, cmdb,
+// contacts, network_map, provisioning, history, drift and firewall — with no
+// LLM call and no tokens spent. It was exposed in exactly one place: a card in
+// Settings → AI titled "Test retrieval", described as a coverage check. And
+// its result rows were inert `<code>` text with no way to open what it found.
+//
+// So an operator who remembered there was a ticket about a failing NIC on a
+// host whose name they could not recall had to open Tickets and search, then
+// KB, then CMDB, then Contacts. The one box that answers it in a single query
+// was filed under AI settings as a diagnostic for a feature they may have
+// switched off.
+//
+// Two deliberate limits, both by design upstream: the endpoint 403s any
+// role-scoped OR tenant-scoped caller (the corpus is fleet-wide and carries no
+// scope tags — refusing beats leaking), and 400s when RAG is disabled. This
+// section therefore DEGRADES SILENTLY rather than surfacing an error: for
+// those callers the palette simply works as it did before.
+const _RAG_ROUTES = {
+  // prefix        → how to open what was found
+  live:      id => _ragOpenDevice(id),
+  cmdb:      id => _ragOpenDevice(id),
+  drift:     id => _ragOpenDevice(id),
+  metrics:   id => _ragOpenDevice(id),
+  runbook:   id => _ragOpenDevice(id),
+  firewall:  id => _ragOpenDevice(id),
+  backups:   id => _ragOpenDevice(id),
+  ticket:      id => _ragGo('tickets', 'openTicket', _ragSeg(id)),
+  kb:          id => _ragGo('kb', 'openKbArticle', _ragSeg(id)),
+  contacts:    id => showPage('contacts'),
+  incidents:   id => showPage('alerts'),   // incidents are declared from the inbox; there is no standalone page
+  scripts:     id => showPage('scripts'),
+  rollout:     id => showPage('rollouts'),
+  prov:        id => showPage('provisioning'),
+  maintenance: id => showPage('maintenance'),
+  vpn:         id => showPage('vpn'),
+  compliance:  id => showPage('compliance'),
+  posture:     id => showPage('advisory'),
+  dns:         id => showPage('dns'),
+  email:       id => showPage('dmarc'),
+  reputation:  id => showPage('dmarc'),
+  fleet:       id => showPage('home'),
+  history:     id => showPage('history'),
+  docs:        id => openDocViewer('docs/' + _ragSeg(id) + '.md', _ragSeg(id)),
+};
+
+// The entity id inside a chunk id: "ticket/42#body" → "42", "live/web01#ports"
+// → "web01". Chunk ids are `<prefix>/<entity>[/more][#section]`.
+function _ragSeg(id) {
+  return String(id || '').split('#')[0].split('/')[1] || '';
+}
+
+function _ragOpenDevice(id) {
+  const dev = _ragSeg(id);
+  if (!dev || dev === '_fleet') { showPage('devices'); return; }
+  showPage('devices');
+  const d = (window._devicesCache || []).find(x => x.id === dev);
+  setTimeout(() => openDeviceDrawer(dev, (d && d.name) || dev), 100);
+}
+
+function _ragGo(page, fnName, arg) {
+  showPage(page);
+  // The owning module is lazy-loaded (openTicket lives in app-tickets.js,
+  // openKbArticle in app-kb.js) and showPage triggers that fetch. A single
+  // setTimeout would race it on a cold page and silently do nothing, so poll
+  // briefly for the function to exist. Worst case the operator lands on the
+  // right page with nothing opened — which is still better than before.
+  let tries = 0;
+  const tick = () => {
+    const fn = window[fnName];
+    if (typeof fn === 'function') { try { fn(arg); } catch (_) {} return; }
+    if (++tries < 20) setTimeout(tick, 100);
+  };
+  setTimeout(tick, 100);
+}
+
+// Open whatever a retrieval hit points at. Unknown prefixes are not an error:
+// a new RAG source can ship before its route does, and landing the operator on
+// the AI page (where the full excerpt is readable) beats doing nothing.
+function ragOpenHit(id) {
+  const prefix = String(id || '').split('/')[0];
+  const fn = _RAG_ROUTES[prefix];
+  if (fn) { fn(id); return; }
+  showPage('ai');
+}
+
+let _ragPalCache = { q: '', rows: [] };
+let _ragPalOff = false;      // 403/400 → this install/caller has no knowledge search
+
+async function _palKnowledge(query) {
+  if (_ragPalOff || !query || query.length < 3) return [];
+  if (_ragPalCache.q === query) return _ragPalCache.rows;
+  let r;
+  try {
+    r = await api('POST', '/ai/rag/search', { query, top_n: 6 });
+  } catch (_) {
+    // 400 (RAG off) or 403 (scoped caller) — both are permanent for this
+    // session, so stop asking rather than firing a request per keystroke.
+    _ragPalOff = true;
+    return [];
+  }
+  const rows = ((r && r.results) || []).map(h => ({
+    label: h.title || h.id,
+    kind: 'knowledge',
+    sub: (h.source || 'knowledge') + (h.device ? ' · ' + h.device : ''),
+    action: () => ragOpenHit(h.id),
+  }));
+  _ragPalCache = { q: query, rows };
+  return rows;
+}
+
 function _palettePages() {
   const out = [];
   const seen = new Set();
@@ -28978,9 +29095,27 @@ function _palRender() {
   if (q.startsWith('>')) { kindFilter = 'action'; q = q.slice(1).trim(); }
   else if (q.startsWith('#')) { kindFilter = 'device'; q = q.slice(1).trim(); }
   const pool = kindFilter ? _palItems.filter(i => i.kind === kindFilter) : _palItems;
-  const filtered = q
+  let filtered = q
     ? pool.filter(i => i.label.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q))
     : pool.slice(0, 20);
+  // v6.4.2: knowledge hits (tickets / KB / CMDB / contacts / docs / …) come
+  // from the server, so they arrive a beat after the local rows. They are
+  // APPENDED rather than merged into the ranking — a local page or device
+  // match is what the operator usually means, and shuffling those down while
+  // an async result lands would move the row under their finger.
+  if (q && !kindFilter) {
+    if (_ragPalCache.q === q) {
+      filtered = filtered.concat(_ragPalCache.rows);
+    } else {
+      _palKnowledge(q).then(rows => {
+        // Only repaint if the query is still the one we asked about and the
+        // palette is still open — otherwise this races the next keystroke.
+        const cur = (document.getElementById('cmd-palette-input')?.value || '')
+          .toLowerCase().trim();
+        if (rows.length && _palOpen && cur === q) _palRender();
+      });
+    }
+  }
   if (_palCursor >= filtered.length) _palCursor = 0;
   const html = filtered.map((it, idx) => `
     <div class="cmd-palette-row ${idx === _palCursor ? 'cmd-palette-active' : ''} isl-721"
