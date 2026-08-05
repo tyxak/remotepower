@@ -102,14 +102,14 @@ async function loadProxmoxLXC(focused = false) {
     data = await api('GET', '/proxmox/lxc');
   } catch (_) {
     if (!focused) section.style.display = 'none';
-    else body.innerHTML = '<p class="hint">Unable to reach the Proxmox API. Check <strong>Admin → Settings → Proxmox</strong>.</p>';
+    else body.innerHTML = '<p class="hint">Unable to reach the Proxmox API. Check <strong>Settings → Virtualization</strong>.</p>';
     return;
   }
   if (!data || !data.enabled || !data.configured) {
     if (!focused) {
       section.style.display = 'none';
     } else {
-      body.innerHTML = '<p class="hint">Proxmox is not configured. Go to <strong>Admin → Settings → Proxmox</strong> to connect your node.</p>';
+      body.innerHTML = '<p class="hint">Proxmox is not configured. Go to <strong>Settings → Virtualization</strong> to connect your node.</p>';
     }
     return;
   }

@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-24">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-25">
 
 </head>
 <body>
@@ -4299,7 +4299,7 @@
             </div>
           </div>
           <p class="hint">Command history rows kept is fleet-wide, not per host — one bulk action on 400 devices writes 400 rows, so the default 200 is a few minutes of history on a busy fleet. Evicted rows are gzipped to <code>command_history_archive.jsonl.gz</code> rather than discarded.</p>
-          <p class="hint">Monitor checks kept is the window the Live Monitor sparkline, the latency percentiles and SLO availability are all computed over — at a 60-second cadence, 300 checks is about five hours. Raising it costs storage proportionally; the retention sweep on Settings → Data still prunes by age on top.</p>
+          <p class="hint">Monitor checks kept is the window the Live Monitor sparkline, the latency percentiles and SLO availability are all computed over — at a 60-second cadence, 300 checks is about five hours. Raising it costs storage proportionally; the retention sweep on Settings → Advanced → Data retention still prunes by age on top.</p>
           <button class="btn-primary mt-8" data-action="saveAlertParams">Save</button>
         </div>
 
@@ -4531,7 +4531,7 @@
             <summary><strong>What's new — v6.4.1 &ldquo;Cust0dyMatters&rdquo;</strong> — key custody. A built-in <strong>KMIP key server</strong> so a Synology NAS, TrueNAS box or vSphere cluster stops keeping its encryption keys on the same hardware that holds the encrypted data — off by default, a separate sandboxed sidecar, mutual TLS only, with an encrypted <strong>recovery bundle</strong> because key custody without a way back is a liability. Plus installer flags for the optional receivers, an <strong>INGEST &amp; KEYS</strong> view in the CLI, two monitor fixes from the field, and a <strong>dead-signal sweep</strong>: CPU and board temperatures that were collected and stored but never rendered on Thermal Health, and four Security Advisory inputs — sshd posture, TLS expiry, brute-force pressure and the CVE ignore list — that were written against data nothing produced. Also an <strong>SNMP OID browser</strong>, dialogs that stop closing on a stray click, one dialog width scale, and monitor history five hours deep instead of fifty minutes. Windows and macOS reached <strong>full signal parity</strong> with Linux — watched services, file-path log rules, disk-usage scans and laptop battery/chassis all report now, so a closed lid stops paging like a dead server — and a file-path log rule finally matches on <em>every</em> platform, including Linux, where the units were being dropped at ingest. Plus a <strong>notification filter that never filtered</strong>, KMIP on Server status with a warning before its own certificates expire, device rename, firewall dry-run on the host, and an interface tidy-up: one body size, one icon size, and table action buttons that sit in a row instead of stacking.</summary>
             <div class="doc-body">
               <p><strong>KMIP key server.</strong> A built-in <strong>KMIP</strong> key server (<code>remotepower-kmipd</code>, tcp/5696, opt-in) so Synology DSM, TrueNAS and VMware vSphere store their encryption keys here instead of on the appliance holding the encrypted data. Mandatory mutual TLS with a private CA; a three-step wizard picks the appliance type, issues the certificate, hands you the three files and waits for the client&rsquo;s first connection. Keys are AES-256-GCM at rest and scoped to the owning client; every connection, auth failure, key operation and admin action lands in an on-page activity log. A passphrase-encrypted <strong>recovery bundle</strong> holds the master key, CA and every key — and the master key is deliberately excluded from scheduled backups, so a stolen archive is ciphertext only. <strong>An appliance that unlocks against this server needs it reachable at boot — never run it on a machine that depends on it to unlock.</strong> Also: <code>--with-kmip</code>, <code>--with-syslogd</code> and <code>--with-flowd</code> installer flags (all off by default), and an <strong>INGEST &amp; KEYS</strong> block in <code>rp status</code> / <code>rp tui</code> showing what the receivers actually ingested.</p>
-              <p><strong>Monitors: an error you can act on.</strong> A rejected monitor target used to say only <code>Invalid monitor target: &lt;url&gt;</code>, which cannot tell a typo'd URL from a perfectly good one that <em>this server's resolver</em> answers with a blocked address — and since only http/https and tcp resolve the hostname, the failure looked type-specific and made no sense. The message now names the resolved IP, the rule that rejected it, and the setting that permits it (&ldquo;resolves to 127.0.0.1 on this server &hellip; enable Settings → Allow monitoring of internal / loopback targets&rdquo;). A filtering resolver answering <code>0.0.0.0</code> is called out by name. An unresolvable host is still allowed — &ldquo;cannot classify&rdquo; must not become &ldquo;reject&rdquo;.</p>
+              <p><strong>Monitors: an error you can act on.</strong> A rejected monitor target used to say only <code>Invalid monitor target: &lt;url&gt;</code>, which cannot tell a typo'd URL from a perfectly good one that <em>this server's resolver</em> answers with a blocked address — and since only http/https and tcp resolve the hostname, the failure looked type-specific and made no sense. The message now names the resolved IP, the rule that rejected it, and the setting that permits it (&ldquo;resolves to 127.0.0.1 on this server &hellip; enable Settings → General → &ldquo;Allow monitoring of internal / loopback targets&rdquo;&rdquo;). A filtering resolver answering <code>0.0.0.0</code> is called out by name. An unresolvable host is still allowed — &ldquo;cannot classify&rdquo; must not become &ldquo;reject&rdquo;.</p>
               <p><strong>One stale monitor no longer blocks the rest.</strong> The editor re-posts the whole monitor list, so a single pre-existing entry that no longer validates — a satellite since deleted, an older tcp entry without a port, a target whose DNS answer changed — used to reject the entire save and name the <em>other</em> monitor, making it impossible to add or even delete an unrelated one. Now only the entry you actually touched fails; an untouched broken one is kept as-is and reported as a warning so it cannot rot unseen.</p>
               <p><strong>Signals that were collected but never reached you.</strong> <strong>Thermal Health</strong> showed disks and GPUs but never CPU or board sensors: the agent collects them and the server stores them correctly, one level deeper in the record than SMART and GPU data, and three readers looked at the shallow key — so the <em>overheating</em> risk signal could only ever fire on a hot disk, never a cooking CPU. The Critical and Headroom columns were blank for a separate reason: the sanitizer dropped the sensor's critical threshold. And four <strong>Security Advisory</strong> inputs were written against keys nothing produced — sshd posture (so the whole <em>identity</em> layer was unreachable; the agent now runs <code>sshd -T</code>, which resolves Includes and Match blocks rather than reporting what the config file happens to say, and flags permitted <strong>empty passwords</strong>), TLS expiry (repointed at the TLS monitor's real results), brute-force pressure (repointed at the store the data is actually in, and the advice now states whether fail2ban is jailing rather than asking you to check), and the CVE <strong>ignore list</strong> — an accepted-risk CVE vanished from Risk and kept driving the advisory. <strong>KEV</strong> data is applied too, so a CVE known to be exploited outranks a critical nobody has weaponised. The advisory's <em>data</em> layer, declared since it shipped and empty ever since, now carries secret-scanner findings, stale backups, FileVault and BitLocker.</p>
               <p><strong>Risk scores what it already knew.</strong> <code>docs/risk.md</code> described CVEs weighted by <strong>KEV</strong>, <strong>container posture</strong> and <strong>backup freshness</strong> — the scorer implemented none of the three. Rather than trim the doc, the code now does what it claimed, plus three more signals collected and scored nowhere. Six new factors, each a tunable weight on Settings &rarr; Alert parameters (0 disables), each capped: <strong>CVEs on CISA&rsquo;s KEV list</strong> rank above severity alone, because KEV means exploitation has been <em>observed</em> rather than predicted — though a CVE you accepted on the ignore list still doesn&rsquo;t count; <strong>malware / AV posture</strong> (an active detection, or real-time protection switched off — a host with no AV record at all is not a finding, because absent data must not read as &ldquo;infected&rdquo;); <strong>CVEs in running container images</strong> at half a host package&rsquo;s weight and capped, so one unpatched base image can&rsquo;t swamp the score; and <strong>stale backups</strong>, <strong>exposed credentials</strong> and <strong>patch-SLA breaches</strong>, the last taken from the same evaluator the Patch SLA page uses so the two can never disagree. The <strong>Security Advisory</strong> gains OpenSCAP results — a parallel scoring silo with no route into &ldquo;what should I fix&rdquo;, despite every failed rule carrying a severity and a remediation id — and <strong>agent-binary tampering</strong>, which previously reached nothing but a badge on the device row, plus <strong>config files drifted from baseline</strong> (paths only — the captured diff can carry a credential, and the Drift page already shows it) and <strong>authorized SSH keys on deprecated algorithms</strong>. Underneath both, one shared reading of each store: Risk and the Advisory stay separate systems on purpose, but they no longer each have their own idea of which CVEs you have accepted.</p>
@@ -4576,7 +4576,7 @@
             <summary><strong>Enrolling devices</strong> — get a host into RemotePower</summary>
             <div class="doc-body">
               <p><strong>Quick (interactive):</strong> Click "Enroll device" in the dashboard. You get a 6-digit PIN, valid for 10 minutes. On the target machine: <code>sudo remotepower-agent enroll</code>, paste the PIN.</p>
-              <p><strong>Automated (Ansible / cloud-init):</strong> Use the API to mint a one-time-use enrollment token (Settings → API or <code>POST /api/enrollment-tokens</code>), pass it via <code>$REMOTEPOWER_ENROLL_TOKEN</code> or <code>/etc/remotepower/enroll-token</code>, then run <code>remotepower-agent enroll-token --server https://&lt;host&gt;</code>. Token is consumed atomically — same one can't enroll twice. Default expiry 24h, max 7 days.</p>
+              <p><strong>Automated (Ansible / cloud-init):</strong> Use the API to mint a one-time-use enrollment token (Admin → API keys, or <code>POST /api/enrollment-tokens</code>), pass it via <code>$REMOTEPOWER_ENROLL_TOKEN</code> or <code>/etc/remotepower/enroll-token</code>, then run <code>remotepower-agent enroll-token --server https://&lt;host&gt;</code>. Token is consumed atomically — same one can't enroll twice. Default expiry 24h, max 7 days.</p>
               <p>The token resolution order is: <code>--token</code> arg → environment variable → on-disk file (mode 600, auto-deleted on success).</p>
               <p><strong>Docker host (no install):</strong> Click "Enroll device → Generate Docker compose" for a ready-to-run <code>docker-compose.yml</code> (your server URL + a one-time token pre-filled). On the host: <code>docker compose up -d</code>. The agent runs as a container, monitors the host (shared PID/network namespaces, host rootfs mounted read-only) and is named after the host automatically. Standard capabilities, no <code>--privileged</code>. Compliance scans and systemd/journal collection aren't available from a container — see <code>docs/docker-agent.md</code>.</p>
             </div>
@@ -4622,7 +4622,7 @@
           <details class="doc-card" data-keywords="webhook notification ntfy discord slack alert">
             <summary><strong>Webhooks</strong> — get notified when things happen</summary>
             <div class="doc-body">
-              <p>Settings → Webhooks. RemotePower auto-detects the format from your URL: Discord webhook URLs get embed-style messages; ntfy URLs get priority + emoji tags; everything else gets generic JSON.</p>
+              <p>Settings → Notifications. RemotePower auto-detects the format from your URL: Discord webhook URLs get embed-style messages; ntfy URLs get priority + emoji tags; everything else gets generic JSON.</p>
               <p>Events you can subscribe to: <code>device_offline</code> / <code>device_online</code>, <code>monitor_down</code> / <code>monitor_up</code>, <code>service_down</code> / <code>service_up</code>, <code>patch_alert</code>, <code>cve_found</code>, <code>log_alert</code>, <code>container_stopped</code> / <code>container_restarting</code>, <code>metric_warning</code> / <code>metric_critical</code> / <code>metric_recovered</code>, <code>command_queued</code> / <code>command_executed</code>.</p>
               <p>Each event can be toggled independently. The "Send test event" button fires a sample payload so you can verify your endpoint works before relying on it.</p>
             </div>
@@ -4639,7 +4639,7 @@
           <details class="doc-card" data-keywords="proxmox virtualization vm qemu kvm hypervisor guest">
             <summary><strong>Proxmox virtualization</strong> — managing QEMU VMs</summary>
             <div class="doc-body">
-              <p>RemotePower can connect to one Proxmox VE node and manage its guests. Configure it under <strong>Settings → Proxmox</strong>: the node's host, the node name, and a Proxmox API token (created in Proxmox under Datacenter → Permissions → API Tokens). Use a scoped token — <code>VM.Audit</code> and <code>VM.PowerMgmt</code> are enough — not a full-access token. There's a "Test connection" button to verify the setup.</p>
+              <p>RemotePower can connect to one Proxmox VE node and manage its guests. Configure it under <strong>Settings → Virtualization</strong>: the node's host, the node name, and a Proxmox API token (created in Proxmox under Datacenter → Permissions → API Tokens). Use a scoped token — <code>VM.Audit</code> and <code>VM.PowerMgmt</code> are enough — not a full-access token. There's a "Test connection" button to verify the setup.</p>
               <p>Once configured, the <strong>Virtualization</strong> page lists the node's QEMU virtual machines: status, CPU and memory while running, uptime. Each guest has Start and graceful Shutdown actions. The connection is server-to-API — the RemotePower server talks to the Proxmox REST API directly; no agent runs on the Proxmox node.</p>
               <p>This is a single-node integration. The Virtualization nav entry is always visible; if Proxmox isn't configured the page simply tells you so.</p>
             </div>
@@ -4649,7 +4649,7 @@
             <summary><strong>Proxmox LXC containers</strong></summary>
             <div class="doc-body">
               <p>LXC containers on the Proxmox node appear on the <strong>Containers</strong> page, in a section below the agent-reported Docker/Podman containers. They carry the same Start and Shutdown actions as QEMU VMs.</p>
-              <p>The LXC section only appears once Proxmox is configured (Settings → Proxmox). Like the VM list, it's fetched live from the Proxmox API each time you open the page.</p>
+              <p>The LXC section only appears once Proxmox is configured (Settings → Virtualization). Like the VM list, it's fetched live from the Proxmox API each time you open the page.</p>
             </div>
           </details>
 
@@ -4819,7 +4819,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="gpu gpus nvidia amd rocm rocm-smi nvidia-smi amdgpu sysfs utilisation utilization vram memory temperature power fan sparkline trend thermal alert high temperature 85 monitoring fleet v4.7">
             <summary><strong>GPUs page</strong> — fleet-wide GPU state (NVIDIA + AMD)</summary>
             <div class="doc-body">
-              <p>The <strong>Monitoring → GPUs</strong> page shows every GPU across the fleet in one rich view — <strong>NVIDIA and AMD</strong> — with utilisation and VRAM meters, temperature, power draw and fan speed, ordered hottest-busiest first, plus a fleet summary (count, per-vendor, total power). Hosts report via <code>nvidia-smi</code> / <code>rocm-smi</code>, with a tooling-free <strong>amdgpu sysfs fallback</strong> for AMD hosts that have no ROCm tooling.</p>
+              <p>The <strong>Hardware → GPUs</strong> page shows every GPU across the fleet in one rich view — <strong>NVIDIA and AMD</strong> — with utilisation and VRAM meters, temperature, power draw and fan speed, ordered hottest-busiest first, plus a fleet summary (count, per-vendor, total power). Hosts report via <code>nvidia-smi</code> / <code>rocm-smi</code>, with a tooling-free <strong>amdgpu sysfs fallback</strong> for AMD hosts that have no ROCm tooling.</p>
               <p>Each GPU card carries <strong>temperature + utilisation trend sparklines</strong> (about the last four hours), so you can see a card heating up or a job ramping without opening the host.</p>
               <p><strong>Thermal alerting:</strong> a GPU at or above the temperature threshold (default 85 °C, configurable) raises the <strong>standard high-temperature alert</strong> and auto-resolves when it cools — GPU sensors participate alongside the existing CPU/board sensors, so it reuses the existing hardware-temperature alert with no new alert type.</p>
               <p><strong>Unmonitored hosts show their data too.</strong> Telemetry and inventory views — thermal, power, storage, exposure, predictive-health/SMART, patches, listening ports, processes and this GPU page — now display unmonitored devices, flagged in the UI; only alerting stays suppressed for them.</p>
@@ -4892,7 +4892,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p>Aggregates pending-update counts from every agent. Linux agents run <code>apt list --upgradable</code> / <code>dnf check-update</code> / <code>pacman -Qu</code> / <code>apk list --upgradable</code> on a schedule (default every 3 hours) and report the count + package list back.</p>
               <p>Per-device row: total upgradable, security-only count (where the package manager exposes that), oldest pending update age. Click into a device for the full list.</p>
-              <p><strong>Patch alert webhook:</strong> Settings → Webhooks → Patch alert. Configurable threshold; fires <code>patch_alert</code> when a device has more than N pending updates.</p>
+              <p><strong>Patch alert webhook:</strong> Settings → Notifications → Patch alert. Configurable threshold; fires <code>patch_alert</code> when a device has more than N pending updates.</p>
               <p><strong>Run upgrade:</strong> per-device dropdown → "Upgrade packages" runs the appropriate package manager non-interactively and returns the output as Update history. Batch select to upgrade many at once.</p>
             </div>
           </details>
@@ -4946,7 +4946,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="services systemd unit status running monitoring">
             <summary><strong>Services page</strong> — systemd unit health matrix</summary>
             <div class="doc-body">
-              <p>Per-device watched-services view. Define which units to watch in Settings → Service watch (or via API), and the agent reports their state on every heartbeat: active, inactive, failed, activating, etc.</p>
+              <p>Per-device watched-services view. Define which units to watch in Settings → Alerting (or via API), and the agent reports their state on every heartbeat: active, inactive, failed, activating, etc.</p>
               <p>Matrix view: rows are devices, columns are services; cell color reflects state. Filter by service name, device, or group; sort by failure count.</p>
               <p><strong>Webhooks:</strong> <code>service_down</code> when a watched unit transitions to inactive/failed; <code>service_up</code> on recovery. Maintenance windows suppress these without losing the audit trail.</p>
             </div>
@@ -4957,7 +4957,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p>Per-device journalctl output for watched units. Agents submit log lines on every heartbeat; the server keeps a rolling buffer, 6 hours by default and tunable under Settings → Advanced → Data retention.</p>
               <p><strong>Search:</strong> regex over the buffered logs. Filter by device, unit, time range. Useful for "did this error happen anywhere in the last hour?"</p>
-              <p><strong>Pattern alerts:</strong> Settings → Log rules. Define regex patterns; matches fire <code>log_alert</code> webhook with the matched line, device, and unit. Useful for kernel oops, OOM kills, fail2ban bans, anything you want a notification on.</p>
+              <p><strong>Pattern alerts:</strong> Settings → Alerting. Define regex patterns; matches fire <code>log_alert</code> webhook with the matched line, device, and unit. Useful for kernel oops, OOM kills, fail2ban bans, anything you want a notification on.</p>
               <p><strong>Per-device or fleet-global rules:</strong> rules can be scoped to a device (only matches there fire) or fleet-global (matches on any device fire).</p>
             </div>
           </details>
@@ -7295,7 +7295,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v6.3.1: flow-verified dependency link health -->
         <div class="dash-card mt-16">
           <div class="section-header"><div class="section-title">Dependency link health</div><button class="btn-icon" data-action="loadDepHealth"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
-          <p class="hint">Verifies each declared <code>depends_on</code> edge against observed traffic (agent peer-conns and the NetFlow/IPFIX receiver). A <strong>Broken</strong> edge carried traffic before and went silent while both hosts stayed online — a firewall/route/service break the offline alert never catches. Enable alerting under <strong>Settings → Alerts</strong>.</p>
+          <p class="hint">Verifies each declared <code>depends_on</code> edge against observed traffic (agent peer-conns and the NetFlow/IPFIX receiver). A <strong>Broken</strong> edge carried traffic before and went silent while both hosts stayed online — a firewall/route/service break the offline alert never catches. Enable alerting under <strong>Settings → Alerting</strong>.</p>
           <div id="dep-health"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
@@ -11281,38 +11281,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-24"></script>
+<script defer src="static/js/app.js?v=6.4.2-25"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-24"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-25"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-24"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-25"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-24"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-25"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-24"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-24"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-25"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-25"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-24"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-25"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11322,6 +11322,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-24"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-25"></script>
 </body>
 </html>

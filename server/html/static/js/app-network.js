@@ -349,7 +349,7 @@ async function loadDepHealth() {
   const rows = edges.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
   const alertNote = r.alerts_enabled
     ? '<span class="c-success fs-12">Alerting on</span>'
-    : '<span class="c-muted fs-12">Alerting off — enable in Settings → Alerts</span>';
+    : '<span class="c-muted fs-12">Alerting off — enable in Settings → Alerting</span>';
   box.innerHTML =
     `<div class="mb-8 fs-12">${sm.missing || 0} broken · ${sm.silent || 0} silent · ${sm.unverifiable || 0} unverified · ${sm.ok || 0} healthy &nbsp; ${alertNote}</div>`
     + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'

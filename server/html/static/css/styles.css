@@ -217,12 +217,30 @@
     --side: #10151b;
     --side-ink: #aeb9c6;
     --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    /* v6.4.2: elevation. Every lifted surface — modal, drawer, dropdown,
+       popover, toast — used to carry a literal rgba(0,0,0,.30..40) at 16-40px
+       blur. On the dark themes those are invisible-by-design depth. On the four
+       light themes (Daylight, Paper, Solarized Light, Nord Light) the SAME 32%
+       black over a near-white page reads as a dirty grey wash rather than a
+       lift. There was no --shadow token to fix it in one place and none of the
+       body.light overrides touched box-shadow.
+       -1 popovers/tooltips, -2 dropdowns/toasts, -3 modals/drawers. */
+    --shadow-1: 0 4px 14px rgba(0,0,0,.28);
+    --shadow-2: 0 8px 24px rgba(0,0,0,.32);
+    --shadow-3: 0 12px 40px rgba(0,0,0,.36);
+    --shadow-edge: 6px 0 30px rgba(0,0,0,.30);
   }
   body.light {
     --hair: rgba(18,28,40,.11);
     --hair-2: rgba(18,28,40,.06);
     --side: #f1f4f8;
     --side-ink: #3a4756;
+    /* Much lower alpha, slightly tighter blur — on a light background a shadow
+       reads as depth at a fraction of the opacity a dark one needs. */
+    --shadow-1: 0 2px 8px rgba(18,28,40,.08);
+    --shadow-2: 0 6px 16px rgba(18,28,40,.10);
+    --shadow-3: 0 10px 28px rgba(18,28,40,.13);
+    --shadow-edge: 4px 0 20px rgba(18,28,40,.11);
   }
   /* Any explicit theme: derive the Clarity chrome from the theme's own palette
      (unique properties — no clash with the per-theme blocks above). */
@@ -456,7 +474,7 @@
     white-space: pre-wrap;
     max-width: 260px;
     width: max-content;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    box-shadow: var(--shadow-1);
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.15s;
@@ -725,7 +743,7 @@
     margin-top: 4px;
     padding: 4px;
     z-index: 60;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    box-shadow: var(--shadow-2);
     max-height: 320px;
     overflow-y: auto;
   }
@@ -837,7 +855,7 @@
     width: 30px; height: 30px; display: none; align-items: center;
     justify-content: center; border-radius: 8px; cursor: pointer;
     background: var(--surface); border: 1px solid var(--border); color: var(--muted);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    box-shadow: var(--shadow-1);
   }
   #banner-restore:hover { color: var(--text); }
   body.banner-collapsed #banner-restore { display: inline-flex; }
@@ -1117,7 +1135,7 @@
   .tour-target { position: relative; z-index: 1201; box-shadow: 0 0 0 3px var(--accent); border-radius: 6px; }
   .tour-pop { position: fixed; z-index: 1202; width: 300px; max-width: 92vw; background: var(--surface, #fff);
     color: var(--text, #16181d); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.30); }
+    box-shadow: var(--shadow-3); }
   .tour-pop-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
   .tour-pop-body { font-size: 13.5px; line-height: 1.5; margin-bottom: 12px; }
   .tour-pop-row { display: flex; align-items: center; gap: 6px; }
@@ -1182,7 +1200,7 @@
      defined anywhere, so it always fell back to the hard dark #1e1e24; in light
      mode the panel stayed dark with dark (inherited) text = unreadable. Use the
      light-aware --surface2 (defined for every theme + body.light). */
-  .acct-dropdown { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; background: var(--surface); color: var(--text); border: 1px solid var(--hair); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 1000; padding: 4px; }
+  .acct-dropdown { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; background: var(--surface); color: var(--text); border: 1px solid var(--hair); border-radius: 8px; box-shadow: var(--shadow-2); z-index: 1000; padding: 4px; }
   .acct-dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .acct-dropdown-item:hover { background: rgba(127,127,127,0.14); }
   .acct-profile { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
@@ -1694,7 +1712,7 @@
     border-radius: 10px;
     min-width: 180px;
     max-width: 260px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: var(--shadow-2);
     z-index: 10000;
     margin-top: 4px;
     overflow: visible;
@@ -2182,7 +2200,7 @@
     border-radius: 8px;
     font-size: 13px;
     z-index: 10001;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    box-shadow: var(--shadow-1);
   }
   .net-down-banner svg { flex-shrink: 0; color: var(--red); }
   .toast {
@@ -2195,7 +2213,7 @@
     min-width: 260px;
     transform: translateX(120%);
     transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    box-shadow: var(--shadow-3);
   }
   .toast.show    { transform: translateX(0); }
   .toast.success { border-left: 3px solid var(--green); }
@@ -2263,7 +2281,7 @@
   #undo-hist-pop {
     position: fixed; z-index: 960; width: 250px;
     background: var(--surface); border: 1px solid var(--hair);
-    border-radius: 11px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    border-radius: 11px; box-shadow: var(--shadow-3);
     padding: 10px 12px; max-height: 300px; overflow-y: auto;
   }
   .undo-hist-row {
@@ -2288,7 +2306,7 @@
   #tbl-cols-pop {
     position: fixed; z-index: 960; width: 220px;
     background: var(--surface); border: 1px solid var(--hair);
-    border-radius: 11px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    border-radius: 11px; box-shadow: var(--shadow-3);
     padding: 10px 12px; max-height: 340px; overflow-y: auto;
   }
   #tbl-cols-pop.hidden { display: none; }
@@ -2303,7 +2321,7 @@
     position: fixed; top: 52px; right: 16px; z-index: 950;
     width: 320px; max-width: calc(100vw - 24px);
     background: var(--surface); border: 1px solid var(--hair);
-    border-radius: 11px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    border-radius: 11px; box-shadow: var(--shadow-3);
     padding: 10px 12px;
   }
   #toast-history-pop.hidden { display: none; }
@@ -3054,7 +3072,7 @@ input.form-input[type="text"][data-token],
   transform: translateY(-1px);
   border-color: var(--accent-edge);
 }
-.tile[data-action]:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.10); }
+.tile[data-action]:hover { transform: translateY(-2px); box-shadow: var(--shadow-1); }
 @media (prefers-reduced-motion: reduce) {
   .tile:hover, .tile[data-action]:hover { transform: none; }
 }
@@ -3628,7 +3646,7 @@ body.density-compact .dash-card > .section-header:first-child {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-2);
 }
 
 /* v2.2.5: card-grid scroll wrap (companion to .scrollable-table-wrap).
@@ -4147,7 +4165,7 @@ body.sidebar-collapsed .nav-fav-empty { display: none; }
 .views-dropdown {
   position: absolute; right: 0; top: calc(100% + 6px); min-width: 200px; z-index: 1000;
   background: var(--card, #1e1e24); border: 1px solid rgba(127,127,127,0.25);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); padding: 4px;
+  border-radius: 8px; box-shadow: var(--shadow-2); padding: 4px;
 }
 .views-row { display: flex; align-items: center; }
 .views-item {
@@ -4512,7 +4530,10 @@ body.autohide-sidebar .sidebar-collapse-btn { display: none !important; }
 body.sidebar-collapsed .sidebar:hover,
 body.sidebar-collapsed.has-active-alert .sidebar {
   width: 248px; padding-left: 8px; padding-right: 8px;
-  box-shadow: 6px 0 30px rgba(0,0,0,0.32); z-index: 900;
+  /* v6.4.2: the flyout sidebar lifts from a vertical EDGE, so it cannot reuse
+     --shadow-3's downward offset — but it takes the same per-theme alpha via
+     --shadow-edge, which body.light lowers with the rest. */
+  box-shadow: var(--shadow-edge); z-index: 900;
 }
 body.sidebar-collapsed .sidebar:hover .sidebar-group-items,
 body.sidebar-collapsed.has-active-alert .sidebar .sidebar-group-items { display: flex; }
@@ -5764,7 +5785,7 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   color: var(--muted);
 }
 .isl-715 { cursor: pointer; color: var(--muted); font-size: 12px }
-.isl-716 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(580px,90vw); max-height: 60vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
+.isl-716 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(580px,90vw); max-height: 60vh; display: flex; flex-direction: column; box-shadow: var(--shadow-3) }
 .isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 12.5px; outline: none }
 .isl-718 { overflow-y: auto; padding: 6px; flex: 1 }
 .isl-719 { font-size: 11px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 14px }
@@ -5777,12 +5798,12 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .isl-721.cmd-palette-active { background: var(--surface2); }
 .isl-722 { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px }
 .isl-723 { padding: 20px; text-align: center; color: var(--muted); font-size: 13px }
-.isl-724 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 460px; width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
+.isl-724 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 460px; width: 90vw; box-shadow: var(--shadow-3) }
 .isl-725 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px }
 .isl-726 { margin: 0; font-size: 16px }
 .isl-727 { font-size: 16px; padding: 4px 10px }
 .isl-728 { width: 100%; font-size: 13px }
-.isl-729 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 640px; width: 92vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
+.isl-729 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 640px; width: 92vw; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-3) }
 .isl-730 { font-size: 13px; color: var(--muted); margin-bottom: 16px }
 .isl-731 { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px }
 .isl-732 { width: 100%; padding: 8px }
@@ -5935,7 +5956,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 #dev-hovercard {
   position: fixed; z-index: 220; max-width: 280px; padding: 10px 12px;
   background: var(--surface); border: 1px solid var(--hair);
-  border-radius: 11px; box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  border-radius: 11px; box-shadow: var(--shadow-2);
   font-size: 12.5px; pointer-events: none;
 }
 #dev-hovercard .dev-hovercard-title { font-weight: 620; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
@@ -6540,7 +6561,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   position: absolute; z-index: 5; pointer-events: none;
   background: var(--surface2); border: 1px solid var(--hair);
   border-radius: 8px; padding: 6px 9px; font-size: 11px; line-height: 1.5;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.25); max-width: 220px; white-space: nowrap;
+  box-shadow: var(--shadow-1); max-width: 220px; white-space: nowrap;
 }
 .ts-tip-t { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
 .ts-tip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; }
@@ -6663,7 +6684,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   position: absolute; z-index: 60; top: calc(100% + 2px); left: 0; right: 0;
   min-width: 200px; max-height: 260px; overflow-y: auto;
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  box-shadow: var(--shadow-2);
 }
 .dev-combo-item {
   padding: 7px 12px; font-size: 13px; cursor: pointer;
@@ -7053,7 +7074,7 @@ table { font-variant-numeric: tabular-nums; }
 .stat-card { transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
 .stat-card:hover { border-color: var(--accent-edge); }
 .stat-card[data-action]:hover, .stat-card[data-nav]:hover {
-  transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.10); border-color: var(--accent);
+  transform: translateY(-2px); box-shadow: var(--shadow-1); border-color: var(--accent);
 }
 @media (prefers-reduced-motion: reduce) {
   .stat-card[data-action]:hover, .stat-card[data-nav]:hover { transform: none; }

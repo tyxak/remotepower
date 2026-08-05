@@ -10,7 +10,7 @@ function _renderDnsVaultBar() {
   const el = document.getElementById('dns-vault-bar');
   if (!el) return;
   if (!_dnsVaultConfigured) {
-    el.innerHTML = '<span class="hint">Vault not set up — provider tokens are stored in clear text in config. Set up the CMDB vault (Admin → CMDB) to store them encrypted instead.</span>';
+    el.innerHTML = '<span class="hint">Vault not set up — provider tokens are stored in clear text in config. Set up the CMDB vault (Fleet → CMDB) to store them encrypted instead.</span>';
     return;
   }
   const unlocked = !!_dnsVaultKey;
@@ -79,7 +79,7 @@ async function dnsImportFromAgent() {
   const did = _dnsSelectedAgent ? _dnsSelectedAgent.id : '';
   const dname = _dnsSelectedAgent ? _dnsSelectedAgent.name : did;
   if (!did) { toast('Search for and pick a device', 'error'); return; }
-  if (!_dnsVaultConfigured) { toast('Set up the CMDB vault first (Admin → CMDB), then unlock it here.', 'error'); return; }
+  if (!_dnsVaultConfigured) { toast('Set up the CMDB vault first (Fleet → CMDB), then unlock it here.', 'error'); return; }
   if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
   if (!await uiConfirm({ title: 'Import from agent', message: `Ask ${dname}'s agent to read its acme.sh DNS credentials and import them into the vault (encrypted)? The agent reads account.conf locally and returns them over the authenticated heartbeat.`, confirmText: 'Import' })) return;
   const setSt = (m) => { const st = document.getElementById('dns-agent-status'); if (st) st.textContent = m; };

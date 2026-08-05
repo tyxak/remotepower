@@ -7118,7 +7118,7 @@ async function sendExecCmd() {
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
   "Settings → Integrations can poll the software your homelab already runs — Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more — and raise an alert when one goes unhealthy. Read-only and SSRF-guarded.",
-  "The Monitoring → GPUs page shows every GPU across the fleet — NVIDIA and AMD — with utilisation, VRAM, temperature, power and fan, hottest-first. Hosts report via nvidia-smi / rocm-smi, or the tooling-free amdgpu sysfs fallback.",
+  "The Hardware → GPUs page shows every GPU across the fleet — NVIDIA and AMD — with utilisation, VRAM, temperature, power and fan, hottest-first. Hosts report via nvidia-smi / rocm-smi, or the tooling-free amdgpu sysfs fallback.",
   "Running a Docker host? Enroll device → Generate Docker compose gives you a ready-to-run container that monitors the host — no install on the OS, named after the host automatically.",
   "On an enterprise instance that doesn't use homelab software, untick Settings → Integrations → Show Homelab software to hide the whole feature (and stop its polling) in one click.",
   "While a device drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
@@ -7129,7 +7129,7 @@ const _DYK_TIPS = [
   "Vulnerability scans run on a scanner satellite — a hardened relay node — not on your production hosts, so there's no footprint on the machine being scanned. Pin a scan to a specific satellite, e.g. one per network segment.",
   "Schedule a recurring scan on the Pentest page and wire its findings to a notification channel — a cron-style web/host vulnerability sweep that pages you only when something new turns up.",
   "Add a passkey under My Account → Passkeys for phishing-resistant, passwordless sign-in with a security key, your phone or biometrics — and it counts as MFA, so you can drop the password entirely.",
-  "Settings → Authentication → SAML adds enterprise single sign-on (Okta, Entra, OneLogin, Ping, ADFS) — paste the IdP metadata, map a group to the admin role, and users arrive provisioned on first login.",
+  "Settings → Integrations → SAML adds enterprise single sign-on (Okta, Entra, OneLogin, Ping, ADFS) — paste the IdP metadata, map a group to the admin role, and users arrive provisioned on first login.",
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
   "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
@@ -7160,7 +7160,7 @@ const _DYK_TIPS = [
   "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
   "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
   "Click Trend on a device in Device Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
-  "SCIM (Settings → Authentication) lets your identity provider create and deactivate users automatically — when someone is offboarded in the IdP, their RemotePower access and live sessions are revoked at once.",
+  "SCIM (Settings → Integrations) lets your identity provider create and deactivate users automatically — when someone is offboarded in the IdP, their RemotePower access and live sessions are revoked at once.",
   "Reports → Evidence pack downloads one JSON document bundling the posture report, the 90-day compliance trend and an audit-log excerpt — the artifact auditors ask for.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
@@ -13395,7 +13395,7 @@ function _dnsControlRow(item, dnsCtl) {
   return row;
 }
 
-// ── v4.7.0: fleet GPU page (Monitoring → GPUs) — NVIDIA + AMD, rich cards ─────
+// ── v4.7.0: fleet GPU page (Hardware → GPUs) — NVIDIA + AMD, rich cards ─────
 // v4.7.0: temperature + utilisation trend sparklines (last ~4h of samples).
 // Renders nothing until there are ≥2 points, so a fresh host shows no empty box.
 
@@ -19534,12 +19534,12 @@ async function loadVirtualization() {
   }
   if (!data || !data.enabled) {
     body.innerHTML = `<div class="table-card isl-578">
-      Proxmox integration is not enabled. Configure it under Settings → Proxmox.</div>`;
+      Proxmox integration is not enabled. Configure it under Settings → Virtualization.</div>`;
     return;
   }
   if (!data.configured) {
     body.innerHTML = `<div class="table-card isl-578">
-      Proxmox is enabled but not fully configured. Add the host, node and API token under Settings → Proxmox.</div>`;
+      Proxmox is enabled but not fully configured. Add the host, node and API token under Settings → Virtualization.</div>`;
     return;
   }
   if (nodeLabel) nodeLabel.textContent = data.node ? `node: ${data.node}` : '';
@@ -25612,7 +25612,7 @@ async function pduControl(action) {
 }
 
 // UPS dependency — mark this host as powered by another host's monitored UPS,
-// so it can be auto-shut-down when that UPS goes critical (Settings → Power).
+// so it can be auto-shut-down when that UPS goes critical (Settings → Advanced).
 async function openUpsDependencyModal(devId, devName) {
   document.getElementById('ups-dep-dev-id').value = devId;
   document.getElementById('ups-dep-modal-title').textContent = `UPS dependency — ${devName || devId}`;

@@ -394,7 +394,7 @@ async function loadProxmoxBackups() {
   const d = await api('GET', '/proxmox/backups');
   if (!d) { _errorState(body, loadProxmoxBackups); return; }
   if (!d.enabled || !d.configured) {
-    body.innerHTML = '<div class="hint">No Proxmox node connected. Configure one under Settings → Proxmox to see per-guest backup recency here.</div>';
+    body.innerHTML = '<div class="hint">No Proxmox node connected. Configure one under Settings → Virtualization to see per-guest backup recency here.</div>';
     return;
   }
   const th = document.getElementById('pmbackup-threshold');
