@@ -15852,10 +15852,24 @@ def handle_device_site(dev_id):
 _SAFE_UNIX_USER = re.compile(r'^[a-z_][a-z0-9_-]{0,31}$')
 # An SSH public key line: a known type, base64 body, optional comment. No shell
 # metacharacters can appear given this charset, so it is safe to single-quote.
+# v6.4.2: the comment was \w@.- only, so two entirely normal authorized_keys
+# lines 400'd — a multi-word comment ("jakob work laptop", which ssh-keygen -C
+# accepts) and an options prefix ("from=\"10.0.0.0/8\" ssh-ed25519 …"). An
+# operator pasting a key straight out of their own authorized_keys got told it
+# was "not a valid SSH public key line".
+#
+# The key is interpolated into a single-quoted shell word, so the one thing that
+# must NEVER be permitted is a single quote; backslash and control characters are
+# excluded for the same reason. Options are allowed only WITHOUT spaces, which
+# covers no-pty,no-agent-forwarding,from="…" — a command="…" holding a space is
+# deliberately still refused rather than validated loosely, since that is the
+# most dangerous construct to get wrong.
 _SSH_PUBKEY_RE = re.compile(
-    r'^(ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-nistp(?:256|384|521)|'
+    r'^(?:[A-Za-z0-9_,\-=."/@:\[\]*]+\s+)?'
+    r'(ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-nistp(?:256|384|521)|'
     r'sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)'
-    r'\s+[A-Za-z0-9+/]+={0,3}(\s+[\w@.\-]{1,128})?\s*$')
+    r'\s+[A-Za-z0-9+/]+={0,3}'
+    r'(?:\s+[^\x00-\x1f\'\\]{1,128})?\s*$')
 
 
 def _user_home_path(username):
@@ -15898,9 +15912,21 @@ def handle_device_user_action(dev_id):
                    f"grep -qxF '{key}' {ak} || echo '{key}' >> {ak}; "
                    f"chmod 700 {ssh_dir}; chmod 600 {ak}")
         else:
-            # Remove exactly the matching line; -i in place, fixed string via grep -v.
-            cmd = (f"test -f {ak} && grep -vxF '{key}' {ak} > {ak}.rp_tmp && "
-                   f"mv {ak}.rp_tmp {ak}; chmod 600 {ak}")
+            # Remove exactly the matching line; fixed string via grep -v.
+            #
+            # v6.4.2: this was `grep -vxF … > tmp && mv tmp …`. grep exits 1 when
+            # it selects NO lines — which is precisely the case where the key
+            # being revoked is the user's ONLY key. So `&& mv` was skipped, the
+            # file was left untouched, and because the trailing `chmod` made the
+            # overall status 0 the operator got a success toast for a revoke that
+            # did nothing. The most important case failed silently.
+            #
+            # rc 0 (lines remain) and rc 1 (none remain) are both success here;
+            # only rc >= 2 is a real grep error, and then the temp file is
+            # discarded rather than moved over a good authorized_keys.
+            cmd = (f"test -f {ak} && {{ grep -vxF '{key}' {ak} > {ak}.rp_tmp; "
+                   f"rc=$?; if [ $rc -le 1 ]; then mv {ak}.rp_tmp {ak}; "
+                   f"else rm -f {ak}.rp_tmp; exit $rc; fi; }}; chmod 600 {ak}")
     else:
         respond(400, {'error': 'unknown action'})
 
@@ -58422,8 +58448,18 @@ def handle_software_policy_violations():
     """GET /api/software-policy/violations — flat list of current violations."""
     require_auth()
     store = load(SOFTWARE_VIOLATIONS_FILE) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
+    # v6.4.2 (SECURITY): this iterated the WHOLE store behind a bare
+    # require_auth(), so a group/site-scoped operator — and, under multi-tenancy,
+    # a tenant admin, who resolves to _caller_scope() == None — read every other
+    # slice's device names and the packages found on them. The sibling fleet
+    # reader (handle_ssh_keys_fleet) has always done this correctly;
+    # _scope_filter_devices folds in BOTH role scope and the tenant gate, and is
+    # a no-op for an unscoped admin on a single-org install.
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     out = []
     for dev_id, rec in (store or {}).items():
+        if dev_id not in devices:
+            continue
         for v in (rec.get('violations') or []):
             out.append({'device_id': dev_id, 'device': rec.get('name', dev_id),
                         'checked_at': rec.get('checked_at'), **v})

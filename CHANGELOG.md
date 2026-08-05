@@ -149,6 +149,28 @@ product has always computed for its own screens and never let you take away.
   inline-handler ceiling come **down** from 627 to 625: the two existing bulk
   device writes moved out to sit beside the new one.
 
+### Three defects behind the SSH and policy screens
+
+- **Software-policy violations were readable across your whole fleet,
+  regardless of scope.** The endpoint listed every device's violations behind a
+  bare authentication check — so a site- or group-scoped operator, and under
+  multi-tenancy a tenant admin, could read other slices' host names and the
+  packages found on them. Its sibling fleet reader had always filtered
+  correctly; this one never did. Fixed, and a no-op on a single-org install.
+- **Revoking a user's only SSH key did nothing and said it worked.** The
+  command removed the matching line and moved the result into place — but the
+  tool it used reports "nothing selected" as a failure, which is exactly what
+  happens when the key being revoked is the last one. So the move was skipped,
+  the file was left untouched, and the operator got a success message. The most
+  important case was the one that failed, silently.
+- **Two perfectly normal public keys were rejected.** A key with a multi-word
+  comment (which `ssh-keygen -C` accepts) or an options prefix such as
+  `from="10.0.0.0/8"` was refused as "not a valid SSH public key line" — an
+  operator pasting a line straight out of their own `authorized_keys` was told
+  it was invalid. Both are accepted now; anything that could break out of the
+  command still is not, and a `command="…"` option containing a space is still
+  refused rather than validated loosely.
+
 ### Saved queries stop living in one browser
 
 - **Fleet Query's saved queries were browser-local.** A team's
