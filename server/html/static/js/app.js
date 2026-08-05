@@ -2567,7 +2567,7 @@ function showPage(name, btn) {
   if (name === 'self')     loadSelfStatus();
   if (name === 'forecast') loadForecast();
   if (name === 'timeline') enterTimeline();
-  if (name === 'reports')  loadReports();
+  if (name === 'reports')  { loadReports(); loadReportArchive(); }
   if (name === 'automation') loadAutomation();
   if (name === 'signing')    loadSigning();
   if (name === 'query')      loadFleetQuery();
@@ -26195,6 +26195,122 @@ async function sbomShowDiff(devId, devName) {
   document.getElementById('sbom-diff-title').textContent = `SBOM changes — ${devName || devId}`;
   document.getElementById('sbom-diff-body').innerHTML = html;
   openModal('sbom-diff-modal');
+}
+
+// ─── v6.4.2: delivered-report archive ───────────────────────────────────────
+// Every report path computed from live state and threw the result away. Nothing
+// wrote a generated report anywhere, and no endpoint took an as-of date — and
+// because CVE counts, patch backlog and per-framework control results have no
+// daily history (unlike health and compliance %), a past-dated posture report
+// was not merely unstored, it was unreconstructable.
+//
+// An ISO 27001 auditor asks for the report as it stood at the end of Q1. The
+// operator had the March email in their inbox and nothing else.
+let _reportArchive = [];
+
+async function loadReportArchive() {
+  const tbody = document.getElementById('rarch-tbody');
+  if (!tbody) return;
+  let data;
+  try {
+    data = await api('GET', '/report/archive');
+  } catch (_) {
+    // admin/auditor only — a viewer on the Reports page should see the rest of
+    // the page work, not an error card.
+    const card = tbody.closest('.dash-card');
+    if (card) card.classList.add('d-none');
+    return;
+  }
+  _reportArchive = (data && data.entries) || [];
+  const note = document.getElementById('rarch-note');
+  if (note) {
+    note.textContent = _reportArchive.length
+      ? `${_reportArchive.length} of ${data.cap} kept`
+        + (data.trimmed ? ` · ${data.trimmed} older report(s) aged out` : '')
+      : '';
+  }
+  tableCtl.wireSortOnly('rarch-thead', 'report_archive', () => _renderReportArchive());
+  _renderReportArchive();
+}
+
+function _renderReportArchive() {
+  const tbody = document.getElementById('rarch-tbody');
+  if (!tbody) return;
+  if (!_reportArchive.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No reports delivered yet — the archive fills as scheduled reports are emailed.</td></tr>';
+    return;
+  }
+  const rows = tableCtl.sortRows('report_archive', _reportArchive.slice(), r => ({
+    ts: r.ts || 0, name: r.name || '', kind: r.kind || '',
+    site_name: r.site_name || '', health: r.health == null ? -1 : r.health,
+  }));
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td class="nowrap">${_fmtTs(r.ts)}</td>
+      <td>${escHtml(r.name || 'Fleet posture report')}</td>
+      <td class="hint">${escHtml(r.kind || '')}</td>
+      <td class="hint">${escHtml(r.site_name || 'whole fleet')}</td>
+      <td>${r.health == null ? '<span class="c-muted">—</span>' : escHtml(String(r.health))}</td>
+      <td class="nowrap">
+        <button class="btn-icon btn-xs" data-action="downloadArchivedReport" data-arg="${escAttr(r.id)}" data-arg2="json">JSON</button>
+        <button class="btn-icon btn-xs" data-action="downloadArchivedReport" data-arg="${escAttr(r.id)}" data-arg2="csv">CSV</button>
+        <button class="btn-icon btn-xs c-danger-outline" data-action="deleteArchivedReport" data-arg="${escAttr(r.id)}">Delete</button>
+      </td></tr>`).join('');
+}
+
+// The auditor's actual question: "what did this look like at the end of Q1?"
+// Answered with the nearest report AT OR BEFORE that date — never after, since
+// a report generated a week later looks like an answer and is not one.
+async function reportArchiveAsOf() {
+  const el = document.getElementById('rarch-asof');
+  const note = document.getElementById('rarch-note');
+  if (!el || !note) return;
+  if (!el.value) { note.textContent = 'Pick a date first.'; return; }
+  // End of the chosen day, in the operator's own timezone — "as of 31 March"
+  // means the close of business, not midnight at its start.
+  const asOf = Math.floor(new Date(el.value + 'T23:59:59').getTime() / 1000);
+  const r = await api('GET', '/report/archive?as_of=' + asOf).catch(() => null);
+  if (!r) { note.textContent = 'Lookup failed.'; return; }
+  if (!r.entry) {
+    note.textContent = 'No report was delivered on or before that date. '
+      + 'The archive only holds reports this server actually emailed.';
+    _reportArchive = [];
+  } else {
+    note.textContent = `Nearest delivery on or before ${el.value}: `
+      + _fmtTs(r.entry.ts) + ` (${r.count} report(s) at or before that date).`;
+    _reportArchive = [r.entry];
+  }
+  _renderReportArchive();
+}
+
+function downloadArchivedReport(id, fmt) {
+  const f = fmt === 'csv' ? 'csv' : 'download';
+  fetch(`/api/report/archive/${encodeURIComponent(id)}?format=${f}`,
+        { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(blob => {
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = `report-${id}.${fmt === 'csv' ? 'csv' : 'json'}`;
+      a.click();
+      URL.revokeObjectURL(u);
+    })
+    .catch(() => toast('Download failed', 'error'));
+}
+
+async function deleteArchivedReport(id) {
+  // Not undoable: this is the ONLY copy of a past-dated report, and the whole
+  // point of the archive is that it cannot be regenerated. A deferred-commit
+  // toast would make destroying evidence a one-click accident.
+  if (!await uiConfirm({
+        title: 'Delete archived report',
+        message: 'This is the only copy — a past-dated posture report cannot be '
+               + 'regenerated, because CVE and patch figures keep no history. Delete it?',
+        confirmText: 'Delete', danger: true })) return;
+  const r = await api('DELETE', '/report/archive/' + encodeURIComponent(id));
+  if (r && r.ok) { toast('Archived report deleted', 'success'); loadReportArchive(); }
+  else toast((r && r.error) || 'Delete failed', 'error');
 }
 
 function downloadEvidencePack() {

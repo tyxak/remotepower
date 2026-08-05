@@ -550,6 +550,17 @@ def handle_evidence_pack():
         'period_days':    days,
         'period_start':   since,
         'posture':        A._build_fleet_report(),
+        # v6.4.2: `posture` is TODAY's numbers sitting next to a `period_days`
+        # label, which reads like a period summary and is not one. Say so in
+        # the document rather than relying on the field name, and ship the
+        # reports actually DELIVERED inside the window alongside it — that is
+        # the part of the pack that genuinely covers the period.
+        'posture_note':   'The `posture` block is the CURRENT fleet posture at '
+                          'generated_ts, not an average or an end-of-period '
+                          'snapshot. Period coverage comes from '
+                          'compliance_history, audit_excerpt and '
+                          'archived_reports.',
+        'archived_reports': _archive_index(since=since, until=now),
         'compliance_history': comp_hist,
         'audit_excerpt':  audit[-2000:],   # cap so the pack can't balloon
         'audit_count':    len(audit),
@@ -578,6 +589,168 @@ def handle_evidence_pack():
         A.sys.stdout.buffer.flush()
         A.sys.exit(0)
     A.respond(200, pack)
+
+
+# ── v6.4.2: the report archive ──────────────────────────────────────────────
+# Every report path — _build_fleet_report, the evidence pack, the scheduled
+# email — computed from live state and threw the result away. Nothing wrote a
+# generated report anywhere, and no report endpoint took an as-of date.
+#
+# That would be recoverable if the inputs had history, but they largely do not:
+# fleet health and fleet compliance % are sampled daily, while CVE counts,
+# patch backlog and per-framework control pass/fail have no history at all. So
+# a past-dated posture report was not merely unstored, it was unreconstructable.
+#
+# An ISO 27001 auditor asks for the posture report as it stood at the end of
+# Q1. The operator had the March email in their inbox — plain text, if it was
+# even scheduled — and nothing else: no artifact to hand over, no way to
+# regenerate one.
+#
+# The archive stores what was actually DELIVERED, which is the artifact the
+# question is about. Generating a report for the UI still archives nothing.
+_REPORT_ARCHIVE_MAX = 60
+# A 200-host report serialises to ~12 KB (it is aggregates, not per-device
+# rows), so the cap is about retention, not size. The byte guard is a backstop
+# against a future section that changes that assumption without anyone noticing.
+_REPORT_ARCHIVE_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _archive_report(report, kind, name='', site=''):
+    """Keep a delivered report. Best-effort: an archive failure must never cost
+    the operator the delivery that just succeeded."""
+    try:
+        entry = {
+            'id':      'rpt-' + A.secrets.token_hex(6),
+            'ts':      int(report.get('generated_ts') or A.time.time()),
+            'kind':    str(kind)[:32],
+            'name':    A._sanitize_str(str(name or ''), 64),
+            'site':    A._sanitize_str(str(site or ''), 64),
+            'site_name': A._sanitize_str(str(report.get('site_name') or ''), 96),
+            'sections': sorted(report.get('sections')
+                               or [k for k in _ALL_REPORT_SECTIONS if k in report]),
+            'health':  ((report.get('health') or {}).get('score')),
+            'report':  report,
+        }
+        with A._LockedUpdate(A.REPORT_ARCHIVE_FILE) as st:
+            entries = st.get('entries')
+            if not isinstance(entries, list):
+                entries = []
+            entries.append(entry)
+            entries = entries[-_REPORT_ARCHIVE_MAX:]
+            # Trim oldest-first until it fits. Reported rather than silent —
+            # "the archive quietly stopped keeping things" is the failure mode
+            # that makes an archive worse than useless.
+            while len(entries) > 1 and len(A.json.dumps(entries,
+                                                        default=str).encode()) \
+                    > _REPORT_ARCHIVE_MAX_BYTES:
+                entries.pop(0)
+                st['trimmed'] = int(st.get('trimmed') or 0) + 1
+            st['entries'] = entries
+        return entry['id']
+    except Exception as e:                                   # pragma: no cover
+        A.sys.stderr.write(f'[remotepower] report archive write failed: {e}\n')
+        return ''
+
+
+def _archive_index(since=0, until=0):
+    """Archive metadata (no report bodies) newest-first, optionally windowed."""
+    out = []
+    for e in ((A._load_ro(A.REPORT_ARCHIVE_FILE) or {}).get('entries') or []):
+        if not isinstance(e, dict):
+            continue
+        ts = int(e.get('ts') or 0)
+        if since and ts < since:
+            continue
+        if until and ts > until:
+            continue
+        out.append({k: e.get(k) for k in
+                    ('id', 'ts', 'kind', 'name', 'site', 'site_name',
+                     'sections', 'health')})
+    out.sort(key=lambda e: e.get('ts') or 0, reverse=True)
+    return out
+
+
+def handle_report_archive():
+    """GET /api/report/archive — list delivered reports (metadata only).
+
+    Query: ?since=<epoch>&until=<epoch> to window it, or ?as_of=<epoch> for the
+    nearest report AT OR BEFORE that moment — which is how an auditor asks the
+    question ("what did this look like at the end of Q1?").
+    """
+    A.require_admin_or_auditor_auth()
+    if A.method() != 'GET':
+        A.respond(405, {'error': 'Method not allowed'})
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+
+    def _num(key):
+        try:
+            return int((qs.get(key) or ['0'])[0])
+        except (TypeError, ValueError):
+            return 0
+
+    as_of = _num('as_of')
+    if as_of:
+        # Nearest AT OR BEFORE — never after. Handing back a report generated
+        # a week after the date asked about would be worse than handing back
+        # nothing, because it looks like an answer.
+        rows = _archive_index(until=as_of)
+        A.respond(200, {'as_of': as_of, 'entry': rows[0] if rows else None,
+                        'count': len(rows)})
+    rows = _archive_index(since=_num('since'), until=_num('until'))
+    st = A._load_ro(A.REPORT_ARCHIVE_FILE) or {}
+    A.respond(200, {'entries': rows, 'total': len(rows),
+                    'cap': _REPORT_ARCHIVE_MAX,
+                    'trimmed': int(st.get('trimmed') or 0)})
+
+
+def handle_report_archive_entry(entry_id):
+    """GET /api/report/archive/<id>[?format=json|csv|download] — one archived
+    report exactly as it was delivered; DELETE — remove it (admin)."""
+    actor = A.require_admin_or_auditor_auth()
+    entry_id = A._sanitize_str(str(entry_id or ''), 32)
+    if A.method() == 'DELETE':
+        A.require_admin_auth()
+        with A._LockedUpdate(A.REPORT_ARCHIVE_FILE) as st:
+            entries = st.get('entries') or []
+            kept = [e for e in entries if e.get('id') != entry_id]
+            if len(kept) == len(entries):
+                A.respond(404, {'error': 'archived report not found'})
+            st['entries'] = kept
+        A.audit_log(actor, 'report_archive_delete', detail=f'id={entry_id}')
+        A.respond(200, {'ok': True})
+    if A.method() != 'GET':
+        A.respond(405, {'error': 'Method not allowed'})
+    entry = None
+    for e in ((A.load(A.REPORT_ARCHIVE_FILE) or {}).get('entries') or []):
+        if isinstance(e, dict) and e.get('id') == entry_id:
+            entry = e
+            break
+    if not entry:
+        A.respond(404, {'error': 'archived report not found'})
+    report = entry.get('report') or {}
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    fmt = (qs.get('format') or ['json'])[0].lower()
+    if fmt in ('csv', 'download'):
+        if fmt == 'csv':
+            data, ctype, ext = _fleet_report_csv_bytes(report), 'text/csv', 'csv'
+        else:
+            data = A.json.dumps(report, indent=2, default=str).encode()
+            ctype, ext = 'application/json', 'json'
+        stamp = A.time.strftime('%Y%m%d-%H%M%S',
+                                A.time.localtime(int(entry.get('ts') or 0)))
+        print("Status: 200 OK")
+        print(f"Content-Type: {ctype}")
+        print(f"Content-Disposition: attachment; filename=report-{stamp}.{ext}")
+        print(f"Content-Length: {len(data)}")
+        print("Cache-Control: no-store")
+        print("X-Content-Type-Options: nosniff")
+        print()
+        A.sys.stdout.flush()
+        A.sys.stdout.buffer.write(data)
+        A.sys.stdout.buffer.flush()
+        A.sys.exit(0)
+    A.respond(200, {'entry': {k: v for k, v in entry.items() if k != 'report'},
+                    'report': report})
 
 
 def _render_report_email(report):
@@ -716,6 +889,9 @@ def _maybe_send_scheduled_report():
         # at the next cron fire same as before this job-queue integration.
         A.sys.stderr.write(f'[remotepower] scheduled report build failed: {e}\n')
         return
+    # v6.4.2: keep what we are about to send. This is the artifact an auditor
+    # asks for by date, and it was computed and discarded.
+    _archive_report(report, 'schedule')
     try:
         A.smtp_notifier.send_email(cfg, recipients, subject, body,
                                    html_body=A.smtp_notifier.brand_html(cfg, subject, body))
@@ -928,6 +1104,8 @@ def _maybe_send_report_definitions():
             _attach_report_summary(report, d.get('sections'))
             subject, body = A._render_report_email(report)
             subject = f"[{d.get('name')}] " + subject
+            _archive_report(report, 'definition', name=d.get('name', ''),
+                            site=_site)
         except Exception as e:
             A.sys.stderr.write(f"[remotepower] custom report '{d.get('name')}' "
                                f"build failed: {e}\n")

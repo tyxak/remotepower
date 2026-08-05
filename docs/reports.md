@@ -20,6 +20,33 @@ download on demand or have emailed on a schedule.
 - **Custom report definitions** let you save named report configurations with
   their own recipients and cadence.
 
+## Delivered report archive
+
+Every report RemotePower **emails** is kept, exactly as it was sent, under
+Reports → *Delivered report archive*. Reports you download or print on demand
+are not archived; only deliveries are.
+
+This exists because a past-dated posture report cannot be reconstructed. Fleet
+health and fleet compliance % are sampled daily, but **CVE counts, patch backlog
+and per-framework control pass/fail keep no history at all** — so "the posture
+report as it stood at the end of Q1" has exactly one possible source: the copy
+of the report that was sent at the time.
+
+- **As of** a date returns the nearest delivery **at or before** it — never
+  after. A report generated a week later would look like an answer and is not
+  one.
+- Each archived report downloads as JSON or CSV, byte-for-byte as delivered.
+- The archive is capped (60 by default) and the list says how many older
+  reports have aged out, so you can see coverage rather than assume it.
+- Deleting one is a hard confirm, not an undoable action: it is the only copy.
+- Reading is available to admins and the **auditor** role; deleting is
+  admin-only.
+- The **evidence pack** includes the archive index for its period. Note that
+  the pack's `posture` block is the *current* fleet posture at generation time,
+  not an end-of-period snapshot — the pack states this in a `posture_note`
+  field, and its period coverage comes from `compliance_history`,
+  `audit_excerpt` and `archived_reports`.
+
 ## AI summary
 
 A report definition can include an optional **AI summary** section. It opens the

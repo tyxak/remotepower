@@ -81,6 +81,9 @@ WEBHOOK_DLQ_FILE = DATA_DIR / 'webhook_dlq.json'  # v5.0.0 #R2: dead-letter queu
 # v6.4.2: the same idea for AUDIT forwarding, which had none. See
 # _spool_audit_forward / run_audit_forward_retry_if_due.
 AUDIT_FORWARD_SPOOL_FILE = DATA_DIR / 'audit_forward_spool.json'
+# v6.4.2: every report ever DELIVERED, kept so a past-dated one can be handed
+# to an auditor. See _archive_report / handle_report_archive.
+REPORT_ARCHIVE_FILE = DATA_DIR / 'report_archive.json'
 # v3.2.0 follow-up: separate log for INBOUND webhook + syslog hits.
 # Symmetry with the outbound log — operators want to see "we received N
 # inbound events today, M were rejected" on Server Status the same way
@@ -1488,6 +1491,9 @@ for _rp_name in (
         # v6.4.2: the opt-in AI narrative section
         '_REPORT_OPT_IN_SECTIONS', '_ALL_REPORT_SECTIONS',
         '_build_report_summary', '_attach_report_summary', '_report_summary_context',
+        # v6.4.2: the delivered-report archive
+        '_archive_report', '_archive_index', '_REPORT_ARCHIVE_MAX',
+        'handle_report_archive', 'handle_report_archive_entry',
         # fleet / per-site posture report + the signed evidence pack
         'handle_fleet_report', 'handle_site_report', 'handle_evidence_pack',
         # scheduled fleet report (config.json report_schedule) + its cadence sweep
@@ -66463,6 +66469,7 @@ def _build_exact_routes():
         ('GET', '/api/device-profiles'): handle_device_profiles,
         ('POST', '/api/device-profiles'): handle_device_profiles,
         # W5-6: smart groups (saved-query dynamic groups, admin-gated).
+        ('GET', '/api/report/archive'): handle_report_archive,
         ('GET', '/api/smart-groups'): handle_smart_groups,
         ('GET', '/api/snmp/trap-rules'): handle_snmp_trap_rules,
         ('POST', '/api/snmp/trap-rules'): handle_snmp_trap_rules,
@@ -66921,6 +66928,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', None, '/api/snmp/trap/', '', 'handle_snmp_trap_in', "pi.startswith('/api/snmp/trap/')"),
     # v6.4.2: OID → severity rules for inbound traps (admin CRUD + a dry-run).
     ('pat', ('PATCH', 'DELETE'), '/api/snmp/trap-rules/', '', 'handle_snmp_trap_rule', "pi.startswith('/api/snmp/trap-rules/') and m in ('PATCH', 'DELETE')"),
+    # v6.4.2: one archived (delivered) report — the artifact an auditor asks for by date.
+    ('pat', ('GET', 'DELETE'), '/api/report/archive/', '', 'handle_report_archive_entry', "pi.startswith('/api/report/archive/') and m in ('GET', 'DELETE')"),
     ('pat', ('POST',), '/api/flow/in/', '', 'handle_flow_in', "pi.startswith('/api/flow/in/') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/flows', 'handle_device_flows', "pi.startswith('/api/devices/') and pi.endswith('/flows') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_revoke', "pi.startswith('/api/inbound-webhooks/') and m == 'DELETE'"),
