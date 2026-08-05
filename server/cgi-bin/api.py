@@ -21715,10 +21715,30 @@ def _needs_approval(kind, cfg=None):
     return bool(cfg.get('change_approval_enabled')) and kind in _approval_gated_kinds(cfg)
 
 
-def _park_for_approval(dev_id, command, actor, kind):
-    """Park a queued command as a 4-eyes confirmation; returns the confirmation id."""
+def _approval_context(body):
+    """(reason, ticket_ref) from a request body, for a parked change.
+
+    v6.4.2: the four-eyes approver saw no justification because nothing stored
+    one — the Confirmations table was still shaped for MCP (Status / Requested /
+    Action / Device / AI host / Prompt), so a human-originated reboot showed two
+    blank cells and no name. Optional on every caller: a request that offers
+    neither behaves exactly as before.
+    """
+    if not isinstance(body, dict):
+        return None, None
+    return (body.get('reason') or body.get('change_reason') or None,
+            body.get('ticket_ref') or body.get('ticket') or None)
+
+
+def _park_for_approval(dev_id, command, actor, kind, reason=None, ticket_ref=None):
+    """Park a queued command as a 4-eyes confirmation; returns the confirmation id.
+
+    v6.4.2: `reason` / `ticket_ref` ride through so the approving admin can see
+    WHY. Both come from the request body where the caller offers them; a caller
+    that does not is unchanged."""
     return _create_confirmation('queue_command', dev_id,
-                                {'command': command, 'kind': kind}, actor, None, None)
+                                {'command': command, 'kind': kind}, actor,
+                                None, None, reason=reason, ticket_ref=ticket_ref)
 
 
 def _maintenance_active():
@@ -21939,7 +21959,8 @@ def _command_block_reason(dev, command):
     return None
 
 
-def _queue_command(dev_id, command, actor, force_approval=False):
+def _queue_command(dev_id, command, actor, force_approval=False,
+                   reason=None, ticket_ref=None):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
@@ -21957,7 +21978,10 @@ def _queue_command(dev_id, command, actor, force_approval=False):
     _gate = _needs_approval(_kind, _cfg_appr) or (
         force_approval and bool(_cfg_appr.get('change_approval_enabled')))
     if _gate:
-        cid = _park_for_approval(dev_id, command, actor, _kind)
+        # v6.4.2: carry the operator's justification onto the parked change so
+        # the approving admin sees WHY, not just what and when.
+        cid = _park_for_approval(dev_id, command, actor, _kind,
+                                 reason=reason, ticket_ref=ticket_ref)
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
                       'detail': 'Parked — a second admin must approve it.'})
     # v3.4.2: locked read-modify-write so a concurrent enqueue or a heartbeat
@@ -56440,8 +56464,18 @@ def _mcp_command_preview(action, params):
     return 'exec:'   # run_saved_script / exec_command / ai_exec_action
 
 
-def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt):
-    """Append a pending confirmation; return its id. Locks the file."""
+def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt,
+                         reason=None, ticket_ref=None):
+    """Append a pending confirmation; return its id. Locks the file.
+
+    v6.4.2: `reason` / `ticket_ref` — the four-eyes approver could see WHO only
+    in the API response (the UI never rendered `requested_by`) and WHY not at
+    all, because nothing stored it. So a human-originated request showed the
+    second admin `reboot · web-prod-03 · 14:22` with two blank MCP columns, and
+    the control an auditor tests for CC8.1 / A.8.32 degraded to rubber-stamping.
+    Both optional and both additive: an AI-originated confirmation already
+    carried its justification in `ai_prompt`, and every existing call site keeps
+    working unchanged."""
     conf_id = 'cf_' + os.urandom(6).hex()
     entry = {
         'id':            conf_id,
@@ -56452,6 +56486,8 @@ def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt):
         'requested_at':  int(time.time()),
         'ai_host':       ai_host,
         'ai_prompt':     ai_prompt,
+        'reason':        _sanitize_str(str(reason or ''), 500) or None,
+        'ticket_ref':    _sanitize_str(str(ticket_ref or ''), 64) or None,
         'status':        'pending',
         'decided_by':    None,
         'decided_at':    None,

@@ -8732,10 +8732,32 @@ async function restoreBackup() {
   const file = inp && inp.files && inp.files[0];
   if (!file) return;
   if (!await uiConfirm({ message: `Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`, confirmText: 'Restore', danger: true })) { inp.value = ''; return; }
+  // v6.4.2: an ENCRYPTED archive needs its passphrase, and there was nowhere to
+  // put one. handle_backup_restore has taken it from X-RP-Backup-Passphrase
+  // since encryption shipped; the UI never sent that header and the file picker
+  // did not even offer `.enc`. So the only in-app restore worked exclusively for
+  // plaintext archives, or on a box that already had the passphrase in its
+  // environment — which is precisely NOT the rebuilt-host case the header exists
+  // for. The operator was left editing api.env and restarting the app server,
+  // during an outage, from documentation that still said there was no in-UI
+  // restore at all.
+  const headers = { 'X-Token': getToken() };
+  if (/\.enc$/i.test(file.name)) {
+    const pass = await uiPrompt({
+      title: 'Encrypted backup',
+      message: `"${file.name}" is encrypted. Enter the backup passphrase (RP_BACKUP_PASSPHRASE on the server that wrote it).`,
+      type: 'password', confirmText: 'Restore',
+    });
+    if (pass === null) { inp.value = ''; return; }   // cancelled
+    if (pass) headers['X-RP-Backup-Passphrase'] = pass;
+    // An empty string is allowed through on purpose: the server falls back to
+    // its own RP_BACKUP_PASSPHRASE env, which is the right answer on a host
+    // that already has it configured.
+  }
   const res = document.getElementById('backup-result');
   if (res) { res.hidden = false; res.textContent = 'Uploading & restoring…'; }
   try {
-    const r = await fetch('/api/backup/restore', { method: 'POST', headers: { 'X-Token': getToken() }, body: file });
+    const r = await fetch('/api/backup/restore', { method: 'POST', headers, body: file });
     const data = await r.json().catch(() => ({}));
     if (r.ok && data.ok) {
       if (res) res.textContent = `Restored ${data.restored} files. Safety snapshot: ${data.snapshot}. Reload the page to see the restored state.`;
@@ -12632,16 +12654,38 @@ async function refreshAlertsBadge() {
 
 // ─── v3.2.0 (A1): MCP Confirmations queue ──────────────────────────────────
 
+// v6.4.2: the last-loaded rows, so the approve dialog can name what and who it
+// is about. (Written because the dialog needed it — `_confirmationsCache` did
+// not exist; `grep -n "def/let <name>"` before use, every time.)
+let _confirmationsCache = [];
+
 async function loadConfirmations() {
   try {
     const data = await api('GET', '/confirmations');
-    _renderConfirmations((data && data.confirmations) || []);
+    _confirmationsCache = (data && data.confirmations) || [];
+    _renderConfirmations(_confirmationsCache);
     refreshConfirmationsBadge();
   } catch (e) {
     toast('Failed to load confirmations', 'error');
     _errorState('confirmations-tbody', loadConfirmations,
                 { colspan: 7, msg: 'Failed to load confirmations.' });
   }
+}
+
+// v6.4.2: the justification, wherever it came from. An AI-originated request
+// has always carried one (`ai_prompt`, and `params.reason` for an ai_exec_action
+// proposal); a human-originated one had nowhere to put it until `reason` /
+// `ticket_ref` were added to the confirmation record. Without this the approver
+// saw two blank columns and had to approve on the action name alone.
+function _confirmationWhy(c) {
+  const parts = [];
+  const reason = c.reason || (c.params || {}).reason || c.ai_prompt || '';
+  if (reason) parts.push(_escapeHtml(String(reason).slice(0, 300)));
+  if (c.ticket_ref) {
+    parts.push(`<span class="patch-badge fs-10" title="Change/ticket reference">${_escapeHtml(c.ticket_ref)}</span>`);
+  }
+  return parts.length ? parts.join(' ')
+    : '<span class="c-amber" title="No justification was recorded with this request — approving it means approving on the action name alone">no reason given</span>';
 }
 
 function _renderConfirmations(arr) {
@@ -12655,11 +12699,12 @@ function _renderConfirmations(arr) {
     requested_at:  c.requested_at || 0,
     action:        c.action || '',
     device_name:   c.device_name || c.device_id || '',
+    requested_by:  (c.requested_by || '').toLowerCase(),
+    why:           (c.reason || c.ai_prompt || (c.params || {}).reason || '').toLowerCase(),
     ai_host:       c.ai_host || '',
-    ai_prompt:     c.ai_prompt || '',
   }));
   if (!arr.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No pending or recent MCP confirmations.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nothing is waiting for approval.</td></tr>';
     return;
   }
   tbody.innerHTML = arr.map(c => {
@@ -12695,15 +12740,24 @@ function _renderConfirmations(arr) {
       <td class="hint nowrap">${_formatTs(c.requested_at)}</td>
       <td>${actionLabel}</td>
       <td>${_escapeHtml(c.device_name || c.device_id || '')}</td>
-      <td><code>${_escapeHtml(c.ai_host || '—')}</code></td>
-      <td class="hint">${_escapeHtml(c.ai_prompt || '')}</td>
+      <td>${_escapeHtml(c.requested_by || '—')}</td>
+      <td class="hint">${_confirmationWhy(c)}</td>
+      <td><code>${_escapeHtml(c.ai_host || 'operator')}</code></td>
       <td class="nowrap">${buttons}</td>
     </tr>`;
   }).join('');
 }
 
 async function approveConfirmation(id) {
-  if (!await uiConfirm('Approve this MCP write action? The server will execute it now.')) return;
+  // v6.4.2: this said "MCP write action" for every request, including a human
+  // colleague's reboot parked by change approval.
+  const _c = (_confirmationsCache || []).find(x => String(x.id) === String(id));
+  const _who = _c && _c.requested_by ? ` requested by ${_c.requested_by}` : '';
+  if (!await uiConfirm({
+    title: 'Approve this change',
+    message: `Approve ${_c ? _c.action : 'this action'}${_who}? The server will execute it now.`,
+    confirmText: 'Approve',
+  })) return;
   const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/approve`, {});
   if (r && r.ok) { toast('Approved — action queued', 'success'); loadConfirmations(); }
   else toast((r && r.error) || 'Failed', 'error');

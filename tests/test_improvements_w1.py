@@ -1477,7 +1477,7 @@ class TestGuidedCisRemediation(_HandlerBase):
         # full confirmations subsystem
         self._real_needs = api._needs_approval
         self._real_park = api._park_for_approval
-        api._park_for_approval = lambda dev_id, command, actor, kind: (
+        api._park_for_approval = lambda dev_id, command, actor, kind, **_kw: (
             self._parked.append((dev_id, command)) or 'cid123')
 
     def tearDown(self):

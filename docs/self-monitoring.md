@@ -103,7 +103,20 @@ Retention defaults to 14 days. Older tarballs are pruned on each run. Change the
 
 ## Restoring from a backup
 
-There's no in-UI restore — backup files are tarballs you can extract yourself. Procedure:
+**Settings → Advanced → Backup & restore → Restore** takes a backup file
+directly. It works on a freshly-installed host, which is the point: pick the
+archive off a USB stick and the server unpacks it in place, after taking a
+safety snapshot of whatever data is already there.
+
+An **encrypted** archive (`*.tar.gz.enc`) is offered by the file picker and
+prompts for its passphrase — the one that was in `RP_BACKUP_PASSPHRASE` on the
+server that *wrote* it. Leave the prompt blank to use the passphrase already
+configured on this server instead. (Before v6.4.2 the picker did not offer
+`.enc` at all and the passphrase never reached the server, so an encrypted
+archive could only be restored by hand.)
+
+If you would rather do it by hand — or you cannot log in — the archives are
+ordinary tarballs:
 
 ```bash
 # Stop the app server + nginx (we don't want writes during restore)
@@ -112,7 +125,9 @@ systemctl stop remotepower-wsgi nginx
 # Back up the existing data dir (paranoid)
 mv /var/lib/remotepower /var/lib/remotepower.before-restore
 
-# Extract the snapshot
+# Extract the snapshot. An encrypted archive (.enc) is NOT an openssl-format
+# file — it is AES-256-GCM with a PBKDF2 header written by backup_crypto.py.
+# Decrypt it with the module that wrote it (see the note below this block).
 mkdir -p /var/lib/remotepower
 cd /var/lib/remotepower
 tar -xzf /var/lib/remotepower.before-restore/backups/remotepower_data_YYYYMMDD_HHMMSS.tar.gz
@@ -125,6 +140,25 @@ chown -R www-data:www-data /var/lib/remotepower
 # Start back up
 systemctl start remotepower-wsgi nginx
 ```
+
+### Decrypting a `.enc` archive by hand
+
+`*.tar.gz.enc` is **not** an `openssl enc` file — it is AES-256-GCM in a custom
+container (`RPBKENC1` magic, PBKDF2-SHA256 at 600k iterations, streamed in 64 KiB
+chunks so a multi-GB archive never loads whole). There is no `openssl` one-liner.
+Use the module that wrote it, which ships with the server:
+
+```bash
+cd /var/www/remotepower/server/cgi-bin
+python3 -c "
+import backup_crypto, pathlib
+backup_crypto.decrypt_file(pathlib.Path('/path/to/backup.tar.gz.enc'),
+                           pathlib.Path('/path/to/backup.tar.gz'),
+                           'YOUR-PASSPHRASE')"
+```
+
+A wrong passphrase or a tampered file fails the GCM tag check and raises rather
+than producing garbage. The in-app restore does exactly this for you.
 
 If the backup was created on a host with a different `RP_PROXMOX_TOKEN_SECRET` environment variable, re-set Settings → Virtualization → token secret. Same for SMTP / LDAP bind passwords if they were redacted (they always are in `config.json` exports).
 
