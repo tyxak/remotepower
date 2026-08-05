@@ -2138,6 +2138,7 @@ if _AVAILABLE:
         model_config = ConfigDict(extra='ignore', protected_namespaces=())
         community: str = ''
         enabled: bool = False
+        if_history: bool = False
         port: str = ''
         v3_auth_proto: str = ''
         v3_context: str = ''
@@ -2145,7 +2146,7 @@ if _AVAILABLE:
         v3_user: str = ''
         version: str = ''
         _v0 = field_validator('community', 'port', 'v3_auth_proto', 'v3_context', 'v3_priv_proto', 'v3_user', 'version', mode='before')(_coerce_str_loose)
-        _v1 = field_validator('enabled', mode='before')(_coerce_bool_loose)
+        _v1 = field_validator('enabled', 'if_history', mode='before')(_coerce_bool_loose)
 
     class WebhookTestRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

@@ -88,6 +88,7 @@ CADENCE = (
     'run_smart_groups_if_due',           # W5-6 smart-group materialization
     'run_audit_forward_retry_if_due',    # v6.4.2 audit→SIEM spool drain
     'run_netconfig_backup_if_due',       # v6.4.2 appliance config archive
+    'run_snmp_if_history_if_due',        # v6.4.2 SNMP per-port history
     'run_ipam_conflicts_if_due',         # W5-2 IPAM duplicate-IP detection
     'run_ignored_prune_if_due',          # v6.4.0 #1 GC moot ignores
     'run_autoheal_recheck_if_due',       # v6.4.0 #3 auto-resolve gap recheck

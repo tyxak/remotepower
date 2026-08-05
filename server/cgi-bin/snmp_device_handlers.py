@@ -59,6 +59,7 @@ def handle_device_snmp(dev_id):
         community = snmp_cfg.get('community') or ''
         redacted_cfg = {
             'enabled':            bool(snmp_cfg.get('enabled')),
+            'if_history':         bool(snmp_cfg.get('if_history')),
             'port':               int(snmp_cfg.get('port') or 161),
             'community_preview':  (community[:3] + '…') if community else '',
             'has_community':      bool(community),
@@ -121,6 +122,13 @@ def handle_device_snmp(dev_id):
             snmp_cfg = dict(dev.get('snmp') or {})
             if 'enabled' in body:
                 snmp_cfg['enabled'] = bool(body['enabled'])
+            # v6.4.2: per-device opt-in for the ifTable walk. Off unless the
+            # operator asks, because the main SNMP sweep records in its own
+            # docstring that walking the ifTable every five minutes is too
+            # heavy for a big switch — this is that walk, so it gets to be a
+            # decision per device rather than a fleet-wide default.
+            if 'if_history' in body:
+                snmp_cfg['if_history'] = bool(body['if_history'])
             if 'community' in body:
                 snmp_cfg['community'] = A._sanitize_str(str(body['community']), 128)
             if port_in is not None:
@@ -549,4 +557,275 @@ def handle_snmp_trap_rule_test():
         'severity': (rule or {}).get('severity', 'medium'),
         'action': ('suppressed' if (rule or {}).get('severity') == 'ignore'
                    else 'alert'),
+    })
+
+
+# ── v6.4.2: per-interface counter history for SNMP gear ─────────────────────
+# `snmp.poll_interfaces()` — a full IF-MIB ifTable walk with in/out octets,
+# errors and admin/oper status — existed and was reachable only through the
+# on-demand deep poll, which renders a one-shot table in the drawer. The
+# recurring 5-minute sweep skipped it deliberately: "ifTable walking stays on
+# the on-demand deep-poll — too heavy for the 5-minute sweep on big switches."
+#
+# That cost decision is real, so this does not override it. Instead the walk is
+# OPT-IN PER DEVICE and runs on its own slower cadence: an operator turns it on
+# for the core switch they care about, not for all 40 access switches.
+#
+# What it buys: the first question anyone asks of a switch — "which port is
+# saturated, and when did gi1/0/12 flap?" — which RemotePower could answer
+# neither half of. A link-down trap could reach the operator via the trap
+# receiver, and NetFlow covers traffic, but per-interface counters were read
+# once and discarded, so there was no utilisation graph and no error trend.
+_IF_HIST_INTERVAL = 300            # 5 min, matching the main SNMP sweep
+_IF_HIST_SAMPLES = 288             # 24h at 5-minute resolution
+_IF_HIST_MAX_PORTS = 128           # per device; a bounded walk stays bounded
+# A port is "saturated" at this share of its link rate, sustained across two
+# consecutive samples — one spike is a backup job, not a capacity problem.
+_IF_SATURATION_PCT = 90.0
+# 32-bit ifInOctets wraps at ~34 s on a saturated 1 Gb link, and a device reboot
+# resets every counter. A NEGATIVE delta means one of those happened, and the
+# honest answer is to drop the sample rather than report a 4-billion-byte spike.
+_IF_COUNTER_MAX = 2 ** 32
+
+
+def _if_hist_enabled(dev):
+    """Per-device opt-in, inside the existing snmp config block."""
+    return bool((dev.get('snmp') or {}).get('if_history'))
+
+
+def _if_rate_bps(prev, cur, seconds, speed_bps=None):
+    """Bits/sec between two octet counters, or None when it can't be trusted.
+
+    A counter going BACKWARDS is either a 32-bit wrap or a device reboot, and
+    the two are not distinguishable from the counters alone. The wrap-corrected
+    delta is used, then sanity-checked against the interface's own line rate:
+    a reboot produces an implied rate far above what the port can physically
+    carry, and reporting that as a traffic spike would put a fictional peak in
+    the operator's utilisation graph — which is worse than a gap, because a gap
+    is visibly a gap.
+    """
+    if not seconds or seconds <= 0:
+        return None
+    try:
+        p, c = int(prev), int(cur)
+    except (TypeError, ValueError):
+        return None
+    if c < p:
+        delta = c + _IF_COUNTER_MAX - p
+        if delta > _IF_COUNTER_MAX / 2:
+            return None
+    else:
+        delta = c - p
+    bps = round(delta * 8.0 / seconds, 1)
+    try:
+        speed = float(speed_bps or 0)
+    except (TypeError, ValueError):
+        speed = 0
+    # 5 % headroom: vendors report ifSpeed in round numbers and a sample
+    # interval is never exactly the wall-clock gap.
+    if speed > 0 and bps > speed * 1.05:
+        return None
+    return bps
+
+
+def _if_util_pct(bps, speed_bps):
+    try:
+        speed = float(speed_bps or 0)
+    except (TypeError, ValueError):
+        return None
+    if speed <= 0 or bps is None:
+        return None
+    return round(min(100.0, bps * 100.0 / speed), 1)
+
+
+def _if_key(row):
+    """A stable per-port key. ifIndex alone is not stable across a reboot on
+    some platforms, and ifDescr alone collides on stacked switches — the pair
+    is what an operator recognises anyway ("gi1/0/12")."""
+    return str(row.get('descr') or '').strip() or f"if{row.get('index')}"
+
+
+def _record_if_samples(dev_id, rows, now):
+    """Fold one ifTable walk into the history ring.
+
+    Returns a list of (event, payload) to fire AFTER the lock — fire_webhook
+    takes its own, and this one is held across the whole device's port set.
+    """
+    pending = []
+    with A._LockedUpdate(A.SNMP_IF_HIST_FILE) as store:
+        dev_hist = store.get(dev_id)
+        if not isinstance(dev_hist, dict):
+            dev_hist = {}
+        for row in rows[:_IF_HIST_MAX_PORTS]:
+            key = _if_key(row)
+            h = dev_hist.get(key)
+            if not isinstance(h, dict):
+                h = {'samples': []}
+            samples = h.get('samples') or []
+            prev = samples[-1] if samples else None
+            secs = (now - int(prev.get('ts') or 0)) if prev else 0
+            speed = row.get('speed_bps')
+            in_bps = _if_rate_bps(prev.get('in_octets'), row.get('in_octets'),
+                                  secs, speed) if prev else None
+            out_bps = _if_rate_bps(prev.get('out_octets'), row.get('out_octets'),
+                                   secs, speed) if prev else None
+            sample = {
+                'ts': now,
+                'in_octets': row.get('in_octets'),
+                'out_octets': row.get('out_octets'),
+                'in_errors': row.get('in_errors'),
+                'out_errors': row.get('out_errors'),
+                'in_bps': in_bps,
+                'out_bps': out_bps,
+                'util': max([u for u in (_if_util_pct(in_bps, speed),
+                                         _if_util_pct(out_bps, speed))
+                             if u is not None] or [None]),
+                'oper': row.get('oper'),
+            }
+            samples.append(sample)
+            h['samples'] = samples[-_IF_HIST_SAMPLES:]
+            h['descr'] = key
+            h['index'] = row.get('index')
+            h['speed_bps'] = speed
+            h['admin'] = row.get('admin')
+            h['oper'] = row.get('oper')
+
+            # ── link state, edge-triggered ────────────────────────────────
+            # Only for ports the operator has ADMINISTRATIVELY enabled: a
+            # shut port reading "down" is the configuration, not an incident.
+            was, is_ = h.get('_alerted_down'), str(row.get('oper') or '').lower()
+            admin_up = str(row.get('admin') or '').lower() in ('up', '1', 'true')
+            if admin_up and is_ not in ('up', '1', 'true') and not was:
+                h['_alerted_down'] = True
+                pending.append(('snmp_if_down', {
+                    'device_id': dev_id, 'iface': key,
+                    'index': row.get('index'), 'oper': row.get('oper')}))
+            elif is_ in ('up', '1', 'true') and was:
+                h['_alerted_down'] = False
+                pending.append(('snmp_if_up', {
+                    'device_id': dev_id, 'iface': key,
+                    'index': row.get('index')}))
+
+            # ── sustained saturation ──────────────────────────────────────
+            # Two consecutive samples, because one spike is a backup job
+            # finishing, not a port that needs a bigger link.
+            recent = [s.get('util') for s in h['samples'][-2:]
+                      if s.get('util') is not None]
+            hot = len(recent) == 2 and all(u >= _IF_SATURATION_PCT for u in recent)
+            # A port that just went DOWN reads 0 % and would fire "utilisation
+            # back to normal" in the same breath as "port down" — technically
+            # true and useless. Its saturation flag is cleared silently; the
+            # link-down alert is the one that matters.
+            link_up = is_ in ('up', '1', 'true')
+            if not link_up and h.get('_alerted_sat'):
+                h['_alerted_sat'] = False
+            elif hot and not h.get('_alerted_sat'):
+                h['_alerted_sat'] = True
+                pending.append(('snmp_if_saturated', {
+                    'device_id': dev_id, 'iface': key,
+                    'util': recent[-1], 'speed_bps': speed}))
+            elif link_up and h.get('_alerted_sat') and recent \
+                    and recent[-1] < _IF_SATURATION_PCT:
+                h['_alerted_sat'] = False
+                pending.append(('snmp_if_relieved', {
+                    'device_id': dev_id, 'iface': key, 'util': recent[-1]}))
+            dev_hist[key] = h
+        store[dev_id] = dev_hist
+    return pending
+
+
+def run_snmp_if_history_if_due():
+    """Cadence: walk the ifTable of every device with `snmp.if_history` on.
+
+    Opt-in per device on purpose. The main SNMP sweep records, in its own
+    docstring, that an ifTable walk is too heavy to run on every device every
+    five minutes — so this walks only the switches an operator asked for.
+    """
+    now = int(time.time())
+    state = A._load_ro(A.SNMP_IF_STATE_FILE) or {}
+    if now - int(state.get('last_run') or 0) < _IF_HIST_INTERVAL:
+        return
+    devices = A.load(A.DEVICES_FILE) or {}
+    targets = [(d, dev) for d, dev in devices.items()
+               if isinstance(dev, dict) and not dev.get('quarantined')
+               and A._if_hist_enabled(dev) and A._device_snmp_target(dev)]
+    if not targets:
+        return
+    with A._LockedUpdate(A.SNMP_IF_STATE_FILE) as st:
+        # Re-check inside the lock: two workers passing the gate together would
+        # both walk every switch's whole ifTable.
+        if now - int(st.get('last_run') or 0) < _IF_HIST_INTERVAL:
+            return
+        st['last_run'] = now
+    import snmp as snmp_mod
+    pending = []
+    for dev_id, dev in targets:
+        host, community, port = A._device_snmp_target(dev)
+        try:
+            rows = snmp_mod.poll_interfaces(host, community, port=port,
+                                            max_interfaces=_IF_HIST_MAX_PORTS)
+        except Exception as e:
+            A.sys.stderr.write(f'[remotepower] ifTable walk failed '
+                               f'dev={dev_id}: {str(e)[:160]}\n')
+            continue
+        if not rows:
+            continue
+        try:
+            pending += [(ev, {**p, 'name': dev.get('name', dev_id)})
+                        for ev, p in A._record_if_samples(dev_id, rows, now)]
+        except Exception as e:                            # pragma: no cover
+            A.sys.stderr.write(f'[remotepower] if-history store failed '
+                               f'dev={dev_id}: {e}\n')
+    # fire_webhook takes its own lock — outside _record_if_samples' _LockedUpdate.
+    for ev, payload in pending:
+        try:
+            A.fire_webhook(ev, payload)
+        except Exception as e:                            # pragma: no cover
+            A.sys.stderr.write(f'[remotepower] {ev} fire failed: {e}\n')
+
+
+def handle_device_snmp_interfaces(dev_id):
+    """GET /api/devices/<id>/snmp/interfaces — per-port history.
+
+    Query: `?iface=<descr>` for one port's full sample ring, otherwise a
+    per-port summary (current rate, utilisation, error counters, link state).
+    """
+    A.require_auth()
+    if not A._validate_id(dev_id):
+        A.respond(400, {'error': 'invalid device id'})
+    dev = A.device_get(dev_id)
+    if not dev:
+        A.respond(404, {'error': 'device not found'})
+    hist = (A.load(A.SNMP_IF_HIST_FILE) or {}).get(dev_id) or {}
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    want = A._sanitize_str((qs.get('iface') or [''])[0], 128)
+    if want:
+        h = hist.get(want)
+        if not h:
+            A.respond(404, {'error': 'no history for that interface'})
+        A.respond(200, {'device_id': dev_id, 'iface': want,
+                        'speed_bps': h.get('speed_bps'),
+                        'samples': h.get('samples') or []})
+    ports = []
+    for key, h in sorted(hist.items()):
+        if not isinstance(h, dict):
+            continue
+        samples = h.get('samples') or []
+        last = samples[-1] if samples else {}
+        errs = (last.get('in_errors') or 0) + (last.get('out_errors') or 0)
+        ports.append({
+            'iface': key, 'index': h.get('index'),
+            'speed_bps': h.get('speed_bps'),
+            'admin': h.get('admin'), 'oper': h.get('oper'),
+            'in_bps': last.get('in_bps'), 'out_bps': last.get('out_bps'),
+            'util': last.get('util'), 'errors': errs,
+            'samples': len(samples), 'last_ts': last.get('ts'),
+        })
+    A.respond(200, {
+        'device_id': dev_id,
+        'enabled': A._if_hist_enabled(dev),
+        'ports': ports,
+        'interval_s': _IF_HIST_INTERVAL,
+        'retained': _IF_HIST_SAMPLES,
+        'saturation_pct': _IF_SATURATION_PCT,
     })

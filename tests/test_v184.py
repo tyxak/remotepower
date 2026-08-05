@@ -296,6 +296,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'audit_forward_failed', 'audit_forward_recovered',
             # v6.4.2: appliance running-config archive
             'netconfig_changed',
+            # v6.4.2: SNMP per-port link state + saturation
+            'snmp_if_down', 'snmp_if_up', 'snmp_if_saturated', 'snmp_if_relieved',
             # v3.2.0 (B5): SNMP polling state transitions
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
             'snmp_trap_received',                    # inbound SNMP trap receiver

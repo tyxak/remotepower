@@ -19416,6 +19416,8 @@ function _renderHomeActivity(fleetEvents) {
     'audit_forward_failed', 'audit_forward_recovered',
     // v6.4.2: a switch/firewall running config changed since the last archive
     'netconfig_changed',
+    // v6.4.2: switch/router port link state + saturation
+    'snmp_if_down', 'snmp_if_up', 'snmp_if_saturated', 'snmp_if_relieved',
     // v3.2.0 (B5): SNMP polling state transitions
     'snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
@@ -19652,6 +19654,9 @@ function _homeActivityAttrs(event, p) {
     case 'audit_forward_failed': case 'audit_forward_recovered':
       return `${base} data-home-act="self"`;
     case 'netconfig_changed': return `${base} data-home-act="devices"`;
+    case 'snmp_if_down': case 'snmp_if_up':
+    case 'snmp_if_saturated': case 'snmp_if_relieved':
+      return `${base} data-home-act="devices"`;
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
   case 'cve_cleared':    return `${base} data-home-act="cve"`;   // v6.4.0 recover
@@ -22728,6 +22733,12 @@ function _renderDrawerSettings() {
         <input type="checkbox" id="ds-snmp-enabled">
         <span class="fs-12">Enable SNMP polling (sys-group every 5 min)</span>
       </label>
+      <label class="click-row-6 mt-6">
+        <input type="checkbox" id="ds-snmp-if-history">
+        <span class="fs-12">Record per-port history (bandwidth, errors, link state)</span>
+      </label>
+      <p class="hint mt-4">Walks the interface table every 5 minutes and keeps 24 hours per port, with <em>Port down</em> and <em>Port saturated</em> alerts. Off by default — a full ifTable walk is heavy on a switch with a lot of ports, so turn it on for the ones you care about.</p>
+      <div id="ds-snmp-ports" class="mt-8"></div>
     </div>
     <div class="drawer-setting-row isl-622">
       <span class="drawer-setting-label isl-623">Version / port</span>
@@ -22809,6 +22820,9 @@ async function _drawerLoadSnmpConfig(devId) {
     const comm = document.getElementById('ds-snmp-community');
     const status = document.getElementById('ds-snmp-status');
     if (en)   en.checked = !!cfg.enabled;
+    const ifh = document.getElementById('ds-snmp-if-history');
+    if (ifh) ifh.checked = !!cfg.if_history;
+    _drawerSnmpPorts(devId);
     if (port) port.value = cfg.port || 161;
     if (comm) comm.placeholder = cfg.has_community
                 ? `(keep current — preview: ${cfg.community_preview || '…'})`
@@ -22847,6 +22861,54 @@ async function _drawerLoadSnmpConfig(devId) {
       }
     }
   } catch (_) { /* viewer or transient — leave blank */ }
+}
+
+// v6.4.2: the per-port table. "Which port is saturated, and when did gi1/0/12
+// flap?" is the first question anyone asks of a switch, and the counters were
+// read on the on-demand deep poll and thrown away — no history, no graph, no
+// trend, and `nic_errors` only ever fired from agent sysinfo so it covered
+// Linux/Windows/Mac hosts and never a switch port.
+async function _drawerSnmpPorts(devId) {
+  const box = document.getElementById('ds-snmp-ports');
+  if (!box) return;
+  const r = await api('GET', `/devices/${encodeURIComponent(devId)}/snmp/interfaces`)
+    .catch(() => null);
+  if (!r) { box.innerHTML = ''; return; }
+  if (!r.enabled) {
+    box.innerHTML = r.ports.length
+      ? '<div class="hint">Per-port history is switched off — the table below is the last data recorded before it was.</div>'
+      : '';
+    if (!r.ports.length) return;
+  }
+  if (!r.ports.length) {
+    box.innerHTML = '<div class="hint">No samples yet — the first walk runs within '
+      + Math.round((r.interval_s || 300) / 60) + ' minutes.</div>';
+    return;
+  }
+  const rate = b => (b == null ? '—'
+    : b >= 1e9 ? (b / 1e9).toFixed(2) + ' Gb/s'
+    : b >= 1e6 ? (b / 1e6).toFixed(1) + ' Mb/s'
+    : (b / 1e3).toFixed(0) + ' kb/s');
+  box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13">'
+    + '<thead><tr><th>Port</th><th>Link</th><th class="ta-right">In</th>'
+    + '<th class="ta-right">Out</th><th class="ta-right">Util</th>'
+    + '<th class="ta-right">Errors</th></tr></thead><tbody>'
+    + r.ports.map(p => {
+        const up = String(p.oper || '').toLowerCase();
+        const isUp = up === 'up' || up === '1' || up === 'true';
+        const hot = p.util != null && p.util >= (r.saturation_pct || 90);
+        return `<tr>
+          <td><strong>${escHtml(p.iface)}</strong></td>
+          <td class="${isUp ? 'c-green' : 'c-red'}">${isUp ? 'up' : escHtml(p.oper || 'down')}</td>
+          <td class="ta-right">${escHtml(rate(p.in_bps))}</td>
+          <td class="ta-right">${escHtml(rate(p.out_bps))}</td>
+          <td class="ta-right ${hot ? 'c-amber' : ''}">${p.util == null ? '—' : p.util + '%'}</td>
+          <td class="ta-right ${p.errors ? 'c-amber' : ''}">${p.errors || 0}</td>
+        </tr>`;
+      }).join('')
+    + '</tbody></table></div>'
+    + `<div class="hint mt-4">${r.ports.length} port(s) · sampled every `
+    + `${Math.round((r.interval_s || 300) / 60)} min · ${r.retained} samples kept per port</div>`;
 }
 
 async function _drawerSnmpPollNow() {
@@ -22950,6 +23012,7 @@ async function _drawerSaveSettings() {
       enabled: snmpEnabled.checked,
       port:    parseInt(document.getElementById('ds-snmp-port')?.value || '161', 10),
       version: document.getElementById('ds-snmp-version')?.value || '2c',
+      if_history: !!document.getElementById('ds-snmp-if-history')?.checked,
     };
     const comm = document.getElementById('ds-snmp-community')?.value || '';
     if (comm) snmpBody.community = comm;

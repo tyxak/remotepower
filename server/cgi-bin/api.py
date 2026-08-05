@@ -88,6 +88,10 @@ REPORT_ARCHIVE_FILE = DATA_DIR / 'report_archive.json'
 # per-device revisions + the daily sweep's cadence stamp.
 NETCONFIG_ARCHIVE_FILE = DATA_DIR / 'netconfig_archive.json'
 NETCONFIG_STATE_FILE = DATA_DIR / 'netconfig_state.json'
+# v6.4.2: per-interface SNMP counter history (opt-in per device) + its cadence
+# stamp. See run_snmp_if_history_if_due.
+SNMP_IF_HIST_FILE = DATA_DIR / 'snmp_if_hist.json'
+SNMP_IF_STATE_FILE = DATA_DIR / 'snmp_if_state.json'
 # v3.2.0 follow-up: separate log for INBOUND webhook + syslog hits.
 # Symmetry with the outbound log — operators want to see "we received N
 # inbound events today, M were rejected" on Server Status the same way
@@ -1388,6 +1392,10 @@ for _ds_name in (
         'handle_device_snmp_walk', '_validate_walk_oid', 'SNMP_WALK_PRESETS',
         'handle_snmp_trap_rules', 'handle_snmp_trap_rule', 'handle_snmp_trap_rule_test',
         '_trap_rules_load',
+        # v6.4.2: per-interface counter history for SNMP gear
+        'handle_device_snmp_interfaces', 'run_snmp_if_history_if_due',
+        '_record_if_samples', '_if_hist_enabled', '_if_rate_bps', '_if_util_pct',
+        '_if_key', '_IF_SATURATION_PCT', '_IF_HIST_INTERVAL',
 ):
     globals()[_ds_name] = getattr(snmp_device_handlers_mod, _ds_name)
 del _ds_name
@@ -2035,6 +2043,22 @@ EVENT_REGISTRY = {
     # v6.4.2: a switch or firewall's running config changed since the last
     # archived copy. Linux hosts have had config_drift since v2; the appliances
     # that most need it had nothing.
+    # v6.4.2: per-port link state and saturation on SNMP gear. `nic_errors`
+    # only ever fired from agent sysinfo, so it covered Linux/Windows/Mac hosts
+    # and never a switch port — the one place "which port is down?" is asked.
+    'snmp_if_down': dict(
+        label='Switch/router port went down', kind='snmp',
+        title='Port Down', severity='high', priority=4, tags='electric_plug'),
+    'snmp_if_up': dict(
+        label='Switch/router port came back up', kind='snmp',
+        title='Port Up', resolves=('snmp_if_down',), tags='white_check_mark'),
+    'snmp_if_saturated': dict(
+        label='Switch/router port sustained near line rate', kind='snmp',
+        title='Port Saturated', severity='medium', tags='chart_with_upwards_trend'),
+    'snmp_if_relieved': dict(
+        label='Switch/router port utilisation back to normal', kind='snmp',
+        title='Port Utilisation Normal', resolves=('snmp_if_saturated',),
+        tags='white_check_mark'),
     'netconfig_changed': dict(
         # lifecycle='point': this RECORDS that the config changed at a moment
         # in time. There is no "config un-changed" state to recover into — the
@@ -67124,6 +67148,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/devices/', '/snmp/poll', 'handle_device_snmp_poll', "pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/snmp/deep', 'handle_device_snmp_deep', "pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET'"),
     ('pat', ('POST',), '/api/devices/', '/snmp/walk', 'handle_device_snmp_walk', "pi.startswith('/api/devices/') and pi.endswith('/snmp/walk') and m == 'POST'"),
+    # v6.4.2: per-port bandwidth / error / link history for SNMP gear.
+    ('pat', ('GET',), '/api/devices/', '/snmp/interfaces', 'handle_device_snmp_interfaces', "pi.startswith('/api/devices/') and pi.endswith('/snmp/interfaces') and m == 'GET'"),
     ('pat', ('POST',), '/api/devices/', '/routeros/action', 'handle_device_routeros_action', "pi.startswith('/api/devices/') and pi.endswith('/routeros/action') and m == 'POST'"),
     ('pat', ('GET',), '/api/devices/', '/routeros/firewall', 'handle_device_routeros_firewall', "pi.startswith('/api/devices/') and pi.endswith('/routeros/firewall') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/routeros/qos', 'handle_device_routeros_qos', "pi.startswith('/api/devices/') and pi.endswith('/routeros/qos') and m == 'GET'"),
@@ -68275,6 +68301,7 @@ def main():
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
     _safe(run_audit_forward_retry_if_due, 'run_audit_forward_retry_if_due')
     _safe(run_netconfig_backup_if_due, 'run_netconfig_backup_if_due')
+    _safe(run_snmp_if_history_if_due, 'run_snmp_if_history_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
     _safe(run_ignored_prune_if_due, 'run_ignored_prune_if_due')      # v6.4.0 #1 ignore GC
