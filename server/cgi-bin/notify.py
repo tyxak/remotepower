@@ -783,6 +783,15 @@ def _webhook_message(event, payload):
         return f'{name}: {payload.get("detail") or "an account has a blank password"}'
     elif event == "empty_password_cleared":
         return f"{name}: no blank-password accounts remain"
+    elif event == "integration_metric_alert":
+        # v6.4.2: fleet-level (no device) — the generic fallback would read
+        # "integration_metric_alert: unknown".
+        return (f'{payload.get("label","?")}: {payload.get("metric","?")} is '
+                f'{payload.get("value","?")} ({payload.get("op","gt")} '
+                f'{payload.get("threshold","?")})')
+    elif event == "integration_metric_recovered":
+        return (f'{payload.get("label","?")}: {payload.get("metric","?")} is '
+                f'back within its threshold ({payload.get("value","?")})')
     elif event == "server_upgraded":
         # v6.4.2: fleet-level — `name` is the server, and the generic fallback
         # would read "server_upgraded: unknown".

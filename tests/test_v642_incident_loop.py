@@ -319,6 +319,7 @@ class TestTuningActionability(unittest.TestCase):
         """The join is an enrichment. Tuning must still rank by count if the
         alerts store is unreadable."""
         api.save(api.ALERTS_FILE, "garbage")
+        self.addCleanup(api.save, api.ALERTS_FILE, {"alerts": [], "alert_seq": 0})
         s = self._sources()
         self.assertEqual(s["nic_errors"]["count"], 340)
 

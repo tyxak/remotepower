@@ -12993,7 +12993,57 @@ function _integrationCardHtml(it, idx) {
         <label class="form-label"><input type="checkbox" data-ifield="verify_tls" ${it.verify_tls !== false ? 'checked' : ''}> Verify TLS (uncheck for self-signed)</label>
         <span id="integration-test-${idx}" class="hint ml-8"></span>
       </div>
+      ${_integThresholdHtml(it, idx)}
     </div>`;
+}
+
+// v6.4.2: operator thresholds on this connector's own metrics.
+//
+// Every connector returns a `metrics` dict that is stored, charted and shown in
+// the drawer — and could never raise an alert, because the only integration
+// events came from the connector AUTHOR's hardcoded ok/warn/crit status. A
+// Pi-hole whose gravity list silently empties reports blocked_pct 23% -> 0%
+// with its status still OK, and RemotePower displayed the number and said
+// nothing. The only recourse was a connectors.d/ plugin re-implementing the
+// connector, or a parallel custom_probe duplicating the same HTTP call.
+//
+// Entered as free text (`metric op value` per line) rather than a row builder:
+// the metric NAMES are connector-specific and not enumerable from here, so a
+// dropdown would either be wrong or need a per-connector schema this does not
+// have. The last poll's metric names are offered as a hint instead.
+function _integThresholdHtml(it, idx) {
+  const lines = (it.metric_thresholds || [])
+    .map(t => `${t.metric} ${t.op || 'gt'} ${t.value}${t.severity && t.severity !== 'medium' ? ' ' + t.severity : ''}`)
+    .join('\n');
+  const seen = it.last_metrics && typeof it.last_metrics === 'object'
+    ? it.last_metrics : null;
+  const names = seen ? Object.keys(seen).slice(0, 12).join(', ') : '';
+  return `<details class="fs-12">
+    <summary class="pointer">Alert on a metric${(it.metric_thresholds || []).length ? ` (${it.metric_thresholds.length})` : ''}</summary>
+    <div class="settings-row mt-8">
+      <textarea class="form-input ff-mono fs-12" rows="3" data-ithresh="${idx}"
+        placeholder="blocked_pct lt 5 high&#10;queries_today gt 1000000">${escHtml(lines)}</textarea>
+    </div>
+    <div class="meta-sm-nm">One per line: <code>metric op value [severity]</code>. Operators: <code>gt lt gte lte eq ne</code>; severity defaults to medium. This alerts on the connector's own numbers regardless of the status it reports — which is the point, because a service can be reporting OK while the number you care about has gone to zero.${names ? ` Metrics seen on the last poll: <code>${escHtml(names)}</code>.` : ''}</div>
+  </details>`;
+}
+
+// Parsed on read rather than on every keystroke, so a half-typed line is never
+// a validation error mid-edit. The server re-validates and 400s a bad operator
+// or a non-numeric bound — a silently-skipped threshold is one the operator
+// believes is armed.
+function _parseIntegThresholds(text) {
+  const out = [];
+  String(text || '').split('\n').forEach(line => {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 3) return;
+    const [metric, op, value, severity] = parts;
+    out.push({
+      metric, op: (op || 'gt').toLowerCase(), value: Number(value),
+      severity: (severity || 'medium').toLowerCase(),
+    });
+  });
+  return out;
 }
 
 // v6.4.2: bind an instance to the host (and/or site) the service actually runs
@@ -13041,6 +13091,12 @@ function _readIntegrationCards() {
     const idx = parseInt(card.dataset.idx, 10);
     const it = _integrations[idx];
     if (!it) return;
+    const th = card.querySelector('[data-ithresh]');
+    if (th) {
+      const parsed = _parseIntegThresholds(th.value);
+      if (parsed.length) it.metric_thresholds = parsed;
+      else delete it.metric_thresholds;
+    }
     card.querySelectorAll('[data-ifield]').forEach(el => {
       const k = el.dataset.ifield;
       if (el.type === 'checkbox') it[k] = el.checked;
@@ -18988,6 +19044,8 @@ function _renderHomeActivity(fleetEvents) {
     'scan_finding',
     // v4.7.0: homelab software integration health
     'integration_down', 'integration_recovered',
+    // v6.4.2: an operator-set bound on a connector metric was crossed.
+    'integration_metric_alert', 'integration_metric_recovered',
     // v5.8.0: GitHub issue monitor — new issue on a watched repo
     'github_new_issue',
     // v4.8.0: IP reputation (DNSBL) monitor
@@ -19285,6 +19343,7 @@ function _homeActivityAttrs(event, p) {
     case 'scan_finding':
       return `${base} data-home-act="scans"`;
     // v4.7.0: integration health → the Integrations page
+    case 'integration_metric_alert': case 'integration_metric_recovered':
     case 'integration_down': case 'integration_recovered':
       return `${base} data-home-act="integrations"`;
     // v5.8.0: new GitHub issue → the Integrations page (the watching instance)

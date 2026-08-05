@@ -108,6 +108,7 @@ class TestVersionChangeIsRecorded(unittest.TestCase):
 
     def test_a_broken_store_does_not_break_the_request(self):
         api.save(api.SERVER_VERSION_FILE, "garbage")
+        self.addCleanup(api.save, api.SERVER_VERSION_FILE, {})
         api._invalidate_load_cache(api.SERVER_VERSION_FILE)
         api._record_server_version_change()   # must not raise
 

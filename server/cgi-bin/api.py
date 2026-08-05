@@ -2362,6 +2362,18 @@ EVENT_REGISTRY = {
     'integration_down': dict(
         label='An integration target is unhealthy or unreachable', kind='integration',
         title='Integration Unhealthy', severity=None),
+    # v6.4.2: an operator-set bound on a connector's own metric was crossed.
+    # Distinct from integration_down, which reflects the CONNECTOR AUTHOR's
+    # hardcoded status — a Pi-hole whose gravity list emptied reports OK while
+    # blocked_pct drops to zero, and that is precisely the case this covers.
+    'integration_metric_alert': dict(
+        label='An integration metric crossed an operator-set threshold',
+        kind='integration', title='Integration Metric Threshold',
+        severity=None, tags='warning,bar_chart'),
+    'integration_metric_recovered': dict(
+        label='An integration metric is back within its threshold',
+        kind='integration', resolves=('integration_metric_alert',),
+        tags='white_check_mark,bar_chart'),
     'integration_recovered': dict(
         label='An integration target recovered', kind='integration',
         title='Integration Recovered', resolves=('integration_down',)),
@@ -8880,7 +8892,12 @@ def _alert_severity(event, payload):
     # v4.7.0: integration health — severity carried in the payload (crit→high,
     # warn→medium). Without this branch the event fires a webhook but never lands
     # in the Alerts inbox (the _ALERT_RULES (None,None) → _alert_severity gap).
-    if event == 'integration_down':
+    if event in ('integration_down', 'integration_metric_alert'):
+        # v6.4.2: integration_metric_alert joins this branch. Its severity is
+        # per-THRESHOLD (the operator sets it on the bound), so like
+        # custom_metric_alert it arrives in the payload; without a branch here
+        # _alert_severity returns None and the event webhooks but never lands
+        # in the inbox — the recurring silent-gap shape.
         s = str(p.get('severity', '')).lower()
         return s if s in ('low', 'medium', 'high', 'critical') else 'medium'
     if event == 'ticket_sla_breached':
@@ -10483,6 +10500,11 @@ def _record_alert(event, payload):
                     # (policy_compliant). proto/port (port_closed) + path
                     # (backup_verified) are already above.
                     'disk', 'rule',
+                    # v6.4.2: integration_metric_alert — `metric` is already
+                    # whitelisted above (and is in _ALERT_IDENTITY_FIELDS, so
+                    # two thresholds on one integration stay separate rows);
+                    # these two make the stored alert say what the bound WAS.
+                    'threshold', 'op',
                     # v6.2.0: which AV engine fired (clamav/rkhunter/defender).
                     # av_infected/av_warning have set this since v5.1.0 but it
                     # was never whitelisted, so the STORED alert lost it and the
@@ -10740,6 +10762,15 @@ def _auto_resolve_alerts(event, payload):
         # branch _auto_resolve_alerts bailed at the no-device_id/no-sub_match
         # guard and the down alert sat open forever after recovery.
         sub_match['integration_id'] = p.get('integration_id')
+    elif event == 'integration_metric_recovered':
+        # v6.4.2: PER (instance, metric). integration_metric_alert is
+        # edge-triggered per threshold, so one integration can hold several open
+        # rows — matching on integration_id alone would clear a still-breaching
+        # sibling, which then never re-fires (its flap flag stays set). `metric`
+        # is in _ALERT_IDENTITY_FIELDS, so the rows are genuinely separate; both
+        # halves are needed (the v6.4.0 rule).
+        sub_match['integration_id'] = p.get('integration_id')
+        sub_match['metric'] = p.get('metric')
     elif event == 'dependency_restored':
         # v6.3.1: dependency_missing is edge-triggered per declared depends_on
         # edge (device_id carries the downstream 'did'; dep_edge is 'did:up').
@@ -10843,7 +10874,8 @@ def _auto_resolve_alerts(event, payload):
     # the stored alert then has device_id '' while the recovery carries one, and
     # a strict device match would leave that alert open forever — the exact
     # never-clears failure the binding was added to avoid.
-    _id_only = event == 'integration_recovered' and bool(sub_match.get('integration_id'))
+    _id_only = (event in ('integration_recovered', 'integration_metric_recovered')
+                and bool(sub_match.get('integration_id')))
     _recovered_tids = []          # tickets whose source alert just recovered
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
@@ -24013,6 +24045,91 @@ def run_integrations_if_due():
     _persist_integration_results(results)
 
 
+
+# ── v6.4.2: operator thresholds on integration metrics ───────────────────────
+#
+# All 44 connectors return a `metrics` dict that is stored, charted and shown in
+# the drawer — and could never raise an alert. The only integration events came
+# from the connector AUTHOR's hardcoded ok/warn/crit status, so a Pi-hole whose
+# gravity list silently emptied reported blocked_pct 23% → 0% with status still
+# OK, and RemotePower displayed the number and said nothing. Same for TrueNAS
+# alerts_warn climbing, SABnzbd queue growth, Immich storage, Uptime Kuma
+# monitors-down.
+#
+# The operator's only recourse was to write a connectors.d/ plugin
+# re-implementing the connector with their own bounds, or stand up a parallel
+# custom_probe duplicating the same HTTP call.
+#
+# Shape deliberately mirrors the device-side `custom_metric_thresholds`: a list
+# on the integration instance, `{metric, op, value, severity}`. Edge-triggered
+# and flap-dampened by the same `integration_notified` map, keyed per
+# (instance, metric), so a metric parked over its bound alerts once.
+_INTEG_THRESHOLD_OPS = ('gt', 'lt', 'gte', 'lte', 'eq', 'ne')
+
+
+def _integ_threshold_breached(op, value, bound):
+    """True when `value <op> bound` holds. Non-numeric on either side → False:
+    a connector that reports a string for a metric an operator thresholded must
+    not be read as a breach."""
+    try:
+        v = float(value)
+        b = float(bound)
+    except (TypeError, ValueError):
+        return False
+    return {
+        'gt':  v > b,  'lt':  v < b,
+        'gte': v >= b, 'lte': v <= b,
+        'eq':  v == b, 'ne':  v != b,
+    }.get(op, False)
+
+
+def _integ_metric_alerts(key, label, rtype, metrics, thresholds, notified,
+                         bound_extra):
+    """(pending_events, changed_flags) for one integration's metric thresholds.
+
+    Pure: the caller owns the state writes and fires AFTER its locks, matching
+    how integration_down/_recovered are already handled here.
+    """
+    pending, flags = [], {}
+    if not isinstance(metrics, dict) or not isinstance(thresholds, list):
+        return pending, flags
+    for t in thresholds[:20]:
+        if not isinstance(t, dict):
+            continue
+        metric = str(t.get('metric') or '').strip()
+        op = str(t.get('op') or 'gt').strip().lower()
+        if not metric or op not in _INTEG_THRESHOLD_OPS or metric not in metrics:
+            continue
+        sev = str(t.get('severity') or 'medium').strip().lower()
+        if sev not in ('critical', 'high', 'medium', 'low'):
+            sev = 'medium'
+        value = metrics.get(metric)
+        breached = _integ_threshold_breached(op, value, t.get('value'))
+        # Per-(instance, metric) flap flag, so two thresholds on one integration
+        # do not clear each other.
+        fkey = f'{key}::{metric}'
+        was = bool(notified.get(fkey))
+        if breached and not was:
+            pending.append(('integration_metric_alert', {
+                'label': label, 'type': rtype, 'integration_id': key,
+                'metric': metric, 'value': value, 'threshold': t.get('value'),
+                'op': op, 'severity': sev,
+                'detail': (f'{label}: {metric} is {value} '
+                           f'({op} {t.get("value")})'),
+                **bound_extra,
+            }))
+            flags[fkey] = True
+        elif (not breached) and was:
+            pending.append(('integration_metric_recovered', {
+                'label': label, 'type': rtype, 'integration_id': key,
+                'metric': metric, 'value': value,
+                'detail': f'{label}: {metric} is back within bounds ({value})',
+                **bound_extra,
+            }))
+            flags[fkey] = False
+    return pending, flags
+
+
 def _persist_integration_results(results):
     """Record latest result + bounded history; fire flap-dampened up/down alerts.
 
@@ -24036,6 +24153,13 @@ def _persist_integration_results(results):
             _bv = {k: _bi.get(k) for k in ('device_id', 'site') if _bi.get(k)}
             if _bv:
                 bound[_bk] = _bv
+    # v6.4.2: per-instance metric thresholds, read off the same configured
+    # instances — the poll result carries no schema of its own.
+    thresholds_by_key = {}
+    for _ti in _get_integrations(cfg):
+        if isinstance(_ti, dict) and isinstance(_ti.get('metric_thresholds'), list):
+            thresholds_by_key[str(_ti.get('id') or _ti.get('label'))] = \
+                _ti['metric_thresholds']
 
     for r in results:
         if not isinstance(r, dict):
@@ -24115,6 +24239,18 @@ def _persist_integration_results(results):
             notified[key] = False
             dirty_cfg = True
 
+        # v6.4.2: operator thresholds on the connector's own metrics. Runs
+        # regardless of the connector's status — a Pi-hole reporting OK while
+        # blocked_pct sits at 0% is exactly the case this exists for.
+        _mp, _mf = _integ_metric_alerts(
+            key, label, rtype, r.get('metrics'),
+            (thresholds_by_key.get(key) or []), notified, bound.get(key, {}))
+        if _mp:
+            pending.extend(_mp)
+        if _mf:
+            notified.update(_mf)
+            dirty_cfg = True
+
     # Drop history/notified only for integrations no longer CONFIGURED — keying
     # off `results` would wrongly purge instances that were merely disabled or
     # skipped by the per-cycle time budget this round.
@@ -24136,8 +24272,15 @@ def _persist_integration_results(results):
     if dirty_cfg:
         with _LockedUpdate(CONFIG_FILE) as _live:   # v6.4.2: was unlocked
             if configured:
-                _live['integration_notified'] = {k: v for k, v in notified.items()
-                                                 if k in configured}
+                # v6.4.2: the metric-threshold flap flags are keyed
+                # `<instance>::<metric>`, so a plain `k in configured` test
+                # stripped every one of them on save — the flag never persisted,
+                # so a parked breach re-fired on EVERY poll and the recovery
+                # never fired at all. Keep a composite key when its instance
+                # half is still configured.
+                _live['integration_notified'] = {
+                    k: v for k, v in notified.items()
+                    if k.split('::', 1)[0] in configured}
             else:
                 _live['integration_notified'] = notified
     for event, payload in pending:
@@ -24308,6 +24451,37 @@ def handle_integrations_save():
                 inst['probe_json_field'] = _no_ctrl(_sanitize_str(raw.get('probe_json_field', ''), 128))
                 inst['probe_json_op']    = _no_ctrl(_sanitize_str(raw.get('probe_json_op', ''), 16))
                 inst['probe_json_value'] = _no_ctrl(_sanitize_str(str(raw.get('probe_json_value', '')), 255))
+            # v6.4.2: operator thresholds on this connector's own metrics —
+            # the thing that lets a Pi-hole whose gravity list emptied actually
+            # alert while its own status stays OK. Validated here rather than at
+            # poll time so a malformed bound is a 400 the operator sees, not a
+            # silently-skipped threshold they think is armed.
+            _mt = raw.get('metric_thresholds')
+            if isinstance(_mt, list) and _mt:
+                _clean_mt = []
+                for _t in _mt[:20]:
+                    if not isinstance(_t, dict):
+                        continue
+                    _m = _no_ctrl(_sanitize_str(str(_t.get('metric') or ''), 64)).strip()
+                    if not _m:
+                        continue
+                    _op = str(_t.get('op') or 'gt').strip().lower()
+                    if _op not in _INTEG_THRESHOLD_OPS:
+                        respond(400, {'error': f'invalid comparison "{_op}" for '
+                                               f'{inst["label"]}.{_m} — use one of '
+                                               + ', '.join(_INTEG_THRESHOLD_OPS)})
+                    try:
+                        _val = float(_t.get('value'))
+                    except (TypeError, ValueError):
+                        respond(400, {'error': f'threshold for {inst["label"]}.{_m} '
+                                               'must be a number'})
+                    _sev = str(_t.get('severity') or 'medium').strip().lower()
+                    if _sev not in ('critical', 'high', 'medium', 'low'):
+                        _sev = 'medium'
+                    _clean_mt.append({'metric': _m, 'op': _op, 'value': _val,
+                                      'severity': _sev})
+                if _clean_mt:
+                    inst['metric_thresholds'] = _clean_mt
             # Preserve an existing secret when the field comes back blank.
             new_secret = raw.get('secret')
             if new_secret:

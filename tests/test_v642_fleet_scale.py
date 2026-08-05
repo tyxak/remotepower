@@ -572,6 +572,7 @@ class TestUnifiedSuppressionView(unittest.TestCase):
     def test_a_broken_store_does_not_break_the_view(self):
         """Seven stores; one unreadable must cost one section, not the page."""
         api.save(api.CVE_IGNORE_FILE, "garbage")
+        self.addCleanup(api.save, api.CVE_IGNORE_FILE, {})
         api._LOAD_CACHE.clear()
         body = self._get()
         self.assertIn("alert_mute", body["counts"])
