@@ -1075,6 +1075,7 @@ for _at_name in (
         'handle_ignored_list', 'handle_ignored_add', 'handle_ignored_remove',
         'handle_suppressions',   # v6.4.2: the unified "why isn't this alerting?" view
         'handle_mcp_acknowledge_alert',   # v6.4.2: the MCP inbox write
+        'handle_prometheus_sd', '_prom_label',   # v6.4.2: Prometheus http_sd
 ):
     globals()[_at_name] = getattr(attention_handlers_mod, _at_name)
 del _at_name
@@ -65373,6 +65374,9 @@ def _build_exact_routes():
         # v6.4.2: every active suppression from all seven mechanisms, in one
         # list — "why isn't this alerting?" had no single answer surface.
         ('GET', '/api/suppressions'): handle_suppressions,
+        # v6.4.2: the fleet as Prometheus http_sd targets, so an operator
+        # scraping node_exporter alongside stops hand-maintaining a second list.
+        ('GET', '/api/prometheus/sd'): handle_prometheus_sd,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
         ('GET', '/api/alert-tuning'): handle_alert_tuning,
         ('GET', '/api/alerts/resolution-stats'): handle_alert_resolution_stats,

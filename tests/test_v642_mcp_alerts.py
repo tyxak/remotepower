@@ -185,3 +185,134 @@ class TestTheServerHalf(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPrometheusServiceDiscovery(unittest.TestCase):
+    """RemotePower already tracks every host's name, IP, group, tag, site and
+    online state, and re-syncs cloud instances automatically — and Prometheus
+    could consume none of it. An operator scraping node_exporter alongside had
+    to hand-maintain a second target list, so a newly-enrolled or decommissioned
+    host silently drifted out of prometheus.yml until someone noticed a missing
+    graph."""
+
+    def setUp(self):
+        n = int(time.time())
+        self.now = n
+        self._saved = {k: getattr(api, k, None) for k in
+                       ("require_auth", "_caller_scope", "_tenant_gate", "_env",
+                        "_scope_filter_devices")}
+        api.require_auth = lambda *a, **k: "jakob"
+        api._caller_scope = lambda *a, **k: None
+        api._tenant_gate = lambda *a, **k: None
+        api.save(api.CONFIG_FILE, {"status_token": "stok", "online_ttl": 300,
+                                   "min_online_ttl": 150})
+        api.save(api.DEVICES_FILE, {
+            "sd1": {"name": "web01", "ip": "10.0.0.1", "group": "prod",
+                    "site": "fra", "os": "Ubuntu", "tags": ["web", "edge"],
+                    "last_seen": n},
+            "sd2": {"name": "db01", "ip": "10.0.0.2", "last_seen": n - 99999},
+            "sd3": {"name": "switch", "ip": "10.0.0.3", "agentless": True,
+                    "last_seen": n},
+            "sd4": {"name": "gone", "ip": "10.0.0.4", "decommissioned": True,
+                    "last_seen": n},
+            "sd5": {"name": "Display Name Only", "last_seen": n},
+            "sd6": {"name": "byhost", "hostname": "db.lan", "last_seen": n},
+        })
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is not None:
+                setattr(api, k, v)
+
+    def _sd(self, qs="token=stok"):
+        api._env = lambda k, d="": qs if k == "QUERY_STRING" else d
+        try:
+            api.handle_prometheus_sd()
+            self.fail("handler did not respond")
+        except api.HTTPError as e:
+            return e.status, e.body
+
+    def _targets(self, qs="token=stok"):
+        return [t["targets"][0] for t in self._sd(qs)[1]]
+
+    def test_it_returns_http_sd_shape(self):
+        _s, body = self._sd()
+        self.assertIsInstance(body, list)
+        for e in body:
+            with self.subTest(entry=e):
+                self.assertIsInstance(e["targets"], list)
+                self.assertIsInstance(e["labels"], dict)
+
+    def test_an_agentless_device_is_omitted(self):
+        """A switch has no node_exporter — including it hands Prometheus a
+        target that can only ever be down."""
+        self.assertNotIn("10.0.0.3:9100", self._targets())
+
+    def test_a_decommissioned_device_is_omitted(self):
+        self.assertNotIn("10.0.0.4:9100", self._targets())
+
+    def test_the_display_name_is_never_used_as_an_address(self):
+        """`name` is operator-editable and explicitly decoupled from the
+        reported hostname since v6.4.1. Scraping it produces a permanently-down
+        job the moment anyone renames a device for readability."""
+        self.assertNotIn("Display Name Only:9100", self._targets())
+        self.assertFalse(any("Display" in t for t in self._targets()))
+
+    def test_it_falls_back_to_the_reported_hostname(self):
+        self.assertIn("db.lan:9100", self._targets())
+
+    def test_an_offline_host_is_still_a_target_by_default(self):
+        """Prometheus wants to know a host is DOWN. Omitting it would make the
+        outage invisible rather than red."""
+        self.assertIn("10.0.0.2:9100", self._targets())
+
+    def test_online_1_narrows_it(self):
+        self.assertNotIn("10.0.0.2:9100", self._targets("token=stok&online=1"))
+
+    def test_the_port_is_settable_and_bounded(self):
+        self.assertIn("10.0.0.1:9256", self._targets("token=stok&port=9256"))
+        for bad in ("0", "70000", "abc"):
+            with self.subTest(port=bad):
+                self.assertIn("10.0.0.1:9100",
+                              self._targets(f"token=stok&port={bad}"))
+
+    def test_the_labels_carry_what_a_relabel_rule_needs(self):
+        row = next(t for t in self._sd()[1]
+                   if t["targets"][0] == "10.0.0.1:9100")
+        for k in ("__meta_remotepower_id", "__meta_remotepower_name",
+                  "__meta_remotepower_group", "__meta_remotepower_site",
+                  "__meta_remotepower_online", "instance"):
+            with self.subTest(label=k):
+                self.assertIn(k, row["labels"])
+
+    def test_tags_use_the_conventional_delimited_shape(self):
+        """Prometheus SD has no list label type; a separator-wrapped string is
+        what a relabel regex expects."""
+        row = next(t for t in self._sd()[1]
+                   if t["targets"][0] == "10.0.0.1:9100")
+        self.assertEqual(row["labels"]["__meta_remotepower_tags"], ",web,edge,")
+
+    def test_instance_is_the_stable_name_not_the_address(self):
+        """Prometheus keys a series on `instance`; using the IP would make a
+        re-addressed host look like a brand-new one and break its history."""
+        row = next(t for t in self._sd()[1]
+                   if t["targets"][0] == "10.0.0.1:9100")
+        self.assertEqual(row["labels"]["instance"], "web01")
+
+    def test_a_bad_status_token_is_401(self):
+        self.assertEqual(self._sd("token=nope")[0], 401)
+
+    def test_a_session_caller_is_scope_filtered(self):
+        """A status-token scrape is the same trust level as /api/metrics (whole
+        fleet); a SESSION caller must not be, or this becomes a way around role
+        scope and the tenant gate."""
+        api._scope_filter_devices = lambda d: {k: v for k, v in d.items()
+                                               if k != "sd1"}
+        self.assertNotIn("10.0.0.1:9100", self._targets(""))
+
+    def test_the_route_is_registered(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from routing_harness import routes_to
+        self.assertEqual(routes_to("GET", "/api/prometheus/sd"),
+                         "handle_prometheus_sd")

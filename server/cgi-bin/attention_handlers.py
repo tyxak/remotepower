@@ -517,3 +517,99 @@ def handle_mcp_acknowledge_alert():
                     'acknowledged_by': user,
                     'severity': (acked or {}).get('severity'),
                     'title': (acked or {}).get('title')})
+
+
+# ── v6.4.2: Prometheus HTTP service discovery ────────────────────────────────
+#
+# RemotePower exposes its own metrics at /api/metrics and ships a Grafana pack,
+# but there was no endpoint returning the FLEET in `http_sd_configs` shape. An
+# operator scraping node_exporter alongside RemotePower had to hand-maintain a
+# second target list, even though RemotePower already tracks every host's name,
+# IP, group, tag, site and online state, and already re-syncs cloud instances
+# automatically. A newly-enrolled or decommissioned host silently drifted out of
+# prometheus.yml until someone noticed a missing graph.
+#
+# Same status-token auth as /api/metrics, so it drops into the same scrape
+# config an operator already has.
+
+def _prom_label(value):
+    """Prometheus label values are UTF-8 and mostly unconstrained, but a name
+    with a newline or a quote would corrupt the JSON consumer's view — and these
+    come from agent-reported hostnames and operator-typed tags."""
+    return A._sanitize_str(str(value or ''), 128).replace('"', '').replace('\\', '')
+
+
+def handle_prometheus_sd():
+    """GET /api/prometheus/sd?port=9100 — the fleet as Prometheus http_sd targets.
+
+    Returns `[{"targets": ["host:port"], "labels": {...}}]`, one entry per
+    device, so `http_sd_configs` keeps prometheus.yml in step with enrolment
+    automatically.
+
+    Auth mirrors /api/metrics exactly: `?token=<status token>` for a scrape
+    config, or a normal session token for a browser. Deliberately NOT
+    require_auth alone — a scraper has no session.
+    """
+    qs = A.urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    qs_token = (qs.get('token') or [''])[0]
+    if qs_token:
+        cfg_token = (A.load(A.CONFIG_FILE) or {}).get('status_token') or ''
+        if not A._ct_token_eq(qs_token, cfg_token):
+            A.respond(401, {'error': 'invalid status token'})
+    else:
+        # Falls back to the normal gate, which also applies role scope + the
+        # tenant gate through _scope_filter_devices below.
+        A.require_auth()
+
+    try:
+        port = int((qs.get('port') or ['9100'])[0])
+    except (TypeError, ValueError):
+        port = 9100
+    if not (1 <= port <= 65535):
+        port = 9100
+    only_online = (qs.get('online') or [''])[0] == '1'
+
+    # A status-token scrape has no role scope and no tenant, and is the same
+    # trust level as /api/metrics (which exposes the whole fleet) — so the
+    # filter applies for a session caller and is a no-op for the scraper.
+    devices = (A.load(A.DEVICES_FILE) or {}) if qs_token \
+        else A._scope_filter_devices(A.load(A.DEVICES_FILE) or {})
+    now = int(A.time.time())
+    ttl = A.get_online_ttl()
+
+    out = []
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('decommissioned'):
+            continue
+        # An agentless device has no node_exporter to scrape; including it would
+        # hand Prometheus a target that can only ever be down.
+        if d.get('agentless'):
+            continue
+        host = (d.get('ip') or d.get('hostname') or '').strip()
+        if not host:
+            continue
+        online = bool(d.get('last_seen')) and (now - int(d.get('last_seen') or 0)) < ttl
+        if only_online and not online:
+            continue
+        labels = {
+            '__meta_remotepower_id':      _prom_label(did),
+            '__meta_remotepower_name':    _prom_label(d.get('name') or did),
+            '__meta_remotepower_group':   _prom_label(d.get('group') or ''),
+            '__meta_remotepower_site':    _prom_label(d.get('site') or ''),
+            '__meta_remotepower_os':      _prom_label(d.get('os') or ''),
+            '__meta_remotepower_online':  'true' if online else 'false',
+            # `instance` is what Prometheus keys a series on; without it every
+            # target would be labelled by IP and a re-addressed host would look
+            # like a brand-new one.
+            'instance':                   _prom_label(d.get('name') or did),
+        }
+        tags = [t for t in (d.get('tags') or []) if t]
+        if tags:
+            # Prometheus SD has no list label type; the conventional shape is a
+            # separator-delimited string a relabel rule can regex against.
+            labels['__meta_remotepower_tags'] = ',' + ','.join(
+                _prom_label(t) for t in tags[:32]) + ','
+        out.append({'targets': [f'{_prom_label(host)}:{port}'], 'labels': labels})
+
+    out.sort(key=lambda e: e['labels'].get('instance', ''))
+    A.respond(200, out)
