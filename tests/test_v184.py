@@ -292,6 +292,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'restore_drill_failed', 'restore_drill_ok',  # W6-43
             'rollout_halted',
             'server_disk_low', 'server_disk_ok',  # v5.0.0 #R1
+            # v6.4.2: audit log not reaching the SIEM (spool + drain)
+            'audit_forward_failed', 'audit_forward_recovered',
             # v3.2.0 (B5): SNMP polling state transitions
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
             'snmp_trap_received',                    # inbound SNMP trap receiver

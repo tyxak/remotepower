@@ -19227,6 +19227,8 @@ function _renderHomeActivity(fleetEvents) {
     'vault_break_glass',
     // v5.0.0 (#R1): server self disk-space watchdog
     'server_disk_low', 'server_disk_ok',
+    // v6.4.2: audit log not reaching the SIEM
+    'audit_forward_failed', 'audit_forward_recovered',
     // v3.2.0 (B5): SNMP polling state transitions
     'snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
@@ -19459,6 +19461,8 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="drift"`;
     case 'vault_break_glass': return `${base} data-home-act="cmdb"`;
     case 'server_disk_low': case 'server_disk_ok':
+      return `${base} data-home-act="self"`;
+    case 'audit_forward_failed': case 'audit_forward_recovered':
       return `${base} data-home-act="self"`;
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;

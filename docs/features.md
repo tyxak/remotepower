@@ -195,7 +195,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | PagerDuty / Opsgenie | PagerDuty Events v2 (trigger + auto-resolve), Opsgenie Alerts v2 *(v3.4.1)* |
 | ITSM (Jira / ServiceNow / Zendesk) | Ready-made ticket formats; "fire on ACK" opens a ticket, link shown on the alert *(v5.0.0)* |
 | Ack → ticket webhook | Any destination can also fire on alert acknowledgement *(v3.12.0)* |
-| Audit-log forwarding | Audit entries to a SIEM (HTTP) or syslog *(v3.7.0)* |
+| Audit-log forwarding | Audit entries to a SIEM (HTTP) or syslog *(v3.7.0)*, **with delivery you can prove** *(v6.4.2)*: an entry the collector refuses is spooled (bounded, oldest-first, the overflow counted rather than hidden) and retried on a cadence until it lands. A sustained outage raises `audit_forward_failed` once — not once per audited action — and clears with `audit_forward_recovered`; the security-posture row shows the undelivered count instead of only whether a URL is configured. A wedged collector no longer adds its 5 s connect timeout to every audited request. The three silent decline paths — no target set, the SSRF guard rejecting the destination, DNS not resolving — now say which, including on the *Test forwarding* button, which used to report success for an entry that never left the box |
 
 ## Commands, actions & automation
 

@@ -802,6 +802,21 @@ def _webhook_message(event, payload):
         # would read "server_upgraded: unknown".
         return (f'RemotePower upgraded from {payload.get("from", "?")} to '
                 f'{payload.get("to", "?")}')
+    elif event == "audit_forward_failed":
+        # Fleet-level. Lead with the count, because the compliance question is
+        # "how much of the audit log is missing from the SIEM", not "is it down".
+        n = payload.get("backlog", 0)
+        msg = (f'{n} audit entr{"y" if n == 1 else "ies"} could not be delivered '
+               f"to the SIEM and are spooled for retry")
+        if payload.get("dropped"):
+            msg += f' — {payload["dropped"]} already dropped past the spool cap'
+        if payload.get("error"):
+            msg += f' ({payload["error"]})'
+        return msg
+    elif event == "audit_forward_recovered":
+        n = payload.get("delivered", 0)
+        return (f"SIEM audit forwarding recovered — {n} spooled entr"
+                f'{"y" if n == 1 else "ies"} delivered')
     elif event == "priv_group_added":
         return (
             f'{name}: {payload.get("user","?")} gained privileged-group '

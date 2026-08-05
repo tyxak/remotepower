@@ -78,6 +78,9 @@ AUDIT_HMAC_ROTATIONS_FILE = DATA_DIR / 'audit_hmac_rotations.json'   # v6.1.1: k
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 WEBHOOK_DLQ_FILE = DATA_DIR / 'webhook_dlq.json'  # v5.0.0 #R2: dead-letter queue
+# v6.4.2: the same idea for AUDIT forwarding, which had none. See
+# _spool_audit_forward / run_audit_forward_retry_if_due.
+AUDIT_FORWARD_SPOOL_FILE = DATA_DIR / 'audit_forward_spool.json'
 # v3.2.0 follow-up: separate log for INBOUND webhook + syslog hits.
 # Symmetry with the outbound log — operators want to see "we received N
 # inbound events today, M were rejected" on Server Status the same way
@@ -1991,6 +1994,18 @@ EVENT_REGISTRY = {
     'server_disk_ok': dict(
         label='Server disk space recovered', kind='server_disk',
         title='Server Disk Space Recovered', resolves=('server_disk_low',)),
+    # v6.4.2: audit→SIEM forwarding had no failure signal at all. Entries were
+    # dropped on the floor with a stderr line, while the security-posture row
+    # kept reporting the forwarder "configured". Fired once per outage by
+    # run_audit_forward_retry_if_due, never per entry.
+    'audit_forward_failed': dict(
+        label='Audit log is not reaching the SIEM', kind='server_disk',
+        title='Audit Forwarding Failing', severity='high', priority=4,
+        tags='rotating_light'),
+    'audit_forward_recovered': dict(
+        label='Audit log forwarding recovered', kind='server_disk',
+        title='Audit Forwarding Recovered', resolves=('audit_forward_failed',),
+        tags='white_check_mark'),
     'snmp_unreachable': dict(
         label='SNMP poll failing for 2+ cycles', kind='snmp', title='SNMP Device Unreachable',
         severity='high', symptom=True),
@@ -7276,11 +7291,26 @@ def audit_log(actor, action, detail='', source_ip=None,
             sys.stderr.write(f'[remotepower] audit WORM append failed: {_worm_err}\n')
     # v3.7.0: forward to an external SIEM/syslog if configured. Best-effort and
     # fully isolated — a forwarding outage must never break audit logging.
+    #
+    # v6.4.2: "best-effort" used to mean the entry was DROPPED from the SIEM and
+    # a line went to stderr. It is now spooled and retried by
+    # run_audit_forward_retry_if_due, so an outage costs latency and an alert
+    # rather than a hole in the security log that nothing can reconstruct.
     if cfg.get('audit_forward_enabled'):
-        try:
-            _forward_audit(entry, cfg)
-        except Exception as _fwd_err:
-            sys.stderr.write(f'[remotepower] audit forward failed: {_fwd_err}\n')
+        if _audit_forward_breaker_open():
+            # Known-broken and tried seconds ago — don't make this operator wait
+            # out the 5s connect timeout to learn what we already know.
+            _spool_audit_forward(entry, 'skipped: forwarder is failing')
+        else:
+            try:
+                _why = _forward_audit(entry, cfg)
+            except Exception as _fwd_err:
+                sys.stderr.write(f'[remotepower] audit forward failed: {_fwd_err}\n')
+                _spool_audit_forward(entry, _fwd_err)
+            else:
+                if _why:
+                    sys.stderr.write(f'[remotepower] audit forward declined: {_why}\n')
+                    _spool_audit_forward(entry, _why)
 
 
 # v6.4.2: the control-plane security changes worth announcing. The value is the
@@ -7325,6 +7355,151 @@ def _fire_control_plane_change(change, actor, target_user='', extra=''):
         sys.stderr.write(f'[remotepower] control-plane change event failed: {_cp_err}\n')
 
 
+# ── v6.4.2: audit-forward delivery guarantee ────────────────────────────────
+# Audit→SIEM forwarding was synchronous fire-and-forget on the request path:
+# `except Exception: sys.stderr.write(...)`. A down collector, a fat-fingered
+# port, or a `webhook_block_local` rule that started matching a newly-internal
+# collector address (`_forward_audit` returned silently in that case) dropped
+# every entry from the SIEM for as long as it lasted. Nothing counted the
+# losses, nothing alerted, and the one place an operator would look — the
+# Security-posture checklist — reported `audit_forward: configured`, which was
+# true and useless. The local WORM copy always survived; the SIEM copy did not,
+# and the SOC 2 question is "prove the SIEM is complete."
+#
+# The webhook side has had a dead-letter queue, a UI and a replay button since
+# v5.0.0. This is the same shape: spool on failure, drain on a cadence, alert
+# once (not once per entry), and report the backlog where the operator looks.
+MAX_AUDIT_FORWARD_SPOOL = 1000
+# How long a forward has to stay broken before it is worth waking someone.
+# Deliberately generous: a collector restart should not page anyone, and the
+# entries are spooled either way.
+_AUDIT_FORWARD_ALERT_AFTER_S = 900
+# Retry cadence for the spool drain.
+_AUDIT_FORWARD_RETRY_INTERVAL = 120
+# While a forward is known-broken, skip the inline attempt for this long and
+# spool straight away. Without it a wedged SIEM adds its full 5s connect
+# timeout to EVERY audited action — the audit log is on the request path.
+_AUDIT_FORWARD_BREAKER_S = 60
+
+
+def _audit_forward_state():
+    """The spool + its delivery state, defaulted. Read-only callers only."""
+    st = _load_ro(AUDIT_FORWARD_SPOOL_FILE) or {}
+    if not isinstance(st, dict):
+        return {'entries': [], 'dropped': 0}
+    return st
+
+
+def _spool_audit_forward(entry, error):
+    """Park one audit entry that could not be forwarded, and remember why.
+
+    Bounded like every other store here. When the cap is hit the OLDEST entry
+    goes and `dropped` counts it — a silently truncated spool would recreate
+    the very gap this exists to close, so the number is surfaced in the posture
+    row and in the alert.
+    """
+    try:
+        now = int(time.time())
+        with _LockedUpdate(AUDIT_FORWARD_SPOOL_FILE) as st:
+            entries = st.get('entries')
+            if not isinstance(entries, list):
+                entries = []
+            entries.append(entry)
+            over = len(entries) - MAX_AUDIT_FORWARD_SPOOL
+            if over > 0:
+                entries = entries[over:]
+                st['dropped'] = int(st.get('dropped') or 0) + over
+            st['entries'] = entries
+            st['last_error'] = str(error)[:300]
+            st['last_attempt'] = now
+            if not st.get('failing_since'):
+                st['failing_since'] = now
+    except Exception as _sp_err:      # pragma: no cover - defensive
+        sys.stderr.write(f'[remotepower] audit forward spool failed: {_sp_err}\n')
+
+
+def _audit_forward_breaker_open(st=None):
+    """True when the forwarder is known-broken and was tried recently — skip
+    the inline attempt and spool directly, rather than paying the 5s timeout on
+    an operator's request."""
+    st = st if st is not None else _audit_forward_state()
+    if not st.get('failing_since'):
+        return False
+    return (int(time.time()) - int(st.get('last_attempt') or 0)) < _AUDIT_FORWARD_BREAKER_S
+
+
+def run_audit_forward_retry_if_due():
+    """Cadence: drain the audit-forward spool, and own the failed/recovered
+    events.
+
+    The events fire from HERE, not from `audit_log`'s inline path, for two
+    reasons. `audit_log` runs under the deferred-effects rule and firing per
+    failed entry would produce one alert per audited action during an outage —
+    a storm precisely when the operator is least able to read it. And a
+    recovery is only observable by a successful drain, which is this function.
+    """
+    cfg = _config_ro()
+    st = _audit_forward_state()
+    entries = st.get('entries') or []
+    failing_since = int(st.get('failing_since') or 0)
+    if not entries and not failing_since:
+        return
+    now = int(time.time())
+    if now - int(st.get('last_retry') or 0) < _AUDIT_FORWARD_RETRY_INTERVAL:
+        return
+    if not cfg.get('audit_forward_enabled'):
+        # Forwarding was switched off while entries were parked. Keep them —
+        # switching it back on should not have silently lost the backlog — but
+        # stop retrying and stop claiming a live failure.
+        with _LockedUpdate(AUDIT_FORWARD_SPOOL_FILE) as w:
+            w['last_retry'] = now
+            w.pop('failing_since', None)
+        return
+    sent, err = 0, ''
+    for e in list(entries):
+        try:
+            why = _forward_audit(e, cfg)
+        except Exception as _e:
+            err = str(_e)[:300]
+            break
+        if why:
+            err = why
+            break
+        sent += 1
+    pending = []
+    with _LockedUpdate(AUDIT_FORWARD_SPOOL_FILE) as w:
+        rest = (w.get('entries') or [])[sent:]
+        w['entries'] = rest
+        w['last_retry'] = now
+        w['last_attempt'] = now
+        if rest or err:
+            w['last_error'] = err or w.get('last_error', '')
+            if not w.get('failing_since'):
+                w['failing_since'] = now
+            elif now - int(w['failing_since']) >= _AUDIT_FORWARD_ALERT_AFTER_S \
+                    and not w.get('alerted'):
+                w['alerted'] = True
+                pending.append(('audit_forward_failed', {
+                    'backlog': len(rest),
+                    'dropped': int(w.get('dropped') or 0),
+                    'failing_since': int(w['failing_since']),
+                    'error': (err or w.get('last_error', ''))[:200],
+                }))
+        else:
+            if w.get('alerted'):
+                pending.append(('audit_forward_recovered', {
+                    'delivered': sent,
+                    'dropped': int(w.get('dropped') or 0),
+                }))
+            w.pop('failing_since', None)
+            w.pop('alerted', None)
+            w.pop('last_error', None)
+            w['last_ok'] = now
+    # fire_webhook takes its own lock — outside the block, as always.
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """v3.8.0: a redirect handler that refuses to follow 3xx — so a
     server-initiated POST (audit forward) can't be bounced past the SSRF guard
@@ -7341,16 +7516,24 @@ def _forward_audit(entry, cfg):
                  `audit_forward_token`. SSRF-guarded like outbound webhooks.
       * syslog — RFC 5424 line over UDP or TCP to
                  `audit_forward_host`:`audit_forward_port` (default 514).
+
+    v6.4.2: returns '' when the entry was delivered, or a short REASON string
+    when it was declined. The three decline paths (no target configured, the
+    SSRF guard rejecting the destination, DNS not resolving) used to be bare
+    `return`s, indistinguishable from success to the caller — so an operator
+    whose collector moved onto an address `webhook_block_local` matches lost
+    every entry with nothing raised and nothing logged. A raise would be wrong
+    here: these are decisions, not errors.
     """
     mode = (cfg.get('audit_forward_mode') or 'http').lower()
     if mode == 'http':
         url = (cfg.get('audit_forward_url') or '').strip()
         if not url:
-            return
+            return 'no audit_forward_url configured'
         _block_local = cfg.get('webhook_block_local', True)
         if _url_targets_local_or_meta(urllib.parse.urlparse(url),
                                       allow_loopback=not _block_local):
-            return
+            return 'destination blocked by the SSRF guard (webhook_block_local)'
         data = json.dumps({'source': 'remotepower', 'event': entry}).encode()
         headers = {'Content-Type': 'application/json'}
         tok = (cfg.get('audit_forward_token') or '').strip()
@@ -7365,10 +7548,11 @@ def _forward_audit(entry, cfg):
         opener = _ssrf_safe_opener(allow_loopback=not _block_local,
                                    ssl_ctx=_ctx, no_redirect=True)
         opener.open(req, timeout=5).close()
+        return ''
     elif mode == 'syslog':
         host = (cfg.get('audit_forward_host') or '').strip()
         if not host:
-            return
+            return 'no audit_forward_host configured'
         _block_local = cfg.get('webhook_block_local', True)
         try:
             port = int(cfg.get('audit_forward_port') or 514)
@@ -7384,15 +7568,15 @@ def _forward_audit(entry, cfg):
         sock_kind = socket.SOCK_STREAM if use_tcp else socket.SOCK_DGRAM
         try:
             infos = socket.getaddrinfo(host, port, type=sock_kind)
-        except Exception:
-            return
+        except Exception as _dns:
+            return f'{host} does not resolve ({str(_dns)[:80]})'
         if not infos:
-            return
+            return f'{host} does not resolve'
         family, _stype, _proto, _canon, sockaddr = infos[0]
         ip = sockaddr[0]
         if _url_targets_local_or_meta(urllib.parse.urlparse(f'//{ip}'),
                                       allow_loopback=not _block_local):
-            return
+            return 'destination blocked by the SSRF guard (webhook_block_local)'
         # RFC 5424: <PRI>VERSION TIMESTAMP HOST APP PROCID MSGID STRUCTURED MSG
         # PRI = facility(13=audit/log_audit→ use 13*8) + severity(5=notice)=109
         ts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(entry.get('ts', int(time.time()))))
@@ -7409,6 +7593,8 @@ def _forward_audit(entry, cfg):
                 s.sendto(payload, sockaddr)
             finally:
                 s.close()
+        return ''
+    return f'unknown audit_forward_mode {mode!r}'
 
 
 def handle_audit_forward_test():
@@ -7424,9 +7610,15 @@ def handle_audit_forward_test():
                   'detail': 'RemotePower audit forwarding test', 'source_ip': _get_client_ip(),
                   'user_agent': 'remotepower-selftest'}
     try:
-        _forward_audit(test_entry, cfg)
+        why = _forward_audit(test_entry, cfg)
     except Exception as e:
         respond(502, {'error': f'Forward failed: {str(e)[:200]}'})
+    # v6.4.2: the decline paths (no target, SSRF-blocked, DNS failure) returned
+    # silently, so this reported "Test entry sent" for a forward that never
+    # left the box — the test button an operator uses precisely to prove the
+    # pipe works was the one place it could lie.
+    if why:
+        respond(502, {'error': f'Forward declined: {why}'})
     respond(200, {'ok': True, 'message': 'Test entry sent to the configured destination.'})
 
 
@@ -53736,9 +53928,29 @@ def handle_security_posture():
         'on' if _wbl else 'off',
         'Re-enable it under Settings → Security → Account guardrails.', fix_tab='security')
     fwd = bool(cfg.get('audit_forward_enabled') or cfg.get('siem_enabled'))
-    add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
-        'configured' if fwd else 'not configured',
-        'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).', fix_tab='security')
+    # v6.4.2: this row used to answer "is a SIEM URL configured?" and present it
+    # as if it answered "is the SIEM getting the audit log?" — so a collector
+    # that had been down for three days still read ok. It now fails on a real
+    # backlog, which is the question a SOC 2 auditor is actually asking.
+    _afs = _audit_forward_state() if cfg.get('audit_forward_enabled') else {}
+    _af_backlog = len(_afs.get('entries') or [])
+    _af_dropped = int(_afs.get('dropped') or 0)
+    if fwd and (_af_backlog or _af_dropped):
+        _detail = f'{_af_backlog} entr{"y" if _af_backlog == 1 else "ies"} not delivered'
+        if _af_dropped:
+            _detail += f', {_af_dropped} dropped past the spool cap'
+        _err = str(_afs.get('last_error') or '')[:80]
+        if _err:
+            _detail += f' — {_err}'
+        add('audit_forward', 'Audit/events forwarded to a SIEM', False, _detail,
+            'The audit log is not reaching the SIEM. Fix the destination under '
+            'Settings → Security → Audit log forwarding — spooled entries are '
+            'retried automatically and delivered once it recovers.',
+            fix_tab='security')
+    else:
+        add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
+            'configured' if fwd else 'not configured',
+            'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).', fix_tab='security')
     _worm_p = (cfg.get('audit_worm_path') or '').strip()
     add('audit_worm', 'Append-only (WORM) audit sink', bool(_worm_p),
         _worm_p or 'not configured',
@@ -67584,6 +67796,7 @@ def main():
     _safe(run_thermal_rollup_if_due, 'run_thermal_rollup_if_due')
     # W5-6: re-materialize smart-group membership (~60s cadence).
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
+    _safe(run_audit_forward_retry_if_due, 'run_audit_forward_retry_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
     _safe(run_ignored_prune_if_due, 'run_ignored_prune_if_due')      # v6.4.0 #1 ignore GC
