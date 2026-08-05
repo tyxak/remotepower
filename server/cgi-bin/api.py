@@ -25234,6 +25234,123 @@ def _declarative_collections():
     }
 
 
+
+# ── v6.4.2: scalar settings in the declarative document ──────────────────────
+#
+# The export covered the 18 operator-authored RESOURCE collections and no scalar
+# setting. So an operator who did exactly what the document invites — "safe to
+# commit to version control", commit it, treat git as the source of truth — got
+# their monitors, checks, rules and windows back on a rebuild, and every
+# threshold they had tuned over six months silently reverted to its shipped
+# default. The inode warning percent, the CVSS bands, the disk-fill forecast R²,
+# the risk-factor weights they zeroed to kill a false-positive class: all gone,
+# and the fleet starts paging on rules they retired months ago. Nothing in the
+# export, the import report or the docs said the scalars were not carried.
+#
+# Exported as a SEPARATE `settings` block rather than folded into `resources`,
+# because they reconcile differently: resources are whole-collection replace,
+# and blanket-replacing every config scalar would clobber the ones that are
+# per-install infrastructure (storage backend, tokens, SSO) rather than tuning.
+#
+# The allowlist is derived, not hand-kept: everything the Alert-parameters save
+# loop accepts, plus the named behavioural switches. A new tunable added through
+# the standard five-place path is carried automatically.
+_DECLARATIVE_SETTING_PREFIXES = (
+    'health_weight_', 'risk_weight_', 'reliability_weight_',
+)
+_DECLARATIVE_SETTING_KEYS = frozenset({
+    # cadence + retention
+    'online_ttl', 'min_online_ttl', 'monitor_interval', 'default_poll_interval',
+    'offline_missed_polls', 'monitor_history_max', 'command_history_max',
+    'audit_log_retention_days', 'webhook_log_retention_days',
+    'history_retention_days', 'log_buffer_retention_hours',
+    'attention_event_ttl_hours',
+    # batch safety rails
+    'batch_max_devices', 'batch_max_fleet_percent',
+    # behavioural switches an operator tunes and would expect to survive
+    'external_scheduler', 'change_approval_enabled', 'approval_gated_kinds',
+    'change_approval_no_self', 'viewers_can_ack_alerts',
+    'incident_auto_promote_enabled', 'incident_device_threshold',
+    'quiet_hours', 'show_homelab', 'notifications_test_mode',
+    # module kill switches (_MODULES rows) are added below
+})
+
+
+
+@functools.lru_cache(maxsize=1)
+def _alert_param_config_keys():
+    """Every config key the threshold save-loops accept, parsed from api.py.
+
+    Source-derived on purpose: handle_config_save's int loop, float loop and
+    _weight_param_specs() are the authority on what is tunable, and a
+    hand-maintained copy would silently miss the next one added.
+    """
+    keys = set()
+    try:
+        src = Path(__file__).read_text()
+        i = src.index("\n    for _tk, _lo, _hi, _blankable in (")
+        # Both threshold loops live in one span; the float loop follows the int
+        # one immediately, and both use the same `('key', lo, hi, blankable)`
+        # tuple shape.
+        keys.update(re.findall(r"\(\s*'([a-z0-9_]+)'\s*,\s*-?[\d.]+\s*,",
+                               src[i:i + 20000]))
+    except Exception:
+        pass
+    try:
+        keys.update(k for k, _lo, _hi, _b in _weight_param_specs())
+    except Exception:
+        pass
+    return frozenset(keys)
+
+
+def _declarative_settings_allowed():
+    """The key set the settings block may carry, in BOTH directions.
+
+    Shared by the exporter and the importer on purpose: two lists would drift,
+    and a key exportable but not importable is a setting that silently does not
+    come back on a rebuild — which is the finding, one level down.
+    """
+    keys = set(_DECLARATIVE_SETTING_KEYS)
+    try:
+        for _name, _spec in (_MODULES or {}).items():
+            keys.add(_spec[0])
+    except Exception:
+        pass
+    try:
+        keys.update(_alert_param_config_keys())
+    except Exception:
+        pass
+    return keys
+
+
+def _declarative_settings():
+    """The scalar tuning an operator would expect a git rebuild to restore.
+
+    Derived from the threshold save-loop plus the named switches above, so a new
+    tunable added through the standard five-place path is carried without
+    anybody remembering to add it here. Secrets and per-install infrastructure
+    (tokens, SSO, storage, SMTP, URLs) are never included — those are re-entered
+    on a rebuild by design, and putting them in a document the note calls "safe
+    to commit" would be the opposite of safe.
+    """
+    cfg = _config_ro() or {}
+    keys = _declarative_settings_allowed()
+    out = {}
+    for k in sorted(keys):
+        if k not in cfg:
+            continue                   # never exported at its default
+        v = cfg[k]
+        if isinstance(v, (int, float, bool, str)) or isinstance(v, (list, dict)):
+            out[k] = v
+    for k, v in cfg.items():
+        if k.startswith(_DECLARATIVE_SETTING_PREFIXES) and isinstance(v, (int, float)):
+            out[k] = v
+    # Belt and braces: nothing secret-named can reach a document the note calls
+    # safe to commit, whatever the allowlist says.
+    _scrub_config_secrets(out)
+    return out
+
+
 def _build_declarative_config():
     """Assemble the declarative-config document with all secrets redacted."""
     import copy as _copy
@@ -25271,6 +25388,9 @@ def _build_declarative_config():
         'note':           'Secrets shown as "(redacted)" must be re-entered on '
                           'import. This document is safe to commit to version control.',
         'resources':      resources,
+        # v6.4.2: the scalar tuning, separate from `resources` because it
+        # reconciles differently (merge, not whole-collection replace).
+        'settings':       _declarative_settings(),
     }
 
 
@@ -25434,6 +25554,28 @@ def _declarative_apply(doc, actor, dry_run=True):
                 file_writes.append((m['file'], m['inner'], inc))
             elif m['kind'] == 'file_raw':
                 file_writes.append((m['file'], None, inc))
+
+    # v6.4.2: the scalar settings block. MERGE, not whole-collection replace —
+    # a config key absent from the document is left alone, because the document
+    # deliberately carries only operator TUNING and never the per-install
+    # infrastructure (storage, tokens, SSO, SMTP) that sits in the same file.
+    # Keys outside the allowlist are refused rather than silently applied, so a
+    # hand-edited document cannot use this path to write anything it likes into
+    # config.json — including a secret the exporter would never have emitted.
+    _settings_in = doc.get('settings')
+    if isinstance(_settings_in, dict):
+        allowed = _declarative_settings_allowed()
+        applied, refused = {}, []
+        for k, v in _settings_in.items():
+            if k in allowed and not _SECRET_KEY_RE.search(str(k)):
+                applied[k] = v
+            else:
+                refused.append(str(k)[:64])
+        report['settings'] = {'applied': len(applied), 'refused': refused[:20]}
+        if applied:
+            cfg_writes.update(applied)
+    elif _settings_in is not None:
+        report['settings'] = {'skipped': 'expected an object'}
 
     if not dry_run and (cfg_writes or file_writes):
         if cfg_writes:
