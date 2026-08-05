@@ -151,6 +151,22 @@ product has always computed for its own screens and never let you take away.
 
 ### Reports that carry your name
 
+- **A scheduled report emailed a preview of itself, not the report.** A report
+  definition saved as CSV sent the plain-text summary and nothing else — the
+  sweep never read the `format` field at all, so `attachments` was empty on
+  every send, while the mailer had working multipart support the whole time.
+  Scheduled reports now arrive with the CSV or JSON attached, named after the
+  definition so several of them do not land in an inbox as the same filename.
+  The readable summary stays in the body; the attachment is the artifact.
+  A failure building the file degrades to today's behaviour rather than costing
+  you the email.
+- **The documented metrics sample was eight families behind the exporter.**
+  Anyone wiring a dashboard from `docs/prometheus-metrics-sample.txt` was
+  working from a short list. Regenerated — and the guardrail now catches this
+  direction of drift, which it could not before: it checked that the sample
+  documents nothing the exporter has dropped, but never that the exporter emits
+  nothing the sample has missed.
+
 - **The printable report ignored your branding.** It is the artifact an operator
   hands to a customer, and it was the one surface that still said "RemotePower"
   in its title, its footer and its metadata line, with the RemotePower wordmark

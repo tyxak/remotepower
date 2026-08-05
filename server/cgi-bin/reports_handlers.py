@@ -678,10 +678,34 @@ def _maybe_send_report_definitions():
             A.sys.stderr.write(f"[remotepower] custom report '{d.get('name')}' "
                                f"build failed: {e}\n")
             continue
+        # v6.4.2: attach the report itself. A definition saved with format=csv
+        # still emailed only the plain-text summary — the operator scheduled an
+        # artifact and received a preview of it. The plain-text body STAYS (it is
+        # the readable preview); the attachment is the thing they asked for.
+        #
+        # Built here rather than through enqueue_job on purpose: job payloads are
+        # JSON-serialised and raw bytes would blow up. This sweep does not use
+        # the job queue, and this keeps it that way.
+        _atts = None
+        try:
+            _slug = A.re.sub(r'[^a-z0-9]+', '-',
+                             str(d.get('name') or 'report').lower()).strip('-') or 'report'
+            _stamp = A.time.strftime('%Y%m%d')
+            if (d.get('format') or 'json') == 'csv':
+                _atts = [(f'{_slug}-{_stamp}.csv', 'text/csv',
+                          _fleet_report_csv_bytes(report))]
+            else:
+                _atts = [(f'{_slug}-{_stamp}.json', 'application/json',
+                          A.json.dumps(report, indent=2, default=str).encode())]
+        except Exception as _e:
+            # A broken attachment must not cost the operator the whole report.
+            A.sys.stderr.write(f"[remotepower] report attachment build failed: {_e}\n")
+            _atts = None
         if recipients:
             try:
                 A.smtp_notifier.send_email(cfg, recipients, subject, body,
-                                           html_body=A.smtp_notifier.brand_html(cfg, subject, body))
+                                           html_body=A.smtp_notifier.brand_html(cfg, subject, body),
+                                           attachments=_atts)
                 A._log_email('fleet_report', recipients, 'ok', d.get('name', ''))
             except A.smtp_notifier.SmtpError as e:
                 A._log_email('fleet_report', recipients, 'error', str(e))

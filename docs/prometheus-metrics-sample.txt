@@ -17,8 +17,8 @@ remotepower_device_online{device="abc123",name="web-1",group="prod"} 1
 remotepower_device_online{device="def456",name="nas-1",group="lab"} 0
 # HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
 # TYPE remotepower_device_last_seen_timestamp_seconds gauge
-remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1785625287
-remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1785618087
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1785923832
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas-1",group="lab"} 1785916632
 # HELP remotepower_device_cpu_percent CPU utilization percentage.
 # TYPE remotepower_device_cpu_percent gauge
 remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 12
@@ -50,7 +50,7 @@ remotepower_device_cve_findings{device="def456",name="nas-1",group="lab",severit
 remotepower_monitor_up{label="website",type="http",target="https://example.com/"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
-remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1785025587
+remotepower_monitor_last_check_timestamp_seconds{label="website",type="http",target="https://example.com/"} 1785324132
 # HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
 # TYPE remotepower_service_active gauge
 # HELP remotepower_services_down_total Number of watched services currently not active per device.
@@ -108,3 +108,56 @@ remotepower_slo_object_availability_percent{name="Public web"} 99.95
 # HELP remotepower_slo_object_budget_remaining_percent Error budget remaining for the SLA/SLO object (omitted while the window holds too few checks to resolve the target).
 # TYPE remotepower_slo_object_budget_remaining_percent gauge
 remotepower_slo_object_budget_remaining_percent{name="Public web"} 50.0
+# HELP remotepower_device_risk_score Per-device security-posture risk score (0-100, higher is worse).
+# TYPE remotepower_device_risk_score gauge
+remotepower_device_risk_score{device="def456",name="nas-1",group="lab"} 25.0
+remotepower_device_risk_score{device="abc123",name="web-1",group="prod"} 0.0
+# HELP remotepower_risk_devices Devices per risk level.
+# TYPE remotepower_risk_devices gauge
+remotepower_risk_devices{level="critical"} 0
+remotepower_risk_devices{level="high"} 0
+remotepower_risk_devices{level="low"} 1
+remotepower_risk_devices{level="medium"} 1
+# HELP remotepower_device_reliability_score Per-device predicted failure likelihood (0-100, higher is worse).
+# TYPE remotepower_device_reliability_score gauge
+remotepower_device_reliability_score{device="abc123",name="web-1",group="prod"} 0.0
+remotepower_device_reliability_score{device="def456",name="nas-1",group="lab"} 0.0
+# HELP remotepower_reliability_devices Devices per failure-likelihood level.
+# TYPE remotepower_reliability_devices gauge
+remotepower_reliability_devices{level="critical"} 0
+remotepower_reliability_devices{level="high"} 0
+remotepower_reliability_devices{level="low"} 2
+remotepower_reliability_devices{level="medium"} 0
+# HELP remotepower_compliance_pass_ratio Severity-weighted share of baseline checks passing fleet-wide (0-1).
+# TYPE remotepower_compliance_pass_ratio gauge
+remotepower_compliance_pass_ratio 1.0
+# HELP remotepower_compliance_devices_evaluated Devices with enough telemetry for the baseline to be evaluated.
+# TYPE remotepower_compliance_devices_evaluated gauge
+remotepower_compliance_devices_evaluated 2
+# HELP remotepower_device_compliance_pass_ratio Share of applicable baseline checks this host passes (0-1).
+# TYPE remotepower_device_compliance_pass_ratio gauge
+remotepower_device_compliance_pass_ratio{device="abc123",name="web-1",group="prod"} 1.0
+remotepower_device_compliance_pass_ratio{device="def456",name="nas-1",group="lab"} 1.0
+# HELP remotepower_compliance_check_devices Devices per outcome for one baseline check (result: pass, fail or na).
+# TYPE remotepower_compliance_check_devices gauge
+remotepower_compliance_check_devices{check="cis-patches",severity="high",result="pass"} 0
+remotepower_compliance_check_devices{check="cis-patches",severity="high",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-patches",severity="high",result="na"} 2
+remotepower_compliance_check_devices{check="cis-reboot",severity="medium",result="pass"} 0
+remotepower_compliance_check_devices{check="cis-reboot",severity="medium",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-reboot",severity="medium",result="na"} 2
+remotepower_compliance_check_devices{check="cis-failed",severity="medium",result="pass"} 0
+remotepower_compliance_check_devices{check="cis-failed",severity="medium",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-failed",severity="medium",result="na"} 2
+remotepower_compliance_check_devices{check="cis-disk",severity="high",result="pass"} 2
+remotepower_compliance_check_devices{check="cis-disk",severity="high",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-disk",severity="high",result="na"} 0
+remotepower_compliance_check_devices{check="cis-swap",severity="low",result="pass"} 0
+remotepower_compliance_check_devices{check="cis-swap",severity="low",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-swap",severity="low",result="na"} 2
+remotepower_compliance_check_devices{check="cis-cve",severity="high",result="pass"} 0
+remotepower_compliance_check_devices{check="cis-cve",severity="high",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-cve",severity="high",result="na"} 2
+remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="pass"} 0
+remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="fail"} 0
+remotepower_compliance_check_devices{check="cis-integrity",severity="medium",result="na"} 2

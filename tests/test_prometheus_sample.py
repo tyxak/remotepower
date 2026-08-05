@@ -53,6 +53,41 @@ class TestSampleTracksExporter(unittest.TestCase):
                          "tools/gen-prometheus-sample.py\n  "
                          + "\n  ".join(stale))
 
+    def test_sample_is_not_behind_the_exporter(self):
+        """The drift direction the other pins miss.
+
+        `test_no_stale_metric_names` catches a REMOVED gauge, and MUST_HAVE is a
+        hand-kept list — so a newly ADDED family simply never appears, and the
+        sample silently documents less than the product emits. That is exactly
+        what happened: the sample sat at 30 families while the exporter emitted
+        38, and every existing pin stayed green.
+
+        Regenerating in-memory with the tool's own seed and diffing the family
+        set makes the whole class structural instead of remembered.
+        """
+        import subprocess
+        import sys as _sys
+        gen = ROOT / "tools" / "gen-prometheus-sample.py"
+        if not gen.exists():
+            self.skipTest("generator excluded from this tree")
+        before = _SAMPLE.read_text()
+        try:
+            r = subprocess.run([_sys.executable, str(gen)], cwd=str(ROOT),
+                               capture_output=True, text=True, timeout=180)
+            if r.returncode != 0:
+                self.skipTest(f"generator could not run here: {r.stderr[-200:]}")
+            regenerated = _SAMPLE.read_text()
+        finally:
+            # Never leave the working tree modified by a test.
+            _SAMPLE.write_text(before)
+        names = lambda t: set(re.findall(r"^# HELP (remotepower_\w+)", t, re.M))
+        missing = sorted(names(regenerated) - names(before))
+        self.assertEqual(missing, [],
+                         "the committed sample is BEHIND the exporter — these "
+                         "families are emitted but undocumented. Regenerate: "
+                         "python3 tools/gen-prometheus-sample.py\n  "
+                         + "\n  ".join(missing))
+
     def test_must_have_families_present(self):
         missing = sorted(n for n in MUST_HAVE
                          if f"# HELP {n}" not in self.sample)
