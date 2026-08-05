@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-12">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-13">
 
 </head>
 <body>
@@ -5809,14 +5809,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.2: agent integrity attestation -->
         <div class="dash-card mb-16">
-          <div class="section-title">Agent integrity</div>
+          <div class="section-header mb-8"><div class="section-title">Agent integrity</div><button class="btn-icon btn-xs" data-action="tblExportCsv" data-arg="reports_integrity" title="Download this table as CSV" aria-label="Download Agent integrity as CSV"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div>
           <div class="page-subtitle mb-12">Each agent reports its own binary hash; the server attests it matches the canonical published build. A mismatch on the current version flags tampering, corruption, or a partial update.</div>
           <div id="reports-integrity"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- v3.4.2: statistical resource anomalies -->
         <div class="dash-card mb-16">
-          <div class="section-title">Resource anomalies</div>
+          <div class="section-header mb-8"><div class="section-title">Resource anomalies</div><button class="btn-icon btn-xs" data-action="tblExportCsv" data-arg="reports_anomalies" title="Download this table as CSV" aria-label="Download Resource anomalies as CSV"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div>
           <div class="page-subtitle mb-12">Hosts whose latest memory / swap / disk reading deviates sharply from their own recent baseline (statistical, model-free).</div>
           <label class="form-row mb-12"><input type="checkbox" id="anomalies-seasonal" data-change="loadReportsAnomalies"> <span class="form-label">Seasonal baselines — score each host against its matching day-of-week × 4-hour window (falls back to the flat baseline until ~2 weeks of data)</span></label>
           <div id="reports-anomalies"><div class="c-muted">Loading…</div></div>
@@ -5824,7 +5824,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.2: software metering / license compliance -->
         <div class="dash-card mb-16">
-          <div class="section-title">Software metering</div>
+          <div class="section-header mb-8"><div class="section-title">Software metering</div><button class="btn-icon btn-xs" data-action="tblExportCsv" data-arg="metering" title="Download this table as CSV" aria-label="Download Software metering as CSV"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div>
           <div class="page-subtitle mb-12">Track install counts of named software across the fleet against an allowance. One per line as <span class="ff-mono">name = limit</span> (limit 0 = just count). Matches package names in the collected inventory.</div>
           <div class="mb-12"><textarea id="metering-config" class="form-input ff-mono fs-12" rows="3" placeholder="nginx = 10&#10;teamviewer = 0&#10;openssl = 0 | libssl3, openssl-libs" aria-label="nginx = 10 teamviewer = 0 openssl = 0 | libssl3, openssl-libs"></textarea></div>
           <div class="row-8-center mb-12"><button class="btn-primary" data-action="saveMetering">Save &amp; scan</button><span id="metering-status" class="fs-12 c-muted"></span></div>
@@ -5833,7 +5833,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.1: SLA / uptime -->
         <div class="dash-card mb-16">
-          <div class="row-8-center mb-12"><div class="section-title">Uptime (SLA)</div>
+          <div class="row-8-center mb-12"><div class="section-header mb-8"><div class="section-title">Uptime (SLA)</div><button class="btn-icon btn-xs" data-action="tblExportCsv" data-arg="sla" title="Download this table as CSV" aria-label="Download Uptime (SLA) as CSV"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div>
             <select id="sla-days" class="form-input input-auto" data-change="loadReportsSla" aria-label="Days">
               <option value="7">7 days</option>
               <option value="30" selected>30 days</option>
@@ -11232,38 +11232,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-12"></script>
+<script defer src="static/js/app.js?v=6.4.2-13"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-12"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-13"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-12"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-13"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-12"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-13"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-12"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-12"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-13"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-13"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-12"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-13"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11273,6 +11273,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-12"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-13"></script>
 </body>
 </html>

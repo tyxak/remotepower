@@ -246,3 +246,63 @@ class TestSudoSearchIsScoped(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestReportsTablesExport(unittest.TestCase):
+    """The Reports page's four data tables use the sortRows + wireSortOnly path,
+    which never populated the registry entry `exportCsv` requires — so they could
+    sort but never export, while `render()`-based tables elsewhere could."""
+
+    _PAIRS = [('Agent integrity', 'reports_integrity'),
+              ('Resource anomalies', 'reports_anomalies'),
+              ('Software metering', 'metering'),
+              ('Uptime (SLA)', 'sla')]
+
+    def _reports_page(self):
+        i = _HTML.index('id="page-reports"')
+        j = _HTML.index('<div id="page-', i + 10)
+        return _HTML[i:j]
+
+    def test_each_table_offers_an_export(self):
+        page = self._reports_page()
+        for title, prefs in self._PAIRS:
+            self.assertIn(f'data-action="tblExportCsv" data-arg="{prefs}"', page,
+                          f'{title} has no CSV export')
+
+    def test_the_prefs_names_match_the_tables_that_register_them(self):
+        """An export button naming a prefs key no table registers is a silent
+        no-op — exportCsv returns early and nothing happens."""
+        for _title, prefs in self._PAIRS:
+            self.assertRegex(_APP, r"wireSortOnly\(\s*'[^']*'\s*,\s*'" + re.escape(prefs) + r"'",
+                             f"no table registers the prefs name {prefs!r}")
+
+    def test_sortrows_populates_what_exportcsv_requires(self):
+        """The shared plumbing fix. Without it every button above is a no-op."""
+        m = re.search(r"function sortRows\(prefsName, rows, getColumns\) \{.*?\n  \}", _APP, re.S)
+        self.assertIsNotNone(m, 'sortRows not found')
+        self.assertIn('_lastRows', m.group(0))
+        self.assertIn('getColumns', m.group(0))
+
+    def test_wiresortonly_merges_so_it_cannot_be_skipped(self):
+        """sortRows now creates the registry entry, so the old
+        `if (!_registry[name])` guard would make a later wireSortOnly skip and
+        silently drop the sort headers."""
+        m = re.search(r"function wireSortOnly\(theadId, prefsName, rerender\) \{.*?\n  \}", _APP, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('Object.assign', m.group(0))
+        self.assertNotIn('if (!_registry[prefsName]) {', m.group(0))
+
+    def test_the_buttons_are_icon_only(self):
+        """A text label in static index.html is i18n-gate-scanned and would need
+        six translations; an icon button with aria-label is not."""
+        page = self._reports_page()
+        for _t, prefs in self._PAIRS:
+            i = page.index(f'data-arg="{prefs}"')
+            open_tag_end = page.index('>', i)
+            tag = page[i:open_tag_end]
+            self.assertIn('aria-label', tag, f'{prefs} button has no accessible name')
+            # No visible word between the tag and </button> — only the inline SVG.
+            inner = page[open_tag_end + 1:page.index('</button>', i)]
+            self.assertNotRegex(inner, r'>\s*[A-Za-z]{3,}\s*<',
+                                f'{prefs} button carries visible text, which the '
+                                f'i18n gate scans and would need 6 translations')

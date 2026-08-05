@@ -729,15 +729,27 @@ const tableCtl = (() => {
     const opts = { name: prefsName, sortHeaders: theadId, refresh: rerender };
     // Keep a registry entry so sort indicators render correctly even when
     // the renderer is custom. Filter is not wired (the renderer handles it).
-    if (!_registry[prefsName]) {
-      _registry[prefsName] = opts;
-    }
+    // v6.4.2: MERGE rather than skip. Several callers run sortRows() before
+    // wireSortOnly(), and sortRows now creates the entry (see below) — with the
+    // old `if (!_registry[...])` guard that stub would make this call skip,
+    // silently dropping sortHeaders/refresh and killing the sort indicators.
+    // No table uses both register() and wireSortOnly(), so nothing is clobbered.
+    _registry[prefsName] = Object.assign(_registry[prefsName] || {}, opts);
     // Re-wire on every call (safe — addEventListener on new th elements).
     _wireHeaders(opts);
   }
 
   function sortRows(prefsName, rows, getColumns) {
     const prefs = getTablePrefs(prefsName);
+    // v6.4.2: stash what exportCsv needs. It hard-returns unless the registry
+    // entry carries _lastRows, and only render() ever set that — so the ~71
+    // custom-rendered tables (Reports, and every other wireSortOnly table)
+    // could sort but never export. Callers already hand us the FILTERED rows
+    // plus the exact column projection, which is precisely exportCsv's
+    // contract, so this is the natural place to capture it.
+    const o = (_registry[prefsName] = _registry[prefsName] || { name: prefsName });
+    o._lastRows = rows;
+    o.getColumns = getColumns;
     return _applySort(rows, prefs.sort || [], getColumns);
   }
 

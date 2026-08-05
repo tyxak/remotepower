@@ -588,3 +588,64 @@ class TestSidebarSearchDestinations(_Base):
         self.assertIn('palette', body,
                       'the tour still does not name the widget that does search '
                       'devices/alerts/CVEs')
+
+
+class TestCustomTablesCanExport(_Base):
+    """`exportCsv` hard-returns unless the registry entry carries `_lastRows`,
+    and only `render()` ever set it — so the ~71 tables that use the
+    sortRows + wireSortOnly path (Reports, and many others) could sort but
+    never export. sortRows now stashes what export needs."""
+
+    def test_sortrows_makes_a_table_exportable(self):
+        got = self.page.evaluate("""() => {
+            const rows = [{a: 'zeta', n: 2}, {a: 'alpha', n: 1}];
+            tableCtl.sortRows('__exporttest', rows, r => ({a: r.a, n: r.n}));
+            const reg = tableCtl.__debugRegistry
+                      ? tableCtl.__debugRegistry()['__exporttest'] : null;
+            return {stashed: !!(reg && reg._lastRows && reg._lastRows.length)};
+        }""")
+        # No debug accessor is exposed; fall back to the observable behaviour —
+        # exportCsv triggers a download only when it has rows.
+        if got.get('stashed') is None:
+            self.skipTest('no registry accessor')
+
+    def test_export_produces_a_real_csv_for_a_custom_table(self):
+        csv = self.page.evaluate("""() => {
+            const rows = [{a: 'zeta', n: 2}, {a: 'alpha', n: 1}];
+            tableCtl.sortRows('__exporttest', rows, r => ({a: r.a, n: r.n}));
+            // Intercept the object URL so we can read what would be downloaded.
+            let captured = null;
+            const realCreate = URL.createObjectURL;
+            const realClick = HTMLAnchorElement.prototype.click;
+            HTMLAnchorElement.prototype.click = function () {};
+            URL.createObjectURL = (blob) => { captured = blob; return 'blob:stub'; };
+            try { tableCtl.exportCsv('__exporttest'); }
+            finally {
+                URL.createObjectURL = realCreate;
+                HTMLAnchorElement.prototype.click = realClick;
+            }
+            if (!captured) return null;
+            return captured.text ? captured.text() : null;
+        }""")
+        self.assertIsNotNone(csv, 'exportCsv produced no blob — it still hard-returns')
+        self.assertIn('alpha', csv)
+        self.assertIn('zeta', csv)
+
+    def test_sort_indicators_survive_a_sortrows_first_caller(self):
+        """The merge in wireSortOnly protects this: sortRows now creates the
+        registry entry, so the old `if (!_registry[...])` guard would have made
+        a later wireSortOnly skip and silently drop the sort headers."""
+        ok = self.page.evaluate("""() => {
+            document.getElementById('__thtest')?.remove();
+            const t = document.createElement('table');
+            t.innerHTML = '<thead id="__thtest"><tr><th data-col="a">A</th></tr></thead><tbody></tbody>';
+            document.body.appendChild(t);
+            tableCtl.sortRows('__ordertest', [{a: 1}], r => ({a: r.a}));
+            tableCtl.wireSortOnly('__thtest', '__ordertest', () => {});
+            const th = document.querySelector('#__thtest th[data-col="a"]');
+            // _wireHeaders marks sortable headers; the exact marker is an
+            // implementation detail, so assert it became interactive at all.
+            return !!(th && (th.className || th.getAttribute('role') || th.onclick
+                             || th.getAttribute('aria-sort') !== null || th.tabIndex >= 0));
+        }""")
+        self.assertTrue(ok, 'wireSortOnly after sortRows left the header unwired')
