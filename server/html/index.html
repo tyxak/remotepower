@@ -25,7 +25,7 @@
 <!-- (v6.0.0: the self-hosted Inter/JetBrains/IBM Plex/Space Grotesk sheets are
      no longer loaded — the design uses the system font stacks. The vendored
      files stay on disk until the final industrial cleanup.) -->
-<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-37">
+<link rel="stylesheet" href="static/css/styles.css?v=6.4.2-38">
 
 </head>
 <body>
@@ -963,6 +963,11 @@
           <!-- v3.5.0: site/team filter -->
           <select id="device-site-filter" aria-label="Filter devices by site" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All sites</option>
+          </select>
+          <!-- v6.4.2: smart-group filter. Hidden until the fleet has at least
+               one smart group (and for non-admins, who cannot read them). -->
+          <select id="device-smart-filter" aria-label="Filter devices by smart group" title="Filter to a smart group's live members" class="form-input input-auto hidden" data-change="filterDevices">
+            <option value="all">All smart groups</option>
           </select>
           <!-- v1.11.5: density toggle. Rendered programmatically so the
                selected state matches the user's stored preference on first
@@ -7017,8 +7022,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary class="section-title">Rolling reboot</summary>
             <p class="hint mt-8">Reboot a scope in <strong>dependency-ordered waves</strong> — devices nothing depends on first, upstreams last (from each device's declared <em>depends_on</em>). Each wave is health-gated and verified before the next, exactly like a rollout. Preview the waves, then create the rollout.</p>
             <div class="row-6-center mt-8">
-              <select id="rr-scope-type" class="form-input input-auto" data-change="rrScopeChange" aria-label="Reboot scope type"><option value="all">Whole fleet</option><option value="group">Group</option><option value="tag">Tag</option></select>
-              <input type="text" id="rr-scope-value" class="form-input input-auto hidden" placeholder="group / tag name" aria-label="Scope value">
+              <select id="rr-scope-type" class="form-input input-auto" data-change="rrScopeChange" aria-label="Reboot scope type"><option value="all">Whole fleet</option><option value="group">Group</option><option value="tag">Tag</option><option value="smart">Smart group</option></select>
+              <input type="text" id="rr-scope-value" class="form-input input-auto hidden" placeholder="group / tag / smart-group name" aria-label="Scope value">
               <label class="form-label"><input type="checkbox" id="rr-health-gate" checked> Health-gate</label>
               <label class="form-label"><input type="checkbox" id="rr-auto-promote"> Auto-promote waves</label>
               <button class="btn-secondary" data-action="previewRebootPlan">Preview waves</button>
@@ -10859,9 +10864,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group"><label>Rings (top to bottom; empty rings are skipped)</label>
     <div id="ro-rings">
-      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="canary" maxlength="40" aria-label="Rings (top to bottom; empty rings are skipped)"><select class="form-input input-auto ro-ring-type" aria-label="Ring type"><option value="group">group</option><option value="tag">tag</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / id,id" aria-label="group / tag / id,id"></div>
-      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="pilot" maxlength="40" aria-label="pilot"><select class="form-input input-auto ro-ring-type" aria-label="Ring type"><option value="group">group</option><option value="tag">tag</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / id,id" aria-label="group / tag / id,id"></div>
-      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="broad" maxlength="40" aria-label="broad"><select class="form-input input-auto ro-ring-type" aria-label="Ring type"><option value="group">group</option><option value="tag">tag</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / id,id" aria-label="group / tag / id,id"></div>
+      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="canary" maxlength="40" aria-label="Rings (top to bottom; empty rings are skipped)"><select class="form-input input-auto ro-ring-type" aria-label="Ring type"><option value="group">group</option><option value="tag">tag</option><option value="smart">smart group</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / smart-group / id,id" aria-label="group / tag / smart-group name / id,id"></div>
+      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="pilot" maxlength="40" aria-label="pilot"><select class="form-input input-auto ro-ring-type" aria-label="Ring type"><option value="group">group</option><option value="tag">tag</option><option value="smart">smart group</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / smart-group / id,id" aria-label="group / tag / smart-group name / id,id"></div>
+      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="broad" maxlength="40" aria-label="broad"><select class="form-input input-auto ro-ring-type" aria-label="Ring type"><option value="group">group</option><option value="tag">tag</option><option value="smart">smart group</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / smart-group / id,id" aria-label="group / tag / smart-group name / id,id"></div>
     </div>
   </div>
   <div class="form-group"><label>Verify window per ring (minutes)</label><input type="number" id="ro-verify" min="1" max="1440" value="30" aria-label="Verify window per ring (minutes)"></div>
@@ -10990,6 +10995,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-drift"> <span class="form-label">Has configuration drift</span></label></div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-reboot"> <span class="form-label">Reboot required</span></label></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="smart-group-modal">Cancel</button><button class="btn-primary" data-action="saveSmartGroup">Save group</button></div>
+</div></div>
+
+<!-- v6.4.2: smart-group members. Was rendered into a toast, which auto-dismissed
+     mid-read and offered no way to reach any of the hosts it named. -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sg-members-title" id="sg-members-modal"><div class="modal">
+  <div class="modal-title" id="sg-members-title">Smart group members</div>
+  <div class="modal-subtitle" id="sg-members-meta"></div>
+  <div id="sg-members-body" class="scroll-cap"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="sg-members-modal">Close</button></div>
 </div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
@@ -11342,38 +11356,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      /api/me reports one, and when the Settings language picker is opened.
      Every RPi18n call site in app.js is already `window.RPi18n && ...`-guarded,
      so its absence degrades to English rather than breaking. -->
-<script defer src="static/js/app.js?v=6.4.2-37"></script>
+<script defer src="static/js/app.js?v=6.4.2-38"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-cmdb.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-containers.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-network.js?v=6.4.2-37"></script>
+<script defer src="static/js/app-calendar.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-cmdb.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-containers.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-network.js?v=6.4.2-38"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-compliance.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-integrations.js?v=6.4.2-37"></script>
+<script defer src="static/js/app-hostconfig.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-compliance.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-integrations.js?v=6.4.2-38"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-dns.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-drift.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-cve.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-firewall.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-backups.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-iac.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-proxmox.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-virt.js?v=6.4.2-37"></script>
+<script defer src="static/js/app-ai.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-dns.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-drift.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-cve.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-firewall.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-backups.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-iac.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-proxmox.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-virt.js?v=6.4.2-38"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-logs.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-remote.js?v=6.4.2-37"></script>
-<script defer src="static/js/app-tickets.js?v=6.4.2-37"></script>
+<script defer src="static/js/app-alerts.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-logs.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-remote.js?v=6.4.2-38"></script>
+<script defer src="static/js/app-tickets.js?v=6.4.2-38"></script>
 <!-- v6.4.1: app.js split. app-self.js is EAGER on purpose — app-backups.js
      calls loadSelfStatus()/_selfFmtBytes() from the Backups page, so it cannot
      be keyed on navigating to `self`. The other extracted modules are lazy. -->
-<script defer src="static/js/app-self.js?v=6.4.2-37"></script>
+<script defer src="static/js/app-self.js?v=6.4.2-38"></script>
 <!-- v6.2.2: LAZY page modules — deliberately NOT loaded at boot. app.js's
      _LAZY_PAGE_MODULES map injects each on first navigation to its page (the
      data-action dispatcher has a load-and-replay fallback for stray cross-page
@@ -11383,6 +11397,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      with this comment; a module BOTH here and there loads twice. -->
 
 
-<script defer src="static/js/sw-register.js?v=6.4.2-37"></script>
+<script defer src="static/js/sw-register.js?v=6.4.2-38"></script>
 </body>
 </html>

@@ -2825,6 +2825,29 @@ function renderDevices() {
   const deviceSiteFilter = siteSel?.value || 'all';
   if (deviceSiteFilter === '__none__') filtered = filtered.filter(d => !d.site);
   else if (deviceSiteFilter !== 'all') filtered = filtered.filter(d => d.site === deviceSiteFilter);
+  // v6.4.2: smart-group filter. Smart groups are a saved predicate over the
+  // fleet, re-materialized every ~60s — exactly the segment an operator wants
+  // to look at and act on — but `smart:<name>` resolved in one place only
+  // (role/routing/report scopes), so the page that lists the fleet could not
+  // show one. Options come from the server's materialized member lists, not a
+  // re-implementation of the predicate in JS: a second copy of the matching
+  // rules is the two-registry drift this codebase keeps getting bitten by.
+  _ensureSmartGroups();
+  const smartSel = document.getElementById('device-smart-filter');
+  if (smartSel) {
+    const cur = smartSel.value;
+    smartSel.classList.toggle('hidden', !_smartGroupMembers.size);
+    smartSel.innerHTML = '<option value="all">All smart groups</option>'
+      + [..._smartGroupMembers.entries()].map(([n, ids]) =>
+          `<option value="${escAttr(n)}">smart:${escHtml(n)} (${ids.size})</option>`).join('');
+    smartSel.value = cur;
+    if (smartSel.value !== cur) smartSel.value = 'all';   // group deleted under us
+  }
+  const smartFilter = smartSel?.value || 'all';
+  if (smartFilter !== 'all') {
+    const ids = _smartGroupMembers.get(smartFilter);
+    filtered = ids ? filtered.filter(d => ids.has(d.id)) : [];
+  }
   if (filtered.length === 0) {
     const devIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
     // v5.8.0 (B2.3): distinguish true first-run (no devices at all → strong
@@ -2839,7 +2862,7 @@ function renderDevices() {
     } else {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
         + `<div class="empty-title">No devices match your filters</div>`
-        + `<div class="empty-text">No enrolled device matches the current search / status / group / site filters.</div>`
+        + `<div class="empty-text">No enrolled device matches the current search / status / group / site / smart-group filters.</div>`
         + `<div class="empty-actions mt-12"><button class="btn-icon" data-action="clearDeviceFilters">Clear filters</button></div></div>`;
     }
     return;
@@ -6844,7 +6867,8 @@ function clearDeviceFilters() {
   const search = document.getElementById('device-search-input');
   if (search) search.value = '';
   for (const id of ['device-status-filter', 'device-group-filter',
-                    'device-site-filter', 'device-snmp-filter']) {
+                    'device-site-filter', 'device-snmp-filter',
+                    'device-smart-filter']) {
     const sel = document.getElementById(id);
     if (sel) sel.value = 'all';
   }
@@ -9837,6 +9861,33 @@ async function applyDeviceProfile() {
 // ── W5-6: smart groups ───────────────────────────────────────────────────────
 let _smartGroups = [];
 let _smartGroupEdit = null;
+
+// v6.4.2: name → Set(device ids), the membership the Devices filter and the
+// bulk-actions modal target. Fetched once per page load and refreshed on the
+// same ~60s cadence the server re-materializes on; `_smartGroupsFetch` holds
+// the in-flight promise so a burst of renderDevices() calls issues one request.
+// Empty (and the controls stay hidden) when there are no smart groups, or for
+// a non-admin — every /api/smart-groups endpoint is require_admin_auth.
+let _smartGroupMembers = new Map();
+let _smartGroupsFetchedAt = 0;
+let _smartGroupsFetch = null;
+function _ensureSmartGroups(force) {
+  if (_smartGroupsFetch) return _smartGroupsFetch;
+  if (!force && _smartGroupsFetchedAt && Date.now() - _smartGroupsFetchedAt < 60000) {
+    return Promise.resolve(_smartGroupMembers);
+  }
+  _smartGroupsFetch = api('GET', '/smart-groups?members=1').then(r => {
+    const m = new Map();
+    for (const g of (r && r.smart_groups) || []) {
+      if (g && g.name) m.set(g.name, new Set(g.members || []));
+    }
+    _smartGroupMembers = m;
+    _smartGroupsFetchedAt = Date.now();
+    return m;
+  }).catch(() => _smartGroupMembers)   // 403 for a non-admin: stay hidden, no error
+    .finally(() => { _smartGroupsFetch = null; });
+  return _smartGroupsFetch;
+}
 async function loadSmartGroups() {
   const box = document.getElementById('smart-groups-list');
   if (!box) return;
@@ -9897,12 +9948,30 @@ async function deleteSmartGroup(name) {
     after: () => loadSmartGroups(),
   });
 }
+// v6.4.2: this rendered the whole member list into a TOAST — so a group with 60
+// hosts produced a wall of comma-separated hostnames that auto-dismissed while
+// the operator was still reading it, and there was no way to click through to
+// any of them. It is a list; it gets a list, with the drawer one click away.
 async function viewSmartGroupMembers(name) {
   const r = await api('GET', `/smart-groups/${encodeURIComponent(name)}/members`).catch(() => null);
   if (!r) { toast('Failed to load members', 'error'); return; }
-  const names = (r.members || []).map(m => m.name);
-  const list = names.length ? names.join(', ') : 'no devices currently match';
-  toast(`smart:${name} — ${names.length} member(s): ${list}`, 'info');
+  const members = r.members || [];
+  const title = document.getElementById('sg-members-title');
+  const meta = document.getElementById('sg-members-meta');
+  const body = document.getElementById('sg-members-body');
+  if (!body) { toast(`smart:${name} — ${members.length} member(s)`, 'info'); return; }
+  if (title) title.textContent = `smart:${name}`;
+  if (meta) {
+    meta.textContent = `${members.length} member${members.length === 1 ? '' : 's'}`
+      + (r.evaluated_ts ? ` · evaluated ${timeAgo(r.evaluated_ts)}` : '')
+      + ' · membership is re-evaluated automatically';
+  }
+  body.innerHTML = members.length
+    ? members.map(m => `<div class="row-8-center pad-6 border-b-subtle">`
+        + `<span class="flex-1">${escHtml(m.name || m.id)}</span>`
+        + `<button class="btn-icon" data-action="openDeviceDrawer" data-arg="${escAttr(m.id)}">Open</button></div>`).join('')
+    : `<div class="meta-sm-nm">No device currently matches this group's rules.</div>`;
+  openModal('sg-members-modal');
 }
 
 // ── W5-3: racks + elevation ──────────────────────────────────────────────────
@@ -10555,7 +10624,7 @@ const _VIEW_PAGES = {
   devices: {
     ids: { q: 'device-search-input', status: 'device-status-filter',
            snmp: 'device-snmp-filter', group: 'device-group-filter',
-           site: 'device-site-filter' },
+           site: 'device-site-filter', smart: 'device-smart-filter' },
     after: () => {
       // Persist the search box like a normal edit, then re-filter.
       const se = document.getElementById('device-search-input');
@@ -28898,10 +28967,14 @@ function filterSettings(q) {
 // ─── v3.0.2: Bulk actions modal — fleet-wide operations ────────────────────
 // Available from the command palette and from Settings → Advanced. Wraps the
 // existing _queue_command_batch endpoint plus a few server-side helpers.
-function openBulkActions() {
+async function openBulkActions() {
   const devs = window._devicesCache || [];
   if (!devs.length) { toast('No devices loaded — visit Devices first', 'warning'); return; }
   if (document.getElementById('bulk-modal-overlay')) return;
+  // The modal is built once from a template string, so the smart groups have to
+  // be in hand BEFORE it is built — the palette can open this without the
+  // Devices page ever having rendered.
+  await _ensureSmartGroups();
   const o = document.createElement('div');
   o.id = 'bulk-modal-overlay';
   o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99997;display:flex;justify-content:center;align-items:center';
@@ -28934,6 +29007,12 @@ function openBulkActions() {
             const ct = devs.filter(d => (d.tags || []).includes(t)).length;
             return `<label class="isl-731">
               <input type="radio" name="bulk-filter" value="tag:${escAttr(t)}"> Tag: <code>${escHtml(t)}</code> (${ct})
+            </label>`;
+          }).join('')}
+          ${[..._smartGroupMembers.entries()].map(([n, ids]) => {
+            const ct = devs.filter(d => ids.has(d.id) && d.monitored !== false).length;
+            return `<label class="isl-731">
+              <input type="radio" name="bulk-filter" value="smart:${escAttr(n)}"> Smart: <code>smart:${escHtml(n)}</code> (${ct})
             </label>`;
           }).join('')}
         </div>
@@ -28973,6 +29052,13 @@ function _bulkResolveTargets() {
   } else if (sel.startsWith('tag:')) {
     const t = sel.slice(4);
     targets = targets.filter(d => (d.tags || []).includes(t));
+  } else if (sel.startsWith('smart:')) {
+    // v6.4.2: a smart group is the segment most worth acting on in bulk — it is
+    // a saved predicate ("everything needing a reboot", "everything over 90 %
+    // disk"), which is what a bulk operation is usually chasing. It resolved
+    // nowhere near here before, so the operator picked it apart by hand.
+    const ids = _smartGroupMembers.get(sel.slice(6));
+    targets = ids ? targets.filter(d => ids.has(d.id)) : [];
   }
   return targets;
 }

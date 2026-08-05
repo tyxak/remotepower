@@ -224,11 +224,26 @@ def _rollout_public(roll):
 
 
 def _rollout_resolve_ring(selector, devices):
-    """Resolve a ring selector ({'type':'group'|'tag'|'ids', 'value'/'ids'}) to a
-    de-duped list of valid device ids that currently exist."""
+    """Resolve a ring selector ({'type':'group'|'tag'|'smart'|'ids',
+    'value'/'ids'}) to a de-duped list of valid device ids that currently exist.
+
+    v6.4.2: `smart` was the missing one. Smart groups are a real dynamic-segment
+    engine — a saved predicate re-evaluated every ~60s — but `smart:<name>`
+    resolved in exactly ONE place (`_device_in_scope`), which covers role
+    scopes, alert routing, service baselines and report scopes and not this.
+    So an operator with `smart:needs-reboot` (agents reporting
+    reboot_required) — precisely the set a staged reboot rollout is for — had
+    to open Sites, read ~60 hostnames out of the members view, and paste them
+    as comma-separated ids into an `ids` ring that caps at 500. A ring is also
+    the case where the dynamic part earns the most: `ids` freezes the set at
+    creation time, while `smart` re-resolves per ring dispatch, so a host that
+    rebooted itself between ring 1 and ring 3 drops out on its own.
+    """
     t = (selector or {}).get('type')
     out = []
-    if t == 'ids':
+    if t == 'smart':
+        out = A._smart_group_device_ids(str(selector.get('value') or ''), devices)
+    elif t == 'ids':
         for d in (selector.get('ids') or [])[:500]:
             d = str(d).strip()
             if A._validate_id(d) and d in devices:
@@ -787,7 +802,7 @@ def handle_rollouts_create():
             continue
         sel = r.get('selector') or {}
         st = sel.get('type')
-        if st not in ('group', 'tag', 'ids'):
+        if st not in ('group', 'tag', 'smart', 'ids'):
             continue
         clean = {'type': st}
         if st == 'ids':

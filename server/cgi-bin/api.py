@@ -6500,6 +6500,28 @@ def _smart_group_rules(name):
     return g.get('rules') if isinstance(g, dict) else None
 
 
+def _smart_group_device_ids(name, devices):
+    """v6.4.2: device ids in smart group `name`, evaluated LIVE against
+    `devices` — the same answer `_device_in_scope` gives, in list form.
+
+    Live rather than reading the stored `members` list for two reasons. The
+    materialization cadence is 60s, so a stored list is up to a minute stale
+    and a rollout ring resolved off it would dispatch to a host that no longer
+    matches (or skip one that just started to). And `members` is materialized
+    against the group's OWN tenant, whereas a ring resolves against a device
+    dict the caller has already scope-filtered — matching over that dict keeps
+    the caller's narrower boundary instead of widening it back out.
+
+    Returns [] for an unknown name, so a deleted smart group targets nothing
+    rather than everything.
+    """
+    rules = _smart_group_rules(str(name or '').lstrip())
+    if not rules:
+        return []
+    return sorted(did for did, dev in (devices or {}).items()
+                  if isinstance(dev, dict) and _smart_group_match(dev, rules))
+
+
 def _device_in_scope(scope, dev):
     """True if device `dev` falls within a role scope dict."""
     t = (scope or {}).get('type', 'all')
@@ -14193,8 +14215,16 @@ def handle_smart_groups():
     if method() == 'GET':
         groups = load(SMART_GROUPS_FILE) or {}
         gate = _tenant_gate()
+        # v6.4.2: `?members=1` includes each group's member ids so the Devices
+        # page and the bulk-actions modal can filter by a smart group without
+        # one round-trip per group. Opt-in rather than always-on because the ids
+        # are unbounded — 100 groups over a large fleet is a payload nobody
+        # asked for on a list that mostly renders member COUNTS.
+        _sg_qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+        want_members = str((_sg_qs.get('members') or [''])[0]).lower() in ('1', 'true', 'yes')
         out = [{'name': k, 'rules': v.get('rules') or {},
                 'member_count': len(v.get('members') or []),
+                **({'members': list(v.get('members') or [])} if want_members else {}),
                 'evaluated_ts': v.get('evaluated_ts')}
                for k, v in groups.items() if k != '_meta' and isinstance(v, dict)
                and (gate is None or (v.get('tenant') or DEFAULT_TENANT) == gate)]
@@ -38088,11 +38118,11 @@ def handle_reboot_plan():
     if st == 'all':
         ids = [d for d, dev in devices.items()
                if isinstance(dev, dict) and not dev.get('agentless')]
-    elif st in ('group', 'tag', 'ids'):
+    elif st in ('group', 'tag', 'smart', 'ids'):
         ids = _rollout_resolve_ring(scope, devices)
         ids = [i for i in ids if not (devices.get(i) or {}).get('agentless')]
     else:
-        respond(400, {'error': 'scope.type must be all, group, tag or ids'})
+        respond(400, {'error': 'scope.type must be all, group, tag, smart or ids'})
     if not ids:
         respond(400, {'error': 'no eligible devices in scope'})
     waves = _reboot_wave_plan(ids, devices)
