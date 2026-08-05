@@ -14024,8 +14024,11 @@ function updateInboundWebhookKindHint() {
   } else if (kind === 'flow') {
     if (hint) hint.textContent = 'Flow tokens receive NetFlow/IPFIX rollups from remotepower-flowd; the pinned device\'s IP must match the exporter. See docs/flow.md.';
   } else {
-    if (hint) hint.textContent = 'Alert tokens receive JSON {severity,title,...} and land in the Alerts inbox.';
+    if (hint) hint.textContent = 'Alert tokens land in the Alerts inbox. The sender\'s own payload shape is adapted — pick it below.';
   }
+  // v6.4.2: only alert tokens carry a payload shape.
+  const fmtRow = document.getElementById('inbound-wh-format-row');
+  if (fmtRow) fmtRow.classList.toggle('d-none', kind !== 'alert');
   if (req) req.classList.toggle('d-none', !pinned);
   if (devOpt) devOpt.textContent = pinned ? '— select device —' : '(any — match by body.device)';
 }
@@ -14039,7 +14042,11 @@ async function createInboundWebhook() {
     toast(`${kind === 'snmp_trap' ? 'SNMP trap' : 'Syslog'} tokens must be pinned to a device`, 'error');
     return;
   }
-  const r = await api('POST', '/inbound-webhooks', { label, scope_device_id, kind });
+  // v6.4.2: only alert tokens have a payload shape to adapt.
+  const source_format = kind === 'alert'
+    ? (document.getElementById('inbound-wh-format')?.value || 'auto') : 'auto';
+  const r = await api('POST', '/inbound-webhooks',
+                      { label, scope_device_id, kind, source_format });
   if (r && r.ok && r.token) {
     closeModal('inbound-webhook-create-modal');
     const path = kind === 'syslog' ? '/api/syslog/in/' : kind === 'snmp_trap' ? '/api/snmp/trap/' : '/api/webhook/in/';

@@ -56618,6 +56618,144 @@ def _resolve_inbound_device(token_cfg, body):
     return '', ''
 
 
+# ── v6.4.2: inbound-alert source adapters + dedup + resolve ─────────────────
+# The receiver hard-required a top-level `title` and read RemotePower's own
+# {severity, title, body, device, links} shape. features.md and the token-create
+# UI both name Grafana / Alertmanager / Authentik / n8n as senders — but
+# Alertmanager's payload ({status, commonLabels, alerts:[…]}) and Authentik's
+# ({body, severity, user_email}) have NO title field, so both were rejected with
+# a bare 400 "title required" on every notification and no hint that a different
+# body shape was expected. Their payloads are fixed; there is nothing the
+# operator can do at the sending end.
+#
+# Grafana does send a title, so it worked — and then its 4-hourly re-notify
+# created a brand-new alert row every cycle, because the handler appended
+# straight to ALERTS_FILE instead of coalescing, and its `status: resolved`
+# did nothing. The inbox filled with duplicates to close by hand.
+_INBOUND_FORMATS = ('auto', 'generic', 'alertmanager', 'grafana', 'authentik')
+
+# Alertmanager/Prometheus severity labels → ours. `warning` is the one that
+# matters: mapped to 'high' it would page for every disk-80% rule in the fleet.
+_AM_SEVERITY = {
+    'critical': 'critical', 'crit': 'critical', 'page': 'critical',
+    'error': 'high', 'high': 'high', 'major': 'high',
+    'warning': 'medium', 'warn': 'medium', 'medium': 'medium', 'minor': 'medium',
+    'info': 'low', 'informational': 'low', 'low': 'low', 'none': 'low',
+}
+
+
+def _inbound_detect_format(body):
+    """Sniff the sender when the token says `auto`.
+
+    Deliberately structural, not header-based: Alertmanager sends no
+    distinguishing User-Agent worth trusting, and a token pasted into the wrong
+    tool should still work rather than fail in a way that looks like an outage.
+    """
+    if not isinstance(body, dict):
+        return 'generic'
+    # Alertmanager (and Grafana unified alerting, which speaks the same shape).
+    if isinstance(body.get('alerts'), list) and 'status' in body:
+        return 'alertmanager'
+    # Grafana legacy alerting.
+    if 'ruleName' in body or 'evalMatches' in body:
+        return 'grafana'
+    # Authentik: a body + severity and no title at all.
+    if body.get('body') and not body.get('title'):
+        return 'authentik'
+    return 'generic'
+
+
+def _inbound_normalize(body, fmt):
+    """Map a sender's payload onto the internal shape.
+
+    Returns (normalized_dict, resolved_bool). `normalized` uses the generic
+    field names the rest of the handler already reads, so the adapters are the
+    only place that knows about anyone else's schema.
+    """
+    b = body if isinstance(body, dict) else {}
+    if fmt == 'auto':
+        fmt = _inbound_detect_format(b)
+    if fmt == 'alertmanager':
+        alerts = [a for a in (b.get('alerts') or []) if isinstance(a, dict)]
+        first = alerts[0] if alerts else {}
+        labels = {**(b.get('commonLabels') or {}), **(first.get('labels') or {})}
+        ann = {**(b.get('commonAnnotations') or {}), **(first.get('annotations') or {})}
+        name = labels.get('alertname') or 'Alertmanager alert'
+        title = ann.get('summary') or name
+        if len(alerts) > 1:
+            title = f'{title} (+{len(alerts) - 1} more)'
+        out = {
+            'source':   'alertmanager',
+            'severity': _AM_SEVERITY.get(str(labels.get('severity', '')).lower(), 'medium'),
+            'title':    title,
+            'body':     ann.get('description') or ann.get('message') or '',
+            # `instance` is host:port; the port is not part of a hostname.
+            'device':   str(labels.get('instance') or labels.get('host') or '').split(':')[0],
+            # groupKey identifies the alert GROUP across firing and resolving
+            # notifications, which is exactly what dedup needs. Fall back to the
+            # rule name so a sender that omits it still coalesces.
+            'dedup':    str(b.get('groupKey') or '')[:200] or f'alertname={name}',
+        }
+        url = first.get('generatorURL') or ''
+        if url:
+            out['links'] = [{'url': url, 'label': 'Source'}]
+        return out, str(b.get('status', '')).lower() == 'resolved'
+    if fmt == 'grafana':
+        state = str(b.get('state', '')).lower()
+        rule = b.get('ruleName') or b.get('title') or 'Grafana alert'
+        return {
+            'source':   'grafana',
+            'severity': 'high' if state == 'alerting' else 'medium',
+            'title':    b.get('title') or rule,
+            'body':     b.get('message') or '',
+            'device':   '',
+            'dedup':    f'grafana={rule}',
+            'links':    ([{'url': b['ruleUrl'], 'label': 'Rule'}]
+                         if b.get('ruleUrl') else []),
+            # `ok` means recovered. `no_data` deliberately does NOT resolve —
+            # a rule that stopped receiving data is not a rule that cleared,
+            # and treating it as one silently closes a real alert.
+        }, state == 'ok'
+    if fmt == 'authentik':
+        text = str(b.get('body') or '')
+        # Authentik's body is prose; the first line is the closest thing to a
+        # subject, and truncating mid-sentence beats an empty title.
+        first_line = text.strip().split('\n')[0][:200] or 'Authentik notification'
+        return {
+            'source':   'authentik',
+            'severity': _AM_SEVERITY.get(str(b.get('severity', '')).lower(), 'medium'),
+            'title':    first_line,
+            'body':     text,
+            'device':   '',
+            'dedup':    f'authentik={first_line[:80]}',
+        }, False
+    # generic — the shape this endpoint has always taken. `status` is honoured
+    # here too, since Grafana unified and n8n both set it.
+    out = dict(b)
+    out.setdefault('dedup', str(b.get('dedup_key') or b.get('title') or ''))
+    return out, str(b.get('status', '')).lower() in ('resolved', 'ok')
+
+
+def _inbound_resolve(token_id, dedup, actor):
+    """Close the open inbound alert this sender's resolve notification refers
+    to. Returns the number resolved."""
+    if not dedup:
+        return 0
+    now = int(time.time())
+    n = 0
+    with _LockedUpdate(ALERTS_FILE) as store:
+        for a in store.get('alerts', []):
+            if a.get('resolved_at') or a.get('event') != 'inbound':
+                continue
+            p = a.get('payload') or {}
+            if p.get('inbound_token_id') != token_id or p.get('dedup') != dedup:
+                continue
+            a['resolved_at'] = now
+            a['resolved_by'] = actor
+            n += 1
+    return n
+
+
 def handle_inbound_webhook(token_str):
     """POST /api/webhook/in/<token>
 
@@ -56668,6 +56806,25 @@ def handle_inbound_webhook(token_str):
                      '400', 'body must be JSON object')
         respond(400, {'error': 'body must be a JSON object'})
 
+    # v6.4.2: adapt the sender's own shape before reading any field. Without
+    # this, Alertmanager and Authentik — both advertised as supported senders —
+    # 400'd on every notification, and their payloads are fixed.
+    _fmt = str(match.get('source_format') or 'auto').lower()
+    if _fmt not in _INBOUND_FORMATS:
+        _fmt = 'auto'
+    body, _is_resolve = _inbound_normalize(body, _fmt)
+    _dedup = _sanitize_str(str(body.get('dedup') or ''), 200)
+    _actor = f'inbound:{match.get("label", match.get("id", "?"))}'
+
+    # v6.4.2: a resolve notification closes the alert it refers to instead of
+    # opening another one. Grafana's `status: resolved` and Alertmanager's
+    # resolved group were both silently ignored.
+    if _is_resolve:
+        n = _inbound_resolve(match.get('id'), _dedup, _actor)
+        _log_inbound('alert', match.get('id'), match.get('label'), '200',
+                     f'resolved {n} alert(s) dedup={_dedup[:60]}')
+        respond(200, {'ok': True, 'resolved': n})
+
     severity = (body.get('severity') or 'medium').lower()
     if severity not in _VALID_SEVERITIES:
         severity = 'medium'
@@ -56675,7 +56832,8 @@ def handle_inbound_webhook(token_str):
     if not title:
         _log_inbound('alert', match.get('id'), match.get('label'),
                      '400', 'title required')
-        respond(400, {'error': 'title required'})
+        respond(400, {'error': 'title required (or set the token\'s source '
+                               'format so the sender\'s own shape is adapted)'})
 
     dev_id, dev_name = _resolve_inbound_device(match, body)
     source = _sanitize_str(body.get('source') or match.get('label') or 'inbound', 64)
@@ -56690,6 +56848,8 @@ def handle_inbound_webhook(token_str):
         'inbound_token_id':  match.get('id'),
         'inbound_source':    source,
     }
+    if _dedup:
+        summary['dedup'] = _dedup
     if body.get('body'):
         summary['body'] = _sanitize_str(body.get('body'), 1024)
     links = body.get('links')
@@ -56728,12 +56888,40 @@ def handle_inbound_webhook(token_str):
         'resolved_by':     None,
         'resolved_at':     None,
     }
+    # v6.4.2: coalesce a repeat firing into the existing OPEN row instead of
+    # stacking a duplicate. Grafana re-notifies every 4h by default, so a single
+    # unresolved rule produced six new rows a day, all needing to be closed by
+    # hand. This handler deliberately does NOT go through _record_alert (that
+    # would fan out to the outbound destinations the source has already
+    # notified), so the coalescing is done here on the same principle.
+    coalesced = False
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             arr = store.setdefault('alerts', [])
-            _assign_alertid(store, alert)
-            arr.append(alert)
-            _trim_alerts(arr)      # v6.4.0: resolved-first eviction
+            if _dedup:
+                for a in arr:
+                    if a.get('resolved_at') or a.get('event') != 'inbound':
+                        continue
+                    p = a.get('payload') or {}
+                    if p.get('inbound_token_id') != match.get('id') \
+                            or p.get('dedup') != _dedup:
+                        continue
+                    a['ts'] = alert['ts']
+                    a['severity'] = severity
+                    a['title'] = title
+                    a['payload'] = summary
+                    # Repeat count is the operator-visible signal that this is
+                    # one persistent problem, not one that just started.
+                    p_new = a['payload']
+                    p_new['repeats'] = int(p.get('repeats') or 1) + 1
+                    p_new['first_seen'] = int(p.get('first_seen') or a.get('ts') or alert['ts'])
+                    alert = a
+                    coalesced = True
+                    break
+            if not coalesced:
+                _assign_alertid(store, alert)
+                arr.append(alert)
+                _trim_alerts(arr)      # v6.4.0: resolved-first eviction
     except Exception as e:
         respond(500, {'error': f'failed to record alert: {e}'})
 
@@ -56765,8 +56953,9 @@ def handle_inbound_webhook(token_str):
               f'severity={severity} title={title[:80]} device={dev_name or "-"}')
 
     _log_inbound('alert', match.get('id'), match.get('label'), '200',
-                 f'severity={severity} dev={dev_name or "-"}')
-    respond(200, {'ok': True, 'alert_id': alert['id']})
+                 f'severity={severity} dev={dev_name or "-"}'
+                 + (' (coalesced)' if coalesced else ''))
+    respond(200, {'ok': True, 'alert_id': alert['id'], 'coalesced': coalesced})
 
 
 def handle_inbound_webhooks_list():
@@ -56799,12 +56988,20 @@ def handle_inbound_webhooks_create():
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
     if kind not in ('alert', 'syslog', 'snmp_trap', 'flow'):
         respond(400, {'error': 'kind must be "alert", "syslog", "snmp_trap" or "flow"'})
+    # v6.4.2: which sender's payload shape to expect. `auto` sniffs it
+    # structurally, which is right for almost everyone; pinning it matters when
+    # a token is shared by two tools whose shapes could be confused.
+    src_fmt = _sanitize_str(body.get('source_format', 'auto'), 16) or 'auto'
+    if src_fmt not in _INBOUND_FORMATS:
+        respond(400, {'error': 'source_format must be one of '
+                               + ', '.join(_INBOUND_FORMATS)})
     token = _generate_inbound_token()
     entry = {
         'id':                'iwh_' + os.urandom(4).hex(),
         'label':             label,
         'token':             token,
         'kind':              kind,
+        'source_format':     src_fmt,
         'scope_device_id':   scope_dev,
         'scope_tag':         scope_tag,
         'enabled':           True,
@@ -56819,9 +57016,10 @@ def handle_inbound_webhooks_create():
     except Exception as e:
         respond(500, {'error': str(e)})
     audit_log(actor, 'inbound_webhook_create',
-              f'id={entry["id"]} label={label} kind={kind}')
+              f'id={entry["id"]} label={label} kind={kind} format={src_fmt}')
     # Returned ONCE — store it now or you lose it.
-    respond(200, {'ok': True, 'token': token, 'id': entry['id'], 'kind': kind})
+    respond(200, {'ok': True, 'token': token, 'id': entry['id'], 'kind': kind,
+                  'source_format': src_fmt})
 
 
 def handle_inbound_webhook_revoke(token_id):

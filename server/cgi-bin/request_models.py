@@ -2020,7 +2020,9 @@ if _AVAILABLE:
         label: str = ''
         scope_device_id: str = ''
         scope_tag: str = ''
-        _v0 = field_validator('kind', 'label', 'scope_device_id', 'scope_tag', mode='before')(_coerce_str_loose)
+        source_format: str = ''
+        _v0 = field_validator('kind', 'label', 'scope_device_id', 'scope_tag',
+                              'source_format', mode='before')(_coerce_str_loose)
 
     class InboundWebhookToggleRequest(BaseModel):
         model_config = ConfigDict(extra='ignore', protected_namespaces=())

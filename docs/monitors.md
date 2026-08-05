@@ -93,6 +93,13 @@ start with `rpwi_`, managed as inbound webhooks):
 - **Syslog** — `POST /api/syslog/in/{token}` accepts `{lines:[…]}`, a bare JSON
   array, or plain newline-separated text. Lines are parsed for severity and run
   through the syslog rules (fires `log_alert`).
+- **Alerts** — `POST /api/webhook/in/{token}` lands an external system's alert
+  in the inbox. The sender's own payload shape is **adapted**: Prometheus
+  Alertmanager, Grafana (legacy and unified), Authentik, or RemotePower's own
+  `{severity, title, body, device}`. Detected automatically, or pinned on the
+  token. A **resolved** notification closes the alert it opened, and a repeat
+  firing updates that alert with a repeat count rather than adding a row — so
+  a re-notifying source does not fill the inbox.
 - **SNMP traps** — `POST /api/snmp/trap/{token}` accepts `{traps:[{oid,value,…}]}`
   or a single trap; a decoding trapd feeds it. New traps raise
   **`snmp_trap_received`**. Well-known OIDs are resolved to their MIB name on
